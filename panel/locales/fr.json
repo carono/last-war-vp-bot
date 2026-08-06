@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "le jeu n'est pas connecté — ses réponses ne veulent rien dire",
   "secret.autoloot.state.error": "le dernier passage a échoué :",
   "secret.filter_level_from": "Niveau depuis",
-  "secret.filters": "Filtres :",
+  "secret.filters": "Afficher (★ uniquement) :",
   "secret.frame": "Tâches secrètes",
   "secret.hint": "une écoute passive — déplace la carte, ou active « Balayage automatique de la carte »",
   "secret.interval": "Intervalle, s",

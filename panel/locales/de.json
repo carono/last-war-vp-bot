@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "das Spiel ist nicht angemeldet — seinen Antworten ist nicht zu trauen",
   "secret.autoloot.state.error": "der letzte Durchgang schlug fehl:",
   "secret.filter_level_from": "Level ab",
-  "secret.filters": "Filter:",
+  "secret.filters": "Anzeigen (nur ★):",
   "secret.frame": "Geheime Missionen",
   "secret.hint": "ein passives Mitlesen — bewege die Karte oder schalte «Automatische Kartenabfahrt» ein",
   "secret.interval": "Abstand, s",

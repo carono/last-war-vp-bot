@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "oyun oturum açmamış — verdiği yanıtlara güvenilmez",
   "secret.autoloot.state.error": "son tarama başarısız oldu:",
   "secret.filter_level_from": "Seviye alt",
-  "secret.filters": "Süzgeçler:",
+  "secret.filters": "Göster (yalnızca ★):",
   "secret.frame": "Gizli görevler",
   "secret.hint": "edilgen bir dinleme — haritayı oynat ya da «Otomatik harita taraması»nı aç",
   "secret.interval": "Aralık, sn",

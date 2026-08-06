@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "the game is not logged in — nothing it says can be trusted",
   "secret.autoloot.state.error": "the last look failed:",
   "secret.filter_level_from": "Level from",
-  "secret.filters": "Filters:",
+  "secret.filters": "Show (★ only):",
   "secret.frame": "Secret tasks",
   "secret.hint": "a passive sniff — move the map, or switch «Automatic map sweep» on",
   "secret.interval": "Interval, s",

@@ -31,6 +31,30 @@ import coords                                        # noqa: E402  (see above)
 #: tick prints a burst of findings and a single merge covers them all.
 NUDGE_MS = 800
 
+#: The `family NNNN` token the capture prints on every finding, and the leading ` *` it
+#: marks a starred one with. The family is what the rule is actually made of; the star
+#: glyph is the fallback for a line shape that ever stops carrying it.
+_FAMILY = re.compile(r"\bfamily\s+(\d+)\b")
+
+
+def _starred(line: str, level: int) -> bool:
+    """Whether a finding line is a STARRED tile — the same rule the list itself uses.
+
+    Read off the line rather than guessed: the capture prints the tile's `cfgId` family,
+    and `lastwar_proto` owns which families are drawn with a star. The level-99 class is
+    never one however its family reads — it is not a level but the one-per-player task
+    that shares the encoding (`SPECIAL_TASK_LEVEL`), and the list drops it for exactly
+    that reason.
+    """
+    import lastwar_proto as proto
+
+    if level == proto.SPECIAL_TASK_LEVEL:
+        return False
+    found = _FAMILY.search(line)
+    if found is not None:
+        return found.group(1) in proto.STAR_TASK_FAMILIES
+    return line.lstrip().startswith("*")
+
 
 class Capture:
     """The capture child, its line filter and the findings log."""
@@ -152,16 +176,27 @@ class Capture:
     def passes(self, line: str) -> bool:
         """Panel-side filters for a finding line. Non-task lines always pass.
 
-        A finding looks like `[*] lvl N  #server X:x Y:y ... [PENDING]`. Filters are read
-        live from the boxes, so toggling one affects subsequent lines immediately. A line
-        counts as a finding when it has both a `lvl N` and a parseable coordinate.
+        A finding looks like ` * lvl N  @[x,y|srv]  steal 0/3  family 6000  cfg …`. The
+        level bounds are read live from the boxes, so typing in one affects subsequent
+        lines immediately. A line counts as a finding when it has both a `lvl N` and a
+        parseable coordinate.
+
+        THE STAR IS NOT A SETTING (#1244). Three tiles in four on a real map are plain
+        ones nobody will ever raid — 236 of the 277 in one live checkpoint — and every
+        one of them used to print, which is what «спамим лог» was. Both feeds of the
+        list are starred-only, so a plain tile in the log is a line that can never turn
+        up in the table beside it: it can only be read as a row that went missing.
         """
         m = re.search(r"\blvl\s+(\d+)\b", line)
         if not m or not coords.parse(line):
             return True                 # header / progress / summary line — never filtered
         lvl = int(m.group(1))
+        if not _starred(line, lvl):
+            return False
         # The DISPLAY filter's own entries — not the auto-loot rule's. The two used to
         # share one pair, and a person narrowing the log silently re-aimed the robberies.
+        # The very same pair governs what the TABLE shows (`SecretTasksTab._in_range`),
+        # so the log and the list are one set rather than two (#1244).
         lo = self.tab.filter_from_var.get().strip()
         hi = self.tab.filter_to_var.get().strip()
         if lo.isdigit() and lvl < int(lo):

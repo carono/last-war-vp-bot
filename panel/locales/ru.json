@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "игра не залогинена — её ответам верить нельзя",
   "secret.autoloot.state.error": "прошлый опрос не удался:",
   "secret.filter_level_from": "Уровень от",
-  "secret.filters": "Фильтры:",
+  "secret.filters": "Показывать (только ★):",
   "secret.frame": "Секретные задания",
   "secret.hint": "пассивный сниф — двигай карту или включи «Автообъезд»",
   "secret.interval": "Интервал, с",

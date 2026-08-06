@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "il gioco non ha effettuato l'accesso — le sue risposte non valgono",
   "secret.autoloot.state.error": "l'ultimo giro è fallito:",
   "secret.filter_level_from": "Livello da",
-  "secret.filters": "Filtri:",
+  "secret.filters": "Mostrare (solo ★):",
   "secret.frame": "Attività segrete",
   "secret.hint": "un ascolto passivo — muovi la mappa, oppure accendi «Battuta automatica della mappa»",
   "secret.interval": "Intervallo, s",

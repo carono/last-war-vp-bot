@@ -137,6 +137,10 @@ def _make_tab(rows, lo="", hi="", autoloot=False):
     tab = object.__new__(st.SecretTasksTab)
     tab.t = i18n.t
     tab.level_from_var, tab.level_to_var = _Var(lo), _Var(hi)
+    # Both pairs, from the one argument: the fixture predates the split (#1244), and
+    # every test written against it means «this range, for both». The tests that are
+    # ABOUT the split set the two apart themselves.
+    tab.filter_from_var, tab.filter_to_var = _Var(lo), _Var(hi)
     tab.autoloot_var = _Var(autoloot)
     # «Показывать исчерпанные» — off, as a fresh profile has it.
     tab.show_spent_var = _Var(False)
@@ -158,7 +162,9 @@ def _make_tab(rows, lo="", hi="", autoloot=False):
 def _row(uuid, level, done_off, exp_off):
     now = int(__import__("time").time() * 1000)
     return {"uuid": uuid, "server": 1, "x": 1, "y": 2, "level": level,
-            "cfg_id": 16003, "loot_count": 0,
+            # A cfgId that really is a STARRED tile of that level (family 6000,
+            # `LLVV` tail): the restore path judges the star off this now (#1244).
+            "cfg_id": int("6000%02d01" % level), "loot_count": 0,
             "completed_at": now + done_off, "expires_at": now + exp_off,
             "timer": _Var(), "frame": None, "ready": False, "soon": False}
 
@@ -570,7 +576,7 @@ class _StubTask:
     the working list, the whole reply goes down into the alliance grid.
     """
 
-    def __init__(self, uuid, server_id=1, x=1, y=2, level=7, cfg_id=16003,
+    def __init__(self, uuid, server_id=1, x=1, y=2, level=7, cfg_id=60000701,
                 loot_count=1, expires_at=999_000, completed_at=1_000, starred=True):
         self.uuid = uuid
         self.server_id = server_id
@@ -625,9 +631,11 @@ def test_load_persisted_drops_a_row_already_expired_while_the_panel_was_shut():
         path = _state_path()
         with open(path, "w", encoding="utf-8") as fh:
             json.dump([
-                {"uuid": 1, "server": 1, "x": 1, "y": 2, "level": 7, "cfg_id": 1,
+                {"uuid": 1, "server": 1, "x": 1, "y": 2, "level": 7,
+                 "cfg_id": 60000701,
                  "loot_count": 0, "expires_at": now - 1_000, "completed_at": now - 5_000},
-                {"uuid": 2, "server": 1, "x": 3, "y": 4, "level": 6, "cfg_id": 1,
+                {"uuid": 2, "server": 1, "x": 3, "y": 4, "level": 6,
+                 "cfg_id": 60000601,
                  "loot_count": 0, "expires_at": now + 600_000, "completed_at": now - 5_000},
             ], fh)
         tab = _make_tab({})
@@ -859,7 +867,7 @@ def _member_task(uuid, owner="Player1", level=7, loot_count=0,
     name that looks made up, and an alliance tag that is plainly not anybody's.
     """
     return {"uuid": uuid, "server": 1, "x": 1, "y": 2, "point_id": 4242,
-            "cfg_id": 16003, "family": "6000", "level": level, "starred": starred,
+            "cfg_id": 60000701, "family": "6000", "level": level, "starred": starred,
             "loot_count": loot_count, "completed_at": completed_at,
             "expires_at": expires_at, "owner_uid": "1000000000000001",
             "owner_name": owner, "alliance_abbr": "AL1"}
@@ -1083,6 +1091,116 @@ def test_both_grids_are_literally_the_same_table():
     src = (Path(__file__).resolve().parents[1] /
            "panel" / "tabs" / "secret_tasks" / "alliance.py").read_text(encoding="utf-8")
     assert "grid.make_tree" in src, "the second grid builds a table of its own"
+
+
+# -- the star is not a setting, and the log is the list (#1244, live report) ----------
+#
+# Two complaints, one root each. The log printed every plain tile the map carried — 236
+# of the 277 in the live checkpoint that opened this — and the TABLE filtered on the
+# auto-loot range while the LOG filtered on the display one, so a profile set to show
+# 5-7 and rob 7-7 read level-5 stars in the log and found no rows for them.
+
+def _capture(tab):
+    """A `Capture` with nothing but the tab behind it — `passes` needs no child."""
+    from panel.tabs.secret_tasks.capture import Capture
+    cap = object.__new__(Capture)
+    cap.tab = tab
+    return cap
+
+
+def _finding(level, family="6000", star=True) -> str:
+    """A finding line in the shape the capture child prints one."""
+    return ("%s lvl %2d  @[403,446|946]  steal 0/3  family %s  cfg %s01"
+            % (" *" if star else "  ", level, family, "%s%02d" % (family, level)))
+
+
+def test_the_log_prints_stars_only_whatever_the_boxes_say():
+    """«Фильтр звезда всегда включён» — not a box, and not something to switch off."""
+    tab = _make_tab({}, lo="1", hi="9")
+    cap = _capture(tab)
+
+    assert cap.passes(_finding(7)) is True
+    # The three plain families the map is mostly made of — every one of them used to
+    # print, and none of them can ever appear in the table beside the log.
+    for family in ("30", "40", "5000"):
+        assert cap.passes(_finding(7, family=family, star=False)) is False, family
+    # …and the one-per-player class is family 6000 without being a star.
+    assert cap.passes(_finding(99)) is False
+    # A line that is not a finding at all — a header, a progress line, a summary —
+    # is never filtered.
+    assert cap.passes("listening 15s — pan the map") is True
+    assert cap.passes("3 star(s) still on timer") is True
+
+
+def test_the_log_and_the_table_filter_on_the_same_pair():
+    """What is printed and what is on the table are ONE set (#1244).
+
+    The bug this pins: the table asked the AUTO-LOOT range while the log asked the
+    display one, so a profile showing 5-7 and robbing 7-7 had level-5 stars in the log
+    and nothing in the table for them.
+    """
+    rows = {"5": _row(5, 5, -5_000, 600_000),
+            "6": _row(6, 6, -5_000, 600_000),
+            "7": _row(7, 7, -5_000, 600_000)}
+    tab = _make_tab(rows)
+    tab.filter_from_var, tab.filter_to_var = _Var("5"), _Var("7")   # what is shown
+    tab.level_from_var, tab.level_to_var = _Var("7"), _Var("7")     # what is robbed
+    cap = _capture(tab)
+
+    shown = sorted(int(r["level"]) for r in tab._visible_rows())
+    printed = [lvl for lvl in (4, 5, 6, 7, 8) if cap.passes(_finding(lvl))]
+    assert shown == [5, 6, 7], shown          # both ends inclusive, the middle too
+    assert printed == [5, 6, 7], printed      # and the log says exactly the same
+    assert shown == [lvl for lvl in printed if lvl in shown], (shown, printed)
+
+
+def test_the_robbery_keeps_its_own_range_while_the_table_widens():
+    """#1099 the other way round: widening what is SHOWN must not widen what is ROBBED."""
+    rows = {"5": _row(5, 5, -5_000, 600_000), "7": _row(7, 7, -5_000, 600_000)}
+    for r in rows.values():
+        r["ready"] = True
+    tab = _make_tab(rows)
+    tab.filter_from_var, tab.filter_to_var = _Var("1"), _Var("9")   # show everything
+    tab.level_from_var, tab.level_to_var = _Var("7"), _Var("7")     # rob only the 7s
+    tab.autoloot_var = _Var(True)
+    robbed = []
+    tab._collect = lambda row: robbed.append(int(row["level"]))
+
+    tab._auto_loot({"5": _LiveTask(5), "7": _LiveTask(7)})
+
+    assert robbed == [7], robbed
+    assert sorted(int(r["level"]) for r in tab._visible_rows()) == [5, 7]
+
+
+def test_a_restored_row_that_is_not_a_star_is_dropped():
+    """The working list is starred-only at both feeds; the checkpoint is the one path
+    that is not a feed, and a plain tile restored from it sat there looking like a raid.
+    """
+    import json
+
+    import game_clock
+    game_clock.reset()
+    try:
+        now = game_clock.now_ms()
+        path = _state_path()
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump([
+                {"uuid": 1, "server": 1, "x": 1, "y": 2, "level": 7,
+                 "cfg_id": 60000701, "loot_count": 0,          # a star
+                 "expires_at": now + 600_000, "completed_at": now - 5_000},
+                {"uuid": 2, "server": 1, "x": 3, "y": 4, "level": 4,
+                 "cfg_id": 400401, "loot_count": 0,            # a plain tile
+                 "expires_at": now + 600_000, "completed_at": now - 5_000},
+                {"uuid": 3, "server": 1, "x": 5, "y": 6, "level": 99,
+                 "cfg_id": 60009901, "loot_count": 0,          # the special class
+                 "expires_at": now + 600_000, "completed_at": now - 5_000},
+            ], fh)
+        tab = _make_tab({})
+        tab.rt = _fake_rt(path)
+        assert tab._load_persisted() == {"1"}
+        assert list(tab._rows) == ["1"], tab._rows
+    finally:
+        game_clock.reset()
 
 
 if __name__ == "__main__":

@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "trò chơi chưa đăng nhập — không thể tin câu trả lời của nó",
   "secret.autoloot.state.error": "lượt quét trước thất bại:",
   "secret.filter_level_from": "Cấp từ",
-  "secret.filters": "Bộ lọc:",
+  "secret.filters": "Hiển thị (chỉ ★):",
   "secret.frame": "Nhiệm vụ bí mật",
   "secret.hint": "một lượt nghe thụ động — hãy kéo bản đồ, hoặc bật «Tự quét bản đồ»",
   "secret.interval": "Khoảng, giây",

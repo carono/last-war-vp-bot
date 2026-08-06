@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "el juego no ha iniciado sesión: sus respuestas no valen",
   "secret.autoloot.state.error": "la última pasada falló:",
   "secret.filter_level_from": "Nivel desde",
-  "secret.filters": "Filtros:",
+  "secret.filters": "Mostrar (solo ★):",
   "secret.frame": "Tareas secretas",
   "secret.hint": "una escucha pasiva — mueve el mapa, o enciende «Barrido automático del mapa»",
   "secret.interval": "Intervalo, s",

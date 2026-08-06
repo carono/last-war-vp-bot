@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "gim belum masuk akun — jawabannya tidak bisa dipercaya",
   "secret.autoloot.state.error": "putaran terakhir gagal:",
   "secret.filter_level_from": "Level dari",
-  "secret.filters": "Saringan:",
+  "secret.filters": "Tampilkan (hanya ★):",
   "secret.frame": "Tugas rahasia",
   "secret.hint": "penyadapan pasif — geser peta, atau hidupkan «Sapuan peta otomatis»",
   "secret.interval": "Selang, d",

@@ -434,7 +434,7 @@
   "secret.autoloot.state.no_login": "gra nie jest zalogowana — jej odpowiedziom nie można ufać",
   "secret.autoloot.state.error": "poprzedni obieg się nie powiódł:",
   "secret.filter_level_from": "Poziom od",
-  "secret.filters": "Filtry:",
+  "secret.filters": "Pokazuj (tylko ★):",
   "secret.frame": "Tajne zadania",
   "secret.hint": "bierny nasłuch — porusz mapą albo włącz «Automatyczny objazd mapy»",
   "secret.interval": "Odstęp, s",

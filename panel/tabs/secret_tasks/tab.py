@@ -567,6 +567,11 @@ class SecretTasksTab(PanelTab):
         # the rule line true, and bounces the event-driven listener onto the new bounds.
         for var in (self.level_from_var, self.level_to_var):
             var.trace_add("write", lambda *_a: self._on_level_filter_change())
+        # The DISPLAY range redraws the table on the spot too (#1244). It governs what
+        # the list shows as well as what the log prints, so a box typed into and nothing
+        # happening on the table is the very confusion this fix is about.
+        for var in (self.filter_from_var, self.filter_to_var):
+            var.trace_add("write", lambda *_a: self._on_display_filter_change())
         for var in (self.sweep_cx_var, self.sweep_cy_var):
             var.trace_add("write", lambda *_a: self._refresh_rule_hints())
         # The capture's interval is a child-process argument, so a change only takes
@@ -1019,10 +1024,20 @@ class SecretTasksTab(PanelTab):
             pass
 
     def _on_level_filter_change(self) -> None:
-        """A «уровень от / до» box was typed: re-draw the list against the new range,
-        keep the rule line true, and re-aim the listener."""
+        """An «Автолут ★» level box was typed: keep the rule line true, re-aim the
+        listener — and redraw, because the rule line is drawn beside the list."""
         self._refresh_rule_hints()
         self.autoloot.range_changed()
+        if self._tree is None:
+            return
+        self._render()
+        self._update_status()
+
+    def _on_display_filter_change(self) -> None:
+        """A «Фильтры: уровень от / до» box was typed: redraw the list under the new
+        bounds and remember them. No game round trip — every row is already in memory,
+        and the log picks the same pair up on its next line."""
+        self.rt.settings.changed()
         if self._tree is None:
             return
         self._render()
@@ -1257,6 +1272,13 @@ class SecretTasksTab(PanelTab):
         machine's — `game_clock` needs no game read to answer, only the drift it last
         measured (0 the first time this profile is ever opened).
 
+        A row that is not STARRED is dropped here too (#1244). Both feeds are
+        starred-only, so a plain tile in the checkpoint is a leftover of an older
+        version — but it is restored blind, and once restored it sits on the table for
+        the rest of the session looking exactly like a raid worth going to. One live
+        profile's file had 153 rows in it, three of them level-4 plain tiles that no
+        feed on this tab could have put there this year.
+
         Malformed or missing (no prior session, or one before #1242) reads as "nothing
         to restore" rather than raising — a checkpoint is a convenience, never a
         requirement the tab depends on to open.
@@ -1280,6 +1302,8 @@ class SecretTasksTab(PanelTab):
                 continue
             exp = rec.get("expires_at")
             if exp is not None and exp <= now:
+                continue
+            if not _starred_cfg(rec.get("cfg_id")):
                 continue
             key = str(uuid)
             self._rows[key] = {
@@ -1443,16 +1467,41 @@ class SecretTasksTab(PanelTab):
         grid.paint_timers(self._tree, self._rows)
 
     def _in_range(self, level) -> bool:
-        """Whether `level` falls inside the «уровень от / до» range (either end open).
+        """Whether `level` is inside the DISPLAY range — «Фильтры: уровень от / до».
 
-        The bounds are the very range the auto-loot watcher robs at, so the list shows
-        exactly the tiles the standing order weighs.
+        The same pair the capture's log filter reads (`Capture.passes`), and that is the
+        whole point of it (#1244): what is printed and what is on the table have to be
+        one set. They were two — this asked the AUTO-LOOT range instead — so a profile
+        filtering the log at 5-7 while robbing at 7-7 saw level-5 stars in the log and an
+        empty place where their rows should have been.
+
+        Inclusive at both ends, and an empty box is no bound at all.
+        """
+        return self._within(level, self.filter_from_var.get(), self.filter_to_var.get())
+
+    def _in_rob_range(self, level) -> bool:
+        """Whether `level` is inside the ROBBERY range — «Автолут ★»'s own entries.
+
+        Separate from the display filter on purpose (#1099): narrowing what is printed
+        must not silently re-aim the five robberies a day, and widening it must not
+        hand them a level nobody asked to spend one on.
         """
         lo, hi = self.autoloot.levels()
         lvl = int(level or 0)
         if lo is not None and lvl < lo:
             return False
         if hi is not None and lvl > hi:
+            return False
+        return True
+
+    @staticmethod
+    def _within(level, low: str, high: str) -> bool:
+        """`level` against a pair of typed bounds; a blank or junk box is no bound."""
+        lvl = int(level or 0)
+        low, high = str(low).strip(), str(high).strip()
+        if low.isdigit() and lvl < int(low):
+            return False
+        if high.isdigit() and lvl > int(high):
             return False
         return True
 
@@ -1646,13 +1695,17 @@ class SecretTasksTab(PanelTab):
 
         The same rule the watcher obeys, and for the same reason: «от 1 до 7» robs 7-star
         tiles and leaves a 6 alone, because the five daily robberies are the scarce thing
-        and one spent on a 6 is one a 7 cannot have until the reset (#1099). The display
-        range IS the rob rule — a hidden tile is never robbed — and each tile is attempted
-        once a session so a poll on a spent budget does not re-fire.
+        and one spent on a 6 is one a 7 cannot have until the reset (#1099). Each tile is
+        attempted once a session so a poll on a spent budget does not re-fire.
+
+        Judged on «Автолут ★»'s OWN range (#1244), not on what the table happens to be
+        showing: the display filter is a pair of eyes, and a person narrowing it to read
+        something must not thereby change which tiles the standing order spends the day's
+        five on.
         """
         candidates = [
             (key, row) for key, row in self._rows.items()
-            if self._collectable(row) and self._in_range(row["level"])
+            if self._collectable(row) and self._in_rob_range(row["level"])
             and key not in self._auto_attempted and key not in self._collected
             and key in live and live[key].can_loot
         ]
@@ -1813,3 +1866,19 @@ class SecretTasksTab(PanelTab):
 # The countdown's own formatting moved to `grid.py` with the rest of the table (#1244);
 # it is still reachable under the name every caller and test here knows it by.
 _fmt_left = grid.fmt_left
+
+
+def _starred_cfg(cfg_id) -> bool:
+    """Whether a stored `cfgId` is a starred tile — `lastwar_proto`'s rule, not a copy.
+
+    What the working list is FOR: the tiles worth one of the day's five robberies. Both
+    feeds already keep only these, so this is for the one path that does not go through
+    a feed — a row restored from the checkpoint (:meth:`_load_persisted`).
+    """
+    import lastwar_proto as proto
+
+    try:
+        family, level, _variant = proto.split_cfg_id(cfg_id)
+    except (TypeError, ValueError):
+        return False                      # unusable id — never a row worth drawing
+    return family in proto.STAR_TASK_FAMILIES and level != proto.SPECIAL_TASK_LEVEL
