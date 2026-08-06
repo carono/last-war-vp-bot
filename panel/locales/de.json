@@ -226,6 +226,7 @@
   "log.game.deaf_restart": "der Client ist seit {secs}s für den Server nicht erreichbar — Neustart",
   "log.game.deaf_hold": "der Client ist nicht erreichbar, wurde aber kürzlich neu gestartet — warte {mins} Min",
   "log.game.deaf_busy": "der Client ist nicht erreichbar, aber jemand sitzt am Rechner — noch {mins} Min unangetastet",
+  "log.game.kick_restart": "hinausgeworfen: das Konto wurde auf einem anderen Gerät angemeldet — Neustart",
   "log.game.gone": "der Client ist weg — den Spielprozess gibt es nicht mehr",
   "log.game.kill_failed": "der Prozess ließ sich nicht beenden: {error}",
   "log.game.killing": "beende {exe}…",

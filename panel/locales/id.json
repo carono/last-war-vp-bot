@@ -226,6 +226,7 @@
   "log.game.deaf_restart": "klien tidak terdengar oleh server selama {secs}d — memulai ulang",
   "log.game.deaf_hold": "klien tidak terdengar, tetapi baru saja dimulai ulang — menunggu {mins} mnt",
   "log.game.deaf_busy": "klien tidak terdengar, tetapi ada orang di mesin — dibiarkan {mins} mnt",
+  "log.game.kick_restart": "terlempar: akun masuk di perangkat lain — memulai ulang",
   "log.game.gone": "klien hilang — proses permainan sudah tidak ada",
   "log.game.kill_failed": "proses tidak bisa dimatikan: {error}",
   "log.game.killing": "mematikan {exe}…",

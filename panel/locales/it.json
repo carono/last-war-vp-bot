@@ -226,6 +226,7 @@
   "log.game.deaf_restart": "il server non sente il client da {secs}s — riavvio",
   "log.game.deaf_hold": "il client non si sente, ma è stato riavviato da poco — attendo {mins} min",
   "log.game.deaf_busy": "il client non si sente, ma c'è qualcuno alla macchina — non lo tocco per {mins} min",
+  "log.game.kick_restart": "espulso: l'account è stato usato su un altro dispositivo — riavvio",
   "log.game.gone": "il client è sparito — il processo del gioco non c'è più",
   "log.game.kill_failed": "non è stato possibile terminare il processo: {error}",
   "log.game.killing": "termino {exe}…",

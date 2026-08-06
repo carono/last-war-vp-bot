@@ -3251,9 +3251,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._status_busy = True
 
         def work() -> None:
+            kicked = False
             try:
                 found = self._game_probe()
                 warm = self._daemon_up()
+                # ONLY when the link is already lost, and on THIS thread: it is a round
+                # trip into the game VM, and asking it every eight seconds of a healthy
+                # client would be paying for an answer that is always the same. What it
+                # tells apart is «the server stopped answering» from «somebody took the
+                # account» — the game's own «вход с другого устройства» (#1259).
+                if found.link == runtime.game_process.LOST:
+                    kicked = self._read_kicked()
             finally:
                 self._status_busy = False
             ok = found.running
@@ -3265,7 +3273,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._dbg_status(ok, warm, found.link),
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
-                self._recovery_check(found),
+                self._recovery_check(found, kicked),
                 self._paint_panic(),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
@@ -3307,7 +3315,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if getattr(self, "_status_msg", None) is not None:
             self._status_var.set(i18nmod.translated(self._t, self._status_msg))
 
-    def _recovery_check(self, found) -> None:
+    def _recovery_check(self, found, kicked: bool = False) -> None:
         """Restart a client the server has stopped hearing — the other half of a crash.
 
         The watchdog below notices the PROCESS going away. This notices the account
@@ -3330,7 +3338,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._paint_recovery(self._rt.recovery.state(now))
         # «Is somebody at the machine» — the gate that stops this closing a window
         # a person is playing in, which it did once (#1259).
-        said = self._rt.recovery.note(found.link, now, idle_sec=game_link.idle_sec())
+        said = self._rt.recovery.note(found.link, now,
+                                      idle_sec=game_link.idle_sec(), kicked=kicked)
         if said is None:
             return
         key, fmt = said
@@ -3339,6 +3348,23 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._say("game", key, **fmt)
         if key == runtime.recovery.ACT:
             self._rt.play_async("restart_game")
+
+    def _read_kicked(self) -> bool:
+        """Is the client showing the game's own «вход с другого устройства» modal?
+
+        A worker-thread read, and a forgiving one: any failure is `False`, so this can
+        only ever ADD a reason and never take one away. The expression is
+        `lua_actions.kicked_out()` — see it for why the flag is a WINDOW and not a field.
+        """
+        try:
+            import lua_actions
+
+            chunk = ('CS.UnityEngine.Debug.LogError("KICKQ " .. tostring(%s))'
+                     % lua_actions.kicked_out())
+            lines = self._rt.game.evaluator().run(chunk, marker="KICKQ", settle=0.4)
+            return bool(lines) and lines[0].split()[-1].strip() == "1"
+        except Exception:                    # noqa: BLE001 — a reading, never the fault
+            return False
 
     def _paint_recovery(self, st: dict) -> None:
         """Say the restart bookkeeping on the strip — and nothing at all while it is idle."""

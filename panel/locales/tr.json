@@ -226,6 +226,7 @@
   "log.game.deaf_restart": "istemci {secs}sn'dir sunucuya ulaşamıyor — yeniden başlatılıyor",
   "log.game.deaf_hold": "istemci duyulmuyor ama az önce yeniden başlatıldı — {mins} dk bekleniyor",
   "log.game.deaf_busy": "istemci duyulmuyor ama makine başında biri var — {mins} dk dokunulmuyor",
+  "log.game.kick_restart": "atıldı: hesap başka bir cihazdan açıldı — yeniden başlatılıyor",
   "log.game.gone": "istemci gitti — oyun süreci artık orada değil",
   "log.game.kill_failed": "süreç öldürülemedi: {error}",
   "log.game.killing": "{exe} öldürülüyor…",

@@ -89,7 +89,7 @@ class Recovery:
     a lock nobody needs.
     """
 
-    __slots__ = ("_run", "_last", "_restarts", "_held", "_why")
+    __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks")
 
     def __init__(self) -> None:
         #: Consecutive `lost` readings so far.
@@ -104,6 +104,8 @@ class Recovery:
         self._held = False
         #: "" | "cooldown" | "player" — what the front-ends draw as the reason.
         self._why = ""
+        #: How many of those restarts were a KICK rather than a silent hang-up.
+        self._kicks = 0
 
     # -- reading -------------------------------------------------------------
     @property
@@ -127,14 +129,16 @@ class Recovery:
         if self._last:
             left = max(0, int(self._last + COOLDOWN_SEC - now))
         return {"deaf_for": self._run, "strikes": STRIKES,
-                "restarts": self._restarts, "cooldown_left": left,
+                "restarts": self._restarts, "kicks": self._kicks,
+                "cooldown_left": left,
                 # Why nothing is happening, when nothing is: the person asked to see
                 # that a restart is being WITHHELD rather than simply not occurring.
                 "held_by": self._why}
 
     # -- deciding ------------------------------------------------------------
     def note(self, link: str, now: float,
-             idle_sec: "float | None" = None) -> "tuple | None":
+             idle_sec: "float | None" = None,
+             kicked: bool = False) -> "tuple | None":
         """Feed one link reading. Returns what to SAY and DO, or ``None`` for nothing.
 
         The answer is `(locale_key, fmt)` when something should be said, and the caller
@@ -182,6 +186,13 @@ class Recovery:
         self._run = 0                        # the next reading starts a fresh run
         self._held = False
         self._why = ""
+        # The two are the same act and NOT the same event, so they are not the same
+        # sentence: «связь пропала» is the server having stopped answering, and
+        # «вход с другого устройства» is somebody holding the account. A log that
+        # says which is a log somebody can act on.
+        if kicked:
+            self._kicks += 1
+            return (ACT_KICK, {})
         return (ACT, {"secs": STRIKES * 8})
 
 
@@ -191,3 +202,8 @@ ACT = "log.game.deaf_restart"
 HOLD = "log.game.deaf_hold"
 #: …and this when somebody is playing. The client is left exactly alone.
 BUSY = "log.game.deaf_busy"
+#: The same act, a different event: the client was KICKED — the account was logged in
+#: somewhere else and the client is showing the game's own «вход с другого устройства»
+#: (`lua_actions.kicked_out()`, the game's key `E100083`). Worth its own sentence,
+#: because «связь пропала» and «у вас забрали аккаунт» want different things done.
+ACT_KICK = "log.game.kick_restart"

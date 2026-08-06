@@ -226,6 +226,7 @@
   "log.game.deaf_restart": "the client cannot be heard by the server for {secs}s — restarting it",
   "log.game.deaf_hold": "the client cannot be heard, but it was restarted recently — waiting {mins} min",
   "log.game.deaf_busy": "the client cannot be heard, but somebody is at the machine — leaving it alone for {mins} min",
+  "log.game.kick_restart": "kicked out: the account was logged in on another device — restarting",
   "log.game.gone": "the client is gone — the game process is no longer there",
   "log.game.kill_failed": "the process could not be killed: {error}",
   "log.game.killing": "killing {exe}…",

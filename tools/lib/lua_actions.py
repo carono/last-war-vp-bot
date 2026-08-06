@@ -3748,3 +3748,41 @@ def codename_sent() -> str:
     """
     return ("((%s or 0) - ((DataCenter.__lw_codename or {}).before or 0))"
             % codename_attacks_made())
+
+
+# ---------------------------------------------------------------------------
+# «Вход с другого устройства» — the kick, as the CLIENT shows it
+# ---------------------------------------------------------------------------
+# The game is single-session: logging the account in elsewhere kicks this client and
+# puts a modal on it. The player sees it plainly, which is how this was found — the
+# panel had concluded from ONE look at an already-restarted client that there was no
+# in-client signal at all, and that was simply looking at the wrong moment.
+#
+# The text is the game's own key `E100083`, «В ваш аккаунт был выполнен вход с другого
+# устройства» (`tools/game_locale.py`; the same table docs/game-glossary.md comes from).
+# Nothing in the client's Lua mentions either that key or the windows below: the
+# disconnect flow belongs to the C# connection layer, which is why there is no manager
+# to read and no field to poll. What Lua CAN see is the window itself — `UIManager`
+# holds it whoever opened it — and that is the flag.
+#
+# `UIDisconnect` is the ordinary one and `UICrossDisconnect` the cross-server variant.
+# Which of the two a kick raises has not been watched live; both are asked, so whichever
+# it is answers. A client that is merely stranded shows NEITHER — that much was watched,
+# on a live half-closed client with its whole HUD up and an empty window stack.
+
+def kicked_out() -> str:
+    """Lua *expression* -> 1 when the client is showing a disconnect modal, else 0.
+
+    The difference between «the server stopped answering» and «somebody took the
+    account», which matters because they want opposite things done: a stranded client
+    should be restarted, and a kicked one means a person is playing somewhere else and
+    restarting takes it off them.
+
+    Answers 0 for anything it cannot read, so it can only ever ADD a reason, never
+    remove one.
+    """
+    return ("(function() local ok, v = pcall(function() "
+            "local m = UIManager.Instance "
+            "if m:IsWindowOpen('UIDisconnect') then return 1 end "
+            "if m:IsWindowOpen('UICrossDisconnect') then return 1 end "
+            "return 0 end) if not ok then return 0 end return v end)()")

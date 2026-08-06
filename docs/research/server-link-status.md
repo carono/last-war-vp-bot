@@ -281,45 +281,48 @@ The cost of leaving those is measured — 31 minutes of a panel working on yeste
 numbers between the loss at 18:58:40 and the client being killed at 19:29:17 — and which
 of them to build is the person's call, not an agent's.
 
-## 4.3 The live kick, watched — and what it did NOT look like (#1259)
+## 4.3 The kick DOES announce itself — and how that was nearly missed
 
-On 2026-08-06 the person logged in, was thrown out «a couple of minutes later», logged
-in again and stayed. The whole thing is in one profile's log, and the first half is
-this panel's own doing — see §4.4. What matters here is the second half: the client was
-left holding a dead link, and it was READ IN THAT STATE, through the Lua VM, while the
-sockets were still half-closed:
+**The player sees a plain message: «В ваш аккаунт был выполнен вход с другого
+устройства».** It is the game's own string, key `E100083`, in the tables
+`tools/game_locale.py` reads. So a kick is not silent and never was.
 
-```
-top window   = nil            stack = (empty)
-scene        = city           UIMain open = true
-player uid   = set            server = <the account's own>
-sockets      = 6 half-closed, 0 established
-```
+This file previously said the opposite, as a finding. That was wrong, and the way it
+went wrong is worth more than the fact:
 
-**No modal. No disconnect window. Nothing on screen at all.** The client sat at the
-home base with its whole HUD, believing it was playing, while the server had not been
-on the other end for half an hour.
+> A client that had lost its link was read through the Lua VM and showed no modal, an
+> empty window stack, the whole HUD up and the city on screen. From that one look the
+> conclusion drawn was «a kick and a hang-up are indistinguishable by the client too».
 
-That closes a branch of guesswork this file has carried since #1223: a kick and an
-ordinary hang-up are indistinguishable **not only by their sockets but by the client
-too**. There is no in-client signal to gate a restart on, which is why the socket table
-remains the only tell and why «is this a kick?» cannot currently be answered.
+One observation of an ABSENCE, at a moment chosen by nobody — after this panel had
+already restarted the client once — was written up as a property of the game. The
+player, who had watched the same event on the screen, knew better in one sentence. The
+rule this repository already had (`ask what the player sees`, [[feedback_ask_what_the_player_sees]])
+applies to negative findings above all: not seeing a thing is evidence about the
+moment, not about the thing.
 
-**What to watch for next time.** The client HAS two window names for this —
-`UIDisconnect` and `UICrossDisconnect` (`UIChatKickUser` is a chat moderation thing and
-not this). Neither was open in the state above. They are the obvious candidates for a
-kick that announces itself, and the next live case should check them FIRST, while the
-client is still in the state, before anything restarts it:
+### Where the flag is, and why there is no manager to read
+
+Nothing in the client's **Lua** mentions `E100083`, `UIDisconnect` or
+`UICrossDisconnect` — 48 500 functions scanned, no hits. The disconnect flow belongs to
+the **C# connection layer**, so there is no data manager holding a «kicked» field and
+nothing to poll the way the ghost list or the event state is polled.
+
+What Lua CAN see is the WINDOW, because `UIManager` holds it whoever opened it:
 
 ```lua
 UIManager.Instance:IsWindowOpen('UIDisconnect')
 UIManager.Instance:IsWindowOpen('UICrossDisconnect')
 ```
 
-If one of them is up, that is the kick signal — and a kick means the account is being
-played somewhere else, which is the one case where restarting is the WRONG answer
-(§4.4). If neither is ever up, the honest conclusion is that this client does not
-distinguish the two at all.
+That is `lua_actions.kicked_out()`, and it is what the panel now reads — only while the
+link is already `lost`, because it is a round trip into the VM and a healthy client
+would always answer the same. It fails CLOSED: anything unreadable is «no kick», so it
+can add a reason and never remove one.
+
+**Still unwatched:** which of the two windows a kick raises, and whether it stays up
+long enough for an eight-second poll to catch it. The next live kick answers both — and
+that is the moment to look, not after a restart.
 
 ## 4.4 The restart closed a window somebody was playing in
 

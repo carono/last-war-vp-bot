@@ -170,6 +170,39 @@ def test_the_reason_a_restart_is_being_withheld_is_readable():
     assert st["held_by"] == "cooldown" and st["cooldown_left"] > 0, st
 
 
+def test_a_kick_is_the_same_act_but_not_the_same_sentence():
+    """«Связь пропала» and «у вас забрали аккаунт» want different things done (#1259).
+
+    The player saw the game's own «В ваш аккаунт был выполнен вход с другого
+    устройства» — key `E100083` — which is what disproved the earlier conclusion that
+    a kick leaves no trace in the client. The flag is the disconnect window
+    (`lua_actions.kicked_out()`), and it earns its own line in the log.
+    """
+    r = rec.Recovery()
+    said = [x for i in range(rec.STRIKES)
+            if (x := r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
+    assert [k for k, _ in said] == [rec.ACT_KICK], said
+    assert r.restarts == 1 and r.state(1000.0)["kicks"] == 1
+
+
+def test_a_kick_does_not_override_the_person_at_the_machine():
+    """The gate is the same one: being kicked is not a licence to close a live window."""
+    r = rec.Recovery()
+    said = [x for i in range(rec.STRIKES * 2)
+            if (x := r.note(LOST, 1000.0 + i * 8, idle_sec=10.0, kicked=True))]
+    assert r.restarts == 0, "a kick walked straight through the player gate"
+    assert [k for k, _ in said] == [rec.BUSY], said
+
+
+def test_the_kick_flag_reads_a_window_and_fails_closed():
+    """It may only ever ADD a reason — anything unreadable answers «no kick»."""
+    import lua_actions
+
+    expr = lua_actions.kicked_out()
+    assert "UIDisconnect" in expr and "UICrossDisconnect" in expr, expr
+    assert "pcall" in expr and "return 0" in expr, "it must not raise into the caller"
+
+
 def test_a_healthy_client_is_never_touched_however_long_it_runs():
     r = rec.Recovery()
     for i in range(500):
@@ -189,7 +222,7 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
     r = rec.Recovery()
     _deaf(r, rec.STRIKES)
     st = r.state(1000.0 + 60)
-    assert set(st) == {"deaf_for", "strikes", "restarts", "cooldown_left",
+    assert set(st) == {"deaf_for", "strikes", "restarts", "kicks", "cooldown_left",
                        "held_by"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
     assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC

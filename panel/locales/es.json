@@ -226,6 +226,7 @@
   "log.game.deaf_restart": "el servidor no oye al cliente desde hace {secs}s — reiniciando",
   "log.game.deaf_hold": "no se oye al cliente, pero se reinició hace poco — esperando {mins} min",
   "log.game.deaf_busy": "no se oye al cliente, pero hay alguien en el equipo — sin tocarlo {mins} min",
+  "log.game.kick_restart": "expulsado: la cuenta se conectó en otro dispositivo — reiniciando",
   "log.game.gone": "el cliente se ha ido — el proceso del juego ya no está",
   "log.game.kill_failed": "no se pudo matar el proceso: {error}",
   "log.game.killing": "matando {exe}…",
