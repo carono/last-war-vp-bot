@@ -57,6 +57,7 @@ import threading
 import time
 
 import lua_client
+import proc_table
 
 from .. import childmon as childmonmod
 
@@ -393,26 +394,29 @@ def sweep(*, say=None) -> int:
     detached ON PURPOSE and must go on living between panels
     (`panel/runtime/daemon.py`). A stamped process whose owner is still running belongs
     to that panel and is left alone.
+
+    NARROW FIRST, THEN OPEN (#1214). The names come from `tools/lib/proc_table.py`, which
+    does not open a handle per process; only the pythons among them are then asked for
+    the three things this needs — the stamp, the tool and the start time. Asking all four
+    hundred was 7.2 seconds of held interpreter lock and is the walk the stall sampler
+    caught starving the window (docs/research/panel-freezes.md §1); asking the four that
+    can possibly be ours is 0.03 s.
     """
     ps = _psutil()
     if ps is None:
         return 0
     mine, killed = os.getpid(), 0
-    try:
-        walk = list(ps.process_iter(["pid", "name"]))
-    except Exception:                 # noqa: BLE001 — no process list, no sweep
-        return 0
-    for proc in walk:
-        pid = proc.info.get("pid")
+    for pid, name in proc_table.names():
         if not pid or pid == mine:
             continue
-        if not (proc.info.get("name") or "").lower().startswith("py"):
+        if not (name or "").lower().startswith("py"):
             continue
         try:
+            proc = ps.Process(int(pid))
             owner = (proc.environ() or {}).get(OWNER_VAR) or ""
             script = _script_of(proc.cmdline() or [])
             started = float(proc.create_time())
-        except Exception:             # noqa: BLE001 — not ours to look at
+        except Exception:             # noqa: BLE001 — gone, or not ours to look at
             continue
         # …and the child's own start time settles a reissued number, exactly as in
         # `reap`: an «owner» younger than this process never started it.
@@ -425,7 +429,7 @@ def sweep(*, say=None) -> int:
             killed += 1
             if say is not None:
                 say("panel", "log.children.orphan",
-                    name=os.path.basename(script) or proc.info.get("name"), pid=pid)
+                    name=os.path.basename(script) or name, pid=pid)
         except Exception:             # noqa: BLE001
             continue
     return killed
@@ -569,9 +573,9 @@ class ChildFactory:
 
         Two passes because they answer different questions. :func:`reap` reads the
         record and is exact — a directory listing and a handful of pid lookups, so it
-        happens here and now. :func:`sweep` walks every process on the machine, six or
-        seven seconds of it, and goes into a process of its own (:meth:`_sweep`); nothing
-        waits for it, because an orphan ended a second late has cost nothing.
+        happens here and now. :func:`sweep` looks at every process on the machine and
+        goes into a process of its own (:meth:`_sweep`); nothing waits for it, because
+        an orphan ended a second late has cost nothing.
 
         Neither pass may stop a start-up — but a pass that fails SAYS SO. Both were
         silent to begin with, and a live run where an orphan died with nothing in the
@@ -593,12 +597,16 @@ class ChildFactory:
     def _sweep(self) -> None:
         """The machine-wide pass — IN ITS OWN PROCESS, and once per panel.
 
-        A thread would not do. The walk is six or seven seconds of Python holding
-        Python's lock, and while it runs everything the Tk thread does is ten to forty
+        A thread would not do, and the reason survives #1214 having made the walk itself
+        cheap. What that change removed is the cost on a box that can be asked the cheap
+        way; where `proc_table.names` has to fall back to `psutil.process_iter` — no
+        pywin32, or not Windows — it is six or seven seconds of Python holding Python's
+        lock again, and while that runs everything the Tk thread does is ten to forty
         times slower: one ttk widget goes from 1 ms to 37–74 ms, and a tab that builds in
         180 ms takes nine seconds (docs/research/panel-freezes.md §1, measured by the
         stall sampler that named this very sweep). A separate process has its own lock
-        and costs the panel nothing but the pipe it reads.
+        and costs the panel nothing but the pipe it reads, whichever machine it is on —
+        which is exactly what a cost that depends on the machine wants.
 
         The child says what it killed with :data:`SWEEP_MARKER` and the panel says it in
         the operator's language — a marker rather than words, exactly like the wire

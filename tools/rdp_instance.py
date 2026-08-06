@@ -117,6 +117,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools", "lib"))
 
 import game_paths  # noqa: E402
+import proc_table  # noqa: E402
 
 import lua_client  # noqa: E402
 
@@ -388,15 +389,15 @@ def console_session() -> int:
 def clients() -> list[dict]:
     """Every LastWar.exe with its session and owner.
 
-    Through `WTSEnumerateProcesses`, not `ProcessIdToSessionId`: the latter needs query
-    rights on the process, so another user's client comes back as "session 0" — which
-    reads as a service and is exactly the process we are looking for.
+    Through `WTSEnumerateProcesses` — `proc_table.wts_rows`, the one spelling of it —
+    and not `ProcessIdToSessionId`: the latter needs query rights on the process, so
+    another user's client comes back as "session 0", which reads as a service and is
+    exactly the process we are looking for.
     """
     import psutil
-    import win32ts
     by_session = {s["id"]: s["user"] for s in sessions()}
     out = []
-    for session, pid, name, _sid in win32ts.WTSEnumerateProcesses(0, 1, 0):
+    for session, pid, name in proc_table.wts_rows():
         # Exactly the client: the launcher and the updater share its prefix, and pinning
         # the daemon to the launcher gets a daemon that never warms.
         if (name or "").lower() != game_paths.game_exe().lower():
@@ -826,16 +827,19 @@ def click_dialogs(seconds: float = 120.0, process: str = "mstsc.exe") -> None:
     Runs in a thread while the connection is being made. Standard dialog buttons take
     BM_CLICK from another process, so this needs no foreground input and does not fight
     with whatever the bot is doing on the desktop.
+
+    The pid lookup is `proc_table.pids_named` and not `psutil.process_iter` because of
+    where this thread runs: «Поднять сессию» is a panel button, so this loop is inside
+    the panel's process, holding the interpreter lock twice a second for two minutes
+    while the window is meant to stay alive (docs/research/panel-freezes.md §1, #1214).
     """
     import win32con
     import win32gui
     import win32process
-    import psutil
     deadline = time.time() + seconds
     seen = set()
     while time.time() < deadline:
-        pids = {p.pid for p in psutil.process_iter(["name"])
-                if (p.info["name"] or "").lower() == process}
+        pids = set(proc_table.pids_named(process))
         if not pids:
             time.sleep(0.5)
             continue

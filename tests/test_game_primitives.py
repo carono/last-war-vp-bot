@@ -1032,17 +1032,14 @@ def test_a_restart_never_reaches_another_windows_session():
     the ordinary lookup answered with the SECOND account's client, in another
     session — and the next step of a restart is not a read but a kill."""
     import game_client
+    import proc_table
 
-    class _Proc:
-        def __init__(self, pid, name):
-            self.pid, self.info = pid, {"name": name}
-
-    class _FakePsutil:
-        @staticmethod
-        def process_iter(_fields=None):
-            return [_Proc(111, "LastWar.exe"),      # ours, session 1
-                    _Proc(222, "LastWar.exe"),      # the other account, session 3
-                    _Proc(333, "chrome.exe")]
+    # The machine's process table is the seam, and since #1214 it is `proc_table` and no
+    # longer `psutil.process_iter` — the walk that opened a handle per process and
+    # starved the panel's window for four seconds while it ran.
+    table = [(111, "LastWar.exe"),                  # ours, session 1
+             (222, "LastWar.exe"),                  # the other account, session 3
+             (333, "chrome.exe")]
 
     class _FakeProbe:
         SESSIONS = {111: 1, 222: 3}
@@ -1053,20 +1050,22 @@ def test_a_restart_never_reaches_another_windows_session():
                 raise OSError("access denied")      # what a foreign session really gives
             return _FakeProbe.SESSIONS.get(pid, 1)  # this process, and ours
 
-    saved = {n: sys.modules.get(n) for n in ("psutil", "il2cpp_probe")}
-    sys.modules["psutil"], sys.modules["il2cpp_probe"] = _FakePsutil, _FakeProbe
+    saved_probe = sys.modules.get("il2cpp_probe")
+    saved_names = proc_table.names
+    sys.modules["il2cpp_probe"] = _FakeProbe
+    proc_table.names = lambda: list(table)
     try:
         assert game_client.session_pids() == [111], game_client.session_pids()
         assert game_client.running_pid() == 111
         # …and with ours gone, the honest answer is "none", never the neighbour's.
-        _FakePsutil.process_iter = staticmethod(lambda _f=None: [_Proc(222, "LastWar.exe")])
+        table[:] = [(222, "LastWar.exe")]
         assert game_client.running_pid() is None, "a foreign session's client was offered"
     finally:
-        for name, mod in saved.items():
-            if mod is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = mod
+        proc_table.names = saved_names
+        if saved_probe is None:
+            sys.modules.pop("il2cpp_probe", None)
+        else:
+            sys.modules["il2cpp_probe"] = saved_probe
 
 
 def test_attach_without_a_daemon_waits_for_the_client_and_stops_there():

@@ -52,6 +52,7 @@ from dataclasses import dataclass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import game_paths  # noqa: E402
+import proc_table  # noqa: E402
 
 #: The ports the client talks HTTP on all day. Everything else that is remote and not
 #: loopback is a candidate for the game gateway — see the module docstring for why this
@@ -309,10 +310,16 @@ def own_session() -> "int | None":
 # -- which processes ---------------------------------------------------------
 
 def _read_names() -> list:
-    """``(pid, name)`` for every process on the box — the psutil walk, once."""
-    import psutil
-    return [(p.info["pid"], (p.info["name"] or ""))
-            for p in psutil.process_iter(["pid", "name"])]
+    """``(pid, name)`` for every process on the box — one walk, shared.
+
+    Through `tools/lib/proc_table.py` rather than `psutil.process_iter`, which on Windows
+    opens a handle per process and costs four seconds of held interpreter lock for an
+    answer the terminal-services enumeration gives in twenty-seven milliseconds
+    (docs/research/panel-freezes.md §1). This is the FALLBACK route — :func:`pids` only
+    reaches it on a box that cannot attribute sessions — and a fallback that starves the
+    window for four seconds is not one.
+    """
+    return proc_table.names()
 
 
 def _pids_by_name(game_exe: str) -> "list":
@@ -341,9 +348,7 @@ def _read_wts() -> list:
     :func:`pids` reads that as "try the name instead" and a cached empty list would read
     as "the client is gone".
     """
-    import win32ts
-    return [(int(sid), int(pid), (name or ""))
-            for sid, pid, name, _sid in win32ts.WTSEnumerateProcesses(0, 1, 0)]
+    return proc_table.wts_rows()
 
 
 def pids(game_exe: str = GAME_EXE, user: "str | None" = None) -> "list":

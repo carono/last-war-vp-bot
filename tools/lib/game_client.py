@@ -35,6 +35,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import game_paths  # noqa: E402
 import lua_client  # noqa: E402
+import proc_table  # noqa: E402
 
 #: The client executable. A profile may name another one (an install somewhere else),
 #: which is why the process-name fallbacks take it as a parameter — and why the default
@@ -116,11 +117,15 @@ def running_pid(game_exe: str = GAME_EXE) -> "int | None":
 
 
 def session_pids(game_exe: str = GAME_EXE) -> list:
-    """Every client running in the caller's own Windows session (usually one)."""
-    try:
-        import psutil
-    except Exception:                        # noqa: BLE001
-        return []
+    """Every client running in the caller's own Windows session (usually one).
+
+    The names come from `tools/lib/proc_table.py` — one enumeration that opens nothing —
+    and only the processes that ARE clients are then asked which session they sit in.
+    Walking them with `psutil.process_iter` opened a handle per process and cost four
+    seconds of held interpreter lock, which starves the panel's window for as long as it
+    runs (docs/research/panel-freezes.md §1); this runs in the panel's process, on a
+    background thread, at every restart and every force-close (#1214).
+    """
     probe, mine = None, None
     try:
         # The one implementation of the session lookup in the repo — a ctypes call
@@ -131,20 +136,15 @@ def session_pids(game_exe: str = GAME_EXE) -> list:
     except Exception:                        # noqa: BLE001 — not Windows: no sessions
         probe = None
     out = []
-    try:
-        for proc in psutil.process_iter(["name"]):
-            if (proc.info["name"] or "").lower() != game_exe.lower():
-                continue
-            if probe is None:                # nothing to filter by — every client is ours
-                out.append(proc.pid)
-                continue
-            try:
-                if probe._session_of(proc.pid) == mine:
-                    out.append(proc.pid)
-            except Exception:                # noqa: BLE001 — cannot ask ⇒ not ours
-                continue
-    except Exception:                        # noqa: BLE001
-        return out
+    for pid in proc_table.pids_named(game_exe):
+        if probe is None:                    # nothing to filter by — every client is ours
+            out.append(pid)
+            continue
+        try:
+            if probe._session_of(pid) == mine:
+                out.append(pid)
+        except Exception:                    # noqa: BLE001 — cannot ask ⇒ not ours
+            continue
     return out
 
 
@@ -321,15 +321,15 @@ def session_of(user: str) -> "int | None":
 def session_pids_of(session: int, game_exe: str = GAME_EXE) -> list:
     """Every client inside one Windows session — another user's included.
 
-    `WTSEnumerateProcesses` rather than `ProcessIdToSessionId`, for the reason
-    tools/rdp_instance.py records: the latter needs query rights on the process, so a
-    foreign user's client comes back as "session 0" — which reads as a service and is
-    exactly the process being looked for. (`session_pids` above is the other half of
-    the same question, asked about OUR session, where psutil can answer it.)
+    `WTSEnumerateProcesses` — through `proc_table.wts_rows`, the one spelling of it —
+    rather than `ProcessIdToSessionId`, for the reason tools/rdp_instance.py records:
+    the latter needs query rights on the process, so a foreign user's client comes back
+    as "session 0", which reads as a service and is exactly the process being looked
+    for. (`session_pids` above is the other half of the same question, asked about OUR
+    session, which is the one a ctypes call can answer.)
     """
-    import win32ts                            # noqa: PLC0415 — Windows-only
-    return [int(pid) for sid, pid, name, _sid in win32ts.WTSEnumerateProcesses(0, 1, 0)
-            if int(sid) == int(session) and (name or "").lower() == game_exe.lower()]
+    return [pid for sid, pid, name in proc_table.wts_rows()
+            if sid == int(session) and (name or "").lower() == game_exe.lower()]
 
 
 # There WAS a `_shared_path()` here, and it was the wrong shape of answer. It asked

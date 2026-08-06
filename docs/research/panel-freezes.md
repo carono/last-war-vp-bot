@@ -42,10 +42,11 @@ ten to forty times slower.
 | while a process walk runs | 37–74 ms | 8.9–9.7 s |
 
 Lowering `sys.setswitchinterval` does not help (measured at 5 ms, 1 ms and 0.2 ms: the
-Tk thread loses the lock back to the scanner every time). The only cures are not doing
-the walk while the UI matters, or doing it in a separate PROCESS.
+Tk thread loses the lock back to the scanner every time). The cures are not doing the
+walk while the UI matters, doing it in a separate PROCESS — or, as it turned out, not
+doing an expensive walk at all.
 
-The panel does such a walk at every start: the game-status probe
+The panel did such a walk at every start: the game-status probe
 (`panel/runtime/game_process.py`), and — since #1212 — the machine-wide child sweep
 (`panel/runtime/children.py::sweep`), which additionally reads `exe()`, `environ()` and
 `cmdline()` of every python process and is uncached. The stall report names it outright:
@@ -53,13 +54,59 @@ The panel does such a walk at every start: the game-status probe
     STALL 1156 ms
       meanwhile 100% — panel-child-sweep: _pswindows.py:758 exe
 
-The sweep took the second cure: it is a CHILD PROCESS now
-(`ChildFactory._sweep` → `python -c "…_cli()"`), with its own interpreter lock and its
-own five seconds, and it reports what it ended through the pipe the panel already reads.
-The game-status probe is still on the panel's own lock.
+The sweep took the second cure: it is a CHILD PROCESS (`ChildFactory._sweep` →
+`python -c "…_cli()"`), with its own interpreter lock and its own five seconds, and it
+reports what it ended through the pipe the panel already reads.
 
-psutil caches its process map, so the SECOND walk costs nothing — which is why this is
-invisible to any measurement taken on a panel that has been open a while.
+psutil caches its process map, so the SECOND walk in a process costs nothing — which is
+why this is invisible to any measurement taken on a panel that has been open a while,
+and why the one walk that IS paid lands at start-up, while the tabs are being built.
+
+### 1a. …and the walk did not have to be expensive (#1214)
+
+The frame in the stall report is the answer: `_pswindows.py:758 exe`. On Windows,
+psutil's `Process.name()` is `os.path.basename(self.exe())` and `exe()` is
+`cext.proc_exe(pid)` — **one `OpenProcess` per process**, with a slower fallback whenever
+the handle is refused. The names are not what is slow; opening four hundred processes to
+read them is. Windows will hand over the whole table in one call, and it does not open
+anything (389 processes, this machine):
+
+| | cost |
+|---|---|
+| `psutil.process_iter(["pid", "name"])` | **3.96 s** (cold; 0.03 s warm) |
+| `psutil.process_iter(["pid", "name", "cmdline"])` | **7.66 s** |
+| `win32ts.WTSEnumerateProcesses(0, 1, 0)` | **0.027 s** (always — nothing is cached) |
+| `psutil.net_connections("tcp")` | 0.002 s — never was the problem |
+
+So `tools/lib/proc_table.py` is the one place the table is read: the terminal-services
+enumeration where it can be had, `process_iter` as the fallback for a box that cannot be
+asked (no pywin32, not Windows). The rule for callers is **narrow first, then open** —
+take the names, keep the few you care about, and only then ask psutil for their
+`cmdline()`, `environ()` or `create_time()`. Everything that runs in the panel's own
+process was moved onto it, and the same-answer-before-and-after was checked each time:
+
+| | before | after |
+|---|---|---|
+| `autostart.panel_pids` (the second-panel guard) | **15.26 s** | **0.058 s** |
+| `children.sweep` (the machine-wide orphan pass) | **4.93 s** | **0.044 s** |
+| `game_client.session_pids` (restarts, force-closes) | ~4 s cold | 0.044 s |
+| `rdp_instance.click_dialogs` (a loop, twice a second, for two minutes) | ~4 s + 0.03 s a turn | 0.03 s a turn |
+
+`tests/test_proc_table.py` pins it, including the part that would otherwise come back:
+nothing under `panel/`, nor in the three shared modules the panel calls on its own
+threads, may spell `psutil.process_iter` — checked as an AST call, so the docstrings
+explaining why are not mistaken for the thing itself. Run it with `--bench` to take the
+numbers above on another machine.
+
+The subprocess sweep STAYS, and not out of politeness: on the fallback route the walk is
+six or seven seconds again, and a cost that depends on the machine belongs in a process
+of its own whatever this machine measures.
+
+**The game-status probe was never the other half.** Measured cold at **55 ms**: it takes
+its process list from `WTSEnumerateProcesses` and its sockets from `net_connections`, and
+only reaches `process_iter` on a box that cannot attribute sessions at all. The line in
+the old version of this file that said otherwise was written from the #1212 stall reports
+and never re-measured.
 
 ### 2. The duel's text wrap was machine-wide, not the tab's
 
@@ -130,5 +177,8 @@ merely sitting in a blocking call.
   panel that was killed rather than closed. It reads as «open in another panel», so the
   operator's every switch to it pays the full build above.
 * ~~The machine-wide child sweep belongs off the panel's own lock~~ — done in #1212: it
-  is a subprocess (see §1). The game-status probe's walk is still on the panel's lock at
-  every start, and is now the only one left.
+  is a subprocess (see §1).
+* ~~The game-status probe's walk is still on the panel's lock at every start~~ — it never
+  was, and the expensive walks that WERE are gone: #1214 took the process table off
+  `psutil.process_iter` altogether (see §1a). Nothing in the panel's process now costs
+  more than a few tens of milliseconds to ask what is running.
