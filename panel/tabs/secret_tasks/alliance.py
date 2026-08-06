@@ -1,4 +1,4 @@
-"""The tab's second table: every live secret task of the player's own alliance (#1244).
+"""The tab's second table: what the player's own alliance is running right now (#1244).
 
 The list above it is a WORKING list — the starred raid targets, gathered over time from
 two sources (the capture's checkpoint and the VM), kept across a restart, added to by a
@@ -6,24 +6,30 @@ mate's share and emptied by «Очистить список». That is what auto
 narrowed to the stars on purpose: a robbery is one of five a day, so the tiles worth one
 are the tiles worth a row.
 
-This one answers a different question — «what does my alliance actually have out right
-now?» — so it is not a working list at all but a MIRROR of the game's own table
-(`ActDispatchTaskDataManager.allianceTask`), stars and plain tiles alike. It is replaced
-whole by every read rather than merged into: a tile the game no longer lists is a tile
-that is gone, and nothing here is worth keeping past the answer that produced it. That
-is also why it needs no checkpoint of its own — the game is the checkpoint, and the read
-that fills this grid is the one `on_show` already makes.
+This one answers a different question — «WHICH OF MY ALLIANCEMATES IS RUNNING WHAT» —
+and so it is not a working list at all but a MIRROR of the game's own
+`ActDispatchTaskDataManager.allianceTask`: one row per task an alliance member has out,
+with the member's name on it, its rank, when it finishes and how many times it has been
+robbed already. Nothing is filtered out of it — not the plain tiles the star rule drops,
+not the ones already robbed three times, not the one-per-player special class — because
+every one of them is somebody's task and the question is what they are all doing.
+
+It is replaced whole by every read rather than merged into: a task the game no longer
+lists has ended, and nothing here is worth keeping past the answer that produced it.
+That is also why it needs no checkpoint of its own — the game is the checkpoint.
+
+The read is its own (`dispatch_tasks.alliance_roster`, driven from the tab's
+`_roster`), because the raid read cannot answer this: it is filtered to the robbable and
+it carries no owner name at all. It is also the tab's slowest round trip, which is why
+it happens when the tab is opened, when «Обновить» is pressed and when the profile
+changes — and NOT on a mate's share, which changes the raid list rather than who is
+running what.
 
 The table itself is deliberately identical to the one above (`grid.py`): same columns,
 same countdown, same colours, the same click on a coordinate that walks the camera and
-the same click on the action cell that robs the tile. Only the contents differ.
-
-**What the read leaves out.** The chunk behind it (`secret_task_all_alliance`) keeps the
-tiles that are still on the map and still have a free loot slot, so a task with all
-three slots spent is not here — it is finished for everybody and there is nothing left
-to do about it. That is the same rule the grid above hides a 3/3 tile under, minus the
-«Показывать исчерпанные» escape hatch, which exists up there only because the WIRE feed
-reports spent tiles at all.
+the same click on the action cell that robs the tile. Only the contents differ — and the
+owner column, which the list above leaves empty because a tile off the wire has no name
+attached to it.
 """
 from __future__ import annotations
 
@@ -89,25 +95,26 @@ class AllianceGrid:
             return
 
     # -- the list ----------------------------------------------------------------
-    def apply(self, tasks) -> None:
+    def apply(self, records) -> None:
         """Replace the grid with what the game's own alliance table just said.
 
-        Wholesale, not a merge (see the module docstring): a tile the read does not
-        carry has either expired or filled its last slot, and either way the game is
-        the authority on it. A row that IS still there keeps its countdown variable, so
+        ``records`` are `dispatch_tasks.alliance_roster`'s. Wholesale, not a merge (see
+        the module docstring): a task the read does not carry has ended, and the game is
+        the authority on that. A row that IS still there keeps its countdown variable, so
         the cell it is drawn in does not blink on every refresh.
         """
         rows: dict = {}
-        for task in tasks or ():
-            key = str(task.uuid)
+        for record in records or ():
+            key = str(record["uuid"])
             row = self._rows.get(key)
             if row is None:
-                row = grid.new_row(task, tk_stringvar(self.tab.rt.root))
+                row = grid.new_row(record, tk_stringvar(self.tab.rt.root))
             else:
-                row["expires_at"] = task.expires_at
-                row["completed_at"] = task.completed_at
-                row["loot_count"] = task.loot_count
-                row["level"] = task.level
+                row["expires_at"] = record.get("expires_at")
+                row["completed_at"] = record.get("completed_at")
+                row["loot_count"] = record.get("loot_count") or 0
+                row["level"] = record.get("level")
+                row["owner_name"] = record.get("owner_name") or ""
             rows[key] = row
         self._rows = rows
         self.render()
@@ -259,7 +266,11 @@ class AllianceGrid:
             done, exp = row.get("completed_at"), row.get("expires_at")
             items.append({
                 "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
-                "facts": [{"label": "secrettasks.col.level",
+                # Who is running it comes first: on the phone this list is read to find
+                # a name, the way the window's list is read to find a countdown.
+                "facts": [{"label": "secrettasks.col.owner",
+                           "value": row.get("owner_name") or "—"},
+                          {"label": "secrettasks.col.level",
                            "value": str(row.get("level"))},
                           {"label": "secrettasks.col.slots",
                            "value": f"{row.get('loot_count')}/3"}],

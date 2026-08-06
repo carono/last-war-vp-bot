@@ -44,13 +44,17 @@ inside it, so the operator sees exactly the tiles auto-loot is about to weigh.
 
 THERE ARE TWO TABLES (#1244). The one described above is a WORKING list — the starred
 raids, gathered from two sources, kept across a restart, spent by «Собрать». Under it is
-a second, identical table holding the alliance's whole list — every live secret task the
-game itself lists, stars and plain tiles alike — because «what has my alliance got out
-right now?» is a different question from «what is worth one of my five robberies?».
-It costs nothing extra to answer: the very same VM read fills both (`_snapshot_work`),
-the stars going up into the working list and the whole reply down into the mirror
+a second, identical table answering a different question: WHICH OF MY ALLIANCEMATES IS
+RUNNING WHAT. One row per task an alliance member has out, with the member's name on it,
+its rank, when it finishes and how many times it has been robbed — nothing filtered out,
+because every one of them is somebody's task
 (:mod:`~panel.tabs.secret_tasks.alliance`). It keeps no checkpoint of its own — the game
 is its checkpoint — and it is replaced whole by every read rather than merged into.
+
+That read is its own (:meth:`_roster`) and cannot be shared with the one above: the raid
+read is filtered to the robbable and carries no owner name at all. It is also the tab's
+slowest round trip, so it runs when the tab is opened, on «Обновить» and on a profile
+switch — and NOT on a mate's share, which changes the raid list rather than the roster.
 
 THE LIST IS A TABLE (#1209). It was a stack of hand-packed rows, each label carrying its
 own width, which is why nothing lined up under anything: a `ttk.Treeview` gives the
@@ -151,10 +155,12 @@ class SecretTasksTab(PanelTab):
         master = rt.root
         self.loaded = False
         self._busy = False
-        # The VM read has a flag of its own (#1244): «Обновить» now runs both sources —
-        # the checkpoint (cheap, `_busy`) and the game's own table (`_vm_busy`) — and one
-        # flag for the two would let the first to start silence the other.
+        # Three reads, three flags (#1244): «Обновить» runs the checkpoint (cheap,
+        # `_busy`), the raid list off the VM (`_vm_busy`) and the alliance roster
+        # (`_roster_busy`). One flag between them would let whichever started first
+        # silence the other two.
         self._vm_busy = False
+        self._roster_busy = False
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
         # StringVar and the row's frame, so a tick can update the timer in place and a
@@ -226,8 +232,8 @@ class SecretTasksTab(PanelTab):
         self.capture = Capture(rt, self)
         self.autoloot = AutoLoot(rt, self)
         self.sweep = Sweep(rt, self)
-        # The second table (#1244): the alliance's own list, filled by the very same VM
-        # read that seeds the one above it — see `_snapshot_work`.
+        # The second table (#1244): what the alliancemates are running, filled by its
+        # own read — see `_roster`.
         self.alliance = AllianceGrid(self)
 
     # -- getting onto the Tk thread ------------------------------------------
@@ -269,7 +275,11 @@ class SecretTasksTab(PanelTab):
         before the capture has flushed a checkpoint; it now ALSO doubles as the
         actuality check for whatever was just restored (`_merge`). After it the wire
         feeds the list (the capture's nudge, «Обновить», the share trigger), which is
-        why this is the only game read the tab makes on its own behalf.
+        why this is the only game read the tab makes on its own behalf for THAT list.
+
+        The alliance roster below is read here too and nowhere automatic (#1244): it is
+        the tab's slowest round trip, and it answers a question nobody is asking while
+        the tab is shut.
         """
         if self.loaded:
             return
@@ -281,6 +291,7 @@ class SecretTasksTab(PanelTab):
         self._start_clock_sync()
         self._start_ticking()
         self._snapshot()
+        self._roster()
 
     def on_profile_switch(self) -> None:
         """Bounce all three orders onto the new account.
@@ -308,14 +319,15 @@ class SecretTasksTab(PanelTab):
         self._collected.clear()
         self._auto_attempted.clear()
         self._restore_pending = set()
-        # The alliance below belongs to the old account just as much — a different
-        # account is a different alliance, and its tiles are not this one's (#1244).
+        # The roster below belongs to the old account just as much — a different account
+        # is a different alliance, and those are not this one's alliancemates (#1244).
         self.alliance.clear()
         if self.loaded:
             self._restore_pending = self._load_persisted()
             self._render()
             self._update_status()
             self._snapshot()
+            self._roster()
         self._refresh_rule_hints()
         if self.monitor_var.get():
             self.capture.start()
@@ -575,7 +587,7 @@ class SecretTasksTab(PanelTab):
         act on the selection — plus the right-click menu, and the coordinate link.
 
         The second grid is the same table again (`grid.py`, `alliance.py`) with the
-        alliance's whole list in it, stars and plain tiles alike. The two share the height
+        alliancemates' own tasks in it, unfiltered. The two share the height
         through a `PanedWindow` rather than splitting it in a fixed ratio: which of the
         two is being read changes by the hour, and dragging the sash is how the operator
         says which one it is right now.
@@ -663,14 +675,27 @@ class SecretTasksTab(PanelTab):
         The coordinate cell is the canonical `X:.. Y:..` token — the same one the log
         prints and `coords.parse` reads back — with the server standing in its own column
         beside it rather than glued to the front of it.
+
+        The owner cell is empty on a row that does not know one (#1244): the wire feed
+        and the raid read carry no name, so the table above leaves the column blank
+        rather than filling it with a guess.
+
+        Level 99 is not a level — it is the one-per-player task class that shares the
+        encoding (`lastwar_proto.SPECIAL_TASK_LEVEL`) — so it is named rather than drawn
+        as «⭐×99». The alliance table is where they turn up; the list above filters them
+        out with the star rule.
         """
         import coords as coords_fmt
+        import lastwar_proto as proto
         ready = bool(row.get("ready"))
         can_take = self._collectable(row)
-        return (coords_fmt.fmt(row["x"], row["y"]),
+        level = int(row["level"] or 0)
+        rank = (self.t("secrettasks.special") if level == proto.SPECIAL_TASK_LEVEL
+                else self.t("secrettasks.stars", n=level))
+        return (row.get("owner_name") or "",
+                coords_fmt.fmt(row["x"], row["y"]),
                 self.t("secrettasks.server", srv=row["server"]),
-                "%s %s" % (READY_GLYPH if ready else TYPE_GLYPH,
-                           self.t("secrettasks.stars", n=int(row["level"] or 0))),
+                "%s %s" % (READY_GLYPH if ready else TYPE_GLYPH, rank),
                 row["timer"].get(),
                 self.t("secrettasks.slots", n=int(row["loot_count"] or 0)),
                 self.t("secrettasks.collect") if can_take else "")
@@ -1005,10 +1030,10 @@ class SecretTasksTab(PanelTab):
 
     # -- reading the wire / the game ------------------------------------------
     def _snapshot(self) -> None:
-        """Read the game's own alliance table once: the seed above, the mirror below.
+        """The one-time first-open seed of the raid list: read the VM once and merge it.
 
-        One round trip fills both grids (#1244) — the starred tasks are merged into the
-        working list, and the whole answer replaces the alliance grid.
+        The table below has a read of its own (:meth:`_roster`) — this one is filtered
+        to the robbable stars and carries no owner name, so it cannot answer for it.
         """
         if self._vm_busy:
             return
@@ -1029,42 +1054,68 @@ class SecretTasksTab(PanelTab):
         pending = self._restore_pending if read_ok else None
         if read_ok:
             self._restore_pending = set()
-        self.after(lambda: self._vm_landed(tasks, pending, read_ok))
+        self.after(lambda: self._vm_landed(tasks, pending))
 
-    def _vm_landed(self, tasks, pending, read_ok: bool) -> None:
-        """The VM read, back on the Tk thread: the stars up, the whole list down.
-
-        The alliance grid is only touched by a read that WORKED. A failed one says
-        nothing about the alliance's tasks — emptying the table on it would turn "the
-        daemon was busy for a second" into "your alliance has nothing out", which is the
-        same lie `_merge` refuses to tell about a restored row.
-        """
+    def _vm_landed(self, tasks, pending) -> None:
+        """The VM read, back on the Tk thread — the working list's own seed."""
         self._vm_busy = False
-        self._merge([t for t in tasks if t.starred], pending)
-        if read_ok:
-            self.alliance.apply(tasks)
+        self._merge(tasks, pending)
+
+    # -- the alliance roster (#1244) -------------------------------------------
+    def _roster(self) -> None:
+        """Read what the alliance is running, for the table below. Off the Tk thread.
+
+        A read of its own rather than a share of the raid read above: what that one
+        answers is «which tiles may I rob», and it is filtered to say so — the dispatch
+        finished, a slot free, and only the stars kept. The question down here is «who of
+        my alliancemates is running what», so nothing may be filtered out of it, and it
+        needs the one thing the raid read does not carry at all: the owner's name.
+        """
+        if self._roster_busy:
+            return
+        self._roster_busy = True
+        threading.Thread(target=self._roster_work, daemon=True).start()
+
+    def _roster_work(self) -> None:
+        try:
+            import dispatch_tasks
+            rows, ok = dispatch_tasks.alliance_roster(self.rt.game.evaluator()), True
+        except Exception:                     # noqa: BLE001 — no daemon, no game, no list
+            rows, ok = [], False
+        self.after(lambda: self._roster_landed(rows, ok))
+
+    def _roster_landed(self, rows, ok: bool) -> None:
+        """Hand the read to the table below — but only a read that WORKED.
+
+        A failed one says nothing about the alliance's tasks. Emptying the table on it
+        would turn «the daemon was busy for a second» into «your alliance has nothing
+        out», which is the same lie `_merge` refuses to tell about a restored row.
+        """
+        self._roster_busy = False
+        if ok:
+            self.alliance.apply(rows)
 
     def refresh_live(self) -> None:
-        """A share landed: re-read both lists — but only if the tab has been opened.
+        """A share landed: re-merge the checkpoint and re-read the raid list.
 
-        An unopened one reads fresh when it is first shown. The VM read is in here as
-        well as the checkpoint merge because the push that fires this is exactly the
-        event that changes the game's own alliance table (#1244).
+        Only if the tab has been opened — an unopened one reads fresh when it is first
+        shown. The roster below is deliberately NOT re-read here: a mate SHARING a raid
+        does not change who is running what, and that read is the expensive one.
         """
         if self.loaded:
             self.refresh()
             self._snapshot()
 
     def refresh_both(self) -> None:
-        """«Обновить»: the wire feed for the list above, the game's table for the one below.
+        """«Обновить»: every source the tab has, in one press.
 
-        One press, both grids (#1244) — the checkpoint merge costs a file read, the VM
-        read one round trip through the warm daemon. They are deliberately NOT one flag:
-        each guards its own path, so neither can silently skip because the other happened
-        to be in flight.
+        The checkpoint merge (a file read), the raid list off the VM, and the alliance
+        roster below (#1244). Each guards its own path with its own flag, so none of the
+        three can silently skip because another happened to be in flight.
         """
         self.refresh()
         self._snapshot()
+        self._roster()
 
     def refresh(self) -> None:
         """Merge the live capture checkpoint (the wire feed) into the list.
@@ -1108,19 +1159,19 @@ class SecretTasksTab(PanelTab):
         return [t for t in tasks if t.starred]
 
     def _fetch_vm(self) -> list:
-        """Every live alliance secret task straight from the VM — stars and plain alike.
+        """The first-open snapshot: every live starred alliance task straight from the VM.
 
-        Every tile the game still lists with a free slot: the ones already raidable AND
-        the ones still counting down, so a row can carry its «готово через …» timer and
-        flip to raidable in place.
+        Every tile on the map with a free slot — the ones already raidable AND the ones
+        still counting down — so a row can carry its «готово через …» timer and flip to
+        raidable in place.
 
-        Unfiltered since #1244, because the answer feeds BOTH grids: the caller keeps
-        the starred ones for the working list above and hands the whole reply to the
-        alliance grid below. The star filter used to live here, which is why the lower
-        list could not exist without a second round trip.
+        This is the RAID list, and the star filter is part of what it means. What the
+        alliance is running, plain tiles and all, is a different question with a read of
+        its own (:meth:`_roster`).
         """
         import steal_secret_task
-        return steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
+        tasks = steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
+        return [t for t in tasks if t.starred]
 
     def _merge(self, tasks, verify: "set | None" = None) -> None:
         """Add tiles the list does not have yet; keep the ones it does.
@@ -1305,11 +1356,10 @@ class SecretTasksTab(PanelTab):
                           {"title": None, "items": items,
                            "empty": "secrettasks.empty"},
                           # The window's second table, as the phone's second card
-                          # (#1244): the alliance's whole list, stars and plain tiles
-                          # alike. Titled, unlike the one above it, because two
-                          # untitled lists of coordinates on one screen are
-                          # indistinguishable — and which list a tile is in is the
-                          # whole point of there being two.
+                          # (#1244): who of the alliance is running what. Titled,
+                          # unlike the one above it, because two untitled lists of
+                          # coordinates on one screen are indistinguishable — and
+                          # which list a tile is in is the whole point of two.
                           {"title": "secrettasks.alliance",
                            "items": self.alliance.web_items(),
                            "empty": "secrettasks.alliance.empty"}],

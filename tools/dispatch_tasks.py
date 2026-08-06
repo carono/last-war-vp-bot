@@ -114,6 +114,47 @@ def read_tasks(ev) -> tuple[list[dict], int]:
     return tasks, now_ms
 
 
+def alliance_roster(ev) -> list[dict]:
+    """What the player's own alliance is running right now, one record per task.
+
+    The same `allianceTask` read as :func:`read_tasks`, kept to the alliance half and
+    normalised into the shape a list draws from: who dispatched it, what rank and level
+    it is, when it finishes, when it disappears off the map and how many times it has
+    been robbed already. The panel's «Секретки» tab draws exactly this in its second
+    table (#1244) — hence a function rather than a second copy of the loop over there.
+
+    `level` and `starred` are split off `cfgId` by the one rule that owns them
+    (`lastwar_proto`), so a task's star means the same thing here as it does to the
+    scanner and to the robbery. A record with no owner name — the client has the task
+    but not the avatar behind it yet — keeps an empty string rather than inventing one.
+    """
+    import lastwar_proto as proto
+
+    out = []
+    for task in read_tasks(ev)[0]:
+        if task.get("kind") != "alliance":
+            continue
+        cfg_id = task["cfgId"]
+        try:
+            family, level, _variant = proto.split_cfg_id(cfg_id)
+        except (TypeError, ValueError):
+            continue                       # shaped like a task, but no usable cfgId
+        out.append({
+            "uuid": task["uuid"], "server": task["srv"],
+            "x": task["x"], "y": task["y"], "point_id": task["pointId"],
+            "cfg_id": cfg_id, "family": family, "level": level,
+            "starred": family in proto.STAR_TASK_FAMILIES
+            and level != proto.SPECIAL_TASK_LEVEL,
+            "loot_count": task["steals"],
+            "completed_at": task["done"] or None,
+            "expires_at": task["expires"] or None,
+            "owner_uid": task.get("owner", ""),
+            "owner_name": task.get("name", ""),
+            "alliance_abbr": task.get("abbr", ""),
+        })
+    return out
+
+
 def share_extra(task: dict) -> dict:
     """The kind-specific half of a posType-22 attachment (see chat-coord-share.md).
 

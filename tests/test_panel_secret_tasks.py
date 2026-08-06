@@ -249,9 +249,22 @@ def test_the_table_has_one_cell_per_column_and_the_two_live_ones():
     assert "⭐×7" in cells["lvl"] and st.TYPE_GLYPH in cells["lvl"], cells
     assert cells["state"] == "готово через 02:00", cells
     assert cells["slots"] == "1/3", cells
+    # A tile off the wire knows no owner, and an empty cell is how the table says so
+    # rather than inventing one (#1244).
+    assert cells["owner"] == "", cells
     # A tile still counting down offers no action: collecting it early is a robbery the
     # server would refuse.
     assert cells["action"] == "", cells
+
+    # The alliance table's rows carry the member who dispatched it, and the level-99
+    # class is NAMED rather than drawn as «⭐×99» — it is not a level at all.
+    named = dict(_row(2, 99, 120_000, 600_000), owner_name="Player1")
+    named["timer"].set("")
+    cells = dict(zip([c[0] for c in st.COLUMNS],
+                     st.SecretTasksTab._row_values(tab, named)))
+    assert cells["owner"] == "Player1", cells
+    assert cells["lvl"].endswith(tab.t("secrettasks.special")), cells
+    assert "99" not in cells["lvl"], cells
 
     # A ready tile swaps the glyph and grows its button.
     row["ready"] = True
@@ -745,7 +758,8 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab.monitor_var, tab.sweep_var = _Var(False), _Var(False)
     tab._sweep_hint = tab._rule_lbl = tab._rule_line = None
     tab._ids, tab._own_server = ("1", "a"), 1
-    tab._snapshot = lambda: None          # the live re-seed is its own test, not this one
+    # The two live re-seeds have tests of their own; this one is about the rows.
+    tab._snapshot = tab._roster = lambda: None
     tab.alliance = _FakeAllianceGrid()
 
     tab.on_profile_switch()
@@ -837,103 +851,158 @@ def _alliance_grid(tree=None):
     return g
 
 
-def test_one_vm_read_fills_both_grids():
-    """The stars go up into the working list, the WHOLE reply goes down into the mirror.
+def _member_task(uuid, owner="Player1", level=7, loot_count=0,
+                 completed_at=1_000, expires_at=999_000, starred=True):
+    """One record in the shape `dispatch_tasks.alliance_roster` hands the grid.
 
-    The star filter used to live in `_fetch_vm`, which is why the lower table could not
-    exist without a second round trip (#1244).
+    Invented values of the real shape, never a live one (CLAUDE.md): a made-up uuid, a
+    name that looks made up, and an alliance tag that is plainly not anybody's.
     """
+    return {"uuid": uuid, "server": 1, "x": 1, "y": 2, "point_id": 4242,
+            "cfg_id": 16003, "family": "6000", "level": level, "starred": starred,
+            "loot_count": loot_count, "completed_at": completed_at,
+            "expires_at": expires_at, "owner_uid": "1000000000000001",
+            "owner_name": owner, "alliance_abbr": "AL1"}
+
+
+def test_the_raid_read_stays_the_raid_read():
+    """The list above is the ROBBABLE stars and says so; the roster below is its own
+    read, because a filtered list cannot answer «who is running what» (#1244)."""
     tab = object.__new__(st.SecretTasksTab)
     tab._vm_busy = True
     merges = []
     tab._merge = lambda tasks, verify=None: merges.append((list(tasks), verify))
-    tab.alliance = _FakeAllianceGrid()
 
-    star, plain = _StubTask(1, starred=True), _StubTask(2, starred=False)
-    tab._vm_landed([star, plain], {"7"}, True)
+    tab._vm_landed([_StubTask(1)], {"7"})
 
     assert [t.uuid for t in merges[0][0]] == [1], merges
-    assert merges[0][1] == {"7"}, "the restored-row check must survive the split"
-    assert [t.uuid for t in tab.alliance.applied[0]] == [1, 2], tab.alliance.applied
+    assert merges[0][1] == {"7"}, "the restored-row check must survive"
     assert tab._vm_busy is False
 
 
-def test_a_failed_vm_read_leaves_the_alliance_grid_alone():
+def test_the_roster_read_fills_the_alliance_grid():
+    """A good read replaces the table below; nothing else on the tab is touched."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab._roster_busy = True
+    tab.alliance = _FakeAllianceGrid()
+
+    tab._roster_landed([_member_task(1), _member_task(2, owner="Player2")], True)
+
+    assert [r["owner_name"] for r in tab.alliance.applied[0]] == ["Player1", "Player2"]
+    assert tab._roster_busy is False
+
+
+def test_a_failed_roster_read_leaves_the_alliance_grid_alone():
     """A dead daemon is not evidence the alliance has nothing out — the same lie
     `_merge` refuses to tell about a restored row."""
     tab = object.__new__(st.SecretTasksTab)
-    tab._vm_busy = True
-    tab._merge = lambda tasks, verify=None: None
+    tab._roster_busy = True
     tab.alliance = _FakeAllianceGrid()
 
-    tab._vm_landed([], None, False)
+    tab._roster_landed([], False)
 
     assert tab.alliance.applied == [], "a failed read emptied the alliance table"
 
 
-def test_refresh_presses_both_sources():
-    """«Обновить» — and the phone's — refresh the wire feed AND the game's own table."""
+def test_refresh_presses_every_source():
+    """«Обновить» — and the phone's — refresh the wire feed, the raid list and the roster."""
     tab = object.__new__(st.SecretTasksTab)
     calls = []
     tab.refresh = lambda: calls.append("wire")
     tab._snapshot = lambda: calls.append("vm")
+    tab._roster = lambda: calls.append("roster")
 
     tab.refresh_both()
-    assert calls == ["wire", "vm"], calls
+    assert calls == ["wire", "vm", "roster"], calls
 
     calls.clear()
     assert tab.web_press("refresh", {}) == {"ok": True}
+    assert calls == ["wire", "vm", "roster"], calls
+
+
+def test_a_share_does_not_pay_for_the_roster_read():
+    """A mate sharing a raid changes the raid list, not who is running what — and the
+    roster is the tab's slowest round trip (#1244)."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab.loaded = True
+    calls = []
+    tab.refresh = lambda: calls.append("wire")
+    tab._snapshot = lambda: calls.append("vm")
+    tab._roster = lambda: calls.append("roster")
+
+    tab.refresh_live()
+
     assert calls == ["wire", "vm"], calls
 
 
-def test_the_two_reads_do_not_silence_each_other():
-    """Two paths, two flags: the checkpoint merge in flight must not skip the VM read."""
+def test_the_reads_do_not_silence_each_other():
+    """Three paths, three flags: one in flight must not skip the other two."""
+    import threading as _t
     tab = object.__new__(st.SecretTasksTab)
-    tab._busy, tab._vm_busy = True, False          # the wire feed is already running
+    tab._busy = True                               # the wire feed is already running
+    tab._vm_busy = tab._roster_busy = False
     tab._status_var = _Var()
     tab.t = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru").t
     started = []
-    import threading as _t
     real = _t.Thread
     _t.Thread = lambda target=None, daemon=None, args=(): type(
         "T", (), {"start": lambda self: started.append(target)})()
     try:
         tab._snapshot()
+        tab._roster()
     finally:
         _t.Thread = real
-    assert started and tab._vm_busy is True, "the VM read skipped because of `_busy`"
+    assert len(started) == 2, "a read skipped because another one held `_busy`"
+    assert tab._vm_busy is True and tab._roster_busy is True
 
 
 def test_each_read_clears_only_its_own_flag():
-    """`_merge` is shared by both paths, so it clears neither: one read finishing must
-    not tell the other it is free to start a second thread (#1244)."""
+    """`_merge` is shared by two paths, so it clears neither: one read finishing must
+    not tell the others they are free to start a second thread (#1244)."""
     tab = object.__new__(st.SecretTasksTab)
     tab._merge = lambda tasks, verify=None: None
     tab.alliance = _FakeAllianceGrid()
 
-    tab._busy = tab._vm_busy = True
+    tab._busy = tab._vm_busy = tab._roster_busy = True
     tab._wire_landed([])
-    assert (tab._busy, tab._vm_busy) == (False, True)
+    assert (tab._busy, tab._vm_busy, tab._roster_busy) == (False, True, True)
 
     tab._busy = True
-    tab._vm_landed([], None, True)
-    assert (tab._busy, tab._vm_busy) == (True, False)
+    tab._vm_landed([], None)
+    assert (tab._busy, tab._vm_busy, tab._roster_busy) == (True, False, True)
+
+    tab._vm_busy = True
+    tab._roster_landed([], True)
+    assert (tab._busy, tab._vm_busy, tab._roster_busy) == (True, True, False)
 
 
 def test_the_alliance_grid_is_replaced_whole_by_each_read():
-    """A mirror, not a working list: a tile the game stopped listing is gone from it,
+    """A mirror, not a working list: a task the game stopped listing is gone from it,
     and one that survived keeps its countdown variable so its cell does not blink."""
     g = _alliance_grid()
-    g.apply([_StubTask(1), _StubTask(2, starred=False)])
+    # Nothing is filtered out of it — not the plain tiles the star rule drops, not the
+    # ones already robbed three times: every one of them is somebody's task.
+    g.apply([_member_task(1), _member_task(2, starred=False, loot_count=3)])
     assert set(g._rows) == {"1", "2"}, g._rows
-    # …and the plain tile the list above filters out is exactly what this one is for.
     kept = g._rows["1"]["timer"]
 
-    g.apply([_StubTask(1, loot_count=2, expires_at=222_000)])
+    g.apply([_member_task(1, owner="Player3", loot_count=2, expires_at=222_000)])
 
     assert set(g._rows) == {"1"}, g._rows
     assert g._rows["1"]["timer"] is kept, "the countdown variable was thrown away"
     assert g._rows["1"]["loot_count"] == 2 and g._rows["1"]["expires_at"] == 222_000
+    assert g._rows["1"]["owner_name"] == "Player3", "the row kept a stale owner"
+
+
+def test_the_alliance_grid_carries_who_is_running_the_task():
+    """The whole point of the table: the member, the rank, the finish and the loots."""
+    g = _alliance_grid()
+    g.apply([_member_task(1, owner="Player1", level=6, loot_count=2,
+                          completed_at=111_000, expires_at=222_000)])
+    row = g._rows["1"]
+    assert row["owner_name"] == "Player1"
+    assert (row["level"], row["loot_count"]) == (6, 2)
+    assert (row["completed_at"], row["expires_at"]) == (111_000, 222_000)
 
 
 def test_the_alliance_grid_counts_down_and_drops_the_expired():
@@ -941,13 +1010,13 @@ def test_the_alliance_grid_counts_down_and_drops_the_expired():
     tree = _FakeTable()
     g = _alliance_grid(tree)
     now = int(__import__("time").time() * 1000)
-    g.apply([_StubTask(1, completed_at=now + 120_000, expires_at=now + 600_000),
-             _StubTask(2, completed_at=now - 100_000, expires_at=now - 1_000)])
+    g.apply([_member_task(1, completed_at=now + 120_000, expires_at=now + 600_000),
+             _member_task(2, completed_at=now - 100_000, expires_at=now - 1_000)])
     assert set(g._rows) == {"1", "2"}
 
     g.tick()
 
-    assert set(g._rows) == {"1"}, "the expired tile stayed on the mirror"
+    assert set(g._rows) == {"1"}, "the ended task stayed on the mirror"
     assert tree.rows == ["1"], tree.rows
     assert "готово через" in g._rows["1"]["timer"].get()
 
@@ -989,18 +1058,19 @@ def test_the_phone_is_shown_the_alliance_list_too():
 
 
 def test_the_phone_reads_the_alliance_rows_the_same_way_as_the_window():
-    """Same facts, same countdown, same ready pill — one list drawn two ways."""
+    """Same member, same rank, same loots, same countdown — one list drawn two ways."""
     g = _alliance_grid()
     now = int(__import__("time").time() * 1000)
-    g.apply([_StubTask(1, level=6, loot_count=1,
-                       completed_at=now - 5_000, expires_at=now + 600_000)])
+    g.apply([_member_task(1, owner="Player1", level=6, loot_count=1,
+                          completed_at=now - 5_000, expires_at=now + 600_000)])
     g._rows["1"]["ready"] = True
 
     item = g.web_items()[0]
     # The same coordinate token the card above prints — server included, because a tile
     # on somebody else's server is a different tile.
     assert item["text"] == "#1 X:1 Y:2", item
-    assert {f["value"] for f in item["facts"]} == {"6", "1/3"}, item
+    assert [f["value"] for f in item["facts"]] == ["Player1", "6", "1/3"], item
+    assert item["facts"][0]["label"] == "secrettasks.col.owner", item
     assert item["pill"] == "secrettasks.ready"
     assert abs(item["until"] - (now + 600_000) / 1000.0) < 1
 

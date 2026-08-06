@@ -43,6 +43,11 @@ SOON_MS = 10 * 60_000
 # what tells a neighbour's tile from a stranger's at a glance, and it is what «не грабить
 # на своём сервере» is about.
 COLUMNS = (
+    # Who dispatched the task. Filled for the alliance table below, where the whole
+    # question is «which of my alliancemates is running what» (#1244), and empty in the
+    # table above — a tile found on the wire or read off the raid list carries no name,
+    # and an empty cell is the honest way to say so.
+    ("owner", "secrettasks.col.owner", 140, "w", False),
     ("coords", "secrettasks.col.coords", 150, "w", False),
     ("server", "secrettasks.col.server", 90, "w", False),
     ("lvl", "secrettasks.col.level", 110, "w", False),
@@ -61,6 +66,7 @@ ACTION_COLUMN = "action"
 #: after, rather than the alphabet of a translated sentence. The action column is
 #: not in here: a button is not an order, so its heading does not sort.
 SORT_KEYS = {
+    "owner": lambda r: (r.get("owner_name") or "").lower(),
     "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0)),
     "server": lambda r: int(r["server"] or 0),
     "lvl": lambda r: int(r["level"] or 0),
@@ -134,16 +140,23 @@ def row_tag(row) -> str:
     return "soon" if row.get("soon") else "ready" if row.get("ready") else "waiting"
 
 
-def new_row(task, timer) -> dict:
-    """One `SecretTask` as the record a grid keeps — the shape both lists share.
+def new_row(record, timer) -> dict:
+    """One roster record as the row a grid keeps — the shape both lists share.
+
+    ``record`` is a mapping in the shape `dispatch_tasks.alliance_roster` returns; the
+    working list above builds its rows straight from a `SecretTask` instead, and the two
+    shapes meet here, in the keys every drawing helper below reads.
 
     ``timer`` is the row's own countdown variable; the caller makes it, because a grid
     with no Tk root behind it (a test) hands in a stand-in.
     """
-    return {"uuid": task.uuid, "server": task.server_id, "x": task.x, "y": task.y,
-            "level": task.level, "cfg_id": task.cfg_id,
-            "loot_count": task.loot_count, "expires_at": task.expires_at,
-            "completed_at": task.completed_at,
+    return {"uuid": record["uuid"], "server": record.get("server"),
+            "x": record.get("x"), "y": record.get("y"),
+            "level": record.get("level"), "cfg_id": record.get("cfg_id"),
+            "loot_count": record.get("loot_count") or 0,
+            "expires_at": record.get("expires_at"),
+            "completed_at": record.get("completed_at"),
+            "owner_name": record.get("owner_name") or "",
             "timer": timer, "ready": False, "soon": False}
 
 

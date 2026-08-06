@@ -144,7 +144,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Secret missions
 
 - ✅ Listing the secret tasks the game already knows about — own and alliance, instantly, without panning the map
-- 🟡 That whole alliance list on screen, in a table of its own under the starred raids — every task the alliance has out, plain tiles included, with the same countdown, the same right-click and the same click on a coordinate that walks the camera there. It costs no extra asking: the same reading that fills the raid list fills this one, and it is redrawn whole each time, so a task that has ended is simply not in it. The phone shows the same two lists. Not yet lived with through a real session
+- 🟡 Seeing what the alliance is running, in a table of its own under the starred raids — one row per task an alliancemate has out, with their name on it, its rank, when it finishes and how many times it has already been robbed. Nothing is left out of it: the plain tiles as well as the starred ones, the ones already picked clean, and the odd one-per-player task, which is named rather than dressed up as a level. Same countdown, same colours and the same click on a coordinate that walks the camera there as the list above. It is redrawn whole every time it is read, so a task that has ended is simply not in it, and the phone shows the same two lists. Read live off a real alliance — 200 tasks from 52 members, every one with a name — but not yet lived with through a real session
 - ✅ Finding raidable tasks on the map, with filters by level, star rank and whether a slot is actually free
 - ✅ Sharing a task's coordinates in chat as a tappable pin
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
