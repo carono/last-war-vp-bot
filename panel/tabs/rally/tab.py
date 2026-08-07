@@ -681,10 +681,23 @@ class RallyTab(PanelTab):
         # block. A profile written before they were one carries its old value over
         # once — a switch somebody left on must not be lost to a refactor.
         legacy = raw.get("autojoin")
-        if legacy is not None and bool(legacy) and not self._autojoin_on():
-            self._set_autojoin(True)
-        else:
+        if legacy is None:
             self._show_autojoin()
+        else:
+            # …and the old key is CARRIED OVER AND THEN REMOVED, in that order. Left in
+            # place it would be read again on the next start and put the standing order
+            # back on after somebody had deliberately switched it off — a stale copy
+            # resurrecting the state it was replaced by is worse than the two switches
+            # were (#1281).
+            if bool(legacy) and not self._autojoin_on():
+                self._set_autojoin(True)
+            else:
+                self._show_autojoin()
+            try:
+                self.rt.settings.set_tab_config(self.ID, self.config(),
+                                                self.LEGACY_KEYS)
+            except Exception:             # noqa: BLE001 — a tab opened on its own
+                pass
 
     def persist_vars(self) -> list:
         """Every control a change of has to be written to the profile (the container

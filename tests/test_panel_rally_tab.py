@@ -277,6 +277,11 @@ def test_a_profile_written_before_the_move_still_aims_the_tab():
         # value over into the order, once, so a refactor loses nobody's switch.
         assert "autojoin" not in got, got
         assert tab._autojoin_on() is True, "the old profile's switch was dropped"
+        # …AND THE OLD KEY IS GONE. Left behind it would be read again on the next
+        # start and put the order back on after somebody had switched it off — a stale
+        # copy resurrecting the state that replaced it (#1281).
+        block = rt.settings.tab_config(RallyTab.ID, RallyTab.LEGACY_KEYS)
+        assert "autojoin" not in block, block
         assert tab.join_squads() == [2, 4]
         # And the new block wins once it is there — while the flat keys are still
         # written beside it, so an older panel opening this profile finds them (§5 r2).
