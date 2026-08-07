@@ -23,17 +23,25 @@ from __future__ import annotations
 
 import os
 import pathlib
-import subprocess
 import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "tools" / "lib"))
 
+import repo_git             # noqa: E402 — a bare name, reachable only once the path is set
+
 
 def _git(*args: str) -> str:
-    return subprocess.run(["git", *args], cwd=_REPO,
-                          capture_output=True, text=True, check=True).stdout
+    """Ask git, from either side of the WSL boundary — see `tools/lib/repo_git.py`.
+
+    Three of the six checks in this file shell out to `git`, and all three USED to fail
+    inside a worktree created from WSL: its `.git` file names a `/mnt/…` path that the
+    Windows interpreter running the tests cannot resolve, so «a worktree per agent»
+    looked broken when it was not (#1282). The helper resolves the git directory itself
+    and spells it for whichever platform is asking.
+    """
+    return repo_git.out(_REPO, *args)
 
 
 def _tracked() -> list[str]:
@@ -118,7 +126,15 @@ def test_the_trees_that_hold_live_data_stay_ignored() -> None:
     for path, what in PRIVATE_TREES:
         if not (_REPO / path).exists():
             continue        # not every machine has run every part of the bot
-        ignored = subprocess.run(["git", "check-ignore", "-q", path], cwd=_REPO).returncode
+        ignored = repo_git.run(_REPO, "check-ignore", "-q", path, check=False).returncode
+        # 0 «ignored», 1 «not ignored», anything else «git could not answer» — and the
+        # third must not be read as the second. That is what this check did inside a
+        # worktree: git returned 128 and the assertion reported a leak that was not
+        # there (#1282).
+        assert ignored in (0, 1), (
+            f"git could not say whether {path}/ is ignored (exit {ignored}) — the "
+            f"check did not run, which is not the same as passing."
+        )
         assert ignored == 0, (
             f"{path}/ is NOT git-ignored, and it holds {what}. One `git add -A` "
             f"publishes it."
