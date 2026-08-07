@@ -552,3 +552,42 @@ an ally SHARING a tile faster than any sweep can pan over it.
   11 entries. Pure flavour — it pays nothing.
 * **The prospective reward is still not quoted anywhere** before the robbery (the
   open question from `protocol.md` §7); the loot only appears in the reply.
+
+## Pressing before the tile is ready, and pressing again (task #1272)
+
+A raidable star is taken in the first instant it exists, so one send at the moment of
+maturity loses to anybody who was already pressing. Two facts make the answer simple.
+
+**A premature robbery costs nothing.** `DispatchStealMessage:HandleMessage` reads back
+as `errorCode -> UIUtil.ShowTipsId(errCode)`, and the other branch is the only one that
+touches the counter — through `ActDispatchTaskDataManager:UpdateTodayNum`, whose
+constants are `todayStealNum | todayAssistNum | … DispatchTaskTodayNumUpdate`: it takes
+the SERVER's numbers out of the reply rather than incrementing anything locally. So a
+refusal — «ещё не готово», out of sector, slots full — leaves `todayStealNum` exactly
+where it was. The operator states the same thing from the game side: «штрафа за
+преждевременный сбор нет, сервер просто отвечает, что ещё не готово».
+
+**Which makes the counter the only honest confirmation.** A `steal_sent` line proves a
+frame left the client and nothing else. `secret_task_taken()` compares
+`GetTodayStealNum()` against `__lw_steal_mark`, stamped when the target was armed; the
+mark moving is the reply landing.
+
+Together those turn the press into a loop. `secret_task_steals_pending()` answers «press
+the same one again» — a head is queued, the day's budget is not spent, and the server has
+not confirmed this one — so `TAP steal_secret_task xall` becomes a spam at the speed of
+the channel (~7 presses a second; one round trip through the warm daemon is 80-135 ms,
+task #1232), started a couple of seconds before the tile matures and stopped by the
+server's yes. `secret_task_queue_pop()` moves to the next target; the head is no longer
+dropped before its own send, which is what used to make the press a one-shot.
+
+Verified live as far as a spent account allows: the queue is set, the mark stamped, the
+pop advances, and the gate answers **0 with the day's five gone** — the spam cannot
+hammer a server that has nothing left to give it. The taking half needs a budget and a
+maturing tile in reach, which is a live acceptance still to be run.
+
+The panel's own path shrank with it. «Автолут ★» used to spawn
+`tools/steal_secret_task.py --queue-only` to park the targets and then play the recipe;
+**that child costs five seconds, measured end to end**, which is the whole race. The
+queue travels as an argument now (`ARGS queue`) and the recipe parks it. The tool keeps
+`--from-scan` and `--coords`, which genuinely need a map scan and a round trip to resolve
+a coordinate — neither of them in anybody's hot path.

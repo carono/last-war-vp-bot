@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "não deu para percorrer a lista: {error}",
   "log.autoloot.spend_failed": "a receita que gasta a fila não rodou: {reason}",
   "log.autoloot.spent": "os roubos do dia acabaram — pausa de {mins} min (volto depois da virada)",
+  "log.autoloot.taken": "o servidor confirmou o roubo",
   "log.autoloot.target": "alvo: {label}",
   "log.autostart.on": "a verificação de hora em hora fica registrada — um único painel com: {profiles}",
   "log.autostart.off": "a verificação de hora em hora é retirada — nada mais abrirá o painel sozinho",

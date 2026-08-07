@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "der Blick in die Liste misslang: {error}",
   "log.autoloot.spend_failed": "das Rezept, das die Warteschlange abarbeitet, lief nicht: {reason}",
   "log.autoloot.spent": "die Raubzüge des Tages sind verbraucht — Pause von {mins} min (nach dem Zurücksetzen geht es weiter)",
+  "log.autoloot.taken": "der Server hat den Raub bestätigt",
   "log.autoloot.target": "Ziel: {label}",
   "log.autostart.on": "stündliche Prüfung angelegt — ein Panel mit: {profiles}",
   "log.autostart.off": "stündliche Prüfung entfernt — das Panel öffnet sich nicht mehr von selbst",

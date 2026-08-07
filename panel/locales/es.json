@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "no se pudo revisar la lista: {error}",
   "log.autoloot.spend_failed": "la receta que gasta la cola no se ejecutó: {reason}",
   "log.autoloot.spent": "los robos del día están gastados — pausa de {mins} min (sigo tras el reinicio diario)",
+  "log.autoloot.taken": "el servidor confirmó el robo",
   "log.autoloot.target": "objetivo: {label}",
   "log.autostart.on": "la comprobación horaria queda registrada — un solo panel con: {profiles}",
   "log.autostart.off": "la comprobación horaria se quita — ya nada abrirá el panel por sí solo",

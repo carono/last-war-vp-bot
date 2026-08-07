@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "the look at the list failed: {error}",
   "log.autoloot.spend_failed": "the recipe that spends the queue did not run: {reason}",
   "log.autoloot.spent": "the day's robberies are spent — pausing {mins} min (I pick up again after the reset)",
+  "log.autoloot.taken": "the server confirmed the robbery",
   "log.autoloot.target": "target: {label}",
   "log.autostart.on": "the hourly check is registered — one panel with: {profiles}",
   "log.autostart.off": "the hourly check is removed — nothing will open the panel by itself",

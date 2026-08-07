@@ -89,14 +89,25 @@ are debt, not precedent. Do not rewrite them all at once, but when a task takes
 you into one of those paths, move the game logic out into a scenario and leave the
 panel calling it. **Never add a new one.**
 
-Two of them are itemised and were NOT free, whatever a plan may say: the secret-task
-and ghost-recon robberies. **The robbery itself is a scenario now (#1188)** — both
-orders play `actions/steal_secret_task.md` / `actions/steal_ghost_recon.md` — but they
-still SPAWN their tool first, with `--queue-only`, because the recipe spends a queue and
-cannot fill one: `TAP` takes no arguments, so a robbery cannot name its victim in the
-DSL, and the tool is what parks the chosen targets in the game VM. Two steps, on purpose.
-Read #1188 before "just" swapping a spawn for `rt.actions.run(...)`: the one-line version
-of that swap plays a recipe over an empty queue, robs nothing, and says nothing.
+Two of them were itemised here as NOT free, whatever a plan said: the secret-task and
+ghost-recon robberies. **The robbery itself is a scenario (#1188)** — both orders play
+`actions/steal_secret_task.md` / `actions/steal_ghost_recon.md`.
+
+**The secret-task one is now ONE step, and the way it got there is the lesson (#1272).**
+It used to spawn its tool first, with `--queue-only`, on the grounds that a recipe cannot
+name its own victim: `TAP` takes no arguments. True of `TAP`, and not true of the recipe,
+which takes `ARGS` — the queue travels as an argument and the recipe parks it in the call
+it was going to make anyway (`join_rally.md` had been doing exactly that with its squads
+all along). What forced the question was a measurement: **the parking child costs five
+seconds**, and the race it was in the middle of is decided in fractions of one.
+
+So the warning that stood here — do not "just" swap the spawn for `rt.actions.run(...)`,
+because the one-line version plays a recipe over an empty queue, robs nothing and says
+nothing — was right about the ONE-LINE version and wrong as a verdict. The swap costs
+what it always costs: the recipe has to grow the argument, park what it is given, and say
+in its own words what the caller used to read off the tool's stdout. **The ghost robbery
+still spawns**, and the same reasoning is waiting for whoever takes it: measure the child
+before deciding it is affordable.
 
 ## Every panel tab is a plugin
 
@@ -200,9 +211,9 @@ def web_press(self, action, args) -> dict:
 ### A press travels only when the ability is a scenario
 
 `web_press` runs what `rt.actions` / `rt.play_async` runs and nothing else. Where a tab
-still drives the game by hand — or half by hand: the secret-task and ghost robberies
-press through a scenario but still spawn a tool to PARK the targets first, because the
-recipe cannot fill the queue it spends (#1188) — **the web gets the READING and no
+still drives the game by hand — or half by hand, which the GHOST robbery still is: it
+presses through a scenario but spawns a tool to PARK the targets first (#1188; the
+secret-task one stopped needing that in #1272) — **the web gets the READING and no
 button**, and the tab's own reading is mirrored as usual.
 
 This is an ORDER OF WORK, not a way out of the rule: first the ability becomes a

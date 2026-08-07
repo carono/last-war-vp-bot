@@ -324,15 +324,29 @@ BUTTONS: dict[str, Button] = {
     # See lua_actions.steal_next_secret_task() and docs/research/secret-task-steal.md.
     "steal_secret_task": Button(
         lua=_lua_actions.steal_next_secret_task(),
-        # The daily counter only moves when the server's reply lands, and that reply
-        # carries the whole reward list. Pressing again before it arrives would rob
-        # against a stale budget — the queue pop is the safety net, this pause is what
-        # keeps `xall` from leaning on it.
-        wait=2.0, label="Rob a secret task",
-        # min(targets queued, robberies left today) — so `xall` stops both when the
-        # queue runs dry and when the daily cap is spent.
+        # AS FAST AS THE CHANNEL ALLOWS (#1272). A raidable star is taken in the first
+        # instant it exists, so this is a spam loop rather than a press: `xall` re-reads
+        # `count_lua` and presses again while the SERVER has not confirmed, and the pause
+        # is what keeps a round from starting before the last one is off the wire.
+        #
+        # 0.05 s and not 0: one round trip through the warm daemon is ~80-135 ms (#1232),
+        # so the loop is paced by the call itself and this is a floor, not a throttle —
+        # about seven or eight presses a second. It used to be 2.0 s, which is a whole
+        # race lost between two presses.
+        wait=0.05, label="Rob a secret task",
+        # 1 while the head is worth pressing again — see `secret_task_steals_pending`.
         count_lua=_lua_actions.secret_task_steals_pending(),
-        max_taps=10,
+        # The cap is the width of the spam, not a number of targets: at ~0.15 s a round
+        # that is about nine seconds of pressing at one tile, which covers the couple of
+        # seconds before it matures and a good spell after.
+        max_taps=60,
+    ),
+    "drop_steal_target": Button(
+        # Move on: drop the head of the queue and re-arm the confirmation mark on the
+        # next one. Between targets, never before a send — the head has to survive its
+        # own press so the press can be repeated (`secret_task_queue_pop`).
+        lua=_lua_actions.secret_task_queue_pop(),
+        wait=0.05, label="Drop the current steal target",
     ),
     "dismiss_steal_reward": Button(
         # A successful robbery raises `UIDispatchTaskReward` — the loot list plus the

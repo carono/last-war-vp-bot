@@ -56,12 +56,16 @@ import time
 
 from ...runtime.paths import TOOLS
 
-#: What the parking run says when it has left something in the game VM for the recipe to
-#: spend — `tools/steal_secret_task.py`, under `--queue-only`. It is the one line that
-#: distinguishes «the targets are parked» from every way the tool can decline (not
-#: logged in, own server unreadable, nothing named), all of which leave the queue alone.
-#: Reword it there and this order stops robbing, quietly — the tool says so beside it.
-QUEUED_MARK = "queued "
+#: A robbery the SERVER answered, in the recipe's own output. The daily counter moving
+#: is the only honest «it worked» — `hero.dispatch.steal` gets a tip back when the tile
+#: is not ready, not in reach or already full, and a frame leaving the client proves
+#: none of that (#1272). `ACT steal_taken` is emitted by the recipe's own confirmation
+#: read; `steal_sent` deliberately is NOT this mark.
+TAKEN_MARK = "steal_taken"
+
+#: …and the day's five gone, which is what this watcher pauses on. Said by the recipe
+#: now that there is no parking child to say it (#1272).
+SPENT_MARK = "steals_spent"
 
 #: How long after the last keystroke the listener is re-spawned with the new rule.
 #: Debounced so typing "1" then "7" restarts once, not per keystroke — spawning a
@@ -232,7 +236,7 @@ class AutoLoot:
                 if err != last_err:
                     last_err = err
                     self.tab.say("autoloot", "log.autoloot.poll_error", error=err)
-            if stop.wait(self.rt.settings.opt_float("autoloot_poll", low=1.0, high=600.0)):
+            if stop.wait(self.rt.settings.opt_float("autoloot_poll", low=0.2, high=600.0)):
                 return
 
     def tick(self) -> None:
@@ -333,96 +337,70 @@ class AutoLoot:
         return out
 
     def run(self, targets) -> None:
-        """PARK the chosen targets with the tool, then PLAY the recipe that spends them.
+        """Play `actions/steal_secret_task.md` over the tiles this tick chose.
 
-        Two steps, and it has to be two (#1188). `--targets` and nothing else goes to the
-        tool: the level rule, the star and the own-server prohibition were all applied
-        where the targets were chosen, and a child that re-derived them would be
-        re-reading a map the list has already made its mind up about (#1256).
+        ONE STEP NOW, AND THE MEASUREMENT IS WHY (#1272). It used to be two: spawn
+        `tools/steal_secret_task.py --queue-only` to park the targets in the game VM, then
+        play the recipe to press them. #1188 kept the spawn on the grounds that a recipe
+        cannot name its own victim — true of `TAP`, which takes no arguments, and not true
+        of the recipe, which takes `ARGS`. What settled it is the clock: **the parking
+        child takes five seconds**, measured end to end, and the race this order exists to
+        win is decided in fractions of one. Five seconds is not a slow path, it is the
+        whole event, over before the first press.
 
-        `--queue-only` is the half of this task that was NOT one line. The tool owns the
-        queue in the game VM, the daily budget and the way a target is named to it; what
-        it must not own any more is the pressing. So it selects, parks and stops — and
-        `actions/steal_secret_task.md` presses, in :meth:`_spend`. Swapping the spawn
-        outright for `run_action` (which is what the refactor plan promised) would have
-        played a recipe that OPENS by reading that queue and logging «run
-        tools/steal_secret_task.py first»: nothing robbed, and nothing saying why.
+        So the queue travels as an argument and the recipe parks it in the call it was
+        going to make anyway. Nothing else moved: the level rule, the star and the
+        home-server prohibition were all applied where the targets were CHOSEN
+        (`rob_candidates`, #1256, #1188), and the recipe re-derives none of them — it is
+        handed uuids and servers, exactly as the tool was.
+
+        The tool keeps its own life for what it is actually good at: `--from-scan` and
+        `--coords`, which need a map scan and a round trip to resolve a coordinate into a
+        uuid. Neither of those is in anybody's hot path.
+
+        On this worker rather than through `rt.play_async`: the interlock this order has
+        is «one run at a time» (`_proc`), and a claim wrapped round the press would invent
+        a refusal in the middle of a robbery whose targets were chosen a moment ago and
+        are already in `_seen`.
         """
         if not targets:
             return
-        cmd = [self.rt.children.python(), "-u",
-               os.path.join(TOOLS, "steal_secret_task.py"),
-               # Select and park; the robbery itself is the recipe's, below.
-               "--queue-only",
-               "--limit", str(self.limit()),
-               "--targets", ",".join("%d:%d" % (uuid, srv)
-                                     for uuid, srv, _label in targets)]
+        queue = ",".join("{uuid=%d,server=%d}" % (uuid, srv)
+                         for uuid, srv, _label in targets)
         self.rt.put(f"[autoloot] {self.rule_text()} …")
-        proc = self.rt.children.spawn_raw(cmd, "autoloot")
-        if proc is None:
-            return
-        self._proc = proc
-        threading.Thread(target=self._reader, args=(proc,), daemon=True).start()
+        self._proc = object()          # «a robbery is in flight» — `tick` reads this
+        threading.Thread(target=self._spend, args=(queue,), daemon=True).start()
 
-    def _reader(self, proc) -> None:
-        """Stream the parking run, then spend what it parked.
+    def _spend(self, queue: str) -> None:
+        """The press itself, and what its outcome means for the standing order.
 
-        `self._proc` is deliberately still set while :meth:`_spend` runs: `tick` reads it
-        as «a robbery is in flight», and clearing it between the two halves would let the
-        next poll park a second set of targets on top of the queue this one is pressing.
-        """
-        spent = queued = False
-        try:
-            for raw in proc.stdout:
-                line = raw.rstrip()
-                if not line:
-                    continue
-                self.rt.put(f"[autoloot] {line}")
-                # The child says so in words when there is nothing left to spend. It
-                # still does under `--queue-only`: the budget is read and printed before
-                # the queue is parked, so the one line this watcher steers by survives
-                # the split (#1188).
-                if "robberies are spent" in line or "robberies left today: 0" in line:
-                    spent = True
-                elif _parked(line):
-                    queued = True
-        except Exception:                        # noqa: BLE001 — the pipe closed
-            pass
-        if spent:
-            pause = self.rt.settings.opt_int("autoloot_pause_min", low=1, high=1440) * 60
-            self._pause_until = time.time() + pause
-            self._state = (STATE_PAUSED, _hhmm(self._pause_until))
-            self.tab.say("autoloot", "log.autoloot.spent", mins=int(pause // 60))
-        elif queued:
-            # Something is parked. Every other way the run can end — a client that is not
-            # logged in, an own server that could not be read, a target list that named
-            # nothing — leaves the queue untouched and has already said so in its own
-            # words, so there is nothing to press and nothing to add.
-            self._spend()
-        if self._proc is proc:
-            self._proc = None
+        The recipe is the authority on everything below it: it parks, it spams the head
+        until the SERVER confirms (the daily counter moving is the only honest «it
+        worked» — a sent frame is not one), it drops a target it could not take and moves
+        to the next, and it stops on a spent budget.
 
-    def _spend(self) -> None:
-        """Play `actions/steal_secret_task.md` over the queue the tool just parked.
-
-        Straight through `rt.actions`, on this reader thread, and deliberately NOT
-        `rt.play_async`. The tool that ran a moment ago drove the game without the
-        panel's claim — like every child, it takes the daemon's lease for itself — so
-        wrapping only the second half in a claim would invent a refusal («занят») in the
-        middle of a robbery whose targets are already parked, with nothing left to retry
-        it: the uuids are in `_seen` and the next tick would skip them. The interlock is
-        the one this order has always had — one child at a time, and the daemon's lease
-        under both halves.
-
-        The recipe is safe over an empty queue in any case: it says so and its `xall`
-        re-reads min(queued, robberies left) before every press, so a queue the server
-        emptied under us costs a log line rather than a wasted raid.
+        This reads two things out of its events. `steal_taken` is a robbery the server
+        answered, and `steals_spent` is the day's five gone — the same pause this watcher
+        has always taken, on a line the recipe now says in place of the tool's «robberies
+        are spent».
         """
         self._state = (STATE_ROBBING, "")
-        put = lambda msg: self.rt.put(f"[autoloot] {msg}")     # noqa: E731
+        taken = spent = False
+
+        def put(msg) -> None:
+            nonlocal taken, spent
+            line = str(msg)
+            self.rt.put(f"[autoloot] {line}")
+            if TAKEN_MARK in line:
+                taken = True
+            if SPENT_MARK in line:
+                spent = True
+
         try:
-            outcome = self.rt.actions.play("steal_secret_task", on_event=put)
+            outcome = self.rt.actions.play("steal_secret_task", {"queue": queue},
+                                           on_event=put)
         except Exception as exc:      # noqa: BLE001 — a failed press, never the watcher
+            self._proc = None
             self.tab.say("autoloot", "log.autoloot.spend_failed",
                          reason=f"{type(exc).__name__}: {exc}")
             return
@@ -431,6 +409,16 @@ class AutoLoot:
             # stopped and the panel's job is to repeat it, not to re-diagnose it.
             self.tab.say("autoloot", "log.autoloot.spend_failed",
                          reason=outcome.reason or "?")
+        if taken:
+            self.tab.say("autoloot", "log.autoloot.taken")
+        if spent:
+            pause = self.rt.settings.opt_int("autoloot_pause_min", low=1, high=1440) * 60
+            self._pause_until = time.time() + pause
+            self._state = (STATE_PAUSED, _hhmm(self._pause_until))
+            self.tab.say("autoloot", "log.autoloot.spent", mins=int(pause // 60))
+        elif not taken:
+            self._state = (STATE_WATCHING, "")
+        self._proc = None
 
     # -- the rule ------------------------------------------------------------
     def limit(self) -> int:
@@ -493,19 +481,6 @@ class AutoLoot:
         key, datum = self._state
         text = self.tab.t(key)
         return f"{text} {datum}" if datum else text
-
-
-def _parked(line: str) -> bool:
-    """Did the parking run leave targets in the game VM? Read off its own words.
-
-    «queued N target(s)» with N above zero, and nothing else. The count matters: the tool
-    prints the line whether or not anything survived its own gates, and a recipe played
-    over an empty queue is a round trip that presses nothing and reports success.
-    """
-    if not line.startswith(QUEUED_MARK):
-        return False
-    head = line[len(QUEUED_MARK):].split(" ", 1)[0]
-    return head.isdigit() and int(head) > 0
 
 
 def _hhmm(when: float) -> str:

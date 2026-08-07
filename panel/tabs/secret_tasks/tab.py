@@ -154,6 +154,29 @@ LIVE_MS = 250
 # a machine gains nothing from pressing early.
 EARLY_MS = 10_000
 
+# …and how long before it the STANDING ORDER starts pressing (#1272). A couple of
+# seconds, and deliberately NOT the ten above.
+#
+# THE TWO WINDOWS ARE DIFFERENT ON PURPOSE. DO NOT UNIFY THEM. Ten seconds is what a
+# person asked for and what a person needs: time to see the row, move the mouse and hold
+# still. Ten seconds of a MACHINE pressing seven times a second is seventy round trips
+# spent on a tile that cannot answer yet — «10 секунд для автолута это вечность». Two is
+# what the race needs and no more: the recipe presses from here until the server says
+# yes, and every press before the tile matures is free (the reply is a tip, the counter
+# does not move, nothing is spent) but not free of a round trip.
+#
+# It is a PICK window rather than a press window: the watcher's poll and the run's start
+# sit between noticing a tile and pressing it, so the number is what makes the first
+# press land at about two seconds out, not what the first press is timed to.
+AUTO_EARLY_MS = 2_500
+
+# What a robbery the SERVER answered looks like in the recipe's own output. The daily
+# counter moving is the only honest «it worked»: `hero.dispatch.steal` gets a tip back
+# when the tile is not ready, not in reach or already full, and a frame leaving the
+# client proves none of that. Said by `actions/steal_secret_task.md`; reword it there and
+# here in the same breath.
+TAKEN_MARK = "steal_taken"
+
 # How often the game's own clock is re-measured (#1227). It is not this machine's
 # clock, which was measured eleven seconds slow against it — and the operator had been
 # reading 25-30 s of that — so every countdown here is drawn
@@ -2480,14 +2503,26 @@ class SecretTasksTab(PanelTab):
         return not self._spent(row) and not row.get("robbed")
 
     def _raidable(self, row) -> bool:
-        """Whether the GAME would take a robbery of this tile right now.
+        """What «Автолут ★» aims at — ready, or about to be (#1272).
 
-        The standing order's gate, and the strict one. It has no use for the ten-second
-        window below: a machine gains nothing from pressing early, and a send the server
-        answers «рано» is a round trip that finds nothing and a log line that reads like
-        a failure. The window is for a finger.
+        NOT the same window as the hand's, and that is not an oversight to be tidied
+        away. See :data:`AUTO_EARLY_MS` beside :data:`EARLY_MS` for why one is two
+        seconds and the other ten; the short version is that ten seconds of a machine
+        pressing seven times a second is seventy round trips a tile cannot answer, and a
+        person needs those ten seconds to get a finger onto the button.
+
+        Everything else about the gate is the strict one and stays here: a looted-out
+        tile and one we have already robbed are not targets (`_takeable`), and the home
+        server is excluded where the rows come in and again in `rob_candidates`. The
+        early window widens WHEN, never WHAT.
         """
-        return bool(row.get("ready")) and self._takeable(row)
+        if not self._takeable(row):
+            return False
+        if row.get("ready"):
+            return True
+        import game_clock
+        left = int(row["completed_at"] or 0) - game_clock.now_ms()
+        return 0 < left <= AUTO_EARLY_MS
 
     def _collectable(self, row) -> bool:
         """Whether «Собрать» is offered on this row — THE HAND'S gate (#1272).
@@ -2799,30 +2834,35 @@ class SecretTasksTab(PanelTab):
 
     # -- actions ---------------------------------------------------------------
     def _collect(self, row) -> None:
-        """Rob one tile: `hero.dispatch.steal {uuid, targetServer}`, off the Tk thread.
+        """Rob one tile — by playing `actions/steal_secret_task.md` over it (#1272).
 
-        The steal is budget-gated in the VM (a spent account sends nothing), so a
-        confirmed send is the honest success signal here — whether the server pays out is
-        its call, the same as every other route into the robbery.
+        THE HAND AND THE STANDING ORDER PRESS THE SAME WAY NOW. This used to build its
+        own `hero.dispatch.steal` and send it once, which is the last hand-driven press
+        this tab had; it is one call into `rt.actions` and the queue travels as an
+        argument. What that buys is not tidiness: the recipe SPAMS. It presses again and
+        again, as fast as the channel allows, and stops the moment the SERVER confirms —
+        which is what a race decided in fractions of a second needs, and what a single
+        send from here could never be.
 
-        A PRESS INSIDE THE TEN-SECOND WINDOW WAITS OUT THE REMAINDER (#1272). «Собрать»
-        now appears before the tile is raidable, so that a finger can be over it when the
-        moment comes; sending at the moment of the PRESS would put a doomed
-        `hero.dispatch.steal` on the wire, get a tip back, and report a robbery that did
-        not happen. So the worker sleeps the difference — at most `EARLY_MS`, by
-        construction, because that is the widest the button is offered in — and sends when
-        the tile matures. That is the advantage the early button is FOR: the send lands on
-        the millisecond rather than on a human reaction time, in a race the operator says
-        is decided in microseconds.
+        A press inside the ten-second window holds only the part of it the spam cannot
+        reach. Pressing early is free — the server answers «ещё не готово», the daily
+        counter does not move and nothing is spent — but it is not free of a round trip,
+        so the worker sleeps until the tile is `AUTO_EARLY_MS` from maturing and lets the
+        recipe do the rest. At most `EARLY_MS` of sleep, by construction: that is the
+        widest the button is ever offered in.
 
-        The wait is on the worker and not on a Tk timer: this method already runs its
-        round trip on a thread, the sleep is bounded, and the Tk thread is the one thing
-        on this panel that must never be asked to wait for anything (#1226).
+        The sleep is on the worker and not on a Tk timer: this method already ran its
+        round trip on a thread, the wait is bounded, and the Tk thread is the one thing on
+        this panel that must never be asked to wait for anything (#1226).
 
-        ONE PRESS AT A TIME PER TILE. The row keeps offering «Собрать» while the wait
+        SUCCESS IS THE SERVER'S ANSWER, NOT THE SEND. `steal_taken` is the recipe's own
+        confirmation read — the daily counter having moved — and it is what `_collect_done`
+        is given. A `steal_sent` line proves a frame left the client and nothing more.
+
+        ONE PRESS AT A TIME PER TILE. The row goes on offering «Собрать» while the wait
         runs — it is still counting down, and the gate has no idea a press is in flight —
-        so a second press would arm a second send at the same instant. `_pressing` is
-        what makes the extra presses free.
+        so a second press would arm a second run at the same instant. `_pressing` is what
+        makes the extra presses free.
         """
         key = str(row["uuid"])
         if key in self._pressing:
@@ -2831,28 +2871,31 @@ class SecretTasksTab(PanelTab):
         # Read here, on the Tk thread, from the row the person actually clicked: by the
         # time the worker wakes the row may have been refreshed under it.
         import game_clock
-        wait = (int(row["completed_at"] or 0) - game_clock.now_ms()) / 1000.0
-        wait = min(max(wait, 0.0), EARLY_MS / 1000.0)
-        if wait:
+        left = int(row["completed_at"] or 0) - game_clock.now_ms()
+        hold = min(max(left - AUTO_EARLY_MS, 0), EARLY_MS) / 1000.0
+        if hold:
             self.say("secret", "log.secret.collect_armed",
-                     secs=max(1, int(round(wait))))
+                     secs=max(1, int(round(hold))))
+        queue = "{uuid=%d,server=%d}" % (int(row["uuid"]), int(row["server"] or 0))
 
         def work():
-            ok = False
+            taken = False
             try:
-                if wait:
-                    time.sleep(wait)
-                import lua_actions
-                lines = self.rt.game.evaluator().run(
-                    lua_actions.secret_task_steal(int(row["uuid"]), int(row["server"])),
-                    marker="ACT", settle=1.4)
-                ok = any("steal_sent" in ln for ln in (lines or []))
+                if hold:
+                    time.sleep(hold)
+
+                def put(msg) -> None:
+                    nonlocal taken
+                    line = str(msg)
+                    self.rt.put(f"[secret] {line}")
+                    if TAKEN_MARK in line:
+                        taken = True
+
+                self.rt.actions.play("steal_secret_task", {"queue": queue},
+                                     on_event=put)
             except Exception:                 # noqa: BLE001
-                ok = False
-            # `_pressing` is released by `_collect_done`, not here: between the send and
-            # the outcome landing on the row there is nothing to stop a second press, and
-            # that gap is precisely where a finger hovering over the button is.
-            self.after(lambda: self._collect_done(key, ok))
+                taken = False
+            self.after(lambda: self._collect_done(key, taken))
 
         threading.Thread(target=work, daemon=True).start()
 

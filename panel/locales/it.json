@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "non è stato possibile esaminare l'elenco: {error}",
   "log.autoloot.spend_failed": "la ricetta che consuma la coda non è stata eseguita: {reason}",
   "log.autoloot.spent": "i furti della giornata sono esauriti — pausa di {mins} min (riprendo dopo l'azzeramento)",
+  "log.autoloot.taken": "il server ha confermato il furto",
   "log.autoloot.target": "bersaglio: {label}",
   "log.autostart.on": "il controllo orario è registrato — un solo pannello con: {profiles}",
   "log.autostart.off": "il controllo orario è tolto — nulla aprirà più il pannello da solo",

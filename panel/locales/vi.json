@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "không xem được danh sách: {error}",
   "log.autoloot.spend_failed": "công thức tiêu thụ hàng đợi đã không chạy: {reason}",
   "log.autoloot.spent": "lượt cướp trong ngày đã hết — nghỉ {mins} phút (tôi làm tiếp sau khi đặt lại theo ngày)",
+  "log.autoloot.taken": "máy chủ đã xác nhận vụ cướp",
   "log.autoloot.target": "mục tiêu: {label}",
   "log.autostart.on": "đã đăng ký lượt kiểm tra hằng giờ — một bảng với: {profiles}",
   "log.autostart.off": "đã gỡ lượt kiểm tra hằng giờ — sẽ không còn gì tự mở bảng nữa",

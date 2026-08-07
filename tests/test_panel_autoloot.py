@@ -290,13 +290,25 @@ def test_an_unreadable_own_server_stops_the_robbery_instead_of_letting_it_throug
     assert sum("свой сервер не прочитан" in m for m in w.logs) == 1, w.logs
 
 
-def test_the_rule_travels_to_the_listener_and_the_targets_to_the_child():
-    """Two children, two different things to be told (#1256).
+def _ok_outcome():
+    """The `Outcome` a played scenario returns when it went fine."""
+    from panel.runtime.actions import Outcome
+    return Outcome(True, "")
+
+
+def test_the_rule_travels_to_the_listener_and_the_targets_to_the_recipe():
+    """Two paths, two different things to be told (#1256, #1272).
 
     The listener chooses for itself — it fires at a tile nothing has listed yet — so it
-    is handed the RULE. The robbery child chooses nothing at all, so it is handed the
-    TARGETS: a child that re-derived them would be a second opinion about a map the
-    list has already made its mind up about.
+    is handed the RULE, and it is still a child because it is a sniffer racing a person.
+    The robbery chooses nothing at all, so it is handed the TARGETS: anything that
+    re-derived them would be a second opinion about a map the list has already made its
+    mind up about.
+
+    What changed in #1272 is only WHO is handed them. There is no robbery child any more
+    — it cost five seconds, which is the whole race — so the targets travel as the
+    recipe's own `queue` argument. The rule that matters here is unchanged: what goes
+    with them is WHAT, never HOW.
     """
     if not _HAS_TK:
         print("  SKIP tkinter not importable — run under the Windows Python")
@@ -312,15 +324,19 @@ def test_the_rule_travels_to_the_listener_and_the_targets_to_the_child():
     assert "--level-max" not in listener, "the listener still carries a top bound"
     assert "--skip-own-server" in listener, listener
 
-    del w.run                                       # …and the poll's own child
+    # …and the poll's own robbery, which spawns nothing at all now.
+    played: list = []
+    w.rt.actions = types.SimpleNamespace(
+        play=lambda name, args=None, **kw: (played.append((name, dict(args or {}))),
+                                            _ok_outcome())[1])
+    del w.run
     w.run([(3, 999, "#999")])
-    assert len(spawned) == 2, spawned
-    child = spawned[1]
-    assert "--targets" in child, child
-    assert child[child.index("--targets") + 1] == "3:999", child
-    # The child is told WHAT, never HOW: no rule flags travel with a named target.
-    for flag in ("--level-min", "--level-max", "--star-max", "--from-vm", "--from-scan"):
-        assert flag not in child, (flag, child)
+    for _ in range(400):
+        if w._proc is None:
+            break
+        time.sleep(0.01)
+    assert len(spawned) == 1, ("a robbery spawned a child again", spawned)
+    assert played == [("steal_secret_task", {"queue": "{uuid=3,server=999}"})], played
 
     # The listener ALWAYS carries the prohibition now (#1188) — with no minimum typed
     # and no box to read, it is still the one flag that travels unasked.

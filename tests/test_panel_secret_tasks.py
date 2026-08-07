@@ -1339,21 +1339,32 @@ def test_the_early_window_is_the_hands_and_the_standing_order_keeps_the_strict_g
     tab = _make_tab({"1": early}, rob_min="1", autoloot=True)
     tab._refresh_timers()
 
-    assert tab._collectable(early) is True      # the hand may press
+    assert tab._collectable(early) is True      # the hand may press, nine seconds out
     assert tab._raidable(early) is False        # …the standing order may not
     assert tab.rob_candidates() == [], tab.rob_candidates()
 
-    # …and the moment it matures, both say yes.
+    # Two seconds out is the standing order's own window — «за пару секунд до
+    # готовности», and it starts pressing there rather than waiting for the moment.
+    early["completed_at"] = _ms(2_000)
+    tab._refresh_timers()
+    assert tab._raidable(early) is True
+    assert [r["uuid"] for r in tab.rob_candidates()] == [1]
+
+    # …and the moment it matures, both still say yes.
     early["completed_at"] = _ms(-1_000)
     tab._refresh_timers()
     assert tab._raidable(early) is True
     assert [r["uuid"] for r in tab.rob_candidates()] == [1]
 
 
-def test_a_press_inside_the_window_waits_and_sends_when_the_tile_matures():
-    """Sending at the moment of the PRESS would put a doomed robbery on the wire and
-    report one that did not happen. The send waits out the remainder instead, which is
-    the advantage the early button is for: it lands on the millisecond (#1272)."""
+def test_a_press_inside_the_window_holds_only_what_the_spam_cannot_reach():
+    """The hand and the standing order press the same way — through the recipe (#1272).
+
+    The recipe SPAMS, and pressing early is free, so a press made ten seconds out does
+    not need to wait for the tile: it needs to wait until the tile is inside the spam's
+    own window and then let it press. What it must never do is send once, early, and
+    call that a robbery.
+    """
     import threading as _threading
     import types
     row = _row(1, 7, 9_000, 600_000)
@@ -1362,16 +1373,12 @@ def test_a_press_inside_the_window_waits_and_sends_when_the_tile_matures():
     tab.alliance = _FakeAllianceGrid()
     tab.rt.put = lambda _line: None
     tab._persist_rows = lambda: None
-    said, slept, sent = [], [], []
+    said, slept = [], []
     tab.say = lambda _tag, key, **fmt: said.append(key)
     waiting, release = _threading.Event(), _threading.Event()
-
-    class _Ev:
-        def run(self, chunk, marker=None, settle=0):
-            sent.append(chunk)
-            return ["ACT steal_sent uuid=1 srv=1"]
-
-    tab.rt.game = types.SimpleNamespace(evaluator=lambda: _Ev())
+    played = _Actions(lines=["ACT steal_sent uuid=1 srv=1",
+                             "steal_taken — the server confirmed a robbery"])
+    tab.rt.actions = played
     real_sleep = st.time.sleep
 
     def _sleep(secs):
@@ -1382,8 +1389,8 @@ def test_a_press_inside_the_window_waits_and_sends_when_the_tile_matures():
     st.time = types.SimpleNamespace(sleep=_sleep)
     try:
         tab._collect(row)
-        assert waiting.wait(5), "the press did not wait for the tile to mature"
-        assert not sent, "the robbery went out before the tile was raidable"
+        assert waiting.wait(5), "the press did not wait at all"
+        assert played.played == [], "the recipe was played before the window"
         # A second press while the first is in flight arms nothing more.
         tab._collect(row)
         release.set()
@@ -1396,9 +1403,97 @@ def test_a_press_inside_the_window_waits_and_sends_when_the_tile_matures():
         st.time = types.SimpleNamespace(sleep=real_sleep)
 
     assert "log.secret.collect_armed" in said, said
-    assert len(slept) == 1 and 8 <= slept[0] <= 10, slept
-    assert len(sent) == 1, sent
+    # Nine seconds out, and the spam reaches two and a half: it holds the difference.
+    assert len(slept) == 1 and 6 <= slept[0] <= 7, slept
+    assert played.played == ["steal_secret_task"], played.played
+    assert played.args == [{"queue": "{uuid=1,server=1}"}], played.args
     assert row["robbed"] is True, "the wait swallowed the robbery"
+
+
+def test_a_hand_press_is_a_robbery_only_when_the_server_says_so():
+    """Same rule as the standing order's: a sent frame is not a robbery (#1272)."""
+    row = _row(2, 7, -5_000, 600_000)
+    row["ready"] = True
+    tab = _make_tab({"2": row})
+    tab.after = lambda fn: fn()
+    tab.alliance = _FakeAllianceGrid()
+    tab.rt.put = lambda _line: None
+    tab._persist_rows = lambda: None
+    tab.say = lambda *_a, **_k: None
+    tab.rt.actions = _Actions(lines=["ACT steal_sent uuid=2 srv=1"])   # sent, not taken
+
+    tab._collect(row)
+    import time as _time
+    for _ in range(250):
+        if "2" not in tab._pressing:
+            break
+        _time.sleep(0.02)
+
+    assert row.get("robbed") is not True, "a sent frame was counted as a robbery"
+
+
+def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appears():
+    """«То же на телефоне» — the READING travels, which is all that honestly can here.
+
+    The phone has never had «Собрать» on this list and does not grow one now: the robbery
+    is still a hand-driven press the web may not carry (#1188). What it gets is the same
+    fact at the same moment — the tile is about to open — so the two front-ends do not
+    disagree about when that is.
+    """
+    import types
+    rows = {"1": _row(1, 7, 9_000, 600_000), "2": _row(2, 7, 11_000, 600_000)}
+    tab = _make_tab(rows)
+    tab._refresh_timers()
+    tab.show_spent_var = _Var(False)
+    tab.monitor_var = _Var(False)
+    tab.autoassist_var = _Var(False)
+    tab._visible_rows = lambda: list(rows.values())
+    tab._zoom_level = "tile"
+    tab.autoloot = types.SimpleNamespace(
+        state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
+    tab.autoassist = types.SimpleNamespace(
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+    tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
+                                         star_var=_Var(False))
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+                                          monitor_var=_Var(False))
+
+    cards = {c.get("title"): c for c in tab.web_view()["cards"]}
+    pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
+    assert "secrettasks.collect_soon" in pills, pills
+    assert pills.count("secrettasks.collect_soon") == 1, pills
+    # …and still no press on the card: the display switches and nothing that robs.
+    assert {a["id"] for a in cards["secrettasks.page.stars"]["actions"]} == {
+        "monitor", "show_spent", "hide_own", "clear"}
+
+
+def test_the_early_window_is_the_hands_and_the_standing_order_keeps_the_strict_gate():
+    """The window is for a finger. A machine gains nothing from pressing early, and a
+    send the server answers «рано» is a round trip that robs nothing — so «Автолут ★»
+    asks the strict question and the two gates are deliberately two (#1272)."""
+    early = _row(1, 7, 9_000, 600_000)
+    early["server"] = _HOME_SERVER + 1
+    tab = _make_tab({"1": early}, rob_min="1", autoloot=True)
+    tab._refresh_timers()
+
+    assert tab._collectable(early) is True      # the hand may press, nine seconds out
+    assert tab._raidable(early) is False        # …the standing order may not
+    assert tab.rob_candidates() == [], tab.rob_candidates()
+
+    # Two seconds out is the standing order's own window — «за пару секунд до
+    # готовности», and it starts pressing there rather than waiting for the moment.
+    early["completed_at"] = _ms(2_000)
+    tab._refresh_timers()
+    assert tab._raidable(early) is True
+    assert [r["uuid"] for r in tab.rob_candidates()] == [1]
+
+    # …and the moment it matures, both still say yes.
+    early["completed_at"] = _ms(-1_000)
+    tab._refresh_timers()
+    assert tab._raidable(early) is True
+    assert [r["uuid"] for r in tab.rob_candidates()] == [1]
 
 
 def _robbed_tab():
@@ -2953,38 +3048,28 @@ class _Proc:
     def terminate(self) -> None: ...
 
 
-class _Children:
-    """The child factory, remembering the ONE command line it was handed."""
-
-    def __init__(self, lines) -> None:
-        self.lines, self.cmd = lines, None
-
-    def python(self) -> str:
-        return "python"
-
-    def spawn_raw(self, cmd, tag):
-        self.cmd = list(cmd)
-        return _Proc(self.lines)
-
-
 class _Actions:
-    """`rt.actions`, remembering which scenarios were played."""
+    """`rt.actions`, remembering which scenario was played and with which arguments."""
 
-    def __init__(self, ok: bool = True, reason: str = "") -> None:
-        self.played, self._ok, self._reason = [], ok, reason
+    def __init__(self, ok: bool = True, reason: str = "", lines=()) -> None:
+        self.played, self.args = [], []
+        self._ok, self._reason, self._lines = ok, reason, list(lines)
 
     def play(self, name, args=None, **kw):
         from panel.runtime.actions import Outcome
         self.played.append(name)
+        self.args.append(dict(args or {}))
+        for line in self._lines:
+            (kw.get("on_event") or (lambda _m: None))(line)
         return Outcome(self._ok, self._reason)
 
 
-def _order(lines, ok: bool = True, reason: str = ""):
+def _order(lines=(), ok: bool = True, reason: str = ""):
     """An `AutoLoot` over a runtime that spawns nothing and presses nothing.
 
-    Everything the two halves of a robbery touch, and not one thing more: the child
-    factory (which records the argv), `rt.actions` (which records the scenario), the
-    settings the limit and the pause come from, and a tab that can say a locale key.
+    Everything a robbery touches and not one thing more: `rt.actions` (which records the
+    scenario, its arguments, and replays the lines the recipe would have said), the
+    settings the pause comes from, and a tab that can say a locale key.
     """
     import types
 
@@ -2993,7 +3078,7 @@ def _order(lines, ok: bool = True, reason: str = ""):
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
     said, put = [], []
     rt = types.SimpleNamespace(
-        children=_Children(lines), actions=_Actions(ok, reason),
+        actions=_Actions(ok, reason, lines),
         settings=types.SimpleNamespace(opt_int=lambda key, low=0, high=0: 5),
         put=put.append)
     tab = types.SimpleNamespace(
@@ -3004,86 +3089,81 @@ def _order(lines, ok: bool = True, reason: str = ""):
 
 
 def _drain(order) -> None:
-    """Wait for the reader thread `run()` started — the whole two-step lives on it."""
+    """Wait for the worker `run()` started — the whole robbery lives on it."""
     import time as _time
-    for _ in range(200):
+    for _ in range(400):
         if order._proc is None:
             return
         _time.sleep(0.01)
     raise AssertionError("the robbery never finished")
 
 
-def test_the_robbery_parks_with_the_tool_and_presses_with_the_recipe():
-    """#1188: the tool SELECTS and parks, `actions/steal_secret_task.md` robs.
+def test_the_robbery_is_the_scenario_and_the_targets_travel_as_its_argument():
+    """ONE step now, and the clock is why (#1272).
 
-    The refactor plan promised one line — swap the spawn for `run_action` — and it would
-    have thrown the target selection away: the recipe opens by reading a queue and logs
-    «run tools/steal_secret_task.py first» when there is none. So the tool still runs,
-    with `--queue-only`, and the pressing is the scenario's.
+    It used to spawn `tools/steal_secret_task.py --queue-only` to park the targets and
+    then play the recipe. The child costs FIVE SECONDS end to end, and the race this
+    order exists to win is decided in fractions of one — so the queue travels as an
+    argument of the call that was going to be made anyway. What must NOT have changed is
+    where the targets come from: they are still chosen by `rob_candidates` and named to
+    the recipe, never re-derived by it (#1256).
     """
-    order, rt, _said, _put = _order(["robberies left today: 4",
-                                     "  target @[1,2|100]  uuid=1 srv=100",
-                                     "queued 1 target(s) — run actions/…"])
+    order, rt, _said, _put = _order(["ACT steal_sent uuid=1 srv=100",
+                                     "steal_taken — the server confirmed a robbery"])
     order.run([(1, 100, "@[1,2|100]")])
     _drain(order)
 
-    assert "--queue-only" in rt.children.cmd, rt.children.cmd
-    assert "steal_secret_task.py" in " ".join(rt.children.cmd)
-    # …and the chosen target still travels by name, not re-derived (#1256).
-    assert "--targets" in rt.children.cmd and "1:100" in rt.children.cmd
-    # The ability itself is the scenario, played once.
     assert rt.actions.played == ["steal_secret_task"], rt.actions.played
+    assert rt.actions.args == [{"queue": "{uuid=1,server=100}"}], rt.actions.args
+    # …and nothing was spawned: there is no child factory on this runtime at all, so a
+    # robbery that reached for one would have raised rather than quietly slowed down.
+    assert not hasattr(rt, "children")
 
 
-def test_a_parking_run_that_declined_is_not_followed_by_a_press():
-    """No «queued …» line, no recipe. A tool that refused — a client that is not logged
-    in, an own server it could not read — left the queue alone, and playing the recipe
-    over somebody else's leftovers is how a raid gets spent on the wrong tile."""
-    order, rt, _said, _put = _order(
-        ["the client is not logged in (it cannot say what time it is) — nothing read "
-         "and nothing robbed; log the game in and run this again"])
+def test_only_the_servers_answer_counts_as_a_robbery():
+    """«Успех только по ответу игры» (#1272). A `steal_sent` line proves a frame left the
+    client; the daily counter moving proves the server took it, and that is what the
+    recipe says as `steal_taken`."""
+    order, rt, said, _put = _order(["ACT steal_sent uuid=1 srv=100"])
     order.run([(1, 100, "@[1,2|100]")])
     _drain(order)
-    assert rt.actions.played == [], rt.actions.played
+    assert rt.actions.played == ["steal_secret_task"]
+    assert "log.autoloot.taken" not in said, said
 
-
-def test_a_spent_budget_pauses_instead_of_pressing():
-    """The one line this watcher steers by survives the split.
-
-    `--queue-only` returns before the tool's own «the day's robberies are spent», but it
-    prints the budget BEFORE it parks — so «robberies left today: 0» still arrives, the
-    order pauses, and it does not play a recipe that could only press nothing.
-    """
-    order, rt, said, _put = _order(["robberies left today: 0",
-                                    "queued 1 target(s) — run actions/…"])
+    order, _rt, said, _put = _order(["ACT steal_sent uuid=1 srv=100",
+                                     "steal_taken — the server confirmed a robbery"])
     order.run([(1, 100, "@[1,2|100]")])
     _drain(order)
-    assert rt.actions.played == [], rt.actions.played
+    assert "log.autoloot.taken" in said, said
+
+
+def test_a_spent_budget_pauses_the_order():
+    """The recipe says so now that there is no parking child to say it, and the watcher
+    still pauses on it rather than polling a budget that cannot come back today."""
+    order, _rt, said, _put = _order(["steals_spent — the day's robberies are gone"])
+    order.run([(1, 100, "@[1,2|100]")])
+    _drain(order)
     assert "log.autoloot.spent" in said, said
     assert order._pause_until > 0
 
 
-def test_queued_nothing_is_not_a_parked_queue():
-    """«queued 0 target(s)» is the tool saying it left nothing behind.
-
-    It prints the line whether or not anything survived its own gates, so the COUNT is
-    what the reader steers by — a recipe played over an empty queue is a round trip that
-    presses nothing and reports success, which reads exactly like a robbery.
-    """
-    order, rt, _said, _put = _order(["queued 0 target(s) — run actions/…"])
-    order.run([(1, 100, "@[1,2|100]")])
-    _drain(order)
-    assert rt.actions.played == [], rt.actions.played
-
-
 def test_a_recipe_that_failed_says_so_in_the_scenarios_own_words():
     """The scenario is the authority on why it stopped; the panel repeats it."""
-    order, rt, said, _put = _order(["queued 1 target(s) — run actions/…"],
-                                   ok=False, reason="no daemon")
+    order, rt, said, _put = _order(ok=False, reason="no daemon")
     order.run([(1, 100, "@[1,2|100]")])
     _drain(order)
     assert rt.actions.played == ["steal_secret_task"]
     assert "log.autoloot.spend_failed" in said, said
+
+
+def test_naming_no_target_presses_nothing():
+    """A tick with an empty choice must not play a recipe over somebody else's
+    leftovers — the queue argument would be empty and the recipe would spend whatever
+    happened to be parked."""
+    order, rt, _said, _put = _order()
+    order.run([])
+    assert rt.actions.played == [], rt.actions.played
+    assert order._proc is None
 
 
 if __name__ == "__main__":

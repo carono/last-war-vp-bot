@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "nie udało się przejrzeć listy: {error}",
   "log.autoloot.spend_failed": "przepis, który zużywa kolejkę, nie zadziałał: {reason}",
   "log.autoloot.spent": "dzienne kradzieże wyczerpane — przerwa {mins} min (wracam po dobowym zerowaniu)",
+  "log.autoloot.taken": "serwer potwierdził kradzież",
   "log.autoloot.target": "cel: {label}",
   "log.autostart.on": "godzinne sprawdzanie zarejestrowane — jeden panel z profilami: {profiles}",
   "log.autostart.off": "godzinne sprawdzanie usunięte — nic już nie otworzy panelu samo",

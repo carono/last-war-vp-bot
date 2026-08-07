@@ -210,6 +210,7 @@
   "log.autoloot.poll_error": "le coup d'œil à la liste a échoué : {error}",
   "log.autoloot.spend_failed": "la recette qui dépense la file d'attente n'a pas tourné : {reason}",
   "log.autoloot.spent": "les pillages du jour sont épuisés — pause de {mins} min (je reprends après la remise à zéro)",
+  "log.autoloot.taken": "le serveur a confirmé le vol",
   "log.autoloot.target": "cible : {label}",
   "log.autostart.on": "la vérification horaire est enregistrée — un seul panneau avec : {profiles}",
   "log.autostart.off": "la vérification horaire est retirée — plus rien n'ouvrira le panneau tout seul",

@@ -1303,8 +1303,50 @@ def secret_task_queue_set(targets) -> str:
     """Replace the steal queue with `targets` — an iterable of (uuid, server) pairs."""
     items = ",".join("{uuid=%d,server=%d}" % (int(u), int(s)) for u, s in targets)
     return ("local M=DataCenter.ActDispatchTaskDataManager M.__lw_steal_queue={%s} "
-            'CS.UnityEngine.Debug.LogError("ACT steal_queue_set "..tostring(#M.__lw_steal_queue))'
-            % items)
+            % items + _STEAL_MARK
+            + 'CS.UnityEngine.Debug.LogError("ACT steal_queue_set "'
+              '..tostring(#M.__lw_steal_queue))')
+
+
+# THE ONLY HONEST «IT WORKED» THERE IS (#1272). A robbery is confirmed by the SERVER
+# and by nothing else: `DispatchStealMessage:HandleMessage` takes the error branch on a
+# refusal and, on success, hands `UpdateTodayNum` the server's own `todayStealNum` out
+# of the reply. Nothing is incremented locally, so the counter moving is the reply
+# landing — and a send that got a tip back leaves it exactly where it was.
+#
+# That is what lets the press be REPEATED. `__lw_steal_mark` is the counter as it stood
+# when the head of the queue was armed; while it has not moved, the head has not been
+# taken and pressing again is worth doing. It is stamped when the queue is set and
+# re-stamped when the head is dropped, so it always belongs to the target being pressed.
+_STEAL_MARK = ("M.__lw_steal_mark=tonumber(M:GetTodayStealNum()) or 0 ")
+
+
+def secret_task_taken() -> str:
+    """Lua *expression* -> 1 when the server has confirmed a robbery of the armed head.
+
+    The counter against the mark, and that is the whole test. A `steal_sent` line proves
+    a frame left the client; only this proves the server took it.
+    """
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "local now=tonumber(M:GetTodayStealNum()) or 0 "
+            "local mark=tonumber(M.__lw_steal_mark) "
+            "if mark == nil then return 0 end "
+            "if now ~= mark then return 1 end return 0 end)()")
+
+
+def secret_task_queue_pop() -> str:
+    """Drop the head of the queue and re-arm the mark on whatever is now in front.
+
+    Called between targets rather than before a send (which is what
+    `steal_next_secret_task` used to do): the head has to survive its own press so that
+    the press can be REPEATED until the server answers. A head that was never taken is
+    dropped here too — after the spam has spent its cap on it, that tile is gone, taken
+    by somebody else, or out of reach, and every one of those means «the next one».
+    """
+    return ("local M=DataCenter.ActDispatchTaskDataManager "
+            "local q=M.__lw_steal_queue or {} local t=table.remove(q,1) "
+            + _STEAL_MARK +
+            'CS.UnityEngine.Debug.LogError("ACT steal_queue_pop left="..tostring(#q))')
 
 
 def secret_task_queue_clear() -> str:
@@ -1320,27 +1362,44 @@ def secret_task_queue_len() -> str:
 
 
 def secret_task_steals_pending() -> str:
-    """Lua *expression* -> presses `steal_secret_task` can still make.
+    """Lua *expression* -> is the head of the queue still worth pressing? (1 or 0)
 
-    `min(queued targets, robberies left today)` — the button's `count_lua`, so `xall`
-    stops both when the queue runs dry and when the daily cap is reached, and never
-    spends a round trip on a press the gate would decline anyway.
+    The button's `count_lua`, and it answers a different question since #1272. It used
+    to be «how many targets are left», which made `xall` press each of them once; it is
+    now «press the SAME one again», and `xall` becomes the spam loop the race needs:
+
+      * there is a head to press,
+      * the day's budget is not spent,
+      * and the server has not confirmed this one yet (`secret_task_taken`).
+
+    **A tile is pressed BEFORE it matures on purpose.** There is no penalty for it — the
+    server answers «ещё не готово», the counter does not move and nothing is spent
+    (`DispatchStealMessage:HandleMessage`) — and a raidable star is taken in the first
+    instant it exists, so the only way to be first is to be already pressing. The clock
+    is deliberately NOT part of this gate: the recipe is played inside the window, and
+    what stops the loop is the server saying yes, not our own idea of when it should.
     """
-    return ("(function() local q=%s local b=%s if q<b then return q end return b end)()"
-            % (secret_task_queue_len(), secret_task_steals_left()))
+    return ("(function() local q=%s local b=%s local t=%s "
+            "if q>0 and b>0 and t==0 then return 1 end return 0 end)()"
+            % (secret_task_queue_len(), secret_task_steals_left(), secret_task_taken()))
 
 
 def steal_next_secret_task() -> str:
-    """Rob the first queued target and drop it from the queue (one press, one task).
+    """Rob the head of the queue — and LEAVE IT THERE, so it can be pressed again.
 
-    One press per chunk on purpose: `todayStealNum` only moves when the server's reply
-    lands, so a `while` inside one chunk would both spin the game's main thread and rob
-    against a stale budget. The target is removed BEFORE the send, so a refused robbery
-    (expired tile, slots full, already robbed by me) costs one queue entry rather than
-    wedging `xall` on the same doomed uuid forever.
+    One press per chunk, as before: `todayStealNum` only moves when the server's reply
+    lands, so a `while` inside one chunk would spin the game's main thread and press
+    against a stale budget.
+
+    THE HEAD IS NO LONGER DROPPED BEFORE THE SEND (#1272). It used to be, so that a
+    refusal cost a queue entry rather than wedging `xall` on a doomed uuid for ever —
+    and that made the press a one-shot, which loses every race that is decided in
+    fractions of a second. Now the head survives its own press, `count_lua` stops the
+    loop the moment the SERVER confirms (`secret_task_taken`), and `max_taps` bounds the
+    spam on a tile that will never answer. `secret_task_queue_pop` is what moves on.
     """
     return ("local M=DataCenter.ActDispatchTaskDataManager "
-            "local q=M.__lw_steal_queue or {} local t=table.remove(q,1) "
+            "local q=M.__lw_steal_queue or {} local t=q[1] "
             "if t and %s > 0 then "
             "pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchSteal, t.uuid, t.server) end) "
             'CS.UnityEngine.Debug.LogError("ACT steal_sent uuid="..tostring(t.uuid)'

@@ -107,7 +107,12 @@ DEFAULTS: dict = {
     "daemon_port": lua_client.DEFAULT_PORT,
     "log_max_lines": 4000,
     "autoloot_limit": 5,
-    "autoloot_poll": 2.0,
+    # Half a second, not two (#1272): the standing order now starts pressing a
+    # couple of seconds BEFORE a tile matures, and a poll slower than that window
+    # would step straight over it. A tick that finds nothing is a list comprehension
+    # over rows the tab already holds — it asks the game nothing until it has a
+    # target — so the rate costs a fraction of what the old 2 s one implied.
+    "autoloot_poll": 0.5,
     "autoloot_pause_min": 30,
     "trace_filter": "SFS",
     "sniff_ready_timeout": 25.0,
