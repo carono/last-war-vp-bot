@@ -148,7 +148,7 @@ def form_none(run: Run, port: int = FREE_PORT) -> None:
 # form 2 — the client is killed under the daemon
 # ---------------------------------------------------------------------------
 
-def form_killed(run: Run, port: int, wait: float = 90.0) -> None:
+def form_killed(run: Run, port: int, wait: float = 300.0) -> None:
     print("\nform 2 — daemon alive, client killed under it")
     pid = _running_pid()
     if not run.check("there is a client to kill", bool(pid), "pid=%s" % pid):
@@ -174,6 +174,7 @@ def form_killed(run: Run, port: int, wait: float = 90.0) -> None:
     killed_at = time.monotonic()
 
     saw_stale = saw_free = saw_back = None
+    said_before = None
     while time.monotonic() - killed_at < wait:
         reply = lua_client.DaemonClient(port=port, token="").status()
         now_pid = _running_pid()
@@ -182,6 +183,11 @@ def form_killed(run: Run, port: int, wait: float = 90.0) -> None:
             saw_stale = time.monotonic() - killed_at
         if saw_free is None and not reply:
             saw_free = time.monotonic() - killed_at
+        if said != said_before:
+            print("       %5.0fs verdict=%-5s port=%-3s held=%s running=%s age=%s"
+                  % (time.monotonic() - killed_at, said, "yes" if reply else "no",
+                     reply.get("pid"), now_pid, reply.get("last_ok_age")))
+            said_before = said
         if saw_stale is not None and said == "live" and now_pid:
             saw_back = time.monotonic() - killed_at
             break

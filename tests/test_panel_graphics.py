@@ -80,6 +80,10 @@ def _page(*, game_up=True, replies=None, settings=None):
         if key in rt.settings.vars:
             rt.settings.vars[key].set(value)
     rt.game.up = lambda: game_up
+    # …and the question the READS ask since #1287: «will a call reach the game»,
+    # which is what a cold stand-in answers `False` to. `game_up` is this file's
+    # one switch for «there is a client», so it has to move both.
+    rt.game.ready = lambda fresh=False: game_up
 
     calls: list = []
 

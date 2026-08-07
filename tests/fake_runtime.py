@@ -125,6 +125,16 @@ class ColdGameLink:
         self.asked.append("up")
         return False
 
+    def ready(self, fresh: bool = False) -> bool:
+        """«Will a call reach the game right now» — no, and it was asked (#1287).
+
+        Recorded under its own name rather than folded into `up`: the contract test
+        proves a tab's `build()` did not touch the game, and «asked whether a port is
+        open» and «asked whether the game is reachable» are two different touches.
+        """
+        self.asked.append("ready")
+        return False
+
     def evaluator(self):
         self.asked.append("evaluator")
         raise ConnectionRefusedError("cold runtime: no daemon")

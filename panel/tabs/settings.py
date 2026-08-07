@@ -1002,7 +1002,12 @@ class SettingsTab(PanelTab):
 
     def _apply_graphics(self, mode: str) -> None:
         """Switch the client, remembering the picture on the way out of standard."""
-        if not self.rt.game.ready():
+        # `up`, NOT `ready`: this is an ACT and not a reading. A client whose picture
+        # cannot be read still gets the switch — «what cannot be remembered is not
+        # remembered, but the person still gets the switch»
+        # (tests/test_panel_graphics.py). Gating a press on a reading is how a person
+        # loses a control because something else was unreadable.
+        if not self.rt.game.up():
             # The choice is still the profile's — it just cannot reach a client yet, and
             # saying "saved, not applied" beats a switch that silently did nothing.
             self._say_graphics("graphics.state.offline",
