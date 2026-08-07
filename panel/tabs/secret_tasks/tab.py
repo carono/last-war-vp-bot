@@ -1409,6 +1409,16 @@ class SecretTasksTab(PanelTab):
     def _state_landed(self, keys, live, seen, control: bool) -> None:
         """Apply what came back, and say what it changed.
 
+        WHAT IT CAN AND CANNOT REFRESH, said plainly because it was asked (#1272). The
+        loot count lives in exactly two places: the client's own alliance table, which
+        holds MY alliance's tasks and nothing else, and the map itself — the stealer list
+        rides on the `world.get.block` tile and is decoded by the passive capture. The
+        per-tile read used here carries neither (45 fields, and `reward` is its only
+        list), and the game's own marker does not draw n/3 at all, so there is no UI path
+        to follow to one. For a stranger's tile — which is most of this list — n/3 moves
+        when a LAP re-reads the map with the monitor on, and this button confirms that
+        the tile still exists. It does not pretend to more than that.
+
         THE TWO KINDS OF ABSENCE, KEPT APART (#1272). A row missing from the alliance
         table means nothing unless that table could have carried it (`_answerable`, and
         the rule that stopped the list being wiped every start-up). A tile the SERVER
@@ -1440,8 +1450,12 @@ class SecretTasksTab(PanelTab):
                 unconfirmed += 1
                 continue
             if answer == int(row["uuid"]):
-                row["seen_at"] = time.time()         # the server says it is still there
-                updated += 1
+                # STILL THERE — and that is ALL this answer says. The per-tile read
+                # carries no stealer list (45 fields, measured: `reward` is its only
+                # list), so for a stranger's tile it cannot move n/3 and must not be
+                # counted as if it had. «Обновлено» means a value changed; this is
+                # «проверено», which the same line already reports.
+                row["seen_at"] = time.time()
                 continue
             if not control:
                 # Nothing came back for the control either: the answers were not
@@ -2186,7 +2200,31 @@ class SecretTasksTab(PanelTab):
                 row["completed_at"] = task.completed_at
                 row["loot_count"] = task.loot_count
         for key, t in incoming.items():
-            if key in self._rows or key in self._collected:
+            row = self._rows.get(key)
+            if row is not None:
+                # A ROW ALREADY HERE IS REFRESHED, NOT SKIPPED (#1272). It used to be
+                # skipped outright — «a rescan only ADDS» — and that threw away the one
+                # reading that carries how many times a STRANGER's tile has been robbed.
+                # Live report: «обновляй не обновляй — кол-во ограблений не меняется, и
+                # полностью ограбленные не исчезают». Both were this line: the count
+                # never rose, so `_spent` never became true and a 3/3 tile stayed on the
+                # list looking raidable.
+                #
+                # THE COUNT ONLY EVER RISES, which is what makes this safe without a
+                # timestamp. A tile is robbed 0 -> 1 -> 2 -> 3 and never un-robbed, so
+                # `max` takes a fresher reading and cannot be fooled by a stale record
+                # the capture happens to resend — which is what the old rule was guarding
+                # against. Everything the PANEL knows and the wire does not — the robbed
+                # mark, the share mark, where the row came from — is left alone.
+                row["loot_count"] = max(int(row.get("loot_count") or 0),
+                                        int(t.loot_count or 0))
+                if row.get("completed_at") is None:
+                    row["completed_at"] = t.completed_at
+                if row.get("expires_at") is None:
+                    row["expires_at"] = t.expires_at
+                row["seen_at"] = time.time()
+                continue
+            if key in self._collected:
                 continue
             self._rows[key] = {
                 "uuid": t.uuid, "server": t.server_id, "x": t.x, "y": t.y,

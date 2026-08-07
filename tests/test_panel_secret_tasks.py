@@ -753,13 +753,38 @@ def test_merge_without_verify_still_only_adds_new_ones():
     tab = _make_tab({"1": existing})
     tab.rt = _fake_rt(_state_path())
 
-    # A stale copy of the SAME row, as the wire might resend — must not clobber it —
-    # plus a genuinely new tile.
-    tab._merge([_StubTask(1, loot_count=99), _StubTask(2)])
+    # The same row as the wire resends it, plus a genuinely new tile. The ROW OBJECT
+    # survives — its timer, its marks and where it came from are the panel's, not the
+    # wire's — and what the wire is the only source of is taken (#1272).
+    tab._merge([_StubTask(1, loot_count=2), _StubTask(2)])
 
-    assert tab._rows["1"] is existing, "an un-verified merge overwrote an existing row"
-    assert tab._rows["1"]["loot_count"] != 99
+    assert tab._rows["1"] is existing, "an un-verified merge replaced an existing row"
+    assert tab._rows["1"]["loot_count"] == 2, "the fresh loot count was thrown away"
     assert "2" in tab._rows
+
+    # …and a STALER copy cannot undo it: a tile is robbed 0 -> 1 -> 2 -> 3 and never
+    # un-robbed, so the count only rises.
+    tab._merge([_StubTask(1, loot_count=0)])
+    assert tab._rows["1"]["loot_count"] == 2, "a stale record walked the count backwards"
+
+
+def test_a_rescan_that_fills_a_tile_takes_it_off_the_raid_list():
+    """«Полностью ограбленные не исчезают» (#1272) — they do now, because the count
+    that decides it can finally move. Three looters and the tile has no slot for
+    anybody, so it stops being drawn (unless «Показывать исчерпанные» asks)."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["loot_count"] = 1
+    tab = _make_tab({"1": row})
+    tab.rt = _fake_rt(_state_path())
+    assert [r["uuid"] for r in tab._visible_rows()] == [1]
+
+    tab._merge([_StubTask(1, loot_count=3)])
+
+    assert tab._rows["1"]["loot_count"] == 3
+    assert tab._spent(tab._rows["1"]) is True
+    assert tab._visible_rows() == [], "a 3/3 tile is still drawn as a raid"
+    # …and it is HIDDEN, not deleted: «Показывать исчерпанные» is what it is for.
+    assert "1" in tab._rows
 
 
 def test_a_failed_verifying_read_leaves_restored_rows_alone():
