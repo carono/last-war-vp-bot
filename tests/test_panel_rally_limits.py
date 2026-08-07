@@ -254,6 +254,13 @@ def test_the_kinds_are_the_games_own_species():
     # a banner nobody heard the push for is counted, and SAID
     assert "return 'monster', false end" in chunk
     assert "unclassified=" in chunk
+    # AN UNKNOWN ROW ANSWERS EMPTY, NOT NIL. Asked live for an id the table has never
+    # heard of, `getValue` came back with '' — and the first version of the branch above
+    # turned that into the key `monster_type_` with nothing after it. Empty is «no
+    # answer»: it has to fall through to the unheard-of case, and the numeric guard
+    # keeps anything non-numeric from becoming a species with a blank name.
+    assert "tostring(ty) == '' then ty = nil" in chunk
+    assert "tonumber(ty) ~= nil" in chunk
     # …and the report says what each squad went for
     assert "going_for=[" in chunk
 

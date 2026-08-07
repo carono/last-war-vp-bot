@@ -3451,11 +3451,18 @@ def rally_join_all() -> str:
         "local team, cid = string.match(pair, '(%d+):(%d+)') "
         "if team ~= nil then target_of_team[team] = tonumber(cid) end end end) "
         "local LCI = nil pcall(function() LCI = LocalController.instance() end) "
+        # AN UNKNOWN ROW ANSWERS WITH AN EMPTY STRING, NOT NIL — measured live: asking
+        # `lw_world_monster` for an id it has never heard of came back `type=''`, and a
+        # first version of the branch below turned that into the key `monster_type_`
+        # with nothing after it. Empty is «no answer», and «no answer» has to be the
+        # unheard-of case rather than a species with a blank name (#1281).
         "local function monster_of(cid) "
         "if LCI == nil or cid == nil then return nil, nil end "
         "local ty, lv = nil, nil "
         "pcall(function() ty = LCI:getValue('lw_world_monster', cid, 'type', nil) end) "
         "pcall(function() lv = LCI:getValue('lw_world_monster', cid, 'level', nil) end) "
+        "if ty ~= nil and tostring(ty) == '' then ty = nil end "
+        "if lv ~= nil and tostring(lv) == '' then lv = nil end "
         "return ty, lv end "
         # THE INVASION EVENT STILL ANSWERS FIRST: its own monster lists are the only thing
         # that marks a banner as one the event does not ration, and that is a different
@@ -3469,10 +3476,10 @@ def rally_join_all() -> str:
         "if tu ~= nil and inv_set[tostring(tu)] then return 'zombie_invasion', true end "
         "if r.point ~= nil and inv_set['p'..tostring(r.point)] then return 'zombie_invasion', true end end "
         # …and then the species, which is the split the player reads off the screen.
-        "if ty ~= nil then "
+        "if ty ~= nil and tonumber(ty) ~= nil then "
         "if tonumber(ty) == 8 then return 'doom_elite', true end "
         "if tonumber(ty) == 7 then return 'monster', true end "
-        "return 'monster_type_'..tostring(ty), true end "
+        "return 'monster_type_'..tostring(tonumber(ty)), true end "
         # NOT HEARD OF, and said so rather than assumed. A banner raised before the panel
         # started listening has no push behind it, so its kind is genuinely unknown; it is
         # counted as an ordinary monster because something must be counted, and the report
