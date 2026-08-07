@@ -21,12 +21,22 @@ One row per unclaimed trophy:
     expireTime   when the trophy stops being claimable
     rewardList   what it pays
 
-**IT IS A CLAIM LIST, NOT A HISTORY.** A trophy expires about an hour after its rally —
-measured across eight rows, `expireTime` minus the moment the panel first saw that
-banner came out between 1:01:03 and 1:02:48, which is also what confirms the rows pair
-with banners by `pointId` rather than by hope. So this can testify about the last hour
-and about nothing before it, and a row leaving the list means claimed or expired, not
-«did not happen».
+**IT IS A CLAIM LIST, AND WHAT EMPTIES IT IS COLLECTING, NOT TIME.** This file first
+said a trophy lives «about an hour», off a delta of 1:01:03–1:02:48 across eight rows.
+That number was an artefact of the arithmetic that produced it: the log's time of day was
+pasted onto the trophy's expiry DATE, so what got measured was two clocks three hours
+apart, not an age. Read as absolute stamps against the game's own clock (which agrees
+with the PC here, offset 0.0 h) the same eight rows had **98–100 hours left** — four
+days, not one hour.
+
+So the horizon is not a TTL at all. The player collects the trophies and the list is
+emptied; what it can testify about is everything since the last collection. Measured:
+eight rows reaching back an hour and three quarters, and NOTHING for five joins the log
+recorded before that — which is either a collection in between or five joins that never
+happened, and this list cannot tell those two apart.
+
+`pointId` is still what pairs a trophy with a banner, and that pairing is what the
+`--check` below stands on — not the delta, which proved nothing.
 
 **IT HOLDS ONLY THE RALLIES WE WERE IN.** Eight rows while the alliance ran forty-nine
 banners in one earlier window: a rally somebody else fought pays us nothing and leaves
@@ -161,9 +171,10 @@ def main() -> int:
         print("  MATCH — the game's own record agrees with the log")
     else:
         print("  MISMATCH — the game's record is the one to believe")
-    # A trophy older than about an hour has expired out of the list, so a window
-    # further back than that cannot be checked this way and must not be called a
-    # disagreement.
+    # A window reaching back past the last time the trophies were COLLECTED cannot be
+    # checked this way: those rows are gone, and their absence is not a disagreement.
+    # The list says nothing about when that was, so the honest read of a window with
+    # zero trophies and joins in the log is «no evidence», not «the log lied».
     return 0
 
 

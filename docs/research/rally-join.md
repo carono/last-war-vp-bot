@@ -653,3 +653,54 @@ one line.
 * **The UI classes are not there when the window is not.** `package.loaded` carried the
   fourteen `UIFormationSelectListV2` modules while the screen had been up and none of
   them minutes later, so a controller can only be dumped while its window lives.
+
+## The game's own record: the trophy list (#1281)
+
+The person playing asked how the banners were proved real, and answered it in the same
+breath: **a finished rally always pays a trophy**, and the world map has a gift button
+beside the heroes listing every one and what it was for. That is the first evidence in
+this task that does not come from the panel's own log — everything before it was the log
+agreeing with itself.
+
+It is `DataCenter.CollectRewardDataManager.collectRewardList`, found the way the
+ghost-recon list and the «Кодовое имя» status were: by asking the client which of its own
+managers hold something reward-shaped. One row per unclaimed trophy:
+
+| field | what it is |
+| --- | --- |
+| `uuid` | the trophy's own id |
+| `type` | `6` — the same march type a rally join is sent with |
+| `pointId` | the tile the rally attacked; **this is what identifies which banner** |
+| `contentId` | what was rallied |
+| `expireTime` | when it stops being claimable |
+| `rewardList` | what it pays (five entries on every row seen) |
+
+**What empties the list is COLLECTING, not time.** A first reading of this said a trophy
+lives «about an hour», from a delta of 1:01:03–1:02:48 across eight rows; that was an
+artefact — the log's time of day pasted onto the trophy's expiry DATE, measuring two
+clocks three hours apart rather than an age. Against the game's own clock (offset 0.0 h
+from the PC here) those same rows had **98–100 hours left**. The horizon is therefore the
+last collection, and nothing in this repository's schedule claims these rows — checked:
+no scenario or timer touches `CollectRewardDataManager`, so the bot is not destroying its
+own evidence. A person collecting them by hand does.
+
+**It holds only the rallies WE were in.** Eight rows while the alliance ran forty-nine
+banners in one earlier window. So it gives the exact number we WORKED and cannot show a
+banner we missed; «missed» stays a subtraction — joinable minus these.
+
+### What it said about our own numbers
+
+`tools/dev/rally_trophies.py --check FROM TO` counts the trophies whose banner the panel
+first saw inside a window and prints them beside the joins the log confirmed there:
+
+```
+18:00–19:00   trophies 5   log 5   MATCH
+17:00–18:00   trophies 3   log 2   the log missed one
+before 17:08  trophies 0   log 5   no evidence either way — the rows are gone
+```
+
+The MATCH is on the newest code and is the one the summary was reported from. The
+17:00–18:00 gap is ours: the counter's needles carried the interpreter's indent and
+stopped matching the confirming read inside a nested branch, which is the same defect
+this file records under the counter. The third line is not a disagreement and must not be
+read as one — a window reaching past the last collection has no rows to check against.
