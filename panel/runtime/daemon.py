@@ -319,9 +319,23 @@ class GameLink:
                                   say=lambda msg: self._log.put(f"[daemon] {msg}"))
 
     def ensure(self) -> bool:
-        """Make sure the daemon is up, starting it if not. Blocks; call off the Tk thread."""
+        """Make sure the daemon is up, starting it if not. Blocks; call off the Tk thread.
+
+        ASKED FRESH, and that is the whole of #1281's second afternoon. `up()` reuses its
+        answer for :data:`UP_CACHE_SEC` — right for the status poll and the schedule's
+        gate, wrong for the one caller whose job is to notice a daemon that has gone. A
+        client restarted by anything (the watchdog, a person, another errand) takes its
+        daemon with it, and `ensure` was then answering «already warm on port 47654» off
+        a cached yes, doing nothing, and leaving the port dead: the rally auto-join was
+        deaf for stretches at a time with the panel reporting a warm daemon. Seen live,
+        three times in twenty minutes, while the numbers for #1281 were being collected.
+
+        The class's own docstring already said so — «the callers that would notice —
+        `ensure`, which is watching for one it has just started — ask with fresh=True» —
+        and the loop below did; the check in front of it did not.
+        """
         port = self.port()
-        if self.up():
+        if self.up(fresh=True):
             self._note("already warm on port %s", port)
             self.on_state("warm", True)
             return True

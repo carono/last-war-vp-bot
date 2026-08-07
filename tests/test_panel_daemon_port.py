@@ -187,8 +187,17 @@ def test_a_null_in_the_file_is_not_a_value() -> None:
 # ---------------------------------------------------------------------------
 
 def _link(port, log=None) -> GameLink:
-    return GameLink(port=port, python=lambda: "python", log=log or _Log(),
+    link = GameLink(port=port, python=lambda: "python", log=log or _Log(),
                     env=dict, cwd=str(_REPO), daemon_script="x")
+    # THE FAKE DAEMONS ABOVE ARE REACHABLE, and `up()` has to agree with them rather
+    # than with this machine's socket table. `_claim_lease` short-circuits on `up()` —
+    # a daemon that cannot be reached cannot be holding a lease, and asking costs a
+    # connect on the Tk thread (#1226) — so «the claim lands on the daemon the profile
+    # names» was decided by which of 47654 / 47655 happened to have a live daemon on the
+    # box running the test: on the machine this was written on it read the claim as
+    # granted with no token at all, and green everywhere a daemon runs on neither port.
+    link.up = lambda: True
+    return link
 
 
 def test_the_client_follows_a_port_that_arrives_late() -> None:
@@ -237,6 +246,45 @@ def test_rebind_still_reports_whether_it_moved() -> None:
         named["port"] = there.port
         assert link.rebind() is True
         assert link.rebind() is False
+
+
+def test_ensure_asks_the_socket_rather_than_its_own_cache():
+    """«already warm» must never be said off a cached yes (#1281).
+
+    `up()` reuses its answer for a second or so — right for the status poll and the
+    schedule's gate, which ask constantly; wrong for the one caller whose whole job is
+    to notice a daemon that has GONE. A client restarted by anything takes its daemon
+    with it, and `ensure` was answering «already warm on port 47654» off a cache, doing
+    nothing, and leaving the port dead — the rally auto-join went deaf for stretches at
+    a time with the panel reporting a warm daemon. Seen live three times in twenty
+    minutes.
+
+    Checked by asking whether the reading was FRESH, not by counting sockets: the cache
+    is what the class is allowed to keep, and the guarantee is only about this caller.
+    """
+    asked: list = []
+
+    class _Link(GameLink):
+        def __init__(self):
+            pass                                     # nothing here is needed to ask
+
+        def port(self):
+            return 47654
+
+        def up(self, fresh: bool = False) -> bool:
+            asked.append(fresh)
+            return True
+
+        def _note(self, *a, **k):
+            pass
+
+        def on_state(self, *a, **k):
+            pass
+
+    assert _Link().ensure() is True
+    assert asked == [True], (
+        "ensure() read the cached answer; a daemon that died inside the cache window "
+        "is then reported warm and never restarted")
 
 
 def _main() -> int:
