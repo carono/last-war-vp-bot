@@ -1017,10 +1017,19 @@ class _FakeAllianceGrid:
 
 
 class _FakeTable:
-    """Enough of a Treeview for a grid to draw itself into without a display."""
+    """Enough of a Treeview for a grid to draw itself into without a display.
+
+    It keeps the CELLS as well as the row ids, because the draw is a diff now (#1272,
+    `grid.sync_tree`): a test that wants to prove a confirming redraw writes nothing has
+    to be able to see what was written. `writes` counts every cell actually set.
+    """
 
     def __init__(self) -> None:
         self.rows: list = []
+        self.vals: dict = {}
+        self.tags: dict = {}
+        self.writes = 0
+        self.moves = 0
 
     def selection(self):
         return ()
@@ -1033,15 +1042,36 @@ class _FakeTable:
 
     def delete(self, iid):
         self.rows.remove(iid)
+        self.vals.pop(iid, None)
+        self.tags.pop(iid, None)
 
-    def insert(self, _parent, _where, iid=None, values=(), tags=()):
-        self.rows.append(iid)
+    def insert(self, _parent, where, iid=None, values=(), tags=()):
+        index = len(self.rows) if where == "end" else int(where)
+        self.rows.insert(index, iid)
+        self.vals[iid] = list(values)
+        self.tags[iid] = tuple(tags)
 
     def exists(self, iid):
         return iid in self.rows
 
-    def set(self, _iid, _column, _value):
-        pass
+    def item(self, iid, what):
+        return self.vals.get(iid, []) if what == "values" else self.tags.get(iid, ())
+
+    def index(self, iid):
+        return self.rows.index(iid)
+
+    def move(self, iid, _parent, index):
+        self.rows.remove(iid)
+        self.rows.insert(index, iid)
+        self.moves += 1
+
+    def set(self, iid, column, value):
+        columns = [c[0] for c in gr.COLUMNS]
+        cells = self.vals.setdefault(iid, [""] * len(columns))
+        while len(cells) < len(columns):
+            cells.append("")
+        cells[columns.index(column)] = value
+        self.writes += 1
 
 
 def _alliance_grid(tree=None):
@@ -1756,18 +1786,12 @@ def test_the_refresh_asks_about_the_ready_rows_first():
     ready["ready"] = True
     tab = _make_tab({"1": waiting, "2": ready})
     tab.rt = _fake_rt(_state_path())
-    asked = {}
-    tab.after = lambda fn: None
-    import types
-    tab.rt.game = types.SimpleNamespace(
-        evaluator=lambda: (_ for _ in ()).throw(RuntimeError("no game here")))
-    tab._vm_busy = True
-    tab._state_work()
-    # The read raised, so nothing was applied — what this pins is the ORDER it built.
-    rows = sorted(tab._rows.values(),
-                  key=lambda r: (not r.get("ready"),
-                                 r.get("completed_at") or float("inf")))
-    assert [r["uuid"] for r in rows] == [2, 1], rows
+
+    # The press asks about EVERY row (#1280) — and the ready one is still at the front,
+    # because a read cut short by a slow VM should have answered the rows that matter.
+    assert [r["uuid"] for r in tab._state_targets()] == [2, 1]
+    # …while the 3-second poll keeps to the rows whose state lives seconds.
+    assert [r["uuid"] for r in tab._state_targets(hot=True)] == [2]
 
 
 def test_a_robbed_row_leaves_only_by_its_own_clock():

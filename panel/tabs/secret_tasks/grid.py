@@ -404,6 +404,56 @@ def _stale_minutes(seen_at) -> int:
     return int(age // 60) if age > STALE_AFTER else 0
 
 
+def sync_tree(tree, rows, values_of, tag_of) -> None:
+    """Bring the table to `rows` by CHANGING it, never by emptying and refilling (#1272).
+
+    «И грид стирается и потом снова обновляется» — the old draw deleted every row and
+    inserted every row again, so a refresh was a table that blinked out and came back,
+    and whatever the eye was on moved out from under it. Nothing about a state read asks
+    for that: a read moves a loot count, an expiry and a handful of rows in or out, and
+    the other ninety are the rows they already were.
+
+    So this is a diff. A row that is on the table and still wanted keeps its identity —
+    its `iid`, its place in the scroll, its selection — and only the CELLS whose text has
+    actually changed are written. A row that is no longer wanted is deleted, one that has
+    appeared is inserted at the position it sorts to, and one that has merely moved is
+    moved. In the steady state, where a poll confirms what was already there, this writes
+    nothing at all.
+
+    `values_of(row)` gives the cells in `COLUMNS` order and `tag_of(row)` the colour tag;
+    both are the caller's, because the ★ list and the pages format differently.
+    """
+    if tree is None:
+        return
+    try:
+        want = [str(row["uuid"]) for row in rows]
+        wanted = set(want)
+        for iid in list(tree.get_children("")):
+            if iid not in wanted:
+                tree.delete(iid)
+        columns = [c[0] for c in COLUMNS]
+        for index, (iid, row) in enumerate(zip(want, rows)):
+            values = tuple(values_of(row))
+            tag = tag_of(row)
+            if not tree.exists(iid):
+                tree.insert("", index, iid=iid, values=values, tags=(tag,))
+                continue
+            # Only the cells that moved. A `tree.set` per cell per redraw is exactly the
+            # traffic that made four open profiles share one slow event loop (#1226).
+            current = tuple(tree.item(iid, "values") or ())
+            for pos, column in enumerate(columns):
+                new = values[pos] if pos < len(values) else ""
+                old = current[pos] if pos < len(current) else None
+                if old is None or str(old) != str(new):
+                    tree.set(iid, column, new)
+            if tuple(tree.item(iid, "tags") or ()) != (tag,):
+                tree.item(iid, tags=(tag,))
+            if tree.index(iid) != index:
+                tree.move(iid, "", index)
+    except tk.TclError:
+        return
+
+
 def paint_timers(tree, rows) -> None:
     """Write each row's countdown into its cell — the per-second half of the drawing.
 
@@ -670,21 +720,18 @@ class TaskGrid:
 
     # -- drawing ------------------------------------------------------------------
     def render(self) -> None:
-        """Rebuild the table from the current rows, in the order the headings ask for."""
+        """Bring the table to the current rows — cell by cell, never by emptying it.
+
+        The diff is `sync_tree`, the same one the ★ list draws through (#1272): a page
+        that blinks its whole table on every read is a page whose selection and scroll
+        position move under the hand reading it.
+        """
         tree = self._tree
         if tree is None:
             return
         self._refresh_timers()
-        chosen = set(tree.selection())
-        for iid in tree.get_children(""):
-            tree.delete(iid)
         rows = sort_rows(self.visible_rows(), self._sort)
-        for row in rows:
-            tree.insert("", "end", iid=str(row["uuid"]),
-                        values=self.row_values(row), tags=(row_tag(row),))
-        back = [iid for iid in chosen if tree.exists(iid)]
-        if back:
-            tree.selection_set(back)
+        sync_tree(tree, rows, self.row_values, row_tag)
         self._show_empty(not rows)
         self._update_count()
         self.tab.sync_actions()

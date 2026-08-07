@@ -143,6 +143,32 @@ POLL_MS = 3_000
 # `grid.repaint_countdowns`.
 LIVE_MS = 250
 
+# How long the per-tile read waits for the SERVER's replies, and how often it looks
+# (#1272). This is the one wait on the state read that is not the panel's own slowness:
+# `world.get.detail.new` goes out per tile and each reply lands when it lands.
+#
+# It used to be a flat `sleep(1.2)` followed by a 1.0 s settle, paid in full even when
+# every answer was already in — three of the four seconds a press cost. Now the read-back
+# is repeated every :data:`DETAIL_POLL_SEC` and stops the moment every asked tile has a
+# real answer, so a handful of ready rows on a warm client is a fraction of a second and
+# the ceiling is only reached when the server really is silent. The ceiling itself is
+# what the old sleep-plus-settle came to, so nothing that used to answer stops answering.
+DETAIL_WAIT_MS = 2_200
+DETAIL_POLL_SEC = 0.12
+
+# How often the list re-checks ITSELF against the game, and how much of it at a time
+# (#1280). «Обновить состояние» is a press, and the complaint that produced this was that
+# the automatic half only ever looked at the rows that were already ready — so a tile
+# somebody else emptied an hour ago went on saying «готово через 40 минут» until a hand
+# pressed something.
+#
+# A SLICE, not the list. The read holds the game while it runs, so twenty tiles — one
+# probe chunk and one read-back — is what one turn costs, and a ninety-row list comes
+# round in about two minutes. The rows whose state lives seconds are not waiting for this:
+# they are at the front of every slice AND asked about every :data:`POLL_MS` by the poll.
+STATE_MS = 30_000
+STATE_SLICE = 20
+
 # How long BEFORE a tile matures «Собрать» is already offered (#1272). A star is taken
 # in the first moment it is takeable — «счёт может идти на микросекунды, потому что много
 # желающих уже кликают» — and a button that appears at the instant of readiness is one
@@ -316,6 +342,12 @@ class SecretTasksTab(PanelTab):
         # …and the ghost-recon page's own read (#1251), which is a fourth source with
         # a fourth failure mode: a weekly event that is shut six days out of seven.
         self._ghost_busy = False
+        # …and the unattended state re-check (#1280), which is the SAME read «Обновить
+        # состояние» makes and therefore needs a flag of its own: sharing `_vm_busy` with
+        # it would let a background turn swallow a press, or a share push's snapshot.
+        self._state_busy = False
+        # Where the rotation had got to — see `_state_sweep`.
+        self._state_cursor = 0
         # The event's config table, read once per session (see `_ghost_work`).
         self._ghost_config = None
         self._ticking = False
@@ -534,6 +566,7 @@ class SecretTasksTab(PanelTab):
         self.ghost_map.restore()
         self._start_clock_sync()
         self._start_ticking()
+        self._state_sweep()
         self._prime_own_server()
         self._snapshot()
         self._roster()
@@ -664,9 +697,10 @@ class SecretTasksTab(PanelTab):
         self.autoloot.stop()
         self.autoassist.stop()
         for name in ("secret_tick", "secret_live", "secret_poll", "secret_nudge",
-                     "secret_clock", "autoloot_push_restart"):
+                     "secret_clock", "secret_state", "autoloot_push_restart"):
             self.rt.tick.disarm(name)
         self._ticking = self._polling = self._living = False
+        self._state_busy = False
 
     # -- persistence ----------------------------------------------------------
     def config(self) -> dict:
@@ -1400,25 +1434,113 @@ class SecretTasksTab(PanelTab):
         strangers' tiles that make up this list it says nothing at all; the per-tile
         answer is the one a marker tap gets, `world.get.detail.new`.
 
-        READY ROWS FIRST, because their state is the one that lives seconds: a tile is
-        raidable until the first person reaches it, and that is exactly the row the
-        operator was seeing a lie about.
+        EVERY ROW, READIEST FIRST (#1280). It was narrowed to the raidable ones because a
+        press cost four seconds of held game (#1272); the press costs a fraction of that
+        now — one chunk asks about every tile at once and the read-back ends as soon as
+        the replies land — so the narrowing bought nothing and hid what the button is
+        for: «работает только по готовым строкам, а не по всему списку». The order is
+        still readiest-first, so a read cut short by a slow VM has answered the rows whose
+        state lives seconds before it stops.
+
+        The 3-second poll keeps the narrow scope (`_state_targets(hot=True)`) — that one
+        runs unattended and a press does not.
         """
         if self._vm_busy:
             return
+        targets = self._state_targets()
+        if not targets:
+            # An empty list — and saying so is the honest answer to a press, rather than
+            # a round trip that reports «проверено 0».
+            self.say("secret", "log.secret.state_none")
+            return
         self._vm_busy = True
         self._status_var.set(self.t("tabx.loading"))
-        threading.Thread(target=self._state_work, daemon=True).start()
+        self._read_state(targets)
 
-    def _state_work(self) -> None:
-        """The two round trips, off the Tk thread: the alliance table, then the tiles."""
-        import lua_actions
-        rows = sorted(self._rows.values(),
-                      key=lambda r: (not r.get("ready"),
-                                     r.get("completed_at") or float("inf")))
+    def _read_state(self, targets, auto: bool = False) -> None:
+        """Ask the game about these rows, off the Tk thread. One place, two callers."""
+        keys = [str(r["uuid"]) for r in targets]
         tiles = [(int(r["x"] or 0), int(r["y"] or 0), int(r["server"] or 0))
-                 for r in rows]
-        keys = [str(r["uuid"]) for r in rows]
+                 for r in targets]
+        threading.Thread(target=self._state_work, args=(keys, tiles, auto),
+                         daemon=True).start()
+
+    # -- and the same read, unattended, a slice at a time (#1280) ---------------
+    def _state_sweep(self) -> None:
+        """Re-check the WHOLE list by rotating through it, :data:`STATE_SLICE` at a time.
+
+        «Обновить состояние» is a press, and a list that is only true when somebody
+        presses is a list that lies for as long as nobody does. The 3-second poll cannot
+        be that check — it asks the alliance table alone, which cannot testify about a
+        stranger's tile at all — so this is the same two-part read the button makes,
+        aimed at a slice of the list and moved on one slice at a time.
+
+        A slice rather than the lot because the read holds the game while it runs: twenty
+        tiles is one chunk and one read-back, and a ninety-row list comes round about
+        every two minutes at :data:`STATE_MS`. The raidable rows are at the front of every
+        slice regardless — `_state_targets` sorts them there — and they are asked about
+        far more often by the poll anyway.
+
+        Skipped whole while a press is already reading, while the game is down, and while
+        the list is empty. It is a re-check, never a feed: nothing here can ADD a row.
+        """
+        try:
+            if self._state_busy or self._vm_busy or not self._rows:
+                return
+            if not (self.rt.game.up() and not self.rt.game.busy):
+                return
+            rows = self._state_targets()
+            if not rows:
+                return
+            start = self._state_cursor % len(rows)
+            take = min(STATE_SLICE, len(rows))
+            targets = (rows + rows)[start:start + take]
+            self._state_cursor = (start + len(targets)) % len(rows)
+            self._state_busy = True
+            self._read_state(targets, auto=True)
+        finally:
+            self.rt.tick.arm("secret_state", STATE_MS, self._state_sweep)
+
+    def _state_targets(self, hot: bool = False) -> list:
+        """The rows a state read is about, readiest first.
+
+        `hot=True` is the narrow set the unattended chains use: the very gate the standing
+        order aims by (:meth:`_raidable`) — ready, or within :data:`AUTO_EARLY_MS` of
+        maturing, and not a tile nobody can take (3/3, or one we have robbed). That is
+        what the 3-second poll asks about and what arms it at all.
+
+        `hot=False` — the default, and what a PRESS gets — is the WHOLE list (#1280).
+        Every row on this tab is a tile that may have been emptied, looted out or taken
+        off the map since it was found, and a state read that skips them is a list that
+        can only be corrected by driving the map again.
+
+        Readiest first either way, because when the read is cut short by a slow VM the
+        rows worth having are the ones already at the front.
+
+        Everything OFF this list is untouched by the read, which is the other half of the
+        rule the tab is built on: a row nobody asked about cannot be dropped by an answer
+        nobody got (:data:`THE_LIST_RULE`).
+        """
+        rows = [r for r in self._rows.values() if not hot or self._raidable(r)]
+        return sorted(rows, key=lambda r: (not r.get("ready"),
+                                           r.get("completed_at") or float("inf")))
+
+    def _state_work(self, keys: list, tiles: list, auto: bool = False) -> None:
+        """The round trips, off the Tk thread: the alliance table, then the tiles.
+
+        WHAT THE WAITING COSTS, MEASURED (#1272). Every read here used to sit out a fixed
+        settle — 1.1 s for the alliance table, 0.6 s for the probe, a bare `sleep(1.2)`
+        for the replies and 1.0 s for the read-back — so a press could not answer in less
+        than 3.9 s however fast the VM was, and it held the game lease for all of it,
+        which is what made the OTHER buttons feel stuck too. The answer of a chunk is in
+        the log ~30 ms after the call returns (`lua_eval.collect`), and each of these
+        chunks ends by printing a line of its own, so the settle is now a DEADLINE with a
+        sentinel to end it early: `VT_END` for the table, `detail_asked` for the probe,
+        `DT_CONTROL` for the read-back. The replies from the server are the one wait that
+        is real, and it is polled rather than slept through — as soon as every asked tile
+        has an answer, the read is over.
+        """
+        import lua_actions
         live, seen, control = None, {}, False
         try:
             ev = self.rt.game.evaluator()
@@ -1427,25 +1549,55 @@ class SecretTasksTab(PanelTab):
             live = {str(t.uuid): t
                     for t in steal_secret_task._vm_all_alliance_tasks(ev)}
             if tiles:
-                # 2. …and the per-tile answer for everything else. One chunk to ask, a
-                #    settle for the replies, one chunk to read them back.
+                # 2. …and the per-tile answer for everything else. One chunk to ask, then
+                #    read the replies back as they land.
                 ev.run(lua_actions.secret_task_detail_probe(tiles), marker="ACT",
-                       settle=0.6)
-                time.sleep(1.2)
-                for ln in ev.run(lua_actions.secret_task_detail_read(),
-                                 marker="ACT", settle=1.0) or ():
-                    body = ln[4:] if ln.startswith("ACT ") else ln
-                    if body.startswith("DT_CONTROL"):
-                        control = body.strip().endswith("ok=1")
-                    elif body.startswith("DT "):
-                        f = dict(kv.split("=", 1) for kv in body[3:].split() if "=" in kv)
-                        seen[int(f.get("i") or 0)] = int(f.get("uuid") or 0)
+                       settle=0.6, sentinel="detail_asked")
+                seen, control = self._read_details(ev, len(tiles))
         except Exception:                     # noqa: BLE001 — a failed read proves nothing
             live = None
-        self.after(lambda: self._state_landed(keys, live, seen, control))
+        self.after(lambda: self._state_landed(keys, live, seen, control, auto))
 
-    def _state_landed(self, keys, live, seen, control: bool) -> None:
+    def _read_details(self, ev, asked: int) -> tuple:
+        """Read the probe's replies back, stopping as soon as they have all landed.
+
+        The server answers each `world.get.detail.new` on its own, so there IS a wait
+        here — but it is a wait for an ANSWER, not a fixed sleep, and it used to be both:
+        1.2 s of sleeping plus a 1.0 s settle, whatever had already arrived. Now the
+        read-back is repeated on a short pause until every asked tile has a REAL answer,
+        and out of the loop at :data:`DETAIL_WAIT_MS` whether they all do or not.
+
+        A nought is not an answer to wait no longer on, and that is the trap this loop
+        has to walk around: the chunk prints a `DT` line for every tile it was asked
+        about whether the reply has arrived or not, and `uuid=0` means both «there is
+        nothing on that tile» and «nothing has come back yet». So only a nonzero uuid
+        ends the wait early; a tile still reading nought when the deadline passes is
+        handed over as the nought it is, exactly as the old fixed sleep handed it over,
+        and what it MEANS is decided by the control point in :meth:`_state_landed`.
+        """
+        import lua_actions
+        deadline = time.monotonic() + DETAIL_WAIT_MS / 1000.0
+        seen, control = {}, False
+        while True:
+            time.sleep(DETAIL_POLL_SEC)
+            for ln in ev.run(lua_actions.secret_task_detail_read(), marker="ACT",
+                             settle=1.0, sentinel="DT_CONTROL") or ():
+                body = ln[4:] if ln.startswith("ACT ") else ln
+                if body.startswith("DT_CONTROL"):
+                    control = body.strip().endswith("ok=1")
+                elif body.startswith("DT "):
+                    f = dict(kv.split("=", 1) for kv in body[3:].split() if "=" in kv)
+                    seen[int(f.get("i") or 0)] = int(f.get("uuid") or 0)
+            answered = sum(1 for uuid in seen.values() if uuid)
+            if answered >= asked or time.monotonic() >= deadline:
+                return seen, control
+
+    def _state_landed(self, keys, live, seen, control: bool, auto: bool = False) -> None:
         """Apply what came back, and say what it changed.
+
+        `auto` marks the unattended pass (:meth:`_state_sweep`): it clears its own flag
+        and stays quiet unless it actually changed something, because a line every thirty
+        seconds saying «проверено 20 · обновлено 0» is a log nobody can read.
 
         WHAT IT CAN AND CANNOT REFRESH, said plainly because it was asked (#1272). The
         loot count lives in exactly two places: the client's own alliance table, which
@@ -1463,7 +1615,10 @@ class SecretTasksTab(PanelTab):
         answered about with no detail — with the control point proving the answers were
         arriving — is the other thing entirely: there is nothing there, and the row goes.
         """
-        self._vm_busy = False
+        if auto:
+            self._state_busy = False
+        else:
+            self._vm_busy = False
         checked = len(keys)
         updated = gone = unconfirmed = 0
         for index, key in enumerate(keys, start=1):
@@ -1507,8 +1662,9 @@ class SecretTasksTab(PanelTab):
             # there, and the control point proved the answers were arriving.
             self._rows.pop(key, None)
             gone += 1
-        self.say("secret", "log.secret.state_done", checked=checked, updated=updated,
-                 gone=gone, unconfirmed=unconfirmed)
+        if not auto or updated or gone:
+            self.say("secret", "log.secret.state_done", checked=checked, updated=updated,
+                     gone=gone, unconfirmed=unconfirmed)
         self._render()
         self._update_status()
         self._persist_rows()
@@ -2721,11 +2877,19 @@ class SecretTasksTab(PanelTab):
 
     # -- drawing ---------------------------------------------------------------
     def _render(self) -> None:
-        """Rebuild the table from the current rows, in the order the headings ask for.
+        """Bring the table to the current rows — by CHANGING it, not by refilling it.
 
         Called on a merge / collect / clear / sort, NOT every second — the countdown is
-        written cell by cell by :meth:`_paint_timers`, which costs nothing next to
-        emptying and refilling the table.
+        written cell by cell by :meth:`_paint_timers`.
+
+        IT IS A DIFF NOW (#1272), and the complaint that made it one was «грид стирается
+        и потом снова обновляется». The old draw deleted every row and inserted every row
+        back, so a state read blanked the table in front of whoever was reading it, moved
+        the scroll and took the selection off the row their hand was on. `grid.sync_tree`
+        writes only the cells whose text changed, inserts only what is new and moves only
+        what has re-sorted; a poll that confirms what was already there now writes nothing
+        at all. The selection needs no saving and restoring either — the rows it is on are
+        never deleted any more.
         """
         tree = self._tree
         if tree is None:
@@ -2734,18 +2898,8 @@ class SecretTasksTab(PanelTab):
         # once — unlike the old labels, which followed their variable. So the clocks are
         # brought up to date first and the row is drawn with the state it really is in.
         self._refresh_timers()
-        # The selection is what the strip's buttons are aimed at; a repaint every time a
-        # tile matures must not take it away from under the operator's hand.
-        chosen = set(tree.selection())
-        for iid in tree.get_children(""):
-            tree.delete(iid)
         rows = self._sorted_rows(self._visible_rows())
-        for row in rows:
-            tree.insert("", "end", iid=str(row["uuid"]), values=self._row_values(row),
-                        tags=(grid.row_tag(row),))
-        back = [iid for iid in chosen if tree.exists(iid)]
-        if back:
-            tree.selection_set(back)
+        grid.sync_tree(tree, rows, self._row_values, grid.row_tag)
         self._show_empty(not rows)
         self._sync_actions()
 
@@ -3115,10 +3269,11 @@ class SecretTasksTab(PanelTab):
                 self.rt.tick.arm("secret_live", LIVE_MS, self._live_tick)
             else:
                 self._living = False
-        # …and whether a lap of the map is walking right now (#1272): the one button says
-        # «Обойти карту» or «Остановить» by it, and a second press is the stop.
-        self._sweeping = False
-        self._sweep_btn = None
+        # NOTHING ELSE BELONGS IN HERE. Two lines of `__init__` were pasted below this
+        # `finally` — `_sweeping = False` and `_sweep_btn = None` — and they ran four
+        # times a second: «Обойти карту» could never stay «Остановить», the button
+        # reference was dropped so `_retitle_sweep` had nothing to rename, and the second
+        # press started a second lap that the game claim then refused as «занято».
 
     def _tick(self) -> None:
         """Every second: rewrite each row's timer, drop the expired, flip the matured.
@@ -3180,25 +3335,31 @@ class SecretTasksTab(PanelTab):
 
     # -- the ready-row poll ----------------------------------------------------
     def _maybe_start_poll(self) -> None:
-        """Start the slow poll if a row is ready and it is not already running."""
+        """Start the slow poll if a row is raidable and it is not already running."""
         if self._polling:
             return
-        if any(r.get("ready") for r in self._rows.values()):
+        if self._state_targets(hot=True):
             self._polling = True
             self.rt.tick.arm("secret_poll", POLL_MS, self._poll_tick)
 
     def _poll_tick(self) -> None:
-        """Re-read the game for the ready rows; reschedule while any remain.
+        """Re-read the game for the raidable rows; reschedule while any remain.
 
         Off the Tk thread (a daemon round trip), so this only gathers the keys and hands
-        the read to a worker. Stops rescheduling the moment no row is ready — an idle tab
-        must not keep waking the daemon.
+        the read to a worker. Stops rescheduling the moment nothing is raidable — an idle
+        tab must not keep waking the daemon.
+
+        THE HOT ROWS ONLY: ready, or inside the standing order's early window. It used to
+        be `ready` alone, which is the one row set that is provably too late — the
+        two-and-a-half seconds before a tile matures are exactly when its loot count is
+        worth knowing. The REST of the list is re-checked by `_state_sweep`, on its own
+        slower clock and with the per-tile read this poll does not make (#1280).
         """
-        ready = [k for k, r in self._rows.items() if r.get("ready")]
-        if not ready:
+        keys = [str(r["uuid"]) for r in self._state_targets(hot=True)]
+        if not keys:
             self._polling = False
             return
-        threading.Thread(target=self._poll_work, args=(ready,), daemon=True).start()
+        threading.Thread(target=self._poll_work, args=(keys,), daemon=True).start()
         self.rt.tick.arm("secret_poll", POLL_MS, self._poll_tick)
 
     def _poll_work(self, keys: list) -> None:
