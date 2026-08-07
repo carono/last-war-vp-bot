@@ -121,11 +121,11 @@ def test_a_client_at_the_login_screen_is_not_believed():
     still yours", every one of them a plausible-looking lie.
     """
     class _LoginScreen:
-        def run(self, _chunk, _marker=None, _settle=1.0):
+        def run(self, _chunk, _marker=None, _settle=1.0, **_kw):
             return ["ACT NOWMS=6280648"]           # uptime, not a clock
 
     class _Session:
-        def run(self, _chunk, _marker=None, _settle=1.0):
+        def run(self, _chunk, _marker=None, _settle=1.0, **_kw):
             return ["ACT NOWMS=%d" % int(time.time() * 1000)]
 
     assert game_clock.plausible(6_280_648) is False
@@ -149,7 +149,7 @@ def test_a_read_with_no_clock_in_it_is_a_client_that_cannot_answer():
     import steal_secret_task as steal
 
     class _LoginScreen:
-        def run(self, _chunk, _marker=None, _settle=1.0):
+        def run(self, _chunk, _marker=None, _settle=1.0, **_kw):
             return []                              # no clock, no tasks, no error
 
     try:
