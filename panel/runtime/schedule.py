@@ -480,8 +480,22 @@ class Schedule:
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> None:
+        self._say_unfinished()
         self.timers.start()
         self.triggers.start()
+
+    def _say_unfinished(self) -> None:
+        """Name the errands whose last attempt never reported back.
+
+        A panel that is killed mid-errand leaves the record open, and the fresh one
+        writes it off as a failure so the retry hold applies (`LastRunStore._sweep`).
+        Writing it off is not the same as hiding it: `restart_game` spent an evening
+        being fired, killed mid-wait by the restart somebody did to escape it, and
+        fired again by the next panel — with nothing anywhere saying that a run had
+        been abandoned. Now the first thing a new panel says is which ones (#1281).
+        """
+        for name in self.store.take_unfinished():
+            self.rt.put("[timer] " + self.rt.t("timers.log.unfinished", name=name))
 
     def stop(self) -> None:
         self.triggers.stop()
@@ -492,6 +506,7 @@ class Schedule:
         and the clock that says when each last ran. Re-read all of it, or the profile
         just switched to would run the other one's errands."""
         self.store.set_path(self.rt.profiles.timers_state())
+        self._say_unfinished()
         self.load_timers()
         self.load_triggers()
         self.triggers.sync()

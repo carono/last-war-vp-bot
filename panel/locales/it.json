@@ -654,6 +654,7 @@
   "timers.log.scheduler_off": "pianificazione spenta — non scatterà nulla",
   "timers.log.scheduler_on": "pianificazione accesa",
   "timers.reason.busy": "il pannello è occupato con altro",
+  "timers.log.unfinished": "{name}: l'esecuzione precedente non è mai tornata — considerata fallita, attende la pausa prima di riprovare",
   "timers.log.skip_busy": "{name}: il pannello è occupato — resta in coda",
   "timers.log.skipped_once": "{name}: saltato — {reason}",
   "timers.log.skipped_times": "{name}: saltato {count} volta(e) — {reason}",

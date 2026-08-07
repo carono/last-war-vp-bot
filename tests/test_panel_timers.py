@@ -625,6 +625,49 @@ def test_a_busy_panel_delays_the_errand_but_never_loses_it():
     assert s.sched.pending() == set(), s.sched.pending()
 
 
+def test_a_run_killed_mid_flight_is_written_off_and_not_inherited_as_due():
+    """A panel that dies mid-errand must not hand the next one a "never tried" (#1281).
+
+    This is what made `restart_game` unkillable on 2026-08-07: it closed the client,
+    waited five minutes for a scene that never came, and was killed mid-wait by the
+    panel restart somebody did to escape it. Nothing was written down either way, so
+    every fresh panel read an errand that had never run, fired it within seconds and
+    closed the client again — with the person playing at the time. Restarting the panel
+    could not help, because what survived the restart was the ABSENCE of a record.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    path = str(tmp / "timers_last_run.json")
+    store = timersmod.LastRunStore(path)
+    store.mark_started(BASE)                       # …and the process dies here
+
+    cat = _catalogue()
+    timer = cat.by_name(BASE)
+    reborn = timersmod.LastRunStore(path)          # the next panel reads the file
+    assert reborn.take_unfinished() == [BASE], "the abandoned run was not noticed"
+    assert reborn.take_unfinished() == [], "said twice — it is news once"
+
+    # Written off as a failure, so the retry hold applies instead of an instant re-fire.
+    state, _when = timersmod.last_attempt(reborn.records(), BASE)
+    assert state == timersmod.ATTEMPT_FAILED, reborn.records()
+    cfg = _cfg(**{BASE: 60})
+    assert cat.due_names(cfg, reborn.records(), time.time()) == [], reborn.records()
+    later = time.time() + timer.retry_sec + 1
+    assert BASE in cat.due_names(cfg, reborn.records(), later), "held back for ever"
+
+
+def test_an_errand_already_running_is_not_offered_again_by_the_clock():
+    """A long run stays overdue for its whole length — the tick must not re-fire it."""
+    tmp = Path(tempfile.mkdtemp())
+    store = timersmod.LastRunStore(str(tmp / "timers_last_run.json"))
+    store.mark_started(BASE)
+    cat = _catalogue()
+    assert cat.due_names(_cfg(**{BASE: 60}), store.records(), time.time()) == []
+
+    # …and a panel that was merely BUSY has attempted nothing, so it stays due.
+    store.mark_started(BASE, 0.0)
+    assert cat.due_names(_cfg(**{BASE: 60}), store.records(), time.time()) == [BASE]
+
+
 def test_waiting_out_a_busy_panel_is_said_once_not_on_every_retry():
     """A parked errand claims to be starting ONCE — the retries are quiet (#1281).
 

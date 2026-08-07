@@ -43,7 +43,11 @@ ATTACH_GAME WITHIN 120s
 # the first login, so the reading that counts is the one taken through the link that
 # is attached NOW. A scenario that ends here having read anything else would report a
 # working session while the panel talks to a process that is on its way out.
-IF scene != city
-    FAIL "the client is up and the game link answers, but the base is not in play"
+# «In play» means the client answers with a SCENE, not that the scene is the base: a
+# session that came back on the world map is a session that came back (#1281). Asking
+# for the city here failed a restart that had worked, purely because of where the
+# player happened to be standing.
+IF scene == unknown
+    FAIL "the client is up and the game link answers, but nothing is in play"
 
-LOG "Client restarted — back at the home base."
+LOG "Client restarted — the session is back in play."

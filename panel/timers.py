@@ -480,7 +480,12 @@ class Catalogue:
             if not item.get("enabled"):
                 continue
             rec = records.get(timer.name) or {}
-            failed_at = float(rec.get("failed_at") or 0.0)
+            # An attempt that is STILL OPEN counts as the last attempt. Without this a
+            # long run — `restart_game` waits for a client to come up — stays overdue
+            # for its whole length, so every tick offers it again and the queue fills
+            # with copies of the errand that is already running (#1281).
+            failed_at = max(float(rec.get("failed_at") or 0.0),
+                            float(rec.get("started_at") or 0.0))
             if failed_at and now - failed_at < timer.retry_sec:
                 continue
             last = float(rec.get("last_run") or 0.0)
@@ -504,7 +509,8 @@ class Catalogue:
             return None
         rec = records.get(timer.name) or {}
         last = float(rec.get("last_run") or 0.0)
-        failed_at = float(rec.get("failed_at") or 0.0)
+        failed_at = max(float(rec.get("failed_at") or 0.0),
+                        float(rec.get("started_at") or 0.0))
         after_failure = failed_at + timer.retry_sec if failed_at else 0.0
         if not last:
             return max(0.0, after_failure)
@@ -831,17 +837,35 @@ def save_catalogue(catalogue: Catalogue, path: str | None = None) -> None:
 class LastRunStore:
     """When each timer last ran, kept next to the profile it belongs to.
 
-    One small JSON file, ``{name: {"last_run": epoch, "failed_at": epoch}}``,
-    rewritten whole on every mark. Read errors degrade to "nothing ever ran",
-    which makes a corrupted file cost one extra run rather than a crash at
-    launch. A profile switch calls :meth:`set_path` — the clock belongs to the
+    One small JSON file, ``{name: {"last_run": epoch, "failed_at": epoch,
+    "started_at": epoch}}``, rewritten whole on every mark. Read errors degrade to
+    "nothing ever ran", which makes a corrupted file cost one extra run rather than a
+    crash at launch. A profile switch calls :meth:`set_path` — the clock belongs to the
     account, not to the panel.
+
+    THE START IS WRITTEN DOWN, NOT ONLY THE END (#1281). A run that never came back —
+    the panel was closed or killed while it was in flight — used to leave no trace at
+    all: `last_run` stayed where it was, no failure was recorded, and the errand was
+    overdue again the moment a fresh panel read the file. That is how `restart_game`
+    became unkillable on 2026-08-07: every start closed the client, waited five minutes
+    for a scene that never came, and was killed mid-wait by the restart the person did
+    to escape it — so each new panel saw an errand that had never been tried, fired it
+    within seconds, and closed the client again. Restarting the panel could not help,
+    because the thing that survived the restart was the ABSENCE of a record.
+
+    So an attempt is stamped before it runs and cleared when it ends either way, and
+    :meth:`sweep_unfinished` turns a stamp left behind by a dead process into an
+    ordinary failure — which the retry hold already knows what to do with.
     """
 
     def __init__(self, path: str) -> None:
         self._lock = threading.Lock()
         self._path = path
         self._data = self._read(path)
+        #: Errands whose last attempt never reported back, found when this file was
+        #: read. Taken by the panel with :meth:`take_unfinished` and SAID — a run
+        #: written off in silence is how the last one hid for a whole evening.
+        self._unfinished = self._sweep()
 
     # -- location -----------------------------------------------------------
     @property
@@ -853,6 +877,7 @@ class LastRunStore:
         with self._lock:
             self._path = path
             self._data = self._read(path)
+        self._unfinished = self._sweep()
 
     # -- reading ------------------------------------------------------------
     def records(self) -> dict:
@@ -863,15 +888,57 @@ class LastRunStore:
         with self._lock:
             return float((self._data.get(name) or {}).get("last_run") or 0.0)
 
+    def take_unfinished(self) -> list[str]:
+        """Names whose attempt was still open when this file was read, once.
+
+        Read by whoever is in a position to say it out loud; emptied by the reading, so
+        it is said when it is found and not on every paint.
+        """
+        with self._lock:
+            names, self._unfinished = list(self._unfinished), []
+        return names
+
     # -- writing ------------------------------------------------------------
+    def mark_started(self, name: str, when: float | None = None) -> None:
+        """An attempt is beginning. Cleared by whichever of the two marks ends it."""
+        self._update(name, {"started_at": float(when if when is not None else time.time())})
+
     def mark_run(self, name: str, when: float | None = None) -> None:
         """Record a successful run, clearing any earlier failure hold."""
         self._update(name, {"last_run": float(when if when is not None else time.time()),
-                            "failed_at": 0.0})
+                            "failed_at": 0.0, "started_at": 0.0})
 
     def mark_failed(self, name: str, when: float | None = None) -> None:
         """Record a failed attempt — the period keeps running, the retry waits."""
-        self._update(name, {"failed_at": float(when if when is not None else time.time())})
+        self._update(name, {"failed_at": float(when if when is not None else time.time()),
+                            "started_at": 0.0})
+
+    def _sweep(self) -> list[str]:
+        """Write off attempts nobody ever finished, and name them.
+
+        A stamp older than both marks belongs to a process that is not here any more:
+        this file is read at start-up and on a profile switch, and in both cases nothing
+        of the previous run is still going. Treated as a FAILURE rather than as "never
+        tried", so the errand waits out its retry instead of firing the instant the
+        panel is back — which is the whole reason the stamp exists.
+        """
+        found, changed = [], False
+        with self._lock:
+            for name, rec in list(self._data.items()):
+                started = float((rec or {}).get("started_at") or 0.0)
+                if not started:
+                    continue
+                rec = dict(rec)
+                if started > float(rec.get("last_run") or 0.0) and \
+                        started > float(rec.get("failed_at") or 0.0):
+                    found.append(name)
+                    rec["failed_at"] = started
+                rec["started_at"] = 0.0
+                self._data[name] = rec
+                changed = True
+            if changed:
+                _write_json(self._path, self._data)
+        return found
 
     def _update(self, name: str, fields: dict) -> None:
         with self._lock:
@@ -1333,6 +1400,9 @@ class TimerScheduler:
         else:
             self._log("timers.log.manual", name=timer.name)
             self._dbg.info("fire %s (manual)", timer.name)
+        # Stamped BEFORE the run, so a panel that dies mid-errand leaves a record of
+        # the attempt rather than of nothing at all (`LastRunStore.sweep_unfinished`).
+        self._store.mark_started(timer.name)
         try:
             started = self._runner(timer)
         except Exception as exc:                          # noqa: BLE001
@@ -1341,6 +1411,9 @@ class TimerScheduler:
             self._dbg.error("run of %s failed", timer.name, exc_info=True)
             return False, False
         if not started:
+            # Not an attempt: nothing was tried, so the stamp comes straight back off
+            # or a busy panel would put every errand behind it into a retry hold.
+            self._store.mark_started(timer.name, 0.0)
             # Rolled up like any other reason an errand did not run: said at once,
             # then at most once a minute with how many attempts piled up behind it.
             self.note_skip(timer.name, "timers.reason.busy")

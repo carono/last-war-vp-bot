@@ -1130,11 +1130,14 @@ def test_restart_recipe_closes_relaunches_and_re_attaches():
               if type(s).__name__ == "CallStmt"]
     assert called == ["launch_game"], "the restart must start the game the one way"
     assert se.resolve_action("launch_game") is not None
-    # Done means BOTH halves: the link answers (ATTACH_GAME) and the base is in play,
+    # Done means BOTH halves: the link answers (ATTACH_GAME) and something is in play,
     # read AFTER the re-attach — the client restarts itself once into a new process,
     # so a scene read taken any earlier is a reading of the wrong one.
+    #
+    # IN PLAY, NOT AT THE BASE. Asking for the city here failed restarts that had
+    # worked, purely because of where the player was standing when it happened (#1281).
     guard = se.parse_text(body)[4]
-    assert guard.condition == "scene != city", guard.condition
+    assert guard.condition == "scene == unknown", guard.condition
     assert type(guard.then_block[0]).__name__ == "FailStmt", guard.then_block
 
 
@@ -1228,6 +1231,14 @@ def test_launch_recipe_starts_the_game_where_the_profile_lives():
     # per user). `tools/lib/game_paths.py` resolves it per session, LW_LAUNCHER moves it.
     assert se.parse_text(body)[0].path is None, \
         "the recipe must not carry one machine's install path"
+    # READY MEANS THE CLIENT IS UP, NOT THAT IT IS AT THE BASE (#1281). A player on the
+    # world map answers 'world' for ever, so waiting for the city sat out the whole
+    # timeout after a launch that had already succeeded — holding the panel's
+    # single-file queue, and closing the client again on the errand's next turn.
+    wait = se.parse_text(body)[1]
+    assert wait.condition == "scene != unknown", wait.condition
+    assert wait.timeout <= 180.0, ("the wait is also a CAP on how long the queue can be "
+                                   "held: %r" % wait.timeout)
 
 
 def test_quit_carries_the_session_to_the_closer():

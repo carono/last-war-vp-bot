@@ -654,6 +654,7 @@
   "timers.log.scheduler_off": "schedule off — nothing will fire",
   "timers.log.scheduler_on": "schedule on",
   "timers.reason.busy": "the panel is busy with something else",
+  "timers.log.unfinished": "{name}: the previous run never came back — written off as failed, waiting out its retry",
   "timers.log.skip_busy": "{name}: the panel is busy — staying in the queue",
   "timers.log.skipped_once": "{name}: skipped — {reason}",
   "timers.log.skipped_times": "{name}: skipped {count} time(s) — {reason}",

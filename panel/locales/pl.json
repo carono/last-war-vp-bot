@@ -654,6 +654,7 @@
   "timers.log.scheduler_off": "harmonogram wyłączony — nic się nie odpali",
   "timers.log.scheduler_on": "harmonogram włączony",
   "timers.reason.busy": "panel jest zajęty czymś innym",
+  "timers.log.unfinished": "{name}: poprzedni przebieg nigdy nie wrócił — uznany za nieudany, czeka na przerwę przed ponowieniem",
   "timers.log.skip_busy": "{name}: panel jest zajęty — zostaje w kolejce",
   "timers.log.skipped_once": "{name}: pominięto — {reason}",
   "timers.log.skipped_times": "{name}: pominięto {count} raz(y) — {reason}",
