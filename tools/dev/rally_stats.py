@@ -45,6 +45,15 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 #: on purpose — the technical logger writes in English whatever language the panel is
 #: showing, so a tally does not break when somebody switches locale.
 FIRE = "fire rally_auto_join on"
+#: THE GAME'S OWN ANSWER TO «how many banners were there», and the reason the headline
+#: number of this file changed (#1281). `push.alliance.march.*` fires on EVERY movement
+#: of every alliance march — create, refresh, remove — so counting those and calling
+#: them rallies turned 24 banners into «136 pushes», which is what the person looking at
+#: the map rightly called nonsense. The honest count is the DISTINCT `teamUuid` the
+#: client itself listed, which is what `rally_monitor` logs on every one of those pushes.
+#: A march carrying a non-zero teamUuid is an `ASSEMBLY_MARCH` — checked live, twice,
+#: every march on the map both times — so a distinct team IS a distinct banner.
+MONITOR = ("rally_monitor:", "READ_LUA rallies = ")
 RUN = "rally_auto_join: > action: join_rally"
 #: THE INDENT IS NOT PART OF THE LINE (#1281). The interpreter indents a step by how
 #: deeply it is nested, so the same reading is «   READ_LUA joined» at the top level and
@@ -72,6 +81,12 @@ BUSY = "skipped rally_auto_join — panel busy"
 #: so that EVERY run is accounted for: a run that neither sent nor explained itself is
 #: the bug this file exists to catch, and it can only be spotted by adding up.
 FAILTEXT = "rally_auto_join: < action: join_rally FAILED"
+#: …and the ending that is NOT the recipe's: a run killed by an exception before it
+#: could FAIL — the daemon socket dropped under it, most often while the daemon was
+#: being replaced. The panel says it in as many words («ошибка — [WinError 10054] …»),
+#: so it is not a silent skip; it simply is not a sentence the recipe wrote, and a
+#: counter that only knew the recipe's shape called it «said nothing» (#1281).
+CRASHED = ("rally_auto_join:", "ошибка — ")
 
 #: The report's own trailing sentence -> the bucket it is counted in. The words come from
 #: `lua_actions.rally_join_all`; anything unrecognised lands in «other» and is printed,
@@ -91,6 +106,8 @@ FAIL_WORDS = (
     ("game has no army to fill it", "the squad really was empty"),
     ("no squad appeared in a rally", "the send went out and no squad appeared"),
     ("could not be paired up", "no formation for the chosen squad"),
+    ("crashed: [WinError", "the daemon connection dropped under the run"),
+    ("crashed: ", "the run was killed by an error, not by a refusal"),
     # A recipe that CALLs another names the step it failed at rather than the reason,
     # which is right for the log and useless as a bucket — so the sub-action's own name
     # is what this is counted under (`fill_empty_squads` is #1285's).
@@ -165,6 +182,7 @@ def tally(lines: list) -> dict:
     bucket, by its LAST word about itself.
     """
     fires, again, waiting = [], 0, 0
+    banners: set = set()                  # distinct teamUuid the GAME listed
     pending_fire: float | None = None
     latencies: list = []
     first = last = None
@@ -177,6 +195,9 @@ def tally(lines: list) -> dict:
         if at is not None:
             first = first if first is not None else at
             last = at
+        if _has(line, MONITOR):
+            banners.update(re.findall(r"team=(\d+)", line))
+            continue
         if FIRE in line:
             fires.append(at)
             pending_fire = at
@@ -218,6 +239,8 @@ def tally(lines: list) -> dict:
             cur["screen"] = True
         elif FAILTEXT in line:
             cur["fail"] = line.split("FAILED", 1)[1].lstrip(" —-").strip()
+        elif _has(line, CRASHED) and not cur["fail"]:
+            cur["fail"] = "crashed: " + _after(line, CRASHED).strip()
 
     reasons, fails, squads_left = Counter(), Counter(), Counter()
     empty_only = joined_runs = sent_total = joins = screens = 0
@@ -272,6 +295,7 @@ def tally(lines: list) -> dict:
 
     return {
         "span": (first, last),
+        "banners": len(banners),
         "fires": len(fires), "again": again, "waiting": waiting,
         "runs": len(runs), "sends": len(latencies), "sent": sent_total, "joins": joins,
         "screens": screens, "failures": sum(fails.values()),
@@ -287,8 +311,12 @@ def show(t: dict) -> None:
     if first is not None and last is not None:
         mins = max(0.0, (last - first)) / 60.0
         print(f"window: {mins:.0f} min")
-    print(f"pushes that fired           : {t['fires']}"
-          f"   (re-armed mid-run {t['again']}, coalesced {t['waiting']})")
+    print(f"BANNERS the game listed     : {t['banners']}"
+          f"   <- distinct teamUuid, the only honest count of opportunities")
+    print(f"march events on the wire     : {t['fires']}"
+          f"   (every create/refresh/remove of every alliance march;"
+          f"\n                                re-armed mid-run {t['again']},"
+          f" coalesced {t['waiting']})")
     print(f"runs of join_rally          : {t['runs']}")
     print(f"presses that went out       : {t['sends']}")
     print(f"squads SENT                 : {t['sent']}")
