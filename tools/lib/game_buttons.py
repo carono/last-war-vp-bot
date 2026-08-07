@@ -566,7 +566,7 @@ BUTTONS: dict[str, Button] = {
     # What it left behind and why is `DataCenter.__lw_rally_report`, which the recipe
     # reads back and logs. It is what `actions/join_rally.md` plays; everything below it
     # is the older, step-at-a-time shape, kept for the one thing a headless send cannot
-    # do (see `rally_join_open`).
+    # do (see `fill_empty_squads`).
     "rally_join_all": Button(
         lua=_lua_actions.rally_join_all(),
         # The marches appear when the SERVER answers and the recipe polls for that.
@@ -575,12 +575,15 @@ BUTTONS: dict[str, Button] = {
     ),
     # `rally_join_send` is the join for ONE armed rally, and it opens nothing: the squad
     # screen adds nothing to the message that the squad does not already carry
-    # (docs/research/rally-join.md). The three presses after it are the FALLBACK — open
-    # the screen, pick the squad, launch, with the recipe waiting for each state in
-    # between — and they are what fills a squad standing empty
-    # (`actions/join_rally_via_screen.md`). The screen is never closed by them: it closes
-    # itself on success, and closing it early is exactly what left the old press with
-    # nothing behind it.
+    # (docs/research/rally-join.md).
+    #
+    # THE SCREEN IS GONE (#1285). Three presses used to sit here — open the squad screen,
+    # pick the squad, launch — as the one thing a headless send could not do: fill a
+    # squad standing empty. It never worked: the game's own launch threw from inside its
+    # own code (`SceneUtils.lua:258`), so the case had no route at all. It does not need
+    # one. A squad reading `totalSoldierNum = 0` is a squad the client has not ASKED
+    # about, and one message (`fill_empty_squads` below) fetches the army the server
+    # already had — in 0.37 s, with nothing on screen.
     "rally_join_arm": Button(
         # Not a press in the game: pick the rally and the squad and park them, so every
         # step below reads one answer rather than racing the map for its own.
@@ -596,25 +599,12 @@ BUTTONS: dict[str, Button] = {
         # Sleeping here only holds the lease — and the next rally behind it.
         wait=0.1, label="join the rally with no screen",
     ),
-    "rally_join_open": Button(
-        lua=_lua_actions.rally_join_open(),
-        # The screen is the server's answer and the recipe POLLS for it in quarter
-        # seconds, so sleeping here is time given away twice. Just long enough for the
-        # call to land (#1237: the places are taken while the bot waits).
-        wait=0.15, label="open the squad screen for the rally",
-    ),
-    "rally_join_squad": Button(
-        lua=_lua_actions.rally_join_squad(),
-        # Local — the pick is recorded in the window's own controller, nothing is
-        # waited on — and the recipe reads it back before it launches anyway.
-        wait=0.1, label="pick the squad on the join screen",
-    ),
-    "rally_join_launch": Button(
-        lua=_lua_actions.rally_join_launch(),
-        # The send is away the moment this returns; the march appears when the server
-        # answers, and the recipe POLLS for that. Sleeping here only holds the game's
-        # lease — and the next rally behind it — for nothing.
-        wait=0.3, label="launch the join",
+    # --- the squads themselves: fetch the army the client has not asked about ---
+    "fill_empty_squads": Button(
+        lua=_lua_actions.squads_fill_empty(),
+        # The soldiers appear when the SERVER answers, and `actions/fill_empty_squads.md`
+        # polls for that in quarter seconds. Just long enough for the request to leave.
+        wait=0.1, label="ask the game for the army of every empty squad",
     ),
     # --- alliance rally: RAISE one («Стягивание») -----------------------------
     # The create side, four presses in the order the game itself walks them:

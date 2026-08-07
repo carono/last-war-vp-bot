@@ -762,10 +762,10 @@ def test_the_join_opens_nothing_and_reaches_the_send_in_two_calls():
     assert len(before) == 1, [type(s).__name__ for s in before]
     assert isinstance(before[0], se.LuaStmt) and "__lw_rally_squads" in before[0].chunk
 
-    # …and no screen is opened by this recipe at all. The one thing a window still does
-    # is fill a squad standing EMPTY from the base's pool, which is not the march — so it
-    # lives in its own file and is reached only down the branch where NOTHING could be
-    # sent, after every squad that had an army has already gone.
+    # …and no screen is opened by this recipe at all. The empty squad — the one thing the
+    # send cannot cover — is a FETCH now and not a window (#1285): the client had simply
+    # never asked the server for that squad's army. It is still reached only down the
+    # branch where NOTHING could be sent, after every squad that had an army has gone.
     windows = [s.name for s in stmts if isinstance(s, se.TapStmt)
                and s.name in ("rally_join_open", "rally_join_squad",
                               "rally_join_launch", "close")]
@@ -775,9 +775,9 @@ def test_the_join_opens_nothing_and_reaches_the_send_in_two_calls():
     assert branch, [getattr(s, "condition", None) for s in stmts]
     calls = [x.action_name for x in branch[0].then_block
              if type(x).__name__ == "CallStmt"]
-    assert calls == ["join_rally_via_screen"], calls
+    assert calls == ["fill_empty_squads"], calls
     assert not [s for s in stmts if type(s).__name__ == "CallStmt"], \
-        "the screen path is reachable outside the «nothing could be sent» branch"
+        "the empty-squad path is reachable outside the «nothing could be sent» branch"
 
 
 def test_the_arm_prefers_a_squad_that_can_actually_be_sent():

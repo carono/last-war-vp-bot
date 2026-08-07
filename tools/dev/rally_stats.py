@@ -13,9 +13,9 @@ one file per profile) and prints the tally:
   * why every run that sent nothing sent nothing, in buckets, out of the chunk's own
     report — no banner out, every squad already marching, every squad empty, more
     banners than squads, the link gone, the day's cap spent;
-  * **the empty-squad case on a line of its own**, because it has no working route at
-    all right now (the game's own screen launch throws, #1285) and mixing it into the
-    ordinary skips would hide a real gap behind a plausible word;
+  * **the empty-squad case on a line of its own**, because it used to have no working
+    route at all and the gap must stay visible now that it has one (#1285: the client
+    had simply never asked the server for that squad's army — `fill_empty_squads`);
   * and the delay from the push landing to the send going out — min, median, max.
 
     C:\Python312\python.exe tools\dev\rally_stats.py                  # this profile
@@ -54,7 +54,7 @@ RUN = "rally_auto_join: > action: join_rally"
 SEND = ("rally_auto_join:", "TAP join every rally")
 REPORT = ("rally_auto_join:", "READ_LUA report = ")
 JOINED = ("rally_auto_join:", "READ_LUA joined = ")
-SCREEN = "CALL join_rally_via_screen"
+SCREEN = "CALL fill_empty_squads"
 FAILED = "run of rally_auto_join failed"
 #: The schedule turned the errand down for good, naming a reason (`note_skip`) — the
 #: game is not running, the daemon is gone. The errand is DROPPED; the next push queues
@@ -85,9 +85,7 @@ STAMP = re.compile(r"^\[(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)\.(\d{3})\]")
 FAIL_WORDS = (
     ("no longer talking to the game server", "the link to the server was gone"),
     ("came down before the squad", "the banner came down first"),
-    ("empty squad was filled and launched", "the screen path launched and nothing joined"),
-    ("did not bring up the squad screen", "the squad screen never opened"),
-    ("would not take the chosen squad", "the screen refused the squad"),
+    ("game has no army to fill it", "the squad really was empty"),
     ("no squad appeared in a rally", "the send went out and no squad appeared"),
     ("could not be paired up", "no formation for the chosen squad"),
     # A recipe that CALLs another names the step it failed at rather than the reason,
@@ -157,7 +155,7 @@ def tally(lines: list) -> dict:
 
     The first version of this added up line kinds and came out with «33 runs accounted
     for out of 30»: a run can both report a reason and then fail — the empty-squad case
-    reports `not one of the chosen squads`, calls the screen path and fails there — so
+    reports `not one of the chosen squads`, fetches the army and presses again — so
     counting lines double-counts runs. The accounting line is the whole point of the
     file, and an accounting line that can exceed its own total is worth nothing. So the
     log is cut into runs at `> action: join_rally`, and each run is put in exactly one
@@ -222,9 +220,9 @@ def tally(lines: list) -> dict:
     empty_only = joined_runs = sent_total = joins = screens = 0
     # A CROSS-CUT, not a bucket: how many runs found a banner out and every squad they
     # were allowed to spend standing EMPTY, however the run then ended. Most of them end
-    # in the screen path's failure and are bucketed there, so the exclusive count says 0
-    # and the gap disappears — which is exactly what must not happen while that case has
-    # no working route (#1285).
+    # in the second press and are bucketed by what IT said, so the exclusive count can
+    # say 0 and the case disappear — which is exactly what must not happen for the one
+    # case that spent months without a route at all (#1285).
     empty_seen = 0
     unexplained: list = []
 

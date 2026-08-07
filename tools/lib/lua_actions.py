@@ -3569,89 +3569,100 @@ def rally_join_in() -> str:
         "return 0 end)()")
 
 
-def rally_join_open() -> str:
-    """Press the game's «go on this march» entry, which opens the squad screen.
+def squads_fill_empty() -> str:
+    """Ask the server for the army of every parked squad the client shows as empty.
 
-    The arguments are the ones a hand-made join was recorded making, in that order:
-    target type 6 (`MarchTargetType.JOIN_RALLY`), the rally's tile, the rally id, then
-    the constants the screen wants. It opens `UIFormationSelectListV2` and is NOT
-    followed by a close.
+    THE EMPTY SQUAD WAS NEVER EMPTY — the client simply had not asked (#1285). A squad
+    reads `totalSoldierNum = 0` with `soldiers = {}` in a session where nothing has
+    needed the number yet, and everything downstream treats that as «no army»: the send
+    refuses it before a byte leaves (`hasSolider`, `GameDialogDefine.ADD_SOLDIER`), the
+    join sieve reports it as `empty`, and the run ends having spent nothing.
+
+    One message fixes it and no window is opened::
+
+        SFSNetwork.SendMessage(MsgDefines.GetFormationSoldier, formationUuid)
+                               -- «formation.get.soldier»
+
+    Measured live on a client whose three squads all read 0 while the base held
+    thousands of soldiers: **0 -> a full squad in 0.37 s**, that time including the two
+    VM round trips around it. The reply lands in `RefreshFormationSoldier`, which fills
+    `formation.soldiers` (posIndex -> {soldierId = count, supply}) and the total the
+    gates read. So this is a FETCH, not a recruitment: it makes the client agree with
+    the server about an army the server already had.
+
+    None of the client's own fillers can do it. `AutoInitFormationData`,
+    `AutoAddSoldierByForm`, `AutoAddSoldier` (both `useForm`) and `FetchFormationSoldier`
+    were each pressed on a live empty squad and each returned cleanly having changed
+    nothing (0 -> 0). They all draw on `ArmyManager:GetArmyFreeList()`, which walks
+    `ArmyManager.allArmy` — and that table is EMPTY on a client that has not been sent
+    `army.info`. Asking for `army.info` by hand does not fill it either.
+
+    A SQUAD THAT IS STILL 0 AFTER THIS IS GENUINELY EMPTY, and that is the reading the
+    caller wants: `squads_filled_count()` counts the ones that came back with an army,
+    and a run that asked and got nothing may say «the squad is empty» and mean it.
+
+    Which squads it asks for is parked in `DataCenter.__lw_fill_squads` (the slots the
+    player sees, 1/2/3/4); with nothing parked it asks for every squad the game knows.
+    `TAP` carries no arguments of its own, which is why it is parked rather than passed.
     """
     return (
-        _RALLY_JOIN_PARAMS +
-        "if p.formation == nil then error('no rally armed for this run') end "
-        "MarchUtil.OnClickStartMarch(6, p.point, p.team, -1, 1, 7, p.server, 0, 10) "
-        'CS.UnityEngine.Debug.LogError("ACT rally_join_open point="..tostring(p.point))'
+        "local afd = DataCenter.ArmyFormationDataManager "
+        "local want = nil local list = DataCenter.__lw_fill_squads "
+        "if type(list) == 'table' and #list > 0 then want = {} "
+        "for _, s in ipairs(list) do want[tostring(s)] = true end end "
+        "local asked, held, names, refused = 0, 0, {}, {} "
+        "for _, f in pairs(afd.ArmyFormationList) do "
+        "local idx, uuid, num = nil, nil, 0 "
+        "pcall(function() idx = f.index uuid = f.uuid "
+        "num = tonumber(f.totalSoldierNum) or 0 end) "
+        "if idx ~= nil and (want == nil or want[tostring(idx)]) then "
+        "if num > 0 then held = held + 1 else "
+        "local ok, err = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.GetFormationSoldier, uuid) end) "
+        "if ok then asked = asked + 1 names[#names + 1] = tostring(idx) "
+        "else refused[#refused + 1] = tostring(idx) .. ':' .. tostring(err) end "
+        "end end end "
+        "DataCenter.__lw_fill_asked = asked "
+        "DataCenter.__lw_fill_wanted = names "
+        "DataCenter.__lw_fill_report = 'asked=' .. tostring(asked) "
+        ".. ' already-loaded=' .. tostring(held) "
+        ".. ((#names > 0) and (' squads=[' .. table.concat(names, ' ') .. ']') or '') "
+        ".. ((#refused > 0) and (' refused=[' .. table.concat(refused, ' ') .. ']') or '') "
+        'CS.UnityEngine.Debug.LogError("ACT squads_fill_empty "'
+        "..DataCenter.__lw_fill_report)"
     )
 
 
-def rally_join_screen() -> str:
-    """Lua *expression* -> 1 when the squad screen the join needs is on top."""
-    return ("(function() " + _FORMATION_WIN +
-            "local w = UIManager.Instance:GetStackTopWindow() "
-            "if _isformation(w) then return 1 end return 0 end)()")
+def squads_filled_count() -> str:
+    """Lua *expression* -> how many of the squads just asked for now hold an army.
 
+    Counted over `DataCenter.__lw_fill_wanted` — the slots `squads_fill_empty` actually
+    sent a request for — so a squad that was already loaded is not counted as a success
+    this press did not earn, and a squad the server answered for with nothing stays at
+    zero and is the honest «this one really is empty».
 
-def rally_join_alive() -> str:
-    """Lua *expression* -> 1 while the armed rally is still standing on the map.
+    **-1 means nothing was asked for** — every chosen squad already held its army, or the
+    press did not run. A third answer rather than a zero, because the recipe polls on
+    `filled == 0` and a run with nothing to wait for must not spend the poll: this is
+    CALLed from `join_rally.md` with a banner standing on the map.
 
-    A rally is minutes at best and SECONDS during an event, and this flow takes a few
-    of them: arm, open the screen, wait for it, pick, launch. A banner that came down in
-    between leaves the launch pointing at a tile that is no longer a rally — which the
-    server refuses, and which the player is shown as «invalid end point».
-
-    That is not the same failure as «everything was pressed and nothing happened», and
-    reading it here is what tells the two apart instead of leaving both to look like the
-    ability being broken.
+    NOT ONE BRACE IN IT, and that is a constraint rather than a style: `actions/
+    fill_empty_squads.md` inlines this same text in a `READ_LUA`, and the DSL reads `{…}`
+    inside a line as one of the run's own arguments. A Lua table constructor in a recipe
+    is an argument the recipe never declared, so the set-of-wanted-slots this would
+    naturally be written with is a nested loop instead — over at most four squads.
     """
     return (
-        "(function() local p = DataCenter.__lw_rally_join if p == nil then return 0 end "
-        "local wm = DataCenter.WorldMarchDataManager local col = wm:GetAllMarches() "
-        "if col == nil then return 1 end "
-        "local e = col:GetEnumerator() while e:MoveNext() do "
-        "local mo = e.Current local ok, v = pcall(function() return mo.Value end) "
-        "if ok and v ~= nil then mo = v end "
-        "local t = nil pcall(function() t = mo.teamUuid end) "
-        "if t ~= nil and tostring(t) == tostring(p.team) then return 1 end end "
-        "return 0 end)()"
-    )
-
-
-def rally_join_squad() -> str:
-    """Pick the parked squad on the open screen — the tap, and what the tap records."""
-    return (
-        _FORMATION_WIN + _RALLY_JOIN_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not _isformation(w) then "
-        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
-        "pcall(function() w.View:OnSelectClick(p.formation) end) "
-        "w.Ctrl:SetSelectFormationUuid(p.formation) "
-        'CS.UnityEngine.Debug.LogError("ACT rally_join_squad sel="'
-        '..tostring(w.Ctrl.selectFormationUuid))'
-    )
-
-
-def rally_join_picked() -> str:
-    """Lua *expression* -> 1 when the open screen really holds the parked squad."""
-    return (
-        "(function() " + _FORMATION_WIN + _RALLY_JOIN_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not _isformation(w) then return 0 end "
-        "if p.formation ~= nil and tostring(w.Ctrl.selectFormationUuid) == tostring(p.formation) "
-        "then return 1 end return 0 end)()"
-    )
-
-
-def rally_join_launch() -> str:
-    """Press the screen's own launch. The screen closes itself when it is accepted."""
-    return (
-        _FORMATION_WIN + _RALLY_JOIN_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not _isformation(w) then "
-        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
-        "w.Ctrl:OnCheckTime(p.formation, nil) "
-        'CS.UnityEngine.Debug.LogError("ACT rally_join_launch formation="'
-        '..tostring(p.formation))'
+        "(function() local names = DataCenter.__lw_fill_wanted "
+        "if type(names) ~= 'table' or #names == 0 then return -1 end "
+        "local afd = DataCenter.ArmyFormationDataManager local n = 0 "
+        "for _, f in pairs(afd.ArmyFormationList) do "
+        "local idx, num = nil, 0 "
+        "pcall(function() idx = f.index num = tonumber(f.totalSoldierNum) or 0 end) "
+        "if idx ~= nil and num > 0 then "
+        "for _, s in ipairs(names) do "
+        "if tostring(s) == tostring(idx) then n = n + 1 end end end end "
+        "return n end)()"
     )
 
 

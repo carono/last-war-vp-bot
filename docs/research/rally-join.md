@@ -571,3 +571,85 @@ Thirteen minutes of a live alliance, counted off the panel's own log: **13 pushe
 (7 re-armed mid-run, 7 coalesced onto a run that had not looked yet), 16 runs, 3 squads
 sent, 3 joins confirmed, 0 endings that said nothing.** The one run that joined nothing
 with a banner out is the empty-squad case above.
+
+## The empty squad was never empty (#1285)
+
+The one gap left by #1281, and it turned out not to be the gap it looked like. A squad
+reading `totalSoldierNum = 0` is not a squad with no army — it is a squad **the client
+has never asked the server about**. One message fetches it, no window is opened, and
+the case that had no working route at all now has a headless one.
+
+```lua
+SFSNetwork.SendMessage(MsgDefines.GetFormationSoldier, formationUuid)
+--                     MsgDefines.GetFormationSoldier == "formation.get.soldier"
+```
+
+Measured live, on an account whose three squads all read zero while the base held
+sixteen thousand soldiers:
+
+| step | reading |
+|---|---|
+| all three squads before | `totalSoldierNum = 0`, `soldiers = {}`, `state = 0`, `IsFree() = true` |
+| the base's pool | `SoldierDataManager:GetPlayerSoldiersTotalNum()` in the thousands |
+| one message per squad | all three came back with an army, in one pass |
+| blank the client's copy and ask again | **0 → full in 0.37 s**, the two VM round trips included |
+
+The reply lands in `ArmyFormationDataManager:RefreshFormationSoldier`, which fills
+`formation.soldiers` — `posIndex → {soldierId = count, supply = n}`, one entry per hero
+slot — and the total every gate downstream reads. The base's own pool does not go down:
+the soldiers are spent when the march goes out, not when the client learns about them.
+
+### Every filler the client has of its own is a no-op, and why
+
+Each was pressed on a live empty squad, one at a time, with the count read before and
+after. All four returned cleanly and changed nothing (`0 → 0`):
+
+`AutoInitFormationData`, `AutoAddSoldierByForm`, `AutoAddSoldier` (with `useForm` both
+ways), `FetchFormationSoldier`.
+
+They share a source. `AutoAddSoldierByForm` sorts `GetArmyUnFormationList()` by level and
+tops the squad up to `MarchUtil.GetMaxCanAddSoldierNum(heroes, index)`;
+`GetArmyUnFormationList` is `ArmyManager:GetArmyFreeList()` filtered by `restCount`; and
+`GetArmyFreeList` walks **`ArmyManager.allArmy`, which is EMPTY** on a live logged-in
+client — measured repeatedly, in the city, across two client restarts. `ArmyManager` is
+filled by `InitData(message)` off `army.info`; sending `army.info` by hand does not fill
+it either. So the client-side recruitment path is not the one to chase — the fetch is.
+
+**This is the difference between «unloaded» and «empty», and the log now says which.**
+A squad that still reads zero AFTER the fetch is genuinely empty, and nothing the bot can
+press changes that — the answer is the barracks or the hospital.
+`actions/fill_empty_squads.md` says so in its own words, and `join_rally.md` ends on
+«the squad is empty and the game has no army to fill it — nothing was sent» rather than
+on a failure.
+
+### `SceneUtils.lua:258`, explained and then made irrelevant
+
+The screen path's launch threw from inside the client's own Lua (#1281, above). The line
+belongs to **`SceneUtils.IndexToTilePos(index, forceType)`** (`@244-280`, found by walking
+every loaded function for one whose `debug.getinfo` source is `SceneUtils` and whose line
+range covers 258), and the nil is the INDEX. Reproduced by calling it directly:
+
+```
+IndexToTilePos(nil)      -> SceneUtils.lua:258: attempt to compare nil with number
+IndexToTilePos(nil, 1)   -> the same
+IndexToTilePos("400500") -> :258: attempt to compare string with number
+IndexToTilePos(400500)   -> fine, with or without a forceType
+```
+
+So a point index arrives nil on the way to the send: `MarchUtil.SendCreateMarchToServer`
+is the caller that turns one into a tile (`IndexToTilePos`, `TilePosToIndex`), and for
+`JOIN_RALLY` the end point is the argument rather than something read off the march.
+Which of the screen's own values was missing was not chased further, because the screen
+went away with this task: `join_rally_via_screen.md` is deleted, its three buttons with
+it, and `join_rally.md` calls the fetch instead. If the screen is ever needed again, this
+is where to start — and instrumenting `IndexToTilePos` with a `debug.traceback` shim is
+one line.
+
+### Two hazards worth not repeating
+
+* **Do not walk `_G` and `package.loaded` recursively with `string.dump`.** A broad scan
+  for a constant took the client down; the narrow version — name the handful of tables to
+  look in — costs nothing and has been run many times since.
+* **The UI classes are not there when the window is not.** `package.loaded` carried the
+  fourteen `UIFormationSelectListV2` modules while the screen had been up and none of
+  them minutes later, so a controller can only be dumped while its window lives.

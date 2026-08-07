@@ -264,6 +264,14 @@ class RallyTab(PanelTab):
                   wraplength=560, justify="left").pack(side="left")
         self._render_squads(self.rt.squads.latest())
 
+        # A squad reading zero soldiers is usually a squad the client has not asked the
+        # server about, and the whole of that is one scenario (#1285). The button STARTS
+        # it and marks nothing: the line above moves when the READING moves.
+        frow = ttk.Frame(form)
+        frow.pack(fill="x", pady=(4, 0))
+        self.tr(ttk.Button(frow, command=self._fill_squads),
+                "rally_tab.fill_squads").pack(side="left")
+
         brow = ttk.Frame(form)
         brow.pack(fill="x", pady=(8, 0))
         self._launch_btn = self.tr(ttk.Button(brow, command=self._launch),
@@ -380,7 +388,12 @@ class RallyTab(PanelTab):
         cards.append(self._web_autojoin_card())
         cards.append(self._web_autorally_card())
         return {"cards": cards, "now": __import__("time").time(),
-                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+                "actions": [{"id": "refresh", "label": "tabx.refresh"},
+                            # The window's own «Наполнить отряды», mirrored: a squad
+                            # reading zero is what stops a join, and the person holding
+                            # the phone is exactly the one who cannot walk to the machine
+                            # to press it (#1285).
+                            {"id": "fill", "label": "rally_tab.fill_squads"}]}
 
     def _web_autojoin_card(self) -> dict:
         """The three switches, one per line, each saying on or off. READINGS.
@@ -455,11 +468,19 @@ class RallyTab(PanelTab):
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить» — the squad reader's own asynchronous read, nothing else.
 
+        …and «Наполнить отряды», the window's own press, which is a scenario and sends
+        nobody anywhere: it asks the game for the army of every squad reading zero
+        (#1285). Safe from a bus in a way a join is not — nothing leaves the base.
+
         Joining a rally from the phone is deliberately NOT here yet: the join is a
         send with squads chosen for it, and choosing them is «Автосбор» above — a
         reading here, editable only at the machine. A wrong squad sent from a bus is a
         squad that is not home when the next rally lands.
         """
+        if action == "fill":
+            return {"ok": self.rt.play_async(
+                "fill_empty_squads", {"squads": list(RALLY_SQUADS)}, tag="fill_squads",
+                on_done=lambda *_: self.rt.squads.refresh_async())}
         if action != "refresh":
             return {"error": "unknown"}
         self.rt.squads.refresh_async()
@@ -657,6 +678,18 @@ class RallyTab(PanelTab):
             target=self._run_loop,
             args=(self._run_stop, self._kind(), self._level(), squads, self._repeats()),
             daemon=True).start()
+
+    def _fill_squads(self) -> None:
+        """«Наполнить отряды» — play the scenario and let the reader repaint the line.
+
+        A press that STARTS something, which is the allowed kind (CLAUDE.md): it marks
+        nothing and keeps no count of its own. The squad line above is redrawn by
+        `panel/runtime/squads.py` when it reads the game again, so a squad that stays at
+        zero after this stays at zero on screen — which is the truth about that squad.
+        """
+        self.rt.play_async("fill_empty_squads", {"squads": list(RALLY_SQUADS)},
+                           tag="fill_squads",
+                           on_done=lambda *_: self.rt.squads.refresh_async())
 
     def _stop_run(self) -> None:
         if self._run_stop is not None:

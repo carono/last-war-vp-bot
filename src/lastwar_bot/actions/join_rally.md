@@ -24,12 +24,12 @@
 # NO WINDOW IS OPENED ON THE PATH THAT CATCHES A BANNER. The join is one message — the
 # same `SendCreateMarchMessage` the game's own squad screen ends at, aimed at the tile the
 # joiners gather on rather than at the monster (#1237, #1238), with the march type as the
-# SECOND argument (#1277). The one thing a window still does is fill a squad standing
-# EMPTY from the base's pool, and the client refuses a squad with no soldiers before a
-# byte leaves. That is not the march, so it is not on the march's path: the fast send goes
-# out first for every squad that has an army, and only a run that sent NOTHING because
-# every candidate was empty pays for the screens, and they live in
-# `join_rally_via_screen.md` so that this file is only the fast path.
+# SECOND argument (#1277). The one thing left off this path is the squad
+# standing EMPTY: the client refuses a squad with no soldiers before a byte leaves. That
+# is not the march, so it is not on the march's path — the fast send goes out first for
+# every squad that has an army, and only a run that sent NOTHING because every candidate
+# was empty pays for `fill_empty_squads`, one request that fetches the army the server had
+# all along (#1285). No window is opened by that either; there is none left in this file.
 #
 # EVERY SQUAD AND EVERY RALLY LEFT BEHIND IS NAMED IN THE LOG. The chunk writes its own
 # sentence — how many went, how many rallies were out, and one word per squad it passed
@@ -64,7 +64,7 @@ LOG "{report}"
 
 # One number, three answers: how many went out, `0` for nothing to be done, and `-1` for
 # «there is a rally standing there and the only squads left are empty», which is the one
-# case `join_rally_via_screen.md` earns its keep in.
+# case `fill_empty_squads.md` earns its keep in.
 READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
 
 IF todo == 0
@@ -72,11 +72,32 @@ IF todo == 0
     STOP
 
 # OFF THE BANNER'S PATH ON PURPOSE, and in its own file so that a reader of this one can
-# see at a glance that none of it is on the way to a send. Four more calls and a window on
-# screen, reached only when every squad that could go had already gone.
+# see at a glance that none of it is on the way to a send. Reached only when every squad
+# that could go had already gone and one is standing empty.
+#
+# A SQUAD THAT READS EMPTY IS USUALLY A SQUAD NOBODY HAS ASKED ABOUT (#1285): the army is
+# on the server and the client has not fetched it, and one request puts it back in 0.37 s
+# with nothing on screen. That is what `fill_empty_squads` is; the four presses and the
+# window that used to be here are gone, because the game's own launch threw from inside
+# its own code and the case had no working route at all.
 IF todo < 0
-    LOG "every squad that could go has gone; one is standing empty, so the game's own squad screen is opened to fill it"
-    CALL join_rally_via_screen
+    LOG "every squad that could go has gone and one is standing empty — asking the game for its army before giving up"
+    CALL fill_empty_squads
+    TAP rally_join_all
+    READ_LUA (DataCenter.__lw_rally_report or "the second join left no report — the press did not run") INTO report
+    LOG "{report}"
+    READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
+
+# THE ONE ENDING THAT IS A SKIP AND NOT A FAILURE. The squads were asked about and the
+# game had no army to put in them: nothing the bot can press changes that, and the answer
+# is the barracks or the hospital rather than this ability. Said in its own words so it
+# does not read as the join being broken.
+IF todo < 0
+    LOG "the squad is empty and the game has no army to fill it — nothing was sent"
+    STOP
+
+IF todo == 0
+    LOG "nothing was sent even after the squads were asked about — the reason is on the line above"
     STOP
 
 # --- the send went out: did the map move? ----------------------------------------
@@ -86,9 +107,13 @@ IF todo < 0
 # them.
 READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
-# One more look and no more. The server answers in well under a second when it accepts,
-# and a poll that keeps asking is a poll holding the game in front of the next banner.
-WHILE joined < 1 LIMIT 2
+# A few more looks and no more. The server answers in well under a second when it accepts
+# off the fast path, and a poll that keeps asking is a poll holding the game in front of
+# the next banner — but a run that came through `fill_empty_squads` waits longer, because
+# the squad it just fetched an army for has to reach the map. Two looks called that a
+# failure while the squad was already on its way (#1285, measured on a live banner), so
+# the ceiling is three seconds and it is only ever paid when nothing has appeared yet.
+WHILE joined < 1 LIMIT 6
     WAIT 0.5
     READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
