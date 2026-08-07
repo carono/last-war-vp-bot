@@ -16,6 +16,7 @@ import threading
 from .. import debug_log as dbgmod
 from .. import i18n as i18nmod
 from .. import profile as profilemod
+from . import claims
 from . import game_process
 from .actions import ActionRunner, Outcome
 from .activity import Activity
@@ -249,15 +250,62 @@ class PanelRuntime:
     def put(self, line: str) -> None:
         self.log.put(line)
 
+    # -- stepping aside for something more urgent (#1288) --------------------
+    def yield_hook(self, tag: str = "timer"):
+        """A step-aside callable for a BACKGROUND run, or ``None`` when it cannot park.
+
+        Handed to the interpreter as `Context.yield_to`, which calls it between
+        statements, between the presses of a repeat and between the polls of a WAIT.
+        Those are the moments a scenario is between two thoughts rather than inside
+        one, and they are the only ones at which letting the client go is honest.
+
+        WHAT IT DOES, AND WHY IT SAYS IT. A run that steps aside has stopped for a
+        reason nobody watching can see, and a run that came back has resumed something
+        they had stopped expecting — so both are one line, naming who it was for. #1288
+        asks for exactly that: «если что-то прервано или отложено ради приоритетного —
+        сказать, что и почему».
+
+        Losing the client on the way back is a FAILURE and is raised: the alternative
+        is a scenario going on pressing a client it does not hold, which is the one
+        thing the claim exists to prevent. The scheduler turns the raise into a logged
+        failure and a retry hold, exactly as it does for a step that would not run.
+        """
+        def step_aside(ctx=None) -> None:
+            who = self.game.yielded_to()
+            if who is None:
+                return
+            self.log.say(tag, "priority.parked", owner=who)
+            if not self.game.park(tag):
+                raise RuntimeError(self.t("priority.lost", owner=who))
+            # THE LEASE IS A NEW ONE. Standing aside let the old one go, and the run's
+            # context is carrying both the token it was granted and an evaluator built
+            # with it — so without this every call after the first park would be
+            # refused as a lost lease, which reads in the log as the game going deaf.
+            if ctx is not None:
+                ctx.game_token = self.game.token
+                ctx.evaluator = None
+            self.log.say(tag, "priority.resumed", owner=who)
+
+        return step_aside
+
     # -- pressing a scenario in the background ------------------------------
     def play_async(self, name: str, args: dict | None = None, *, tag: str = "action",
-                   cancel=None, on_start=None, on_done=None, on_result=None) -> bool:
+                   cancel=None, on_start=None, on_done=None, on_result=None,
+                   priority: int = claims.HUMAN) -> bool:
         """Run one scenario on a worker thread, under the game claim.
 
         ``False`` when the claim was refused — something else is driving the game — and
         then nothing was started and neither callback runs. ``on_start`` fires on the
         calling thread, ``on_done`` on the TK thread, because the things it undoes (a
         button's state, a row's marker) are widget state.
+
+        ``priority`` is :data:`claims.HUMAN` by default because every caller of this is
+        a press: a button in the window, a hotkey, a screen on the phone, the shell
+        putting the client back. A press that finds a BACKGROUND errand on the client
+        no longer gives up — it hangs a demand on the door and the WORKER waits for the
+        errand to park (:meth:`~panel.runtime.daemon.GameLink.claim_soon`). The Tk
+        thread never waits: it learns only that the run has been accepted, which is
+        what «нажал — действие» has to mean from the window's side (#1288).
 
         ``on_result`` is for the caller that wants what the scenario *found*, not just
         that it finished: it is handed the :class:`~panel.runtime.actions.Outcome`, on
@@ -273,15 +321,32 @@ class PanelRuntime:
         """
         import threading
 
-        if not self.game.claim(tag):
+        held = self.game.claim(tag, priority)
+        if not held and not self.game.outranks(priority):
+            # Nothing to be done: whoever has the client is at least as urgent as this
+            # press, and asking them to step aside for an equal would only shuffle the
+            # order of two things that both have to happen.
             self.log.say(tag, "busy")
             return False
+        if not held:
+            self.log.say(tag, "priority.ahead",
+                         owner=self.game.claimed_by() or "?", name=name)
         if on_start is not None:
             on_start()
 
         def work() -> None:
             outcome = None
             raised = ""
+            if not held and not self.game.claim_soon(tag, priority):
+                # The run holding the client never reached a moment it could park at —
+                # it is inside a call into the game. Refusing is what the press did
+                # before this existed, and it is still the honest answer.
+                self.log.say(tag, "busy")
+                if on_result is not None:
+                    self._on_tk(lambda: on_result(Outcome(False, self.t("busy"))))
+                if on_done is not None:
+                    self._on_tk(on_done)
+                return
             try:
                 on_event = lambda msg: self.log.put(f"[{tag}] {msg}")   # noqa: E731
                 if on_result is None:

@@ -51,6 +51,10 @@ class TimersTab(PanelTab):
         self._timer_vars: dict = {}     # name -> {"enabled": Var, "interval": Var}
         self._timer_rows: dict = {}     # name -> {"last"/"next" Labels, "box"}
         self._trigger_vars: dict = {}   # name -> enabled Var
+        # …and the «сразу» box beside it (#1288): name -> Var. Separate from the one
+        # above because the schedule reads THAT one to decide which ears are up, and a
+        # dict that answers two questions is how one of them gets the other's answer.
+        self._trigger_now: dict = {}
         self._trigger_rows: dict = {}   # name -> {"status" Label}
         # A grid of checkbuttons has no selection of its own, so the row label
         # doubles as one — this is which row the editor's buttons act on.
@@ -70,7 +74,8 @@ class TimersTab(PanelTab):
         if not self._timer_vars:
             return None
         return {name: {"enabled": bool(var["enabled"].get()),
-                       "interval_sec": var["interval"].get()}
+                       "interval_sec": var["interval"].get(),
+                       "immediate": bool(var["immediate"].get())}
                 for name, var in self._timer_vars.items()}
 
     def _trigger_widget_config(self):
@@ -245,6 +250,7 @@ class TimersTab(PanelTab):
         # as one nobody had switched on. It is the same reading, plus how it went — and
         # putting it in the old column's place keeps the row inside the window.
         for col, key in enumerate(("timers.col.action", "timers.col.interval",
+                                   "timers.col.now",
                                    "timers.col.outcome", "timers.col.next")):
             self.tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
@@ -256,7 +262,10 @@ class TimersTab(PanelTab):
             item = config[timer.name]
             enabled = tk.BooleanVar(value=bool(item["enabled"]))
             seconds = tk.StringVar(value=str(item["interval_sec"]))
-            self._timer_vars[timer.name] = {"enabled": enabled, "interval": seconds}
+            # «Сразу, без очереди» (#1288) — see `panel/timers.py::Timer.immediate`.
+            at_once = tk.BooleanVar(value=bool(item["immediate"]))
+            self._timer_vars[timer.name] = {"enabled": enabled, "interval": seconds,
+                                            "immediate": at_once}
             box = ttk.Checkbutton(grid, variable=enabled)
             # A configured `title` wins; a built-in falls back to its locale
             # string; a timer added to the JSON without either shows the name it
@@ -278,16 +287,18 @@ class TimersTab(PanelTab):
                         to=timersmod.MAX_INTERVAL_SEC, width=7,
                         textvariable=seconds).grid(row=row, column=1, sticky="w",
                                                    padx=(0, 10))
+            ttk.Checkbutton(grid, variable=at_once).grid(row=row, column=2,
+                                                        sticky="w", padx=(0, 10))
             outcome = ttk.Label(grid, foreground="#888", width=20)
-            outcome.grid(row=row, column=2, sticky="w", padx=(0, 10))
+            outcome.grid(row=row, column=3, sticky="w", padx=(0, 10))
             nxt = ttk.Label(grid, foreground="#888", width=18)
-            nxt.grid(row=row, column=3, sticky="w", padx=(0, 10))
+            nxt.grid(row=row, column=4, sticky="w", padx=(0, 10))
             self.tr(ttk.Button(grid, command=lambda t=timer: self._timer_run_now(t)),
-                     "timers.run_now").grid(row=row, column=4, sticky="e")
+                     "timers.run_now").grid(row=row, column=5, sticky="e")
             # A queued or running errand had no way back: «✕» takes it off the queue.
             self.tr(ttk.Button(grid, width=3,
                                 command=lambda t=timer: self._timer_cancel(t)),
-                     "timers.cancel").grid(row=row, column=5, sticky="e", padx=(4, 0))
+                     "timers.cancel").grid(row=row, column=6, sticky="e", padx=(4, 0))
             self._timer_rows[timer.name] = {"next": nxt, "outcome": outcome, "box": box}
         self._bind_timer_autosave()
         self._paint_timer_selection()
@@ -304,15 +315,20 @@ class TimersTab(PanelTab):
         for child in grid.winfo_children():
             child.destroy()
         self._trigger_vars.clear()
+        self._trigger_now.clear()
         self._trigger_rows.clear()
         grid.columnconfigure(0, weight=1)
         for col, key in enumerate(("triggers.col.action", "triggers.col.event",
-                                   "triggers.col.status")):
+                                   "timers.col.now", "triggers.col.status")):
             self.tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
         for row, trig in enumerate(self._trigger_catalogue, start=1):
             enabled = tk.BooleanVar(value=bool(trig.enabled))
             self._trigger_vars[trig.name] = enabled
+            # «Сразу, без очереди» (#1288): this fire skips the shared queue and runs
+            # on a thread of its own. The alliance help ships with it on.
+            at_once = tk.BooleanVar(value=bool(trig.immediate))
+            self._trigger_now[trig.name] = at_once
             box = ttk.Checkbutton(grid, variable=enabled)
             if trig.title:
                 box.configure(text=trig.title)
@@ -326,10 +342,12 @@ class TimersTab(PanelTab):
             signal = trig.event_pattern if not trig.is_poll else self.t("triggers.poll")
             ttk.Label(grid, foreground="#888", text=signal).grid(
                 row=row, column=1, sticky="w", padx=(0, 10))
+            ttk.Checkbutton(grid, variable=at_once).grid(row=row, column=2,
+                                                        sticky="w", padx=(0, 10))
             status = ttk.Label(grid, foreground="#888", width=14)
-            status.grid(row=row, column=2, sticky="w", padx=(0, 10))
+            status.grid(row=row, column=3, sticky="w", padx=(0, 10))
             self._trigger_rows[trig.name] = {"status": status}
-        for var in self._trigger_vars.values():
+        for var in list(self._trigger_vars.values()) + list(self._trigger_now.values()):
             var.trace_add("write", lambda *a: self._save_triggers())
 
     def _bind_timer_autosave(self) -> None:
@@ -341,6 +359,7 @@ class TimersTab(PanelTab):
         for var in self._timer_vars.values():
             var["enabled"].trace_add("write", lambda *a: self._save_timers())
             var["interval"].trace_add("write", lambda *a: self._save_timers())
+            var["immediate"].trace_add("write", lambda *a: self._save_timers())
 
     def set_enabled(self, name: str, on: bool) -> bool:
         """Tick or untick one errand FROM OUTSIDE. ``False`` if there is no such row.
@@ -359,6 +378,20 @@ class TimersTab(PanelTab):
         if row is None:
             return False
         row["enabled"].set(bool(on))
+        return True
+
+    def set_immediate(self, name: str, on: bool) -> bool:
+        """Mark one errand «сразу» FROM OUTSIDE, or take the mark off (#1288).
+
+        The web front-end presses this, and it presses it for the same reason
+        :meth:`set_enabled` exists: while this tab is drawn its boxes ARE the
+        configuration, so a flag written straight to `timers.json` would be overwritten
+        by the next save and look, from the phone, like a box that does not stay.
+        """
+        row = self._timer_vars.get(name)
+        if row is None:
+            return False
+        row["immediate"].set(bool(on))
         return True
 
     def _save_timers(self) -> None:
@@ -383,7 +416,8 @@ class TimersTab(PanelTab):
             return
         config = {name: {"enabled": bool(var.get())}
                   for name, var in self._trigger_vars.items()}
-        self._trigger_catalogue = self._trigger_catalogue.with_enabled(config)
+        at_once = {name: bool(var.get()) for name, var in self._trigger_now.items()}
+        self._trigger_catalogue = self._trigger_catalogue.with_enabled(config, at_once)
         triggersmod.save_catalogue(self._trigger_catalogue,
                                    self.rt.profiles.triggers_json())
         self.rt.schedule.triggers.sync()
@@ -427,7 +461,7 @@ class TimersTab(PanelTab):
             # The retry travels with the copy like the period does. Left out, it fell
             # back to the module default, so duplicating the half-hourly ministry
             # errand quietly handed the copy a five-minute retry it was never given.
-            retry_sec=timer.retry_sec,
+            retry_sec=timer.retry_sec, immediate=timer.immediate,
             enabled=False,          # a copy starts off: two clocks on one errand is
                                     # rarely what a duplicate was for
             args=dict(timer.args),
@@ -455,7 +489,8 @@ class TimersTab(PanelTab):
             self._edit_timer_dialog(timer, is_new=False)
 
     def _edited_timer(self, timer, *, name: str, title: str, interval: str,
-                      retry: str, scenario: tuple, args: dict, enabled: bool):
+                      retry: str, scenario: tuple, args: dict, enabled: bool,
+                      immediate: bool = False):
         """The entry the editor's fields describe — every one of them, and no default.
 
         A method rather than four lines inside the dialog's ``save`` because this is
@@ -467,7 +502,7 @@ class TimersTab(PanelTab):
             name=name, scenario=scenario,
             interval_sec=timersmod._as_interval(interval, timer.interval_sec),
             retry_sec=timersmod._as_interval(retry, timer.retry_sec),
-            enabled=enabled,
+            enabled=enabled, immediate=immediate,
             args=args, title=title.strip() or None,
             # The locale key belongs to the BUILT-IN entry of that name; a renamed
             # row is no longer that entry, and keeping it would show a translated
@@ -586,9 +621,14 @@ class TimersTab(PanelTab):
             # minute later.
             row_var = self._timer_vars.get(timer.name)
             enabled = bool(row_var["enabled"].get()) if row_var else bool(timer.enabled)
+            # …and «сразу» with it: it is a row box like the switch, so an edit of the
+            # steps must not quietly clear a flag that was ticked a second ago.
+            at_once = (bool(row_var["immediate"].get()) if row_var
+                       else bool(timer.immediate))
             edited = self._edited_timer(
                 timer, name=name, title=title_var.get(), interval=interval_var.get(),
-                retry=retry_var.get(), scenario=scenario, args=args, enabled=enabled)
+                retry=retry_var.get(), scenario=scenario, args=args, enabled=enabled,
+                immediate=at_once)
             catalogue = self._timer_catalogue
             if not is_new and name != timer.name:
                 # A rename is a delete plus an add: the name is the record key, so

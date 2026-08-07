@@ -849,6 +849,23 @@ class Context:
     # uses, so the run ends the way a script's own STOP ends: cleanly, with a
     # reason, and reported as halted rather than failed.
     cancel: Any = None
+    # Optional STEP-ASIDE hook — a callable, checked at exactly the same moments as
+    # `cancel` (between statements, between the presses of a repeat, between the polls
+    # of a WAIT). It is handed THIS context and answers nothing; if somebody more urgent
+    # wants the game it BLOCKS until they are done, and if it raises, the run ends the
+    # way any runtime error does.
+    #
+    # It is handed the context because standing aside means letting the LEASE go, and
+    # the lease is what `game_token` names and what `evaluator` was built with. A hook
+    # that took no argument would have no way to tell the run that both are stale, and
+    # every call after the first park would be refused as a lost lease.
+    #
+    # Why here and not in the panel: those three moments are the only ones a scenario
+    # can be interrupted at without lying about what the game is doing, and the
+    # interpreter is the only thing that knows where they are. The panel supplies the
+    # callable (`panel/runtime/host.py`, `panel/runtime/schedule.py`) and decides what
+    # «more urgent» means; the DSL only offers the moment (#1288).
+    yield_to: Any = None
     # Has the server link been read for this run yet? The gate on the driving
     # primitives (`_require_link`) is once per context, not once per press: a recipe
     # that taps thirty times must not walk the socket table thirty times, and a
@@ -893,12 +910,24 @@ class Interpreter:
         self.ctx.on_event("  " * self._depth + msg)
 
     def _check_cancel(self) -> None:
-        """Raise if the caller asked the run to stop. Called between steps."""
+        """The run's checkpoint: stop if asked, step aside if somebody outranks us.
+
+        Called between steps, between the presses of a repeat and between the polls of
+        a WAIT — the three places a scenario is between two thoughts rather than in the
+        middle of one.
+
+        Stopping comes first: a run the operator has ended has no business waiting for
+        anybody. `yield_to` is a no-op for every run that has none (a script from a
+        shell, a press, an errand marked «сразу»), and one dict lookup for the rest.
+        """
         cancel = self.ctx.cancel
         if cancel is not None and cancel.is_set():
             self.ctx.halt = True
             self.ctx.halt_reason = self.ctx.halt_reason or "stopped by the operator"
             raise _HaltSignal()
+        step_aside = self.ctx.yield_to
+        if step_aside is not None:
+            step_aside(self.ctx)
 
     # ---- entry point ----
 
@@ -2182,6 +2211,7 @@ def new_context(
     game_port: int | None = None,
     game_token: str | None = None,
     game_user: str | None = None,
+    yield_to: Any = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -2200,7 +2230,7 @@ def new_context(
     """
     ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
                   cancel=cancel, game_port=game_port, game_token=game_token,
-                  game_user=game_user)
+                  game_user=game_user, yield_to=yield_to)
     if variables:
         ctx.vars.update(variables)
     return ctx
@@ -2217,6 +2247,7 @@ def run_action(
     game_port: int | None = None,
     game_token: str | None = None,
     game_user: str | None = None,
+    yield_to: Any = None,
 ) -> bool:
     """Convenience: parse and execute the named action.
 
@@ -2231,7 +2262,7 @@ def run_action(
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token, game_user)
+                          game_port, game_token, game_user, yield_to)
     return Interpreter(ctx).run_action(name)
 
 
@@ -2247,6 +2278,7 @@ def run_text(
     game_port: int | None = None,
     game_token: str | None = None,
     game_user: str | None = None,
+    yield_to: Any = None,
 ) -> bool:
     """Execute DSL source given as text — the same language as an action file.
 
@@ -2260,7 +2292,7 @@ def run_text(
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token, game_user)
+                          game_port, game_token, game_user, yield_to)
     interp = Interpreter(ctx)
     interp._log(f"> {label}")
     interp._depth += 1

@@ -879,6 +879,21 @@ of a `TAP` repeat and between the polls of a `WAIT`. A set flag unwinds through
 the same path `STOP` uses — the run ends **halted, not failed**, and never in the
 middle of a call into the game. That is what the panel's «Стоп» button sets.
 
+**Stepping aside from outside.** The same three moments carry a second hook:
+`yield_to=<callable>` (or `ctx.yield_to`). It is handed the run's own context, answers
+nothing, and **blocks** while something more urgent is driving the game — a button
+somebody has just pressed, or an errand the panel's catalogue marks «сразу». The run
+lets the client go, waits, takes it back and carries on from the statement it had
+reached (#1288; `panel/runtime/host.py::yield_hook`).
+
+Two things follow, and a scenario author should know both. A run that steps aside can
+find the game in a different place when it comes back — the press it made way for may
+have opened or closed something — so a recipe that must not be interleaved is one the
+panel should not run in the background. And a run that cannot get the client back
+after standing aside **fails**, with the reason said: going on to press a client it
+does not hold is the one thing the claim exists to prevent. A run given no hook (every
+script started from a shell) is untouched and pays nothing.
+
 ## The title line (and its translations)
 
 A script's **first `#` line is its title** — what the control panel's Scenarios

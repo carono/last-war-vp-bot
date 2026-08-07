@@ -414,6 +414,26 @@ function timerItem(row, now) {
   });
   head.append(title, box);
 
+  // «СРАЗУ, БЕЗ ОЧЕРЕДИ» (#1288) — the window's row has this box, so the phone has it.
+  // A second switch-row rather than a pill in the foot: it is a control, and a control
+  // the person can read but not move is the divergence CLAUDE.md forbids.
+  const nowRow = document.createElement('label');
+  nowRow.className = 'row switch-row';
+  const nowTitle = document.createElement('span');
+  nowTitle.className = 'muted small';
+  nowTitle.textContent = T('web.ui.at_once');
+  const nowBox = document.createElement('input');
+  nowBox.type = 'checkbox';
+  nowBox.checked = !!row.immediate;
+  nowBox.addEventListener('change', async () => {
+    nowBox.disabled = true;
+    try {
+      await post('/api/timers/now', { name: row.name, immediate: nowBox.checked });
+      await refreshTimers();
+    } finally { nowBox.disabled = false; }
+  });
+  nowRow.append(nowTitle, nowBox);
+
   const detail = document.createElement('p');
   detail.className = 'muted small';
   const bits = [T('web.ui.every', { span: span(row.interval_sec) })];
@@ -452,7 +472,7 @@ function timerItem(row, now) {
   });
   foot.append(mark, go);
 
-  item.append(head, detail, foot);
+  item.append(head, nowRow, detail, foot);
   return item;
 }
 

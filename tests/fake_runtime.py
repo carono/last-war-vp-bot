@@ -139,9 +139,25 @@ class ColdGameLink:
         self.asked.append("evaluator")
         raise ConnectionRefusedError("cold runtime: no daemon")
 
-    def claim(self, owner="panel") -> bool:
+    def claim(self, owner="panel", priority: int = 0) -> bool:
         self.asked.append("claim")
         return False
+
+    def claim_soon(self, owner="panel", priority: int = 2, timeout: float = 0.0,
+                   poll: float = 0.0) -> bool:
+        """The waiting form (#1288) — a cold link has nobody to wait for either."""
+        self.asked.append("claim")
+        return False
+
+    def outranks(self, priority: int) -> bool:
+        """Nothing is holding a cold client, so nothing has to be pushed off it."""
+        return False
+
+    def claimed_by(self) -> "str | None":
+        return None
+
+    def yielded_to(self) -> "str | None":
+        return None
 
     def release(self) -> None: ...
     def rebind(self) -> bool:

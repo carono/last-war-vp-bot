@@ -800,7 +800,7 @@ def test_a_busy_game_makes_the_join_wait_rather_than_drop_the_rally():
 
         # …and a game that never frees up gives the banner up rather than hanging.
         played.clear()
-        rt.game.claim = lambda owner="panel": False
+        rt.game.claim = lambda owner="panel", priority=0: False
         before = len(rt.log.lines)
         tab._join_work([1])
         assert played == [], played

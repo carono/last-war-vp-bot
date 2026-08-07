@@ -431,6 +431,9 @@ class WebApi:
                 "last": when or None,
                 "last_state": state,
                 "queued": timer.name in pending,
+                # «сразу, без очереди» (#1288) — the phone draws and sets the same
+                # box the window's row has, because the two are one runtime.
+                "immediate": bool(item.get("immediate", timer.immediate)),
                 "steps": list(timer.scenario),
             })
         return {"timers": rows, "profile": self._name_of(rt),
@@ -476,6 +479,36 @@ class WebApi:
         schedule.timer_catalogue = schedule.timer_catalogue.with_settings(config)
         timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
         return {"ok": True, "name": name, "enabled": bool(enabled)}
+
+    def set_timer_immediate(self, name: str, immediate: bool,
+                            profile: str | None = None) -> dict:
+        """Mark one errand «сразу», or take the mark off (#1288).
+
+        The same two branches as :meth:`set_timer`, for the same reason: while a Timers
+        tab is drawn its boxes ARE the configuration, so this goes through the tab's own
+        variable and lets its autosave write the file. With no such tab the file is the
+        configuration and is written here.
+        """
+        rt = self._runtime(profile)
+        timer = rt.schedule.timer_catalogue.by_name(name)
+        if timer is None:
+            return {"error": "unknown"}
+        tab = rt.tabs.get("timers")
+        if tab is not None and getattr(tab, "built", True) \
+                and hasattr(tab, "set_immediate"):
+            done: dict = {}
+            self._on_tk(rt, lambda: done.update(
+                ok=bool(tab.set_immediate(name, immediate))))
+            if done.get("ok"):
+                return {"ok": True, "name": name, "immediate": bool(immediate)}
+        schedule = rt.schedule
+        config = dict(schedule.timer_config())
+        item = dict(config.get(name) or {})
+        item["immediate"] = bool(immediate)
+        config[name] = item
+        schedule.timer_catalogue = schedule.timer_catalogue.with_settings(config)
+        timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
+        return {"ok": True, "name": name, "immediate": bool(immediate)}
 
     def run_timer(self, name: str, profile: str | None = None) -> dict:
         """«Запустить сейчас» — onto the schedule's own queue, never a thread of its own.
@@ -688,6 +721,9 @@ class WebApi:
             name = str(body.get("name") or "")
             if path == "/api/timers/set":
                 return _answer(self.set_timer(name, bool(body.get("enabled")), who))
+            if path == "/api/timers/now":
+                return _answer(self.set_timer_immediate(
+                    name, bool(body.get("immediate")), who))
             if path == "/api/timers/run":
                 return _answer(self.run_timer(name, who))
             if path == "/api/actions/run":

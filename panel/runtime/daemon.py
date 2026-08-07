@@ -114,6 +114,21 @@ PING_TIMEOUT_SEC = 2.0
 # verdict from a minute ago.
 HEALTH_MEMORY_SEC = 30.0
 
+# HOW LONG A PRESS WAITS FOR THE BACKGROUND TO STEP ASIDE (#1288). An ordinary errand
+# holds the client for a median of 1.0 s and a p90 of 4 s (2026-08-07, three profiles'
+# logs, n=11 701), so the great majority of presses get in within one checkpoint. This
+# is the ceiling for the rest: past it the press says «занят» exactly as it used to,
+# which is the honest answer for a run that is inside a call and has no safe moment to
+# park — `restart_game` holds the client for a median of 304 s and waiting that out
+# would be worse than refusing.
+YIELD_WAIT_SEC = 12.0
+
+# …and how long the PARKED run waits to get the client back before giving up. Longer
+# than the press it stood aside for is expected to be, because the alternative to
+# waiting is a failed errand and a retry hold. A run that loses the race says so and
+# fails; it never goes on driving a client it does not hold.
+PARK_WAIT_SEC = 60.0
+
 
 def _as_pid(value) -> "int | None":
     """``value`` as a process id, or ``None`` — the wire says `null`, JSON says string."""
@@ -174,6 +189,10 @@ class GameLink:
         #: Who this link last SAID was holding the game, or ``None`` — see
         #: :meth:`_say_busy`. Not a fact about the claim: a fact about the log.
         self._said_busy = None
+        #: How urgent the claim this link is holding was taken at (#1288). Read by
+        #: :meth:`yielded_to`, so a background errand can find out that a press is
+        #: waiting and a press never finds that out about an errand.
+        self._level = claims.BACKGROUND
         # `token=""` — explicitly unleased, rather than "whatever this process
         # inherited". A panel process may hold two profiles' leases at once, so a
         # client that picked one up out of the environment would be carrying the
@@ -683,20 +702,25 @@ class GameLink:
             return False
 
     # -- the claim ----------------------------------------------------------
-    def claim(self, owner: str = "panel") -> bool:
+    def claim(self, owner: str = "panel", priority: int = claims.BACKGROUND) -> bool:
         """Take the right to drive the game, or say it is already taken.
 
         THREE LOCKS NOW, not two, and the middle one is the whole of #1226's half of
         this: this link's own flag, then the process-wide registry keyed by the CLIENT
         (:mod:`panel.runtime.claims`), then the daemon's lease. See
         :func:`_claim_client` for the hole the middle one closes.
+
+        ``priority`` (#1288) is filed with the claim and changes nothing about taking
+        it — a free client is taken by whoever asks first, whatever they said. What it
+        decides is what happens to a run ALREADY holding it when somebody more urgent
+        turns up: see :meth:`demand` and :meth:`park`.
         """
         owner = self._owned(owner)
         with self._busy_lock:
             if self._busy:
                 return False
             self._busy = True
-        if not self._claim_client(owner):
+        if not self._claim_client(owner, priority):
             with self._busy_lock:
                 self._busy = False
             return False
@@ -707,7 +731,87 @@ class GameLink:
             return False
         # The game was taken, so the next time it is not, that is news again.
         self._said_busy = None
+        self._level = int(priority)
         return True
+
+    # -- priorities: «нажал — действие» (#1288) ------------------------------
+    def claim_soon(self, owner: str = "panel", priority: int = claims.HUMAN,
+                   timeout: float = YIELD_WAIT_SEC, poll: float = 0.05) -> bool:
+        """Take the claim, WAITING for a lesser run to step aside. Never on the Tk thread.
+
+        The ordinary :meth:`claim` is a try: it answers «занято» and the caller gives up,
+        which is what turned 343 presses in one day into nothing happening. This one
+        hangs a demand on the door first (:func:`claims.demand`), so the background run
+        holding the client can see that somebody it should make way for is waiting, and
+        then polls until it lets go.
+
+        ``timeout`` is a ceiling and not a promise: a run may be inside a call into the
+        game with no safe moment to park, and a press that could not get in still has to
+        say so rather than wait for ever. It is a WAIT, so this blocks — every caller is
+        a worker thread, and `panel/runtime/host.py::play_async` is careful to reach it
+        only from one.
+        """
+        key = self.endpoint()
+        token = claims.demand(key, priority, self._owned(owner))
+        try:
+            deadline = time.monotonic() + max(0.0, float(timeout))
+            while True:
+                if self.claim(owner, priority):
+                    return True
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(poll)
+        finally:
+            # The demand comes off whether we got in or not: a note left on the door
+            # would park every background run for ever, in the name of a press that is
+            # not coming.
+            claims.withdraw(key, token)
+
+    def outranks(self, priority: int) -> bool:
+        """Would a claim at ``priority`` be worth making the current holder wait?
+
+        ``True`` for a free client too (:func:`claims.level` answers ``BACKGROUND`` for
+        one), which is right: the caller is about to find it free and take it.
+        """
+        return int(priority) > claims.level(self.endpoint())
+
+    def claimed_by(self) -> "str | None":
+        """Who is holding this client, for a line that has to name them."""
+        return claims.holder(self.endpoint())
+
+    def yielded_to(self) -> "str | None":
+        """Who is waiting for this client that this run should step aside for.
+
+        ``None`` — which is the answer on every ordinary checkpoint of every ordinary
+        run — is one dict lookup under a lock, which is why this can sit in the path of
+        every statement of every scenario.
+        """
+        return claims.wanted(self.endpoint(), getattr(self, "_level", claims.BACKGROUND))
+
+    def park(self, owner: str = "panel", timeout: float = PARK_WAIT_SEC) -> bool:
+        """Let go for whoever is waiting, then take the claim back. ``False`` = lost it.
+
+        The half of the priority rule that costs something. The run calling this is
+        between two statements of its scenario — the coarsest join there is — so the
+        client is in a state its own next statement is about to read anyway. It drops
+        the claim and the lease, lets the press through, and takes both back.
+
+        A ``False`` is honest and has to be treated as a failure by the caller: the run
+        no longer holds the client and may not touch it. It happens when the press that
+        pushed us out is itself long, or when a third party took the client meanwhile.
+        """
+        level = int(getattr(self, "_level", claims.BACKGROUND))
+        key = self.endpoint()
+        self.release()
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while claims.wanted(key, level) is not None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        while True:
+            if self.claim(owner, level):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
 
     def _say_busy(self, owner: str, sec: int) -> None:
         """«игра занята» — ONCE per episode of contention, not once per attempt.
@@ -756,7 +860,7 @@ class GameLink:
         """
         return (lua_client.HOST, self.port())
 
-    def _claim_client(self, owner: str) -> bool:
+    def _claim_client(self, owner: str, priority: int = claims.BACKGROUND) -> bool:
         """Take the process-wide claim on this client. ``False`` if a profile holds it.
 
         THE HOLE THIS CLOSES. `_claim_lease` answers ``True`` when the daemon cannot be
@@ -769,7 +873,7 @@ class GameLink:
         take turns and two links on two ports do not wait for each other at all.
         """
         key = self.endpoint()
-        held = claims.acquire(key, owner)
+        held = claims.acquire(key, owner, priority)
         if held is not None:
             self._say_busy(held, 0)
             return False
@@ -834,6 +938,9 @@ class GameLink:
             self._busy = False
         # …and the next refusal is a new episode, so it gets its line (`_say_busy`).
         self._said_busy = None
+        # Nothing is held, so nothing is urgent: a level left behind would answer
+        # `yielded_to` for the NEXT run, which may be a press that should never park.
+        self._level = claims.BACKGROUND
 
     @property
     def busy(self) -> bool:

@@ -339,8 +339,11 @@ def test_a_result_callback_can_start_the_next_scenario():
         rt.actions.run = lambda name, args=None, **kw: played.append(name) or True
         # A link that grants one claim at a time, which is what the real one does.
         held = {"busy": False}
-        rt.game.claim = lambda owner="panel": (False if held["busy"]
-                                               else (held.update(busy=True) or True))
+        rt.game.claim = lambda owner="panel", priority=0: (
+            False if held["busy"] else (held.update(busy=True) or True))
+        # A press that finds the client held outranks nobody here — this double
+        # hands out one claim at a time and has no notion of who is holding it.
+        rt.game.outranks = lambda priority: False
         rt.game.release = lambda: held.update(busy=False)
         rt.game.on_settled = lambda: None
 
@@ -455,7 +458,7 @@ def test_a_run_that_raised_reports_what_raised():
             raise RuntimeError("lease lost — it expired or was taken by nobody")
 
         rt.actions.play = boom
-        rt.game.claim = lambda owner="panel": True
+        rt.game.claim = lambda owner="panel", priority=0: True
         rt.game.release = lambda: None
         rt.game.on_settled = lambda: None
 

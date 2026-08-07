@@ -4,7 +4,9 @@ Two halves of one thing, and they share a queue on purpose. `panel/timers.py` is
 clock (which errand is due, when each last ran, the retry hold); `panel/triggers.py` is
 the wire watcher (a listener per switched-on trigger, a fire on a matching push). Both
 hand what they want run to the SAME single-file queue, so two errands coming due in the
-same second press the game one after the other rather than at once.
+same second press the game one after the other rather than at once — except the ones
+their catalogue marks «сразу», which skip the queue and take their turn on the CLIENT
+instead (#1288). Either way the client is held by one run at a time.
 
 WHY IT IS IN THE RUNTIME AND NOT ON THE TIMERS TAB. The schedule is what the panel does
 while nobody is looking at it, and an operator may well switch the Timers tab off — it
@@ -30,6 +32,7 @@ from .. import i18n as i18nmod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
+from . import claims
 from . import daemon as daemonmod
 from . import game_control
 from . import game_process
@@ -269,7 +272,20 @@ class Schedule:
         JSON carry its commands inline.
         """
         name = getattr(errand, "name", "")
-        if not self.rt.game.claim("timer"):
+        # HOW URGENT THIS ERRAND SAID IT WAS (#1288). An entry marked «сразу» in the
+        # catalogue claims the client at EXPRESS, which means two things at once: it
+        # never waits behind an ordinary errand, and it is never asked to step aside for
+        # one either. Everything else is BACKGROUND and carries the step-aside hook, so
+        # a press can get in between two of its statements.
+        express = bool(getattr(errand, "immediate", False))
+        # An EXPRESS errand does not merely ASK for the client — it hangs a demand on
+        # the door and waits the short while it takes an ordinary errand to reach a
+        # statement boundary and park. A plain `claim` would be refused and the errand
+        # would go back on the queue it was marked to skip.
+        got = (self.rt.game.claim_soon("timer", claims.EXPRESS,
+                                       daemonmod.YIELD_WAIT_SEC) if express
+               else self.rt.game.claim("timer", claims.BACKGROUND))
+        if not got:
             return False
         ctx = None
         try:
@@ -310,6 +326,10 @@ class Schedule:
                 hwnd=0,
                 on_event=lambda msg: self.rt.put(f"[timer] {name}: {msg}"),
                 variables=self.args(errand),
+                # An EXPRESS errand gets none: it is short by declaration, and a thing
+                # that may not queue behind the ordinary work should not be parked by
+                # it either. Everything else can be asked to wait for a press.
+                yield_to=None if express else self.rt.yield_hook("timer"),
             )
             for step in errand.scenario:
                 if self.rt.actions.resolve(step) is not None:

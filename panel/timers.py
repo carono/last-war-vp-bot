@@ -170,6 +170,19 @@ class Timer:
     # the scenario). A success uses interval_sec; only a failure uses this.
     retry_sec: int = int(RETRY_HOLD_SEC)
     enabled: bool = False
+    # «СРАЗУ, БЕЗ ОЧЕРЕДИ» (#1288). An errand the operator has marked this way does not
+    # wait behind the ordinary work: it runs on a thread of its own, and it asks for the
+    # client at a level that makes an ordinary errand step aside for it
+    # (`panel/runtime/claims.py`). It is a property of the ERRAND and not of its name —
+    # nothing anywhere reads a list of «the urgent ones», because whose errands are
+    # urgent is one account's answer and not another's.
+    #
+    # It is for the errands that are cheap and pointless late. The alliance help is the
+    # one the person named: a request pays only while it is open, the press takes two
+    # seconds, and a fire waited a p90 of 8–10 s and a maximum of 1276 s for its turn on
+    # 2026-08-07. It is NOT for a long errand — a `restart_game` marked this way would
+    # hold the client for five minutes with nothing able to make it park.
+    immediate: bool = False
     args: dict = field(default_factory=dict)
     title: str | None = None        # row label straight from the config
     label_key: str | None = None    # …or a locale key, for the built-in entries
@@ -184,6 +197,8 @@ class Timer:
             "retry_sec": self.retry_sec,
             "enabled": self.enabled,
         }
+        if self.immediate:
+            out["immediate"] = True
         if self.args:
             out["args"] = dict(self.args)
         if self.title:
@@ -379,7 +394,8 @@ class Catalogue:
         never seen it, and stays as the operator left it afterwards.
         """
         return {timer.name: {"enabled": timer.enabled,
-                             "interval_sec": timer.interval_sec}
+                             "interval_sec": timer.interval_sec,
+                             "immediate": timer.immediate}
                 for timer in self.timers}
 
     def normalize_config(self, raw) -> dict:
@@ -401,15 +417,18 @@ class Catalogue:
             out[timer.name]["enabled"] = bool(item.get("enabled", timer.enabled))
             out[timer.name]["interval_sec"] = _as_interval(
                 item.get("interval_sec", timer.interval_sec), timer.interval_sec)
+            out[timer.name]["immediate"] = bool(
+                item.get("immediate", timer.immediate))
         return out
 
     def with_settings(self, config: dict) -> "Catalogue":
         """A copy carrying the panel's switches and periods, ready to be saved.
 
-        Only those two fields move. The scenario, the args and the title are the
-        operator's text: the Timers tab edits them through :meth:`replace`, which
-        writes a whole entry deliberately, while a ticked box or a retyped period
-        goes through here and must not be able to touch anything else on the row.
+        Only the row's own three — the switch, the period and «сразу» — move. The
+        scenario, the args and the title are the operator's text: the Timers tab edits
+        them through :meth:`replace`, which writes a whole entry deliberately, while a
+        ticked box or a retyped period goes through here and must not be able to touch
+        anything else on the row.
         """
         config = self.normalize_config(config)
         updated = []
@@ -420,6 +439,7 @@ class Catalogue:
                 interval_sec=int(item["interval_sec"]),
                 retry_sec=timer.retry_sec,
                 enabled=bool(item["enabled"]),
+                immediate=bool(item["immediate"]),
                 args=dict(timer.args), title=timer.title,
                 label_key=timer.label_key))
         return Catalogue(updated, self.path, self.errors)
@@ -608,6 +628,8 @@ def parse_catalogue(data, path: str | None = None,
                 raw.get("retry_sec"),
                 base.retry_sec if base else int(RETRY_HOLD_SEC)),
             enabled=bool(raw.get("enabled", base.enabled if base else False)),
+            immediate=bool(raw.get("immediate",
+                                   base.immediate if base else False)),
             args=dict(args) if isinstance(args, dict) else {},
             title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
             label_key=base.label_key if base else None,
@@ -958,9 +980,9 @@ class LastRunStore:
 
 
 class TimerScheduler:
-    """One background thread and a queue: everything scheduled runs single-file.
+    """One background thread and a queue: everything ORDINARY runs single-file.
 
-    **No timer scenario ever runs in parallel with another.** The thread is both
+    **No ordinary errand ever runs in parallel with another.** The thread is both
     the clock and the only worker: on each tick it puts the errands that have come
     due on the queue, then takes them off one at a time and runs each to
     completion. Two timers that come due in the same second do not race — the
@@ -972,6 +994,16 @@ class TimerScheduler:
     Being both clock and worker is why the wait is on the queue rather than a
     sleep: an errand enqueued by hand is picked up at once, while an idle stretch
     still wakes on the tick.
+
+    **THE ONE EXCEPTION IS «СРАЗУ»** (:attr:`Timer.immediate`, #1288). An errand the
+    operator has marked that way does not use this queue at all: it runs on a thread of
+    its own (:meth:`_express`) and takes its turn on the CLIENT instead, through a claim
+    at a level an ordinary errand steps aside for (`panel/runtime/claims.py`). So two
+    errands may be in flight here — but never two in the game, because the claim still
+    hands the client from one to the other and never shares it. The flag exists because
+    the queue priced a two-second alliance-help press at whatever the longest background
+    errand happened to be: `restart_game` holds the client for a median of 304 s, and a
+    help request pays nothing once it has closed.
 
     Collaborators are all callables, so nothing about Tk or the game leaks in:
 
@@ -1035,6 +1067,15 @@ class TimerScheduler:
         # running (a claim covers both), and `cancel` has to: one is cancellable and
         # the other is not.
         self._running: str | None = None
+        # …and the errands marked «сразу», which do NOT run on the worker and so cannot
+        # be that one name (#1288). A set, because several of them may be in flight at
+        # once — each on its own thread, each taking its turn on the client through the
+        # claim rather than through this queue.
+        self._express_running: set[str] = set()
+        # How an express errand gets its thread. A collaborator like every other one
+        # here, so a test can run it inline and read the outcome without joining
+        # anything (`_spawn_thread` is what the panel uses).
+        self._spawn = self._spawn_thread
         # Names whose moment came again WHILE they were running. A push that lands
         # mid-run used to be dropped by the claim below, which is how a second banner
         # raised while the first was being joined was lost without a word (#1281): the
@@ -1108,19 +1149,101 @@ class TimerScheduler:
         Every one of the three is truthy, so a caller that only asked «did it take it»
         still gets a yes — none of these three means the fire was thrown away.
         """
+        express = bool(getattr(errand, "immediate", False))
         with self._queue_lock:
             if errand.name in self._queued:
                 self._adhoc.setdefault(errand.name, errand)
-                if errand.name == self._running:
+                if errand.name == self._running or errand.name in self._express_running:
                     self._refire.add(errand.name)
                     return "refired"
                 return "waiting"
-            self._queued.add(errand.name)
             self._adhoc[errand.name] = errand
+            if not express:
+                self._queued.add(errand.name)
+        if express:
+            # Outside the lock: `_express` takes it to claim the name for itself, and
+            # re-checks there, so the gap above cannot let two runs through.
+            return "queued" if self._express(errand.name, False,
+                                             refire=True) else "waiting"
         self._queue.put((errand.name, False))
         return "queued"
 
+    # -- «сразу, без очереди» (#1288) ---------------------------------------
+    def _errand(self, name: str):
+        """The catalogue entry of that name, or the submitted one standing in for it."""
+        errand = self._catalogue().by_name(name)
+        if errand is None:
+            with self._queue_lock:
+                errand = self._adhoc.get(name)
+        return errand
+
+    def _is_immediate(self, name: str) -> bool:
+        """Has this errand been marked «сразу»?"""
+        return bool(getattr(self._errand(name), "immediate", False))
+
+    def _express(self, name: str, scheduled: bool, refire: bool = False) -> bool:
+        """Run ``name`` NOW, on a thread of its own. ``False`` if one is already going.
+
+        The queue is what makes an errand wait, and the flag's whole meaning is that
+        this one does not: the worker may be five minutes inside a `restart_game`, and
+        an alliance help request that arrives then pays nothing by the time it is its
+        turn. So the express errand skips the queue entirely and the CLAIM does the
+        serialising instead — `Schedule.run_errand` asks for the client at EXPRESS,
+        which makes the ordinary errand step aside at its next statement
+        (`panel/runtime/daemon.py::claim_soon`). Two chunks still never go into the game
+        VM at once; what has gone is one of the three places they were made to queue.
+
+        Still deduped through `_queued`, so a burst of pushes is one run and not ten,
+        and still released through `_release`, so a fire that landed mid-run re-arms it
+        exactly as it does for a queued errand.
+        """
+        errand = self._errand(name)
+        if errand is None:
+            return False
+        with self._queue_lock:
+            if name in self._queued:
+                # A FIRE landing mid-run is re-armed (`refire`); a CLOCK finding the
+                # same errand still going is not. The two look alike here and are not:
+                # a push is news the run in flight could not have seen, and a tick is
+                # the same errand coming round again while it is still busy.
+                if refire and (name == self._running
+                               or name in self._express_running):
+                    self._refire.add(name)
+                return False
+            self._queued.add(name)
+            self._express_running.add(name)
+
+        def work() -> None:
+            busy = False
+            try:
+                _ok, busy = self.run_one(errand, scheduled=scheduled)
+            except Exception:                             # noqa: BLE001
+                # `run_one` already records and logs a failing errand; this is the
+                # floor under a thread that must never take the panel with it.
+                self._dbg.error("express run of %s failed", name, exc_info=True)
+            finally:
+                with self._queue_lock:
+                    self._express_running.discard(name)
+                if busy:
+                    # It waited its twelve seconds and the client is still held by
+                    # something it does not outrank — another express errand, or a
+                    # person's own press. Then the flag has nothing left to offer and
+                    # the errand takes its turn like any other: onto the queue, claim
+                    # kept, so nothing lines it up twice while it waits.
+                    self._queue.put((name, scheduled))
+                else:
+                    self._release(name)
+
+        self._spawn(work, f"panel-timer-{name}")
+        return True
+
+    @staticmethod
+    def _spawn_thread(work, label: str) -> None:
+        threading.Thread(target=work, name=label[:60], daemon=True).start()
+
     def _enqueue(self, name: str, scheduled: bool) -> bool:
+        if self._is_immediate(name):
+            return self._express(name, scheduled)
         with self._queue_lock:
             if name in self._queued:
                 return False
@@ -1143,18 +1266,30 @@ class TimerScheduler:
             # straight back rather than letting go of it. The claim is KEPT — it never
             # leaves the queued set — so nothing else can line the same name up twice
             # in between, and the errand it re-runs is the same one it just finished.
-            if name in self._refire:
-                self._refire.discard(name)
-                self._queue.put((name, False))
+            refire = name in self._refire
+            self._refire.discard(name)
+            if not refire:
+                self._queued.discard(name)
+                self._adhoc.pop(name, None)   # a submitted trigger errand is done with
+                # The cancel mark goes with the claim. A cancel that arrived while the
+                # errand was already running is refused (see `cancel`), but a mark left
+                # behind by any other race would silently swallow the NEXT run of the
+                # same errand — a bug that would look like a timer that fires once and
+                # then skips a turn for no reason.
+                self._cancelled.discard(name)
                 return
-            self._queued.discard(name)
-            self._adhoc.pop(name, None)   # a submitted trigger errand is done with
-            # The cancel mark goes with the claim. A cancel that arrived while the
-            # errand was already running is refused (see `cancel`), but a mark left
-            # behind by any other race would silently swallow the NEXT run of the
-            # same errand — a bug that would look like a timer that fires once and
-            # then skips a turn for no reason.
-            self._cancelled.discard(name)
+        # AN ERRAND MARKED «СРАЗУ» RE-FIRES THE WAY IT FIRED. Putting it on the queue
+        # would hand the second push exactly the wait the flag exists to remove — and
+        # it is the second push that matters here: the first is the burst's, and the
+        # one that landed mid-run is the request the run could not have seen.
+        if self._is_immediate(name):
+            with self._queue_lock:
+                self._queued.discard(name)     # `_express` claims the name itself
+            if not self._express(name, False, refire=True):
+                with self._queue_lock:
+                    self._adhoc.pop(name, None)
+            return
+        self._queue.put((name, False))
 
     def pending(self) -> set[str]:
         """Names currently queued or being run — for tests and the row painter."""
@@ -1177,7 +1312,8 @@ class TimerScheduler:
         operator acts on.
         """
         with self._queue_lock:
-            if name not in self._queued or name == self._running:
+            if name not in self._queued or name == self._running \
+                    or name in self._express_running:
                 return False
             self._cancelled.add(name)
             return True

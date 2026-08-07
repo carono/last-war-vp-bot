@@ -88,9 +88,16 @@ class _Game:
         """
         return ""
 
-    def claim(self, owner: str = "panel") -> bool:
+    def claim(self, owner: str = "panel", priority: int = 0) -> bool:
         self.claimed.append(owner)
         return False                     # nothing in a test may drive a game
+
+    def outranks(self, priority: int) -> bool:
+        """Nobody is holding it, so a press has nothing to push aside (#1288)."""
+        return False
+
+    def claimed_by(self) -> "str | None":
+        return None
 
 
 class _Activity:
@@ -326,6 +333,44 @@ def test_a_switch_from_the_phone_lands_in_the_profiles_own_file():
         by_name = {row["name"]: row for row in rows}
         assert by_name["upkeep"]["enabled"] is True
         assert by_name["collect"]["enabled"] is True, "the other switch was not touched"
+
+
+def test_the_phone_draws_and_sets_the_at_once_flag():
+    """The window's row grew a «сразу» box (#1288), so the phone has the same one.
+
+    Both halves: the reading is in `/api/timers`, and the press writes the profile's own
+    file when this window has no Timers tab — the same two branches the switch takes.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        row = {t["name"]: t for t in api.timers()["timers"]}["upkeep"]
+        assert row["immediate"] is False, row
+
+        assert api.set_timer_immediate("upkeep", True)["ok"] is True
+        row = {t["name"]: t for t in api.timers()["timers"]}["upkeep"]
+        assert row["immediate"] is True, row
+        saved = json.loads(Path(rt.profiles.timers_json()).read_text(encoding="utf-8"))
+        rows = saved["timers"] if isinstance(saved, dict) else saved
+        by_name = {item["name"]: item for item in rows}
+        assert by_name["upkeep"].get("immediate") is True, by_name["upkeep"]
+        assert "immediate" not in by_name["collect"], "the other row was touched"
+
+
+def test_the_at_once_box_goes_through_a_live_tab_like_the_switch_does():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        moved: list = []
+
+        class _Tab:
+            def set_immediate(self, name, on):
+                moved.append((name, on))
+                return True
+
+        rt.tabs.get = lambda tab_id: _Tab() if tab_id == "timers" else None
+        assert api.set_timer_immediate("upkeep", True)["ok"] is True
+        assert moved == [("upkeep", True)]
+        assert not os.path.exists(rt.profiles.timers_json()), (
+            "the file was written behind a live tab's back")
 
 
 def test_the_timers_tabs_boxes_win_when_it_is_open():
@@ -1448,6 +1493,10 @@ def test_the_timers_tab_offers_the_hook_the_web_presses():
     assert callable(getattr(TimersTab, "set_enabled", None)), (
         "TimersTab.set_enabled is gone — the phone's switch now writes a file the "
         "tab's boxes will overwrite")
+    # …and the same for «сразу» (#1288), which travels the identical two branches.
+    assert callable(getattr(TimersTab, "set_immediate", None)), (
+        "TimersTab.set_immediate is gone — the phone's «сразу» box now writes a file "
+        "the tab's boxes will overwrite")
 
 
 def test_the_tab_is_in_the_registry_and_names_the_same_key():

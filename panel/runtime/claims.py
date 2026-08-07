@@ -38,26 +38,50 @@ from __future__ import annotations
 
 import threading
 
-#: ``key -> owner`` for every claim currently held in this process.
+#: ``key -> (owner, level)`` for every claim currently held in this process.
 _held: dict = {}
+#: ``key -> {token: (level, owner)}`` — everybody WAITING for a key they outrank the
+#: holder of. See :func:`demand`.
+_wanted: dict = {}
 _lock = threading.Lock()
+#: Ever-increasing, so two demands from two threads are never the same token.
+_serial = 0
 
 #: The key the foreground claim is filed under. A string rather than a tuple so it can
 #: never collide with a client's ``(host, port)``.
 FOREGROUND = "foreground"
 
+#: HOW URGENT A CLAIM IS (#1288). Higher wins, and the numbers are ordered rather than
+#: named so that a comparison is the whole rule.
+#:
+#: Measured on 2026-08-07, one profile's `panel.log`: **343 presses in one day** were
+#: turned away with «занят — дождись завершения текущего действия», and an
+#: `alliance_help` fire — an errand that runs in two seconds and pays nothing once the
+#: request has closed — waited a p90 of 8–10 s and a maximum of 1276 s for its turn
+#: behind the ordinary queue. One queue for everything prices a button press at whatever
+#: the longest background errand happens to be (`restart_game` holds it for a median of
+#: 304 s).
+BACKGROUND = 0     #: the schedule's ordinary errands, the rally loops, a sweep
+EXPRESS = 1        #: an errand whose catalogue entry says «сразу» — it must not queue
+HUMAN = 2          #: somebody is at a button, in the window or on the phone
 
-def acquire(key, owner: str) -> "str | None":
+
+def acquire(key, owner: str, urgency: int = BACKGROUND) -> "str | None":
     """Take ``key`` for ``owner``. ``None`` when it was taken; else who is holding it.
 
     Deliberately inverted — ``None`` means success — because the interesting answer is
     the WHO, and a caller that only wants a bool writes ``if acquire(...) is None``.
+
+    ``urgency`` is remembered alongside the owner and is what :func:`wanted` compares
+    against: it says how hard it would be to justify making this holder wait. Named so
+    rather than ``level`` because :func:`level` reads it back, and a parameter that
+    shadows the function answering it is a trap for the next edit.
     """
     with _lock:
         held = _held.get(key)
         if held is not None:
-            return held
-        _held[key] = str(owner or "?")
+            return held[0]
+        _held[key] = (str(owner or "?"), int(urgency))
         return None
 
 
@@ -70,19 +94,88 @@ def release(key) -> None:
 def holder(key) -> "str | None":
     """Who holds ``key``, or ``None``."""
     with _lock:
-        return _held.get(key)
+        entry = _held.get(key)
+        return entry[0] if entry is not None else None
+
+
+def level(key) -> int:
+    """How urgent the holder of ``key`` said it was. :data:`BACKGROUND` for a free key.
+
+    A free key answering ``BACKGROUND`` rather than ``None`` is deliberate: every
+    caller of this is about to compare, and «nobody is holding it» loses every
+    comparison exactly as «a background errand is» does — which is right, because in
+    both cases the newcomer may simply take it.
+    """
+    with _lock:
+        entry = _held.get(key)
+        return entry[1] if entry is not None else BACKGROUND
 
 
 def held() -> dict:
     """Everything held right now — for a diagnostic, and for a test to assert emptiness."""
     with _lock:
-        return dict(_held)
+        return {key: entry[0] for key, entry in _held.items()}
 
 
 def clear() -> None:
-    """Forget every claim. A test between cases; never the panel."""
+    """Forget every claim, and every demand. A test between cases; never the panel."""
     with _lock:
         _held.clear()
+        _wanted.clear()
+
+
+# -- «step aside, this one matters more» (#1288) ----------------------------------
+#
+# A demand is NOT a lock and takes nothing: it is a note on the door saying that
+# somebody more urgent is waiting outside. The holder reads it at its own checkpoints
+# and decides to park; nothing here can make it. That is the whole reason this is a
+# registry of notes rather than a pre-emptive lock — a scenario driving the game has to
+# choose its own moment to let go, and the only moments that are safe are the ones it
+# knows about (a statement boundary, a poll inside a WAIT).
+
+
+def demand(key, urgency: int, owner: str):
+    """Note that ``owner`` wants ``key`` at ``urgency``. Hands back a token to withdraw.
+
+    Always succeeds and never blocks — the caller goes on to poll :func:`acquire` as
+    it would have anyway. What this buys is that the CURRENT holder can now find out
+    that waiting outside is somebody it should step aside for, which is the one fact
+    an ordinary lock throws away.
+    """
+    global _serial
+    with _lock:
+        _serial += 1
+        token = _serial
+        _wanted.setdefault(key, {})[token] = (int(urgency), str(owner or "?"))
+        return token
+
+
+def withdraw(key, token) -> None:
+    """Take a demand back off the door. Harmless for one already gone."""
+    if token is None:
+        return
+    with _lock:
+        waiting = _wanted.get(key)
+        if waiting is None:
+            return
+        waiting.pop(token, None)
+        if not waiting:
+            _wanted.pop(key, None)
+
+
+def wanted(key, above: int) -> "str | None":
+    """Who is waiting for ``key`` at a level ABOVE ``above``, or ``None``.
+
+    The holder asks this with its own level and parks when the answer is a name. The
+    most urgent waiter is the one named, so a log line says who the run stepped aside
+    for rather than merely that it did.
+    """
+    with _lock:
+        waiting = _wanted.get(key)
+        if not waiting:
+            return None
+        best = max(waiting.values())
+        return best[1] if best[0] > int(above) else None
 
 
 class Foreground:

@@ -70,7 +70,8 @@ def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
     sched = Schedule.__new__(Schedule)
     sched.rt = types.SimpleNamespace(
         game=types.SimpleNamespace(
-            claim=lambda _o: True, release=lambda: None, on_settled=lambda: None,
+            claim=lambda _o, _p=0: True, release=lambda: None,
+            on_settled=lambda: None,
             up=lambda: (_ for _ in ()).throw(
                 AssertionError("must not reach the daemon gate"))),
         # `post` is how the runtime hands work to the Tk thread now (#1226);

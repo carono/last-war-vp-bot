@@ -135,7 +135,8 @@ def test_the_timer_list_comes_from_the_config_file():
 
     # And the switch/period from the file are defaults the profile can override.
     cfg = cat.normalize_config({BASE: {"enabled": False, "interval_sec": 600}})
-    assert cfg[BASE] == {"enabled": False, "interval_sec": 600}, cfg
+    assert cfg[BASE] == {"enabled": False, "interval_sec": 600,
+                         "immediate": False}, cfg
     assert cfg["quick_donate"]["enabled"] is True, cfg
 
 
@@ -797,7 +798,8 @@ def test_settings_are_re_derived_not_trusted():
     """Spinbox strings, junk and a missing block all resolve to something sane."""
     cat = _catalogue()
     cfg = cat.normalize_config({BASE: {"enabled": 1, "interval_sec": "900"}})
-    assert cfg[BASE] == {"enabled": True, "interval_sec": 900}, cfg
+    assert cfg[BASE] == {"enabled": True, "interval_sec": 900,
+                         "immediate": False}, cfg
 
     # A half-typed period keeps the row alive at its configured value rather than
     # silently disabling a timer the operator believes is on.
@@ -990,13 +992,15 @@ def test_timers_tab_builds_from_the_config_and_binds():
         tab._fill_timer_grid()
 
         assert set(tab._timer_rows) == {BASE, "inline_one"}, tab._timer_rows
-        assert tab._timer_config()[BASE] == {"enabled": False, "interval_sec": 1800}
+        assert tab._timer_config()[BASE] == {"enabled": False, "interval_sec": 1800,
+                                            "immediate": False}
 
         # A ticked box and a retyped period reach the scheduler — and land in the
         # profile's own file, leaving the other timer's scenario and args intact.
         tab._timer_vars[BASE]["enabled"].set(True)
         tab._timer_vars[BASE]["interval"].set("900")
-        assert tab._timer_config()[BASE] == {"enabled": True, "interval_sec": 900}
+        assert tab._timer_config()[BASE] == {"enabled": True, "interval_sec": 900,
+                                            "immediate": False}
         saved = timersmod.load_catalogue(str(cfg_path))
         assert saved.by_name(BASE).enabled is True, "the row did not autosave"
         assert saved.by_name(BASE).interval_sec == 900

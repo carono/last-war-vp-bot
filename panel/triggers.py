@@ -32,7 +32,10 @@ A trigger is::
 Where triggers and timers DO meet is the **single work queue**: when a trigger's push
 lands the watcher hands the scenario to :meth:`panel.timers.TimerScheduler.submit`,
 so a triggered errand runs on the very worker the schedule feeds and never drives the
-game in parallel with a scheduled one.
+game in parallel with a scheduled one — **unless it is marked `"immediate": true`**,
+which runs it on a thread of its own and makes an ordinary errand step aside for it at
+its next step (#1288, `docs/research/panel-priorities.md`). Even then only one of them
+holds the client at a time: the claim is handed over, never shared.
 
 Two classes, both Tk-free and game-free so a test can drive them without a display:
 
@@ -239,6 +242,16 @@ class Trigger:
     cooldown_sec: int = DEFAULT_POLL_COOLDOWN_SEC   # poll: quiet time after a fire
     backoff: BackoffPolicy | None = None            # adaptive pre-run delay (opt-in)
     enabled: bool = False
+    # «СРАЗУ, БЕЗ ОЧЕРЕДИ» — the same flag a timer carries, and it means the same thing
+    # here (`panel/timers.py::Timer.immediate`, #1288): the fire does not queue behind
+    # the ordinary work, it runs on a thread of its own, and it asks for the client at
+    # a level that makes an ordinary errand park at its next statement.
+    #
+    # A wire trigger is where it earns most: the push has already happened by the time
+    # the panel hears it, so every second between the queue and the run is spent on
+    # something the game is counting down. `alliance_help` is the one shipped with it
+    # on — measured p90 8–10 s of waiting, maximum 1276 s, for a press that takes two.
+    immediate: bool = False
     args: dict = field(default_factory=dict)
     title: str | None = None        # row label straight from the config
     label_key: str | None = None    # …or a locale key, for the built-in entries
@@ -268,6 +281,8 @@ class Trigger:
                 out["backoff"] = self.backoff.as_dict()
         else:
             out["event_pattern"] = self.event_pattern
+        if self.immediate:
+            out["immediate"] = True
         if self.args:
             out["args"] = dict(self.args)
         if self.title:
@@ -310,6 +325,11 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         event_pattern="al.help.new",
         scenario=("help_ally",),
         enabled=False,
+        # «Сразу, без очереди» (#1288). The one entry that ships with the flag on, and
+        # the one the person named when asking for it: the request pays only while it
+        # is open, the press is two seconds of headless Lua, and on 2026-08-07 the fire
+        # waited a p90 of 8–10 s — and once 1276 s — for its turn behind the schedule.
+        immediate=True,
         label_key="triggers.item.alliance_help",
     ),
     Trigger(
@@ -504,19 +524,28 @@ class TriggerCatalogue:
                 out[t.name] = item
         return out
 
-    def with_enabled(self, config: dict) -> "TriggerCatalogue":
+    def with_enabled(self, config: dict,
+                     immediate: "dict | None" = None) -> "TriggerCatalogue":
         """A copy carrying the panel's switches, ready to be saved.
 
-        Only ``enabled`` moves. The event pattern, the scenario and the args are the
+        Only the row's own two move — ``enabled`` and, when the caller offers a second
+        dict for it, ``immediate``. The event pattern, the scenario and the args are the
         operator's text; a ticked box must not be able to touch anything else.
+
+        ``immediate`` is a separate argument rather than a second key inside ``config``
+        because ``config`` has one other reader — `Schedule.trigger_config`, which turns
+        it into «is this trigger listening at all» — and a dict that means two things to
+        two callers is how a switch ends up meaning the wrong one.
         """
         config = self.normalize_config(config)
+        flags = immediate if isinstance(immediate, dict) else {}
         updated = [Trigger(
             name=t.name, scenario=t.scenario, kind=t.kind,
             event_pattern=t.event_pattern, check=t.check,
             interval_sec=t.interval_sec, cooldown_sec=t.cooldown_sec,
             backoff=t.backoff,
-            enabled=bool(config[t.name]), args=dict(t.args),
+            enabled=bool(config[t.name]),
+            immediate=bool(flags.get(t.name, t.immediate)), args=dict(t.args),
             title=t.title, label_key=t.label_key) for t in self.triggers]
         return TriggerCatalogue(updated, self.path, self.errors)
 
@@ -608,6 +637,8 @@ def parse_catalogue(data, path: str | None = None,
                 raw.get("backoff"), base.backoff if base else None)
             if "backoff" in raw else (base.backoff if base else None),
             enabled=bool(raw.get("enabled", base.enabled if base else False)),
+            immediate=bool(raw.get("immediate",
+                                   base.immediate if base else False)),
             args=dict(args) if isinstance(args, dict) else {},
             title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
             label_key=base.label_key if base else None,
