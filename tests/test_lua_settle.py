@@ -329,6 +329,40 @@ def test_the_panel_jumps_in_one_call_and_never_reads_the_server_first():
     assert calls[0]["early"] is True, calls[0]
 
 
+# -- the panel's most frequent read stops being paid for by the clock ------------
+
+
+def test_both_alliance_reads_end_by_saying_so():
+    """The sentinel is only worth having if the chunk actually prints it (#1272).
+
+    Both reads go through `steal_secret_task._read_vt`, which now names `VT_END` as the
+    line that ends the wait — a chunk that stopped printing it would silently go back to
+    sleeping out the whole 1.1 s settle with the daemon's lock in its hand.
+    """
+    for chunk in (lua_actions.secret_task_raidable_alliance(),
+                  lua_actions.secret_task_all_alliance()):
+        assert 'ACT %s n="' % lua_actions.VT_END in chunk, chunk[-200:]
+
+
+def test_the_alliance_read_waits_for_that_line_and_not_for_the_clock():
+    """…and the reader asks for it. Measured on a stand-in log: the answer lands after
+    50 ms and the call used to cost the full settle regardless."""
+    import steal_secret_task
+
+    class _Ev:
+        def __init__(self) -> None:
+            self.kw = None
+
+        def run(self, chunk, marker=None, settle=1.2, **kw):
+            self.kw = dict(kw)
+            now = int(time.time() * 1000)
+            return ["ACT NOWMS=%d" % now, "ACT %s n=0" % lua_actions.VT_END]
+
+    ev = _Ev()
+    steal_secret_task._read_vt(ev, lua_actions.secret_task_all_alliance())
+    assert ev.kw.get("sentinel") == lua_actions.VT_END, ev.kw
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

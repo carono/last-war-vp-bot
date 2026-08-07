@@ -180,6 +180,9 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     # …and the unattended state re-check's own flags (#1280): a fixture never arms the
     # chain, but everything that persists or lands goes past them.
     tab._state_busy, tab._state_cursor = False, 0
+    # The «Сервер» box, which the lap is now aimed by (#1280). Empty is «ask the client»,
+    # which is what every lap did before it and what a fixture with no window means.
+    tab.coord_srv_var = _Var("")
     # Presses waiting out the ten-second window (#1272) — a fresh tab has none.
     tab._pressing = set()
     tab._polling = False
@@ -3080,7 +3083,9 @@ def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
 
     tab._sweep_once()
     assert played == [("scan_map", {"zoom": lua_actions.SWEEP_ZOOM_MAX,
-                                    "step": lua_actions.FAST_STEP})]
+                                    "step": lua_actions.FAST_STEP,
+                                    # …and WHERE, off the tab's own box (#1280).
+                                    "server": 300})]
     # Nothing was said about an unwatched lap: the ★ monitor is on.
     assert "log.coord.sweep_unwatched" not in tab.said
 
@@ -3100,6 +3105,9 @@ def _sweep_tab(rows=None):
     tab.t = i18n.t
     tab._zoom_level = "tasks"
     tab._sweeping, tab._sweep_btn = False, None
+    # The box the lap is aimed by (#1280) — a server the person is actually on, rather
+    # than the cached manager field the client answers with.
+    tab.coord_srv_var = _Var("300")
     tab._rows = dict(rows or {})
     tab._collected, tab._restore_pending = {"already-robbed"}, {"x"}
     tab.said = []
@@ -3132,6 +3140,25 @@ def test_pressing_the_lap_keeps_every_row_it_already_had():
 
     assert sorted(tab._rows) == ["1", "2"], "«Обойти карту» ate the list again"
     assert not hasattr(tab, "_wipe_for_sweep"), "the wipe grew back"
+
+
+def test_the_lap_walks_the_server_in_the_box():
+    """«Перехожу на другой сервер, жму обход — возвращает на предыдущий» (#1280).
+
+    The waypoints used to be handed the client's own `curServerId`, which is a cached
+    manager field rather than where the camera is. The box on the coordinate bar is the
+    one number that is certainly current — «↻ сервер» fills it and every jump writes into
+    it — so that is what the lap is given. An empty box still means «ask the client».
+    """
+    tab = _sweep_tab()
+
+    tab._sweep_once()
+    assert tab.rt.played[-1][1]["server"] == 300, tab.rt.played
+
+    tab._sweeping = False
+    tab.coord_srv_var.set("")
+    tab._sweep_once()
+    assert tab.rt.played[-1][1]["server"] == 0, "an empty box must not name a server"
 
 
 def test_a_second_press_stops_the_lap_instead_of_starting_another():
@@ -3181,6 +3208,31 @@ def test_every_coordinate_jump_lands_at_the_tile_view():
     # …and the tab's own jump passes nothing either.
     tabsrc = inspect.getsource(st.SecretTasksTab._jump)
     assert "zoom=" not in tabsrc, tabsrc
+
+
+def test_a_jump_writes_the_server_it_went_to_into_the_box():
+    """The box is what «Обойти карту» is aimed by now, so it has to follow the camera
+    (#1280). A jump that named a server and left the old number in the box would send
+    the lap back where the person had just come from — the complaint itself."""
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    tab.coord_srv_var = _Var("300")
+    tab._jump_hist, tab._jump_hist_combo = [], None
+    tab.rt = types.SimpleNamespace(
+        game=types.SimpleNamespace(jump=lambda x, y, srv: True),
+        settings=types.SimpleNamespace(changed=lambda: None))
+
+    tab._jump(10, 20, 971)
+    assert tab.coord_srv_var.get() == "971"
+
+    # …and a jump with no server named changes nothing: the client stayed where it was.
+    tab._jump(11, 21, None)
+    assert tab.coord_srv_var.get() == "971"
+
+    # A refused jump writes nothing either.
+    tab.rt.game = types.SimpleNamespace(jump=lambda x, y, srv: False)
+    tab._jump(12, 22, 534)
+    assert tab.coord_srv_var.get() == "971"
 
 
 def test_the_two_sniffers_have_two_independent_switches():

@@ -1820,6 +1820,16 @@ def dispatch_task_cfg_rank(cfg_ids) -> str:
         'end end)' % ids)
 
 
+#: The last line both alliance reads print — the sentinel that ends the wait for
+#: them (#1272). They are the panel's most frequent reads and a flat settle was what
+#: they cost: 1.1 s per ready-row poll and per «Обновить состояние», with the daemon's
+#: lock held for all of it, so every other call queued behind a read that had already
+#: answered. `early` cannot help here — a hundred `Debug.LogError` lines do not always
+#: land inside the quiet window it guesses by, so cutting the wait short truncated the
+#: list. A last line of its own removes the guess (`lua_eval.collect`).
+VT_END = "VT_END"
+
+
 def secret_task_raidable_alliance() -> str:
     """Emit every alliance secret task that is raidable *right now*, straight from the VM.
 
@@ -1847,13 +1857,14 @@ def secret_task_raidable_alliance() -> str:
         'pcall(function() '
         'local m = DataCenter.ActDispatchTaskDataManager '
         + _SERVER_NOW_MS +
-        'local now = nowms '
+        'local now = nowms local n = 0 '
         'CS.UnityEngine.Debug.LogError("ACT NOWMS="..tostring(nowms)) '
         'for _, v in pairs(m.allianceTask or {}) do '
         'local done = tonumber(v.completionTime) or 0 '
         'local exp = tonumber(v.actEndTime) or 0 '
         'local steals = #(v.stealInfoList or {}) '
         'if done > 0 and done <= now and (exp == 0 or now < exp) and steals < 3 then '
+        'n = n + 1 '
         'local x, y = 0, 0 '
         'pcall(function() local tp = SceneUtils.IndexToTilePos(v.pointId) x, y = tp.x, tp.y end) '
         # The task's OWN config row — `lw_dispatch_tasks`, by column name, exactly
@@ -1867,7 +1878,9 @@ def secret_task_raidable_alliance() -> str:
         '.." x="..tostring(x).." y="..tostring(y).." steals="..tostring(steals)'
         '.." lvl="..tostring(lvl).." spec="..tostring(spec)'
         '.." done="..tostring(done).." exp="..tostring(exp)) '
-        'end end end)')
+        'end end '
+        'CS.UnityEngine.Debug.LogError("ACT %s n="..tostring(n)) end)'
+        % VT_END)
 
 
 def secret_task_all_alliance() -> str:
@@ -1884,18 +1897,26 @@ def secret_task_all_alliance() -> str:
     `steal_secret_task._parse_vt_lines`; `completionTime` (`done`) tells the two states
     apart on the Python side. `completionTime` must be set (`> 0`) — a tile with no
     finish time has no countdown to draw.
+
+    IT ENDS BY SAYING SO — `ACT VT_END n=<lines>` (#1272). The read is the panel's most
+    frequent one (every ready-row poll, every «Обновить состояние») and it used to be paid
+    for with a flat 1.1 s settle, because there was no way to know the answer was
+    complete: a hundred `Debug.LogError` lines do not always land inside the 20 ms quiet
+    window `early` guesses by, so cutting the wait short truncated the list. A last line
+    of its own removes the guess — see :data:`VT_END` and `lua_eval.collect`.
     """
     return (
         'pcall(function() '
         'local m = DataCenter.ActDispatchTaskDataManager '
         + _SERVER_NOW_MS +
-        'local now = nowms '
+        'local now = nowms local n = 0 '
         'CS.UnityEngine.Debug.LogError("ACT NOWMS="..tostring(nowms)) '
         'for _, v in pairs(m.allianceTask or {}) do '
         'local done = tonumber(v.completionTime) or 0 '
         'local exp = tonumber(v.actEndTime) or 0 '
         'local steals = #(v.stealInfoList or {}) '
         'if done > 0 and (exp == 0 or now < exp) and steals < 3 then '
+        'n = n + 1 '
         'local x, y = 0, 0 '
         'pcall(function() local tp = SceneUtils.IndexToTilePos(v.pointId) x, y = tp.x, tp.y end) '
         # The task's OWN config row — `lw_dispatch_tasks`, by column name, exactly
@@ -1909,7 +1930,9 @@ def secret_task_all_alliance() -> str:
         '.." x="..tostring(x).." y="..tostring(y).." steals="..tostring(steals)'
         '.." lvl="..tostring(lvl).." spec="..tostring(spec)'
         '.." done="..tostring(done).." exp="..tostring(exp)) '
-        'end end end)')
+        'end end '
+        'CS.UnityEngine.Debug.LogError("ACT %s n="..tostring(n)) end)'
+        % VT_END)
 
 
 # --------------------------------------------------------------------------

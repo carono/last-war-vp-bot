@@ -336,9 +336,16 @@ def _read_vt(ev, chunk: str) -> list:
     drifted from this machine's (`game_clock`). It is the same round trip, and it
     is the clock the tiles' `done` / `exp` are stamped on, so a list is judged on
     the clock it was read with rather than on whatever this PC believes (#1227).
+
+    AND THE SETTLE IS A DEADLINE, NOT A PAUSE (#1272). Both chunks END by printing
+    `ACT VT_END n=<rows>`, so the answer is known to be complete the moment that line
+    lands — typically inside one poll interval instead of the flat 1.1 s this used to
+    sleep. It matters beyond this call: the daemon holds its lock for the whole settle,
+    so every other thing the panel wanted to do — a lap of the map, a robbery, a jump —
+    was queueing behind a read that had already answered.
     """
     sent = time.time()
-    lines = ev.run(chunk, MARKER, 1.1)
+    lines = ev.run(chunk, MARKER, 1.1, sentinel=lua_actions.VT_END)
     back = time.time()
     server_ms = game_clock.parse_ms(lines)
     if server_ms is None or not game_clock.plausible(server_ms):

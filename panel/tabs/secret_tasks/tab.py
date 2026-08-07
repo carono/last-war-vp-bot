@@ -3723,7 +3723,10 @@ class SecretTasksTab(PanelTab):
             "..' aid='..tostring(aid)) end)"
         )
         srv = aid = ""
-        for ln in ev.run(chunk, marker="ACT", settle=1.0) or ():
+        # The chunk's own last line ends the wait (#1280): a flat second here is a second
+        # of the daemon's lock, and this read is made from the feed gate — in front of
+        # every merge — before the answer is cached.
+        for ln in ev.run(chunk, marker="ACT", settle=1.0, sentinel="selfids") or ():
             if "selfids " not in ln:
                 continue
             for tok in ln.split("selfids ", 1)[1].split(" "):
