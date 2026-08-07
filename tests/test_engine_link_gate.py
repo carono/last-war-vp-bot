@@ -119,24 +119,19 @@ def test_saying_nothing_is_unknown_and_no_client_is_offline():
 #: answer, so the REAL `classify` runs and the test cannot drift away from it (#1269
 #: moved the gate's seam from `state_of` to the sockets themselves, because the gate now
 #: has a second question to ask of them: is the live conversation the GAME's?).
-def _sockets_for(state, confirmed=True):
+def _sockets_for(state):
     if state == game_link.LOST:
         return [_Conn("CLOSE_WAIT"), _Conn("CLOSE_WAIT")]
     if state == game_link.UNKNOWN:
         return []
-    if confirmed:
-        # the game's own conversation: the winner of the gateway race, losers behind it
-        return [_Conn("ESTABLISHED"), _Conn("CLOSE_WAIT")]
-    # one established conversation and no race — «на связи» that may not be the game
     return [_Conn("ESTABLISHED")]
 
 
-def _gate(state, pid=4242, confirmed=True, session=True):
+def _gate(state, pid=4242, session=True):
     """`Interpreter._link_lost()` with the socket table and the client's pid stubbed.
 
-    ``confirmed`` is whether the live conversation carries the gateway race behind it;
-    ``session`` is what the client itself would answer about being logged in — the two
-    inputs #1269 added, because `online` alone stopped being enough.
+    ``session`` is what the client itself would answer about being logged in — the
+    input #1269 added, because `online` alone stopped being enough.
     """
     interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
     interp._tools_lib_on_path()
@@ -146,7 +141,7 @@ def _gate(state, pid=4242, confirmed=True, session=True):
     fake_client.target_pid = lambda **kw: pid
     saved = sys.modules.get("game_client")
     sys.modules["game_client"] = fake_client
-    game_link.sockets_of = lambda _pids: _sockets_for(state, confirmed)
+    game_link.sockets_of = lambda _pids: _sockets_for(state)
     script_engine.Interpreter._session_confirmed = lambda _self: session
     interp._game_port = lambda: 47654
     try:
@@ -266,40 +261,17 @@ def test_the_gate_never_becomes_the_fault():
 # game, reporting success for doing nothing. The fourth instance of one reading
 # answering a different question (docs/research/server-link-status.md §5).
 # ---------------------------------------------------------------------------
-def test_the_gateway_race_is_what_confirms_a_link_is_the_games():
-    """The one thing sockets CAN say: the winner of the race is the game's own talk."""
-    raced = [_Conn("ESTABLISHED"), _Conn("CLOSE_WAIT")]
-    assert game_link.online_is_confirmed(raced) is True
-    # …one established conversation and nothing behind it: could be the game, could be
-    # the control channel. Sockets cannot tell, and must not pretend to.
-    assert game_link.online_is_confirmed([_Conn("ESTABLISHED")]) is False
-    assert game_link.online_is_confirmed([]) is False
-
-
-def test_a_confirmed_link_costs_no_round_trip():
-    """The healthy path stays free — the client is not asked anything at all."""
-    asked = []
-
-    real = script_engine.Interpreter._session_confirmed
-    script_engine.Interpreter._session_confirmed = lambda _s: asked.append(1) or True
-    try:
-        assert _gate(game_link.ONLINE, confirmed=True) is None
-    finally:
-        script_engine.Interpreter._session_confirmed = real
-    assert asked == [], "a client with the race behind it was interrogated for nothing"
-
-
-def test_an_unconfirmed_link_is_refused_when_the_client_says_it_is_not_playing():
+def test_an_online_link_is_refused_when_the_client_says_it_is_not_playing():
     """THE BUG. `online` on the control channel, client still at the login screen."""
-    said = _gate(game_link.ONLINE, confirmed=False, session=False)
+    said = _gate(game_link.ONLINE, session=False)
     assert said, "an errand was let through into a client that is not in the game"
     assert "not in the game yet" in said, said
 
 
-def test_an_unconfirmed_link_passes_once_the_client_confirms_the_session():
+def test_an_online_link_passes_once_the_client_confirms_the_session():
     """…and the same reading with the client answering is a pass, so the window is
     as short as the login is and never longer."""
-    assert _gate(game_link.ONLINE, confirmed=False, session=True) is None
+    assert _gate(game_link.ONLINE, session=True) is None
 
 
 def test_unknown_still_fails_open_because_the_recovery_stands_on_it():
@@ -310,14 +282,14 @@ def test_unknown_still_fails_open_because_the_recovery_stands_on_it():
     healthy second account for ever, and counting it as a loss would restart a client
     that is merely young.
     """
-    assert _gate(game_link.UNKNOWN, confirmed=False, session=False) is None
-    assert _gate(game_link.UNKNOWN, confirmed=True, session=True) is None
+    assert _gate(game_link.UNKNOWN, session=False) is None
+    assert _gate(game_link.UNKNOWN, session=True) is None
 
 
 def test_lost_is_still_lost_whatever_the_client_says_about_itself():
     """The confirmation may only ever ADD a refusal, never take one away: a stranded
     client answers every question with yesterday's numbers, including that one."""
-    said = _gate(game_link.LOST, confirmed=False, session=True)
+    said = _gate(game_link.LOST, session=True)
     assert said and "half-closed" in said, said
 
 

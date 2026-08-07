@@ -612,18 +612,23 @@ has moved does not raise, it silently means the wrong thing). Measured, both ord
 happen: on one bring-up :10012 came up first and :17935 twelve seconds later; on another,
 :17935 alone held for three minutes.
 
-What sockets CAN say is whether the live conversation won a **gateway race** — the client
-greets several gateways while logging in, keeps one and leaves the losers half-closed for
-the session, and no other service on the client leaves any. A settled client, measured:
+**And the obvious socket shortcut is DISPROVED — measured, not reasoned.** The first fix
+here skipped the round trip whenever the live conversation carried the gateway race
+behind it (the losers a client leaves half-closed while logging in), on the reasoning
+that a raced conversation must be the game's. Twenty minutes later, a perfectly healthy
+client on the same machine:
 
 ```
-{10012: ('…:10012', 5 half-closed),      <- the game: the winner, with its losers behind it
- 17935: ('…:17935', 0)}                  <- the control channel: no race, ever
+{10012: ('…:10012', 0 half-closed),      <- the game, established, no race at all
+ 17935: ('…:17935', 0 half-closed)}      <- the control channel
 ```
 
-So `game_link.online_is_confirmed` reports that and nothing more, and **`False` means
-«cannot confirm from here», never «not the game»** — a client whose race has not happened
-yet reads False for a few seconds, and so does one whose sockets could not be attributed.
+An earlier settled client had five losers on :10012; this one had none. So the race is a
+sometimes-marker, not a rule, and a shortcut built on it reads False on healthy clients.
+It was deleted rather than kept as a "usually" — a helper that is wrong on the common
+case is a trap for whoever reads it next. And the cost it was avoiding turns out to be
+small: measured, the confirmation is **0.31 s** against a warm daemon, on a gate whose
+socket walk already cost **~1.0 s** before any of this, once per scenario run.
 
 **The gate therefore ASKS.** `online` with the race behind it passes for free; `online`
 without it costs one round trip to the client's own clock, which a client at the login
@@ -631,7 +636,8 @@ screen cannot fake. Three properties, each pinned by a test:
 
 * `unknown` still fails OPEN — a client 45 seconds old, or a second account whose sockets
   this machine will not attribute, must not be stranded behind a guess. **This is also
-  what #1268's recovery stands on**, so it was the first thing checked;
+  what #1268's recovery stands on**, so it was the first thing checked. `classify` itself
+  is untouched: the recovery reads exactly what it read before;
 * `lost` is still `lost` whatever the client says about itself — a stranded client answers
   that question with yesterday's numbers too, so the confirmation may only ever ADD a
   refusal;

@@ -1622,15 +1622,21 @@ class Interpreter:
         report success for doing nothing, which is the whole family of bug this file's
         gate exists to end (docs/research/server-link-status.md §5).
 
-        So the verdict is taken in two steps, and only the cheap one runs for a healthy
-        client:
+        So `online` is not taken as an answer: it is taken as «there is something to
+        ask», and the client itself is asked whether it is in a session. Its own clock
+        does that in one call and a client at the login screen cannot fake it (#1227).
 
-        * `online` WITH the gateway race behind it (`game_link.online_is_confirmed`) is
-          the game's own conversation, positively — pass, no round trip;
-        * `online` without it is «cannot confirm from here», so ASK: the client's own
-          clock answers in one call and a client at the login screen cannot fake it
-          (`game_clock.session_ready`, #1227). That is the confirmation the task asked
-          for, and it is a POSITIVE reading rather than another guess about ports.
+        **NO SOCKET SHORTCUT, and that was measured rather than assumed.** The first
+        version of this skipped the round trip when the live conversation carried the
+        gateway race behind it — the losers a client leaves half-closed while logging in
+        — on the reasoning that a raced conversation IS the game's. Live, twenty minutes
+        later, a perfectly healthy client read `{10012: (established, 0 dead), 17935:
+        (established, 0 dead)}`: no race at all. The shortcut would have been False on a
+        healthy client, which is the harmless direction here but disproves the premise —
+        so the premise is gone rather than kept as a "usually". Measured on this machine,
+        the confirmation costs 0.31 s against a warm daemon, on a gate whose socket walk
+        already cost ~1.0 s before it, and it runs once per scenario rather than once per
+        statement.
 
         **A failed ASK is not a refusal.** No daemon, no evaluator, a read that raised —
         all of that is «could not tell», and the gate goes on failing open, exactly as it
@@ -1653,7 +1659,7 @@ class Interpreter:
                 return ("the client is no longer talking to the game server (its sockets "
                         "are half-closed) — nothing sent from here would reach it. "
                         "Restart the client; see docs/research/server-link-status.md")
-            if state != game_link.ONLINE or game_link.online_is_confirmed(sockets):
+            if state != game_link.ONLINE:    # unknown / offline still fail OPEN
                 return None
             if self._session_confirmed():
                 return None
