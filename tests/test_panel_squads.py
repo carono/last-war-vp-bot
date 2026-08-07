@@ -145,6 +145,12 @@ class _FakeGame:
     def up(self):
         return self._up
 
+    def ready(self, fresh=False):
+        # «Will a call reach the game right now» — what the reader asks since #1287.
+        # `up` is the port and no longer stands for it; a stand-in that answers only the
+        # old question makes an offline test fail for a reason that is not in the code.
+        return self._up
+
 
 class _FakeBus:
     def __init__(self):

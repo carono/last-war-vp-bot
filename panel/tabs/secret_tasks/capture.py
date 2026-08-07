@@ -191,7 +191,7 @@ class Capture:
             # learns the server from a map response, which arrives only while the map
             # moves). VPN-independent; the capture's own weight-of-traffic election still
             # overrides this the moment real map data disagrees.
-            if self.rt.game.up():
+            if self.rt.game.ready():
                 srv = self.rt.game.current_server()
                 if srv and str(srv).isdigit():
                     cmd += ["--seed-server", str(srv)]

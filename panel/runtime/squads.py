@@ -333,7 +333,7 @@ class SquadReader:
         """Play the scenario and parse it. Never raises — a failure is a reading too."""
         game = getattr(self._rt, "game", None)
         try:
-            if game is None or not game.up():
+            if game is None or not game.ready():
                 return SquadState(error="offline")
         except Exception as exc:                # noqa: BLE001 — a cold link may refuse
             return SquadState(error=str(exc))

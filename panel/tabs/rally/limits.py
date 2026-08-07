@@ -51,7 +51,7 @@ def types_out(rt) -> list:
     knows how to classify a rally off the game, and the shape a real zombie/drill signal
     would slot into.
     """
-    if not rt.game.up():
+    if not rt.game.ready():
         return []
     try:
         lines = rt.game.evaluator().run(TYPES_CHUNK, marker="RTYPE", settle=0.8,

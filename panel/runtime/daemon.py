@@ -52,6 +52,7 @@ import threading
 import time
 
 import coords
+import daemon_pulse
 import lua_actions
 import lua_client
 
@@ -76,6 +77,12 @@ DETACHED = 0x00000008         # DETACHED_PROCESS
 # and a daemon that is there costs 0.3 ms — see `GameLink.up` (#1226).
 UP_TIMEOUT_SEC = 0.35
 UP_CACHE_SEC = 1.0
+
+#: How long :meth:`GameLink.ready` reuses its answer. The same second `up()` uses, and
+#: for the same reason: the reading is one loopback round trip, and a caller redrawing a
+#: page must not pay one per widget. Shorter than the daemon's own probe interval on
+#: purpose — the panel must never be the reason a reading is out of date.
+READY_CACHE_SEC = 1.0
 
 # How long `ensure()` waits for a daemon it just started, and how often it looks.
 START_TRIES, START_WAIT = 60, 0.5
@@ -159,6 +166,8 @@ class GameLink:
         #: The last answer :meth:`up` got, and when: ``(at, port, answer)``. See there
         #: for why a check nobody caches is a second of frozen window per profile.
         self._up_seen: tuple = (0.0, None, False)
+        #: The remembered answer of :meth:`ready` — (when, port, answer).
+        self._ready_seen: tuple = (0.0, None, False)
         #: The process-wide claim this link is holding (`panel/runtime/claims.py`), or
         #: ``None``. Remembered rather than re-derived — see :meth:`_claim_client`.
         self._claimed = None
@@ -269,6 +278,7 @@ class GameLink:
     def forget_up(self) -> None:
         """Drop the remembered answer — something just changed the daemon's existence."""
         self._up_seen = (0.0, None, False)
+        self._ready_seen = (0.0, None, False)
 
     def attached_pid(self) -> "int | None":
         """Which client THIS profile's daemon is driving, or ``None``.
@@ -379,14 +389,58 @@ class GameLink:
         return answer
 
     def _verdict(self, client_pid) -> str:
+        """THE AGE FIRST, THE PID SECOND — `tools/lib/daemon_pulse.py` (#1287).
+
+        Comparing two pids proves that a process of that number exists, which is not
+        what anybody wants to know. The daemon now says how long ago a chunk actually
+        REACHED the game (`last_ok_age`), and that is a fact rather than an inference:
+        a daemon wedged inside a rebuild, or holding a Lua VM that has gone, has the
+        right pid and an age that stops moving.
+
+        The pid comparison stays, because a fresh age cannot see «attached to the WRONG
+        client» — and because a daemon too old to carry an age must go on being judged
+        the way it always was rather than be called dead for predating this.
+
+        The rule lives in `tools/lib/` and not here: the panel is one of its readers,
+        the daemon is the other, and the last four incidents were all two readings that
+        had drifted apart.
+        """
         reply = self.ping()
-        if not reply.get("ok"):
-            return DAEMON_NONE
         running = _as_pid(client_pid) if client_pid is not None else self._running_pid()
-        if not running:
-            return DAEMON_LIVE
-        held = _as_pid(reply.get("pid"))
-        return DAEMON_LIVE if held == running else DAEMON_STALE
+        return {"none": DAEMON_NONE, "stale": DAEMON_STALE,
+                "live": DAEMON_LIVE}[daemon_pulse.verdict(reply, running_pid=running)]
+
+    def ready(self, fresh: bool = False) -> bool:
+        """WILL A CALL MADE NOW REACH THE GAME? The one reading a caller should ask.
+
+        `up()` answers «a port accepted a connection», and fourteen callers read it as
+        «the panel works». Measured over one day of one profile's logs, 194 of 2 073
+        «warm» readings — 9 % — were taken while the client was not up-and-online, and
+        three of them while there was no client process at all
+        (`docs/research/daemon-architecture.md` §3). Every one of those was a reading a
+        person or an errand acted on.
+
+        This asks the daemon for the age of the last chunk that landed and answers on
+        THAT. One round trip, measured at 0.8 ms even while the daemon's run lock is
+        fully occupied — the ping is served on its own connection thread — so it is
+        affordable everywhere `up()` was, including the Tk thread.
+
+        Deliberately NOT the pid comparison of :meth:`health`: that costs a walk of the
+        process list (~45 ms) and answers a different question — «is this daemon on the
+        right client», which is `ensure`'s and the recovery's business, not a reader's.
+
+        The answer is reused for :data:`READY_CACHE_SEC`, for the same reason `up()`
+        reuses its own: a daemon does not come and go within a second, and a caller in
+        a redraw loop must not pay a round trip per widget.
+        """
+        port = self.port()
+        if not fresh:
+            at, seen, answer = self._ready_seen
+            if seen == port and (time.monotonic() - at) < READY_CACHE_SEC:
+                return answer
+        answer = daemon_pulse.landed_recently(self.ping())
+        self._ready_seen = (time.monotonic(), port, answer)
+        return answer
 
     def last_health(self) -> str:
         """The most recent verdict of :meth:`health`, or ``""`` if there is none recent.

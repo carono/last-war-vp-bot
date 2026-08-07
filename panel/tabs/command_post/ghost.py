@@ -140,7 +140,7 @@ class GhostOrder:
         """One look. Returns how long to wait before the next one."""
         if self._proc is not None:            # a robbery is still running
             return POLL
-        if self.rt.game.busy or not self.rt.game.up():
+        if self.rt.game.busy or not self.rt.game.ready():
             return POLL
         running, _text = game_process.profile_status(self.rt.settings)
         if not running:

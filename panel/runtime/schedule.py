@@ -447,7 +447,10 @@ class Schedule:
         no daemon reads as ``False`` — there is no kick to recover from if the client
         is not even up, and firing then would relaunch a game nobody started.
         """
-        if not self.rt.game.up():
+        # `ready`, not `up`: this runs a CHUNK, and a port that answers is not a link
+        # that carries one (#1287). A daemon holding a client that has gone would let
+        # every poll through and every check would fail as «the game said nothing».
+        if not self.rt.game.ready():
             return False
         chunk = ('local ok, v = pcall(function() return %s end) '
                  'CS.UnityEngine.Debug.LogError("TRIGCHK=" .. tostring(ok and v and true or false))'

@@ -170,6 +170,26 @@ def verdict(reply: dict, running_pid: "int | None" = None,
     return "live"
 
 
+def landed_recently(reply: dict, stale_after: float = STALE_AFTER_SEC) -> bool:
+    """Has a chunk reached the game lately? The reader's cheap question.
+
+    :func:`verdict` answers «what is wrong and what cures it», which needs the pid that
+    is running and therefore a walk of the process list (~45 ms). A caller that only
+    wants to know whether it may read the game needs none of that: the age is one ping
+    away, and a ping is 0.8 ms even while the daemon's run lock is fully occupied.
+
+    A daemon too old to carry an age falls back to `warm` — the best it can say — for
+    the same reason :func:`verdict` falls back to the pid: a warm daemon runs for days,
+    and nothing here may declare one dead for predating the field.
+    """
+    if not reply or not reply.get("ok"):
+        return False
+    age = reply.get("last_ok_age")
+    if isinstance(age, (int, float)):
+        return age <= stale_after
+    return bool(reply.get("warm"))
+
+
 def _as_pid(value) -> "int | None":
     """``value`` as a process id, or ``None`` — the wire says `null`, JSON says string."""
     try:

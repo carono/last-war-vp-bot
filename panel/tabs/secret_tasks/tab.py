@@ -1498,7 +1498,7 @@ class SecretTasksTab(PanelTab):
         try:
             if self._state_busy or self._vm_busy or not self._rows:
                 return
-            if not (self.rt.game.up() and not self.rt.game.busy):
+            if not (self.rt.game.ready() and not self.rt.game.busy):
                 return
             rows = self._state_targets()
             if not rows:
@@ -3293,7 +3293,7 @@ class SecretTasksTab(PanelTab):
         self.rt.tick.arm("secret_clock", CLOCK_MS, self._start_clock_sync)
 
     def _sync_clock(self) -> None:
-        if not (self.rt.game.up() and not self.rt.game.busy):
+        if not (self.rt.game.ready() and not self.rt.game.busy):
             return
 
         def work() -> None:

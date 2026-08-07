@@ -967,7 +967,7 @@ class SettingsTab(PanelTab):
             return
         if time.time() - getattr(self, "_graphics_read_at", 0.0) < self.GRAPHICS_READ_TTL:
             return
-        if not self.rt.game.up():
+        if not self.rt.game.ready():
             self._say_graphics("graphics.state.offline",
                                mode=self._graphics_mode_word())
             return
@@ -1002,7 +1002,7 @@ class SettingsTab(PanelTab):
 
     def _apply_graphics(self, mode: str) -> None:
         """Switch the client, remembering the picture on the way out of standard."""
-        if not self.rt.game.up():
+        if not self.rt.game.ready():
             # The choice is still the profile's — it just cannot reach a client yet, and
             # saying "saved, not applied" beats a switch that silently did nothing.
             self._say_graphics("graphics.state.offline",
@@ -1034,7 +1034,7 @@ class SettingsTab(PanelTab):
 
     def _read_graphics(self, then=None, remember: bool = False) -> None:
         """Ask the client what it is actually drawing, and say so."""
-        if not self.rt.game.up():
+        if not self.rt.game.ready():
             self._say_graphics("graphics.state.offline",
                                mode=self._graphics_mode_word())
             return

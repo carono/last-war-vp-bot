@@ -2907,7 +2907,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         if self._busy:
             return
-        if not self._daemon_up():
+        # A READING THAT HAS TO REACH THE GAME asks whether one can, not whether a port
+        # answers (#1287): thirteen readings drawn off a daemon whose client had gone
+        # are thirteen yesterday's numbers on a dashboard that looks fine.
+        if not self._game.ready():
             return
         running, _text = self._game_status()
         if not running:
@@ -3080,7 +3083,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         traceback.print_exception(exc, val, tb)
 
 
-    def _dbg_status(self, game_ok: bool, daemon_warm: bool, link=None) -> None:
+    def _dbg_status(self, game_ok: bool, daemon_warm: bool, link=None,
+                    daemon_stale: bool = False) -> None:
         """Record a systems snapshot: DEBUG every poll, INFO only when it changes.
 
         ``link`` is the server connection as `panel/runtime/game_process.py` found it,
@@ -3107,12 +3111,18 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except (tk.TclError, AttributeError):
             timers_on = triggers_on = -1
         dash = "err" if self._dash_err else ("on" if self._dash_stop else "off")
-        snap = (bool(game_ok), str(link or ""), bool(daemon_warm), timers_on,
-                triggers_on, dash)
+        # THREE WORDS, because two of them were the same lie. This line is the record
+        # anybody reads the morning after, and `daemon=warm` is what it said 194 times
+        # in one day over a client that was not up-and-online — three of those with no
+        # client process at all (#1287, docs/research/daemon-architecture.md §3).
+        word = "warm" if daemon_warm else "down"
+        if daemon_warm and daemon_stale:
+            word = "stale"
+        snap = (bool(game_ok), str(link or ""), word, timers_on, triggers_on, dash)
         msg = ("systems: game=%s link=%s daemon=%s timers_on=%s triggers_on=%s "
                "dashboard=%s"
                % ("up" if game_ok else "down", link or "?",
-                  "warm" if daemon_warm else "down", timers_on, triggers_on, dash))
+                  word, timers_on, triggers_on, dash))
         if snap != self._dbg_status_prev:
             self._dbg_status_prev = snap
             dbg.info(msg)
@@ -3498,7 +3508,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # person reading the strip is told the one thing that is not so. The
                 # reading is free here — the poll has just made it, two lines up.
                 self._set_daemon(*self._daemon_word(warm, stale)),
-                self._dbg_status(ok, warm, found.link),
+                self._dbg_status(ok, warm, found.link, stale),
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
                 self._recovery_check(found, kicked, stale),

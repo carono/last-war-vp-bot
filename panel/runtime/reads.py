@@ -40,7 +40,7 @@ def resource_balance(game) -> dict:
     is readable — no daemon, no game, or a manager that is not loaded yet — and the
     caller then records no gain rather than a false one.
     """
-    if not game.up():
+    if not game.ready():
         return {}
     try:
         lines = game.evaluator().run(_BALANCE_CHUNK, marker="RB", settle=0.6,
