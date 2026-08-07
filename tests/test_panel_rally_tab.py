@@ -773,11 +773,20 @@ def test_the_join_opens_nothing_and_reaches_the_send_in_two_calls():
 
     branch = [s for s in stmts if isinstance(s, se.IfStmt) and s.condition == "todo < 0"]
     assert branch, [getattr(s, "condition", None) for s in stmts]
-    calls = [x.action_name for x in branch[0].then_block
-             if type(x).__name__ == "CallStmt"]
-    assert calls == ["fill_empty_squads"], calls
+    # The second chance is the FETCH — one request for the army of every squad reading
+    # zero — and it is written out here rather than CALLed. A sub-recipe's failure fails
+    # the CALLER (`script_engine._do_call`), which is how «nothing could be sent» became
+    # «the join run failed» 59 times in an hour on a live measurement (#1285). It is a
+    # `LUA` chunk in `pcall`s of its own, so nothing on a banner's path can throw.
+    fetch = [x for x in branch[0].then_block
+             if isinstance(x, se.LuaStmt) and "GetFormationSoldier" in x.chunk]
+    assert len(fetch) == 1, [type(x).__name__ for x in branch[0].then_block]
+    assert fetch[0].chunk.startswith("pcall("), fetch[0].chunk[:60]
+    # …and the branch presses again afterwards, or the fetch achieved nothing.
+    assert [x.name for x in branch[0].then_block
+            if isinstance(x, se.TapStmt)] == ["rally_join_all"]
     assert not [s for s in stmts if type(s).__name__ == "CallStmt"], \
-        "the empty-squad path is reachable outside the «nothing could be sent» branch"
+        "a sub-recipe on the banner's path can fail the run — this one must not have any"
 
 
 def test_the_arm_prefers_a_squad_that_can_actually_be_sent():

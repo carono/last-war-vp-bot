@@ -54,7 +54,10 @@ RUN = "rally_auto_join: > action: join_rally"
 SEND = ("rally_auto_join:", "TAP join every rally")
 REPORT = ("rally_auto_join:", "READ_LUA report = ")
 JOINED = ("rally_auto_join:", "READ_LUA joined = ")
-SCREEN = "CALL fill_empty_squads"
+#: The empty-squad second chance, recognised by the request itself: it is a `LUA`
+#: chunk on the banner's path rather than a CALL, because a sub-recipe's failure
+#: fails the caller and that turned «nothing to send» into «the run failed» (#1285).
+SCREEN = "GetFormationSoldier"
 FAILED = "run of rally_auto_join failed"
 #: The schedule turned the errand down for good, naming a reason (`note_skip`) — the
 #: game is not running, the daemon is gone. The errand is DROPPED; the next push queues

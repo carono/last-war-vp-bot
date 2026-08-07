@@ -77,12 +77,31 @@ IF todo == 0
 #
 # A SQUAD THAT READS EMPTY IS USUALLY A SQUAD NOBODY HAS ASKED ABOUT (#1285): the army is
 # on the server and the client has not fetched it, and one request puts it back in 0.37 s
-# with nothing on screen. That is what `fill_empty_squads` is; the four presses and the
-# window that used to be here are gone, because the game's own launch threw from inside
-# its own code and the case had no working route at all.
+# with nothing on screen. The four presses and the window that used to be here are gone,
+# because the game's own launch threw from inside its own code and the case had no working
+# route at all.
+#
+# WRITTEN OUT HERE RATHER THAN `CALL fill_empty_squads`, and that is a correction paid for
+# on a live measurement: a sub-recipe's failure FAILS THE CALLER
+# (`script_engine._do_call`), so one bad step inside the try turned «nothing could be
+# sent» into «the join run failed» — 59 times in an hour, on a panel that had not been
+# restarted since the button was added and so had never heard of it. A press looks up a
+# button in a catalogue the running process holds in memory; a recipe is read off the disk
+# every run. So the one thing standing between a banner and a second chance is a `LUA`
+# chunk, wrapped in `pcall`s of its own, which cannot fail the run whatever it finds.
+#
+# `fill_empty_squads.md` is still the ability and still what the «Ралли» button plays —
+# this is the same request, on the path where a banner is waiting and nothing may throw.
 IF todo < 0
     LOG "every squad that could go has gone and one is standing empty — asking the game for its army before giving up"
-    CALL fill_empty_squads
+    LUA pcall(function() local afd = DataCenter.ArmyFormationDataManager for _, f in pairs(afd.ArmyFormationList) do local n = 0 pcall(function() n = tonumber(f.totalSoldierNum) or 0 end) if n == 0 then pcall(function() SFSNetwork.SendMessage(MsgDefines.GetFormationSoldier, f.uuid) end) end end end)
+    WAIT 0.4
+    READ_LUA (function() local afd = DataCenter.ArmyFormationDataManager local n = 0 for _, f in pairs(afd.ArmyFormationList) do local v = 0 pcall(function() v = tonumber(f.totalSoldierNum) or 0 end) if v > 0 then n = n + 1 end end return n end)() INTO armed_squads
+
+    IF armed_squads == 0
+        LOG "the squad is empty and the game has no army to fill it — nothing was sent"
+        STOP
+
     TAP rally_join_all
     READ_LUA (DataCenter.__lw_rally_report or "the second join left no report — the press did not run") INTO report
     LOG "{report}"
