@@ -213,6 +213,36 @@ def test_a_line_of_a_hidden_group_cannot_be_pressed_from_either_front_end():
         assert tab.web_press("run", {"key": hidden}) == {"ok": False}
 
 
+def test_the_blocks_stand_three_to_a_row_and_nothing_measures_a_column():
+    """The layout, and the trap under it (#1211/#1215).
+
+    Three uniform columns is the shape; what this really guards is the SECOND half —
+    that no `<Configure>` handler ever appears here to wrap a label to the width its
+    column turned out to have. That is the loop «Дуэль VS» paid 2.3 seconds of page
+    build for: wrapping re-lays-out, the re-layout fires `<Configure>`, and getting out
+    of it took an idle-time coalescer, a style per frame and a «already this wide» guard.
+    A constant wrap costs one measurement per label and cannot feed itself.
+
+    Measured before and after the columns went in, same machine, back to back: the board
+    as shipped stays at 55–65 ms, and the whole day with every group switched on came out
+    at 429–448 ms against 481–772 ms in one column. The columns are not a cost.
+    """
+    tabmod = _tab_module()
+    assert tabmod.COLUMNS == 3
+    assert isinstance(tabmod.WRAP_PX, int) and tabmod.WRAP_PX > 0
+
+    source = (_REPO / "panel" / "tabs" / "checklist" / "tab.py").read_text(
+        encoding="utf-8")
+    # The CODE, not the prose: the constant's own comment names the trap it avoids, and
+    # a test that could not tell the two apart would forbid explaining anything.
+    for trap in ('bind("<Configure>"', ".winfo_width()", ".winfo_reqwidth()",
+                 "after_idle("):
+        assert trap not in source, (
+            f"«{trap}» is back on the checklist: a wrap that measures its column is the "
+            f"loop #1211 spent 2.3 s a page build in — keep WRAP_PX a constant")
+    assert 'uniform="checklist.group"' in source, "the columns stopped being equal"
+
+
 def test_the_board_reads_only_the_scenarios_the_shown_groups_need():
     """A poll for numbers nobody is drawn is a round trip an hour for a blank."""
     assert modelmod.visible_sources() == frozenset({modelmod.CODENAME})
@@ -559,6 +589,13 @@ def _tab_class():
     except ImportError as exc:              # no tkinter: the model tests still ran
         raise _Skip(str(exc)) from None
     return ChecklistTab
+
+
+def _tab_module():
+    """The tab MODULE — for the constants the layout is made of."""
+    _tab_class()                            # SKIP where there is no tkinter
+    from panel.tabs.checklist import tab as tabmod
+    return tabmod
 
 
 class _Var:

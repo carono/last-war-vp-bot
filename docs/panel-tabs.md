@@ -180,6 +180,30 @@ tabs somebody has looked at, and `rt.tabs.realize(tab)` draws one on purpose.
 registry: that it is lazy, that an unopened one keeps its settings, and that a trigger
 firing into an undrawn one neither raises nor draws it.
 
+### Never wrap a label to a width you measured
+
+The other half of the same bill. Laying blocks out in columns is ordinary — «Дуэль VS»
+stands its six days in two, «Чеклист» its groups in three — and the columns themselves
+are cheap: `columnconfigure(i, weight=1, uniform="<tab>.<thing>")` and a `grid`. What is
+not cheap is **wrapping the text inside them to the width the column turned out to have.**
+
+That reads as the obviously right thing to do and it is a loop: a wrap re-lays the frame
+out, the re-layout fires `<Configure>`, the handler wraps again. «Дуэль VS» paid **2.3
+seconds of page build** for it (#1211), and climbing out took an idle-time coalescer, a
+style per day frame and a «is it already this wide» guard — machinery that exists only to
+survive a decision.
+
+So: **wrap to a constant** (`WRAP_PX` on the checklist), chosen a little narrower than a
+column at the tab's usual width, and let `PREFERRED_SIZE` say how wide the tab wants to
+be. One measurement per label, no handler, nothing that can feed itself. If a tab
+genuinely cannot live with a constant, the coalescer in `vs_duel` is the pattern to copy
+— and say in the diff why the constant was not enough.
+
+And **measure the build, before and after, on the same machine** — «it felt the same» is
+how 2.3 seconds got in. Building a tab in a throwaway Tk root and timing
+`build()` + `update_idletasks()` over twenty rounds takes ten minutes to write and is the
+only thing that tells a layout change from a layout accident.
+
 ---
 
 ## `ensure_loaded` vs `on_show` — the one that bites

@@ -59,6 +59,14 @@ and because each of them is a candidate for the next reading (`docs/farming.md` 
 the routine they come from is written down). Moving a line up out of that group is how
 this tab grows — never by giving it a box.
 
+**The blocks stand three to a row** (`COLUMNS`), in columns of equal width, and the three
+columns are declared even while one block is all there is — so a group that comes back
+takes the empty place beside its neighbour instead of everything jumping a third of the
+tab sideways. Nothing here measures a column to decide how to wrap: the wrap is a
+constant (`WRAP_PX`), for the reason written beside it. The phone keeps its cards one
+under another, which is the shape of a phone rather than a difference of opinion
+(`web_view`).
+
 **Only one group is on right now** (#1275): «Кодовое имя». The other three are switched
 off in the catalogue (`model.Group.shown`) rather than deleted, and the board is put back
 one group at a time as each one's lines are watched answering truthfully in a live game —
@@ -77,6 +85,21 @@ from tkinter import ttk
 from ...widgets import ScrollableFrame, font as ui_font, tk_stringvar
 from ..base import PanelTab
 from . import model as modelmod
+
+#: How many groups stand side by side. The board is read at a glance rather than
+#: scrolled: a day is a couple of dozen lines, and three columns of blocks put the whole
+#: of it on one screen where one column put a third of it there.
+COLUMNS = 3
+
+#: How wide a line inside a block may run before it is wrapped, in pixels — **a constant,
+#: and it stays one** (#1211/#1215). The obvious version of this is to wrap each label to
+#: the width its column turns out to have, which means a `<Configure>` handler that
+#: re-wraps and so re-lays-out, which means the next `<Configure>`: «Дуэль VS» paid 2.3
+#: seconds of page build for exactly that, and needed an idle-time coalescer, a style per
+#: frame and a «is it already this wide» guard to get out of it. A fixed number costs one
+#: measurement per label and cannot feed itself. It is a little narrower than a third of
+#: the tab at its usual width, so a wrapped line does not push its own column wider.
+WRAP_PX = 170
 
 #: How a state looks in the window. A glyph is not a word — it needs no translating and
 #: is the same in every language, which is why these four are literals and the sentence
@@ -121,7 +144,12 @@ class ChecklistTab(PanelTab):
     ID = "checklist"
     TITLE_KEY = "tab.checklist"
     ORDER = 20
-    PREFERRED_SIZE = "760x620"
+    #: Three columns of blocks want the width, and the width was measured rather than
+    #: guessed: with every group switched on and the longest of the eleven languages in
+    #: them, the board asks for 975 px (`COLUMNS`, #1275). Below that the columns are
+    #: squeezed and the widest block — the trucks' three radio buttons, which ttk cannot
+    #: wrap — is clipped.
+    PREFERRED_SIZE = "1000x700"
     LOCALE_NS = ("checklist",)
     #: The client, to read; the scenarios, to read WITH; the capture, to
     #: hear a push. All three are what a board that is true rather than remembered costs.
@@ -435,7 +463,7 @@ class ChecklistTab(PanelTab):
         return modelmod.states(self._reading, self._codename)
 
     def _render(self) -> None:
-        """Draw one framed block per SHOWN group, in the catalogue's order.
+        """Draw one framed block per SHOWN group, three to a row.
 
         A block rather than a bold line over a run of rows: with three of the four groups
         off (#1275) the board is short, and the groups that come back come back one at a
@@ -443,15 +471,31 @@ class ChecklistTab(PanelTab):
         begins without anybody counting rows. Every future group is drawn by this same
         loop, so «as «Кодовое имя» looks» is not a thing to copy but the only shape there
         is.
+
+        **Three columns, and the columns are declared whether or not anything stands in
+        them.** `uniform` is what makes them the same width: without it the one block
+        there is today would take the whole tab and then shrink to a third of it the day
+        a second one appears, which is the layout jumping under somebody who has just
+        learned where things are. With it, a block occupies its third from the first
+        group onwards and the rest of the row is simply empty — the shape of the finished
+        board, drawn early.
+
+        What this deliberately does NOT do is measure anything: the wrap inside a block
+        is :data:`WRAP_PX`, a constant, and there is no `<Configure>` handler here. See
+        that constant for what the alternative cost «Дуэль VS».
         """
         if self._body is None:
             return
         for child in list(self._body.winfo_children()):
             child.destroy()
-        for group, states in modelmod.grouped(self._reading, self._codename):
+        for column in range(COLUMNS):
+            self._body.columnconfigure(column, weight=1, uniform="checklist.group")
+        for index, (group, states) in enumerate(
+                modelmod.grouped(self._reading, self._codename)):
             block = self.tr(ttk.LabelFrame(self._body, labelanchor="nw",
                                            style=self.BLOCK_STYLE), group.title_key)
-            block.pack(fill="x", padx=6, pady=(8, 2))
+            block.grid(row=index // COLUMNS, column=index % COLUMNS, sticky="nsew",
+                       padx=(6, 0), pady=(8, 2))
             for state in states:
                 self._render_row(state, block)
             if group.key == modelmod.TRUCKS:
@@ -471,15 +515,29 @@ class ChecklistTab(PanelTab):
         """
         attacks, need, dmg = modelmod.codename_counter(self._codename)
         counter = ttk.Frame(parent)
-        counter.pack(fill="x", padx=26, pady=(0, 6))
-        self.tr(ttk.Label(counter), "checklist.codename.attacks").pack(side="left")
-        ttk.Label(counter, font=ui_font(weight="bold"),
-                  text=("—" if attacks is None or need is None
-                        else "%d / %d" % (attacks, need))).pack(side="left", padx=(6, 16))
-        self.tr(ttk.Label(counter, foreground="#888"),
-                "checklist.codename.damage").pack(side="left")
-        ttk.Label(counter, text=modelmod.damage(dmg), foreground="#888").pack(
-            side="left", padx=(6, 0))
+        counter.pack(fill="x", padx=10, pady=(0, 6))
+        self._fact(counter, "checklist.codename.attacks",
+                   ("—" if attacks is None or need is None
+                    else "%d / %d" % (attacks, need)), bold=True)
+        self._fact(counter, "checklist.codename.damage", modelmod.damage(dmg))
+
+    def _fact(self, parent, key: str, value: str, bold: bool = False) -> None:
+        """«Атак сегодня: 1 / 3» — a named number, on a line of its own.
+
+        A line each rather than two pairs side by side: a block is a third of the tab
+        wide (:data:`COLUMNS`), and «наибольший урон» beside a twelve-digit number does
+        not fit in that at any language. Stacked, they cannot be clipped by a narrow
+        column, and reading down a column of names is easier than reading along a row of
+        them anyway.
+        """
+        line = ttk.Frame(parent)
+        line.pack(fill="x", pady=1)
+        self.tr(ttk.Label(line, foreground="#888", wraplength=WRAP_PX,
+                          justify="left"), key).pack(side="left")
+        number = ttk.Label(line, text=value)
+        if bold:
+            number.configure(font=ui_font(weight="bold"))
+        number.pack(side="left", padx=(6, 0))
 
     def _render_trucks(self, parent) -> None:
         """«Отправка грузовиков»: the counter, the press, and how to improve them first.
@@ -492,17 +550,12 @@ class ChecklistTab(PanelTab):
         box.pack(fill="x", padx=4, pady=(2, 6))
 
         counter = ttk.Frame(box)
-        counter.pack(fill="x", padx=22, pady=(0, 2))
-        self.tr(ttk.Label(counter), "checklist.trucks.sent").pack(side="left")
-        ttk.Label(counter, text=self._truck_sent(),
-                  font=ui_font(weight="bold")).pack(side="left", padx=(6, 16))
-        self.tr(ttk.Label(counter, foreground="#888"),
-                "checklist.trucks.idle").pack(side="left")
-        ttk.Label(counter, text=self._truck_idle(), foreground="#888").pack(
-            side="left", padx=(6, 0))
+        counter.pack(fill="x", padx=6, pady=(0, 2))
+        self._fact(counter, "checklist.trucks.sent", self._truck_sent(), bold=True)
+        self._fact(counter, "checklist.trucks.idle", self._truck_idle())
 
         press = ttk.Frame(box)
-        press.pack(fill="x", padx=22, pady=(2, 2))
+        press.pack(fill="x", padx=6, pady=(2, 2))
         # DISABLED, and that is the whole state of it: there is no dispatch scenario
         # yet, so there is nothing for a press to play (`CLAUDE.md` — an ability is a
         # scenario and the panel only plays them). A button that answered «not yet»
@@ -511,13 +564,17 @@ class ChecklistTab(PanelTab):
         # button in the same state (`web_view`), and the day the scenario lands both
         # come alive in the same commit.
         self.tr(ttk.Button(press, state="disabled"),
-                "checklist.trucks.send").pack(side="left")
-        self.tr(ttk.Label(press, foreground="#888"),
-                "checklist.trucks.not_yet").pack(side="left", padx=(10, 0))
+                "checklist.trucks.send").pack(anchor="w")
+        # Under the button rather than beside it: «пока нельзя, нет сценария» is a
+        # sentence, and a sentence does not stand next to a button in a third of a tab.
+        self.tr(ttk.Label(press, foreground="#888", wraplength=WRAP_PX,
+                          justify="left"), "checklist.trucks.not_yet").pack(
+            anchor="w", pady=(2, 0))
 
         modes = ttk.Frame(box)
-        modes.pack(fill="x", padx=22, pady=(4, 0))
-        self.tr(ttk.Label(modes), "checklist.trucks.mode").pack(anchor="w")
+        modes.pack(fill="x", padx=6, pady=(4, 0))
+        self.tr(ttk.Label(modes, wraplength=WRAP_PX, justify="left"),
+                "checklist.trucks.mode").pack(anchor="w")
         for mode in modelmod.TRUCK_MODES:
             self.tr(ttk.Radiobutton(modes, value=mode, variable=self._truck_mode),
                     "checklist.trucks.mode." + mode).pack(anchor="w", padx=(12, 0))
@@ -534,22 +591,32 @@ class ChecklistTab(PanelTab):
         return "—" if idle is None else str(idle)
 
     def _render_row(self, state, parent) -> None:
+        """One errand: the mark and its name, then what is left and the press under it.
+
+        Two lines rather than one. A block is a third of the tab wide now, and the four
+        things a row carries — a glyph, a name that is a sentence in some languages, a
+        count and a button — do not stand side by side in that. The name gets the width
+        (wrapped at :data:`WRAP_PX`, a constant); the count and the press share the line
+        below it, which is also where the eye looks for «and how much of it is left».
+        """
         frame = ttk.Frame(parent)
-        frame.pack(fill="x", padx=4, pady=1)
+        frame.pack(fill="x", padx=4, pady=(1, 4))
         frame.columnconfigure(1, weight=1)
 
         glyph, colour = _GLYPH.get(state.state, _GLYPH[modelmod.UNKNOWN])
         ttk.Label(frame, text=glyph, foreground=colour, width=2).grid(
-            row=0, column=0, sticky="w")
-        self.tr(ttk.Label(frame), state.errand.title_key).grid(
-            row=0, column=1, sticky="w", padx=(4, 8))
-        ttk.Label(frame, text=self._detail(state), foreground="#888").grid(
-            row=0, column=2, sticky="e", padx=(0, 8))
+            row=0, column=0, sticky="nw")
+        self.tr(ttk.Label(frame, wraplength=WRAP_PX, justify="left"),
+                state.errand.title_key).grid(
+            row=0, column=1, columnspan=2, sticky="w", padx=(4, 4))
+        ttk.Label(frame, text=self._detail(state), foreground="#888",
+                  wraplength=WRAP_PX, justify="left").grid(
+            row=1, column=1, sticky="w", padx=(4, 4))
         if state.errand.runnable:
             button = self.tr(ttk.Button(
                 frame, width=16,
                 command=lambda key=state.key: self.run(key)), state.errand.run_key)
-            button.grid(row=0, column=3, sticky="e")
+            button.grid(row=1, column=2, sticky="e")
             if not self._may_run(state):
                 button.state(["disabled"])
 
@@ -645,6 +712,15 @@ class ChecklistTab(PanelTab):
         **And exactly the groups the window draws**, because both ask `model.grouped`
         (#1275). A group switched off has no card here, no rows in the progress count and
         no press — the phone cannot reach what the machine does not show.
+
+        **The cards stay one under another, and that is not the window falling out of
+        step with the phone.** The window stands its blocks three to a row (`COLUMNS`)
+        because it has a thousand pixels across and a day is two dozen lines; a phone has
+        a column of about four hundred and scrolls, so the same three-across would be
+        three unreadable slivers. What must match between the two front-ends is WHAT is
+        there — every group, every reading, every press — and that is what `grouped`
+        guarantees. How many of them stand side by side is the shape of the glass, not a
+        fact about the game, so **do not «align» this with the window's three columns.**
         """
         done, total = modelmod.progress(self.states())
         cards = [{"title": None, "rows": [
