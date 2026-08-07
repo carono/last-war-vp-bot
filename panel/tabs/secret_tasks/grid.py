@@ -268,40 +268,111 @@ def refresh_timers(rows, t) -> tuple:
         if soon != row.get("soon"):
             row["soon"] = soon
             changed = True
-        if done and not ready:
-            state = t("secrettasks.until_ready", t=fmt_left(done - now))
-        elif ready and exp is not None:
-            state = t("secrettasks.ready_expires", t=fmt_left(exp - now))
-        elif ready:
-            state = t("secrettasks.ready")
-        elif row.get("state_key"):
-            # Nothing to count down to, but the game has a word for this row — the
-            # ghost list's `GhostreconPointStealType` (#1251). Saying it beats «готово
-            # через —», which reads as a broken clock rather than as a verdict.
-            state = t(row["state_key"])
-        else:
-            state = t("secrettasks.until_ready", t="—")
-        # «уже поделились» rides in the state cell rather than a column of its own
-        # (#1245). It is the cell rewritten every second, so a mark that landed since
-        # the last full redraw — an alliancemate pressing share in the game — shows
-        # within the second without the table being rebuilt.
-        if row.get("shared"):
-            state = "%s · %s" % (state, t("secrettasks.shared_mark"))
-        # «уже ограбили» rides in the same cell, for the same reason and beside the same
-        # mark (#1272). It is what a row keeps INSTEAD of disappearing, so it has to say
-        # so in words: a «готово к сбору» row with no «Собрать» cell and nothing
-        # explaining why reads as a bug, which is exactly what a silent glyph would be.
-        if row.get("robbed"):
-            state = "%s · %s" % (state, t("secrettasks.robbed_mark"))
-        # HOW OLD THIS ROW'S INFORMATION IS, when it is old (#1251). The capture only
-        # fills the list; a row nobody has driven the map past for a while is still a
-        # row, and the honest thing is to SAY that rather than to hide it. Judged on the
-        # machine's clock because `seen_at` is stamped there, not by the game.
-        stale = _stale_minutes(row.get("seen_at"))
-        if stale:
-            state = "%s · %s" % (state, t("secrettasks.seen_ago", n=stale))
-        row["timer"].set(state)
+        row["timer"].set(state_text(row, now, t))
     return expired, changed
+
+
+def state_text(row, now: int, t) -> str:
+    """One row's state cell, from the row and a clock. NO side effects (#1272).
+
+    Split out of :func:`refresh_timers` so that the DISPLAY can be rewritten far more
+    often than the model is recomputed. The once-a-second pass owns everything that
+    changes a row — the ready flip, the soon colour, the expiry — and calls this at the
+    end of it; the four-times-a-second repaint (:func:`repaint_countdowns`) calls this
+    and nothing else, which is why it may run that often at all.
+
+    `ready` is READ off the row here rather than derived: whose job it is to flip is the
+    whole distinction above.
+    """
+    done, exp, ready = row["completed_at"], row["expires_at"], bool(row.get("ready"))
+    if done and not ready:
+        state = t("secrettasks.until_ready", t=fmt_left(done - now))
+    elif ready and exp is not None:
+        state = t("secrettasks.ready_expires", t=fmt_left(exp - now))
+    elif ready:
+        state = t("secrettasks.ready")
+    elif row.get("state_key"):
+        # Nothing to count down to, but the game has a word for this row — the
+        # ghost list's `GhostreconPointStealType` (#1251). Saying it beats «готово
+        # через —», which reads as a broken clock rather than as a verdict.
+        state = t(row["state_key"])
+    else:
+        # A ★ row can no longer get here: one with no completion time is refused at the
+        # model's door (`SecretTasksTab._merge`, #1272), because it can never become
+        # raidable and so can never be a target. The branch stays for the ghost lists,
+        # whose rows legitimately have neither a clock nor a verdict yet.
+        state = t("secrettasks.until_ready", t="—")
+    # «уже поделились» rides in the state cell rather than a column of its own
+    # (#1245). It is the cell rewritten every second, so a mark that landed since
+    # the last full redraw — an alliancemate pressing share in the game — shows
+    # within the second without the table being rebuilt.
+    if row.get("shared"):
+        state = "%s · %s" % (state, t("secrettasks.shared_mark"))
+    # «уже ограбили» rides in the same cell, for the same reason and beside the same
+    # mark (#1272). It is what a row keeps INSTEAD of disappearing, so it has to say
+    # so in words: a «готово к сбору» row with no «Собрать» cell and nothing
+    # explaining why reads as a bug, which is exactly what a silent glyph would be.
+    if row.get("robbed"):
+        state = "%s · %s" % (state, t("secrettasks.robbed_mark"))
+    # HOW OLD THIS ROW'S INFORMATION IS, when it is old (#1251). The capture only
+    # fills the list; a row nobody has driven the map past for a while is still a
+    # row, and the honest thing is to SAY that rather than to hide it. Judged on the
+    # machine's clock because `seen_at` is stamped there, not by the game.
+    stale = _stale_minutes(row.get("seen_at"))
+    if stale:
+        state = "%s · %s" % (state, t("secrettasks.seen_ago", n=stale))
+    return state
+
+
+def has_countdown(rows) -> bool:
+    """Is any of these rows counting down? — what the fast repaint is armed on (#1272).
+
+    A tab whose lists are all empty, or all «нет данных» ghost rows, has nothing to draw
+    four times a second, and four wake-ups a second per open profile is a real share of
+    the one event loop they share (#1226).
+    """
+    return any(r["completed_at"] is not None or r["expires_at"] is not None
+               for r in rows.values())
+
+
+def repaint_countdowns(tree, rows, t) -> None:
+    """Rewrite the state cell of every row that is counting down — DISPLAY ONLY (#1272).
+
+    «Те, что уже можно грабить, должны обновляться несколько раз в секунду.» A countdown
+    redrawn once a second is a countdown a second late for most of every second, and a
+    raidable tile is the one row where that is read as the list being stale.
+
+    So this runs four times a second and the once-a-second pass stays where it was. It
+    may, because of what it does NOT do: it drops nothing, it flips no `ready` and no
+    `soon`, it re-sorts nothing, it re-reads nothing and it asks the game for nothing —
+    the state is already in the model, and what is late is the drawing of it. Everything
+    that CHANGES a row is still one pass a second, and that is what keeps this cheap
+    enough to run at all.
+
+    Two things keep it from being a storm. A row with neither clock has nothing to count
+    down and is skipped whole (the ghost lists' «нет данных» rows). And a cell is written
+    only when its TEXT has actually changed — the countdown moves in whole seconds, so in
+    the steady state three passes out of four cost a string comparison and no Tk call at
+    all. That matters more than it sounds: with four profiles open the shared event loop
+    is what the panel runs out of first (#1226), and an unconditional `tree.set` per row
+    per pass is precisely the traffic that ran it out.
+    """
+    if tree is None:
+        return
+    import game_clock
+    now = game_clock.now_ms()
+    for key, row in rows.items():
+        if row["completed_at"] is None and row["expires_at"] is None:
+            continue
+        state = state_text(row, now, t)
+        if state == row["timer"].get():
+            continue
+        row["timer"].set(state)
+        try:
+            if tree.exists(key):
+                tree.set(key, "state", state)
+        except tk.TclError:
+            return
 
 
 #: How old a row's information has to be before the state cell says so, in seconds.
@@ -522,6 +593,20 @@ class TaskGrid:
         if row is not None and not row.get("robbed"):
             row["robbed"] = True
             self.render()
+
+    def has_countdown(self) -> bool:
+        """Whether this page has a clock running — the fast chain's own gate (#1272)."""
+        return has_countdown(self._rows)
+
+    def repaint(self) -> None:
+        """The four-times-a-second half: the countdowns, and nothing else (#1272).
+
+        Driven by the tab's own fast chain, the same way `tick` is driven by its slow
+        one — one pair of chains for the tab, not a pair per table. Everything that could
+        change a row (expiry, the ready flip, the marks) stays in `tick`; this only
+        redraws what is already decided, which is what makes it affordable at that rate.
+        """
+        repaint_countdowns(self._tree, self._rows, self.tab.t)
 
     def tick(self) -> None:
         """The per-second half, driven by the tab's own countdown chain.

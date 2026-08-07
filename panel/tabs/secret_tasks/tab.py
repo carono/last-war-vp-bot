@@ -122,6 +122,18 @@ JUMP_HISTORY_MAX = 20
 # not the auto-loot watcher.
 POLL_MS = 30_000
 
+# How often the countdowns are REDRAWN, as opposed to recomputed (#1272). «Те, что уже
+# можно грабить, должны обновляться несколько раз в секунду»: a cell rewritten once a
+# second is a second late for most of every second, and on a raidable tile that reads as
+# a list that has stopped moving.
+#
+# Four times a second is affordable only because of what this pass is not. It draws; it
+# does not decide. Nothing expires here, no row flips to ready, nothing is re-sorted and
+# the game is not asked anything — all of that stays in the once-a-second pass below, and
+# a cell is touched only when its text has really changed. See
+# `grid.repaint_countdowns`.
+LIVE_MS = 250
+
 # How often the game's own clock is re-measured (#1227). It is not this machine's
 # clock, which was measured eleven seconds slow against it — and the operator had been
 # reading 25-30 s of that — so every countdown here is drawn
@@ -214,6 +226,10 @@ class SecretTasksTab(PanelTab):
         # target is chosen, so there is one place to remember what has been tried.
         # Whether the ready-row poll is currently scheduled.
         self._polling = False
+        # …and whether the fast countdown repaint is (#1272). Two chains, two questions:
+        # this one only DRAWS, four times a second, and it is armed while there is a
+        # clock running anywhere on the tab.
+        self._living = False
         # Cached (server, allianceId) for the chat room ids — read once, live.
         self._ids = None
         # The player's OWN server, cached the same way: what the home-server
@@ -520,10 +536,10 @@ class SecretTasksTab(PanelTab):
         self.ghost_capture.stop()
         self.autoloot.stop()
         self.autoassist.stop()
-        for name in ("secret_tick", "secret_poll", "secret_nudge",
+        for name in ("secret_tick", "secret_live", "secret_poll", "secret_nudge",
                      "secret_clock", "autoloot_push_restart"):
             self.rt.tick.disarm(name)
-        self._ticking = self._polling = False
+        self._ticking = self._polling = self._living = False
 
     # -- persistence ----------------------------------------------------------
     def config(self) -> dict:
@@ -1801,6 +1817,20 @@ class SecretTasksTab(PanelTab):
         Whichever read it came from is that read's own affair: the two paths land here
         through `_wire_landed` / `_vm_landed`, and each clears the flag it was holding.
         """
+        # A TILE WITH NO FINISH TIME NEVER ENTERS THE MODEL (#1272). The wire decoder
+        # reads it off the tile's `f3` and a tile that does not carry one comes through
+        # as `None` (`lastwar_proto.tasks_from_blocks`), so the list grew rows that drew
+        # «готово через —» for ever: `ready` is «completed_at is set and past», so such a
+        # row can never mature, can never be robbed, can never expire on its own clock
+        # and can never be worth going to. It is not a target with a missing field — it
+        # is not a target.
+        #
+        # Refused HERE, at the model's one door, rather than hidden by the table. Both
+        # feeds land in this method (`_wire_landed` / `_vm_landed`) and so will the next
+        # one, and everything downstream — the standing order, the phone, the checkpoint
+        # — reads the model rather than the table. The VM feed never produced one anyway
+        # (`secret_task_all_alliance` demands `done > 0`); it is the pcap that can.
+        tasks = [t for t in tasks if t.completed_at]
         incoming = {str(t.uuid): t for t in tasks}
         if verify:
             for key in verify:
@@ -1913,6 +1943,11 @@ class SecretTasksTab(PanelTab):
                 continue
             exp = rec.get("expires_at")
             if exp is not None and exp <= now:
+                continue
+            # …and a row with no finish time is not restored either (#1272). It cannot
+            # mature, so it would sit there drawing «готово через —» until the panel was
+            # shut. Only a checkpoint written before the gate above can hold one.
+            if not rec.get("completed_at"):
                 continue
             # What the LIST decided when the row was live outranks anything re-derived
             # here (#1267). Only a checkpoint written before the star was kept — an
@@ -2520,6 +2555,45 @@ class SecretTasksTab(PanelTab):
             self._ticking = True
             self._tick()
 
+    def _maybe_start_live(self) -> None:
+        """Start the fast repaint if anything is counting down and it is not running.
+
+        Gated rather than unconditional, and for the reason the ready-row poll is gated:
+        four wake-ups a second times every open profile is a real share of the one event
+        loop they share (#1226), and a tab with an empty list has nothing to draw. It
+        stops itself the moment the last countdown goes.
+        """
+        if self._living:
+            return
+        if self._has_countdown():
+            self._living = True
+            self.rt.tick.arm("secret_live", LIVE_MS, self._live_tick)
+
+    def _has_countdown(self) -> bool:
+        """Is there a row anywhere on this tab with a clock still running?"""
+        return (grid.has_countdown(self._rows)
+                or any(page.has_countdown() for page in self._grid_pages()))
+
+    def _live_tick(self) -> None:
+        """Redraw the countdowns — every table on the tab, four times a second (#1272).
+
+        ONE CHAIN FOR THE TAB, like the second-by-second one: five tables counting down
+        on five chains of their own would be five wake-ups where one does.
+
+        It is a drawing pass and nothing else. `grid.repaint_countdowns` says what that
+        buys and what it costs; the short version is that everything able to change a row
+        happens in :meth:`_tick`, once a second, exactly as it did before.
+        """
+        try:
+            grid.repaint_countdowns(self._tree, self._rows, self.t)
+            for page in self._grid_pages():
+                page.repaint()
+        finally:
+            if self._has_countdown():
+                self.rt.tick.arm("secret_live", LIVE_MS, self._live_tick)
+            else:
+                self._living = False
+
     def _tick(self) -> None:
         """Every second: rewrite each row's timer, drop the expired, flip the matured.
 
@@ -2547,6 +2621,9 @@ class SecretTasksTab(PanelTab):
             self._refresh_autoloot_line()
             self._refresh_assist_line()
             self._maybe_start_poll()
+            # …and the drawing chain beside it, which is what makes a raidable tile's
+            # countdown move four times a second instead of once (#1272).
+            self._maybe_start_live()
             # The other pages count down on the same second as this one — one chain for
             # the tab, not a timer per table.
             self.alliance.tick()

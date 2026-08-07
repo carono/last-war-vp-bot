@@ -520,12 +520,23 @@ async function openScreen(id) {
   await drawScreen();
 }
 
-async function drawScreen() {
+/* An open screen is re-read on the ordinary poll, not only when it is opened (#1272).
+ * It used to be drawn once and then stay exactly as it was for as long as the phone was
+ * looking at it — countdowns frozen, loot counts frozen, standing orders frozen — which
+ * is the phone's half of «очень редко обновляются». The panel side is a dictionary walk
+ * over what the tab already holds (`web_view` is contracted to read nothing), so the
+ * cost is one small request every POLL_MS while that view is up, and SLOW_MS while the
+ * phone is in a pocket.
+ *
+ * `keep` is what a refresh passes: the body is rebuilt whole, so the page would jump to
+ * the top under the thumb every couple of seconds without putting the scroll back. */
+async function drawScreen(keep) {
   if (!SCREEN) return;
   let view;
   try {
     view = await get('/api/screen?id=' + encodeURIComponent(SCREEN));
   } catch (err) { return; }
+  const at = keep ? window.scrollY : 0;
   SCREEN_NOW = view.now || 0;
   $('screen-title').textContent = T(view.title || '');
   const body = $('screen-body');
@@ -549,11 +560,12 @@ async function drawScreen() {
       button.disabled = true;
       try {
         await post('/api/screen/press', { id: SCREEN, action: action.id });
-        setTimeout(drawScreen, 900);      // the tab reads on its own thread
+        setTimeout(() => drawScreen(true), 900);  // the tab reads on its own thread
       } finally { button.disabled = false; }
     });
     body.appendChild(button);
   }
+  if (keep) window.scrollTo(0, at);
 }
 
 /* ONE renderer for every tab's screen. `title`, `label`, `empty` and `pill` are locale
@@ -623,7 +635,7 @@ function pressButton(action) {
                                 { id: SCREEN, action: action.id,
                                   args: action.args || {} });
       toast(answer.ok ? T('web.ui.done') : T('web.ui.refused'));
-      setTimeout(drawScreen, 900);
+      setTimeout(() => drawScreen(true), 900);
     } finally { button.disabled = false; }
   });
   return button;
@@ -680,7 +692,7 @@ function renderItem(item) {
                                     { id: SCREEN, action: action.id,
                                       args: action.args || {} });
           toast(answer.ok ? T('web.ui.done') : T('web.ui.refused'));
-          setTimeout(drawScreen, 900);
+          setTimeout(() => drawScreen(true), 900);
         } finally { button.disabled = false; }
       });
       foot.appendChild(button);
@@ -767,6 +779,9 @@ async function tick() {
     paintState(await get('/api/state'));
     paintLog(await get('/api/log?since=' + LOG_AT));
     if (VIEW === 'timers') await refreshTimers();
+    // …and the screen somebody is looking at (#1272), which used to be drawn once and
+    // then never again — see `drawScreen`.
+    if (VIEW === 'screen') await drawScreen(true);
     $('offline').hidden = true;
   } catch (err) {
     $('offline').hidden = false;
@@ -796,7 +811,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('actions-filter').addEventListener('input', paintActions);
   $('profile-pick').addEventListener('change', (e) => switchProfile(e.target.value));
   $('screen-back').addEventListener('click', () => { SCREEN = null; showView('more'); });
-  $('screen-filter').addEventListener('input', drawScreen);
+  // …and typing in the filter redraws in place: the argument is spelled out
+  // because an `input` listener is handed an Event, which would arrive as `keep`.
+  $('screen-filter').addEventListener('input', () => drawScreen(true));
   $('login-go').addEventListener('click', async () => {
     const token = $('login-token').value.trim();
     const answer = await post('/api/login', { token: token });

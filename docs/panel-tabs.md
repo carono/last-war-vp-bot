@@ -756,11 +756,16 @@ label that is not a key.
 panel's time rather than its own, because a tablet an hour out would otherwise call
 every deadline expired.
 
-**`web_view` must be CHEAP.** It runs on the Tk thread every time a phone opens the
-screen, so it returns what the tab already holds. Reading the game belongs in the tab's
-own refresh, which the phone asks for by pressing «Обновить» — a phone in a pocket must
-not poll the client all day. The six `DataTab` tabs get this for free: the base class
-caches the last reading and only the mapping (`web_cards`) is each tab's own.
+**`web_view` must be CHEAP, and since #1272 that is load-bearing rather than polite.**
+It runs on the Tk thread every time a phone opens the screen **and on every poll while
+the phone is still looking at it** — about every 2.5 s with the screen up, every 15 s
+with the phone in a pocket. Before that it ran once per opening and the screen then sat
+frozen for as long as anybody read it: countdowns stopped, counts stopped, standing
+orders stopped. So it returns what the tab already holds, and a `web_view` that reads
+the game is now a client polled all day rather than a slow screen. Reading the game
+belongs in the tab's own refresh, which the phone asks for by pressing «Обновить». The
+six `DataTab` tabs get this for free: the base class caches the last reading and only
+the mapping (`web_cards`) is each tab's own.
 
 ### It travels in the same commit, in BOTH directions — this is binding
 

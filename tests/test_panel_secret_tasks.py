@@ -2613,6 +2613,117 @@ def test_both_feeds_go_through_the_gate_and_not_only_one():
         assert "_abroad_only" in body, f"{feed} still admits home tiles"
 
 
+def test_a_tile_with_no_finish_time_never_enters_the_model():
+    """«Есть в списке "готово через" и прочерк — такие вообще не нужно выводить» (#1272).
+
+    The wire decoder reads the finish time off the tile's own field and hands over `None`
+    when the tile does not carry one. Such a row can never mature — `ready` is «set and
+    past» — so it can never be robbed, never counts down and never leaves on its own
+    clock. It is refused at the model's door rather than hidden by the table, because
+    everything downstream (the standing order, the phone, the checkpoint) reads the model.
+    """
+    tab = _make_tab({})
+    tab._merge([_WireTask(1, completed_at=None), _WireTask(2)])
+
+    assert sorted(tab._rows) == ["2"], tab._rows
+
+
+def test_a_checkpoint_row_with_no_finish_time_is_not_restored():
+    """Only a file written before the gate can hold one, and it must not come back: it
+    would sit there drawing «готово через —» until the panel was shut (#1272)."""
+    import json as _json
+    path = _state_path()
+    good = {"uuid": 2, "server": 1, "x": 1, "y": 2, "level": 7, "cfg_id": 60000701,
+            "loot_count": 0, "starred": True,
+            "completed_at": _ms(-5_000), "expires_at": _ms(600_000)}
+    bad = dict(good, uuid=1, completed_at=None)
+    with open(path, "w", encoding="utf-8") as fh:
+        _json.dump([bad, good], fh)
+    import types
+    tab = _make_tab({})
+    tab.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+
+    restored = tab._load_persisted()
+
+    assert sorted(tab._rows) == ["2"], tab._rows
+    assert restored == {"2"}, restored
+
+
+def test_the_countdown_is_redrawn_far_more_often_than_the_model_is_recomputed():
+    """«Те, что уже можно грабить, должны обновляться несколько раз в секунду» (#1272).
+
+    The fast pass draws and decides nothing: it writes the state cell of a row whose
+    clock has moved, and it does not expire, flip or re-sort anything — all of which is
+    what makes it affordable four times a second.
+    """
+    rows = {"2": _row(2, 7, -5_000, 600_000)}
+    rows["2"]["ready"] = True
+    tab = _make_tab(rows)
+    tab._refresh_timers()
+    before = rows["2"]["timer"].get()
+    tree = _CountingTree()
+
+    # The clock has moved on a minute: the cell follows, and the row is untouched.
+    rows["2"]["expires_at"] = _ms(540_000)
+    gr.repaint_countdowns(tree, rows, tab.t)
+    assert rows["2"]["timer"].get() != before
+    assert tree.writes == [("2", "state", rows["2"]["timer"].get())], tree.writes
+    assert rows["2"]["ready"] is True, "the drawing pass flipped a flag"
+
+    # A pass that changes nothing costs no Tk call at all — three passes in four, in the
+    # steady state, and that is what keeps the rate off the shared event loop (#1226).
+    tree.writes.clear()
+    gr.repaint_countdowns(tree, rows, tab.t)
+    assert tree.writes == [], tree.writes
+
+    # …and an expired row is NOT dropped here: dropping is the once-a-second pass's job.
+    rows["2"]["expires_at"] = _ms(-1_000)
+    gr.repaint_countdowns(tree, rows, tab.t)
+    assert "2" in rows
+
+
+def test_the_fast_repaint_is_armed_only_while_something_is_counting_down():
+    """Four wake-ups a second times every open profile is a real share of the one event
+    loop they share, so a tab with nothing to draw does not ask for them (#1272)."""
+    assert gr.has_countdown({}) is False
+    assert gr.has_countdown({"2": _row(2, 7, -5_000, 600_000)}) is True
+    # A ghost row with neither clock — the game's verdict and no timestamps — is not one.
+    still = dict(_row(3, 5, 0, 0))
+    still["completed_at"] = still["expires_at"] = None
+    still["state_key"] = "secrettasks.ghost.state.out"
+    assert gr.has_countdown({"3": still}) is False
+
+
+class _CountingTree:
+    """Enough of a Treeview to see WHICH cells the repaint actually writes."""
+
+    def __init__(self) -> None:
+        self.writes: list = []
+
+    def exists(self, _iid) -> bool:
+        return True
+
+    def set(self, iid, column, value) -> None:
+        self.writes.append((iid, column, value))
+
+
+class _WireTask:
+    """One decoded tile, the shape `_merge` is handed (`lastwar_proto.SecretTask`)."""
+
+    def __init__(self, uuid, completed_at=-5_000, expires_at=600_000) -> None:
+        self.uuid = uuid
+        self.server_id, self.x, self.y = 1, 1, 2
+        self.level, self.cfg_id, self.loot_count = 7, 60000701, 0
+        self.completed_at = _ms(completed_at) if completed_at is not None else None
+        self.expires_at = _ms(expires_at) if expires_at is not None else None
+
+
+def _ms(offset: int) -> int:
+    """A game-clock stamp `offset` milliseconds from now."""
+    import game_clock
+    return game_clock.now_ms() + offset
+
+
 def test_the_capture_only_fills_the_list_and_never_empties_it():
     """«Мониторинг только наполняет наши таблицы» (#1251).
 
