@@ -633,3 +633,41 @@ The tip is captured by a pass-through wrapper on `UIUtil.ShowTipsId`, installed 
 the queue is armed and cleared on every arm, so only a tip raised during our own press
 window is read. Verified live: arming installs the hook, a real `dispatch_des042` raised
 through the client's own function is recorded, and the gate falls to 0.
+
+## Re-reading the state of a tile already on the list («Обновить состояние»)
+
+The list is filled by the map capture, which sees a tile only while the map is driven
+over it. Between those passes nothing re-checked a row, and the alliance table the tab
+already reads cannot help: it carries MY alliance's tasks only — live, 189 of them, none
+starred, all at home — so about the strangers' tiles that make up the ★ list it says
+nothing at all. A row went on saying «готово к сбору» about a tile emptied minutes ago.
+
+The per-tile authority is the one a marker tap uses. Measured live:
+
+| asked about | `GetDetailByPointId` answers |
+|---|---|
+| a real tile | a 45-field record: `uuid`, `uid`, `serverId`, `expireTime`, `pointId`, … |
+| a point with no task on it | **nil — no detail at all** |
+
+So `world.get.detail.new {pointId, serverId, 0, 17, ""}`, a settle, then read the cache
+back by pointId. What the detail does NOT carry is the loot count (`stealInfoList` is not
+among the 45 fields), so «сколько раз уже ограбили» still comes from the alliance table
+for the tiles it covers.
+
+**A nil is ambiguous on its own** — a reply that never arrived looks exactly like «there
+is nothing there», which is the shape that deleted a whole list once already
+(`SecretTasksTab._answerable`). So the probe sends a CONTROL point along with the batch,
+picked in the VM out of `allianceTask` — a tile the client itself is sure exists. If the
+control answered, a nil is the server saying the tile is gone and the row is dropped; if
+it did not, nothing is dropped and the run reports how many went unconfirmed.
+
+Live acceptance of the button, with two real tiles and one invented coordinate:
+
+```
+before : 3 rows
+after  : 2 rows
+report : checked=3 updated=2 gone=1 unconfirmed=0
+```
+
+— the invented tile removed, and the two real ones keeping their places with the loot
+count corrected from a planted 99 to the 0 the alliance table really holds.

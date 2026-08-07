@@ -1470,7 +1470,7 @@ def test_a_press_inside_the_window_holds_only_what_the_spam_cannot_reach():
     played = _Actions(lines=["ACT steal_sent uuid=1 srv=1",
                              "steal_taken — the server confirmed a robbery"])
     tab.rt.actions = played
-    real_sleep = st.time.sleep
+    real_time, real_sleep = st.time, st.time.sleep
 
     def _sleep(secs):
         slept.append(secs)
@@ -1491,7 +1491,7 @@ def test_a_press_inside_the_window_holds_only_what_the_spam_cannot_reach():
             real_sleep(0.02)
     finally:
         release.set()
-        st.time = types.SimpleNamespace(sleep=real_sleep)
+        st.time = real_time
 
     assert "log.secret.collect_armed" in said, said
     # Nine seconds out, and the spam reaches two and a half: it holds the difference.
@@ -1643,6 +1643,94 @@ def test_the_verdict_travels_from_the_recipe_to_the_list():
     assert "7" not in tab._rows, "the tile the server called gone stayed on the list"
 
 
+def _state_tab(rows):
+    """A tab wired for `_state_landed` — no game, no Tk, just the decision."""
+    tab = _make_tab(rows)
+    tab.rt = _fake_rt(_state_path())
+    tab._vm_busy = True
+    tab.said = []
+    tab.say = lambda _tag, key, **fmt: tab.said.append((key, fmt))
+    return tab
+
+
+def test_the_state_refresh_updates_the_loot_count_from_the_alliance_table():
+    """«Чтобы обновлялось число ограблений» (#1272) — the one reading that carries it."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["loot_count"] = 0
+    tab = _state_tab({"1": row})
+    task = _LiveTask(1)
+    task.loot_count = 2
+
+    tab._state_landed(["1"], {"1": task}, {}, True)
+
+    assert tab._rows["1"]["loot_count"] == 2
+    key, fmt = tab.said[-1]
+    assert key == "log.secret.state_done"
+    assert (fmt["checked"], fmt["updated"], fmt["gone"]) == (1, 1, 0), fmt
+
+
+def test_a_tile_the_server_has_no_detail_for_is_gone():
+    """A point with no task on it answers with no detail at all — measured live. With
+    the control proving the answers were arriving, that is «there is nothing there»."""
+    rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000)}
+    tab = _state_tab(rows)
+
+    # row 1 answered with its own uuid, row 2 with nothing; the control came back.
+    tab._state_landed(["1", "2"], {}, {1: 1, 2: 0}, True)
+
+    assert sorted(tab._rows) == ["1"], tab._rows
+    key, fmt = tab.said[-1]
+    assert (fmt["checked"], fmt["gone"]) == (2, 1), fmt
+
+
+def test_without_the_control_no_row_is_dropped():
+    """The rule that stopped the list being wiped every start-up, kept here: when the
+    control tile did not answer either, the answers were not arriving and an absence
+    proves nothing (#1272)."""
+    rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000)}
+    tab = _state_tab(rows)
+
+    tab._state_landed(["1", "2"], {}, {1: 0, 2: 0}, False)
+
+    assert sorted(tab._rows) == ["1", "2"], "an unproven silence emptied the list"
+    key, fmt = tab.said[-1]
+    assert fmt["unconfirmed"] == 2 and fmt["gone"] == 0, fmt
+
+
+def test_a_row_we_robbed_is_never_dropped_by_the_refresh():
+    """It is on the list so it can still be shared, and our own robbery is the likeliest
+    reason the tile would now answer with nothing (#1272)."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["robbed"] = True
+    tab = _state_tab({"1": row})
+
+    tab._state_landed(["1"], {}, {1: 0}, True)
+
+    assert "1" in tab._rows
+
+
+def test_the_refresh_asks_about_the_ready_rows_first():
+    """«Приоритет — готовым строкам»: their state lives seconds, and they are the ones
+    the operator was seeing a lie about (#1272)."""
+    waiting = _row(1, 7, 120_000, 600_000)
+    ready = _row(2, 7, -5_000, 600_000)
+    ready["ready"] = True
+    tab = _make_tab({"1": waiting, "2": ready})
+    tab.rt = _fake_rt(_state_path())
+    asked = {}
+    tab.after = lambda fn: None
+    import types
+    tab.rt.game = types.SimpleNamespace(
+        evaluator=lambda: (_ for _ in ()).throw(RuntimeError("no game here")))
+    tab._vm_busy = True
+    tab._state_work()
+    # The read raised, so nothing was applied — what this pins is the ORDER it built.
+    rows = sorted(tab._rows.values(),
+                  key=lambda r: (not r.get("ready"),
+                                 r.get("completed_at") or float("inf")))
+    assert [r["uuid"] for r in rows] == [2, 1], rows
+
+
 def _robbed_tab():
     """A tab whose one ready row has just been robbed, through the real `_collect_done`."""
     import types
@@ -1741,8 +1829,11 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # What is left at the bottom belongs to the whole tab — «Обновить», and the camera
     # bar the window put on this tab too (#1265): which height it is set to, and the lap
     # that spends it.
-    assert [a["id"] for a in view["actions"]] == ["refresh", "zoom", "sweep_now"]
-    assert view["actions"][1]["label"] == "coord.zoom.tile"
+    # …and «Обновить состояние» beside them (#1272): it re-reads what is already on the
+    # list and robs nothing, so it is a press the phone may make.
+    assert [a["id"] for a in view["actions"]] == ["refresh", "refresh_state", "zoom",
+                                                 "sweep_now"]
+    assert view["actions"][2]["label"] == "coord.zoom.tile"
 
 
 def test_the_phone_reads_the_alliance_rows_the_same_way_as_the_window():

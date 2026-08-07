@@ -1475,6 +1475,89 @@ def steal_next_secret_task() -> str:
             '.." srv="..tostring(t.server)) end' % secret_task_steals_left())
 
 
+# --------------------------------------------------------------------------
+# Re-reading the STATE of tiles already on the list — «Обновить состояние» (#1272)
+# --------------------------------------------------------------------------
+# A different question from every read above, and the one nothing could answer. The
+# alliance table (`secret_task_all_alliance`) knows only MY alliance's tasks — live: 189
+# of them, none starred, all at home — so it cannot say a word about the strangers' tiles
+# the map capture found, which is the whole of the ★ list. The capture only re-sees a
+# tile when the map is driven over it again. Between those, a row went on saying «готово
+# к сбору» about a tile somebody had emptied minutes ago.
+#
+# The per-tile authority is the one a marker tap uses: `world.get.detail.new`, keyed by
+# pointId, answered into `WorldPointDetailManager` and readable by pointId afterwards.
+# Measured live: a real tile answers with a 45-field record carrying `uuid`, `uid`,
+# `serverId` and `expireTime`; **a point with no task on it answers with no detail at
+# all** — `GetDetailByPointId` stays nil.
+#
+# WHICH MAKES «NIL» AMBIGUOUS ON ITS OWN, and that is the trap this task has already
+# been caught by once (#1272, `_answerable`): a reply that never arrived looks exactly
+# like «there is nothing there». So the probe sends a CONTROL point along with the batch
+# — a tile the client itself says exists — and the reader reports whether that one came
+# back. Without the control answering, a nil says nothing and no row is dropped.
+#
+# What the detail does NOT carry is the loot count: `stealInfoList` is not in it, so
+# «сколько раз уже ограбили» still comes from the alliance table for the tiles it covers
+# and from the capture for the rest.
+
+def secret_task_detail_probe(tiles, control=None) -> str:
+    """Ask the server about each `(x, y, server)` tile — plus a control point.
+
+    The tile index is computed in the VM (`SceneUtils.TilePosToIndex`), so nothing out
+    here has to know how a coordinate is packed into a pointId. The list is parked in
+    order; :func:`secret_task_detail_read` reports back BY THAT ORDER, which is what lets
+    a caller line the answers up with its own rows without re-deriving anything.
+
+    Fire and forget: the replies land on their own and are read after a settle, never in
+    this chunk.
+    """
+    items = ",".join(
+        "{x=%d,y=%d,s=%d}" % (int(x), int(y), int(srv)) for x, y, srv in tiles)
+    # The control is picked in the VM when the caller does not name one: the client's own
+    # alliance table is a list of tiles it is sure exist, and one of them answering is
+    # what turns «no detail» from «I heard nothing» into «there is nothing there».
+    ctrl = (("{p=%d,s=%d}" % (int(control[0]), int(control[1]))) if control else
+            "(function() for _, v in pairs(DataCenter.ActDispatchTaskDataManager"
+            ".allianceTask or {}) do return {p=v.pointId, s=v.targetServer} end "
+            "return nil end)()")
+    return ("local M=DataCenter.ActDispatchTaskDataManager "
+            "M.__lw_detail_ask={} M.__lw_detail_ctrl=%s "
+            "for _, it in ipairs({%s}) do "
+            "local pid = SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(it.x, it.y)) "
+            "M.__lw_detail_ask[#M.__lw_detail_ask+1] = {p=pid, s=it.s} "
+            "pcall(function() SFSNetwork.SendMessage('world.get.detail.new', pid, it.s, 0, %d, '') end) "
+            "end "
+            "if M.__lw_detail_ctrl then pcall(function() "
+            "SFSNetwork.SendMessage('world.get.detail.new', M.__lw_detail_ctrl.p, "
+            "M.__lw_detail_ctrl.s, 0, %d, '') end) end "
+            'CS.UnityEngine.Debug.LogError("ACT detail_asked "..tostring(#M.__lw_detail_ask))'
+            % (ctrl, items, SECRET_TASK_POINT_TYPE, SECRET_TASK_POINT_TYPE))
+
+
+def secret_task_detail_read() -> str:
+    """Emit what came back: one `ACT DT …` per asked tile, in order, and the control.
+
+    `DT i=<n> uuid=<u> expire=<ms>` — `uuid=0` means no detail at all, which is what a
+    point with no task on it answers (measured live). `DT_CONTROL ok=<0|1>` is whether
+    the tile we KNOW exists answered, and it is the difference between «there is nothing
+    there» and «nothing came back»: without it a silent link reads as an empty map, which
+    is how a list gets deleted for a fault of its own connection (#1272).
+    """
+    return ("local M=DataCenter.ActDispatchTaskDataManager "
+            "local D=DataCenter.WorldPointDetailManager "
+            "for i, it in ipairs(M.__lw_detail_ask or {}) do "
+            "local d = D:GetDetailByPointId(it.p) "
+            'CS.UnityEngine.Debug.LogError("ACT DT i="..tostring(i)'
+            '.." uuid="..tostring((d and d.uuid) or 0)'
+            '.." expire="..tostring((d and d.expireTime) or 0)) end '
+            "local ok = 0 "
+            "if M.__lw_detail_ctrl then "
+            "local c = D:GetDetailByPointId(M.__lw_detail_ctrl.p) "
+            "if c and (tonumber(c.uuid) or 0) > 0 then ok = 1 end end "
+            'CS.UnityEngine.Debug.LogError("ACT DT_CONTROL ok="..tostring(ok))')
+
+
 # The clock the client draws its OWN countdowns with, in milliseconds, as a Lua
 # statement that leaves it in a local called `nowms`.
 #

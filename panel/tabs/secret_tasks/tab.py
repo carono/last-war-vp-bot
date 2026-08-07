@@ -803,6 +803,13 @@ class SecretTasksTab(PanelTab):
         self._zoom_combo.bind("<<ComboboxSelected>>", self._on_zoom_choice)
         self.tr(ttk.Button(box, command=self._sweep_once),
                 "coord.sweep_now").pack(side="left", padx=(8, 0), ipady=2)
+        # «Обновить состояние» — the FIRST stage of keeping the ★ list true (#1272), and
+        # a hand on it before any of it is automatic. It re-asks the game about the rows
+        # that are ALREADY on the list — how many times each has been robbed, whether the
+        # tile is still there at all — and it is not a map scan: «Обойти карту» beside it
+        # is what FINDS tiles, this is what CHECKS the ones already found.
+        self.tr(ttk.Button(box, command=self.refresh_state),
+                "coord.refresh_state").pack(side="left", padx=(6, 0), ipady=2)
         self._jump_hist_combo = ttk.Combobox(box, textvariable=self._jump_hist_var,
                                              state="readonly", width=18, values=[])
         self._jump_hist_combo.pack(side="right", padx=(4, 0))
@@ -1321,6 +1328,118 @@ class SecretTasksTab(PanelTab):
         self.rt.settings.changed()
         self.say("coord", "log.coord.zoom", level=self.t(f"coord.zoom.{self._zoom_level}"),
                  height=height, step=step)
+
+    # -- «Обновить состояние»: re-ask the game about the rows already on the list ----
+    def refresh_state(self) -> None:
+        """Re-read the STATE of every row on the ★ list, readiest first (#1272).
+
+        STAGE ONE OF KEEPING THE LIST TRUE, and deliberately a button rather than a
+        clock: «давай идти по этапам… сделай кнопку, которая будет обновлять состояние».
+        The automatic version comes after this one is seen to work.
+
+        It is NOT a map scan. «Обойти карту» finds tiles; this checks the ones already
+        found — the loot count, whether the tile is still there, its expiry — which is
+        the half nothing could answer. The alliance table the tab already reads covers
+        only MY alliance's tasks (live: 189, none starred, all at home), so for the
+        strangers' tiles that make up this list it says nothing at all; the per-tile
+        answer is the one a marker tap gets, `world.get.detail.new`.
+
+        READY ROWS FIRST, because their state is the one that lives seconds: a tile is
+        raidable until the first person reaches it, and that is exactly the row the
+        operator was seeing a lie about.
+        """
+        if self._vm_busy:
+            return
+        self._vm_busy = True
+        self._status_var.set(self.t("tabx.loading"))
+        threading.Thread(target=self._state_work, daemon=True).start()
+
+    def _state_work(self) -> None:
+        """The two round trips, off the Tk thread: the alliance table, then the tiles."""
+        import lua_actions
+        rows = sorted(self._rows.values(),
+                      key=lambda r: (not r.get("ready"),
+                                     r.get("completed_at") or float("inf")))
+        tiles = [(int(r["x"] or 0), int(r["y"] or 0), int(r["server"] or 0))
+                 for r in rows]
+        keys = [str(r["uuid"]) for r in rows]
+        live, seen, control = None, {}, False
+        try:
+            ev = self.rt.game.evaluator()
+            # 1. The alliance table — the only thing that carries a LOOT COUNT.
+            import steal_secret_task
+            live = {str(t.uuid): t
+                    for t in steal_secret_task._vm_all_alliance_tasks(ev)}
+            if tiles:
+                # 2. …and the per-tile answer for everything else. One chunk to ask, a
+                #    settle for the replies, one chunk to read them back.
+                ev.run(lua_actions.secret_task_detail_probe(tiles), marker="ACT",
+                       settle=0.6)
+                time.sleep(1.2)
+                for ln in ev.run(lua_actions.secret_task_detail_read(),
+                                 marker="ACT", settle=1.0) or ():
+                    body = ln[4:] if ln.startswith("ACT ") else ln
+                    if body.startswith("DT_CONTROL"):
+                        control = body.strip().endswith("ok=1")
+                    elif body.startswith("DT "):
+                        f = dict(kv.split("=", 1) for kv in body[3:].split() if "=" in kv)
+                        seen[int(f.get("i") or 0)] = int(f.get("uuid") or 0)
+        except Exception:                     # noqa: BLE001 — a failed read proves nothing
+            live = None
+        self.after(lambda: self._state_landed(keys, live, seen, control))
+
+    def _state_landed(self, keys, live, seen, control: bool) -> None:
+        """Apply what came back, and say what it changed.
+
+        THE TWO KINDS OF ABSENCE, KEPT APART (#1272). A row missing from the alliance
+        table means nothing unless that table could have carried it (`_answerable`, and
+        the rule that stopped the list being wiped every start-up). A tile the SERVER
+        answered about with no detail — with the control point proving the answers were
+        arriving — is the other thing entirely: there is nothing there, and the row goes.
+        """
+        self._vm_busy = False
+        checked = len(keys)
+        updated = gone = unconfirmed = 0
+        for index, key in enumerate(keys, start=1):
+            row = self._rows.get(key)
+            if row is None:
+                continue
+            task = (live or {}).get(key)
+            if task is not None:
+                # The loot count, and the clocks that go with it — «сколько раз уже
+                # ограбили», which is what the alliance table is for.
+                if (row.get("loot_count") != task.loot_count
+                        or row.get("expires_at") != task.expires_at
+                        or row.get("completed_at") != task.completed_at):
+                    updated += 1
+                row["loot_count"] = task.loot_count
+                row["expires_at"] = task.expires_at
+                row["completed_at"] = task.completed_at
+                row["seen_at"] = time.time()
+                continue
+            answer = seen.get(index)
+            if answer is None:                       # the probe never ran for this one
+                unconfirmed += 1
+                continue
+            if answer == int(row["uuid"]):
+                row["seen_at"] = time.time()         # the server says it is still there
+                updated += 1
+                continue
+            if not control:
+                # Nothing came back for the control either: the answers were not
+                # arriving, and an absence proves nothing. Exactly the mistake #1272
+                # spent a morning undoing.
+                unconfirmed += 1
+                continue
+            if row.get("robbed"):                    # kept for sharing, as ever
+                continue
+            self._rows.pop(key, None)
+            gone += 1
+        self.say("secret", "log.secret.state_done", checked=checked, updated=updated,
+                 gone=gone, unconfirmed=unconfirmed)
+        self._render()
+        self._update_status()
+        self._persist_rows()
 
     def _sweep_once(self) -> None:
         """«Обойти карту»: one lap of the whole server at the chosen height.
@@ -2302,6 +2421,11 @@ class SecretTasksTab(PanelTab):
                 # which one is on and moves to the next is how the other switches on this
                 # tab already read.
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
+                            # «Обновить состояние» (#1272) — the same press the window
+                            # grew, and one the phone MAY make: it re-reads what is
+                            # already on the list and robs nothing. The robbery is still
+                            # the one press this screen does not carry (#1188).
+                            {"id": "refresh_state", "label": "coord.refresh_state"},
                             {"id": "zoom",
                              "label": f"coord.zoom.{self._zoom_level}"},
                             {"id": "sweep_now", "label": "coord.sweep_now"}]}
@@ -2364,6 +2488,9 @@ class SecretTasksTab(PanelTab):
             return {"ok": True}
         if action == "sweep_now":
             self.post(self._sweep_once)
+            return {"ok": True}
+        if action == "refresh_state":
+            self.post(self.refresh_state)
             return {"ok": True}
         return {"error": "unknown"}
 
