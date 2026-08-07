@@ -398,6 +398,7 @@
   "profile.error.no_port": "Brak wolnego portu demona: {first}–{last} są zajęte.",
   "profile.error.no_replacement": "«{name}» to jedyny profil otwarty w tym oknie, a wszystkie pozostałe trzyma drugi panel. Zamknij tamten panel albo otwórz tu najpierw inny profil — inaczej po usunięciu w oknie nie zostanie żadna strona.",
   "profile.error.not_removed": "Nie udało się usunąć katalogu profilu {path}: {error}. Coś wciąż trzyma w nim plik — przechwyt, okno czatu, log. «{name}» nadal jest na miejscu i nic nie zostało zmienione.",
+  "profile.error.reserved": "«{name}» to nazwa, której folder profili używa na własne potrzeby. Wybierz inną.",
   "profile.label": "Profil:",
   "profile.new": "Nowy",
   "profile.new.title": "Nowy profil",

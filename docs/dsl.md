@@ -820,7 +820,7 @@ connection rather than one per step. `variables` seeds the same store
 the script tests them with the ordinary `IF x > 3` conditions.
 
 Both forms are what the panel's schedule runs (each profile's
-`panel/profiles/<name>/timers.json`): a step that names an action file runs the
+`profiles/<name>/timers.json`): a step that names an action file runs the
 file, and anything else is treated as source.
 
 ## Failure model

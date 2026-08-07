@@ -12,17 +12,30 @@ wants the panel in their language copies ``en.json`` to ``de.json``, translates 
 sets ``language.name`` to «Deutsch», and it is in the menu on the next start. There is
 deliberately no table of languages here to keep in step with the directory.
 
-The active language is persisted to ``~/.last_war_panel.json`` and restored on the
-next launch. Default language is English.
+The active language is persisted to ``profiles/settings.json`` — beside the profiles,
+inside the project — and restored on the next launch. Default language is English.
+
+It used to be written to ``~/.last_war_panel.json``, in the operator's home directory,
+and was the ONE thing the panel kept outside the project altogether: a copy of the whole
+project folder came up speaking the original's language with nothing on disk to explain
+it (#1276). :func:`panel.profile.migrate_legacy_layout` brings the old answer across
+once; the home file is left where it is, since another checkout may still be reading it.
 """
 from __future__ import annotations
 
 import json
 import os
 
+from . import paths
+
 DEFAULT_LANG = "en"
-LOCALES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "locales")
-_PREF_FILE = os.path.join(os.path.expanduser("~"), ".last_war_panel.json")
+LOCALES_DIR = os.path.join(paths.PANEL_DIR, "locales")
+
+#: The panel-wide settings file, and the key in it. Shared with `panel/profile.py`,
+#: which reads and writes the rest of that file — the two touch different keys and
+#: each re-reads before writing, so neither loses the other's.
+_PREF_FILE = paths.SETTINGS_FILE
+_PREF_KEY = "language"
 
 #: The key a locale file names ITSELF with, in its own script — "English" in en.json,
 #: "Русский" in ru.json. Read by :func:`lang_name` for the Language menu.
@@ -128,7 +141,7 @@ def translated(t, value) -> str:
 class I18n:
     """Locale lookup for one window, and the machine-wide fallback language.
 
-    ``persist`` is what writes the chosen language to `~/.last_war_panel.json`, which
+    ``persist`` is what writes the chosen language to `profiles/settings.json`, which
     is only ever a FALLBACK: the language a profile is set to lives in that profile's
     own `config.json` and is applied when the profile is opened. With one profile open
     the two agree and writing it costs nothing. With two (#1206) they do not — whichever
@@ -173,9 +186,11 @@ class I18n:
     def _load_pref(self) -> str:
         try:
             with open(_PREF_FILE, encoding="utf-8") as fh:
-                return json.load(fh).get("lang", DEFAULT_LANG)
+                data = json.load(fh)
         except (OSError, ValueError):
             return DEFAULT_LANG
+        lang = data.get(_PREF_KEY) if isinstance(data, dict) else None
+        return lang if isinstance(lang, str) and lang else DEFAULT_LANG
 
     def _save_pref(self, lang: str) -> None:
         data = {}
@@ -184,8 +199,11 @@ class I18n:
                 data = json.load(fh)
         except (OSError, ValueError):
             data = {}
-        data["lang"] = lang
+        if not isinstance(data, dict):
+            data = {}
+        data[_PREF_KEY] = lang
         try:
+            os.makedirs(os.path.dirname(_PREF_FILE), exist_ok=True)
             with open(_PREF_FILE, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, ensure_ascii=False, indent=2)
         except OSError:

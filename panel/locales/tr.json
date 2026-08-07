@@ -398,6 +398,7 @@
   "profile.error.no_port": "Boş daemon portu yok: {first}–{last} hepsi dolu.",
   "profile.error.no_replacement": "«{name}» bu penceredeki tek açık profil ve diğerlerinin hepsini ikinci bir panel tutuyor. O paneli kapatın ya da önce burada başka bir profil açın — yoksa silmenin ardından pencerede tek bir sayfa kalmaz.",
   "profile.error.not_removed": "{path} profil klasörü kaldırılamadı: {error}. İçindeki bir dosyayı hâlâ bir şey tutuyor — bir yakalama, bir sohbet penceresi, bir günlük. «{name}» yerinde duruyor ve hiçbir şey değişmedi.",
+  "profile.error.reserved": "«{name}», profiller klasörünün kendi işleyişi için kullandığı bir ad. Başka bir ad seçin.",
   "profile.label": "Profil:",
   "profile.new": "Yeni",
   "profile.new.title": "Yeni profil",

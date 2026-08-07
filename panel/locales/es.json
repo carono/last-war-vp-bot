@@ -398,6 +398,7 @@
   "profile.error.no_port": "No hay puerto libre para el demonio: {first}–{last} están todos ocupados.",
   "profile.error.no_replacement": "«{name}» es el único perfil abierto en esta ventana, y todos los demás los tiene otro panel. Cierra ese panel, o abre antes otro perfil aquí: si no, al borrarlo la ventana se quedaría sin ninguna página.",
   "profile.error.not_removed": "No se pudo borrar la carpeta del perfil {path}: {error}. Algo sigue reteniendo un archivo dentro — una captura, una ventana de chat, un registro. «{name}» sigue ahí y no se ha cambiado nada.",
+  "profile.error.reserved": "«{name}» es un nombre que la carpeta de perfiles usa para su propia maquinaria. Elige otro.",
   "profile.label": "Perfil:",
   "profile.new": "Nuevo",
   "profile.new.title": "Nuevo perfil",

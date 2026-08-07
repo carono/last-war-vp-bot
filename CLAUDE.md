@@ -354,7 +354,7 @@ somebody's account for ever. So invent values of the same shape as you paste, no
 «later» is precisely why they are still here.
 
 **A recording is not a fixture until it is anonymised.** The place for a genuine one is
-a git-ignored tree — `results/`, `screenshots/`, `panel/profiles/`; they are ignored for
+a git-ignored tree — `results/`, `screenshots/`, `profiles/`; they are ignored for
 exactly this reason. Anything that comes out of one of them and into a tracked file gets
 its identifiers replaced on the way, in the same edit, or it does not come out.
 

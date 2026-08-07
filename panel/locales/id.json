@@ -398,6 +398,7 @@
   "profile.error.no_port": "Tidak ada port daemon yang bebas: {first}–{last} semuanya terpakai.",
   "profile.error.no_replacement": "«{name}» adalah satu-satunya profil yang terbuka di jendela ini, dan semua yang lain dipegang panel kedua. Tutup panel itu, atau buka dulu profil lain di sini — kalau tidak, setelah dihapus jendela ini tak punya halaman sama sekali.",
   "profile.error.not_removed": "Folder profil {path} tidak bisa dihapus: {error}. Ada yang masih memegang berkas di dalamnya — sebuah capture, jendela obrolan, sebuah log. «{name}» masih ada dan tidak ada yang berubah.",
+  "profile.error.reserved": "«{name}» adalah nama yang dipakai folder profil untuk perkakasnya sendiri. Pilih nama lain.",
   "profile.label": "Profil:",
   "profile.new": "Baru",
   "profile.new.title": "Profil baru",

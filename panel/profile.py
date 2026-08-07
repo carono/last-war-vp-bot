@@ -1,7 +1,9 @@
 """Named profiles + persistent settings for the control panel.
 
 A *profile* is a named set of panel settings plus its own logs, stored under
-``panel/profiles/<name>/``::
+``profiles/<name>/`` — in the PROJECT ROOT, beside ``panel/`` rather than inside it.
+:mod:`panel.paths` owns that path and explains why there is exactly one directory
+called ``profiles`` now (#1276); read it before moving anything::
 
     config.json             this profile's settings — see "the default is the base" below
     rally_log.jsonl         rally-monitor output for this profile
@@ -10,10 +12,17 @@ A *profile* is a named set of panel settings plus its own logs, stored under
     timers_last_run.json    when each scheduled errand last ran
     panel.log               plain-text mirror of the panel log widget
 
-The active profile name lives in ``panel/settings.json`` (global, profile-
+The active profile name lives in ``profiles/settings.json`` (global, profile-
 independent), so the last-used profile is restored on the next launch. Switching
 a profile just means reading a different ``config.json``; the panel re-applies
 every setting from it.
+
+WHAT WAS SOMEWHERE ELSE COMES ACROSS BY ITSELF, ONCE (#1276). A checkout that still
+has the old ``panel/profiles/``, ``panel/settings.json``, the two templates beside them
+or a language remembered in the operator's home directory has all of it brought into
+``profiles/`` the next time anything builds a :class:`ProfileManager` — moved where the
+filesystem allows a move, copied and marked where it does not, and never deleted behind
+anybody's back. See :func:`migrate_legacy_layout`.
 
 THE DEFAULT PROFILE IS THE BASE, EVERY OTHER ONE IS ITS OVERRIDES (#1246). A
 profile named anything but :data:`DEFAULT_PROFILE` stores on disk only the
@@ -35,8 +44,8 @@ A brand-new profile's ``config.json`` is written the moment its directory is —
 empty (``{}``, "nothing overridden yet") rather than left to appear only after
 the first Settings save. A profile directory that existed before this rule with
 no file of its own is backfilled the same empty way the next time anything asks
-for its directory, so ``panel/profiles/`` never again shows a profile with no
-config file to point at (part of #1246 too — several already had none).
+for its directory, so ``profiles/`` never again shows a profile with no config
+file to point at (part of #1246 too — several already had none).
 
 This module is intentionally UI-agnostic: it only reads/writes JSON and manages
 the on-disk layout. The panel binds its Tk variables to config keys and calls
@@ -52,10 +61,14 @@ import re
 # the dialog showing it can be in the person's language. No translator is built here —
 # that stays the UI's business (see the module docstring).
 from .i18n import Message
+from . import paths
 
-PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
-PROFILES_DIR = os.path.join(PANEL_DIR, "profiles")
-SETTINGS_FILE = os.path.join(PANEL_DIR, "settings.json")
+# Re-exported rather than re-spelled: `panel/paths.py` is where these are decided, and
+# the tests that redirect the store onto a scratch directory rebind them HERE, on this
+# module, exactly as they always have.
+PANEL_DIR = paths.PANEL_DIR
+PROFILES_DIR = paths.PROFILES_DIR
+SETTINGS_FILE = paths.SETTINGS_FILE
 
 DEFAULT_PROFILE = "default"
 RALLY_LOG = "rally_log.jsonl"
@@ -222,6 +235,171 @@ def _deep_diff(full: dict, base: dict) -> dict:
     return out
 
 
+def migrate_legacy_layout() -> list[str]:
+    """Bring an older checkout's state into ``profiles/``. Idempotent; never deletes.
+
+    Four things used to live elsewhere, and every one of them is why somebody could copy
+    the project folder and still be looking at the original's settings (#1276):
+
+      * ``panel/profiles/<name>/`` — the profiles themselves;
+      * ``panel/settings.json`` — which profile is showing, which are open, the channel;
+      * ``panel/timers.json`` / ``panel/triggers.json`` — the two seed templates;
+      * ``~/.last_war_panel.json`` — the language, the one file written outside the
+        project altogether, which is what made a fresh copy come up in the original's
+        language with no way to see why.
+
+    A directory is MOVED when the destination is free and the filesystem allows it —
+    then nothing is left behind to go stale. Windows will not move a tree it has a file
+    open in (a running panel's ``debug.log``, a chat store), so the fallback is a copy
+    that never overwrites a newer file, followed by :data:`paths.MIGRATION_MARKER` in
+    the old directory so the next start does not put stale copies back over fresh ones.
+    **Nothing is removed either way** — the old files stay on the disk for whoever wants
+    to check them, they are simply no longer read.
+
+    NOT RUN when the store has been redirected (a test's scratch directory, a bench):
+    the legacy paths are absolute and real, and migrating this machine's actual profiles
+    into a temporary folder is not a thing any caller ever wants.
+
+    Returns what it moved, as short strings, for the log.
+    """
+    if PROFILES_DIR != paths.PROFILES_DIR or SETTINGS_FILE != paths.SETTINGS_FILE:
+        return []
+    moved: list[str] = []
+    os.makedirs(PROFILES_DIR, exist_ok=True)
+    moved += _migrate_profile_dirs()
+    for src, dst, what in (
+        (paths.LEGACY_SETTINGS_FILE, SETTINGS_FILE, "settings.json"),
+        (paths.LEGACY_TIMERS_TEMPLATE, paths.TIMERS_TEMPLATE, "timers.json"),
+        (paths.LEGACY_TRIGGERS_TEMPLATE, paths.TRIGGERS_TEMPLATE, "triggers.json"),
+    ):
+        if _move_file(src, dst):
+            moved.append(what)
+    if _migrate_language():
+        moved.append("language")
+    moved += _tidy_bot_profiles()
+    return moved
+
+
+def _tidy_bot_profiles() -> list[str]:
+    """Flat ``profiles/<id>.json`` files → ``profiles/_bot/``.
+
+    The DSL bot moves its own when it next loads one, but it may not be run for months
+    and the whole point of this directory is that opening it answers the question. A
+    loose json beside the profile folders is the confusion in miniature, so the panel
+    sweeps it down on its way past. Only files it can identify: the three panel-wide
+    ones by name, and nothing else that is not a plain ``.json``.
+    """
+    ours = {os.path.basename(SETTINGS_FILE), os.path.basename(paths.TIMERS_TEMPLATE),
+            os.path.basename(paths.TRIGGERS_TEMPLATE)}
+    moved: list[str] = []
+    try:
+        entries = sorted(os.listdir(PROFILES_DIR))
+    except OSError:
+        return moved
+    for entry in entries:
+        if not entry.endswith(".json") or entry in ours:
+            continue
+        src = os.path.join(PROFILES_DIR, entry)
+        if not os.path.isfile(src):
+            continue
+        if _move_file(src, os.path.join(paths.BOT_PROFILES_DIR, entry)):
+            moved.append(f"_bot/{entry}")
+    return moved
+
+
+def _migrate_profile_dirs() -> list[str]:
+    """``panel/profiles/<name>/`` → ``profiles/<name>/``, one profile at a time."""
+    legacy = paths.LEGACY_PROFILES_DIR
+    if legacy == PROFILES_DIR or not os.path.isdir(legacy):
+        return []
+    if os.path.exists(os.path.join(legacy, paths.MIGRATION_MARKER)):
+        return []                       # already brought across by an earlier start
+    import shutil
+    moved: list[str] = []
+    copied = False
+    for name in sorted(os.listdir(legacy)):
+        src = os.path.join(legacy, name)
+        if not os.path.isdir(src) or not paths.is_profile_name(name):
+            continue
+        dst = os.path.join(PROFILES_DIR, name)
+        if os.path.isdir(dst):
+            continue                    # the new place already has it: leave both alone
+        try:
+            shutil.move(src, dst)
+        except OSError:
+            # Something holds a file open in there. Copy what can be copied — a profile
+            # half-brought-across is still better than a profile the panel cannot see —
+            # and mark the old directory so the next start does not do it again.
+            try:
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            except OSError:
+                continue
+            copied = True
+        moved.append(name)
+    if copied:
+        _write_marker(legacy)
+    elif moved and not [n for n in os.listdir(legacy) if paths.is_profile_name(n)]:
+        # Everything moved cleanly and nothing of a profile is left: the empty shell can
+        # go, and that is a directory removal, not a data one.
+        try:
+            os.rmdir(legacy)
+        except OSError:
+            pass
+    return moved
+
+
+def _write_marker(legacy: str) -> None:
+    """Say, in the old directory, where its contents went and that it is now inert."""
+    try:
+        with open(os.path.join(legacy, paths.MIGRATION_MARKER), "w",
+                  encoding="utf-8") as fh:
+            fh.write(
+                "The panel keeps its profiles in <project>/profiles/ now (#1276).\n"
+                "What was here has been copied there; nothing was deleted. This file\n"
+                "stops a later start from copying these older files back over newer\n"
+                "ones. Delete this whole directory once you are satisfied the panel\n"
+                "shows what you expect.\n")
+    except OSError:
+        pass
+
+
+def _move_file(src: str, dst: str) -> bool:
+    """Move one file across, unless the destination already has one."""
+    if src == dst or not os.path.isfile(src) or os.path.exists(dst):
+        return False
+    import shutil
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.move(src, dst)
+    except OSError:
+        return False
+    return True
+
+
+def _migrate_language() -> bool:
+    """The language out of ``~/.last_war_panel.json`` and into ``settings.json``.
+
+    Copied, not moved: the old file is in the operator's HOME, shared by every checkout
+    on the machine, so an older copy of the panel elsewhere keeps working off it.
+    """
+    data = ProfileManager._read_settings()
+    if "language" in data:
+        return False
+    try:
+        with open(paths.LEGACY_LANG_FILE, encoding="utf-8") as fh:
+            old = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    # The old file's key was `lang`; the settings file calls it `language`, the same
+    # name a profile's own config uses for the same choice.
+    lang = (old or {}).get("lang") if isinstance(old, dict) else None
+    if not isinstance(lang, str) or not lang.strip():
+        return False
+    data["language"] = lang.strip()
+    _write_json(SETTINGS_FILE, data)
+    return True
+
+
 class ProfileManager:
     """On-disk store of named profiles and the active-profile pointer.
 
@@ -237,6 +415,10 @@ class ProfileManager:
 
     def __init__(self, pin: str | None = None) -> None:
         os.makedirs(PROFILES_DIR, exist_ok=True)
+        # Before anything is listed or seeded: an older checkout's state is somewhere
+        # else, and a panel that seeded a fresh default profile first would look for all
+        # the world like the settings had been lost (#1276).
+        migrate_legacy_layout()
         # A fresh install has no profiles — seed the default so the UI always
         # has something to select.
         if not self.list():
@@ -253,17 +435,26 @@ class ProfileManager:
 
     # -- profile enumeration ------------------------------------------------
     def list(self) -> list[str]:
-        """Existing profile names, sorted (the default first if present)."""
+        """Existing profile names, sorted (the default first if present).
+
+        ``profiles/`` also holds the panel's own machinery — the DSL bot's profiles in
+        ``_bot/``, and whatever a future one needs — so a directory in there is only a
+        profile if :func:`paths.is_profile_name` says so. Otherwise the folder somebody
+        opens to find their accounts would list the plumbing beside them, which is the
+        confusion this whole move is about.
+        """
         try:
             names = [n for n in os.listdir(PROFILES_DIR)
-                     if os.path.isdir(os.path.join(PROFILES_DIR, n))]
+                     if paths.is_profile_name(n)
+                     and os.path.isdir(os.path.join(PROFILES_DIR, n))]
         except OSError:
             names = []
         return sorted(names, key=lambda n: (n != DEFAULT_PROFILE, n.lower()))
 
     def exists(self, name: str) -> bool:
         name = sanitize(name)
-        return bool(name) and os.path.isdir(os.path.join(PROFILES_DIR, name))
+        return (bool(name) and paths.is_profile_name(name)
+                and os.path.isdir(os.path.join(PROFILES_DIR, name)))
 
     @property
     def active(self) -> str:
@@ -364,6 +555,7 @@ class ProfileManager:
         name = sanitize(name)
         if not name:
             raise ValueError(Message("profile.error.empty_name", "empty profile name"))
+        _refuse_reserved(name)
         if self.exists(name):
             raise ValueError(Message("profile.error.exists",
                                      f"profile already exists: {name}", name=name))
@@ -377,6 +569,7 @@ class ProfileManager:
                                      f"no such profile: {old}", name=old))
         if not new:
             raise ValueError(Message("profile.error.empty_name", "empty profile name"))
+        _refuse_reserved(new)
         if new == old:
             return old
         if self.exists(new):
@@ -662,6 +855,18 @@ def update_channel() -> str:
     """
     from .runtime import updates as updatesmod
     return updatesmod.DEV if dev_updates() else updatesmod.RELEASE
+
+
+def _refuse_reserved(name: str) -> None:
+    """Refuse a name ``profiles/`` already uses for its own machinery.
+
+    A profile called ``_bot`` would land on top of the DSL bot's own profiles, and the
+    two would then take turns overwriting each other silently — the failure mode this
+    whole directory was consolidated to end (#1276).
+    """
+    if not paths.is_profile_name(name):
+        raise ValueError(Message("profile.error.reserved",
+                                 f"this name is reserved: {name}", name=name))
 
 
 def _leftovers(path: str, most: int = 5) -> str:

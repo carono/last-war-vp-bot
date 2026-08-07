@@ -33,7 +33,20 @@ logs/
 screenshots/
 models_cache/
 *.log
+
+# EVERYTHING the panel keeps locally, and the whole of it (#1276): the profile
+# directories, the panel-wide settings.json beside them, the timer and trigger
+# templates, the fallback debug log, and the DSL bot's own profiles in _bot/. One
+# pattern, because there is one directory now — `panel/profiles/` is gone.
+#
+# It is deliberately broad. What lands in here is an account's: its logs name a player,
+# its chat store holds other people's messages, its config carries a Windows login and a
+# server number. None of that belongs in a public repository, and the way it would get
+# there is somebody adding a file to a profile that no narrower rule anticipated.
 profiles/
+# The old locations, kept ignored so that a checkout which has not been started since
+# the move cannot commit what is still sitting in them.
+panel/profiles/
 panel/settings.json
 # The timer and trigger catalogues are local config: the panel seeds each from its
 # built-in list on first launch (panel/timers.py, panel/triggers.py) and they are

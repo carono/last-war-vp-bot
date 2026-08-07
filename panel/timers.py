@@ -98,7 +98,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import debug_log
+from . import debug_log, paths
 from .i18n import Message
 from .profile import _write_json
 
@@ -130,12 +130,12 @@ MIN_INTERVAL_SEC = 10
 MAX_INTERVAL_SEC = 7 * 24 * 3600
 DEFAULT_INTERVAL_SEC = 3600
 
-PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
-# The TEMPLATE, beside the panel: what a profile that has no timers of its own is
-# seeded from, and nothing else. The catalogue a profile actually runs lives in
-# its own directory (ProfileManager.timers_json), next to the record of when each
-# of them last ran — so one account's schedule is not the other's.
-TEMPLATE_FILE = os.path.join(PANEL_DIR, "timers.json")
+PANEL_DIR = paths.PANEL_DIR
+# The TEMPLATE, beside the profiles rather than beside the code (#1276): what a profile
+# that has no timers of its own is seeded from, and nothing else. The catalogue a profile
+# actually runs lives in its own directory (ProfileManager.timers_json), next to the
+# record of when each of them last ran — so one account's schedule is not the other's.
+TEMPLATE_FILE = paths.TIMERS_TEMPLATE
 
 
 @dataclass(frozen=True)

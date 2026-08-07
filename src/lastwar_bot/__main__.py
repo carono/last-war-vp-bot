@@ -18,7 +18,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Smoke-test the bot's providers.")
     parser.add_argument(
         "--profile", default=DEFAULT_PROFILE_ID,
-        help="Profile id to load (default: %(default)s). Stored in ./profiles/<id>.json.",
+        help="Profile id to load (default: %(default)s). "
+             "Stored in <project>/profiles/_bot/<id>.json — the panel's own profiles "
+             "are the directories one level up, in <project>/profiles/.",
     )
     args = parser.parse_args()
 

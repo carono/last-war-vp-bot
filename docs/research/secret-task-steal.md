@@ -404,7 +404,7 @@ reconnect would re-rob yesterday), but «this has already been shared» is exact
 a backlog is good for — it is the only source for shares made while nothing here was
 listening.
 
-Storage is `panel/profiles/<name>/secret_shared.jsonl`, append-only because three
+Storage is `profiles/<name>/secret_shared.jsonl`, append-only because three
 processes write it (`tools/lib/share_marks.py`): one JSON line per share, newest line
 per uuid wins, marks age out after 48 h, and the reader compacts the file once it has
 grown past its contents. The tab re-reads it on the per-second countdown pass, but
@@ -522,7 +522,7 @@ map data at all — which is why it was believed twice before anybody compared t
 counters.
 
 **So: do not start a capture of your own while the panel's monitor is on.** Use what it
-is already writing — `panel/profiles/<profile>/secret_tasks.json`, which is the tab's own
+is already writing — `profiles/<profile>/secret_tasks.json`, which is the tab's own
 source — or switch its monitor off first. Two more traps found alongside:
 
 * the capture's port auto-detection can elect the CHAT port (`:17935`) and then decode

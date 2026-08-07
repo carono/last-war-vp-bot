@@ -398,6 +398,7 @@
   "profile.error.no_port": "Không còn cổng daemon trống: {first}–{last} đều đã bị chiếm.",
   "profile.error.no_replacement": "«{name}» là hồ sơ duy nhất đang mở trong cửa sổ này, còn tất cả hồ sơ khác đều đang bị một bảng điều khiển thứ hai giữ. Hãy đóng bảng đó, hoặc mở trước một hồ sơ khác ở đây — nếu không, sau khi xoá cửa sổ sẽ không còn trang nào.",
   "profile.error.not_removed": "Không xoá được thư mục hồ sơ {path}: {error}. Vẫn còn thứ gì đó đang giữ một tệp bên trong — một phiên bắt gói, một cửa sổ trò chuyện, một nhật ký. «{name}» vẫn còn nguyên và chưa có gì thay đổi.",
+  "profile.error.reserved": "«{name}» là tên mà thư mục hồ sơ dùng cho phần máy móc của nó. Hãy chọn tên khác.",
   "profile.label": "Hồ sơ:",
   "profile.new": "Mới",
   "profile.new.title": "Hồ sơ mới",

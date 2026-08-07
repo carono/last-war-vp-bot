@@ -94,7 +94,7 @@ Panel (tk.Tk)                     menu · geometry · splash · updates · about
 
 ### 3.1a Where a profile is on disk — and the other `profiles/` (#1263)
 
-**`panel/profiles/<name>/config.json`.** One directory per profile, created the moment
+**`profiles/<name>/config.json`.** One directory per profile, created the moment
 the profile is, holding its `config.json` plus everything else that belongs to that
 account alone: `panel.log`, `debug.log`, `timers.json`, the capture checkpoints, the
 lock. `panel/profile.py::PROFILES_DIR`, anchored to the package rather than to the
@@ -185,7 +185,7 @@ The plugin tabs need none of this, which is §2's third bullet paying for itself
 A whole class of bug, found the hard way in #1263 and certain to be met again by whoever
 next decides to fix a profile «properly, in its file».
 
-**A profile that is OPEN does not keep its settings in `panel/profiles/<name>/config.json`.
+**A profile that is OPEN does not keep its settings in `profiles/<name>/config.json`.
 It keeps them in the Tk variables its Settings page is bound to** (`SettingsBinder.vars`,
 one set per runtime, §7.4). The file is a snapshot of those variables, written out by
 `Panel._collect_settings`, which builds a **fresh dict of every knob** and REPLACES the

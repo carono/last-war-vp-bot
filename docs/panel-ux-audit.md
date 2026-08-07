@@ -32,7 +32,7 @@ Worth naming, because the gaps below should not undo it.
   worker thread so two errands never drive the game at once, a failed run is not
   counted as a run, and nothing fires with the game closed (`panel/timers.py`).
 * **Everything is per profile.** Settings, logs, the timer catalogue and its
-  clock all live under `panel/profiles/<name>/`, and a switch re-points the
+  clock all live under `profiles/<name>/`, and a switch re-points the
   running monitors too.
 * **The log is the record.** Mirrored to `panel.log` line by line, copyable under
   any keyboard layout, and every coordinate in it is a clickable jump.
@@ -59,7 +59,7 @@ and a period of an hour.
 The Timers tab shows a switch, a period, last/next run and Run-now — and that is
 all it can write back (`_save_timers`). Adding an errand, changing what it runs,
 its arguments or its title means opening
-`panel/profiles/<name>/timers.json` in an editor and pressing ⟳. The tab's own
+`profiles/<name>/timers.json` in an editor and pressing ⟳. The tab's own
 hint tells the user to do exactly that.
 
 **Cost.** The one feature that makes the bot unattended is gated behind hand-editing

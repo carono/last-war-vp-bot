@@ -398,6 +398,7 @@
   "profile.error.no_port": "Aucun port de démon libre : {first}–{last} sont tous pris.",
   "profile.error.no_replacement": "« {name} » est le seul profil ouvert dans cette fenêtre, et tous les autres sont détenus par un second panneau. Fermez ce panneau, ou ouvrez d'abord un autre profil ici : sinon la fenêtre se retrouverait sans aucune page.",
   "profile.error.not_removed": "Le répertoire du profil {path} n'a pas pu être supprimé : {error}. Quelque chose y tient encore un fichier ouvert — une capture, une fenêtre de chat, un journal. « {name} » est toujours là et rien n'a été modifié.",
+  "profile.error.reserved": "« {name} » est un nom que le dossier des profils utilise pour sa propre mécanique. Choisissez-en un autre.",
   "profile.label": "Profil :",
   "profile.new": "Nouveau",
   "profile.new.title": "Nouveau profil",

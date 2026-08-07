@@ -36,14 +36,15 @@ Blocks:
     the game at once, and «Запустить» enqueues rather than starting a thread of its own.
     The list of errands, their switches and periods, and the clock that says when each last
     ran all belong to the ACTIVE PROFILE (its timers.json / timers_last_run.json), seeded
-    from the template panel/timers.json — so two accounts keep two schedules, and both
+    from the template profiles/timers.json — so two accounts keep two schedules, and both
     survive a restart (panel/timers.py).
 
 All panel settings (language, checkboxes, filters, coordinates, monitor state) live in a named
 *profile*; the switcher bar above the tabs creates / renames / deletes / selects one. Each profile
-is a directory under panel/profiles/<name>/ holding config.json plus its own rally_log.jsonl,
-secret_tasks_log.jsonl and timers.json; the active profile is remembered in panel/settings.json
-(see panel/profile.py).
+is a directory under <project>/profiles/<name>/ holding config.json plus its own rally_log.jsonl,
+secret_tasks_log.jsonl and timers.json; the active profile is remembered in profiles/settings.json.
+EVERYTHING local is in that one directory and nothing of the panel's is written outside the
+project — see panel/paths.py and docs/panel-storage.md for the full list (#1276).
 Every change auto-saves, and switching a profile re-applies all of its settings.
 
 Any coordinate printed in the log OR in a chat message — canonical `X:1 Y:2` / `#server X:1 Y:2`
@@ -1627,12 +1628,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """Open the selected profile's own directory — where its `config.json` lives.
 
         «Я продолжаю видеть пустую папку profiles» (#1263), and the person was right to
-        be confused: there are TWO directories of that name in this repository. The
-        panel's profiles are `panel/profiles/<name>/`, one directory per account with a
-        `config.json` in it; the `profiles/` in the repository root belongs to the DSL
-        bot's own `--profile` (src/lastwar_bot/profile.py), holds one flat json per id,
-        and has nothing to do with the panel. Looking into the wrong one shows an empty
-        directory and no way to tell why. So the panel opens the right one.
+        be confused: there used to be TWO directories of that name — the panel wrote to
+        `panel/profiles/`, while the `profiles/` in the project root belonged to the DSL
+        bot's own `--profile` and held one flat json per id. Opening the obvious one
+        showed a stale file and no way to tell why, and being told twice which folder to
+        open instead is not a fix.
+
+        There is one now (#1276): `<project>/profiles/<name>/`, one directory per
+        account, with the panel-wide `settings.json` beside them and the bot's own
+        profiles tucked into `profiles/_bot/`. The button stays because opening the right
+        directory from here is still quicker than typing the path — see
+        `panel/paths.py` and `docs/panel-storage.md`.
         """
         name = self._profile_var.get() or self._profiles.active
         try:

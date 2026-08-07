@@ -99,7 +99,7 @@ without the other fourteen in the way.
 | Develop | the two sniffers, recorded as one session — off by default, for work on the bot itself |
 
 Every setting, every switch and every log belongs to a **profile** — one profile
-per account, under `panel/profiles/<name>/`. Which tabs it shows, what its
+per account, under `profiles/<name>/` in the project root. Which tabs it shows, what its
 schedule holds and when each errand last ran are all part of it, so two accounts
 are farmed on two schedules and both survive a restart.
 

@@ -398,6 +398,7 @@
   "profile.error.no_port": "No free daemon port: {first}–{last} are all taken.",
   "profile.error.no_replacement": "«{name}» is the only profile this window has open, and every other one is held by a second panel. Close that panel, or open another profile here first — deleting this one would leave the window with no page in it.",
   "profile.error.not_removed": "The profile directory {path} could not be removed: {error}. Something is still holding a file in it — a capture, a chat window, a log. «{name}» is still there and nothing has been changed.",
+  "profile.error.reserved": "«{name}» is a name the profiles folder uses for its own machinery. Pick another one.",
   "profile.label": "Profile:",
   "profile.new": "New",
   "profile.new.title": "New profile",

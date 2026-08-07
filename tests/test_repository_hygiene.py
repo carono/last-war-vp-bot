@@ -95,7 +95,10 @@ def test_nothing_but_text_is_tracked() -> None:
 #: repository — the files are genuinely there in the working tree while the bot runs.
 #: An ignore rule is one hand-edited line, so it gets a test under it.
 PRIVATE_TREES = [
-    ("panel/profiles", "chat logs, per-account settings, session state"),
+    ("profiles", "chat logs, per-account settings, session state — ALL of it (#1276)"),
+    # Where the same data was until #1276. A checkout that has not been started since
+    # the move still has it sitting there, so the ignore has to cover both.
+    ("panel/profiles", "the pre-#1276 location of the same per-account data"),
     ("results", "captures, traces and scans recorded off a live account"),
     ("screenshots", "pictures of a running client, i.e. of somebody's screen"),
     ("tools/scratch", "throwaway probes from RE sessions"),

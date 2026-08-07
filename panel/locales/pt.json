@@ -398,6 +398,7 @@
   "profile.error.no_port": "Não há porta livre para o daemon: {first}–{last} estão todas ocupadas.",
   "profile.error.no_replacement": "«{name}» é o único perfil aberto nesta janela, e todos os outros estão presos por um segundo painel. Feche esse painel, ou abra antes outro perfil aqui: senão a janela ficaria sem página nenhuma.",
   "profile.error.not_removed": "Não foi possível remover a pasta do perfil {path}: {error}. Alguma coisa ainda segura um ficheiro lá dentro — uma captura, uma janela de conversa, um registo. «{name}» continua lá e nada foi alterado.",
+  "profile.error.reserved": "«{name}» é um nome que a pasta dos perfis usa para a sua própria maquinaria. Escolha outro.",
   "profile.label": "Perfil:",
   "profile.new": "Novo",
   "profile.new.title": "Novo perfil",

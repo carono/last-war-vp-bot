@@ -41,11 +41,13 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
+from . import paths
+
+PANEL_DIR = paths.PANEL_DIR
 
 # The single global fallback path. In practice the panel points the shared handler
-# at the active profile's directory (panel/profiles/<name>/debug.log) via configure().
-DEBUG_LOG = os.path.join(PANEL_DIR, "panel_debug.log")
+# at the active profile's directory (profiles/<name>/debug.log) via configure().
+DEBUG_LOG = paths.FALLBACK_DEBUG_LOG
 
 # The parent of every component logger. get_logger("timers") returns the child
 # "lastwar.panel.timers"; the one rotating handler lives on this parent and every

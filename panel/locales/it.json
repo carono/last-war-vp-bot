@@ -398,6 +398,7 @@
   "profile.error.no_port": "Nessuna porta libera per il daemon: {first}–{last} sono tutte occupate.",
   "profile.error.no_replacement": "«{name}» è l'unico profilo aperto in questa finestra, e tutti gli altri sono tenuti da un secondo pannello. Chiudi quel pannello, oppure apri prima un altro profilo qui: altrimenti la finestra resterebbe senza nessuna pagina.",
   "profile.error.not_removed": "La cartella del profilo {path} non si è potuta rimuovere: {error}. Qualcosa tiene ancora aperto un file lì dentro — una cattura, una finestra di chat, un log. «{name}» è ancora al suo posto e non è stato cambiato nulla.",
+  "profile.error.reserved": "«{name}» è un nome che la cartella dei profili usa per la propria meccanica. Scegline un altro.",
   "profile.label": "Profilo:",
   "profile.new": "Nuovo",
   "profile.new.title": "Nuovo profilo",

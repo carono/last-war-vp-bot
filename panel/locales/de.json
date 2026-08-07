@@ -398,6 +398,7 @@
   "profile.error.no_port": "Kein freier Daemon-Port: {first}–{last} sind alle belegt.",
   "profile.error.no_replacement": "«{name}» ist das einzige in diesem Fenster geöffnete Profil, und jedes andere hält ein zweites Panel. Schließen Sie jenes Panel oder öffnen Sie hier zuerst ein anderes Profil — sonst bliebe das Fenster nach dem Löschen ohne Seite.",
   "profile.error.not_removed": "Das Profilverzeichnis {path} ließ sich nicht entfernen: {error}. Etwas hält darin noch eine Datei offen — ein Mitschnitt, ein Chatfenster, ein Log. «{name}» ist weiterhin da, und nichts wurde geändert.",
+  "profile.error.reserved": "«{name}» ist ein Name, den der Profilordner für seine eigene Mechanik benutzt. Wählen Sie einen anderen.",
   "profile.label": "Profil:",
   "profile.new": "Neu",
   "profile.new.title": "Neues Profil",

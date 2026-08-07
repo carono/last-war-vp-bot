@@ -50,7 +50,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import debug_log
+from . import debug_log, paths
 from .i18n import Message
 from .profile import _write_json
 
@@ -58,11 +58,11 @@ from .profile import _write_json
 # under it; here we only record when a listener comes up, fires or dies.
 _dbg = debug_log.get_logger("triggers")
 
-PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
-# The TEMPLATE, beside the panel (gitignored, seeded from DEFAULT_TRIGGERS on first
+PANEL_DIR = paths.PANEL_DIR
+# The TEMPLATE, beside the profiles (gitignored, seeded from DEFAULT_TRIGGERS on first
 # run): what a profile with no triggers of its own is seeded from. The catalogue a
 # profile actually runs lives in its own directory.
-TEMPLATE_FILE = os.path.join(PANEL_DIR, "triggers.json")
+TEMPLATE_FILE = paths.TRIGGERS_TEMPLATE
 
 # The marker line a listener prints on every match, keyed on by the panel's reader
 # and swallowed there. It MUST match ``FIRE`` in ``tools/wire_event_monitor.py`` —
