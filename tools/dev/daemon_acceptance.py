@@ -47,6 +47,11 @@ MARK = "ACC"
 #: A port nothing is on, for form 3. Not a second daemon's (47655) and not the default.
 FREE_PORT = 47699
 
+#: How long the machine must have been untouched before form 2 may kill anything. The
+#: person plays on this computer, and a client killed under them is the harm #1259 did
+#: once already — eight seconds after a link reading, with somebody in the game.
+IDLE_BEFORE_KILL_SEC = 300.0
+
 
 class Run:
     def __init__(self) -> None:
@@ -114,7 +119,7 @@ def form_alive(run: Run, port: int) -> None:
     med, lo, hi = _ms(lambda: client.status())
     run.check("a ping stays cheap", med < 20.0, "%.2f ms (%.2f–%.2f)" % (med, lo, hi))
     med, lo, hi = _ms(lambda: client.run(PROBE, marker=MARK, settle=0.5, early=True), n=5)
-    run.note("a live chunk costs %.0f ms (%.0f–%.0f)" % (med, lo, hi))
+    run.note("a live chunk costs %.0f ms (%.0f-%.0f)" % (med, lo, hi))
 
     # An errand that lands must reset the age — that is what makes the guarantee free
     # while the panel is working.
@@ -135,7 +140,7 @@ def form_none(run: Run, port: int = FREE_PORT) -> None:
     run.check("nothing answers", reply == {}, repr(reply))
     run.check("the verdict is none", daemon_pulse.verdict(reply, running_pid=1) == "none")
     med, lo, hi = _ms(lambda: lua_client.is_running(port=port, timeout=0.35), n=3)
-    run.note("asking a dead port costs %.0f ms (%.0f–%.0f) — the timeout, every time"
+    run.note("asking a dead port costs %.0f ms (%.0f-%.0f) - the timeout, every time"
              % (med, lo, hi))
 
 
@@ -148,6 +153,20 @@ def form_killed(run: Run, port: int, wait: float = 90.0) -> None:
     pid = _running_pid()
     if not run.check("there is a client to kill", bool(pid), "pid=%s" % pid):
         return
+
+    # IS SOMEBODY AT THE MACHINE? The same gate the recovery keeps in front of its own
+    # restarts (#1259, `panel/runtime/recovery.py`), and for the same reason: this once
+    # closed a window a person was playing in, eight seconds after a link reading. A
+    # check run beside the announcement is not enough — they may have sat down since.
+    import game_link
+
+    idle = game_link.idle_sec()
+    if idle is not None and idle < IDLE_BEFORE_KILL_SEC:
+        run.check("nobody is at the machine", False,
+                  "somebody used it %.0f s ago — not killing anything" % idle)
+        return
+    run.note("nobody has touched this machine for %.0f s" % (idle or -1))
+
     import psutil
 
     print("       killing pid %s — the panel's watchdog will bring the game back" % pid)
@@ -206,7 +225,7 @@ def contention(run: Run, port: int, readers: int = 3, settle: float = 1.2) -> No
             PROBE, marker=MARK, settle=0.5, early=True), n=8)
     stop.set()
     time.sleep(settle + 0.5)
-    run.note("free %.0f ms | behind %d readers %.0f ms (%.0f–%.0f) — ×%.1f"
+    run.note("free %.0f ms | behind %d readers %.0f ms (%.0f-%.0f) - x%.1f"
              % (free_med, readers, busy_med, lo, hi, busy_med / max(free_med, 0.001)))
     run.check("a background reader no longer stands in front of a press",
               busy_med < free_med + 1000,
