@@ -45,6 +45,13 @@ spend it, and the setting that says how the trucks are to be improved before the
 widgets for all of that live in :mod:`.tab`; what is here is the catalogue, the numbers
 and the three modes, so they can be tested under a python with no display.
 
+**A group can also be OFF** (`Group.shown`, #1275), and three of the four are: the board
+draws «Кодовое имя» and nothing else until the rest have been watched answering truthfully
+in a live game. Off is not deleted — the group keeps its place, its fields and its
+scenarios, and comes back with one word — but while it is off it exists on neither
+front-end and in neither half of «сделано N из M». Everything a screen asks for goes
+through :func:`visible`, so the flag is honoured once rather than in four places.
+
 The day is the game's (`tools/lib/game_clock.py`), and it is used for exactly one thing:
 saying when the quotas come back. Nothing is stored between runs — there is no tick to
 keep, because the answer is re-read. The one thing that IS stored is the truck setting,
@@ -330,15 +337,26 @@ class Group:
     heading; the widgets themselves stay in the tab, because this module has no Tk.
     ``source`` names which reading its numbers come from (:data:`DAILY` for all but the
     event groups).
+
+    ``shown`` is whether the board draws it AT ALL (#1275). A group that is off is not
+    deleted — it keeps its place in :data:`GROUPS`, its errands, its fields and its
+    scenarios — it simply reaches neither front-end: no block in the window, no card on
+    the phone, no line in «сделано N из M», and no press. **Bringing one back is that one
+    word**, which is the whole reason it is a flag rather than a commented-out block: a
+    group returns when its errands have been watched working in the live game, exactly
+    the way a feature earns its ✅ in `docs/farming.md`, and a restore that costs a git
+    archaeology dig is a restore nobody does.
     """
 
-    __slots__ = ("key", "title_key", "errands", "source")
+    __slots__ = ("key", "title_key", "errands", "source", "shown")
 
-    def __init__(self, key: str, errands, source: str = DAILY) -> None:
+    def __init__(self, key: str, errands, source: str = DAILY,
+                 shown: bool = True) -> None:
         self.key = key
         self.title_key = "checklist.group." + key
         self.errands = tuple(errands)
         self.source = source
+        self.shown = bool(shown)
 
     def __iter__(self):
         """So a group still unpacks as `(heading, errands)` where that reads better."""
@@ -352,24 +370,70 @@ class Group:
 #: press and the setting off it, and nothing else may be recognised by name.
 TRUCKS = "send_trucks"
 
-#: The groups, in the order they are drawn. The trucks go FIRST: it is the errand with
-#: the shortest fuse on it — the fleet is idle until it is sent and the allowance dies
-#: with the game's day — and it is the one block of the board that can be acted on from
-#: the board itself.
+#: The groups, in the order they are drawn — every one of them, shown or not.
+#:
+#: The trucks go FIRST: it is the errand with the shortest fuse on it — the fleet is idle
+#: until it is sent and the allowance dies with the game's day — and it is the one block
+#: of the board that can be acted on from the board itself.
 #: «Кодовое имя» comes SECOND, straight after the trucks and before everything read off
 #: the base: it is the only errand on the board with a wall-clock deadline that is not
 #: the end of the day. The boss stands for a few hours and then goes, so a block that sat
 #: below twenty rows of base chores would be seen after the window had shut.
+#:
+#: **Three of the four are off (#1275), and «Кодовое имя» is the only one drawn.** The
+#: board went up faster than its lines could be watched working, and a row nobody has
+#: seen answer truthfully in a live game is a row that may be lying with a tick on it —
+#: which is precisely the failure this tab exists to prevent. So the day is put back a
+#: group at a time: a group is switched on when its errands have been confirmed against
+#: the running game, the same bar a feature clears before it earns its ✅ in
+#: `docs/farming.md`. The ORDER above is the order they will come back in, and each is
+#: one `shown=True` away.
 GROUPS: tuple = (
-    Group(TRUCKS, TRUCK_ERRANDS),
+    Group(TRUCKS, TRUCK_ERRANDS, shown=False),
     Group(CODENAME, CODENAME_ERRANDS, source=CODENAME),
-    Group("read", READ_ERRANDS),
-    Group("blind", BLIND_ERRANDS),
+    Group("read", READ_ERRANDS, shown=False),
+    Group("blind", BLIND_ERRANDS, shown=False),
 )
 
 ERRANDS: tuple = (TRUCK_ERRANDS + CODENAME_ERRANDS + READ_ERRANDS + BLIND_ERRANDS)
 
 BY_KEY = {errand.key: errand for errand in ERRANDS}
+
+
+def visible() -> tuple:
+    """The groups the board actually draws, in the catalogue's order.
+
+    Everything a front-end asks for goes through here — the window's blocks, the phone's
+    cards, the presses, the progress. A hidden group is therefore hidden ONCE, in
+    :data:`GROUPS`, rather than in the four places that would each have to remember.
+    """
+    return tuple(group for group in GROUPS if group.shown)
+
+
+def visible_errands() -> tuple:
+    """Every errand of every shown group — what the board can draw and press."""
+    return tuple(errand for group in visible() for errand in group.errands)
+
+
+def is_visible(key: str) -> bool:
+    """Whether this errand is on the board at all.
+
+    What the press is gated on: an errand of a hidden group must not be reachable by
+    naming its key from the phone, or the group would be off in the window and on
+    everywhere else.
+    """
+    return any(errand.key == key for errand in visible_errands())
+
+
+def visible_sources() -> frozenset:
+    """The readings the board still needs — one entry per shown group's ``source``.
+
+    A scenario whose every group is off is not played: the board polls every few minutes
+    and re-reads on a push, and reading numbers nobody is drawn would be paying a round
+    trip a poll for a blank. It comes back with its group, since the set is computed and
+    not written down.
+    """
+    return frozenset(group.source for group in visible())
 
 
 def now_ms() -> int:
@@ -518,17 +582,21 @@ def _sources(reading, codename) -> dict:
 
 
 def states(reading, codename=None) -> list:
-    """Every errand against the readings, in the catalogue's order."""
+    """Every errand of every SHOWN group, in the catalogue's order.
+
+    The board, not the catalogue: a hidden group's lines are drawn nowhere, so counting
+    them in «сделано N из M» would be a total nobody can see the parts of.
+    """
     src = _sources(reading, codename)
     return [state_of(errand, src[group.source])
-            for group in GROUPS for errand in group.errands]
+            for group in visible() for errand in group.errands]
 
 
 def grouped(reading, codename=None) -> list:
     """``[(group, [state, …]), …]`` — the board as both front-ends draw it."""
     src = _sources(reading, codename)
     return [(group, [state_of(errand, src[group.source]) for errand in group.errands])
-            for group in GROUPS]
+            for group in visible()]
 
 
 def codename_counter(reading) -> tuple:

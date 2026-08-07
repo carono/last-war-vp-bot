@@ -21,6 +21,13 @@ were each in the timer catalogue and nowhere else, so a player who did not want 
 a clock had no way to press them at all. A test that accepted a schedule would have
 called that finished.
 
+**What this test cannot see**, and it is worth knowing before trusting it: it reads the
+panel as TEXT. A press that is drawn nowhere still counts as a home — «Чеклист» keeps
+three of its four groups switched off until their lines have been confirmed against a
+live game (#1275, `docs/panel-tabs.md`), and the rows of an off group name their
+scenarios exactly as before. That is accepted while the groups are coming back; a group
+that is going to stay off has to give its abilities a press somewhere else.
+
 Two kinds of file are not abilities and are skipped:
 
 * **no DSL body.** `send_chat_message.md` is a page of documentation for

@@ -58,6 +58,15 @@ because a checklist that quietly drops a third of the day looks finished when it
 and because each of them is a candidate for the next reading (`docs/farming.md` is where
 the routine they come from is written down). Moving a line up out of that group is how
 this tab grows — never by giving it a box.
+
+**Only one group is on right now** (#1275): «Кодовое имя». The other three are switched
+off in the catalogue (`model.Group.shown`) rather than deleted, and the board is put back
+one group at a time as each one's lines are watched answering truthfully in a live game —
+the same bar a feature clears before it earns its ✅ in `docs/farming.md`. A group that is
+off is off everywhere at once: no block here, no card on the phone, no press from either,
+no line in «сделано N из M», and not even the round trip that would read it (`refresh`
+plays only the scenarios the shown groups need). That is what makes it safe to leave the
+code standing — an off group cannot half-exist.
 """
 from __future__ import annotations
 
@@ -95,6 +104,15 @@ _GLYPH = {
 #: that a person changes by hand would be the stalest thing on it.
 WIRE_PATTERNS = ("al.help", "visitor", "hospital",
                  "train.data", "train.send", "train.batch.send")
+
+#: …and which reading each of them is news FOR. The tab listens for the shown groups only
+#: (#1275): a push that would re-read a scenario no group is drawn from costs the capture
+#: a filter all day and this board nothing. «Кодовое имя» has no push of its own — the
+#: event's numbers are polled — so its entry is empty on purpose rather than missing.
+WIRE_PATTERNS_BY_SOURCE = {
+    modelmod.DAILY: WIRE_PATTERNS,
+    modelmod.CODENAME: (),
+}
 
 
 class ChecklistTab(PanelTab):
@@ -141,7 +159,14 @@ class ChecklistTab(PanelTab):
         self._truck_mode.set(modelmod.TRUCK_MODE_DEFAULT)
 
     # -- the tab ------------------------------------------------------------
+    #: The style a group's frame wears — the heading in bold, so a block is found at a
+    #: glance in a list of them. One style rather than a font on every heading: the
+    #: blocks are rebuilt on every reading.
+    BLOCK_STYLE = "Checklist.TLabelframe"
+
     def build(self) -> None:
+        ttk.Style(self.parent).configure(self.BLOCK_STYLE + ".Label",
+                                         font=ui_font(weight="bold"))
         bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
         self._refresh_button = self.tr(ttk.Button(bar, command=self.refresh),
@@ -209,11 +234,18 @@ class ChecklistTab(PanelTab):
         self._unlisten()
 
     # -- hearing the game ---------------------------------------------------
+    def _patterns(self) -> tuple:
+        """The pushes this board still cares about — the shown groups' and no others."""
+        sources = modelmod.visible_sources()
+        return tuple(pattern
+                     for source, patterns in WIRE_PATTERNS_BY_SOURCE.items()
+                     if source in sources for pattern in patterns)
+
     def _listen(self) -> None:
         """Subscribe to the pushes worth re-reading on. Idempotent."""
         if self._wire_off:
             return
-        for pattern in WIRE_PATTERNS:
+        for pattern in self._patterns():
             try:
                 self._wire_off.append(self.rt.wire.subscribe(pattern, self._on_push))
             except Exception as exc:        # noqa: BLE001 — no capture is not fatal
@@ -254,24 +286,50 @@ class ChecklistTab(PanelTab):
         finally:
             self.rt.tick.arm("checklist_poll", self.TICK_MS, self._tick)
 
+    def _readings(self) -> dict:
+        """Each reading by the source that answers it — the pair `model` asks for."""
+        return {modelmod.DAILY: self._reading, modelmod.CODENAME: self._codename}
+
     def _age(self) -> float:
-        """Seconds since the last reading; a very large number when there is none."""
-        if self._reading is None or not self._reading.at:
+        """Seconds since the OLDEST reading the board is still drawn from.
+
+        The oldest rather than the newest: «прочитано N назад» is a promise about the
+        whole board, and the stalest thing on it is what makes that promise true. A
+        reading no shown group needs is left out of the sum entirely — it is not being
+        taken, so its age says nothing about what is on screen (#1275) — and so is one
+        that failed, because an attempt that answered nothing is not a reading.
+        """
+        sources = modelmod.visible_sources()
+        stamps = [reading.at for source, reading in self._readings().items()
+                  if source in sources and reading is not None and reading.at
+                  and not reading.error]
+        if not stamps:
             return float("inf")
-        return max(0.0, time.time() - self._reading.at)
+        return max(0.0, time.time() - min(stamps))
+
+    def _read_ago(self) -> str:
+        """«0:42», or a dash when nothing the board draws has been read yet."""
+        age = self._age()
+        return "—" if age == float("inf") else modelmod.ago(age)
 
     def refresh(self) -> bool:
         """Ask the game what the day still owes. `False` if it could not be asked now.
 
-        Two scenarios, played one after the other through the runtime under the claim —
-        the day's errands and the event's. A refusal — something else is driving the
+        One scenario per reading a SHOWN group is drawn from, played one after the other
+        through the runtime under the claim. A refusal — something else is driving the
         game — leaves the previous reading and its age on screen, which is the honest
         answer: it is what we know, and how old it is.
+
+        While a source has no shown group its scenario is skipped rather than played and
+        thrown away (#1275) — a poll every few minutes for numbers nobody is shown is a
+        round trip an hour for a blank.
         """
         if self._busy:
             return False
         self._busy = True
         self._refresh_status()
+        if modelmod.DAILY not in modelmod.visible_sources():
+            return self._read_codename()
         started = self.rt.play_async(
             modelmod.ACTION, tag="checklist",
             on_result=self._read_back, on_done=self._read_codename)
@@ -284,7 +342,7 @@ class ChecklistTab(PanelTab):
         """The scenario finished (on the Tk thread). Its variables ARE the board."""
         self._reading = self._parsed(outcome, modelmod.VARIABLE)
 
-    def _read_codename(self) -> None:
+    def _read_codename(self) -> bool:
         """The day is in; ask the event next.
 
         A second round trip rather than a second block bolted onto the first: the event
@@ -292,12 +350,18 @@ class ChecklistTab(PanelTab):
         Lua into the daily scenario is exactly how two front-ends come to disagree about
         one number. A VM call is about 0.15 s and this runs every few minutes.
         """
+        if modelmod.CODENAME not in modelmod.visible_sources():
+            self._read_done()
+            return False
         started = self.rt.play_async(
             modelmod.CODENAME_ACTION, tag="checklist",
             on_result=self._codename_back, on_done=self._read_done)
         if not started:
-            self._codename = modelmod.Reading(error="busy", at=time.time())
+            # A game that is busy is not an answer: the last one stays, and the status
+            # line says how old it is. Recording «busy» as the event's reading would
+            # blank the one group on the board because something else took the claim.
             self._read_done()
+        return started
 
     def _codename_back(self, outcome) -> None:
         self._codename = self._parsed(outcome, modelmod.CODENAME_VARIABLE)
@@ -326,11 +390,18 @@ class ChecklistTab(PanelTab):
         follows, so a line that stays red after a press is telling the truth about the
         game rather than failing to notice a click.
 
-        `False` when the errand has no scenario, is already running, or the game is
-        busy — `play_async` holds the claim and says «busy» in the log for itself.
+        `False` when the errand has no scenario, is on a group that is switched off
+        (#1275), is already running, or the game is busy — `play_async` holds the claim
+        and says «busy» in the log for itself.
+
+        The hidden half is checked HERE rather than at the widgets, because the widgets
+        are only one of the two doors: `web_press` reaches this method with a key off the
+        wire, and a phone that could name a row the window does not draw would be exactly
+        the front-end drift the rule forbids.
         """
         errand = modelmod.BY_KEY.get(key)
-        if errand is None or not errand.runnable or key in self._running:
+        if (errand is None or not errand.runnable or key in self._running
+                or not modelmod.is_visible(key)):
             return False
         self._running.add(key)
         self._render()
@@ -364,22 +435,32 @@ class ChecklistTab(PanelTab):
         return modelmod.states(self._reading, self._codename)
 
     def _render(self) -> None:
+        """Draw one framed block per SHOWN group, in the catalogue's order.
+
+        A block rather than a bold line over a run of rows: with three of the four groups
+        off (#1275) the board is short, and the groups that come back come back one at a
+        time — a frame with the group's name on it says where one ends and the next
+        begins without anybody counting rows. Every future group is drawn by this same
+        loop, so «as «Кодовое имя» looks» is not a thing to copy but the only shape there
+        is.
+        """
         if self._body is None:
             return
         for child in list(self._body.winfo_children()):
             child.destroy()
         for group, states in modelmod.grouped(self._reading, self._codename):
-            self.tr(ttk.Label(self._body, font=ui_font(weight="bold")),
-                    group.title_key).pack(anchor="w", padx=6, pady=(10, 2))
+            block = self.tr(ttk.LabelFrame(self._body, labelanchor="nw",
+                                           style=self.BLOCK_STYLE), group.title_key)
+            block.pack(fill="x", padx=6, pady=(8, 2))
             for state in states:
-                self._render_row(state)
+                self._render_row(state, block)
             if group.key == modelmod.TRUCKS:
-                self._render_trucks()
+                self._render_trucks(block)
             elif group.key == modelmod.CODENAME:
-                self._render_codename(states[0])
+                self._render_codename(states[0], block)
         self._refresh_status()
 
-    def _render_codename(self, state) -> None:
+    def _render_codename(self, state, parent) -> None:
         """«Кодовое имя»: the two numbers the person is playing for.
 
         No press of its own — the row above already carries one, drawn by the same code
@@ -389,7 +470,7 @@ class ChecklistTab(PanelTab):
         event's daily ranking is decided on.
         """
         attacks, need, dmg = modelmod.codename_counter(self._codename)
-        counter = ttk.Frame(self._body)
+        counter = ttk.Frame(parent)
         counter.pack(fill="x", padx=26, pady=(0, 6))
         self.tr(ttk.Label(counter), "checklist.codename.attacks").pack(side="left")
         ttk.Label(counter, font=ui_font(weight="bold"),
@@ -400,14 +481,14 @@ class ChecklistTab(PanelTab):
         ttk.Label(counter, text=modelmod.damage(dmg), foreground="#888").pack(
             side="left", padx=(6, 0))
 
-    def _render_trucks(self) -> None:
+    def _render_trucks(self, parent) -> None:
         """«Отправка грузовиков»: the counter, the press, and how to improve them first.
 
         The first group of the board that is more than a list of rows. The counter is
         the group's own quota drawn large enough to read across the room; the press is
         DISABLED and says why; the three modes are a choice this tab keeps.
         """
-        box = ttk.Frame(self._body)
+        box = ttk.Frame(parent)
         box.pack(fill="x", padx=4, pady=(2, 6))
 
         counter = ttk.Frame(box)
@@ -452,8 +533,8 @@ class ChecklistTab(PanelTab):
         _sent, _cap, idle = modelmod.truck_counter(self._reading)
         return "—" if idle is None else str(idle)
 
-    def _render_row(self, state) -> None:
-        frame = ttk.Frame(self._body)
+    def _render_row(self, state, parent) -> None:
+        frame = ttk.Frame(parent)
         frame.pack(fill="x", padx=4, pady=1)
         frame.columnconfigure(1, weight=1)
 
@@ -512,17 +593,26 @@ class ChecklistTab(PanelTab):
             pass
 
     def _status_text(self) -> str:
+        """«сделано 1 из 3 · прочитано 0:12 назад» — over the SHOWN groups only.
+
+        Which reading it speaks for follows the board: a source no group is drawn from is
+        not being taken, so neither its age nor its failure is news about anything on
+        screen (#1275).
+        """
         left = modelmod.hhmm(modelmod.seconds_to_reset())
         if self._busy:
             return self.t("checklist.status.reading")
-        if self._reading is None:
+        sources = modelmod.visible_sources()
+        live = [reading for source, reading in self._readings().items()
+                if source in sources and reading is not None]
+        if not live:
             return self.t("checklist.status.never")
-        if self._reading.error:
-            return self.t("checklist.status.error", error=self._reading.error,
-                          left=left)
+        failed = next((reading for reading in live if reading.error), None)
+        if failed is not None:
+            return self.t("checklist.status.error", error=failed.error, left=left)
         done, total = modelmod.progress(self.states())
         return self.t("checklist.status.read", done=done, total=total,
-                      ago=modelmod.ago(self._age()), left=left)
+                      ago=self._read_ago(), left=left)
 
     # -- remembering the one choice on the board ----------------------------
     def config(self) -> dict:
@@ -551,15 +641,17 @@ class ChecklistTab(PanelTab):
         that is a scenario, carrying the errand's key in its args. It plays exactly what
         the window plays and marks exactly as much as the window marks, which is nothing:
         the reading that follows is what moves the row.
+
+        **And exactly the groups the window draws**, because both ask `model.grouped`
+        (#1275). A group switched off has no card here, no rows in the progress count and
+        no press — the phone cannot reach what the machine does not show.
         """
         done, total = modelmod.progress(self.states())
         cards = [{"title": None, "rows": [
             {"label": "checklist.web.progress", "value": "%d/%d" % (done, total)},
             {"label": "checklist.web.until_reset",
              "value": modelmod.hhmm(modelmod.seconds_to_reset())},
-            {"label": "checklist.web.read",
-             "value": (modelmod.ago(self._age()) if self._reading is not None
-                       and not self._reading.error else "—")},
+            {"label": "checklist.web.read", "value": self._read_ago()},
         ]}]
         for group, states in modelmod.grouped(self._reading, self._codename):
             card = {"title": group.title_key, "empty": "checklist.empty",

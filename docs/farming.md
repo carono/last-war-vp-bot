@@ -46,6 +46,16 @@ schedule holds is a list you can edit — adding one, or changing what it does a
 how often, needs no change to the program — and the list belongs to the account,
 so two of them can be farmed on two different schedules.
 
+The panel also keeps a **checklist** of the day: a board that says what is still
+owed, read out of the game rather than ticked by hand. It shows one block at a
+time, and only the blocks whose lines have been watched answering truthfully in a
+live game — today that is «Codename» and nothing else. The rest of the day is
+written down and switched off, and each block comes back once it has been checked
+against a running game, the same way an ability earns its ✅ in this list. So a
+feature below that mentions a row or a button on the checklist means it is built
+and waiting for its block to be switched on; until then it is run from the tab
+its theme belongs to, or from the schedule.
+
 The one thing the panel cannot do yet is **play a whole session on its own**: it
 repeats a chosen action and keeps a handful of abilities to their own clocks, but
 nothing chains the routine together from start to finish. Every ✅ below that is

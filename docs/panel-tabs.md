@@ -307,6 +307,41 @@ alternative was leaving the ability reachable only from the script list on «Р�
 which is off unless a profile asks for it; refusing the button until somebody works out
 how to read the state punishes the player for a gap in the reverse-engineering.
 
+### A board that reads the game is put back one group at a time
+
+**A reading nobody has watched being right is not a reading yet.** «Чеклист» grew a whole
+day's worth of rows faster than the rows could be checked against a running game, and a
+line that quietly answers «готово» when it should say «ещё нет» is exactly the failure a
+read-not-ticked board exists to prevent — with a tick beside it, which is worse than
+having no line at all.
+
+So the board draws **only the groups that have been confirmed live** (#1275). The rest
+are switched off in the catalogue — `model.Group(..., shown=False)` — and switched back
+on one at a time, each when its lines have been seen answering truthfully in a real
+session. It is the same bar an ability clears before it earns its ✅ in `docs/farming.md`,
+applied to a reading instead of to a press, and it is written in both places on purpose.
+
+Two things make it safe to leave the code standing rather than deleting it:
+
+* **off is off everywhere at once.** Everything both front-ends ask goes through
+  `model.visible()` / `grouped()`, so a hidden group has no block in the window, no card
+  on the phone, no press from either (`run` refuses a key that is not on the board, which
+  is what stops `web_press` reaching one), no line in «сделано N из M», and not even the
+  round trip that would read it — `refresh` plays only the scenarios the shown groups
+  need. A group cannot half-exist;
+* **on is one word.** The group keeps its place in `GROUPS`, its errands, its fields and
+  its scenarios; bringing it back is `shown=True` and nothing else. A restore that costs
+  an afternoon in the git log is a restore nobody performs, which is how «temporarily
+  hidden» becomes «silently dropped».
+
+What this costs, and it is a real cost: while a group is off, an ability whose only press
+was one of its rows is reachable only from the schedule or «Разработка» — the three of
+#1247 (the base's resource truck, the alliance gifts, the ministry application) are in
+exactly that position. `tests/test_scenario_homes.py` reads the catalogue as TEXT, so it
+still passes and cannot notice. That is accepted while the groups are coming back and is
+not a licence to hide a group as a way of avoiding the homes rule: if a group is going to
+stay off, its abilities need a press somewhere a person can reach.
+
 ### Where an ability's press belongs
 
 **A new `actions/*.md` is not finished when it runs from «Разработка».** That list is the
