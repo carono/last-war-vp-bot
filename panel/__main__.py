@@ -1097,12 +1097,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # they answer in a profile that does not show the tab); only the wiring is here.
         # Bound and captured, because the scheduler calls them from its own thread and
         # they must read THIS profile's caps rather than the showing one's.
-        # NO GATE ON THE RALLY JOIN ANY MORE (#1281). The daily twenty turned out to be
-        # a TROPHY THRESHOLD rather than a door — past it the game stops paying, not
-        # stops joining — so a count of ours refusing a banner was us forbidding what
-        # nothing forbade. It cost twelve rallies in one afternoon, with our tally
-        # twelve ahead of the client's own at the time. The reading lives on
-        # (`panel/tabs/rally/limits.py`), taken from the game rather than kept here.
+        # THE RALLY JOIN IS COUNTED, NEVER REFUSED (#1281). The daily twenty is a TROPHY
+        # THRESHOLD rather than a door — past it the game stops paying, not joining — so
+        # the gate below answers «yes» to everything and exists only to keep the record
+        # wired: what each join actually went to, kind by kind, which the game does not
+        # keep for us. What the day costs is the client's own count
+        # (`limits.trophy_progress`), not a tally of ours.
+        self._schedule.register_gate(
+            "rally_auto_join",
+            self._bound(lambda rt=self._rt: rallygate.join_gate(rt)),
+            self._bound(lambda kinds, did, rt=self._rt:
+                        rallygate.record_joins(rt, kinds, did)))
         self._schedule.register_args("rally_auto_join",
                                      self._bound(self._rally_join_args))
         self._build_ui(page, staged=staged,

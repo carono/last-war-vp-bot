@@ -739,10 +739,16 @@ Recorded so the next person does not repeat them:
 1. **the leader's march** — `monsterId=0`, `monsterType=0` on every rally on the map;
 2. **`GetMonsterData(targetUuid)`** — no data: the monster is outside the loaded part of
    the map, and the bot never looks there;
-3. **the trophy's `contentId`** — resolved against **740** config tables through
-   `LocalController.instance:getValue(table, id, field, default)` (which is what the
-   global `GetTableData` wraps — read out of its `string.dump`), by `id` and by `name`:
-   not one table knows it. It indexes the reward's content, not a monster;
+3. **the trophy's `contentId`** — not a monster: `getLine('lw_monster', <contentId>)`
+   answers nil for every one of them. **The «740 config tables know nothing about it»
+   written here first is WITHDRAWN**: that sweep called
+   `LocalController.instance:getValue(...)`, and `instance` is a GETTER, not a field —
+   every one of those 740 answers came off the wrong object. Redone against
+   `LocalController.instance()` the monster tables still say nil, so the conclusion
+   stands and its evidence does not. Anyone re-opening this: the accessor is
+   `LocalController.instance():getLine(table, id)` / `:getValue(table, id, field,
+   default)`, and a row comes back as a lazy proxy — `pairs()` on it shows only
+   `_xmlId` / `_xmlType`, the columns answer one at a time;
 4. **the rally list's own window** — `UIAllianceAutoJoinRally`, opened once and closed
    with `Ctrl:CloseSelf()`. Its view reaches for `MonsterManager`, `GetKillBossNum`,
    `GetMaxKillBossNum` and `ShowRewardList` — a COUNT and a reward, no per-kind
@@ -776,3 +782,28 @@ What is known about the state: `DataCenter.AllianceBaseDataManager.autoRallyInfo
 `user.get.auto.join.team.info` headlessly succeeded (`ok=true`) and left the field
 unchanged, so `endTime` is this account's own subscription rather than a list of rallies,
 and the list the window draws comes from somewhere else.
+
+
+## Where the per-kind split is NOT, checked properly (#1281)
+
+The player says the rally list shows what each banner is going for, so the client has it.
+These are the places it turned out not to be, so the next search starts further on:
+
+* **`MonsterManager`, in full** — every field and every method, not just the ones the
+  window names: `daily_kill_boss`, `kill_boss_max_num`, `find_monster_max_level`,
+  `lastTime`, `whistleRewardNum`, and eleven methods. ONE counter, no per-kind anything.
+  It does hold two different CEILINGS, which is a split of a sort and worth knowing:
+  `GetCurCanAttackMaxLevel() = 35` for ordinary monsters against
+  `GetCurCanAttackBossMaxLevel() = 3` for bosses.
+* **the daily quests** — the 23 rows of `DailyTaskManager.dailyQuestTasks` resolved: each
+  row's `desc` is a locale id (`daily_quest` table, columns `desc name reward id`), and
+  the texts are «Help Allies {1} Times», «Greet Visitors {1} times», «Train {1} units of
+  any level», «Gather {0} x {1} at resource tile», «Dispatch Trade Trucks {1} time(s)».
+  **Not one of them is about a rally.** Resolve them with
+  `python tools/game_locale.py --key <desc>`; the in-game `Localization.GetString`
+  returned nil for all of them.
+* **`UIAllianceAutoJoinRally`'s own data** — opened once and closed with
+  `Ctrl:CloseSelf()`. Its data source is `AllianceBaseDataManager.autoRallyInfo`, which
+  held `{endTime = 0}` before and after: that field is this account's own auto-join
+  subscription, and it is off, so the window had nothing to draw and nothing to read.
+  A list WITH banners in it is what would have to be caught.

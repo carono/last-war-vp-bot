@@ -193,16 +193,32 @@ def test_a_client_that_cannot_answer_gives_no_reading_rather_than_a_wrong_one():
         assert gate.trophy_progress(rt) == {}
 
 
-def test_nothing_in_the_panel_gates_a_join_on_a_count_any_more():
-    """The gate and the tally are gone by name — a returning one would refuse again."""
-    for dead in ("join_gate", "record_joins", "blocked_types"):
-        assert not hasattr(gate, dead), (
-            f"{dead} is back: the daily count must never refuse a banner")
-    source = (Path(__file__).resolve().parents[1] / "panel" / "__main__.py").read_text(
-        encoding="utf-8")
-    assert "register_gate(\n            \"rally_auto_join\"" not in source
-    assert "rally_auto_join" not in source.split("register_gate")[1][:200] \
-        if "register_gate" in source else True
+def test_the_gate_answers_yes_to_everything():
+    """It is kept only to keep the record wired — it may never refuse a banner (#1281)."""
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 1}))
+        gate.record_joins(rt, ["monster"], 1)          # «spent», in the old meaning
+        allowed = gate.join_gate(rt)
+        assert allowed, "the gate refused — the daily count is a threshold, not a door"
+        assert "monster" in allowed, allowed
+        assert rt.said == []
+    # …and the half that DID refuse is gone by name, so it cannot come back quietly.
+    assert not hasattr(gate, "blocked_types")
+
+
+def test_the_tally_is_kept_per_kind_and_reads_nothing_back():
+    """What each join went to is the panel's own note; the game keeps no such thing."""
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"monster": 20, "zombie_invasion": 0}))
+        gate.record_joins(rt, ["zombie_invasion", "monster", "zombie_invasion"], 3)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 1, counts
+        assert counts.count_for("zombie_invasion") == 2, counts
+        # only what the game confirmed is counted, from the front of the list
+        gate.record_joins(rt, ["monster", "monster", "monster"], 1)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 2, counts
 
 
 def test_the_chunk_reports_the_games_count_and_says_what_the_threshold_costs():

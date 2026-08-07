@@ -9,7 +9,8 @@ this is where the panel asks what the DAY looks like — and nothing more than t
   many are left before it stops paying. Asked of the client, which keeps the number
   itself; the panel keeps none.
 
-**NOTHING HERE GATES A JOIN** (#1281). The daily twenty is a trophy threshold, not a
+**NOTHING HERE GATES A JOIN** (#1281), and :func:`join_gate` keeps its name only
+because the schedule asks for one — it answers «yes» to everything. The daily twenty is a trophy threshold, not a
 door: past it the game stops paying and the joining goes on. A gate on it was the panel
 forbidding what nothing forbids, and the tally behind that gate had drifted twelve ahead
 of the client's own by the time anybody compared them.
@@ -125,6 +126,44 @@ def trophy_progress(rt) -> dict:
             return {}
         return {"done": done, "max": top, "left": left}
     return {}
+
+
+def join_gate(rt) -> list:
+    """The kinds a join may be COUNTED under. It never refuses — that is the point.
+
+    The schedule wants a gate; this one has no opinion. The daily twenty is a trophy
+    threshold rather than a door (:func:`trophy_progress`), so nothing here may stop a
+    banner — and a gate that always answers is what keeps :func:`record_joins` wired,
+    which is how the per-kind tally survives without the refusal that used to ride with
+    it (#1281).
+    """
+    limits, _counts = read(rt)
+    return list(limits.types()) or [rallylimitsmod.UNKNOWN_TYPE]
+
+
+def record_joins(rt, kinds, did: int = 1) -> None:
+    """Count what the run actually joined, EACH UNDER ITS OWN KIND, persisted for today.
+
+    ``kinds`` is the run's own list — one entry per squad the chunk sent, in the order it
+    sent them (`DataCenter.__lw_rally_kinds`), classified against the invasion event's own
+    monster lists. Counting them all under one key is what made an invasion boss spend the
+    ordinary monsters' budget back when the budget still refused things.
+
+    ``did`` is how many joins the game confirmed; the ones that landed are counted from
+    the front of the list, so a send that achieved nothing writes nothing.
+
+    IT IS A RECORD, NOT A RULE. Nothing reads this back to refuse a join. What the day
+    actually costs is the game's own `MonsterManager` count (:func:`trophy_progress`);
+    this is the panel's own note of WHAT it went to, which the game does not keep.
+    """
+    kinds = [str(k).strip() for k in (kinds or []) if str(k).strip()]
+    if did <= 0 or not kinds:
+        return
+    path = rt.profiles.rally_counts_json()
+    counts = rallylimitsmod.load_counts(path)
+    for key in kinds[:did]:
+        counts = counts.record(key)
+    rallylimitsmod.save_counts(counts, path)
 
 
 def record(rt, counts, type_key):
