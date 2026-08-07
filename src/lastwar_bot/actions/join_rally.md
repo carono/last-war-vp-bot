@@ -60,7 +60,7 @@ TAP rally_join_all
 # about: the sends are already away.
 READ_LUA (DataCenter.__lw_rally_report or "the join left no report — the press did not run") INTO report
 
-LOG "{report}"
+LOG "the line above is what the press did, banner by banner"
 
 # One number, three answers: how many went out, `0` for nothing to be done, and `-1` for
 # «there is a rally standing there and the only squads left are empty», which is the one
@@ -104,7 +104,7 @@ IF todo < 0
 
     TAP rally_join_all
     READ_LUA (DataCenter.__lw_rally_report or "the second join left no report — the press did not run") INTO report
-    LOG "{report}"
+    LOG "the line above is what the press did, banner by banner"
     READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
 
 # THE ONE ENDING THAT IS A SKIP AND NOT A FAILURE. The squads were asked about and the
@@ -137,9 +137,14 @@ WHILE joined < 1 LIMIT 6
     READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
 IF joined >= 1
-    LOG "the squads are in the rally — {joined} more of ours standing in one than before"
+    LOG "the squads are in the rally — the count above is how many more of ours are standing in one"
     STOP
 
+# A PLACEHOLDER DOES NOT WORK HERE, and it is documented not to: `{x}` is substituted
+# ONCE, before the run (docs/dsl.md), so a value a later `READ_LUA` writes never
+# reaches a `LOG` or a `FAIL` — it prints as the literal `{x}`, which is what the
+# first version of this line did. The reading logs its own value on the line above,
+# so the sentence points there instead of pretending to carry it.
 # WHAT THE SERVER SAID, before giving up on it (#1281). «The send went out and no squad
 # appeared» is the same shape this ability spent weeks in — a press that returned cleanly
 # over nothing happening — and naming it without naming the REFUSAL leaves the next reader
@@ -149,4 +154,4 @@ IF joined >= 1
 # the message never reached it.
 READ_LUA (function() local ok, v = pcall(function() local m = UIManager.Instance if not m:IsWindowOpen(UIWindowNames.UICommonMessageTip) then return '' end local w = m:GetWindow(UIWindowNames.UICommonMessageTip) local t = w and w.View and w.View.tipText return t == nil and '' or tostring(t) end) if not ok or v == nil or v == '' then return 'the server said nothing on screen' end return v end)() INTO refusal
 
-FAIL "the join was sent and no squad appeared in a rally — the game says: {refusal}"
+FAIL "the join was sent and no squad appeared in a rally — the game's own words are on the «refusal» line above"

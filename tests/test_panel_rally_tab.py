@@ -28,6 +28,7 @@ from __future__ import annotations
 TIER = "ui"        # Tk and a display — see tools/run_tests.py
 
 import json
+import re
 import sys
 import threading
 from pathlib import Path
@@ -601,8 +602,16 @@ def test_the_join_names_every_squad_and_rally_it_passed_over():
     reads = [s for s in stmts if isinstance(s, se.ReadLuaStmt)]
     assert any(s.var == "report" and "__lw_rally_report" in s.text for s in reads), \
         [s.var for s in reads]
-    assert any(isinstance(s, se.LogStmt) and "{report}" in s.text for s in stmts), \
-        [type(s).__name__ for s in stmts]
+    # …and NOT through a placeholder. `{x}` is substituted once, before the run
+    # (docs/dsl.md), so a value a later `READ_LUA` writes never reaches a `LOG` or a
+    # `FAIL` — it prints as the literal `{x}`, which is what the live log showed for a
+    # day (`the game says: {refusal}`). The reading logs its own value; the sentence
+    # beside it must not pretend to carry one.
+    assert not [s for s in stmts
+                if isinstance(s, (se.LogStmt, se.FailStmt))
+                and re.search(r"\{(report|joined|refusal|todo)\}",
+                              getattr(s, "text", "") or getattr(s, "reason", "") or "")], \
+        "a LOG or FAIL carries a runtime placeholder that will print as a literal"
 
 
 # ---------------------------------------------------------------------------

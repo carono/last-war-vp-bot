@@ -3409,12 +3409,36 @@ def rally_join_all() -> str:
         # alliances', and the ones we are already standing in. Without the split, «two
         # were missed» cannot be said or denied, which is exactly what the summary had to
         # admit. One more pass over the collection already in hand, so it costs nothing.
-        "local seen_t, our_t = {}, {} "
+        "local seen_t, our_t, end_of = {}, {}, {} "
         "if col then local e9 = col:GetEnumerator() while e9:MoveNext() do local m9 = cur(e9) "
         "local t9 = g(m9, 'teamUuid') local ts9 = tostring(t9) "
         "if t9 ~= nil and ts9 ~= '0' and ts9 ~= 'nil' then seen_t[ts9] = true "
+        "local u9 = g(m9, 'uuid') local lead9 = false "
+        "pcall(function() lead9 = (tostring(u9) == tostring(t9 - 1)) end) "
+        "if lead9 then end_of[ts9] = tonumber(g(m9, 'endTime')) or 0 end "
         "local n9 = tostring(g(m9, 'allianceName')) "
         "if mine ~= nil and n9 == mine then our_t[ts9] = true end end end end "
+        # A RALLY THAT HAS ALREADY ARRIVED IS NOT A RALLY TO JOIN (#1281). The client
+        # keeps a resolved banner in its march table — same teamUuid, same
+        # `type=ASSEMBLY_MARCH`, `status` still saying MOVING — so nothing in the shape
+        # of the entry says it is over. `endTime` does, and it is the only field that
+        # does: nine «banners» on the map at 18:52 and every one of them had arrived,
+        # the oldest thirty-two minutes earlier. Squads were being sent at all of them,
+        # the server dropped every send without a word on screen, and the run reported
+        # «sent=3 … joined=0» — fifteen sends and no march in one quarter of an hour.
+        #
+        # This is also the correction to a claim made earlier in this task: «six joinable
+        # banners held shut by a mark» were six banners that had already been fought.
+        # Ageing the marks did not free them, it removed the accidental guard that was
+        # keeping squads off them.
+        "local now_ms = 0 "
+        "pcall(function() now_ms = UITimeManager:GetInstance():GetServerTime() end) "
+        "local arrived = {} "
+        "if now_ms > 0 then local still = {} "
+        "for _, r in ipairs(rallies) do local et = end_of[tostring(r.team)] "
+        "if et == nil or et <= 0 or et > now_ms then still[#still+1] = r "
+        "else arrived[#arrived+1] = tostring(r.team) end end "
+        "rallies = still end "
         "local function _n(t) local k = 0 for _ in pairs(t) do k = k + 1 end return k end "
         # COUNTED FROM OUR OWN MARCHES, not from the marks. `taken` also carries the
         # teams this run has just SENT to, and a mark outlives the squad that came home —
@@ -3461,6 +3485,7 @@ def rally_join_all() -> str:
         # denominator «not one missed» is measured against; the rest are not chances.
         "report = report..' seen='..seen_n..' ours='..our_n..' already_in='..in_n "
         "if #went > 0 then report = report..' to=['..table.concat(went, ' ')..']' end "
+        "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "
         "if #left_over > 0 then report = report..' passed=['..table.concat(left_over, ' ')..']' end "
         "if #skipped > 0 then report = report..' left=['..table.concat(skipped, ' ')..']' end "
         "if #errs > 0 then report = report..' refused=['..table.concat(errs, ' ')..']' end "
