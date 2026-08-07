@@ -452,6 +452,27 @@ BUTTONS: dict[str, Button] = {
              "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end"),
         wait=0.5, label="dismiss treasure-reward popup",
     ),
+    # --- world -> the treasure watcher (the debug feed, #1277) ---------------
+    # Two presses that record nothing in the game and send nothing to the server: they
+    # hook (and unhook) the client's own two network doors so every treasure message it
+    # sends or receives is kept in a ring buffer until somebody drains it. The whole
+    # reasoning is in lua_actions («The watcher»); the short version is that a chest is
+    # out for minutes and nobody can start a sniffer in time.
+    #
+    # `treasure_watch_on` reads DataCenter.__lw_treasure_watch_wide, which the recipe
+    # parks first — a `TAP` takes no arguments, the same hand-off the steal queue uses.
+    # Pressing it again re-arms with the new flag and does NOT wrap the wrappers.
+    #
+    # NOT AT THE SAME TIME AS THE TRACER: `lua_trace` wraps these two doors as well, and
+    # whichever restores last wins. Record with one of them.
+    "treasure_watch_on": Button(
+        lua=_lua_actions.treasure_watch_install(),
+        wait=0.3, label="Start watching treasure messages",
+    ),
+    "treasure_watch_off": Button(
+        lua=_lua_actions.treasure_watch_stop(),
+        wait=0.3, label="Stop watching treasure messages",
+    ),
     # --- Hospital: heal wounded soldiers ("Лечение юнитов") ------------------
     # Two presses, the two halves of the in-game routine (docs/research/hospital-heal.md):
     #   heal_all       — send every wounded soldier type for treatment in one

@@ -289,3 +289,152 @@ system, and it is not needed for the read path.
 **Practical consequence:** the honest way to catch a treasure is to wait for one, which
 is what `find_treasures.py --watch` does. Live on 2026-07-29 the watch ran repeated
 rounds against the game and stayed correctly empty throughout.
+
+---
+
+# The 2026-08-07 session: the whole thing, done by hand, on one trace
+
+The first END-TO-END recording of the ability. Everything above was reconstructed from a
+capture where the chest was already dug and from the live VM; this one is a player doing
+the lot in one sitting — «отправил координаты сокровища, появился бадж о том, что
+сообщили о сокровище, отправил отряд на раскопку, собрал сокровища, закрыл модалку»
+(task #1277):
+
+* trace : `results/traces/20260807_105327_сбор_сокровища_trace.log`
+* wire  : `results/traffic/20260807_105328_сбор_сокровища_traffic.jsonl` — **0 bytes**
+
+**The wire file being empty is not a dead client, and telling those two apart is the
+lesson.** The secret-task monitor was already listening on the same interface, and a
+second capture beside it gets crumbs — a picture indistinguishable from a client that is
+not talking (044c19f). The trace, which reads the client's own Lua rather than the
+network, was complete. **Check what else is capturing before believing a silent wire**,
+and when one is up, analyse from the trace.
+
+Every id below is INVENTED, of the same shape as the real one — a uuid is 19 digits, a
+server is small, a tile index is `y * 1000 + x + 1`. The session's own values are in the
+git-ignored trace and stay there (`CLAUDE.md`).
+
+## What the client actually said, in order
+
+Four messages, and they are the ability:
+
+```
+out  world.treasure.share.chat  ← the share; see below
+in   world.treasure.share.chat  ← …and the badge that came back
+out  world.march.formation.new  formationUuid, target=50, treasureUuid, "<from>;<to>"
+in   push.detect.treasure.claim × 14        ← the alliance digging, one per finish
+out  detect.event.claim.treasure  uuid, targetServer
+in   detect.event.claim.treasure  → UIManager.OpenWindow(UIGiftPackageRewardGet)
+```
+
+Nothing else in the session is treasure-related: `get.player.cross.server.list`,
+`detect.event.get.card.box.list` and the ordinary push traffic (`push.hero.data`,
+`push.resource.info`, fifty `push.lw.alliance.alert.info.remove`).
+
+### 1. Sharing the chest into alliance chat — NEW
+
+The badge the player saw is a chat post, not a treasure message. `ChatTreasureShare`
+builds an ordinary chat send whose `attachmentId` carries the chest:
+
+```
+SFSObject.PutInt      CurServerId  = <server>
+SFSObject.PutLong     post         = <the chat room>
+SFSObject.PutUtfString lang        = "ru"
+SFSObject.PutUtfString msg         = ""
+SFSObject.PutUtfString attachmentId =
+  {"sid":<server>,"worldId":0,"shareType":27,"worldType":0,
+   "uuid":<treasure uuid>,"treasureId":"<cfgId>","oname":"<uid>","x":<x>,"y":<y>}
+SFSObject.PutUtfString uuid        = <treasure uuid>
+```
+
+**`shareType` 27 is the treasure share** — the same attachment mechanism the coordinate
+share uses (`tools/lib/chat_share.py`), with its own type and its own payload. The reply
+comes back as **`world.treasure.share.chat`**, handled by `ChatManager2.OnHandleMessage`,
+and `DetectEventTemplate.GetChatBubblePath` is what draws the bubble. That message is the
+cheapest «есть сокровище» detector there is: it names the uuid, the cfgId, the server and
+the tile, and it arrives whether the chest was shared by this account or by anybody else
+in the alliance.
+
+### 2. The dig march — the call in `lua_actions` is right
+
+Confirmed exactly as `dig_treasure_march` builds it, argument for argument:
+
+```
+MarchUtil.SendCreateMarchMessage(<formation uuid>, 50, <pid>, <treasure uuid>,
+                                 1, 1, false, <server>, nil)
+```
+
+`50` is `MarchTargetType.DETECT_TREASURE` (same server; 182 cross-server, unexercised
+here). It comes out on the wire as `world.march.formation.new`:
+
+```
+formationUuid  <long>          target        50
+targetUid      <treasure uuid> path          "<from pid>;<to pid>"
+soldierType    1               worldId       0
+worldType      0               waitTimeIndex 1
+autoBackHome   true            targetServer  <server>
+formationParam { uuid, formations[], heroInfos[{heroUuid, index}×6] }
+clientCreateUuid <a fresh uuid4 per march>
+```
+
+**The target type is the SECOND argument**, after the formation uuid — worth writing down
+because a filter reading the first one sees a 19-digit number and matches nothing.
+
+The pid confirms the tile arithmetic independently: the march's destination and the
+`x`/`y` in the chat share are the same tile, `pid = y * 1000 + x + 1`, which is what
+`SceneUtils.IndexToTilePos` inverts.
+
+### 3. The claim — confirmed, and what it raises
+
+```
+UIUtil.GetDetectTreasureReward(<pid>)                 -- what is in it, before pressing
+SFSNetwork.SendMessage("detect.event.claim.treasure", <uuid>, <server>)
+  → SFSObject.PutLong uuid ; SFSObject.PutInt targetServer
+```
+
+Exactly the shape `claim_treasure` sends. The reply arrives under the same name and the
+client answers it with `UIManager.OpenWindow(UIGiftPackageRewardGet, …)` — which is the
+window `dismiss_treasure_reward` closes. The claim went out TWICE in this session
+(the player pressed twice); the second send was answered the same way, so the press is
+not obviously punished for being repeated.
+
+**`push.detect.treasure.claim` is the alliance's own feed of the dig** — fourteen of them
+arrived, in bursts, before and after the claim: one per member finishing their part.
+It is a broadcast about somebody ELSE's finish as much as about ours, which makes it the
+detector for «сокровище забрали» regardless of who took it.
+
+## Status after this session
+
+* Position read: **confirmed** (unchanged).
+* Take command: **confirmed on the wire AND from the caller side** — the exact
+  `SFSNetwork.SendMessage` call, its packing, its reply and the window it raises.
+* Dig march: **confirmed from the caller side** — `MarchUtil.SendCreateMarchMessage` with
+  target 50 and the full `world.march.formation.new` body.
+* Announcement: **confirmed** — chat `shareType` 27 out, `world.treasure.share.chat` in.
+* **Still unproven: the BOT doing it.** Every call `tools/lib/lua_actions.py` makes is now
+  known to be the right one, but `actions/dev/work_treasure.md` has never been fired at a
+  live chest — this session was a person pressing the game's own buttons. That is why the
+  farming list still says 🟡.
+
+## Watching it happen — the debug page (#1277)
+
+A chest is out for minutes and the alliance digs it together, so the sniffer pair is
+almost always too late: by the time anybody has started it the chest is gone. The answer
+is something that is ALREADY listening —
+`lua_actions.treasure_watch_install/stop/drain/state`, a pair of wrappers on
+`SFSNetwork.SendMessage` / `SFSNetwork.HandleMessage` writing into a ring buffer that
+lives in the game VM.
+
+* **the buffer is in the game, not in the panel**, so a panel restart, a profile switch
+  or a closed window loses nothing; the panel's own ring is the second copy, for what a
+  GAME restart would wipe;
+* **it does not touch the network interface at all**, so it coexists with the secret-task
+  monitor's pcap — which is exactly what made this session's wire file empty;
+* **it must not run beside `lua_trace`**: the tracer wraps the same two functions, and
+  each would unwrap the other on the way out;
+* the filter, with `wide` off, keeps anything `treasure`/`detect`, plus a `world.march.*`
+  send at target 50/182 — the three moments above and nothing else.
+
+Recipes: `actions/dev/watch_treasures.md`, `read_treasure_watch.md`,
+`unwatch_treasures.md`. The page that plays them is `panel/tabs/treasure_debug/`, behind
+«Разработка». `tests/test_treasure_watch.py` runs the hook in a real Lua.

@@ -102,6 +102,19 @@ ZOOM_LEVELS: dict = {
 DEFAULT_ZOOM_LEVEL = "tile"
 
 
+#: The heights a LAP is worth walking at (#1272). «Тайл» is not among them and must not
+#: come back: a lap at 105 needs a 24-tile step, which is 88 SECONDS of camera against 6
+#: at 600 — and it finds nothing the 600 lap does not, because 600 is the ceiling at
+#: which the client still asks for secret tasks at all (docs/research/map-sweep-zoom.md).
+#:
+#: It used to be offered because one control drove both the lap and every JUMP, so
+#: anybody who wanted to land on a readable tile picked «тайл» and thereby signed up for
+#: an 88-second sweep. Jumps do not take a height any more — they are always the tile
+#: view, decided in one place (`GameLink.jump`) — so this control is about the lap and
+#: nothing else.
+SWEEP_LEVELS = ("tasks", "bases")
+
+
 def zoom_level(name: "str | None") -> tuple:
     """``(height, step)`` of a named level, falling back to the tile view.
 
@@ -209,6 +222,13 @@ def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
     stride = max(1, int(FAST_STEP if step is None else step))
     gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
     return (FIND_WORLD_SCENE + '''
+local DC = DataCenter.ActDispatchTaskDataManager
+-- EVERY WAYPOINT IS SCHEDULED AT ONCE, so a lap cannot be called back — the game's own
+-- timer owns them from here (#1272). What it CAN be is disowned: each closure checks the
+-- run token it was scheduled under, and `fast_map_sweep_stop` bumps it. A stopped lap
+-- therefore costs the timers that are still pending exactly one comparison each.
+DC.__lw_sweep_run = (tonumber(DC.__lw_sweep_run) or 0) + 1
+local run = DC.__lw_sweep_run
 local srv=%s
 local size = 1000
 pcall(function() size = WS.TileCount.x end)
@@ -226,6 +246,7 @@ for row = 1, #axis do
     local x = axis[(row %% 2 == 1) and col or (#axis - col + 1)]
     n = n + 1
     tm:DelayInvoke(function()
+      if DC.__lw_sweep_run ~= run then return end
       pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), %d, 0, nil, srv) end)
     end, (n - 1) * %f)
   end
@@ -233,6 +254,20 @@ end
 CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d span="
   ..string.format("%%.1f", (n - 1) * %f).." size="..tostring(size))
 ''' % (current_server_expr(), stride, stride, height, gap, height, stride, gap))
+
+
+def fast_map_sweep_stop() -> str:
+    """Disown every waypoint a lap still has pending — «Остановить» (#1272).
+
+    The lap hands its whole waypoint list to the game's own timer in one call, so there
+    is nothing to cancel and no handle to cancel it with. Bumping the run token is the
+    interruption: each pending closure compares it before moving the camera and returns
+    when it does not match. The camera stops at wherever it had got to.
+    """
+    return ("local DC = DataCenter.ActDispatchTaskDataManager "
+            "DC.__lw_sweep_run = (tonumber(DC.__lw_sweep_run) or 0) + 1 "
+            'CS.UnityEngine.Debug.LogError("ACT sweep_stopped run="'
+            "..tostring(DC.__lw_sweep_run))")
 
 
 def fast_sweep_seconds(step: "int | None" = None, interval: "float | None" = None,
@@ -2554,6 +2589,231 @@ def park_treasures(home_server: int = 0) -> str:
         "DataCenter.__lw_treasure_queue=q "
         "CS.UnityEngine.Debug.LogError('ACT treasure_parked '..tostring(#q))"
         % (int(home_server), int(home_server))
+    )
+
+
+# --- The watcher: every treasure message the client sees, kept until read ---
+# What it is for. A treasure is a RACE and a rarity at once — the chest is out for
+# minutes, the alliance digs it together, and the whole exchange is over before anybody
+# can start a sniffer. So the messages have to be caught by something that was already
+# listening, and kept until a person gets round to reading them. That is this: a hook on
+# the client's own two network doors, writing into a ring buffer that lives in the game
+# VM, drained by whoever asks.
+#
+# WHY THE BUFFER IS IN THE GAME AND NOT IN THE PANEL. The panel is restarted, switched
+# profiles, minimised and closed; the client is not. A buffer on the panel's side loses
+# exactly the messages that arrive while nobody is looking, which is every message worth
+# having. In the VM it survives a panel restart and costs a table.
+#
+# WHAT IT HOOKS. `SFSNetwork.SendMessage(cmd, ...)` and `SFSNetwork.HandleMessage(cmd,
+# obj, ...)` — both plain dot-functions taking the command name first, confirmed in the
+# 2026-08-07 «сбор сокровища» trace where every send and every push goes through them
+# (docs/research/world-treasures.md). Hooking the pair catches the whole ability without
+# knowing which manager fires it: the dig march goes out through `MarchUtil.
+# SendCreateMarchMessage`, which itself calls `SFSNetwork.SendMessage`.
+#
+# NOT AT THE SAME TIME AS THE TRACER. `lua_trace` wraps ~6500 functions including these
+# two. Running both means each unwraps the other's wrapper on the way out, and the loser
+# is whichever restored last. Record with ONE of them.
+#
+# THE FILTER, and why it is names rather than a manager. `wide` off keeps anything whose
+# command carries `treasure` or `detect`, plus a `world.march.*` SEND whose target type
+# is a treasure march (50 same-server / 182 cross-server). That is the three things a
+# person watching wants — the chest appearing, the squad going out, the chest being
+# taken — and nothing else. `wide` on keeps every message the client sends or handles,
+# for the session where the question is «what did I miss».
+
+#: How many messages the ring holds before the oldest is dropped. Each entry is a
+#: command name and a flattened field list, so a few hundred is kilobytes.
+TREASURE_WATCH_CAP = 400
+
+#: Target types of a march that is digging a treasure (`MarchTargetType`), the two the
+#: filter lets through from `world.march.*`: same server, and cross-server.
+TREASURE_MARCH_TARGETS = (50, 182)
+
+# The shared helpers the install chunk defines as locals and the closures capture. Kept
+# as one string so the install is readable; `W` is the buffer table, looked up fresh so
+# a re-install with a different `wide`/`cap` takes effect without re-wrapping.
+_WATCH_HELPERS = r"""
+local W = DataCenter.__lw_treasure_watch
+local function nowms() local ms=0
+  pcall(function() ms=UITimeManager.Instance:GetServerTime() end)
+  ms = math.floor(tonumber(ms) or 0)
+  if ms <= 0 then ms = (tonumber(ChatInterface.getServerTime()) or 0) * 1000 end
+  return ms end
+local function short(v)
+  local s = tostring(v)
+  if #s > 160 then s = s:sub(1,160) .. "..." end
+  return s end
+local function keep(dir, cmd, a1, a2)
+  if not W.on then return false end
+  if type(cmd) ~= "string" then return false end
+  if W.wide then return true end
+  if cmd:find("treasure", 1, true) or cmd:find("detect", 1, true) then return true end
+  if dir == "out" and cmd:find("world.march.", 1, true) then
+    for _, want in ipairs(W.marches or {}) do
+      if tonumber(a1) == want or tonumber(a2) == want then return true end
+    end
+  end
+  return false end
+local function fields(obj)
+  local out = {}
+  pcall(function()
+    local keys = SFSObject.GetKeys(obj)
+    local seen = 0
+    for _, k in ipairs(keys) do
+      seen = seen + 1
+      if seen > 24 then break end
+      local v
+      pcall(function() v = SFSObject.GetData(obj, k) end)
+      if type(v) == "table" then v = "{...}" end
+      out[#out+1] = tostring(k) .. "=" .. short(v)
+    end
+  end)
+  return table.concat(out, " ") end
+local function args(...)
+  local out = {}
+  local n = select("#", ...)
+  if n > 8 then n = 8 end
+  for i = 1, n do
+    local v = select(i, ...)
+    if type(v) == "table" then v = "{...}" end
+    out[#out+1] = "a" .. i .. "=" .. short(v)
+  end
+  return table.concat(out, " ") end
+local function push(dir, cmd, info)
+  W.seq = (W.seq or 0) + 1
+  W.items[#W.items+1] = {i=W.seq, t=nowms(), d=dir, c=tostring(cmd), f=info}
+  while #W.items > (W.cap or 400) do
+    table.remove(W.items, 1)
+    W.drop = (W.drop or 0) + 1
+  end end
+"""
+
+
+def treasure_watch_install(cap: int = TREASURE_WATCH_CAP) -> str:
+    """Start (or re-arm) the watcher, and say what it is now — `ACT treasure_watch …`.
+
+    Idempotent by construction: the two doors are wrapped once and the wrappers read
+    `W.wide` / `W.cap` out of the buffer table on every call, so pressing this again
+    with a different `DataCenter.__lw_treasure_watch_wide` changes what is kept without
+    a second layer of wrapping. Nothing already in the ring is thrown away.
+
+    The whole hook body is inside `pcall`, and a hook that throws must never break the
+    client's networking: the original is called outside the guard, so a bug here costs
+    a missing log line and not a dropped message.
+    """
+    return (
+        "local D = DataCenter "
+        "if not D.__lw_treasure_watch then D.__lw_treasure_watch = "
+        "{seq=0, drop=0, items={}, on=false} end "
+        "D.__lw_treasure_watch.cap = " + str(int(cap)) + " "
+        "D.__lw_treasure_watch.wide = D.__lw_treasure_watch_wide and true or false "
+        "D.__lw_treasure_watch.marches = {"
+        + ",".join(str(int(t)) for t in TREASURE_MARCH_TARGETS) + "} "
+        + _WATCH_HELPERS +
+        "if not W.hooked then "
+        "W.origSend = SFSNetwork.SendMessage "
+        "W.origRecv = SFSNetwork.HandleMessage "
+        "SFSNetwork.SendMessage = function(cmd, ...) "
+        "local okk, want = pcall(keep, 'out', cmd, (select(1, ...)), (select(2, ...))) "
+        "if okk and want then local oka, info = pcall(args, ...) "
+        "if oka then pcall(push, 'out', cmd, info) end end "
+        "return W.origSend(cmd, ...) end "
+        "SFSNetwork.HandleMessage = function(cmd, obj, ...) "
+        "local okk, want = pcall(keep, 'in', cmd, nil) "
+        "if okk and want then local okf, info = pcall(fields, obj) "
+        "if okf then pcall(push, 'in', cmd, info) end end "
+        "return W.origRecv(cmd, obj, ...) end "
+        "W.hooked = true end "
+        "W.on = true "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_watch on=1 wide="'
+        '..tostring(W.wide and 1 or 0).." cap="..tostring(W.cap)'
+        '.." buf="..tostring(#W.items))'
+    )
+
+
+def treasure_watch_stop() -> str:
+    """Stop keeping messages, and put the client's two doors back as they were.
+
+    The wrappers are removed rather than left recording into a buffer nobody drains: a
+    hook that stays on is a hook the next person has to remember about, and the tracer
+    would then wrap a wrapper. What is already in the ring survives — stopping is not
+    the same as throwing away, and the last thing recorded is usually the interesting
+    one.
+    """
+    return (
+        "local W = DataCenter.__lw_treasure_watch "
+        "if W then W.on = false "
+        "if W.hooked then "
+        "if W.origSend then SFSNetwork.SendMessage = W.origSend end "
+        "if W.origRecv then SFSNetwork.HandleMessage = W.origRecv end "
+        "W.hooked = false end end "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_watch on=0 buf="'
+        "..tostring(#((W or {}).items or {})))"
+    )
+
+
+def treasure_watch_drain(limit: int = 25, budget: int = 6000) -> str:
+    """Lua *expression* -> a JSON object of the oldest messages, REMOVING them.
+
+    Shaped for `READ_LUA … INTO feed`: one value, one line, no newline in it. The reader
+    gets ``{"on":0|1,"wide":0|1,"n":<taken>,"more":<still queued>,"drop":<dropped since
+    the last drain>,"seq":<total ever>,"items":[{"i","t","d","c","f"}…]}`` — `t` is the
+    GAME's clock in milliseconds (`docs/research/game-clock.md`; the PC's lies), `d` is
+    `in`/`out`, `c` the command and `f` its fields flattened to `k=v` pairs.
+
+    TWO CAPS, because the answer travels as one log line. `limit` is how many entries at
+    most, `budget` how many characters at most — whichever is reached first stops the
+    drain and the rest is reported as `more`, so a caller loops until `more` is zero
+    instead of losing the tail to a truncated line. `drop` is reported once and cleared:
+    it is the ring's own confession that it overflowed, and it must not be counted twice.
+    """
+    return (
+        "(function() "
+        "local W = DataCenter.__lw_treasure_watch "
+        'if not W then return \'{"on":0,"wide":0,"n":0,"more":0,"drop":0,"seq":0,"items":[]}\' end '
+        "local function q(s) s = tostring(s or '') "
+        "if #s > 400 then s = s:sub(1,400) .. '...' end "
+        "s = s:gsub('\\\\', '\\\\\\\\'):gsub('\"', '\\\\\"'):gsub('%c', ' ') "
+        "return '\"' .. s .. '\"' end "
+        "local items = W.items or {} "
+        "local parts, used = {}, 0 "
+        "while #parts < " + str(int(limit)) + " and #items > 0 and used < "
+        + str(int(budget)) + " do "
+        "local it = table.remove(items, 1) "
+        "local one = '{\"i\":' .. tostring(it.i or 0) .. ',\"t\":' .. tostring(it.t or 0) "
+        ".. ',\"d\":' .. q(it.d) .. ',\"c\":' .. q(it.c) .. ',\"f\":' .. q(it.f) .. '}' "
+        "used = used + #one "
+        "parts[#parts+1] = one end "
+        "local drop = W.drop or 0 W.drop = 0 "
+        "return '{\"on\":' .. tostring(W.on and 1 or 0) "
+        ".. ',\"wide\":' .. tostring(W.wide and 1 or 0) "
+        ".. ',\"n\":' .. tostring(#parts) "
+        ".. ',\"more\":' .. tostring(#items) "
+        ".. ',\"drop\":' .. tostring(drop) "
+        ".. ',\"seq\":' .. tostring(W.seq or 0) "
+        ".. ',\"items\":[' .. table.concat(parts, ',') .. ']}' "
+        "end)()"
+    )
+
+
+def treasure_watch_state() -> str:
+    """Lua *expression* -> `on=<0|1> wide=<0|1> buf=<n> seq=<n> drop=<n> cap=<n>`.
+
+    A look that changes nothing — what the drain would say, without spending the ring.
+    Used to answer «is it listening?» after a client restart, which wipes the buffer
+    along with the rest of the VM and is the one thing a person cannot tell by waiting.
+    """
+    return (
+        "(function() local W = DataCenter.__lw_treasure_watch "
+        "if not W then return 'on=0 wide=0 buf=0 seq=0 drop=0 cap=0' end "
+        "return 'on=' .. tostring(W.on and 1 or 0) "
+        ".. ' wide=' .. tostring(W.wide and 1 or 0) "
+        ".. ' buf=' .. tostring(#(W.items or {})) "
+        ".. ' seq=' .. tostring(W.seq or 0) "
+        ".. ' drop=' .. tostring(W.drop or 0) "
+        ".. ' cap=' .. tostring(W.cap or 0) end)()"
     )
 
 
