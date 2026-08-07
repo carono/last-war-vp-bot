@@ -51,7 +51,15 @@ REPORT = "rally_auto_join:   READ_LUA report = "
 JOINED = "rally_auto_join:   READ_LUA joined = "
 SCREEN = "CALL join_rally_via_screen"
 FAILED = "run of rally_auto_join failed"
-SKIPPED = "skipped rally_auto_join"
+#: The schedule turned the errand down for good, naming a reason (`note_skip`) — the
+#: game is not running, the daemon is gone. The errand is DROPPED; the next push queues
+#: it afresh.
+SKIPPED = "skipped rally_auto_join x"
+#: …and the one that looks identical and is not: the panel had a press of its own in
+#: flight, so the errand was NOT tried and stays in the queue, retried a few seconds
+#: later. Counting it as a skip made the first long window read «51 runs, 0 sent» when
+#: two thirds of those runs had not happened yet — a deferral is a delay, not a loss.
+BUSY = "skipped rally_auto_join — panel busy"
 #: A run that ended in a FAIL says why in its own words. Bucketed alongside the reports
 #: so that EVERY run is accounted for: a run that neither sent nor explained itself is
 #: the bug this file exists to catch, and it can only be spotted by adding up.
@@ -77,13 +85,22 @@ FAIL_WORDS = (
     ("would not take the chosen squad", "the screen refused the squad"),
     ("no squad appeared in a rally", "the send went out and no squad appeared"),
     ("could not be paired up", "no formation for the chosen squad"),
+    # A recipe that CALLs another names the step it failed at rather than the reason,
+    # which is right for the log and useless as a bucket — so the sub-action's own name
+    # is what this is counted under (`fill_empty_squads` is #1285's).
+    ("sub-action ", None),
 )
+
+
+def _sub_action(text: str) -> str:
+    tail = text.split("sub-action ", 1)[1]
+    return "the sub-action %s failed" % tail.split()[0]
 
 
 def _fail_bucket(text: str) -> str:
     for needle, bucket in FAIL_WORDS:
         if needle in text:
-            return bucket
+            return bucket if bucket is not None else _sub_action(text)
     return "other: " + text[:60]
 
 
@@ -128,6 +145,7 @@ def tally(lines: list) -> dict:
     first = last = None
     runs: list = []                       # one dict per run, in order
     cur: dict | None = None
+    deferred = 0                          # turned down as busy and left in the queue
 
     for line in lines:
         at = stamp(line)
@@ -143,6 +161,9 @@ def tally(lines: list) -> dict:
             continue
         if "rally_auto_join" in line and "очереди" in line:
             waiting += 1
+            continue
+        if BUSY in line:
+            deferred += 1
             continue
         if SKIPPED in line:
             runs.append({"skipped": True})
@@ -231,7 +252,7 @@ def tally(lines: list) -> dict:
         "screens": screens, "failures": sum(fails.values()),
         "reasons": reasons, "empty_only": empty_only, "left": squads_left,
         "fails": fails, "latencies": latencies, "unexplained": unexplained,
-        "empty_seen": empty_seen,
+        "empty_seen": empty_seen, "deferred": deferred,
         "with_send": joined_runs,
     }
 
@@ -248,6 +269,8 @@ def show(t: dict) -> None:
     print(f"squads SENT                 : {t['sent']}")
     print(f"joins CONFIRMED by the game : {t['joins']}")
     print(f"runs that failed            : {t['failures']}")
+    print(f"deferred, panel busy        : {t['deferred']}"
+          f"   (not a skip: the errand stayed in the queue and was retried)")
     if t["latencies"]:
         lat = sorted(t["latencies"])
         print(f"push -> send, seconds       : min {lat[0]:.2f}"
@@ -263,8 +286,9 @@ def show(t: dict) -> None:
         print(f"  {n:5d}  {name}")
     print(f"\nof those, a banner was out and EVERY squad it could spend stood empty:"
           f" {t['empty_seen']}"
-          f"\n   (counted across the buckets above, not beside them — that case has no"
-          f"\n    working route yet: the game's own screen launch throws, #1285)")
+          f"\n   (counted across the buckets above, not beside them — the case is "
+          f"#1285's,\n    and while its route is being built those runs land in a "
+          f"failure bucket)")
 
     if t["left"]:
         print("\nsquads passed over, by word:")
