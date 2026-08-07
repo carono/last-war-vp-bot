@@ -419,7 +419,21 @@ class Schedule:
                     raise RuntimeError(
                         reason or self.rt.t("timers.log.step_failed", step=step))
             if spent and record is not None:
-                record(self._kinds(ctx) or spent, self._did(ctx))
+                kinds = self._kinds(ctx)
+                # NEVER MORE THAN THIS RUN ACTUALLY SENT (#1281). `joined` is a
+                # DIFFERENCE — our squads standing in a rally now, less the number
+                # standing when this run began — and two drivers play this recipe
+                # (the schedule's trigger and the capture's own reader). A squad that
+                # landed from the OTHER driver's send between one run's snapshot and
+                # its check lands in both runs' difference, so both record it: over one
+                # live event the tally read 53 against 34 confirmed joins and 35
+                # trophies. One entry per banner this run sent is the ceiling.
+                # …and a run that sent NOTHING records nothing, whatever it saw. That
+                # was the actual leak: the second driver's run reported `joined=1` for a
+                # squad the FIRST one had sent, carried no kinds of its own, and fell
+                # back to the gate's list — so it counted somebody else's join under
+                # whichever kind happened to be first.
+                record(kinds or spent, min(self._did(ctx), len(kinds)))
             return True
         finally:
             self._note_presses(ctx)

@@ -237,6 +237,33 @@ def test_the_chunk_reports_the_games_count_and_says_what_the_threshold_costs():
 
 
 
+def test_the_tally_never_counts_more_than_the_run_sent():
+    """Two drivers, one difference — the count must not be spent twice (#1281).
+
+    `joined` is a DIFFERENCE: our squads in a rally now, less the number when the run
+    began. The schedule's trigger and the capture's own reader both play this recipe, so
+    a squad that landed from the other one's send between a run's snapshot and its check
+    falls inside both differences and both used to record it. Over one live event the
+    tally read 53 against 34 confirmed joins and 35 trophies.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"])
+        # One banner sent to, three joins seen: only the one this run sent is counted.
+        gate.record_joins(rt, ["doom_elite"], 3)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("doom_elite") == 1, counts
+        # A run that sent NOTHING records nothing, whatever difference it saw — that
+        # was the actual leak: the second driver reported a join the first one had sent.
+        gate.record_joins(rt, [], 2)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("doom_elite") == 1 and counts.count_for("monster") == 0, counts
+
+        # …and a run that sent two and saw two counts both.
+        gate.record_joins(rt, ["monster", "monster"], 2)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 2, counts
+
+
 def test_the_join_does_not_start_when_every_squad_it_may_send_is_out():
     """The check is in front of the run, and it is fresh (#1281).
 
