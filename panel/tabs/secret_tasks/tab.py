@@ -224,6 +224,41 @@ DEFAULT_INTERVAL = "1"
 SOURCE_VM = "vm"        # seeded / confirmed by the client's own alliance table
 SOURCE_WIRE = "wire"    # found by the passive capture, or restored from its checkpoint
 
+#: **THE RULE OF THIS LIST. READ IT BEFORE REMOVING A ROW ANYWHERE (#1272).**
+#:
+#: The ★ list is the operator's own record of what they have found. It is paid for with
+#: laps of the map and it is not reproducible: a tile nobody drives past again is gone
+#: for good. Three times in one day it was emptied by three different mistakes — a read
+#: that could not see the rows deleting them, a lap wiping them before it started, and a
+#: rescan discarding what it had — so the rule is written once, here, and every site that
+#: removes a row says which of its two clauses it is exercising.
+#:
+#: **A ROW LEAVES THIS LIST FOR EXACTLY TWO REASONS:**
+#:
+#: 1. **The task is over.** Its own `expires_at` has passed — the game's clock, not
+#:    ours — and there is nothing on the map any more. That is `_tick`.
+#: 2. **The game said it is not there.** An ANSWER about that particular tile: the
+#:    server's «задание уже взято / больше не доступно / срок истёк» (`_drop_gone`), or
+#:    a per-tile read that came back with no detail while a control point proved the
+#:    answers were arriving (`_state_landed`), or a live read that both COULD see the row
+#:    and did not carry it (`_merge`, `_poll_apply`, gated by `_answerable`).
+#:
+#: **EVERYTHING ELSE IS A FILTER.** A tile robbed three times, one at home, one outside
+#: the level range, one the boxes narrow away — all of those are still IN the list and
+#: only kept off the screen, which is why «Показывать исчерпанные» can bring them back
+#: and why the counter says how many are hidden.
+#:
+#: **AND NOTHING EMPTIES IT.** Not opening the tab, not a lap of the map, not starting or
+#: stopping a monitor, not a failed read, not an empty one, not a restart. The two
+#: exceptions are not exceptions to this: «Очистить список» is a person asking for it in
+#: so many words, and a PROFILE SWITCH is another account's map — that list is kept in
+#: that account's own checkpoint and comes back with it.
+#:
+#: A row we robbed ourselves obeys clause 1 and nothing else: it is kept, marked, without
+#: «Собрать», so it can still be shared, and «уже взято» is the answer our own robbery
+#: earned rather than evidence against it.
+THE_LIST_RULE = "expiry, or the game saying the tile is not there — nothing else"
+
 # The two channels a task can be forwarded to. The room ids are built from the player's
 # own server / alliance, read once and cached (see `_self_ids`).
 SHARE_ALLIANCE = "alliance"
@@ -527,6 +562,9 @@ class SecretTasksTab(PanelTab):
         # exactly what `on_show` does for a tab opened fresh — but only when this tab has
         # actually been shown; an unopened one has nothing on screen to drop, and
         # `on_show` seeds it from the right profile whenever it next is.
+        # NOT a wipe (`THE_LIST_RULE`): this is another ACCOUNT's map. The rows that
+        # leave here are kept in the old profile's own checkpoint and come straight back
+        # with it; the new profile's own list is read in below.
         self._rows.clear()
         self._collected.clear()
         # …and what the standing order had already fired at belongs to that account's
@@ -1465,6 +1503,8 @@ class SecretTasksTab(PanelTab):
                 continue
             if row.get("robbed"):                    # kept for sharing, as ever
                 continue
+            # `THE_LIST_RULE` clause 2 — asked about this tile, told there is nothing
+            # there, and the control point proved the answers were arriving.
             self._rows.pop(key, None)
             gone += 1
         self.say("secret", "log.secret.state_done", checked=checked, updated=updated,
@@ -1480,13 +1520,12 @@ class SecretTasksTab(PanelTab):
         the timer that walks them and the height they are walked at all live in the
         scenario and its primitive (`CLAUDE.md`). What the tab decides is WHEN.
 
-        IT STARTS FROM A CLEAN LIST, and that does not contradict the accumulating rule.
-        The list accumulates between laps and no READ may empty it — that is what stopped
-        it being wiped every start-up (`_answerable`). But a person pressing «Обойти
-        карту» IS the explicit «покажи, что на карте сейчас»: leaving yesterday's finds
-        mixed in with this lap's makes the table a blend of two moments that nobody can
-        tell apart. What survives the wipe is the session's robbed set, so a tile taken
-        earlier cannot be re-offered as a target.
+        IT DOES NOT EMPTY THE LIST. It did, for one commit, because that seemed to make
+        the table one honest moment instead of a blend of two — and it cost the operator
+        their finds, which is the third time this list has lost data and the third
+        different reason. There is one rule now and it is above (:data:`THE_LIST_RULE`):
+        a lap FILLS the list, like every other feed, and nothing about pressing a button
+        makes a row stop existing.
 
         AND IT CAN BE STOPPED. A lap hands every waypoint to the game's own timer at once
         — there is nothing to call back — so «Остановить» bumps the run token those
@@ -1505,7 +1544,6 @@ class SecretTasksTab(PanelTab):
         height, step = lua_actions.zoom_level(self._zoom_level)
         if not (self.capture.running or self.ghost_capture.running):
             self.say("coord", "log.coord.sweep_unwatched")
-        self._wipe_for_sweep()
         seconds = lua_actions.fast_sweep_seconds(step) + 2
         self.say("coord", "log.coord.sweeping",
                  level=self.t(f"coord.zoom.{self._zoom_level}"), secs=int(seconds))
@@ -1515,34 +1553,6 @@ class SecretTasksTab(PanelTab):
             on_done=self._sweep_ended)
         if not started:
             self._sweep_ended()
-
-    def _wipe_for_sweep(self) -> None:
-        """Empty the ★ list so the lap fills it with what is on the map NOW (#1272).
-
-        **A ROW WE ROBBED IS NOT A MAP FINDING AND IS NOT WIPED.** It is a receipt: the
-        tile is kept on the list, marked and without «Собрать», for one reason only —
-        «хочу потом поделиться этой секреткой» (#1188, 140a4d2). A lap re-reads the map;
-        it does not re-read what this account did today, so clearing those was pure loss.
-        It was, briefly, exactly that: «какого хуя пропадают мои собранные секретки».
-
-        THE RULE, AND IT IS THE WHOLE OF IT: a robbed row leaves this list on its own
-        clock and by nothing else. Not a read that cannot see it (`_answerable`), not a
-        read that says the tile is gone (`_drop_gone`, and «уже взято» is the ANSWER WE
-        EARNED by robbing it), not the state refresh, and not this. Only `expires_at`.
-
-        Deliberately NOT `_clear` either: that button is an explicit «forget all of it»,
-        and this is «show me the map again». The session's robbed uuids stay too, or a
-        tile taken today could be offered as a target the moment the lap re-finds it.
-        """
-        kept = {key: row for key, row in self._rows.items() if row.get("robbed")}
-        n = len(self._rows) - len(kept)
-        self._rows = kept
-        self._restore_pending = set()
-        if n:
-            self.say("coord", "log.coord.sweep_wiped", n=n)
-        self._render()
-        self._update_status()
-        self._persist_rows()
 
     def _sweep_began(self) -> None:
         """The lap is walking: the button becomes «Остановить» and says so."""
@@ -2194,6 +2204,8 @@ class SecretTasksTab(PanelTab):
                     # is still good for. Its `expires_at` still ends it on the next tick.
                     if row.get("robbed"):
                         continue
+                    # `THE_LIST_RULE` clause 2 — a read that COULD have carried this row
+                    # (`_answerable`, just above) and did not.
                     self._rows.pop(key, None)
                     continue
                 row["expires_at"] = task.expires_at
@@ -3118,6 +3130,8 @@ class SecretTasksTab(PanelTab):
         try:
             expired, changed = self._refresh_timers()
             for key in expired:
+                # `THE_LIST_RULE` clause 1 — the task is over, by the game's own clock.
+                # The ONLY removal that needs no answer from anybody.
                 self._rows.pop(key, None)
             if expired or changed:
                 self._render()
@@ -3238,6 +3252,8 @@ class SecretTasksTab(PanelTab):
                     continue
                 if row.get("robbed"):
                     continue
+                # `THE_LIST_RULE` clause 2 — same gate, same reasoning, on the poll's
+                # own thirty-times-slower clock.
                 self._rows.pop(key, None)
                 removed = True
                 continue
@@ -3338,6 +3354,8 @@ class SecretTasksTab(PanelTab):
         row = self._rows.get(str(key))
         if row is None or row.get("robbed"):
             return
+        # `THE_LIST_RULE` clause 2 — the server answered about THIS tile and said it is
+        # not there.
         self._rows.pop(str(key), None)
         self.say("secret", "log.secret.gone")
         self._render()
@@ -3485,6 +3503,11 @@ class SecretTasksTab(PanelTab):
         The alliance table below is deliberately untouched: it accumulates nothing to
         clear — every read replaces it whole — so wiping it would only blank a mirror
         until the next round trip redrew exactly the same rows (#1244).
+
+        THE ONE WAY TO EMPTY THIS LIST, and it stays that way (`THE_LIST_RULE`). Nothing
+        else may do it — not a lap, not a read, not a restart — because everything else
+        is the panel deciding on the operator's behalf that what they found is no longer
+        worth keeping, and it has been wrong about that three times.
         """
         self._rows.clear()
         self._collected.clear()

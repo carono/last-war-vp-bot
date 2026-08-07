@@ -1816,31 +1816,57 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab._sweep_once()
     assert "7" in tab._rows, "«Обойти карту» wiped a collected task"
 
-    # Only its own expiry ends it.
+    # Only its own expiry ends it. The other rows this walk added are still here too —
+    # nothing empties this list any more (`THE_LIST_RULE`), which is the point.
     tab._rows["7"]["expires_at"] = _ms(-1_000)
     expired, _changed = tab._refresh_timers()
-    assert expired == ["7"], expired
+    assert "7" in expired, expired
 
 
-def test_the_lap_still_wipes_everything_that_is_not_ours():
-    """The wipe has a job — a table that is a blend of two laps is unreadable — and
-    keeping the receipts does not take it away (#1272)."""
-    import types
-    kept = _row(7, 7, -60_000, 3_600_000)
-    kept["robbed"] = True
-    tab = _make_tab({"7": kept, "8": _row(8, 7, -5_000, 600_000)})
-    tab.rt = _fake_rt(_state_path())
-    tab.say = lambda *_a, **_k: None
-    tab.post = lambda fn: fn()
-    tab._sweeping, tab._sweep_btn = False, None
-    tab._retitle_sweep = lambda: None
-    tab.capture = types.SimpleNamespace(running=True)
-    tab.ghost_capture = types.SimpleNamespace(running=False)
+def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
+    """The audit, as a test: every door into the model, and what survives each.
+
+    Three separate mistakes emptied this list in one day, so the guard is not «that bug
+    is fixed» but «here is every door, and each is locked to one of `THE_LIST_RULE`'s two
+    clauses».
+    """
+    tab = _sweep_tab({"1": _row(1, 7, -5_000, 600_000),
+                      "2": _row(2, 7, 120_000, 600_000)})
     tab.rt.play_async = lambda name, args=None, **kw: True
+    tab.rt.root = None                       # `_merge` makes a countdown variable
+    tab.rt.profiles = _FakeProfiles(_state_path())
+    # …and the display rules `_visible_rows` reads, which the lap fixture has no use for
+    tab.show_spent_var, tab.hide_own_var = _Var(False), _Var(False)
+    tab.filter_from_var, tab.filter_to_var = _Var(""), _Var("")
+    tab._own_server = 0
+    tab.shared = _shared_marks(tab)
+    tab._maybe_start_poll = lambda: None
+    tab._vm_busy = False
+    tab._collected = set()
 
-    tab._sweep_once()
+    tab._sweep_once()                                             # a lap
+    assert len(tab._rows) == 2, "the lap emptied it"
+    tab._merge([], verify=set(tab._rows), source=st.SOURCE_VM)    # an empty read
+    assert len(tab._rows) == 2, "an empty read emptied it"
+    tab._merge([_StubTask(9)], verify={"1", "2"}, source=st.SOURCE_VM)
+    assert {"1", "2"} <= set(tab._rows), "a read that cannot see them emptied it"
+    tab._poll_apply(["1", "2"], None)                             # a failed poll
+    assert {"1", "2"} <= set(tab._rows), "a failed poll emptied it"
+    tab._state_landed(["1", "2"], {}, {}, False)                  # no control point
+    assert {"1", "2"} <= set(tab._rows), "an unproven refresh emptied it"
 
-    assert sorted(tab._rows) == ["7"], tab._rows
+    # …and a tile filled to 3/3 is FILTERED, not deleted — «Показывать исчерпанные» is
+    # what brings it back.
+    tab._merge([_StubTask(1, loot_count=3)])
+    assert "1" in tab._rows and tab._spent(tab._rows["1"])
+    assert 1 not in [r["uuid"] for r in tab._visible_rows()]
+
+    # Only the two clauses take a row away.
+    tab._drop_gone("2")                                           # clause 2
+    assert "2" not in tab._rows
+    tab._rows["1"]["expires_at"] = _ms(-1_000)                    # clause 1
+    expired, _changed = tab._refresh_timers()
+    assert "1" in expired, expired
 
 
 def _robbed_tab():
@@ -3044,23 +3070,22 @@ def _sweep_tab(rows=None):
     return tab
 
 
-def test_pressing_the_lap_empties_the_list_first():
-    """«При клике обход карты убрать из списка тайл» (#1272).
+def test_pressing_the_lap_keeps_every_row_it_already_had():
+    """«Грид ВСЕГДА остаётся, можно только фильтровать» (#1272).
 
-    The list accumulates between laps and no READ may empty it — that is the rule that
-    stopped it being wiped every start-up. A PERSON pressing «Обойти карту» is the
-    explicit «покажи, что на карте сейчас», which is a different thing entirely: leaving
-    yesterday's finds mixed with this lap's makes the table a blend nobody can read.
+    For one commit the lap emptied the list before it walked — the idea being that the
+    table should be one honest moment rather than a blend of two — and it cost the
+    operator finds that are not reproducible: a tile nobody drives past again is gone for
+    good. `THE_LIST_RULE` is the answer. A lap FILLS the list like every other feed, and
+    pressing a button is not a reason for a row to stop existing.
     """
-    tab = _sweep_tab({"1": _row(1, 7, -5_000, 600_000)})
+    tab = _sweep_tab({"1": _row(1, 7, -5_000, 600_000),
+                      "2": _row(2, 6, 120_000, 600_000)})
 
     tab._sweep_once()
 
-    assert tab._rows == {}, "the lap started on top of yesterday's finds"
-    assert "log.coord.sweep_wiped" in tab.said
-    # …but the session's robbed set survives, or a tile taken today could be offered
-    # again the moment the lap re-finds it.
-    assert tab._collected == {"already-robbed"}
+    assert sorted(tab._rows) == ["1", "2"], "«Обойти карту» ate the list again"
+    assert not hasattr(tab, "_wipe_for_sweep"), "the wipe grew back"
 
 
 def test_a_second_press_stops_the_lap_instead_of_starting_another():
