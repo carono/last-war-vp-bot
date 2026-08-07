@@ -161,8 +161,11 @@ def test_a_daemon_holding_no_client_at_all_is_stale() -> None:
 
 
 def test_no_client_running_is_nobodys_fault() -> None:
-    reply = {"ok": True, "warm": True, "pid": None, "last_ok_age": 0.2}
-    assert verdict(reply, running_pid=None) == "live"
+    """An idle machine has no chunk to land, so every reading below would convict it."""
+    for reply in ({"ok": True, "warm": True, "pid": None, "last_ok_age": 0.2},
+                  {"ok": True, "warm": False, "pid": None},
+                  {"ok": True, "warm": True, "pid": 100, "last_ok_age": 9999.0}):
+        assert verdict(reply, running_pid=None) == "live", reply
 
 
 def test_a_daemon_too_old_to_carry_an_age_is_judged_the_old_way() -> None:
@@ -172,9 +175,9 @@ def test_a_daemon_too_old_to_carry_an_age_is_judged_the_old_way() -> None:
     assert verdict(old, running_pid=200) == "stale"
 
 
-def test_a_daemon_that_never_got_a_client_is_stale() -> None:
+def test_a_daemon_that_never_got_a_client_is_stale_while_one_is_running() -> None:
+    """It holds no evaluator at all, so nothing sent to it can reach the game."""
     assert verdict({"ok": True, "warm": False, "pid": None}, running_pid=100) == "stale"
-    assert verdict({"ok": True, "warm": False, "pid": None}) == "stale"
 
 
 def test_the_wire_may_say_the_pid_as_a_string() -> None:

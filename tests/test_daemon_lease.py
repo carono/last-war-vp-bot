@@ -143,20 +143,40 @@ def test_ttl_is_bounded():
 # the protocol: two clients, one daemon
 # --------------------------------------------------------------------------
 
+class _FakePending:
+    """What a stand-in's `send` hands back: one object that knows its own answer.
+
+    The daemon collects with `pending.harvest()` rather than by reading files itself
+    (#1287), so a stand-in imitates one method instead of a file layout.
+    """
+
+    def __init__(self, lines):
+        self.lines = lines
+
+    def harvest(self):
+        return self.lines
+
+
 class _FakeEval:
     """Stands in for the warm LuaEval: records chunks, returns one line each."""
 
     def __init__(self):
         self.chunks = []
 
-    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None):
-        # `sentinel` (#1272) has to be here even though nothing in this file passes
-        # one: `Daemon.run` forwards every keyword it was given, a stand-in that will
-        # not take it raises TypeError, and the daemon's «stale handle?» recovery reads
-        # that as a dead evaluator and builds a REAL one — so an offline test goes
-        # looking for a game client and reports the link as gone (#1282).
+    def send(self, chunk, marker=None, settle=1.2, early=False, sentinel=None,
+             private=False):
+        # `sentinel` (#1272) and `private` (#1287) have to be here even though nothing
+        # in this file passes them: `Daemon.run` forwards every keyword it was given, a
+        # stand-in that will not take one raises TypeError, and the daemon's «stale
+        # handle?» recovery reads that as a dead evaluator and builds a REAL one — so an
+        # offline test goes looking for a game client and reports the link as gone
+        # (#1282, and again here).
         self.chunks.append(chunk)
-        return [f"{marker or 'X'} ok"]
+        return _FakePending([f"{marker or 'X'} ok"])
+
+    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None,
+            private=False):
+        return self.send(chunk, marker, settle, early, sentinel, private).harvest()
 
     def close(self):
         pass

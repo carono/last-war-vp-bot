@@ -371,6 +371,17 @@ class Pending:
         #: The shared answer file a per-call one is folded back into, or ``None``.
         self.record = record
 
+    def harvest(self) -> list:
+        """Wait for this chunk's answer and hand back its marker lines.
+
+        A method as well as a function so that what :meth:`LuaEval.send` returns knows
+        how to finish itself. That is what a stand-in has to imitate — one object with
+        one method — instead of a file layout it would have to fake
+        (`tests/test_daemon_lease.py`, whose evaluator stand-in has drifted from this
+        interface twice already).
+        """
+        return harvest(self)
+
 
 #: Serialises the fold-back of per-call answer files into the shared record. Two
 #: harvests finish whenever their settles are over, and an append is not atomic.

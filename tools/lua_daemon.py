@@ -9,7 +9,9 @@ Protocol — newline-delimited JSON on 127.0.0.1:47654 (see tools/lua_client.py)
     {"op":"run","chunk":"<lua>","marker":"X","settle":1.2}  -> {"ok":true,"lines":[...]}
     …plus optional "early":true — `settle` becomes a DEADLINE and the answer comes
     back as soon as the marker has landed (tools/lib/lua_eval.py `collect`)
-    {"op":"ping"}     -> {"ok":true,"warm":<bool>,"pid":<client pid>,"self":<own pid>}
+    {"op":"ping"}     -> {"ok":true,"warm":<bool>,"pid":<client pid>,"self":<own pid>,
+                          "last_ok_age":<seconds since a chunk last REACHED the game,
+                                         or null>,"probe_error":<why not>,"misses":<n>}
     {"op":"reload"}   -> rebuild the LuaEval (after a game restart) -> {"ok":true}
     {"op":"shutdown"} -> {"ok":true} then exit
     {"op":"acquire","owner":"panel/rally","ttl":120} -> {"ok":true,"token":"…"}
@@ -17,9 +19,18 @@ Protocol — newline-delimited JSON on 127.0.0.1:47654 (see tools/lua_client.py)
     {"op":"renew","token":"…"}    -> {"ok":true}
     {"op":"release","token":"…"}  -> {"ok":true}
 
-Calls are serialized by a lock (the game hijack is not reentrant). A failing invoke — e.g.
-the game restarted and the cached per-pid addresses are stale — triggers one automatic
-rebuild-and-retry.
+The INJECTION is serialized by a lock (the game hijack is not reentrant); the wait for
+the answer is not, and used to be (#1287). A failing invoke — e.g. the game restarted and
+the cached per-pid addresses are stale — triggers one automatic rebuild-and-retry.
+
+«WARM» IS NOT A PROMISE AND `last_ok_age` IS. A daemon can answer its port perfectly
+while nothing it sends reaches the client: one day of one profile's logs had 194 of 2 073
+«warm» readings taken over a client that was not up-and-online, three of them with no
+client process at all (docs/research/daemon-architecture.md). So every successful run
+stamps a `Pulse`, an idle daemon probes itself with one trivial chunk, the ping carries
+the AGE of the last chunk that actually landed — and a daemon that fails to land three in
+a row LETS GO OF THE PORT instead of going on answering it. That last part is what makes
+«the port answers» mean something again for every caller that only asks that much.
 
 THE LEASE (acquire/renew/release) is a coarser thing than that per-call lock: an *action*
 is many chunks over seconds, and two of them must not interleave in the game. The panel
@@ -72,6 +83,7 @@ import time
 # Absolute, not "tools/lib": resolve regardless of the launcher's cwd.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import lua_client  # HOST/PORT only — lightweight
+from daemon_pulse import Pulse
 from game_lease import DEFAULT_TTL as DEFAULT_LEASE_TTL, Lease
 
 
@@ -86,6 +98,18 @@ CLIENT_WATCH_SEC = 5.0
 #: so the daemon acknowledged the shutdown and never exited — leaving the port bound and
 #: the panel reading a corpse as «already warm» (#1286).
 EXIT_GRACE_SEC = 1.0
+
+#: The chunk this daemon runs on ITSELF to find out whether anything it sends reaches
+#: the client. One line, no server round trip, and `early` — measured at 62 ms on the
+#: live client, against 0.8 ms for a ping that proves only that this process is alive.
+#:
+#: It writes through the ordinary answer channel on purpose. A probe with a private path
+#: of its own would prove a path nothing else uses; this one fails wherever a real
+#: errand would (#1287).
+PROBE_CHUNK = "CS.UnityEngine.Debug.LogError('PULSE ok')"
+PROBE_MARKER = "PULSE"
+PROBE_SETTLE_SEC = 1.0
+
 
 class ClientUnreachable(RuntimeError):
     """This daemon cannot get at the client it is meant to drive (#1266).
@@ -107,6 +131,10 @@ class Daemon:
     def __init__(self):
         self._lock = threading.Lock()
         self._ev = None
+        #: Has a chunk reached the game lately, and is it time to go and find out
+        #: (`tools/lib/daemon_pulse.py`). Every successful run stamps it, so a busy
+        #: daemon never probes at all and the guarantee is free while the panel works.
+        self.pulse = Pulse()
         self.lease = Lease(on_expire=lambda owner, held: print(
             f"[daemon] lease of {owner!r} expired after {held:.0f}s — dropped",
             flush=True))
@@ -238,17 +266,96 @@ class Daemon:
 
     def run(self, chunk: str, marker, settle: float, early: bool = False,
             sentinel: "str | None" = None):
-        with self._lock:
-            for attempt in (1, 2):
+        """Run one chunk. THE LOCK IS HELD FOR THE INJECTION AND NOT FOR THE WAIT.
+
+        The hijack is not reentrant, which is why there is a lock; `collect` is a sleep,
+        which is why it has no business inside one. `SafeDoString` is synchronous, so by
+        the time `send` returns the chunk has run and flushed — everything after it is
+        waiting for lines that may arrive later, and other callers may inject meanwhile.
+
+        Measured on the live client (#1287): one call is 60 ms against a free daemon and
+        3 855 ms behind three background readers holding patient settles, and 95 % of
+        that lock occupancy was this sleep.
+
+        Every call gets its own answer file (`private=True`), because two collects
+        sharing one file cannot tell their lines apart — both filter by the same marker.
+
+        A run that returns is also the PROOF the whole heartbeat is about: real errands
+        stamp the pulse, so a working daemon never has to probe itself.
+        """
+        pending = None
+        for attempt in (1, 2):
+            with self._lock:
                 try:
-                    return self._ensure().run(chunk, marker=marker, settle=settle,
-                                              early=early, sentinel=sentinel)
+                    pending = self._ensure().send(chunk, marker=marker, settle=settle,
+                                                  early=early, sentinel=sentinel,
+                                                  private=True)
+                    break
                 except BaseException as exc:
                     # Stale handle (game restarted?) or transient hijack failure —
                     # drop the warm state and rebuild once before giving up.
                     self._drop()
                     if attempt == 2:
-                        raise self._verdict(exc) from exc
+                        verdict = self._verdict(exc)
+                        # A strike, not a verdict of its own: three in a row and this
+                        # daemon stops holding a port it cannot answer for.
+                        self.pulse.failed(verdict)
+                        raise verdict from exc
+        lines = pending.harvest()
+        self.pulse.ok()
+        return lines
+
+    def heartbeat(self) -> bool:
+        """Send one trivial chunk if nothing has landed lately. ``True`` if it came back.
+
+        The only honest reading of «a call made now would reach the game», and the daemon
+        asks it of ITSELF so that nobody else has to: a reader gets the age off a ping
+        for 0.8 ms instead of taking the run lock for 62 ms and queueing behind whatever
+        the panel is doing.
+
+        Three things it deliberately does NOT do:
+
+        * **it never waits for the lock.** A call in flight is the ordinary case and its
+          success is the same proof; a call WEDGED holds the lock for ever, and a probe
+          queued behind it would simply stop reporting. Skipping leaves the age to grow,
+          which is exactly what a reader must see.
+        * **it does not probe while there is no client at all.** A machine whose game is
+          closed would otherwise collect strikes for it and this daemon would leave, be
+          restarted by the panel, and leave again — a loop with no bottom.
+        * **it does not decide anything.** Leaving is `_watch_client`'s to do, off
+          :meth:`Pulse.should_leave`.
+        """
+        if not self.pulse.due():
+            return True
+        try:
+            if not self._client_present():
+                return True
+        except BaseException:                         # noqa: BLE001 — cannot ask ⇒ skip
+            return True
+        if not self._lock.acquire(blocking=False):
+            return True
+        try:
+            pending = self._ensure().send(PROBE_CHUNK, marker=PROBE_MARKER,
+                                          settle=PROBE_SETTLE_SEC, early=True,
+                                          private=True)
+        except BaseException as exc:                  # noqa: BLE001
+            self._drop()
+            self.pulse.failed(exc)
+            print(f"[daemon] the probe did not reach the client "
+                  f"({self.pulse.misses()} in a row): {exc}", flush=True)
+            return False
+        finally:
+            self._lock.release()
+        if pending.harvest():
+            self.pulse.ok()
+            return True
+        # The injection worked and the game wrote nothing back. That is a client which
+        # took the chunk and did not run it — a Lua VM that has gone, or a main thread
+        # that never came back — and it is as unusable as one that refused the attach.
+        self.pulse.failed("the probe was sent and nothing came back")
+        print(f"[daemon] the probe was sent and nothing came back "
+              f"({self.pulse.misses()} in a row)", flush=True)
+        return False
 
     def _verdict(self, exc: BaseException) -> BaseException:
         """The failure to hand back once the rebuild has failed too.
@@ -311,11 +418,32 @@ def _leave(daemon: Daemon) -> None:
 
 
 def _watch_client(daemon: Daemon, every: float = CLIENT_WATCH_SEC) -> None:
-    """Ask `follow_client` every few seconds, for ever. Started as a daemon thread."""
+    """Follow the client, prove the link, and leave when it cannot be proved.
+
+    Started as a daemon thread. Three things in one tick, in this order, because each is
+    the other's cure:
+
+    1. :meth:`Daemon.follow_client` — the client's pid changed under us; take the new one.
+    2. :meth:`Daemon.heartbeat` — a chunk has not landed for a while; find out whether one
+       still can.
+    3. **and if it has failed often enough, LET GO OF THE PORT.** That is what makes
+       «green» true for every reader, including the ones that only ever ask whether the
+       port answers: a daemon that cannot drive its client stops being a daemon rather
+       than staying on as one that lies. The panel starts a fresh one on the free port,
+       which is a state it has always known how to cure — where «the port answers, and
+       nothing behind it works» is the state that fooled every reading for a year
+       (docs/research/daemon-architecture.md §3).
+    """
     while True:
         time.sleep(every)
         try:
             daemon.follow_client()
+            daemon.heartbeat()
+            if daemon.pulse.should_leave():
+                print(f"[daemon] {daemon.pulse.misses()} probes in a row did not reach "
+                      f"the client — letting go of the port so a fresh daemon can have "
+                      f"it [{daemon.pulse.state().get('probe_error')}]", flush=True)
+                _leave(daemon)
         except BaseException as exc:                  # noqa: BLE001 — never the last word
             print(f"[daemon] client watch: {exc}", flush=True)
 
@@ -335,10 +463,15 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
                     # outside can work it out: a daemon in another Windows session is
                     # not in the asker's process list. It is what ends a daemon that
                     # acknowledges a shutdown without carrying it out (#1286).
+                    # `last_ok_age` is the reading this whole protocol exists for: how
+                    # long ago a chunk actually reached the game. Everything else here
+                    # says something about the DAEMON; that one says something about the
+                    # link, and it is the only field a reader may paint green off.
                     resp = {"ok": True, "warm": daemon.is_warm(),
                             "pid": daemon.target_pid(),
                             "self": os.getpid(),
-                            "lease": daemon.lease.state()}
+                            "lease": daemon.lease.state(),
+                            **daemon.pulse.state()}
                 elif op == "run":
                     # The lease gate runs BEFORE the evaluator: a caller whose lease
                     # went away must be told so, not quietly executed beside its

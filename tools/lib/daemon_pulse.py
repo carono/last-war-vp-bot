@@ -149,6 +149,15 @@ def verdict(reply: dict, running_pid: "int | None" = None,
     """
     if not reply or not reply.get("ok"):
         return "none"
+    running = _as_pid(running_pid)
+    if not running:
+        # NO CLIENT RUNNING IS NOBODY'S FAULT, and it is asked FIRST because every
+        # reading below would otherwise convict a daemon of it: an idle machine has no
+        # chunk to land, so the age is old or missing and the pid is `None`. Restarting
+        # a daemon for having no game to drive is a loop with no bottom, and «I could
+        # not tell» may never be the reason for one (the rule `panel/runtime/recovery.py`
+        # already keeps for `unknown` link readings).
+        return "live"
     age = reply.get("last_ok_age")
     if isinstance(age, (int, float)) and age > stale_after:
         return "stale"
@@ -156,11 +165,7 @@ def verdict(reply: dict, running_pid: "int | None" = None,
         # A daemon that never got hold of a client and cannot say how long ago. It has
         # no evaluator at all, so nothing sent to it can reach the game.
         return "stale"
-    held = _as_pid(reply.get("pid"))
-    running = _as_pid(running_pid)
-    # No client running is nobody's fault: a daemon waiting for one is not stale, and
-    # «I could not tell» may never be the reason for a restart.
-    if running and held != running:
+    if _as_pid(reply.get("pid")) != running:
         return "stale"
     return "live"
 
