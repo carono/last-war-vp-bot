@@ -173,6 +173,8 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     tab.autoloot = _FakeAutoLoot(tab)
     tab._rows = rows
     tab._collected = set()
+    # Presses waiting out the ten-second window (#1272) — a fresh tab has none.
+    tab._pressing = set()
     tab._polling = False
     tab._rendered = 0
     tab._render = lambda: setattr(tab, "_rendered", tab._rendered + 1)
@@ -1263,6 +1265,140 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     # …and the card's buttons are the display switches and nothing that robs.
     assert {a["id"] for a in cards["secrettasks.page.stars"]["actions"]} == {
         "monitor", "show_spent", "hide_own", "clear"}
+
+
+def test_collect_is_offered_ten_seconds_early_and_not_eleven():
+    """«Кнопку "Собрать" нужно отображать за 10 секунд до готовности» (#1272).
+
+    The border is the whole test: a raidable star is taken in the first moment it exists,
+    so the button has to be under a finger before the moment — and a button that appeared
+    a minute early would be a button that is on for tiles nobody can take yet.
+    """
+    early = _row(1, 7, 9_000, 600_000)       # nine seconds to go — offered
+    late = _row(2, 7, 11_000, 600_000)       # eleven — not yet
+    ripe = _row(3, 7, -5_000, 600_000)       # already raidable
+    tab = _make_tab({"1": early, "2": late, "3": ripe})
+    tab._refresh_timers()
+
+    assert tab._collectable(early) is True, "the ten-second window did not open"
+    assert tab._collectable(late) is False, "the button appeared outside the window"
+    assert tab._collectable(ripe) is True
+
+    # …and the cell says so, because the cell IS the button on a Treeview.
+    def action(row):
+        return dict(zip([c[0] for c in st.COLUMNS],
+                        st.SecretTasksTab._row_values(tab, row)))["action"]
+
+    assert action(early) == tab.t("secrettasks.collect")
+    assert action(late) == ""
+
+
+def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appears():
+    """«То же на телефоне» — the READING travels, which is all that honestly can here.
+
+    The phone has never had «Собрать» on this list and does not grow one now: the robbery
+    is still a hand-driven press the web may not carry (#1188). What it gets is the same
+    fact at the same moment — the tile is about to open — so the two front-ends do not
+    disagree about when that is.
+    """
+    import types
+    rows = {"1": _row(1, 7, 9_000, 600_000), "2": _row(2, 7, 11_000, 600_000)}
+    tab = _make_tab(rows)
+    tab._refresh_timers()
+    tab.show_spent_var = _Var(False)
+    tab.monitor_var = _Var(False)
+    tab.autoassist_var = _Var(False)
+    tab._visible_rows = lambda: list(rows.values())
+    tab._zoom_level = "tile"
+    tab.autoloot = types.SimpleNamespace(
+        state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
+    tab.autoassist = types.SimpleNamespace(
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+    tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
+                                         star_var=_Var(False))
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+                                          monitor_var=_Var(False))
+
+    cards = {c.get("title"): c for c in tab.web_view()["cards"]}
+    pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
+    assert "secrettasks.collect_soon" in pills, pills
+    assert pills.count("secrettasks.collect_soon") == 1, pills
+    # …and still no press on the card: the display switches and nothing that robs.
+    assert {a["id"] for a in cards["secrettasks.page.stars"]["actions"]} == {
+        "monitor", "show_spent", "hide_own", "clear"}
+
+
+def test_the_early_window_is_the_hands_and_the_standing_order_keeps_the_strict_gate():
+    """The window is for a finger. A machine gains nothing from pressing early, and a
+    send the server answers «рано» is a round trip that robs nothing — so «Автолут ★»
+    asks the strict question and the two gates are deliberately two (#1272)."""
+    early = _row(1, 7, 9_000, 600_000)
+    early["server"] = _HOME_SERVER + 1
+    tab = _make_tab({"1": early}, rob_min="1", autoloot=True)
+    tab._refresh_timers()
+
+    assert tab._collectable(early) is True      # the hand may press
+    assert tab._raidable(early) is False        # …the standing order may not
+    assert tab.rob_candidates() == [], tab.rob_candidates()
+
+    # …and the moment it matures, both say yes.
+    early["completed_at"] = _ms(-1_000)
+    tab._refresh_timers()
+    assert tab._raidable(early) is True
+    assert [r["uuid"] for r in tab.rob_candidates()] == [1]
+
+
+def test_a_press_inside_the_window_waits_and_sends_when_the_tile_matures():
+    """Sending at the moment of the PRESS would put a doomed robbery on the wire and
+    report one that did not happen. The send waits out the remainder instead, which is
+    the advantage the early button is for: it lands on the millisecond (#1272)."""
+    import threading as _threading
+    import types
+    row = _row(1, 7, 9_000, 600_000)
+    tab = _make_tab({"1": row})
+    tab.after = lambda fn: fn()
+    tab.alliance = _FakeAllianceGrid()
+    tab.rt.put = lambda _line: None
+    tab._persist_rows = lambda: None
+    said, slept, sent = [], [], []
+    tab.say = lambda _tag, key, **fmt: said.append(key)
+    waiting, release = _threading.Event(), _threading.Event()
+
+    class _Ev:
+        def run(self, chunk, marker=None, settle=0):
+            sent.append(chunk)
+            return ["ACT steal_sent uuid=1 srv=1"]
+
+    tab.rt.game = types.SimpleNamespace(evaluator=lambda: _Ev())
+    real_sleep = st.time.sleep
+
+    def _sleep(secs):
+        slept.append(secs)
+        waiting.set()
+        release.wait(5)          # held here, so the press really is «in flight»
+
+    st.time = types.SimpleNamespace(sleep=_sleep)
+    try:
+        tab._collect(row)
+        assert waiting.wait(5), "the press did not wait for the tile to mature"
+        assert not sent, "the robbery went out before the tile was raidable"
+        # A second press while the first is in flight arms nothing more.
+        tab._collect(row)
+        release.set()
+        for _ in range(250):
+            if row.get("robbed"):
+                break
+            real_sleep(0.02)
+    finally:
+        release.set()
+        st.time = types.SimpleNamespace(sleep=real_sleep)
+
+    assert "log.secret.collect_armed" in said, said
+    assert len(slept) == 1 and 8 <= slept[0] <= 10, slept
+    assert len(sent) == 1, sent
+    assert row["robbed"] is True, "the wait swallowed the robbery"
 
 
 def _robbed_tab():

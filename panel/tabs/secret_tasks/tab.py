@@ -90,6 +90,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -133,6 +134,25 @@ POLL_MS = 30_000
 # a cell is touched only when its text has really changed. See
 # `grid.repaint_countdowns`.
 LIVE_MS = 250
+
+# How long BEFORE a tile matures «Собрать» is already offered (#1272). A star is taken
+# in the first moment it is takeable — «счёт может идти на микросекунды, потому что много
+# желающих уже кликают» — and a button that appears at the instant of readiness is one
+# nobody can have a finger over.
+#
+# Pressing inside the window does NOT throw a robbery at the server early: the send waits
+# out the remainder and goes at the moment the tile matures, which is what a person
+# cannot do by hand and is the whole reason the early button is worth having. A premature
+# `hero.dispatch.steal` is answered with a tip and nothing else — the daily counter is
+# the SERVER's number and comes back only on the success branch of the reply
+# (`DispatchStealMessage:HandleMessage`), so a refusal spends nothing — but it also robs
+# nothing, and a button that looked like a robbery and was none would be worse than no
+# button.
+#
+# Ten seconds because that is what was asked for, and because it is the span a person can
+# actually hold a finger over. The STANDING ORDER does not get this window (`_raidable`):
+# a machine gains nothing from pressing early.
+EARLY_MS = 10_000
 
 # How often the game's own clock is re-measured (#1227). It is not this machine's
 # clock, which was measured eleven seconds slow against it — and the operator had been
@@ -221,6 +241,11 @@ class SecretTasksTab(PanelTab):
         # Tasks robbed by hand this session: a rescan must not re-add one the server has
         # not yet dropped from `allianceTask`.
         self._collected: set = set()
+        # …and the uuids with a press already in flight (#1272). A press made inside the
+        # ten-second window waits out the remainder before sending, and the row keeps
+        # offering «Собрать» throughout — it is still counting down — so without this a
+        # second press would arm a second send at the same instant.
+        self._pressing: set = set()
         # Which uuids the standing order has already fired at is the standing order's own
         # book now (`AutoLoot._seen`, #1256) — there is one watcher and one place a
         # target is chosen, so there is one place to remember what has been tried.
@@ -444,8 +469,11 @@ class SecretTasksTab(PanelTab):
         self._rows.clear()
         self._collected.clear()
         # …and what the standing order had already fired at belongs to that account's
-        # map, not this one's (#1256).
+        # map, not this one's (#1256). A press waiting out its ten seconds belongs to the
+        # old client too (#1272): the worker will fire into whatever is there and be
+        # refused, and the set must not keep the tile un-pressable afterwards.
         self.autoloot._seen.clear()
+        self._pressing.clear()
         self._restore_pending = set()
         # The roster belongs to the old account just as much — a different account
         # is a different alliance, and those are not this one's alliancemates (#1244).
@@ -2051,9 +2079,16 @@ class SecretTasksTab(PanelTab):
                 # Robbed outranks both other pills: «готово» on a tile we have taken is
                 # the one word the phone must not say, and «исчерпана» is about the tile
                 # while this is about us.
+                # …and the ten-second window the window's «Собрать» appears in (#1272).
+                # The phone gets the READING and no button — the robbery on this tab is
+                # still a hand-driven press the web may not carry (#1188) — but it says
+                # so at the same instant the button appears, which is what «то же на
+                # телефоне» can honestly mean here.
                 "pill": ("secrettasks.robbed_mark" if robbed
                          else "secrettasks.spent" if spent
-                         else "secrettasks.ready" if row.get("ready") else None),
+                         else "secrettasks.ready" if row.get("ready")
+                         else "secrettasks.collect_soon"
+                         if self._collectable(row) else None),
             })
         hidden = self._hidden_at_home()
         # What «Автолут ★» is doing, in the same words the window puts under the
@@ -2370,7 +2405,8 @@ class SecretTasksTab(PanelTab):
         the rule, so the list and the robberies could disagree about the very same map.
 
         The rule, in order: the tile is raidable (ready, not looted out, **and not one we
-        have already robbed** — all three are :meth:`_collectable`), it wears a star
+        have already robbed** — all three are :meth:`_raidable`, the STRICT gate, not the
+        hand's :meth:`_collectable` with its ten-second window), it wears a star
         (every row of this list does, by construction), its level is at or above
         «минимальный уровень», and **it is on somebody else's server**. Robbed by hand
         this session (`_collected`) is excluded twice over, and deliberately so: the row
@@ -2395,7 +2431,7 @@ class SecretTasksTab(PanelTab):
             return []
         rows = [row for key, row in self._rows.items()
                 if key not in self._collected
-                and self._collectable(row)
+                and self._raidable(row)
                 and row.get("starred")
                 and self._in_rob_range(row.get("level"))
                 # A KNOWN server that is not home. `0` is «the row never carried one»,
@@ -2433,26 +2469,59 @@ class SecretTasksTab(PanelTab):
         import lastwar_proto as proto      # lazy: tools/lib is on the path by now
         return int(row.get("loot_count") or 0) >= proto.MAX_LOOTERS
 
-    def _collectable(self, row) -> bool:
-        """Whether «Собрать» means anything on this row.
+    def _takeable(self, row) -> bool:
+        """The half of the gate both answers share: nothing here can be robbed at all.
 
-        Ready is not enough once a spent tile can be on screen: with «Показывать
-        исчерпанные" ticked a 3/3 row is visible, and it is visible precisely because
-        it is finished — pressing it would spend one of the day's five on a robbery the
-        server refuses (#1227).
-
-        And a tile WE have already robbed is not collectable either (#1272). It is on
-        screen on purpose now — it stays so that it can still be shared — so this is the
-        one gate that has to say «not this one»: the server refuses a second robbery by
-        the same player, and it would cost a round trip to be told so.
-
-        THE ONE PLACE THAT ANSWER IS GIVEN. The action cell, the strip's «Собрать», the
-        right-click menu of every page and the standing order's own candidate list all
-        come through here (`rob_candidates`, `TaskGrid.collectable`), so a rule added
-        here is a rule none of them can be missing.
+        A 3/3 tile has no slot for anybody, so a press on it is one the server refuses
+        (#1227), and one WE have robbed is refused for the same reason a second time
+        (#1272) — it is on screen only so that it can still be shared. Neither the hand
+        nor the standing order may aim at either.
         """
-        return (bool(row.get("ready")) and not self._spent(row)
-                and not row.get("robbed"))
+        return not self._spent(row) and not row.get("robbed")
+
+    def _raidable(self, row) -> bool:
+        """Whether the GAME would take a robbery of this tile right now.
+
+        The standing order's gate, and the strict one. It has no use for the ten-second
+        window below: a machine gains nothing from pressing early, and a send the server
+        answers «рано» is a round trip that finds nothing and a log line that reads like
+        a failure. The window is for a finger.
+        """
+        return bool(row.get("ready")) and self._takeable(row)
+
+    def _collectable(self, row) -> bool:
+        """Whether «Собрать» is offered on this row — THE HAND'S gate (#1272).
+
+        Ten seconds EARLY, and that is the point of it. A raidable star is taken in the
+        first moment it exists — «там счёт может идти на микросекунды, потому что много
+        желающих уже кликают» — and a button that appears at the instant of readiness is
+        a button nobody can be holding a finger over. So it appears while the tile is
+        still counting down, inside :data:`EARLY_MS` of maturing.
+
+        The press that lands in that window is not thrown at the server early: it waits
+        out the remainder on its own worker and sends at the moment the tile matures
+        (:meth:`_collect`). That is what makes the early button worth having rather than
+        a lie — a premature `hero.dispatch.steal` is answered with a tip and nothing
+        else, so pressing early without the wait would look like a robbery and be none.
+
+        THE ONE PLACE THAT ANSWER IS GIVEN. The action cell, the cursor over it, the
+        double click, the strip's «Собрать» and the right-click menu of every page all
+        come through here (`TaskGrid.collectable`), so a rule added here is a rule none
+        of them can be missing. The standing order is deliberately NOT among them — it
+        asks :meth:`_raidable`, one line up, and the split is the whole of «окно только
+        для человека».
+        """
+        if not self._takeable(row):
+            return False
+        if row.get("ready"):
+            return True
+        # …and the window. `completed_at` is always set on this list (a tile without one
+        # never enters the model, #1272), and the clock is the GAME's, like every other
+        # judgement on this tab (#1227) — a window measured against a machine eleven
+        # seconds out is a window that opens at the wrong moment.
+        import game_clock
+        left = int(row["completed_at"] or 0) - game_clock.now_ms()
+        return 0 < left <= EARLY_MS
 
     def _visible_rows(self) -> list:
         """The rows the ★ page shows: in the level range, not looted out, not at home.
@@ -2735,12 +2804,44 @@ class SecretTasksTab(PanelTab):
         The steal is budget-gated in the VM (a spent account sends nothing), so a
         confirmed send is the honest success signal here — whether the server pays out is
         its call, the same as every other route into the robbery.
+
+        A PRESS INSIDE THE TEN-SECOND WINDOW WAITS OUT THE REMAINDER (#1272). «Собрать»
+        now appears before the tile is raidable, so that a finger can be over it when the
+        moment comes; sending at the moment of the PRESS would put a doomed
+        `hero.dispatch.steal` on the wire, get a tip back, and report a robbery that did
+        not happen. So the worker sleeps the difference — at most `EARLY_MS`, by
+        construction, because that is the widest the button is offered in — and sends when
+        the tile matures. That is the advantage the early button is FOR: the send lands on
+        the millisecond rather than on a human reaction time, in a race the operator says
+        is decided in microseconds.
+
+        The wait is on the worker and not on a Tk timer: this method already runs its
+        round trip on a thread, the sleep is bounded, and the Tk thread is the one thing
+        on this panel that must never be asked to wait for anything (#1226).
+
+        ONE PRESS AT A TIME PER TILE. The row keeps offering «Собрать» while the wait
+        runs — it is still counting down, and the gate has no idea a press is in flight —
+        so a second press would arm a second send at the same instant. `_pressing` is
+        what makes the extra presses free.
         """
         key = str(row["uuid"])
+        if key in self._pressing:
+            return
+        self._pressing.add(key)
+        # Read here, on the Tk thread, from the row the person actually clicked: by the
+        # time the worker wakes the row may have been refreshed under it.
+        import game_clock
+        wait = (int(row["completed_at"] or 0) - game_clock.now_ms()) / 1000.0
+        wait = min(max(wait, 0.0), EARLY_MS / 1000.0)
+        if wait:
+            self.say("secret", "log.secret.collect_armed",
+                     secs=max(1, int(round(wait))))
 
         def work():
             ok = False
             try:
+                if wait:
+                    time.sleep(wait)
                 import lua_actions
                 lines = self.rt.game.evaluator().run(
                     lua_actions.secret_task_steal(int(row["uuid"]), int(row["server"])),
@@ -2748,6 +2849,9 @@ class SecretTasksTab(PanelTab):
                 ok = any("steal_sent" in ln for ln in (lines or []))
             except Exception:                 # noqa: BLE001
                 ok = False
+            # `_pressing` is released by `_collect_done`, not here: between the send and
+            # the outcome landing on the row there is nothing to stop a second press, and
+            # that gap is precisely where a finger hovering over the button is.
             self.after(lambda: self._collect_done(key, ok))
 
         threading.Thread(target=work, daemon=True).start()
@@ -2769,6 +2873,7 @@ class SecretTasksTab(PanelTab):
         robbed this session» and outlives the row — it is what stops a later capture
         re-adding an unmarked copy of a tile that has since dropped off the list.
         """
+        self._pressing.discard(key)
         if ok:
             self._collected.add(key)
             row = self._rows.get(key)
