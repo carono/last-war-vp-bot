@@ -807,3 +807,55 @@ These are the places it turned out not to be, so the next search starts further 
   held `{endTime = 0}` before and after: that field is this account's own auto-join
   subscription, and it is off, so the window had nothing to draw and nothing to read.
   A list WITH banners in it is what would have to be caught.
+
+## The type IS in the client, and where (#1281)
+
+The player was right and this file was wrong twice over. Corrections first, because both
+mistakes were mine and both were method rather than luck:
+
+**`LocalController.instance` is a GETTER, not a field.** Every «no table knows this id»
+in this task was asked of the function object. Done properly —
+`LocalController.instance():getValue(table, id, field, default)` and `:getLine(table,
+id)`, `:hasLine(table, id)` — the answers change completely.
+
+**The trophy's `contentId` IS the monster's config id.** Swept over all 740 tables with
+`hasLine`, exactly one answers:
+
+```
+lw_world_monster / 1031023  ->  id=1031023  type=7  level=115  name=2901012  desc=2901028
+```
+
+So the vocabulary the player sees on screen is `lw_world_monster.type`:
+
+| type | ids | levels | name key | the game's own words |
+| --- | --- | --- | --- | --- |
+| 7 | 10300xx | 5…150, step 5 | `2901011` | Invading Zombies / Вторгшиеся Зомби |
+| 7 | 10310xx | 5…150, step 5 | `2901012` | Zombie Boss / Зомби-Босс |
+| 8 | 1040001+ | 100 and up | `monster_boss_name_001` | Doom Walker / Разрушитель |
+
+Resolve a name key with `python tools/game_locale.py --key <id>`; the in-game
+`Localization.GetString` answered nil for every one of them.
+
+**Today's rallies, by type, off the trophies:** eleven seen, **all type 7 (Zombie Boss)**
+— one at level 110, seven at 115, one each at 120, 125 and 135 — and **not one type 8**.
+One kind, all day. Which is also why the player's «the trophy list carries a limit
+message for a Doom Elite rally» could not be found in it: every field of every row was
+read (`uuid`, `type`, `pointId`, `contentId`, `expireTime`, `rewardList[5]`, and the five
+reward items each) and there is no status field — but there was also no Doom Elite rally
+to carry one. That check needs a type-8 banner.
+
+### …but the trophy arrives AFTER the fight
+
+`contentId` is paid out with the reward, so it cannot decide whether to send. The list
+the player reads the type off is the rally BUBBLE on the world map —
+`UIWindowNames.UIAllianceRally`, module `UI.UIAlliance.UIAllianceRally.*`, which is the
+marker you tap to join. Its Config and Ctrl carry **`rallyType`**, `world_rally`,
+`GetTroop`, `OnClickRally` → `OnClickStartMarch`, and it is positioned by
+`WorldToScreenPoint` over the rally's point — so the type is known to the client at the
+moment the marker is drawn, before anything is sent.
+
+What is still missing is the link from a rally's `targetUuid` / `targetPos` to that
+monster's row: `WorldScene.PointManager:GetMonsterData(targetUuid)` answers nil while the
+map around the target is not streamed in, which it is not when the bot never looks there.
+The map CAN be made to stream (docs/research — the map sweep sets a zoom and jumps), so
+this is a known road rather than an unknown one; it is simply not walked yet.
