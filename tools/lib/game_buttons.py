@@ -15,6 +15,10 @@ Each button is a `Button`:
   * ``batch_lua`` — optional: the same press as an `n`-times loop, run in ONE call
                 into the game VM. Where it exists, a repeat costs one round trip
                 instead of one per press (see the field's comment below).
+  * ``verify_lua`` — optional: an expression whose CHANGE after the press proves the
+                game did something. Without it a `TAP` reports success from «the Lua
+                did not raise»; with it, `wait` becomes a deadline on the re-read
+                instead of a sleep, and a press that changed nothing fails (#1282).
 
 The catalogue is deliberately small and readable. See docs/dsl.md ("TAP") and, for the
 alliance-science calls, docs/research/alliance-tech-donate.md.
@@ -54,6 +58,23 @@ class Button:
     # docs/research/alliance-tech-donate.md). The caller still reads `count_lua` before
     # the batch and again after it, so the real count remains the stop condition.
     batch_lua: str | None = None
+    # Optional: a Lua *expression* whose CHANGE after the press is the proof that the
+    # game did something (#1282). Without one, a plain `TAP` reports success from «the
+    # Lua did not raise» — which says the call ran, not that anything happened, and is
+    # the mechanism behind every «the panel confidently reported the wrong thing»: the
+    # client told it was being restarted and was not (#1259), «развести клиенты» that
+    # changed nothing (#1263), a live socket vouching for a dead game link (#1266).
+    #
+    # With one, the press is followed by a poll of this expression until its value
+    # MOVES, and `wait` stops being a sleep and becomes the DEADLINE on that poll — so
+    # a verified button is usually faster as well as honest (a `TAP` whose whole cost
+    # was the button's own 1.0 s pause, #1230). A press whose value has not moved by
+    # the deadline FAILS the recipe rather than logging `tap=ok`.
+    #
+    # It must be an expression, cheap, and stable between presses: a clock or a frame
+    # counter «moves» every time and proves nothing. The obvious one for a button that
+    # has it is `count_lua` — the number the press is supposed to spend.
+    verify_lua: str | None = None
 
 
 # The recommended-science object is fetched fresh inside each press (it is cheap and

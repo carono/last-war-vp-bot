@@ -588,9 +588,40 @@ Pressing more times than there is anything to do is harmless when the action
 self-gates (`donate_1000` no-ops once the quota is spent). An unknown button name is a
 runtime error listing the ones that exist.
 
+**A press can prove it did something — `verify_lua`.** By default a `TAP` reports
+success from «the Lua did not raise», which says the call ran and nothing more: 32 of
+the 44 `TAP` lines in the shipped recipes cannot tell «pressed» from «did anything», and
+that is the mechanism behind a whole class of confident wrong answers (a client told it
+was being restarted and was not, a link reported live while the game heard nothing). A
+button may declare `verify_lua` — a Lua **expression** whose CHANGE after the press is
+the proof:
+
+```python
+"steal_secret_task": Button(
+    lua=_lua_actions.steal_next_secret_task(),
+    count_lua=_lua_actions.secret_task_steals_pending(),
+    verify_lua=_lua_actions.secret_task_steals_left(),   # the press spends one
+    wait=2.0, label="rob a secret task",
+),
+```
+
+The before-value is read in the same chunk as the press, so nothing can move in
+between; then the expression is polled until it changes. **A press whose value has not
+moved by the deadline fails the recipe** instead of logging `tap=ok`.
+
+**And with a verifier, `wait` is that deadline rather than a sleep** — the press returns
+as soon as the game has answered. The catalogue's 56 `wait` values sum to 62.5 s of
+unconditional sleeping, and one measured `TAP` cost 1228 ms of which 1000 was the
+button's own pause. A button without `verify_lua` keeps exactly today's behaviour, so
+this is added one button at a time and never breaks a recipe on the way.
+
+The expression must be cheap and stable between presses — a clock or a frame counter
+«moves» every time and proves nothing. Where a button has a `count_lua`, that is usually
+the right verifier: it is the number the press is supposed to spend.
+
 **Adding a button** = one entry in `tools/lib/game_buttons.py` (`name -> {lua, wait,
-label, count_lua?, batch_lua?}`). Use `READ_LUA`/`LUA` while working it out, then fold
-the call into a button so recipes can just `TAP` it.
+label, count_lua?, batch_lua?, verify_lua?}`). Use `READ_LUA`/`LUA` while working it
+out, then fold the call into a button so recipes can just `TAP` it.
 
 ### `LUA <chunk>`
 

@@ -1427,21 +1427,73 @@ class Interpreter:
             return
         for n in range(1, stmt.count + 1):
             self._check_cancel()
-            self._press_button(btn)
+            moved = self._press_button(btn)
             suffix = f" ({n}/{stmt.count})" if stmt.count > 1 else ""
+            if moved is False:
+                raise ScriptRuntimeError(
+                    f"line {stmt.line_no}: TAP {stmt.name} pressed and nothing moved — "
+                    f"{btn.verify_lua} did not change within {btn.wait:g}s"
+                )
             self._log(f"TAP {btn.label}{suffix}")
-            time.sleep(btn.wait)
+            if not btn.verify_lua:
+                # A verified press has already waited for the thing it was waiting FOR.
+                time.sleep(btn.wait)
 
-    def _press_button(self, btn) -> None:
-        """Fire one button press (its Lua), guarded, surfacing any Lua error."""
+    def _press_button(self, btn):
+        """Fire one button press (its Lua), guarded, surfacing any Lua error.
+
+        Returns `None` for a button with no `verify_lua` — the old contract, «it was
+        issued» — and `True` / `False` for one that has it: whether the expression's
+        value MOVED after the press.
+
+        WHY THE RETURN EXISTS. Without a verifier this logs `ACT tap=ok` when the pcall
+        did not throw, which says the call ran and nothing more. 32 of the 44 `TAP`
+        lines in the shipped recipes cannot tell «pressed» from «did anything», and six
+        fixes in a single day were that same shape (#1259, #1263, #1266, #1269) — an
+        action reporting from the fact that it was ISSUED rather than from a re-read of
+        what it changed.
+
+        The before-value is read in the SAME chunk as the press, so nothing can move in
+        between, and the poll afterwards uses the button's `wait` as a deadline rather
+        than as a sleep (#1282, and §1.3 of the audit): a verified button is usually
+        quicker as well as honest.
+        """
+        if not btn.verify_lua:
+            chunk = (
+                'local ok,err=pcall(function() %s end) '
+                'CS.UnityEngine.Debug.LogError("ACT tap="..(ok and "ok" or ("ERR:"..tostring(err))))'
+                % btn.lua
+            )
+            for out in self._run_lua(chunk, settle=0.1):
+                if "ERR:" in out:
+                    self._log(f"TAP {btn.label} error: {out.split('tap=', 1)[-1]}")
+            return None
+
         chunk = (
+            'local okb,before=pcall(function() return %s end) '
             'local ok,err=pcall(function() %s end) '
-            'CS.UnityEngine.Debug.LogError("ACT tap="..(ok and "ok" or ("ERR:"..tostring(err))))'
-            % btn.lua
+            'CS.UnityEngine.Debug.LogError("ACT tap="..(ok and "ok" or ("ERR:"..tostring(err)))'
+            '.." was="..(okb and tostring(before) or "ERR"))'
+            % (btn.verify_lua, btn.lua)
         )
+        before = None
         for out in self._run_lua(chunk, settle=0.1):
-            if "ERR:" in out:
+            if "ERR:" in out and "tap=ERR" in out:
                 self._log(f"TAP {btn.label} error: {out.split('tap=', 1)[-1]}")
+                return False
+            if " was=" in out:
+                before = out.split(" was=", 1)[1].split()[0]
+        # An unreadable before-value is not a verdict: the expression may have been
+        # meaningless until the press opened the thing it reads. Poll for ANY readable
+        # value in that case, which is still more than «the Lua did not raise».
+        deadline = time.monotonic() + max(0.0, float(btn.wait))
+        while True:
+            now = self._eval_lua_value(btn.verify_lua)
+            if now is not None and now != before:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
 
     def _press_gated(self, btn, cap: int) -> tuple:
         """Read the button's own count AND press, in ONE call. -> ``(left, fired)``.
