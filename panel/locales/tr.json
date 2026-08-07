@@ -653,6 +653,7 @@
   "timers.log.saved": "{name}: kaydedildi",
   "timers.log.scheduler_off": "zamanlama kapalı — hiçbir şey tetiklenmeyecek",
   "timers.log.scheduler_on": "zamanlama açık",
+  "timers.reason.busy": "panel başka bir işle meşgul",
   "timers.log.skip_busy": "{name}: panel meşgul — sırada kalıyor",
   "timers.log.skipped_once": "{name}: atlandı — {reason}",
   "timers.log.skipped_times": "{name}: {count} kez atlandı — {reason}",

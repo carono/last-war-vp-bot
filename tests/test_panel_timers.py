@@ -607,7 +607,12 @@ def test_a_busy_panel_delays_the_errand_but_never_loses_it():
     assert s.sched.tick_once() == []
     assert len(s.ran) == 1, "kept asking while the panel was busy: %r" % (s.ran,)
     assert s.store.last_run(s.ran[0]) == 0.0
-    assert "timers.log.skip_busy" in s.logs, s.logs
+    # A busy panel is a reason like any other, so it goes through the roll-up rather
+    # than writing two lines on every retry: the queue re-offers a parked errand every
+    # few seconds, and the un-rolled version buried a live evening's log under 1698
+    # lines of «стартую / панель занята» (#1281).
+    assert "timers.log.skipped_once" in s.logs, s.logs
+    assert "timers.log.skip_busy" not in s.logs, s.logs
 
     # Both are still queued — the one turned down and the one never reached.
     assert s.sched.pending() == {BASE, ALLY}, s.sched.pending()
@@ -618,6 +623,30 @@ def test_a_busy_panel_delays_the_errand_but_never_loses_it():
     s.outcome = True
     assert s.sched.drain() == [ALLY, BASE], s.ran
     assert s.sched.pending() == set(), s.sched.pending()
+
+
+def test_waiting_out_a_busy_panel_is_said_once_not_on_every_retry():
+    """A parked errand claims to be starting ONCE — the retries are quiet (#1281).
+
+    The queue re-offers a name the panel turned down every `busy_retry` seconds. Each
+    offer used to write a «стартую» and a «панель занята» beside it, so two errands
+    stuck behind one long run wrote a line every two and a half seconds all evening —
+    and the live rally numbers this task exists to read were somewhere underneath.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    s = _Scheduler(tmp, _cfg(**{BASE: 3600}), outcome=False)
+    for _ in range(6):
+        s.sched.tick_once()
+        s.sched.drain()
+    assert s.logs.count("timers.log.fire") == 1, s.logs
+    assert s.logs.count("timers.log.skipped_once") == 1, s.logs
+    assert "timers.log.skipped_times" not in s.logs[:2], s.logs
+
+    # …and when the panel frees up, the errand runs and says so in full.
+    s.outcome = True
+    s.sched.drain()
+    assert s.ran[-1] == BASE, s.ran
+    assert "timers.log.done" in s.logs, s.logs
 
 
 def test_run_now_is_queued_not_a_thread_of_its_own():

@@ -653,6 +653,7 @@
   "timers.log.saved": "{name}: salvato",
   "timers.log.scheduler_off": "pianificazione spenta — non scatterà nulla",
   "timers.log.scheduler_on": "pianificazione accesa",
+  "timers.reason.busy": "il pannello è occupato con altro",
   "timers.log.skip_busy": "{name}: il pannello è occupato — resta in coda",
   "timers.log.skipped_once": "{name}: saltato — {reason}",
   "timers.log.skipped_times": "{name}: saltato {count} volta(e) — {reason}",

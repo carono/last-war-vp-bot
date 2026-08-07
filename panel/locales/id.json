@@ -653,6 +653,7 @@
   "timers.log.saved": "{name}: disimpan",
   "timers.log.scheduler_off": "penjadwalan mati — tidak ada yang akan meletus",
   "timers.log.scheduler_on": "penjadwalan hidup",
+  "timers.reason.busy": "panel sedang sibuk dengan hal lain",
   "timers.log.skip_busy": "{name}: panel sedang sibuk — tetap di antrean",
   "timers.log.skipped_once": "{name}: dilewati — {reason}",
   "timers.log.skipped_times": "{name}: dilewati {count} kali — {reason}",

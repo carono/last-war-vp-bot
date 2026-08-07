@@ -653,6 +653,7 @@
   "timers.log.saved": "{name}: đã lưu",
   "timers.log.scheduler_off": "lịch đang tắt — sẽ chẳng có gì nổ",
   "timers.log.scheduler_on": "lịch đang bật",
+  "timers.reason.busy": "bảng điều khiển đang bận việc khác",
   "timers.log.skip_busy": "{name}: bảng đang bận — vẫn nằm trong hàng đợi",
   "timers.log.skipped_once": "{name}: bỏ qua — {reason}",
   "timers.log.skipped_times": "{name}: bỏ qua {count} lần — {reason}",

@@ -653,6 +653,7 @@
   "timers.log.saved": "{name}: saved",
   "timers.log.scheduler_off": "schedule off — nothing will fire",
   "timers.log.scheduler_on": "schedule on",
+  "timers.reason.busy": "the panel is busy with something else",
   "timers.log.skip_busy": "{name}: the panel is busy — staying in the queue",
   "timers.log.skipped_once": "{name}: skipped — {reason}",
   "timers.log.skipped_times": "{name}: skipped {count} time(s) — {reason}",

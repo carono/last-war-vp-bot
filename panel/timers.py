@@ -977,6 +977,10 @@ class TimerScheduler:
         # coalesced — that run has not looked at anything yet and will see the new
         # rally by itself.
         self._refire: set[str] = set()
+        # Names parked because the panel was busy, so the retries stay quiet: the
+        # queue re-offers them every `BUSY_RETRY_SEC` and only the first offer is
+        # worth a «стартую» line. Emptied the moment one of them actually runs.
+        self._busy_held: set[str] = set()
         # Repeated skips, rolled up: name -> [reason, count, last-said-monotonic].
         self._skips: dict = {}
         self._queue_lock = threading.Lock()
@@ -1316,8 +1320,15 @@ class TimerScheduler:
         makes a manual press restart the period exactly like an automatic run.
         """
         if scheduled:
-            self._log("timers.log.fire", name=timer.name,
-                      mins=self._minutes_since(timer.name))
+            # A NAME WAITING OUT A BUSY PANEL SAYS «стартую» ONCE, NOT EVERY RETRY.
+            # The queue re-offers it every `BUSY_RETRY_SEC`, and each offer used to
+            # write two lines — one claiming it was starting and one saying it was
+            # not. Two errands parked behind a stuck run buried an evening's log in
+            # 1698 lines of it, which is the log being useless exactly when somebody
+            # is reading it to find out what went wrong (#1281).
+            if timer.name not in self._busy_held:
+                self._log("timers.log.fire", name=timer.name,
+                          mins=self._minutes_since(timer.name))
             self._dbg.info("fire %s (scheduled)", timer.name)
         else:
             self._log("timers.log.manual", name=timer.name)
@@ -1330,9 +1341,13 @@ class TimerScheduler:
             self._dbg.error("run of %s failed", timer.name, exc_info=True)
             return False, False
         if not started:
-            self._log("timers.log.skip_busy", name=timer.name)
+            # Rolled up like any other reason an errand did not run: said at once,
+            # then at most once a minute with how many attempts piled up behind it.
+            self.note_skip(timer.name, "timers.reason.busy")
+            self._busy_held.add(timer.name)
             self._dbg.warning("skipped %s — panel busy", timer.name)
             return False, True
+        self._busy_held.discard(timer.name)
         self._store.mark_run(timer.name)
         self._log("timers.log.done", name=timer.name)
         self._dbg.info("done %s", timer.name)

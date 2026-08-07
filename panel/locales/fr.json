@@ -653,6 +653,7 @@
   "timers.log.saved": "{name} : enregistré",
   "timers.log.scheduler_off": "planification coupée — rien ne se déclenchera",
   "timers.log.scheduler_on": "planification active",
+  "timers.reason.busy": "le panneau est occupé à autre chose",
   "timers.log.skip_busy": "{name} : le panneau est occupé — il reste en file",
   "timers.log.skipped_once": "{name} : passé — {reason}",
   "timers.log.skipped_times": "{name} : passé {count} fois — {reason}",

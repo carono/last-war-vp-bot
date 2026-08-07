@@ -653,6 +653,7 @@
   "timers.log.saved": "{name}: salva",
   "timers.log.scheduler_off": "agendamento desligado — nada vai disparar",
   "timers.log.scheduler_on": "agendamento ligado",
+  "timers.reason.busy": "o painel está ocupado com outra coisa",
   "timers.log.skip_busy": "{name}: o painel está ocupado — continua na fila",
   "timers.log.skipped_once": "{name}: ignorado — {reason}",
   "timers.log.skipped_times": "{name}: ignorado {count} vez(es) — {reason}",
