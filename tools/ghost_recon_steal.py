@@ -71,11 +71,18 @@ def _num(text: str, key: str) -> int:
 
 
 def read_status(ev) -> dict:
+    """The event's open day, the robberies left and the queue length — one line.
+
+    `early=True` because the chunk asks the client nothing but its own tables and logs
+    its WHOLE answer in that one line: there is no server round trip for the settle to
+    be covering, so the second was pure waiting (#1282). The settle stays as the
+    deadline for the case where the line never comes.
+    """
     chunk = ('CS.UnityEngine.Debug.LogError("ACT status open="..tostring(%s)'
              '.." left="..tostring(%s).." queued="..tostring(%s))'
              % (lua_actions.ghost_recon_is_open(), lua_actions.ghost_recon_steals_left(),
                 lua_actions.ghost_recon_queue_len()))
-    for ln in ev.run(chunk, MARKER, 1.0):
+    for ln in ev.run(chunk, MARKER, 1.0, early=True):
         if "status open=" in ln:
             return {"open": bool(_num(ln, "open")), "left": _num(ln, "left"),
                     "queued": _num(ln, "queued")}
@@ -464,7 +471,9 @@ def robbable(ev, tasks: list[dict]) -> list[dict]:
             continue
         chunk = ('CS.UnityEngine.Debug.LogError("ACT can uuid=%s v="..tostring(%s))'
                  % (uuid, lua_actions.ghost_recon_can_steal(int(uuid))))
-        for ln in ev.run(chunk, MARKER, 0.6):
+        # One line, written by the client out of its own tables — `early` (#1282), and
+        # this one is paid PER TILE, so a list of ten was six seconds of sleep.
+        for ln in ev.run(chunk, MARKER, 0.6, early=True):
             if "can uuid=%s" % uuid in ln and _num(ln, "v") == 1:
                 picked.append(task)
     picked.sort(key=lambda t: -t.get("done", 0))
@@ -564,7 +573,9 @@ def main() -> int:
     pairs = [(int(t["uuid"]), int(t.get("srv") or 0)) for t in targets]
     for uuid, server in pairs:
         print("  target uuid=%d srv=%d" % (uuid, server))
-    ev.run(lua_actions.ghost_recon_queue_set(pairs), MARKER, 0.6)
+    # Parking the queue is a table assignment inside the client and logs its own
+    # `ghost_queue_set <n>` — nothing to wait for past that line (#1282).
+    ev.run(lua_actions.ghost_recon_queue_set(pairs), MARKER, 0.6, early=True)
 
     if args.queue_only:
         # THIS LINE IS A CONTRACT, not just a report — see the same note in

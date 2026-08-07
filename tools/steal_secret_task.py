@@ -142,7 +142,11 @@ def resolve_uuid(ev, x: int, y: int, server: int) -> int:
             % (lua_actions.secret_task_uuid_at(x, y), lua_actions.secret_task_owner_at(x, y)))
     for _ in range(DETAIL_TRIES):
         time.sleep(DETAIL_PAUSE)
-        for ln in ev.run(read, MARKER, 0.4):
+        # The REQUEST above is the server round trip and stays patient; this is the
+        # client reading back what the reply landed in its own table, one line, so the
+        # settle is a deadline rather than a sleep (#1282). Paid `DETAIL_TRIES` times
+        # per coordinate.
+        for ln in ev.run(read, MARKER, 0.4, early=True):
             if "detail uuid=" in ln:
                 uuid = _num(ln, "uuid")
                 if uuid:
@@ -646,7 +650,10 @@ def main() -> int:
     for uuid, server, label in targets:
         print("  target %-28s uuid=%d srv=%d" % (label, uuid, server))
 
-    ev.run(lua_actions.secret_task_queue_set([(u, s) for u, s, _ in targets]), MARKER, 0.6)
+    # Parking the queue is an assignment inside the client that logs its own count —
+    # `early`, so the settle is only the deadline for a line that never comes (#1282).
+    ev.run(lua_actions.secret_task_queue_set([(u, s) for u, s, _ in targets]),
+           MARKER, 0.6, early=True)
     if args.queue_only:
         _, queued = read_status(ev)
         # THIS LINE IS A CONTRACT, not just a report. The panel's auto-loot runs this
