@@ -559,3 +559,15 @@ unchanged code — the same presses the old recipe made — so this is not a reg
 this task, but it does mean the empty-squad case has no working route at all right now.
 Whoever picks that up: the error is in the CLIENT's Lua, so the argument it compares is
 one the screen expects and the press is not giving it.
+
+**Two banners, one press, both landed** — the thing the old shape could not do at all:
+
+```
+16:18:40  report = 'sent=2 rallies=2 free=3'
+16:18:40  joined = 2
+```
+
+Thirteen minutes of a live alliance, counted off the panel's own log: **13 pushes fired
+(7 re-armed mid-run, 7 coalesced onto a run that had not looked yet), 16 runs, 3 squads
+sent, 3 joins confirmed, 0 endings that said nothing.** The one run that joined nothing
+with a banner out is the empty-squad case above.
