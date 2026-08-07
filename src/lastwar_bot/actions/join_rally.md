@@ -140,4 +140,13 @@ IF joined >= 1
     LOG "the squads are in the rally — {joined} more of ours standing in one than before"
     STOP
 
-FAIL "the join was sent and no squad appeared in a rally — check the client is still talking to the server"
+# WHAT THE SERVER SAID, before giving up on it (#1281). «The send went out and no squad
+# appeared» is the same shape this ability spent weeks in — a press that returned cleanly
+# over nothing happening — and naming it without naming the REFUSAL leaves the next reader
+# exactly where we were. The client puts the server's own words on screen as a message
+# tip; that tip is what «invalid end point» was, and reading it costs one call on the
+# failing path only. Empty when the server said nothing, which is itself the answer: then
+# the message never reached it.
+READ_LUA (function() local ok, v = pcall(function() local m = UIManager.Instance if not m:IsWindowOpen(UIWindowNames.UICommonMessageTip) then return '' end local w = m:GetWindow(UIWindowNames.UICommonMessageTip) local t = w and w.View and w.View.tipText return t == nil and '' or tostring(t) end) if not ok or v == nil or v == '' then return 'the server said nothing on screen' end return v end)() INTO refusal
+
+FAIL "the join was sent and no squad appeared in a rally — the game says: {refusal}"

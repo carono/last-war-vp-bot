@@ -3357,8 +3357,27 @@ def rally_join_all() -> str:
         "local ok0, v0 = pcall(function() return m0.Value end) if ok0 and v0 ~= nil then m0 = v0 end "
         "local ok1, t0 = pcall(function() return m0.teamUuid end) "
         "if ok1 and t0 ~= nil then live[tostring(t0)] = true end end end "
+        # A MARK MUST NOT OUTLIVE THE SQUAD IT STANDS FOR (#1281). It exists to bridge the
+        # seconds between a send and the server confirming it, so that two squads are not
+        # spent on one banner. Keeping it for as long as the BANNER lives is too long: a
+        # squad comes home, the rally is still standing and could be joined again, and the
+        # run says «no rally we are not already in» — which by then is false. Seen live:
+        # `seen=6 ours=6 already_in=0 rallies=0`, six banners of ours, a march of ours in
+        # none of them, and every one of them held shut by a mark.
+        #
+        # So a mark AGES. It is dropped when the banner is gone (as before), and also once
+        # it has survived two runs with no march of ours in that team — by which point the
+        # server has long since answered and the mark is standing for nothing.
+        "local om0 = wm0 and wm0:GetOwnerMarches() local ours_in = {} "
+        "if om0 then local e7 = om0:GetEnumerator() while e7:MoveNext() do local m7 = e7.Current "
+        "local ok7, v7 = pcall(function() return m7.Value end) if ok7 and v7 ~= nil then m7 = v7 end "
+        "local ok8, t7 = pcall(function() return m7.teamUuid end) "
+        "if ok8 and t7 ~= nil then ours_in[tostring(t7)] = true end end end "
         "local keep = {} "
-        "for k in pairs(DataCenter.__lw_rally_joined or {}) do if live[k] then keep[k] = true end end "
+        "for k, age in pairs(DataCenter.__lw_rally_joined or {}) do "
+        "if live[k] then "
+        "if ours_in[k] then keep[k] = 0 "
+        "else local a = (tonumber(age) or 0) + 1 if a < 2 then keep[k] = a end end end end "
         "DataCenter.__lw_rally_joined = keep " +
         _RALLY_PRELUDE_MINE +
         # What the run will be judged against: our squads standing in a rally right now.
@@ -3385,16 +3404,45 @@ def rally_join_all() -> str:
         "if st ~= nil and not (st == 0 and free) then skipped[#skipped+1] = tostring(s)..':out' "
         "elseif n <= 0 then skipped[#skipped+1] = tostring(s)..':empty' "
         "else home[#home+1] = {slot = s, uuid = f.uuid} end end end "
-        # Pair and send. One squad per rally, both in the order they arrived.
-        "local sent, errs = 0, {} "
+        # THE DENOMINATOR, counted rather than guessed (#1281). «Six banners» is not six
+        # chances: the list the client keeps holds every team on the map — other
+        # alliances', and the ones we are already standing in. Without the split, «two
+        # were missed» cannot be said or denied, which is exactly what the summary had to
+        # admit. One more pass over the collection already in hand, so it costs nothing.
+        "local seen_t, our_t = {}, {} "
+        "if col then local e9 = col:GetEnumerator() while e9:MoveNext() do local m9 = cur(e9) "
+        "local t9 = g(m9, 'teamUuid') local ts9 = tostring(t9) "
+        "if t9 ~= nil and ts9 ~= '0' and ts9 ~= 'nil' then seen_t[ts9] = true "
+        "local n9 = tostring(g(m9, 'allianceName')) "
+        "if mine ~= nil and n9 == mine then our_t[ts9] = true end end end end "
+        "local function _n(t) local k = 0 for _ in pairs(t) do k = k + 1 end return k end "
+        # COUNTED FROM OUR OWN MARCHES, not from the marks. `taken` also carries the
+        # teams this run has just SENT to, and a mark outlives the squad that came home —
+        # so counting it answered «already_in=6» on an account with three squads, which is
+        # a number that cannot be true. The honest reading is a march of ours standing in
+        # that team right now, which is the same thing `before` is counted from.
+        "local seen_n, our_n, in_n = _n(seen_t), _n(our_t), 0 "
+        "local om2 = wm:GetOwnerMarches() "
+        "if om2 then local e8 = om2:GetEnumerator() while e8:MoveNext() do local m8 = cur(e8) "
+        "local t8 = g(m8, 'teamUuid') local ts8 = tostring(t8) "
+        "if t8 ~= nil and ts8 ~= '0' and seen_t[ts8] then in_n = in_n + 1 end end end "
+        # Pair and send. One squad per rally, both in the order they arrived. EVERY BANNER
+        # IS NAMED — the one it went to, and the one it did not and why — so «not a banner
+        # missed» can be checked one at a time instead of as a total (#1281).
+        "local sent, errs, went, left_over = 0, {}, {}, {} "
         "local pairs_n = #home if #rallies < pairs_n then pairs_n = #rallies end "
         "for i = 1, pairs_n do local r, q = rallies[i], home[i] "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
-        "if ok then sent = sent + 1 keep[tostring(r.team)] = true "
+        "if ok then sent = sent + 1 keep[tostring(r.team)] = 0 "        # age 0: freshly sent
+        "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
         'CS.UnityEngine.Debug.LogError("ACT rally_join_all send squad="..tostring(q.slot)'
         '.." team="..tostring(r.team).." point="..tostring(r.point).." server="..tostring(r.server)) '
-        "else errs[#errs+1] = tostring(q.slot)..':'..tostring(err) end end "
+        "else errs[#errs+1] = tostring(q.slot)..':'..tostring(err) "
+        "left_over[#left_over+1] = tostring(r.team)..':refused' end end "
+        # …and the banners this run could see and did not reach, each with its reason.
+        "for i = pairs_n + 1, #rallies do "
+        "left_over[#left_over+1] = tostring(rallies[i].team)..(#home == 0 and ':no-squad' or ':squads-spent') end "
         "DataCenter.__lw_rally_joined = keep "
         "DataCenter.__lw_rally_sent = sent "
         # WHAT THE RECIPE DOES NEXT, decided here so it costs no reading of its own.
@@ -3408,6 +3456,12 @@ def rally_join_all() -> str:
         "DataCenter.__lw_rally_todo = sent "
         "if sent == 0 and empty > 0 and #rallies > 0 then DataCenter.__lw_rally_todo = -1 end "
         "local report = 'sent='..sent..' rallies='..#rallies..' free='..#home "
+        # The split that makes «rallies=1» readable: of every team on the map, how many
+        # are this alliance's and how many we are already standing in. `joinable` is the
+        # denominator «not one missed» is measured against; the rest are not chances.
+        "report = report..' seen='..seen_n..' ours='..our_n..' already_in='..in_n "
+        "if #went > 0 then report = report..' to=['..table.concat(went, ' ')..']' end "
+        "if #left_over > 0 then report = report..' passed=['..table.concat(left_over, ' ')..']' end "
         "if #skipped > 0 then report = report..' left=['..table.concat(skipped, ' ')..']' end "
         "if #errs > 0 then report = report..' refused=['..table.concat(errs, ' ')..']' end "
         "if #rallies == 0 then report = report..' -- no rally of this alliance is out that we are not already in' "
