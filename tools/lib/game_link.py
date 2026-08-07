@@ -140,6 +140,42 @@ def live_endpoint(sockets) -> "str | None":
     return None
 
 
+def online_is_confirmed(sockets) -> bool:
+    """Is an ONLINE verdict backed by the GAME's own conversation? (#1269)
+
+    **«На связи» arrives before «готов играть», and the gap is minutes.** A client that
+    is starting up opens the control channel first and the game's own conversation only
+    later — live on 2026-08-07 the strip read `онлайн → …:17935` for three minutes while
+    the game link did not exist yet. :func:`classify` calls that ONLINE, honestly by its
+    own definition (an established non-HTTP conversation), and it is the fourth instance
+    of one reading being used to answer a different question
+    (docs/research/server-link-status.md §5).
+
+    Sockets alone CANNOT close this. The bad case — one established conversation which
+    happens to be the control channel — is indistinguishable from the good one — one
+    established conversation which happens to be the game — unless something says which
+    port is which, and nothing on the machine may (`CLAUDE.md`: a port that has changed
+    under a hardcoded answer does not raise, it silently means the wrong thing).
+
+    So this reports the one thing sockets CAN say: whether the live conversation is the
+    one that won a GATEWAY RACE. The client greets several gateways while logging in,
+    keeps one and leaves the losers half-closed for the session, and no other service on
+    the client leaves any — the same positive marker :func:`live_endpoint` already
+    prefers and :func:`primary_game_port` is built on. A conversation with losers behind
+    it IS the game's.
+
+    ``False`` therefore means «cannot confirm from here», never «not the game»: a client
+    whose race has not happened yet reads False for the few seconds before its losers
+    appear, and so does one whose sockets could not be attributed at all. The caller's
+    job is to ASK — the client's own session reading answers it in one round trip
+    (`game_clock.session_ready`) — not to treat an unconfirmed link as a dead one.
+    """
+    for _port, (conn, dead) in conversations(sockets).items():
+        if conn and dead:
+            return True
+    return False
+
+
 def classify(sockets) -> tuple:
     """``(state, endpoint, dead)`` for a client that IS running, from its own sockets.
 

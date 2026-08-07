@@ -507,6 +507,7 @@ because a fourth is likelier than not.
 | 2.2 | «the link is fine» — an established socket vouched for it | the socket belonged to ANOTHER service; the game link was long dead | nothing, for hours: every errand failed and the strip said online (#1266) |
 | 4.3 | «the client was kicked, restarting» | it was — and the restart was announced and never played | nineteen minutes deaf, rescued only when the client died on its own (#1259) |
 | 5.1 | «the client is broken, restarting it» | the CLIENT was fine; the daemon held a dead pid | six relaunches in fifty minutes, each ending in a five-minute scene timeout (#1268) |
+| 5.2 | «the client is online, so errands may be sent» | it was online — on its CONTROL channel; the game's own conversation did not exist yet | every errand let through into a client still logging in, succeeding at nothing (#1269) |
 
 The common shape, in one sentence: **a reading that cannot distinguish two states was
 used to choose between two cures, and the wrong cure left no trace that it was wrong.**
@@ -585,3 +586,72 @@ read `online` for minutes at a time, with six established sockets. Any decision 
 always called `DaemonLink.restart` — shut the daemon down politely, start a fresh one,
 which attaches to whatever client is actually running. It takes about two seconds.
 Nothing was missing but the decision to press it.
+
+### 5.2 «На связи» arrives before «готов играть» (2026-08-07, found while verifying #1268)
+
+Watched during a client restart, three minutes apart:
+
+```
+04:35:16  онлайн (pid 26972) → 34.145.128.94:17935     <- the CONTROL channel
+…                                                         (no :10012 conversation at all)
+04:38:2x  онлайн (pid 179220) → 101.32.143.142:10012   <- the game, at last
+```
+
+`classify` was right by its own definition — an established non-HTTP conversation — and
+answering a question nobody had asked it: **not «is a socket up» but «can this client be
+played».** The send gate (`Interpreter._link_lost`) refused only on `lost`, so for those
+three minutes every errand was let through into a client that was still logging in. They
+do not fail loudly there; a client at the login screen answers everything with plausible
+numbers (#1227), so they succeed at nothing. Ingredient 2 of §5, exactly.
+
+**Sockets cannot close this, and that is the finding.** The bad case — one established
+conversation which happens to be the control channel — is indistinguishable from the good
+one — one established conversation which happens to be the game — unless something names
+which port is which, and nothing on the machine may (`CLAUDE.md`: a hardcoded port that
+has moved does not raise, it silently means the wrong thing). Measured, both orders
+happen: on one bring-up :10012 came up first and :17935 twelve seconds later; on another,
+:17935 alone held for three minutes.
+
+What sockets CAN say is whether the live conversation won a **gateway race** — the client
+greets several gateways while logging in, keeps one and leaves the losers half-closed for
+the session, and no other service on the client leaves any. A settled client, measured:
+
+```
+{10012: ('…:10012', 5 half-closed),      <- the game: the winner, with its losers behind it
+ 17935: ('…:17935', 0)}                  <- the control channel: no race, ever
+```
+
+So `game_link.online_is_confirmed` reports that and nothing more, and **`False` means
+«cannot confirm from here», never «not the game»** — a client whose race has not happened
+yet reads False for a few seconds, and so does one whose sockets could not be attributed.
+
+**The gate therefore ASKS.** `online` with the race behind it passes for free; `online`
+without it costs one round trip to the client's own clock, which a client at the login
+screen cannot fake. Three properties, each pinned by a test:
+
+* `unknown` still fails OPEN — a client 45 seconds old, or a second account whose sockets
+  this machine will not attribute, must not be stranded behind a guess. **This is also
+  what #1268's recovery stands on**, so it was the first thing checked;
+* `lost` is still `lost` whatever the client says about itself — a stranded client answers
+  that question with yesterday's numbers too, so the confirmation may only ever ADD a
+  refusal;
+* the confirmation itself fails open on every way of not knowing, and never builds a local
+  evaluator — a gate may not become the most expensive thing in a run.
+
+#### The near-miss worth keeping
+
+The obvious implementation is `game_clock.session_ready(ev)`. It is wrong here, and
+silently: that helper answers `False` for «at the login screen» AND for «the read
+failed», so a machine whose VM cannot be reached would have had every run refused, for
+ever, with no error anywhere. Fail-closed is the one direction this gate is built never
+to fail in. It was caught by writing the test for «every way of not knowing» BEFORE
+believing the implementation — the round trip is now made in the gate, where a raised
+call and an unanswered clock stay distinguishable.
+
+That is the second time in two tasks that the guard was written by asking «what does this
+do when it is wrong in the OTHER direction» — the first being #1268's anti-loop, whose
+first draft stopped restarting the client entirely and was caught by a test that already
+existed. **Both mistakes were the same shape as the bugs being fixed**: a fix that is
+confident about one direction and has never been asked about the other. Adding the
+opposite-direction test before trusting a fix is the cheapest guard here, and it has now
+paid twice.

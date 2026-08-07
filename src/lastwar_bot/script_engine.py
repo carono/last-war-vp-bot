@@ -1613,6 +1613,29 @@ class Interpreter:
         healthy account behind a guess. A missing psutil, an unreadable socket table and
         an unresolvable session all land in `unknown` by construction, so the gate fails
         OPEN: it can only ever stop a run it has positive evidence against.
+
+        …AND `online` IS NOT ENOUGH EITHER (#1269). «На связи» arrives before «готов
+        играть»: a client that is starting up opens its control channel first, and for
+        the minutes before the game's own conversation exists the socket verdict is
+        `online` — honestly, by its own definition, and about the wrong conversation.
+        Errands let through in that window reach a client that is not in the game yet and
+        report success for doing nothing, which is the whole family of bug this file's
+        gate exists to end (docs/research/server-link-status.md §5).
+
+        So the verdict is taken in two steps, and only the cheap one runs for a healthy
+        client:
+
+        * `online` WITH the gateway race behind it (`game_link.online_is_confirmed`) is
+          the game's own conversation, positively — pass, no round trip;
+        * `online` without it is «cannot confirm from here», so ASK: the client's own
+          clock answers in one call and a client at the login screen cannot fake it
+          (`game_clock.session_ready`, #1227). That is the confirmation the task asked
+          for, and it is a POSITIVE reading rather than another guess about ports.
+
+        **A failed ASK is not a refusal.** No daemon, no evaluator, a read that raised —
+        all of that is «could not tell», and the gate goes on failing open, exactly as it
+        does for `unknown`. Only a client that answers and says it is NOT in a session is
+        stopped.
         """
         try:
             self._tools_lib_on_path()
@@ -1624,13 +1647,69 @@ class Interpreter:
                                          log=lambda _msg: None)
             if pid is None:                  # no client to judge — the run will say so
                 return None
-            if game_link.state_of([pid]) != game_link.LOST:
+            sockets = game_link.sockets_of([pid])
+            state, _conn, _dead = game_link.classify(sockets)
+            if state == game_link.LOST:
+                return ("the client is no longer talking to the game server (its sockets "
+                        "are half-closed) — nothing sent from here would reach it. "
+                        "Restart the client; see docs/research/server-link-status.md")
+            if state != game_link.ONLINE or game_link.online_is_confirmed(sockets):
+                return None
+            if self._session_confirmed():
                 return None
         except Exception:                    # noqa: BLE001 — a gate must never be the fault
             return None
-        return ("the client is no longer talking to the game server (its sockets are "
-                "half-closed) — nothing sent from here would reach it. Restart the "
-                "client; see docs/research/server-link-status.md")
+        return ("the client is connected but not in the game yet — the link that is up "
+                "is not the game's own conversation and the client will not say what "
+                "time it is. Wait for the login to finish; see "
+                "docs/research/server-link-status.md")
+
+    def _session_confirmed(self) -> bool:
+        """Does the CLIENT say it is in a session? ``True`` also when it cannot be asked.
+
+        Fails OPEN on purpose, like everything else in this gate: a missing daemon or a
+        read that raised is «could not tell», and a gate may only ever stop a run it has
+        positive evidence against. The question itself is the game's own clock — a client
+        at the login screen answers every other question with a plausible lie and cannot
+        answer that one (`game_clock`, #1227).
+
+        **Only ever through a WARM daemon.** `_evaluator()` would happily build a local
+        `LuaEval` instead, and that costs seconds and an attach — paid by every scenario
+        passing this gate, including the vision-only ones that are documented never to
+        touch the daemon at all. A gate may not be the most expensive thing in a run: no
+        daemon on the port means «could not tell», which is a pass.
+
+        **NOT `game_clock.session_ready`, and the difference is the whole safety of it.**
+        That helper answers `False` for «at the login screen» AND for «the read failed»,
+        which is fine for its own callers and fatal here: a daemon that raised would come
+        back as positive evidence of not playing, and this gate would refuse every run on
+        a machine whose VM simply cannot be reached. Fail-closed, silently, for ever —
+        the exact direction the rest of this gate is built not to fail in. (Caught by
+        `test_the_confirmation_fails_open_on_every_way_of_not_knowing`, which is why the
+        round trip is made here rather than borrowed.)
+
+        So the call is made directly: a raised `run` lands in the handler below and reads
+        as «could not tell», while an answer that carries no plausible clock is the
+        client itself saying it is not in a session. The chunk and both checks are
+        `game_clock`'s own — no second copy of the question.
+        """
+        try:
+            import game_clock
+            import lua_actions
+            import lua_client
+
+            ev = self.ctx.evaluator
+            if ev is None:
+                port = self.ctx.game_port
+                port = int(port) if port is not None else lua_client.PORT
+                if not lua_client.is_running(port=port, timeout=0.3):
+                    return True
+                ev = self._evaluator()
+            lines = ev.run(lua_actions.game_server_time(), game_clock.MARKER, 1.0)
+            server_ms = game_clock.parse_ms(lines)
+            return server_ms is not None and game_clock.plausible(server_ms)
+        except Exception:                    # noqa: BLE001 — «could not tell» is a pass
+            return True
 
     def _current_scene(self) -> str:
         """Read the game scene from the Lua VM (state, not pixels): 'city' / 'world' / 'unknown'.

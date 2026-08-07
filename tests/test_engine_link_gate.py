@@ -115,21 +115,45 @@ def test_saying_nothing_is_unknown_and_no_client_is_offline():
 
 
 # --- the gate ---------------------------------------------------------------
-def _gate(state, pid=4242):
-    """`Interpreter._link_lost()` with the link and the client's pid stubbed."""
+#: Socket tables that classify into each verdict — fed to the gate instead of a stubbed
+#: answer, so the REAL `classify` runs and the test cannot drift away from it (#1269
+#: moved the gate's seam from `state_of` to the sockets themselves, because the gate now
+#: has a second question to ask of them: is the live conversation the GAME's?).
+def _sockets_for(state, confirmed=True):
+    if state == game_link.LOST:
+        return [_Conn("CLOSE_WAIT"), _Conn("CLOSE_WAIT")]
+    if state == game_link.UNKNOWN:
+        return []
+    if confirmed:
+        # the game's own conversation: the winner of the gateway race, losers behind it
+        return [_Conn("ESTABLISHED"), _Conn("CLOSE_WAIT")]
+    # one established conversation and no race — «на связи» that may not be the game
+    return [_Conn("ESTABLISHED")]
+
+
+def _gate(state, pid=4242, confirmed=True, session=True):
+    """`Interpreter._link_lost()` with the socket table and the client's pid stubbed.
+
+    ``confirmed`` is whether the live conversation carries the gateway race behind it;
+    ``session`` is what the client itself would answer about being logged in — the two
+    inputs #1269 added, because `online` alone stopped being enough.
+    """
     interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
     interp._tools_lib_on_path()
-    real_state_of, real_port = game_link.state_of, interp._game_port
+    real_sockets, real_port = game_link.sockets_of, interp._game_port
+    real_confirm = script_engine.Interpreter._session_confirmed
     fake_client = type(sys)("game_client")
     fake_client.target_pid = lambda **kw: pid
     saved = sys.modules.get("game_client")
     sys.modules["game_client"] = fake_client
-    game_link.state_of = lambda _pids: state
+    game_link.sockets_of = lambda _pids: _sockets_for(state, confirmed)
+    script_engine.Interpreter._session_confirmed = lambda _self: session
     interp._game_port = lambda: 47654
     try:
         return interp._link_lost()
     finally:
-        game_link.state_of, interp._game_port = real_state_of, real_port
+        game_link.sockets_of, interp._game_port = real_sockets, real_port
+        script_engine.Interpreter._session_confirmed = real_confirm
         if saved is None:
             sys.modules.pop("game_client", None)
         else:
@@ -232,6 +256,119 @@ def test_the_gate_never_becomes_the_fault():
         interp._game_port = real
 
 
+# ---------------------------------------------------------------------------
+# #1269 — «на связи» arrives before «готов играть»
+#
+# Live on 2026-08-07 the strip read `онлайн → …:17935` for three minutes while the
+# game's own conversation did not exist yet: a starting client opens its control
+# channel first. `classify` calls that ONLINE honestly, by its own definition, and the
+# gate used to let everything through on it — errands into a client that is not in the
+# game, reporting success for doing nothing. The fourth instance of one reading
+# answering a different question (docs/research/server-link-status.md §5).
+# ---------------------------------------------------------------------------
+def test_the_gateway_race_is_what_confirms_a_link_is_the_games():
+    """The one thing sockets CAN say: the winner of the race is the game's own talk."""
+    raced = [_Conn("ESTABLISHED"), _Conn("CLOSE_WAIT")]
+    assert game_link.online_is_confirmed(raced) is True
+    # …one established conversation and nothing behind it: could be the game, could be
+    # the control channel. Sockets cannot tell, and must not pretend to.
+    assert game_link.online_is_confirmed([_Conn("ESTABLISHED")]) is False
+    assert game_link.online_is_confirmed([]) is False
+
+
+def test_a_confirmed_link_costs_no_round_trip():
+    """The healthy path stays free — the client is not asked anything at all."""
+    asked = []
+
+    real = script_engine.Interpreter._session_confirmed
+    script_engine.Interpreter._session_confirmed = lambda _s: asked.append(1) or True
+    try:
+        assert _gate(game_link.ONLINE, confirmed=True) is None
+    finally:
+        script_engine.Interpreter._session_confirmed = real
+    assert asked == [], "a client with the race behind it was interrogated for nothing"
+
+
+def test_an_unconfirmed_link_is_refused_when_the_client_says_it_is_not_playing():
+    """THE BUG. `online` on the control channel, client still at the login screen."""
+    said = _gate(game_link.ONLINE, confirmed=False, session=False)
+    assert said, "an errand was let through into a client that is not in the game"
+    assert "not in the game yet" in said, said
+
+
+def test_an_unconfirmed_link_passes_once_the_client_confirms_the_session():
+    """…and the same reading with the client answering is a pass, so the window is
+    as short as the login is and never longer."""
+    assert _gate(game_link.ONLINE, confirmed=False, session=True) is None
+
+
+def test_unknown_still_fails_open_because_the_recovery_stands_on_it():
+    """THE THING THAT MUST NOT BREAK (#1268, and the reason `unknown` exists).
+
+    A client 45 seconds into starting up, and a machine that will not attribute a
+    foreign process's sockets, both read `unknown`. Blocking on it would strand a
+    healthy second account for ever, and counting it as a loss would restart a client
+    that is merely young.
+    """
+    assert _gate(game_link.UNKNOWN, confirmed=False, session=False) is None
+    assert _gate(game_link.UNKNOWN, confirmed=True, session=True) is None
+
+
+def test_lost_is_still_lost_whatever_the_client_says_about_itself():
+    """The confirmation may only ever ADD a refusal, never take one away: a stranded
+    client answers every question with yesterday's numbers, including that one."""
+    said = _gate(game_link.LOST, confirmed=False, session=True)
+    assert said and "half-closed" in said, said
+
+
+def test_the_confirmation_fails_open_on_every_way_of_not_knowing():
+    """No daemon, no evaluator, a read that raised — all «could not tell», all a pass.
+
+    Asserted against the real method rather than the stub, because this is the half
+    that decides whether a gate can strand a healthy account.
+    """
+    interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
+    interp._tools_lib_on_path()
+    import lua_client
+
+    real_running = lua_client.is_running
+    lua_client.is_running = lambda **kw: False          # nothing warm on the port
+    try:
+        assert interp._session_confirmed() is True
+    finally:
+        lua_client.is_running = real_running
+
+    class _Boom:
+        def run(self, *a, **kw):
+            raise RuntimeError("daemon said no")
+
+    interp.ctx.evaluator = _Boom()
+    assert interp._session_confirmed() is True
+
+
+def test_the_confirmation_never_builds_a_local_evaluator():
+    """A gate may not be the most expensive thing in a run.
+
+    `_evaluator()` would spin up a local `LuaEval` — seconds, plus an attach — for every
+    scenario passing this gate, including the vision-only ones that are documented never
+    to touch the daemon. So a cold port is a pass, without one being built.
+    """
+    interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
+    interp._tools_lib_on_path()
+    import lua_client
+
+    real_running, built = lua_client.is_running, []
+    real_eval = script_engine.Interpreter._evaluator
+    lua_client.is_running = lambda **kw: False
+    script_engine.Interpreter._evaluator = lambda _s: built.append(1)
+    try:
+        assert interp._session_confirmed() is True
+    finally:
+        lua_client.is_running = real_running
+        script_engine.Interpreter._evaluator = real_eval
+    assert built == [], "the gate built an evaluator against a daemon that is not there"
+
+
 def _main() -> int:
     if script_engine is None:
         print(f"  SKIP the engine will not import here: {_WHY}")
@@ -251,3 +388,4 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
