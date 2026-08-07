@@ -1703,6 +1703,13 @@ class SecretTasksTab(PanelTab):
         The lap only produces traffic; something has to be listening to it, which is the
         ★ monitor. Saying so is the difference between «nothing was found» and «nothing
         was written down».
+
+        AND IT WALKS THE SERVER IN THE BOX (#1280). The lap used to ask the client which
+        server it was on, and the client answers with a cached manager field: «перехожу
+        на другой сервер, жму обход — возвращает на предыдущий», live, every time. The
+        box beside it is the one thing on this tab that is definitely current — «↻
+        сервер» fills it and every jump writes into it — so that is what the waypoints
+        are given. An empty box still means «ask the client», which is where it started.
         """
         if self._sweeping:
             self._sweep_stop()
@@ -1714,8 +1721,10 @@ class SecretTasksTab(PanelTab):
         seconds = lua_actions.fast_sweep_seconds(step) + 2
         self.say("coord", "log.coord.sweeping",
                  level=self.t(f"coord.zoom.{self._zoom_level}"), secs=int(seconds))
+        srv = self.coord_srv_var.get().strip()
         started = self.rt.play_async(
-            "scan_map", {"zoom": height, "step": step}, tag="coord",
+            "scan_map", {"zoom": height, "step": step,
+                         "server": int(srv) if srv.isdigit() else 0}, tag="coord",
             on_start=lambda: self.post(self._sweep_began),
             on_done=self._sweep_ended)
         if not started:
@@ -1769,8 +1778,15 @@ class SecretTasksTab(PanelTab):
         coordinate clicked in the log, and the box that caused it looked like a display
         preference. The box is about the LAP now, and only the lap.
         """
-        if self.rt.game.jump(x, y, server):
-            self._remember_jump(x, y, server)
+        if not self.rt.game.jump(x, y, server):
+            return
+        self._remember_jump(x, y, server)
+        # …AND THE BOX FOLLOWS THE CAMERA (#1280). It is what «Обойти карту» walks now,
+        # so a jump to another server that left it saying the old number would send the
+        # lap back where the person just came from — which is the very complaint. A jump
+        # with no server named changes nothing: the client stayed where it was.
+        if server:
+            self.coord_srv_var.set(str(int(server)))
 
     def _goto_coord(self) -> None:
         """«Перейти»: the three boxes, validated, then the same jump as everything else."""

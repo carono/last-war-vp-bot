@@ -188,7 +188,8 @@ FIND_WORLD_SCENE = (
 
 
 def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
-                   interval: "float | None" = None) -> str:
+                   interval: "float | None" = None,
+                   server: "int | None" = None) -> str:
     """One lap of the WHOLE server map, scheduled inside the game — the fast swipe.
 
     A lap driven from Python is a lap of round trips: ~150 ms each way, so 121 waypoints
@@ -217,10 +218,19 @@ def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
     Measured live on a 1000 × 1000 server, one lap at `SWEEP_ZOOM_MAX`: **2.6 s**, 121
     requests, 20 742 tiles, 597 distinct secret tasks and 189 ghost-recon tiles. The same
     lap at `BASE_ZOOM_MAX` needs 49 waypoints and finds 4 762 bases in 2.6 s.
+
+    `server` NAMES the server the waypoints are walked on (#1280). Left out, the lap asks
+    the client — `current_server_expr()`, which reads `WorldFavoDataManager.curServerId`
+    and falls back to `HOME_SERVER` (0 unless the machine sets it). That answer is a
+    cached manager field rather than the camera: «перехожу на другой сервер, жму обход —
+    возвращает на предыдущий», live. So a caller that knows where the person actually is
+    — the panel's «Сервер» box, filled by «↻ сервер» and by every jump — says so, and
+    the guess stays only for callers that have nothing to say.
     """
     height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
     stride = max(1, int(FAST_STEP if step is None else step))
     gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
+    where = str(int(server)) if server else current_server_expr()
     return (FIND_WORLD_SCENE + '''
 local DC = DataCenter.ActDispatchTaskDataManager
 -- EVERY WAYPOINT IS SCHEDULED AT ONCE, so a lap cannot be called back — the game's own
@@ -253,7 +263,7 @@ for row = 1, #axis do
 end
 CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d span="
   ..string.format("%%.1f", (n - 1) * %f).." size="..tostring(size))
-''' % (current_server_expr(), stride, stride, height, gap, height, stride, gap))
+''' % (where, stride, stride, height, gap, height, stride, gap))
 
 
 def fast_map_sweep_stop() -> str:

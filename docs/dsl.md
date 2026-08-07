@@ -694,7 +694,7 @@ JUMP 512, 640, 300
 JUMP 512, 640 ZOOM 600
 ```
 
-### `SWEEP_MAP [ZOOM height] [STEP tiles] [EVERY seconds]`
+### `SWEEP_MAP [ZOOM height] [STEP tiles] [EVERY seconds] [SERVER id]`
 
 Walk the camera over the **whole** server map once. The client only sends map data while
 the map is moving, so this is what gives `SCAN_SECRET_MISSIONS` — and the panel's passive
@@ -710,6 +710,7 @@ tiles** (docs/research/map-sweep-zoom.md).
 SWEEP_MAP                       # the default: the secret-task height
 SWEEP_MAP ZOOM 1199 STEP 150    # four times the ground, bases and mines, no tasks
 SWEEP_MAP EVERY 0.02            # …in half the time
+SWEEP_MAP SERVER 300            # …on that server, whatever the client believes
 ```
 
 | Modifier | Effect | Default |
@@ -717,6 +718,7 @@ SWEEP_MAP EVERY 0.02            # …in half the time
 | `ZOOM h` | camera height — **600** collects secret tasks and everything else, **1199** is the last height at which anything arrives at all (bases, mines; no tasks) | 600 |
 | `STEP n` | tiles between waypoints. A step belongs to its height: 90 goes with 600, 150 with 1199 | 90 |
 | `EVERY s` | seconds between two waypoints | 0.05 |
+| `SERVER id` | which server the waypoints are walked on. `0` (and leaving it out) means «ask the client» | 0 |
 
 An unknown modifier is a **parse error**, not a warning — a silently ignored `ZOOM`
 sweeps at the wrong height and comes home with the wrong half of the map.
@@ -728,6 +730,10 @@ Three things to know:
 
 - **The grid is the server's, not a number written here.** It is built from the scene's
   own tile count, so it is a lap of whatever server is being looked at.
+- **`SERVER` is worth naming when the caller knows.** Without it the lap asks the client,
+  which answers out of a cached manager field — live, that kept walking the server the
+  camera was on BEFORE the last jump (#1280). The panel passes its own «Сервер» box,
+  which «↻ сервер» and every jump keep current.
 - **Something must be listening.** The lap only produces traffic; it decodes nothing.
   Run it with the panel's monitor on, or alongside `SCAN_SECRET_MISSIONS`.
 - **Above 1199 there is nothing to collect.** The client switches to its coarse big-map

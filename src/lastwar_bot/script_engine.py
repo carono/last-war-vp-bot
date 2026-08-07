@@ -202,7 +202,7 @@ _JUMP_RE = re.compile(
 # comes back with the wrong half of the map.
 _SWEEP_RE = re.compile(r"^SWEEP_MAP\b(.*)$", re.IGNORECASE)
 _SWEEP_OPT_RE = re.compile(
-    r"(ZOOM|STEP|EVERY)\s+(\d+(?:\.\d+)?)", re.IGNORECASE,
+    r"(ZOOM|STEP|EVERY|SERVER)\s+(\d+(?:\.\d+)?)", re.IGNORECASE,
 )
 # TAP presses a named "button" from the friendly catalogue (tools/lib/game_buttons.py),
 # optionally N times (`TAP donate_1000 x30`) or `xall` — press as many times as the
@@ -335,6 +335,12 @@ class SweepMapStmt(_Stmt):
     zoom: int | None = None
     step: int | None = None
     every: float | None = None
+    #: WHICH server the lap walks. `None` — and 0, which is what an empty argument
+    #: substitutes to — means «ask the client inside the chunk», which is what every lap
+    #: did before #1280 and what is right when nobody has said otherwise. A caller that
+    #: KNOWS (the panel's «Сервер» box) names it, because the client's own answer is a
+    #: cached manager field that keeps pointing at the server before last.
+    server: int | None = None
 
 
 @dataclass(slots=True)
@@ -759,6 +765,9 @@ def _parse_sweep_map(rest: str, text: str, ln: int) -> SweepMapStmt:
             stmt.zoom = int(float(value))
         elif keyword == "STEP":
             stmt.step = int(float(value))
+        elif keyword == "SERVER":
+            # 0 is «not named» — an unset `ARGS server` substitutes to it.
+            stmt.server = int(float(value)) or None
         else:
             stmt.every = float(value)
 
@@ -1386,10 +1395,12 @@ class Interpreter:
         """
         self._tools_lib_on_path()
         import lua_actions
-        self._run_lua(lua_actions.fast_map_sweep(stmt.zoom, stmt.step, stmt.every))
+        self._run_lua(lua_actions.fast_map_sweep(stmt.zoom, stmt.step, stmt.every,
+                                                 server=stmt.server))
         span = lua_actions.fast_sweep_seconds(stmt.step, stmt.every)
         zoom = stmt.zoom if stmt.zoom is not None else lua_actions.SWEEP_ZOOM_MAX
-        self._log(f"SWEEP_MAP -> zoom {zoom}, one lap, ~{span + 2:.0f}s")
+        where = f", server {stmt.server}" if stmt.server else ""
+        self._log(f"SWEEP_MAP -> zoom {zoom}{where}, one lap, ~{span + 2:.0f}s")
         # …plus a breath for the last waypoint's answer to arrive: the map data lands a
         # beat after the camera stops, and a scan reading it must not be cut off mid-reply.
         time.sleep(span + 2.0)

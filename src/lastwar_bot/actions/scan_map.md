@@ -18,10 +18,15 @@
 # whatever capture is already listening. Run it with the panel's monitor on, or it is a
 # lap nobody is reading.
 
+# WHICH SERVER the lap walks. 0 — the default — means «ask the client», which is what
+# every lap did before and what is right when nobody knows better. A caller that DOES
+# know says so: the client's own answer is a cached manager field, and live it kept
+# sending the camera back to the server before last (#1280).
+ARGS server = 0
 ARGS zoom = 600
 ARGS step = 90
 ARGS every = 0.05
 
-SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every}
+SWEEP_MAP ZOOM {zoom} STEP {step} EVERY {every} SERVER {server}
 
 LOG "One lap of the map is done."
