@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "gotowe za {t}",
   "secrettasks.ready": "gotowe do ograbienia",
   "secrettasks.ready_expires": "gotowe do ograbienia · wygasa za {t}",
+  "secrettasks.robbed_mark": "już przeze mnie obrabowane",
   "secrettasks.col.server": "Serwer",
   "secrettasks.col.action": "Działanie",
   "secrettasks.server": "#{srv}",

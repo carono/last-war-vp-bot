@@ -40,6 +40,14 @@ READY_GLYPH = "✅"
 # cell beside it, because a glyph on its own is a rebus.
 SHARED_GLYPH = "📣"
 
+# WE HAVE ROBBED THIS TILE, AND IT STAYS ON THE LIST (#1272). A robbed row used to be
+# taken off the table outright, which threw away the one thing still worth having: the
+# tile is a raid worth TELLING the alliance about, and «Поделиться» needs a row to be
+# pressed on. So the robbery marks instead of removing — the glyph in front of the
+# coordinate the way the share mark is, the words in the state cell beside it — and
+# what goes away is «Собрать», because there is nothing left here for US to take.
+ROBBED_GLYPH = "💰"
+
 # The amber the countdown is drawn in, and the green a ready row switches to.
 TIMER_COLOR = "#e0a84f"
 READY_COLOR = "#4fe08a"
@@ -209,7 +217,14 @@ def new_row(record, timer) -> dict:
             # off the record — a tile knows nothing about who has talked about it — but
             # stamped on afterwards by `SharedMarks.apply` from the profile's own store,
             # which is where the panel's shares and the game's own meet.
-            "timer": timer, "ready": False, "soon": False, "shared": False}
+            #
+            # `robbed` is the same kind of fact and the same kind of not-off-the-record
+            # (#1272): the wire cannot say WHO robbed a tile, only how many have. It is
+            # stamped by our own successful robbery and it is what takes «Собрать» off
+            # the row while leaving «Поделиться» and the coordinate exactly where they
+            # were — the whole reason a robbed row is no longer removed.
+            "timer": timer, "ready": False, "soon": False, "shared": False,
+            "robbed": False}
 
 
 def refresh_timers(rows, t) -> tuple:
@@ -272,6 +287,12 @@ def refresh_timers(rows, t) -> tuple:
         # within the second without the table being rebuilt.
         if row.get("shared"):
             state = "%s · %s" % (state, t("secrettasks.shared_mark"))
+        # «уже ограбили» rides in the same cell, for the same reason and beside the same
+        # mark (#1272). It is what a row keeps INSTEAD of disappearing, so it has to say
+        # so in words: a «готово к сбору» row with no «Собрать» cell and nothing
+        # explaining why reads as a bug, which is exactly what a silent glyph would be.
+        if row.get("robbed"):
+            state = "%s · %s" % (state, t("secrettasks.robbed_mark"))
         # HOW OLD THIS ROW'S INFORMATION IS, when it is old (#1251). The capture only
         # fills the list; a row nobody has driven the map past for a while is still a
         # row, and the honest thing is to SAY that rather than to hide it. Judged on the
@@ -488,9 +509,18 @@ class TaskGrid:
         self._rows = {}
         self.render()
 
-    def drop(self, key: str) -> None:
-        """Forget one tile: it was robbed from some grid and is spent for us."""
-        if self._rows.pop(str(key), None) is not None:
+    def mark_robbed(self, key: str) -> None:
+        """Stamp one tile as robbed by us, wherever it is drawn.
+
+        It used to be `drop` — the row came off this table too, because a tile we had
+        just robbed was «spent for us». It is not: a raid worth one of the day's five is
+        exactly the raid worth telling the alliance about, and «Поделиться» has to be
+        pressed on a row (#1272). The same tile can be on two tables at once, so both are
+        marked by the one robbery, the same way one share marks both.
+        """
+        row = self._rows.get(str(key))
+        if row is not None and not row.get("robbed"):
+            row["robbed"] = True
             self.render()
 
     def tick(self) -> None:

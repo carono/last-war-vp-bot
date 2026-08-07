@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "ready in {t}",
   "secrettasks.ready": "ready to loot",
   "secrettasks.ready_expires": "ready to loot · expires in {t}",
+  "secrettasks.robbed_mark": "already robbed by me",
   "secrettasks.col.server": "Server",
   "secrettasks.col.action": "Action",
   "secrettasks.server": "#{srv}",

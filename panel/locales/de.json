@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "bereit in {t}",
   "secrettasks.ready": "bereit zum Plündern",
   "secrettasks.ready_expires": "bereit zum Plündern · läuft ab in {t}",
+  "secrettasks.robbed_mark": "von mir bereits ausgeraubt",
   "secrettasks.col.server": "Server",
   "secrettasks.col.action": "Aktion",
   "secrettasks.server": "#{srv}",

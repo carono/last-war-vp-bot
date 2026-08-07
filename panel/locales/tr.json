@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "{t} sonra hazır",
   "secrettasks.ready": "yağmalanmaya hazır",
   "secrettasks.ready_expires": "yağmalanmaya hazır · {t} sonra dolar",
+  "secrettasks.robbed_mark": "zaten benim tarafımdan soyuldu",
   "secrettasks.col.server": "Sunucu",
   "secrettasks.col.action": "İşlem",
   "secrettasks.server": "#{srv}",

@@ -983,6 +983,12 @@ class SecretTasksTab(PanelTab):
         can_take = self._collectable(row)
         rank = self._rank(row)
         where = coords_fmt.fmt(row["x"], row["y"])
+        # …and so does a tile WE have robbed (#1272), in front of the share mark and in
+        # front of the token, which stays untouched behind both: a robbed row is kept
+        # precisely so it can still be jumped to and still be shared, and a cell that
+        # stopped parsing would take the first of those away.
+        if row.get("robbed"):
+            where = "%s %s" % (grid.ROBBED_GLYPH, where)
         if row.get("shared"):
             where = "%s %s" % (grid.SHARED_GLYPH, where)
         return (row.get("owner_name") or "",
@@ -1803,6 +1809,12 @@ class SecretTasksTab(PanelTab):
                     continue
                 task = incoming.pop(key, None)
                 if task is None:
+                    # …unless we robbed it (#1272). Same exception, same reason as the
+                    # ready-row poll's: our own robbery is what most often takes a tile
+                    # out of the read, and the row is kept for the share it is still
+                    # good for. Its `expires_at` still ends it on the next tick.
+                    if row.get("robbed"):
+                        continue
                     self._rows.pop(key, None)
                     continue
                 row["expires_at"] = task.expires_at
@@ -1854,7 +1866,11 @@ class SecretTasksTab(PanelTab):
              # replaced: a tile the game calls level 7 whose digits read `99` was
              # accepted by both feeds and then dropped by the restore, so a restart
              # quietly shortened the list it had just promised to keep.
-             "starred": bool(r.get("starred", True))}
+             "starred": bool(r.get("starred", True)),
+             # …AND WHETHER WE ROBBED IT (#1272). A robbed row is kept on the list so it
+             # can still be shared, and a restart that forgot the mark would put back a
+             # row offering «Собрать» on a tile the server has already refused us once.
+             "robbed": bool(r.get("robbed"))}
             for r in self._rows.values()])
 
     def _load_persisted(self) -> set:
@@ -1913,8 +1929,15 @@ class SecretTasksTab(PanelTab):
                 "expires_at": exp, "completed_at": rec.get("completed_at"),
                 # Restored rows are starred too — anything else was dropped above.
                 "starred": True,
+                # …and a row robbed before the restart comes back robbed (#1272), which
+                # is what keeps «Собрать» off it. The uuid goes into `_collected` with
+                # it: that set is what a later capture is checked against, so without it
+                # a feed could re-add an unmarked copy the moment this row expired.
+                "robbed": bool(rec.get("robbed")),
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
+            if rec.get("robbed"):
+                self._collected.add(key)
             restored.add(key)
         return restored
 
@@ -1966,12 +1989,23 @@ class SecretTasksTab(PanelTab):
             # alliance chat they would be posting into.
             if row.get("shared"):
                 facts.append({"label": "secrettasks.shared_mark", "value": ""})
+            # …and the robbed mark beside it (#1272), because a robbed row STAYS on the
+            # list now and the phone shows the same list. Without the mark the screen
+            # would carry a «готово к сбору» tile that is not a target any more, which is
+            # precisely the misreading the window's mark exists to prevent. There was
+            # never a «Собрать» here to take away — the phone has read this list and
+            # pressed nothing on it since #1188 — so the mirroring is the mark alone.
+            robbed = bool(row.get("robbed"))
+            if robbed:
+                facts.append({"label": "secrettasks.robbed_mark", "value": ""})
             done, exp = row.get("completed_at"), row.get("expires_at")
             # A spent tile says so instead of saying «готово»: it is on the list only
             # because the box asked for it, and «ready» on a row nobody can rob is the
             # single most misleading word the screen could carry.
             spent = self._spent(row)
             text = coords.fmt(row.get("x"), row.get("y"), row.get("server"))
+            if robbed:
+                text = "%s %s" % (grid.ROBBED_GLYPH, text)
             if row.get("shared"):
                 text = "%s %s" % (grid.SHARED_GLYPH, text)
             items.append({
@@ -1979,7 +2013,11 @@ class SecretTasksTab(PanelTab):
                 "facts": facts,
                 # Ready: how long is left to take it. Not ready: when it becomes one.
                 "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
-                "pill": ("secrettasks.spent" if spent
+                # Robbed outranks both other pills: «готово» on a tile we have taken is
+                # the one word the phone must not say, and «исчерпана» is about the tile
+                # while this is about us.
+                "pill": ("secrettasks.robbed_mark" if robbed
+                         else "secrettasks.spent" if spent
                          else "secrettasks.ready" if row.get("ready") else None),
             })
         hidden = self._hidden_at_home()
@@ -2296,11 +2334,14 @@ class SecretTasksTab(PanelTab):
         confirm. The watcher used to re-read those sources for itself through a copy of
         the rule, so the list and the robberies could disagree about the very same map.
 
-        The rule, in order: the tile is raidable (ready, and not looted out —
-        :meth:`_collectable`), it wears a star (every row of this list does, by
-        construction), its level is at or above «минимальный уровень», and **it is on
-        somebody else's server**. Robbed by hand this session (`_collected`) is excluded
-        for the obvious reason.
+        The rule, in order: the tile is raidable (ready, not looted out, **and not one we
+        have already robbed** — all three are :meth:`_collectable`), it wears a star
+        (every row of this list does, by construction), its level is at or above
+        «минимальный уровень», and **it is on somebody else's server**. Robbed by hand
+        this session (`_collected`) is excluded twice over, and deliberately so: the row
+        now STAYS on the list once it has been robbed (#1272), so the exclusion has to
+        live in the model rather than in the fact that the row went away. The set catches
+        it while the flag catches the row, and `_collectable` is where both are asked.
 
         THE HOME SERVER IS NEVER A TARGET, and that is not a setting (#1188). It used to
         be one, shipped OFF, so the standing order robbed the neighbours unless somebody
@@ -2364,8 +2405,19 @@ class SecretTasksTab(PanelTab):
         исчерпанные" ticked a 3/3 row is visible, and it is visible precisely because
         it is finished — pressing it would spend one of the day's five on a robbery the
         server refuses (#1227).
+
+        And a tile WE have already robbed is not collectable either (#1272). It is on
+        screen on purpose now — it stays so that it can still be shared — so this is the
+        one gate that has to say «not this one»: the server refuses a second robbery by
+        the same player, and it would cost a round trip to be told so.
+
+        THE ONE PLACE THAT ANSWER IS GIVEN. The action cell, the strip's «Собрать», the
+        right-click menu of every page and the standing order's own candidate list all
+        come through here (`rob_candidates`, `TaskGrid.collectable`), so a rule added
+        here is a rule none of them can be missing.
         """
-        return bool(row.get("ready")) and not self._spent(row)
+        return (bool(row.get("ready")) and not self._spent(row)
+                and not row.get("robbed"))
 
     def _visible_rows(self) -> list:
         """The rows the ★ page shows: in the level range, not looted out, not at home.
@@ -2381,6 +2433,13 @@ class SecretTasksTab(PanelTab):
 
         A server the account's own could not be read from (0) hides nothing: a rule
         that cannot tell home from abroad must not guess that everything is home.
+
+        A tile WE robbed is shown whatever «Показывать исчерпанные» says (#1272). It is
+        on the list for a different reason from the rest of it — not «go and rob this»
+        but «tell the alliance about this» — and the moment a robbery pushes the tile to
+        3/3 the spent rule would take it away again, which is the disappearance this
+        change exists to stop. It carries the robbed mark and offers no «Собрать», so it
+        cannot be mistaken for a target.
         """
         show_spent = bool(self.show_spent_var.get())
         # The CACHED reading only (`_own_server`), never `own_server()`: this runs on
@@ -2391,7 +2450,7 @@ class SecretTasksTab(PanelTab):
         mine = self._own_server if self.hide_own_var.get() else 0
         return [r for r in self._rows.values()
                 if self._in_range(r["level"])
-                and (show_spent or not self._spent(r))
+                and (show_spent or not self._spent(r) or r.get("robbed"))
                 and not (mine and int(r["server"] or 0) == mine)]
 
     def _update_status(self) -> None:
@@ -2554,6 +2613,15 @@ class SecretTasksTab(PanelTab):
         (expired) or looted out (its slots filled), and either way it can no longer be
         robbed — so its row drops.
 
+        A ROW WE ROBBED IS NOT DROPPED HERE (#1272), and the exception matters more than
+        it looks. Our own robbery is the very thing most likely to fill the tile's last
+        slot, so the read that follows it thirty seconds later is exactly the read that
+        stops carrying it — and the row would vanish anyway, half a minute after the
+        change that was made to keep it. It is kept for what is left of it: a raid worth
+        telling the alliance about. Its own clock still ends it — `refresh_timers` drops
+        every row at `expires_at`, robbed or not — so this is a stay of execution and not
+        a row that lives for ever.
+
         THE ROBBERY IS NOT HERE ANY MORE (#1256). This poll used to rob as well as
         verify, through a second copy of the rule and a direct `hero.dispatch.steal` of
         its own — a third doorway into the ability, on a thirty-second clock, beside the
@@ -2570,6 +2638,8 @@ class SecretTasksTab(PanelTab):
                 continue
             task = live.get(key)
             if task is None:
+                if row.get("robbed"):
+                    continue
                 self._rows.pop(key, None)
                 removed = True
                 continue
@@ -2606,11 +2676,29 @@ class SecretTasksTab(PanelTab):
         threading.Thread(target=work, daemon=True).start()
 
     def _collect_done(self, key: str, ok: bool) -> None:
+        """A robbery came back: MARK the row, never remove it (#1272).
+
+        It used to be popped off the list, and that threw away the half of the tile that
+        was still worth something. A raid worth one of the day's five is precisely the
+        raid worth telling the alliance about — «хочу потом поделиться этой секреткой» —
+        and «Поделиться» needs a row under the cursor. So the row stays, wearing the
+        robbed mark, with its coordinate still clickable and its share menu still there;
+        what goes is «Собрать», through :meth:`_collectable`, because there is nothing
+        left here for US to take.
+
+        `_collected` is kept beside the flag rather than replaced by it. They answer
+        different questions: the flag is «this row has been robbed» and travels with the
+        row (onto the screen, into the checkpoint), while the set is «this uuid was
+        robbed this session» and outlives the row — it is what stops a later capture
+        re-adding an unmarked copy of a tile that has since dropped off the list.
+        """
         if ok:
             self._collected.add(key)
-            self._rows.pop(key, None)
-            # The same tile can be on both tables — one robbery, so it leaves both.
-            self.alliance.drop(key)
+            row = self._rows.get(key)
+            if row is not None:
+                row["robbed"] = True
+            # The same tile can be on both tables — one robbery, so both are marked.
+            self.alliance.mark_robbed(key)
             self._render()
             self.rt.put("[secret] " + self.t("secrettasks.collect_ok"))
             self._update_status()

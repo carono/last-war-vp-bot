@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥  **31%** — 36 of 118
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥  **31%** — 37 of 119
 
-🟩 36 done · 🟨 39 partly · 🟥 43 not automated
+🟩 37 done · 🟨 39 partly · 🟥 43 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -160,6 +160,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Finding raidable tasks on the map, with filters by level, star rank and whether a slot is actually free
 - ✅ Sharing a task's coordinates in chat as a tappable pin
 - 🟡 Marking the tasks the alliance has already been shown — on both lists, with a badge on the coordinate and the words beside the countdown, so the same raid is not forwarded to the same people twice. It counts a share made from the panel and a share pressed in the game itself, by this player or by an alliancemate: the game announces every one of them to the alliance, and the panel hears it while either the map monitor or the star auto-loot is running, so a tile shared from the game window is marked here without anybody telling the panel about it. The marks belong to the account, survive a restart, disappear on their own once the tile is long gone, and the phone shows them exactly as the window does. Not yet seen against a live share
+- ✅ A secret task you have robbed stays on the list, marked — a badge on the coordinate and the words beside the countdown, the same shape the share mark has. It used to disappear the moment the robbery landed, and it took with it the one thing still worth having: a raid worth one of the day's five is exactly the raid worth telling the alliance about, and «Поделиться» has to be pressed on a row. What the marked row no longer offers is «Собрать» — there is nothing left there for you to take, and the game would refuse a second robbery anyway — while the jump to its coordinate and both ways of sharing it stay where they were. It leaves the list on its own clock, when the task expires, and the standing order never counts it as a target. The phone shows the mark exactly as the window does
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
 - 🟡 Robbing a ghost-recon squad — one press per squad, no window opened, and it holds its fire unless it is the event day, the five-a-day budget still has room and the game itself says the squad can be robbed. Every one of those checks is confirmed against the live game (including that it does nothing at all while the event is closed), but the event runs one day a week and no real squad was on the map to rob, so the robbery itself is still unproven
 - ✅ Robbing a secret task — the whole robbery runs without a window ever opening, five a day, and stops on its own at the daily cap. Targets come from a map scan or from coordinates handed to the bot

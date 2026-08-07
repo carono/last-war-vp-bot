@@ -876,8 +876,14 @@ class _FakeAllianceGrid:
     def clear(self) -> None:
         self.cleared += 1
 
-    def drop(self, key) -> None:
-        self.dropped.append(str(key))
+    def mark_robbed(self, key) -> None:
+        """One robbery marks the tile on every table it is drawn on (#1272).
+
+        It used to be `drop` — the row came off this table as well — and the whole of
+        that change is that it does not any more.
+        """
+        self.robbed = getattr(self, "robbed", [])
+        self.robbed.append(str(key))
 
     def tick(self) -> None:
         self.ticks += 1
@@ -1138,22 +1144,141 @@ def test_the_alliance_grid_counts_down_and_drops_the_expired():
     assert "готово через" in g._rows["1"]["timer"].get()
 
 
-def test_a_robbery_takes_the_tile_off_both_tables():
-    """One tile can be on both lists; one robbery, so it leaves both."""
-    tab = object.__new__(st.SecretTasksTab)
-    tab._rows = {"11": _row(11, 7, -5_000, 600_000)}
-    tab._collected = set()
-    tab.alliance = _FakeAllianceGrid()
-    tab._render = lambda: None
-    tab._update_status = lambda: None
-    tab._persist_rows = lambda: None
+def test_a_robbery_marks_the_tile_on_both_tables_and_removes_it_from_neither():
+    """One tile can be on both lists; one robbery marks both and takes away neither.
+
+    It used to take the row off both, and that threw away what the tile was still good
+    for: a raid worth one of the day's five is the raid worth telling the alliance
+    about, and «Поделиться» has to be pressed on a row (#1272).
+    """
+    tab = _robbed_tab()
+
+    assert "9" in tab._rows, "the robbed row was taken off the list"
+    assert tab._rows["9"]["robbed"] is True
+    assert tab.alliance.robbed == ["9"], "the table below kept the old behaviour"
+    # …and the session book still remembers the uuid, which is what stops a later
+    # capture putting back an unmarked copy once this row has expired.
+    assert tab._collected == {"9"}
+
+
+def test_a_robbed_row_offers_no_robbery_anywhere_it_is_asked():
+    """Every doorway into «Собрать» goes through `_collectable`, so one rule shuts them
+    all: the action cell, the strip, the right-click menu and the standing order."""
+    tab = _robbed_tab()
+    row = tab._rows["9"]
+
+    assert tab._collectable(row) is False
+    assert row not in tab.rob_candidates()
+    assert tab.rob_candidates() == [], tab.rob_candidates()
+    # The action cell is empty, which is what a Treeview has instead of a hidden button.
+    cells = dict(zip([c[0] for c in st.COLUMNS], st.SecretTasksTab._row_values(tab, row)))
+    assert cells["action"] == "", cells
+
+
+def test_a_robbed_row_still_says_where_it_is_and_still_says_it_was_robbed():
+    """The mark is the glyph on the coordinate and the words in the state cell — the
+    shape «уже поделились» already had (#1245) — and the token still parses, because
+    jumping to the tile is half of what the row is kept for."""
+    import coords as coords_fmt
+    tab = _robbed_tab()
+    row = tab._rows["9"]
+    tab._refresh_timers()
+    cells = dict(zip([c[0] for c in st.COLUMNS], st.SecretTasksTab._row_values(tab, row)))
+
+    assert cells["coords"].startswith(gr.ROBBED_GLYPH), cells
+    assert coords_fmt.parse(cells["coords"]), "the coordinate stopped being clickable"
+    assert tab.t("secrettasks.robbed_mark") in row["timer"].get(), row["timer"].get()
+
+
+def test_a_robbed_row_survives_the_reads_that_would_otherwise_drop_it():
+    """Our own robbery is what most often fills the tile's last slot, so the very next
+    read is the one that stops carrying it — and the row would vanish half a minute
+    after the change made to keep it (#1272). Its own expiry still ends it."""
+    tab = _robbed_tab()
+
+    tab._poll_apply(["9"], {})                  # a good read, and the tile is not in it
+    assert "9" in tab._rows, "the ready-row poll dropped the robbed row"
+
+    # …and it is still shown once the robbery has filled the tile — «Показывать
+    # исчерпанные» is off in this fixture, and a 3/3 tile we robbed is not hidden by it.
+    tab._rows["9"]["loot_count"] = 3
+    assert tab._spent(tab._rows["9"]) is True
+    assert [r["uuid"] for r in tab._visible_rows()] == [9]
+
+    # The clock is what ends it, robbed or not.
+    tab._rows["9"]["expires_at"] = 0
+    expired, _changed = tab._refresh_timers()
+    assert expired == ["9"], expired
+
+
+def test_the_robbed_mark_survives_a_restart():
+    """A restart that forgot it would put back a row offering «Собрать» on a tile the
+    server has already refused us once."""
+    path = _state_path()
+    tab = _robbed_tab()
     import types
-    tab.rt = types.SimpleNamespace(put=lambda _line: None)
-    tab.t = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru").t
+    tab.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+    tab._persist_rows()
 
-    tab._collect_done("11", True)
+    back = _make_tab({})
+    back.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+    back._load_persisted()
 
-    assert tab._rows == {} and tab.alliance.dropped == ["11"]
+    assert back._rows["9"]["robbed"] is True
+    assert back._collectable(back._rows["9"]) is False
+    assert back._collected == {"9"}
+
+
+def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
+    """CLAUDE.md: what the window grew, the web grows in the same commit.
+
+    The mark travels — the glyph on the coordinate, the words as a fact, and the pill,
+    which must not go on saying «готово к сбору» about a tile we have already taken.
+    No «Собрать» goes with it because there has never been one here: the phone reads
+    this list and presses nothing on it (#1188).
+    """
+    import types
+    tab = _robbed_tab()
+    tab.show_spent_var = _Var(False)
+    tab.monitor_var = _Var(False)
+    tab.hide_own_var = _Var(False)
+    tab.autoassist_var = _Var(False)
+    tab._zoom_level = "tile"
+    tab.autoloot = types.SimpleNamespace(
+        state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
+    tab.autoassist = types.SimpleNamespace(
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+    tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
+                                         star_var=_Var(False))
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+                                          monitor_var=_Var(False))
+
+    cards = {c.get("title"): c for c in tab.web_view()["cards"]}
+    item = cards["secrettasks.page.stars"]["items"][0]
+    assert item["text"].startswith(gr.ROBBED_GLYPH), item
+    assert {"label": "secrettasks.robbed_mark", "value": ""} in item["facts"], item
+    assert item["pill"] == "secrettasks.robbed_mark", item
+    # …and the card's buttons are the display switches and nothing that robs.
+    assert {a["id"] for a in cards["secrettasks.page.stars"]["actions"]} == {
+        "monitor", "show_spent", "hide_own", "clear"}
+
+
+def _robbed_tab():
+    """A tab whose one ready row has just been robbed, through the real `_collect_done`."""
+    import types
+    rows = {"9": _row(9, 7, -5_000, 600_000)}
+    rows["9"]["ready"] = True
+    # Abroad, so the home-server prohibition is not what empties `rob_candidates` below.
+    rows["9"]["server"] = _HOME_SERVER + 1
+    tab = _make_tab(rows, rob_min="1", autoloot=True)
+    tab.alliance = _FakeAllianceGrid()
+    tab.rt.put = lambda _line: None
+    tab._persist_rows = lambda: None
+    tab._collect_done("9", True)
+    tab._persist_rows = types.MethodType(st.SecretTasksTab._persist_rows, tab)
+    return tab
 
 
 def test_the_phone_is_shown_every_page_the_window_has():

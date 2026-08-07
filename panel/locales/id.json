@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "siap dalam {t}",
   "secrettasks.ready": "siap dirampas",
   "secrettasks.ready_expires": "siap dirampas · habis dalam {t}",
+  "secrettasks.robbed_mark": "sudah saya rampok",
   "secrettasks.col.server": "Server",
   "secrettasks.col.action": "Tindakan",
   "secrettasks.server": "#{srv}",

@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "prête dans {t}",
   "secrettasks.ready": "prête à piller",
   "secrettasks.ready_expires": "prête à piller · expire dans {t}",
+  "secrettasks.robbed_mark": "déjà pillée par moi",
   "secrettasks.col.server": "Serveur",
   "secrettasks.col.action": "Action",
   "secrettasks.server": "#{srv}",

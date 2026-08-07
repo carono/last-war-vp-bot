@@ -191,8 +191,13 @@ class AllianceGrid(grid.TaskGrid):
                      {"label": "secrettasks.col.slots",
                       "value": f"{row.get('loot_count')}/3"}]
             # …and the same «уже поделились» the window draws on this table (#1245):
-            # the glyph on the coordinate, the words in the line under it.
+            # the glyph on the coordinate, the words in the line under it. The robbed
+            # mark rides beside it (#1272) — one robbery marks the tile on every table it
+            # appears on, so the phone's copy of this one carries it too.
             text = coords.fmt(row.get("x"), row.get("y"), row.get("server"))
+            if row.get("robbed"):
+                text = "%s %s" % (grid.ROBBED_GLYPH, text)
+                facts.append({"label": "secrettasks.robbed_mark", "value": ""})
             if row.get("shared"):
                 text = "%s %s" % (grid.SHARED_GLYPH, text)
                 facts.append({"label": "secrettasks.shared_mark", "value": ""})

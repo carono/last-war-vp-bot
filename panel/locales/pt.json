@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "pronta em {t}",
   "secrettasks.ready": "pronta para saquear",
   "secrettasks.ready_expires": "pronta para saquear · expira em {t}",
+  "secrettasks.robbed_mark": "já saqueada por mim",
   "secrettasks.col.server": "Servidor",
   "secrettasks.col.action": "Ação",
   "secrettasks.server": "#{srv}",

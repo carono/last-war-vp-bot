@@ -761,6 +761,7 @@
   "secrettasks.until_ready": "pronta fra {t}",
   "secrettasks.ready": "pronta da saccheggiare",
   "secrettasks.ready_expires": "pronta da saccheggiare · scade fra {t}",
+  "secrettasks.robbed_mark": "già saccheggiata da me",
   "secrettasks.col.server": "Server",
   "secrettasks.col.action": "Azione",
   "secrettasks.server": "#{srv}",
