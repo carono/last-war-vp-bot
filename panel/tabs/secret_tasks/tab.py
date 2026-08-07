@@ -192,6 +192,22 @@ CLOCK_MS = 5 * 60_000
 # something the tab asks about.
 DEFAULT_INTERVAL = "1"
 
+# WHERE A ROW CAME FROM, and therefore WHICH READ IS ALLOWED TO TAKE IT AWAY (#1272).
+#
+# This exists because a read that could not see a tile was deleting it. The VM read that
+# seeds and verifies this list walks `ActDispatchTaskDataManager.allianceTask` — MY OWN
+# alliance's tasks. Measured live: 170 tasks, 170 of them my alliance's, all 170 on the
+# home server — and the raid list drops the home server on the way in (#1188), so on that
+# account the VM read yields NOTHING AT ALL. The list is filled by the map capture, which
+# finds strangers' tiles across the whole map, and every one of those was then dropped by
+# «the VM read did not carry it». That is the whole of «увидел список на секунду — и он
+# пропал»: not a race, a certainty, every start-up.
+#
+# So a row remembers its source and a read may only testify about its own. The capture's
+# tiles are outside the VM read's scope; an absence there is not evidence.
+SOURCE_VM = "vm"        # seeded / confirmed by the client's own alliance table
+SOURCE_WIRE = "wire"    # found by the passive capture, or restored from its checkpoint
+
 # The two channels a task can be forwarded to. The room ids are built from the player's
 # own server / alliance, read once and cached (see `_self_ids`).
 SHARE_ALLIANCE = "alliance"
@@ -1532,7 +1548,7 @@ class SecretTasksTab(PanelTab):
     def _vm_landed(self, tasks, pending) -> None:
         """The VM read, back on the Tk thread — the working list's own seed."""
         self._vm_busy = False
-        self._merge(tasks, pending)
+        self._merge(tasks, pending, source=SOURCE_VM)
 
     # -- the alliance roster (#1244) -------------------------------------------
     def _roster(self) -> None:
@@ -1846,7 +1862,31 @@ class SecretTasksTab(PanelTab):
         tasks = steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
         return self._abroad_only([t for t in tasks if t.starred])
 
-    def _merge(self, tasks, verify: "set | None" = None) -> None:
+    def _answerable(self, row, answered: bool, source: str) -> bool:
+        """May THIS read take THIS row away? (#1272)
+
+        The question nothing was asking, and the answer that was assumed to be «yes».
+        Two rules, and the first is the one that cost the operator a map lap:
+
+        * **A read may only testify about its own source.** The VM read walks my
+          alliance's own task table; a tile the capture found on the far side of the map
+          is not in it and never was, so its absence there says nothing whatever. Only a
+          row this same source put on the list may be reconciled against it.
+        * **An empty answer testifies about nothing at all.** A read that came back with
+          no rows is «I have nothing to say», not «none of them exists» — and on an
+          account whose whole alliance sits at home it is what the raid read returns
+          every single time, because the home server is dropped on the way in.
+
+        Everything else about how a row leaves is untouched: it expires on its own clock,
+        it goes when the server confirms we robbed it, and a read that CAN see it and
+        does not carry it still drops it.
+        """
+        if not answered:
+            return False
+        return row.get("source", SOURCE_WIRE) == source
+
+    def _merge(self, tasks, verify: "set | None" = None,
+               source: str = SOURCE_WIRE) -> None:
         """Add tiles the list does not have yet; keep the ones it does.
 
         A rescan only ADDS — an existing row keeps its place and its timer, a tile robbed
@@ -1883,6 +1923,10 @@ class SecretTasksTab(PanelTab):
         # (`secret_task_all_alliance` demands `done > 0`); it is the pcap that can.
         tasks = [t for t in tasks if t.completed_at]
         incoming = {str(t.uuid): t for t in tasks}
+        # Whether the read said ANYTHING, measured before the loop starts popping matches
+        # out of `incoming` — otherwise a read that carried exactly the rows it confirmed
+        # would look empty by the time the last one was checked.
+        answered = bool(incoming)
         if verify:
             for key in verify:
                 row = self._rows.get(key)
@@ -1890,10 +1934,12 @@ class SecretTasksTab(PanelTab):
                     continue
                 task = incoming.pop(key, None)
                 if task is None:
-                    # …unless we robbed it (#1272). Same exception, same reason as the
-                    # ready-row poll's: our own robbery is what most often takes a tile
-                    # out of the read, and the row is kept for the share it is still
-                    # good for. Its `expires_at` still ends it on the next tick.
+                    if not self._answerable(row, answered, source):
+                        continue
+                    # …and we never drop one we robbed (#1272). Same exception, same
+                    # reason as the ready-row poll's: our own robbery is what most often
+                    # takes a tile out of the read, and the row is kept for the share it
+                    # is still good for. Its `expires_at` still ends it on the next tick.
                     if row.get("robbed"):
                         continue
                     self._rows.pop(key, None)
@@ -1916,6 +1962,9 @@ class SecretTasksTab(PanelTab):
                 # tiles the game draws a star on (#1244), so a row here always wears
                 # one — unlike the roster below, where most rows do not.
                 "starred": True,
+                # …and WHICH FEED put it here (#1272), which is what decides whose
+                # absence is allowed to take it away again. See `_answerable`.
+                "source": source,
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
         self._render()
@@ -1948,6 +1997,10 @@ class SecretTasksTab(PanelTab):
              # accepted by both feeds and then dropped by the restore, so a restart
              # quietly shortened the list it had just promised to keep.
              "starred": bool(r.get("starred", True)),
+             # …AND WHICH FEED FOUND IT (#1272). Without it every restored row came back
+             # as «the VM read's», and the first VM read — which on a home-bound alliance
+             # carries nothing at all — deleted the lot.
+             "source": r.get("source", SOURCE_WIRE),
              # …AND WHETHER WE ROBBED IT (#1272). A robbed row is kept on the list so it
              # can still be shared, and a restart that forgot the mark would put back a
              # row offering «Собрать» on a tile the server has already refused us once.
@@ -2015,6 +2068,11 @@ class SecretTasksTab(PanelTab):
                 "expires_at": exp, "completed_at": rec.get("completed_at"),
                 # Restored rows are starred too — anything else was dropped above.
                 "starred": True,
+                # A checkpoint written before #1272 says nothing about where its rows
+                # came from, and the safe answer is the CAPTURE's: a wire row is never
+                # verified away by a read that cannot see it, which is exactly the
+                # mistake this defaults against.
+                "source": rec.get("source") or SOURCE_WIRE,
                 # …and a row robbed before the restart comes back robbed (#1272), which
                 # is what keeps «Собрать» off it. The uuid goes into `_collected` with
                 # it: that set is what a later capture is checked against, so without it
@@ -2819,6 +2877,13 @@ class SecretTasksTab(PanelTab):
                 continue
             task = live.get(key)
             if task is None:
+                # THE SAME READ, THE SAME SCOPE, THE SAME RULE (#1272). This poll reads
+                # my alliance's own task table, so it can no more testify about a tile
+                # the capture found across the map than the start-up snapshot could — and
+                # it was dropping them every thirty seconds, quietly, for the whole
+                # session. `_answerable` is the one place that question is answered.
+                if not self._answerable(row, bool(live), SOURCE_VM):
+                    continue
                 if row.get("robbed"):
                     continue
                 self._rows.pop(key, None)

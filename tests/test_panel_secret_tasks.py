@@ -227,12 +227,20 @@ def test_countdown_targets_completion_and_flips_ready():
 
 
 def test_poll_drops_the_gone_and_keeps_the_present():
-    """A ready tile missing from a good read is off the map; a failed read removes none."""
+    """A ready tile the read CAN see and does not carry is off the map; a failed read
+    removes none.
+
+    «Can see» is the part #1272 had to add: the read carries something, and the row is
+    one this same read put on the list. An EMPTY answer and a row from another source
+    both have their own tests below — they are the two shapes that were deleting tiles
+    nobody could get back.
+    """
     rows = {"2": _row(2, 7, -5_000, 600_000)}
     rows["2"]["ready"] = True
+    rows["2"]["source"] = st.SOURCE_VM
     tab = _make_tab(rows)
 
-    tab._poll_apply(["2"], {})                 # good read, tile absent -> gone
+    tab._poll_apply(["2"], {"9": _LiveTask(9)})   # a read that answered, without it
     assert "2" not in tab._rows
 
     rows = {"2": _row(2, 7, -5_000, 600_000)}
@@ -293,6 +301,9 @@ def test_the_poll_verifies_the_list_and_robs_nothing_itself():
     rows = {"6": _row(6, 6, -5_000, 600_000), "7": _row(7, 7, -5_000, 600_000)}
     for r in rows.values():
         r["ready"] = True
+        # Both came off the same read the poll makes, so the poll may reconcile them —
+        # a tile from the capture is out of its scope and has a test of its own (#1272).
+        r["source"] = st.SOURCE_VM
     tab = _make_tab(rows, rob_min="6", autoloot=True)
     tab._collect = lambda row: (_ for _ in ()).throw(
         AssertionError("the poll robbed something"))
@@ -763,10 +774,90 @@ def test_a_failed_verifying_read_leaves_restored_rows_alone():
     # onto the Tk thread) — call it now, with a spy in place of the real `_merge`, to see
     # what `_snapshot_work` decided to pass it.
     merges = []
-    tab._merge = lambda tasks, verify=None: merges.append((tasks, verify))
+    tab._merge = lambda tasks, verify=None, source=None: merges.append((tasks, verify))
     captured["fn"]()
     assert merges == [([], None)], merges
     assert tab._restore_pending == {"1"}, "a failed read must not clear the pending set"
+
+
+def test_a_read_that_cannot_see_a_row_may_not_delete_it():
+    """THE ONE THAT COST A MAP LAP (#1272).
+
+    The read that verifies the restored list walks the client's own `allianceTask` — MY
+    alliance's tasks. Measured live: 170 of them, all mine, all on the home server, and
+    the raid list drops the home server on the way in — so on that account the read comes
+    back EMPTY every single time. Every restored row is a tile the map capture found
+    somewhere else entirely, and every one of them was being deleted for not being in an
+    answer that could never have contained it. «Увидел список на секунду — и он пропал.»
+    """
+    import types
+    restored = _row(1, 7, -5_000, 600_000)          # the capture found this one
+    restored["source"] = st.SOURCE_WIRE
+    seeded = _row(2, 7, -5_000, 600_000)            # …and the VM read seeded this one
+    seeded["source"] = st.SOURCE_VM
+    tab = _make_tab({"1": restored, "2": seeded})
+    tab.rt = _fake_rt(_state_path())
+
+    # A perfectly successful VM read that happens to carry neither of them.
+    tab._merge([_StubTask(3)], verify={"1", "2"}, source=st.SOURCE_VM)
+
+    assert "1" in tab._rows, "a wire row was deleted by a read that cannot see it"
+    assert "2" not in tab._rows, "a VM row the VM read dropped should be gone"
+
+
+def test_an_empty_answer_says_nothing_about_anything():
+    """A read that came back with no rows is «I have nothing to say», never «none of
+    them exists» — and on a home-bound alliance that is what the raid read returns every
+    time (#1272)."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["source"] = st.SOURCE_VM                    # …even its OWN source's rows survive
+    tab = _make_tab({"1": row})
+    tab.rt = _fake_rt(_state_path())
+
+    tab._merge([], verify={"1"}, source=st.SOURCE_VM)
+
+    assert "1" in tab._rows, "an empty read emptied the list"
+
+
+def test_the_ready_row_poll_obeys_the_same_scope():
+    """It reads the same alliance table on a thirty-second clock, so it was deleting the
+    capture's tiles all session long, quietly (#1272)."""
+    wire = _row(1, 7, -5_000, 600_000)
+    wire["source"], wire["ready"] = st.SOURCE_WIRE, True
+    vm = _row(2, 7, -5_000, 600_000)
+    vm["source"], vm["ready"] = st.SOURCE_VM, True
+    tab = _make_tab({"1": wire, "2": vm})
+
+    tab._poll_apply(["1", "2"], {"3": _LiveTask(3)})
+
+    assert "1" in tab._rows, "the poll deleted a tile it cannot see"
+    assert "2" not in tab._rows
+
+    # …and an empty read still takes nothing, whoever found the row.
+    tab = _make_tab({"2": dict(vm)})
+    tab._poll_apply(["2"], {})
+    assert "2" in tab._rows, "an empty poll read emptied the list"
+
+
+def test_a_restored_row_is_the_captures_until_the_checkpoint_says_otherwise():
+    """A checkpoint written before #1272 says nothing about where its rows came from,
+    and the safe answer is the capture's — anything else re-opens the deletion."""
+    import json as _json
+    import types
+    path = _state_path()
+    rec = {"uuid": 1, "server": 1, "x": 1, "y": 2, "level": 7, "cfg_id": 60000701,
+           "loot_count": 0, "starred": True,
+           "completed_at": _ms(-5_000), "expires_at": _ms(600_000)}
+    with open(path, "w", encoding="utf-8") as fh:
+        _json.dump([rec], fh)                        # …no «source» at all
+    tab = _make_tab({})
+    tab.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+
+    tab._load_persisted()
+
+    assert tab._rows["1"]["source"] == st.SOURCE_WIRE
+    tab._merge([], verify={"1"}, source=st.SOURCE_VM)
+    assert "1" in tab._rows, "a restored row was verified away on the first read"
 
 
 def test_clear_wipes_every_row_including_ones_not_expired():
@@ -979,7 +1070,7 @@ def test_the_raid_read_stays_the_raid_read():
     tab = object.__new__(st.SecretTasksTab)
     tab._vm_busy = True
     merges = []
-    tab._merge = lambda tasks, verify=None: merges.append((list(tasks), verify))
+    tab._merge = lambda tasks, verify=None, source=None: merges.append((list(tasks), verify))
 
     tab._vm_landed([_StubTask(1)], {"7"})
 
@@ -1074,7 +1165,7 @@ def test_each_read_clears_only_its_own_flag():
     """`_merge` is shared by two paths, so it clears neither: one read finishing must
     not tell the others they are free to start a second thread (#1244)."""
     tab = object.__new__(st.SecretTasksTab)
-    tab._merge = lambda tasks, verify=None: None
+    tab._merge = lambda tasks, verify=None, source=None: None
     tab.alliance = _FakeAllianceGrid()
 
     tab.ghost = _FakeAllianceGrid()
