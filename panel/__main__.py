@@ -101,6 +101,7 @@ from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
 from .runtime import autostart as autostartmod
 from .runtime import game_control as gamectl
+from .runtime import hotkeys
 from .runtime import panel_control as panelctl
 from .runtime import panic as panicmod
 
@@ -588,6 +589,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # are open and which tabs each has, so it says how, and the phone only asks
         # whether anybody can (panel/runtime/panic.py).
         panicmod.set_handler(self._resume)
+        # …and the five keys that send a squad (#1283). The listener itself is
+        # `panel/runtime/hotkeys.py`; this is only where it is told which profile a
+        # press belongs to — the one whose page is showing — because the window is the
+        # only thing that knows. It has no controls and no settings by design: the
+        # abilities are recipes, and a key is a way of starting one.
+        self._hotkeys = hotkeys.HotkeyListener(lambda: self._rt)
+        if self._hotkeys.start():
+            self._say("macro", "log.macro.listening")
+        else:
+            self._say("macro", "log.macro.unavailable")
         self._splash_step("splash.daemon", 0.6)
         # Bringing the systems up is the slow half of the boot — the monitors, the
         # schedule, the trigger listeners, the chat history, the daemon, the account
@@ -4432,6 +4443,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         if self._stall is not None:
             self._stall.stop()
+        if getattr(self, "_hotkeys", None) is not None:
+            self._hotkeys.stop()          # the keyboard belongs to Windows again
         self._workspace.each(self._close_session)
         self._workspace.shutdown()
         self.destroy()
