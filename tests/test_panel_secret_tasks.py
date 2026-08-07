@@ -1743,6 +1743,81 @@ def test_the_refresh_asks_about_the_ready_rows_first():
     assert [r["uuid"] for r in rows] == [2, 1], rows
 
 
+def test_a_robbed_row_leaves_only_by_its_own_clock():
+    """«Какого хуя пропадают мои собранные секретки» — the rule, pinned whole (#1272).
+
+    A robbed row is not a map finding. It is a receipt: the tile stays on the list,
+    marked and without «Собрать», for one reason — so it can still be shared (#1188,
+    140a4d2). Every way this list loses a row is walked here, because the regression was
+    ONE of them added later and none of the others: the lap's own wipe.
+
+    The last case is the one that matters most: «уже взято» is not evidence against a
+    tile WE took — it is the answer we earned by taking it.
+    """
+    import types
+    row = _row(7, 7, -60_000, 3_600_000)
+    row["robbed"], row["ready"], row["source"] = True, True, st.SOURCE_WIRE
+    tab = _make_tab({"7": row})
+    tab.rt = _fake_rt(_state_path())
+    tab.say = lambda *_a, **_k: None
+    tab.post = lambda fn: fn()
+    tab._maybe_start_poll = lambda: None      # no window, no chain to arm
+    tab._sweeping, tab._sweep_btn = False, None
+    tab._retitle_sweep = lambda: None
+    tab.capture = types.SimpleNamespace(running=True)
+    tab.ghost_capture = types.SimpleNamespace(running=False)
+    tab.rt.play_async = lambda name, args=None, **kw: True
+
+    # A live read that carries nothing, and one that carries something else.
+    tab._merge([], verify={"7"}, source=st.SOURCE_VM)
+    assert "7" in tab._rows, "an empty read took it"
+    tab._merge([_StubTask(9)], verify={"7"}, source=st.SOURCE_VM)
+    assert "7" in tab._rows, "a read that could not see it took it"
+
+    # The ready-row poll, with a good answer that does not carry it.
+    tab._poll_apply(["7"], {"9": _LiveTask(9)})
+    assert "7" in tab._rows, "the ready-row poll took it"
+
+    # «Обновить состояние»: the control answered, our tile has no detail at all.
+    tab._vm_busy = True
+    tab._state_landed(["7"], {}, {1: 0}, True)
+    assert "7" in tab._rows, "the state refresh took it"
+
+    # The server's own «уже взято», which is what it says about a tile we robbed.
+    tab._drop_gone("7")
+    assert "7" in tab._rows, "the tile was deleted for the answer our own robbery earned"
+
+    # …and a lap of the map, which re-reads the MAP and not what we did today.
+    tab._sweep_once()
+    assert "7" in tab._rows, "«Обойти карту» wiped a collected task"
+
+    # Only its own expiry ends it.
+    tab._rows["7"]["expires_at"] = _ms(-1_000)
+    expired, _changed = tab._refresh_timers()
+    assert expired == ["7"], expired
+
+
+def test_the_lap_still_wipes_everything_that_is_not_ours():
+    """The wipe has a job — a table that is a blend of two laps is unreadable — and
+    keeping the receipts does not take it away (#1272)."""
+    import types
+    kept = _row(7, 7, -60_000, 3_600_000)
+    kept["robbed"] = True
+    tab = _make_tab({"7": kept, "8": _row(8, 7, -5_000, 600_000)})
+    tab.rt = _fake_rt(_state_path())
+    tab.say = lambda *_a, **_k: None
+    tab.post = lambda fn: fn()
+    tab._sweeping, tab._sweep_btn = False, None
+    tab._retitle_sweep = lambda: None
+    tab.capture = types.SimpleNamespace(running=True)
+    tab.ghost_capture = types.SimpleNamespace(running=False)
+    tab.rt.play_async = lambda name, args=None, **kw: True
+
+    tab._sweep_once()
+
+    assert sorted(tab._rows) == ["7"], tab._rows
+
+
 def _robbed_tab():
     """A tab whose one ready row has just been robbed, through the real `_collect_done`."""
     import types

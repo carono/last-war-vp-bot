@@ -1505,12 +1505,24 @@ class SecretTasksTab(PanelTab):
     def _wipe_for_sweep(self) -> None:
         """Empty the ★ list so the lap fills it with what is on the map NOW (#1272).
 
-        Deliberately NOT `_clear`: the session's robbed uuids stay, or a tile this
-        account has already taken today could be offered as a target again the moment the
-        lap re-finds it.
+        **A ROW WE ROBBED IS NOT A MAP FINDING AND IS NOT WIPED.** It is a receipt: the
+        tile is kept on the list, marked and without «Собрать», for one reason only —
+        «хочу потом поделиться этой секреткой» (#1188, 140a4d2). A lap re-reads the map;
+        it does not re-read what this account did today, so clearing those was pure loss.
+        It was, briefly, exactly that: «какого хуя пропадают мои собранные секретки».
+
+        THE RULE, AND IT IS THE WHOLE OF IT: a robbed row leaves this list on its own
+        clock and by nothing else. Not a read that cannot see it (`_answerable`), not a
+        read that says the tile is gone (`_drop_gone`, and «уже взято» is the ANSWER WE
+        EARNED by robbing it), not the state refresh, and not this. Only `expires_at`.
+
+        Deliberately NOT `_clear` either: that button is an explicit «forget all of it»,
+        and this is «show me the map again». The session's robbed uuids stay too, or a
+        tile taken today could be offered as a target the moment the lap re-finds it.
         """
-        n = len(self._rows)
-        self._rows.clear()
+        kept = {key: row for key, row in self._rows.items() if row.get("robbed")}
+        n = len(self._rows) - len(kept)
+        self._rows = kept
         self._restore_pending = set()
         if n:
             self.say("coord", "log.coord.sweep_wiped", n=n)
