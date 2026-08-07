@@ -1,6 +1,9 @@
 """Tiny i18n helper for the control panel.
 
-UI strings live in ``panel/locales/<lang>.json`` (flat ``key -> template`` maps).
+UI strings live in ``panel/locales/<lang>.json`` (flat ``key -> template`` maps), and/or
+in ``panel/locales/<lang>/<tab>.json`` — one tab's keys on their own, merged into the
+same table at load (see :func:`load_locale`; a split by tab is what stops two agents
+adding two keys from colliding in eleven files, #1282).
 Look a string up with :func:`I18n.t`; ``{name}``-style placeholders are filled via
 ``str.format``. Missing keys fall back to the default language, then to the key
 itself, so a half-translated locale never crashes the UI.
@@ -47,25 +50,70 @@ LANG_NAME_KEY = "language.name"
 _CACHE: dict[str, dict[str, str]] = {}
 
 
+def _read_map(path: str) -> dict[str, str]:
+    """One JSON file as a flat map — a broken or missing one is an empty one."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def parts_dir(lang: str) -> str:
+    """Where a language's per-tab files live: ``panel/locales/<lang>/``."""
+    return os.path.join(LOCALES_DIR, lang)
+
+
+def _part_files(lang: str) -> list[str]:
+    try:
+        names = sorted(f for f in os.listdir(parts_dir(lang)) if f.endswith(".json"))
+    except OSError:
+        return []
+    return [os.path.join(parts_dir(lang), f) for f in names]
+
+
 def load_locale(lang: str) -> dict[str, str]:
-    """The ``<lang>.json`` map, or an empty one — a broken locale is not a crash."""
+    """One language's whole table — the flat file plus every per-tab file it has.
+
+    A language may be written two ways, and both are read into the same map (#1282):
+
+        panel/locales/ru.json                 everything, one file — how it began
+        panel/locales/ru/secret_tasks.json    one tab's keys, on their own
+
+    The second exists because of the tree, not because of the panel. A key must land in
+    every shipped locale in the SAME commit — that rule is why the tables are complete
+    and it is not going anywhere — but it means 85 of the last 200 commits touched all
+    eleven files, and two agents adding a key to two different tabs collided every time.
+    Split by TAB and they do not meet at all.
+
+    The per-tab files are read after the flat one and win on a key they both define. A
+    key SHOULD only be in one of them; `tests/test_panel_locale_layout.py` says so, and
+    the panel's own guarantee is unchanged either way — `tests/test_panel_i18n.py` walks
+    the loaded table, not the files.
+    """
     if lang not in _CACHE:
-        path = os.path.join(LOCALES_DIR, f"{lang}.json")
-        try:
-            with open(path, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            data = {}
-        _CACHE[lang] = data if isinstance(data, dict) else {}
+        data = _read_map(os.path.join(LOCALES_DIR, f"{lang}.json"))
+        for path in _part_files(lang):
+            data.update(_read_map(path))
+        _CACHE[lang] = data
     return _CACHE[lang]
 
 
 def available_langs() -> list[str]:
-    """Languages that have a ``<lang>.json`` locale file, sorted, default first."""
+    """Languages that have a locale, sorted, default first.
+
+    A locale is a `<lang>.json`, a `<lang>/` directory of per-tab files, or both — a
+    language that has finished migrating no longer has a flat file, and it is still a
+    language.
+    """
     try:
-        found = {f[:-5] for f in os.listdir(LOCALES_DIR) if f.endswith(".json")}
+        entries = os.listdir(LOCALES_DIR)
     except OSError:
-        found = set()
+        entries = []
+    found = {f[:-5] for f in entries if f.endswith(".json")}
+    found |= {d for d in entries
+              if os.path.isdir(os.path.join(LOCALES_DIR, d)) and _part_files(d)}
     found.discard("")
     # The default is always offerable even with no file: `t` falls back to the key,
     # which is ugly but usable, whereas a menu with nothing in it is not.
