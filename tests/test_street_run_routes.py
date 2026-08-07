@@ -135,7 +135,27 @@ def test_drawn_routes_reach_their_floor():
     assert not bad, "\n  ".join([""] + bad)
 
 
+def _config_missing() -> str:
+    """The reason this machine cannot run the file, or ``""`` when it can.
+
+    The track config is DUMPED off a client with a surfing battle loaded and lands under
+    `results/`, which is git-ignored — so a fresh clone, and every git worktree made from
+    one, has no `born.json` and `load_config` walks out with a `SystemExit`. That reads
+    as a red file for something nobody can fix by editing code, on a repository where the
+    file is perfectly healthy. It is a SKIP: the runner counts those and names them at
+    the end, so a machine that is missing the dump is told rather than lied to (#1284).
+    """
+    born = Path(S.CONFIG) / "born.json"
+    return "" if born.exists() else str(born)
+
+
 def _main() -> int:
+    missing = _config_missing()
+    if missing:
+        print("SKIP no track config (%s) — dump it off a client with a surfing battle "
+              "loaded:\n    C:\\Python312\\python.exe tools\\dev\\surfing_dump_config.py"
+              % missing)
+        return 0
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:
