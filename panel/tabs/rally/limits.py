@@ -3,10 +3,16 @@
 A squad sent to a rally is a squad that cannot march anywhere else until it comes
 back, so «сколько ралли в день» is a real budget rather than a preference. `panel/
 rally_limits.py` is the arithmetic (the per-type caps, the count that resets daily);
-this is where the panel asks it the two questions it has:
+this is where the panel asks what the DAY looks like — and nothing more than that:
 
-* **before a join** — which of the rallies currently out are still under their cap;
-* **after one** — count what was let through.
+* :func:`trophy_progress` — how many rally trophies the game has paid today and how
+  many are left before it stops paying. Asked of the client, which keeps the number
+  itself; the panel keeps none.
+
+**NOTHING HERE GATES A JOIN** (#1281). The daily twenty is a trophy threshold, not a
+door: past it the game stops paying and the joining goes on. A gate on it was the panel
+forbidding what nothing forbids, and the tally behind that gate had drifted twelve ahead
+of the client's own by the time anybody compared them.
 
 NO Tk HERE, on purpose. The schedule runs the «rally_auto_join» trigger off the Tk
 thread and must be able to gate it whether or not the «Ралли» tab is even in this
@@ -46,10 +52,10 @@ def types_out(rt) -> list:
     ``[]`` when the game or the daemon cannot answer — the caller then lets the join
     proceed uncounted rather than blocking it on a failed read.
 
-    NOT ON THE JOIN'S PATH ANY MORE (#1281): see :func:`join_gate` for why a reading in
-    front of a banner costs more than it can save. Kept because it is the one place that
-    knows how to classify a rally off the game, and the shape a real zombie/drill signal
-    would slot into.
+    NOT ON THE JOIN'S PATH, AND NOT A GATE ANY MORE (#1281). A reading in front of a
+    banner cost more than it could save, and then the count it fed turned out to be a
+    trophy threshold rather than a door — see :func:`trophy_progress`. Kept because it
+    is the one place that knows how to classify a rally off the game.
     """
     if not rt.game.ready():
         return []
@@ -73,63 +79,52 @@ def read(rt):
             rallylimitsmod.load_counts(rt.profiles.rally_counts_json()))
 
 
-def join_gate(rt):
-    """The rally types still under their daily cap — answered from the FILE, not the game.
+def trophy_progress(rt) -> dict:
+    """How many rally trophies today and how many are left — ASKED OF THE GAME (#1281).
 
-    ``[]`` when EVERY type is at its cap (the caller skips the join entirely); otherwise
-    the keys still allowed, which is what the recipe is handed so it can skip the banners
-    whose kind is spent and send to the rest.
+    ``{}`` when the client cannot be reached; otherwise ``{"done", "max", "left"}``
+    straight out of `DataCenter.MonsterManager`, which is where the client keeps it:
 
-    **IT USED TO COST A GAME CALL, AND IT STOOD IN FRONT OF THE JOIN** (#1281). The gate
-    read the whole march table before the recipe was allowed to start, at 1.3–19 s a
-    call, to be told a constant. It answers from the counts file now.
+        daily_kill_boss   GetKillBossNum()      how many paid out today
+        kill_boss_max_num GetMaxKillBossNum()   the threshold, 20
+                          GetRestKillBossNum()  what is left of it
 
-    **AND IT USED TO ASK ABOUT ONE KEY ONLY.** `zombie_invasion` is configured uncapped
-    because the event does not ration those rallies — and the gate asked whether
-    `monster` was spent, so once the ordinary twenty were gone the auto-join refused
-    invasion bosses too. Every key is asked now, and a kind with no cap keeps the door
-    open for itself alone.
+    **IT IS A READING, NOT A GATE.** The twenty is a trophy threshold: past it the game
+    stops PAYING, it does not stop joining. Refusing a banner on it — which this module
+    did until the player said what it actually does — was the panel forbidding something
+    nothing forbids, and it cost twelve rallies in one afternoon.
+
+    **AND IT IS NOT OURS TO COUNT.** The tally this file used to keep in
+    `rally_counts.json` read twenty at the moment the client's own read eight. Two
+    counters of one thing always end like that; there is one now, and it belongs to
+    whoever decides the number.
     """
-    limits, counts = read(rt)
-    allowed = [key for key in limits.types() if counts.allowed(key, limits)]
-    if not allowed:
-        rt.say("trigger", "triggers.log.rally_capped")
-    return allowed
-
-
-def blocked_types(rt) -> list:
-    """The keys that ARE at their cap — what the recipe parks so the chunk can skip them.
-
-    The mirror of :func:`join_gate`, and it is the half that stops a squad: the gate only
-    says whether the run may start at all, and a run allowed because invasion bosses are
-    uncapped must still not spend an ordinary monster's twenty-first.
-    """
-    limits, counts = read(rt)
-    return [key for key in limits.types() if not counts.allowed(key, limits)]
-
-
-def record_joins(rt, kinds, did: int = 1) -> None:
-    """Count what the run actually joined, EACH UNDER ITS OWN KEY, persisted for today.
-
-    ``kinds`` is the run's own list — one entry per squad the chunk sent, in the order it
-    sent them (`DataCenter.__lw_rally_kinds`). It used to be the gate's answer and every
-    join was written under `types[0]`, so an invasion boss — which the event does not
-    ration and which this file is configured never to cap — spent the ordinary monsters'
-    budget. A key whose cap is 0 is unlimited and recording under it costs nothing, which
-    is exactly what «uncapped» has to mean.
-
-    ``did`` is how many joins the game confirmed. Fewer than the sends means some did not
-    land, and the ones that did are counted from the front of the list rather than all of
-    them: a send that achieved nothing must not spend a day's budget (#1281).
-    """
-    kinds = [str(k).strip() for k in (kinds or []) if str(k).strip()]
-    if did <= 0 or not kinds:
-        return
-    path = rt.profiles.rally_counts_json()
-    counts = rallylimitsmod.load_counts(path)
-    for key in kinds[:did]:
-        counts = counts.record(key)
-    rallylimitsmod.save_counts(counts, path)
+    try:
+        if not rt.game.ready():
+            return {}
+    except Exception:                        # noqa: BLE001 — a reading, never the run
+        return {}
+    chunk = ("local MM = DataCenter.MonsterManager local a, b, c = -1, -1, -1 "
+             "pcall(function() a = MM:GetKillBossNum() b = MM:GetMaxKillBossNum() "
+             "c = MM:GetRestKillBossNum() end) "
+             "CS.UnityEngine.Debug.LogError('TROPHY '..tostring(a)..' '..tostring(b)"
+             "..' '..tostring(c))")
+    try:
+        lines = rt.game.evaluator().run(chunk, marker="TROPHY", settle=0.6, early=True)
+    except Exception:                        # noqa: BLE001
+        return {}
+    for line in lines or []:
+        if "TROPHY " not in line:
+            continue
+        parts = line.split("TROPHY ", 1)[1].split()
+        try:
+            done, top, left = (int(float(p)) for p in parts[:3])
+        except (ValueError, IndexError):
+            return {}
+        if done < 0:
+            return {}
+        return {"done": done, "max": top, "left": left}
+    return {}
 
 
 def record(rt, counts, type_key):

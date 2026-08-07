@@ -3490,13 +3490,16 @@ def rally_join_all() -> str:
         # Pair and send. One squad per rally, both in the order they arrived. EVERY BANNER
         # IS NAMED — the one it went to, and the one it did not and why — so «not a banner
         # missed» can be checked one at a time instead of as a total (#1281).
-        # WHICH BUDGETS ARE SPENT, parked by the recipe the way the squads are. A rally
-        # whose kind is at its cap is skipped BEFORE the send and named `capped`, so the
-        # budget stops a squad rather than being noticed after one has gone.
-        "local blocked = {} "
-        "pcall(function() for k in string.gmatch(tostring("
-        "DataCenter.__lw_rally_blocked or ''), '[^,]+') do "
-        "blocked[k] = true end end) "
+        # THE DAILY TWENTY IS A TROPHY THRESHOLD, NOT A DOOR (#1281). The player checked
+        # what it actually does: past twenty the game simply stops paying a trophy — it
+        # does not stop the joining. We were refusing every banner after our own count
+        # said twenty, and our count was twelve ahead of the game's at the time, so the
+        # afternoon ended with squads at home, banners on the map and nothing forbidding
+        # either. Nothing here refuses any more; the numbers below are a READING.
+        "local kb, kbmax, kbleft = nil, nil, nil "
+        "pcall(function() local MM = DataCenter.MonsterManager "
+        "kb = MM:GetKillBossNum() kbmax = MM:GetMaxKillBossNum() "
+        "kbleft = MM:GetRestKillBossNum() end) "
         "local sent, errs, went, left_over, kinds = 0, {}, {}, {}, {} "
         "local unknown_kind = 0 "
         "local pairs_n = #home if #rallies < pairs_n then pairs_n = #rallies end "
@@ -3505,8 +3508,7 @@ def rally_join_all() -> str:
         "r.target = target_of[tostring(r.team)] "
         "local kind, known = kind_of(r) "
         "if not known then unknown_kind = unknown_kind + 1 end "
-        "if blocked[kind] then left_over[#left_over+1] = tostring(r.team)..':capped-'..kind "
-        "elseif qi >= #home then left_over[#left_over+1] = tostring(r.team)..(#home == 0 and ':no-squad' or ':squads-spent') "
+        "if qi >= #home then left_over[#left_over+1] = tostring(r.team)..(#home == 0 and ':no-squad' or ':squads-spent') "
         "else qi = qi + 1 local q = home[qi] "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
@@ -3545,6 +3547,10 @@ def rally_join_all() -> str:
         "if inv_n ~= nil then report = report..' game_attackNum='..tostring(inv_n) end "
         "if #went > 0 then report = report..' to=['..table.concat(went, ' ')..']' end "
         "if #kinds > 0 then report = report..' kinds=['..table.concat(kinds, ' ')..']' end "
+        "if kb ~= nil then report = report..' trophies='..tostring(kb)..'/'..tostring(kbmax) "
+        "if kbleft ~= nil and tonumber(kbleft) ~= nil and tonumber(kbleft) <= 0 then "
+        "report = report..' -- past the trophy threshold: the joins still go out, the game "
+        "just pays nothing more today' end end "
         "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind"
         "..' (the event list could not be read — counted as monster, said rather than assumed)' end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "

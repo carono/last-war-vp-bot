@@ -47,19 +47,9 @@
 
 ARGS squads = [1, 2, 3, 4]
 
-ARGS blocked = ""
-
-# The squads this run may spend and the budgets already spent, parked where the press
-# can read them — `TAP` carries no arguments of its own. One call, and it is the only
+# The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
-#
-# `blocked` is the keys at their daily cap, comma-separated — a STRING and not a list,
-# because a list renders as bare words and a bare word is a nil global in Lua
-# (panel/tabs/rally/limits.py). A banner of a
-# blocked kind is skipped before the send and named `capped-<kind>`; a kind configured
-# uncapped is never in the list, which is what lets an invasion boss through on a day
-# the ordinary twenty are gone (#1281).
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_blocked = "{blocked}"
+LUA DataCenter.__lw_rally_squads = { {squads} }
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.
