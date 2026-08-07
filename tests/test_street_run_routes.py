@@ -39,6 +39,12 @@ Exit codes (standalone): 0 = passed, 1 = failed.
 """
 from __future__ import annotations
 
+# OFFLINE — no client, no daemon, no display, just a Lua VM — and honestly slow: twelve
+# replays of 11 880 m, ~4.5 min in WSL and longer under the Windows interpreter. Under the
+# runner's flat 300 s ceiling that made it red for being slow, on a machine where it was
+# passing. The tier says what the file NEEDS; this says how long it may take.
+TIMEOUT = 1800     # seconds — see tools/run_tests.py
+
 import os
 import sys
 from pathlib import Path

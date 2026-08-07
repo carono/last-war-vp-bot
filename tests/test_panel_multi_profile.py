@@ -125,6 +125,15 @@ def _link(daemon: _Daemon, log=None) -> GameLink:
     link = GameLink(port=lambda: daemon.port, python=lambda: "python", log=log or _Log(),
                     env=dict, cwd=str(_REPO), daemon_script="x")
     link.client = daemon.client(token="")
+    # THE FAKE DAEMON IS REACHABLE, and saying so is what makes this file mean the same
+    # thing on every machine. `_claim_lease` short-circuits on `up()` — a daemon that
+    # cannot be reached cannot be holding a lease either, and asking costs a connect on
+    # the Tk thread (#1226) — so on the real socket table a claim against port 47654
+    # took a token while the identical claim against 47655 quietly took none, purely
+    # because THIS machine happens to run one daemon and not the other. Four tests then
+    # failed on a token that was never about them. The fakes above model a daemon that
+    # answers; `up` has to agree with them rather than with the machine.
+    link.up = lambda fresh=False: True
     return link
 
 

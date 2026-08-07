@@ -29,7 +29,13 @@ Runs anywhere: psutil is stubbed, so there is no game and no sockets.
 """
 from __future__ import annotations
 
-TIER = "live"      # a running client on this machine — see tools/run_tests.py
+# OFFLINE, and the docstring above has always said so: psutil is stubbed, so there is no
+# game and no sockets. It was declared `live` because the stub had a hole — `_uninstall`
+# only forgot the fake, and the code under test then imported the REAL psutil and read
+# this desktop's client — which made one case fail on any machine that has both. The hole
+# is closed below; the tier follows the file back to what it actually needs, which is
+# nothing. See tools/run_tests.py.
+TIER = "offline"
 
 import sys
 import types
@@ -71,7 +77,13 @@ def _install(procs, conns):
 
 
 def _uninstall():
-    sys.modules.pop("psutil", None)
+    # `None` in `sys.modules`, not a pop: popping it only forgets the FAKE, and the next
+    # `import psutil` inside the code under test finds the real one — which on a machine
+    # that has psutil installed and a client running reads that client's live sockets.
+    # «No client, no psutil» then answered with this desktop's ports, and the one test
+    # that says what «unread» means failed on the very machine the tool runs on. `None`
+    # is the documented way to make an import raise ImportError.
+    sys.modules["psutil"] = None
     steal_via_socket.set_game_port(None)            # re-open the probe for the next test
 
 

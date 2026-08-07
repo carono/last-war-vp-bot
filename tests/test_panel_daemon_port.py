@@ -196,7 +196,7 @@ def _link(port, log=None) -> GameLink:
     # names» was decided by which of 47654 / 47655 happened to have a live daemon on the
     # box running the test: on the machine this was written on it read the claim as
     # granted with no token at all, and green everywhere a daemon runs on neither port.
-    link.up = lambda: True
+    link.up = lambda fresh=False: True
     return link
 
 

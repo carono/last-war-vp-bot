@@ -338,8 +338,14 @@ def test_panel_keeps_the_saved_block_until_the_tab_exists():
     fresh = _Fresh()._tabs_block()
     assert fresh["config"] == {}, fresh
     # Every save records which tabs this build offered, so an unticked one stays
-    # unticked instead of reappearing as "new" on the next start.
-    assert "rally" in fresh["known"] and "stats" in fresh["known"], fresh
+    # unticked instead of reappearing as "new" on the next start. WHICH tabs those are
+    # is asked of the registry rather than named here: this used to name «stats», #1273
+    # marked it `in_development`, and a tab that is not offered must NOT be recorded as
+    # offered — recording it would read, the day the mark comes off, as a tab this
+    # profile had already said no to.
+    from panel import tabs as tabsreg
+    assert set(fresh["known"]) == {spec.id for spec in tabsreg.listed()}, fresh
+    assert not [i for i in fresh["known"] if tabsreg.BY_ID[i].in_development], fresh
     # …and a hand-written `tabs.enabled` survives a save that has nothing to say about it.
     class _Chosen:
         _settings = {"tabs": {"enabled": ["stats"], "config": {}}}

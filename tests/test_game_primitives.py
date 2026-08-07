@@ -427,15 +427,33 @@ def test_steal_recipe_spends_the_queue_and_stops_at_the_budget():
     targets are queued is not knowable when the recipe is written, and the daily cap
     (five robberies) is spent by anything else that robbed today. The button's count
     is the minimum of the two, so the loop stops at whichever runs out first.
+
+    Two things about the reading changed with #1272 and this test had missed both. The
+    queue travels as an `ARGS queue` now instead of being parked by a spawned tool, so
+    the source has to go through `prepare_source` exactly as the engine does — plain
+    `parse_text` chokes on the declaration. And the presses moved INSIDE a `WHILE`, one
+    target at a time, so a scan of the top level finds only the last of them; the walk
+    below is what makes «the press is xall» a statement about the press that runs.
     """
     import game_buttons as gb
 
     path = se.resolve_action("steal_secret_task")
     assert path is not None, "actions/steal_secret_task.md is missing"
-    stmts = se.parse_text(path.read_text(encoding="utf-8"))
-    taps = [s for s in stmts if isinstance(s, se.TapStmt)]
-    assert [s.name for s in taps] == ["steal_secret_task", "dismiss_steal_reward"]
+    source, _ = se.prepare_source(path.read_text(encoding="utf-8"), None)
+    stmts = se.parse_text(source)
+
+    def _taps(block):
+        for s in block:
+            if isinstance(s, se.TapStmt):
+                yield s
+            for attr in ("body", "then_block", "else_block"):
+                yield from _taps(getattr(s, attr, ()) or ())
+
+    taps = list(_taps(stmts))
+    assert [s.name for s in taps] == ["steal_secret_task", "drop_steal_target",
+                                      "dismiss_steal_reward"], [s.name for s in taps]
     assert taps[0].count is None, "the press must be TAP … xall, not a fixed count"
+    assert taps[1].count == 1, "the head is dropped once per target, not spent xall"
 
     button = gb.get("steal_secret_task")
     assert button is not None and button.count_lua, "xall needs a count expression"
@@ -445,7 +463,15 @@ def test_steal_recipe_spends_the_queue_and_stops_at_the_budget():
     assert ev.presses == 2, f"expected two robberies, got {ev.presses}"
     sent = [c for c in ev.chunks if "MsgDefines.DispatchSteal" in c]
     assert len(sent) == 3, sent          # two that robbed, and the round that found none
-    assert all("table.remove" in c for c in sent), "a press must consume its target"
+    # A press must NOT consume its target — this used to demand the opposite, and #1272
+    # inverted it. The spam loop presses the SAME head again and again until the server
+    # confirms it, so a press that popped the queue would aim the second round at the
+    # next tile and abandon the one it was racing for. Dropping the head is a separate
+    # button, pressed once between targets.
+    assert not any("table.remove" in c for c in sent), \
+        "the head has to survive its own press — the spam repeats it"
+    assert "table.remove" in (gb.get("drop_steal_target").lua or ""), \
+        "something has to consume the target, and it is drop_steal_target"
 
 
 def test_steal_is_gated_on_the_daily_budget():
@@ -575,6 +601,7 @@ def test_args_reach_conditions_as_variables():
     log: list[str] = []
     ctx = se.new_context(on_event=log.append, variables={"limit": 2})
     ctx.evaluator = ev
+    ctx.link_checked = True          # the machine's sockets decide nothing here — see _run
     se.run_text("IF limit > 1\n    LUA fired()\n", ctx=ctx)
     assert any("fired()" in c for c in ev.chunks), ev.chunks
 
@@ -742,6 +769,7 @@ def _run_ministry(rluas) -> tuple[bool, FakeEval, list[str]]:
     ev = FakeEval(rluas=list(rluas))
     log: list[str] = []
     ctx = se.Context(hwnd=0, on_event=log.append, evaluator=ev)
+    ctx.link_checked = True          # the machine's sockets decide nothing here — see _run
     return se.run_action("apply_ministry_interior", hwnd=0, ctx=ctx), ev, log
 
 

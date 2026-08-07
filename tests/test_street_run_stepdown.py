@@ -149,12 +149,27 @@ def check():
                          "(act=%d az=%d) — the runner is in free fall with no roof under it"
                          % (py, act, az))
 
-    # 7. And on the plateau the same field still offers the crossing, so what case 6 catches is
-    #    the height and not the planner having lost the manoeuvre on this field.
-    act, az, _ = plan_death(ai, rt, 4.30)
-    if not (az == 0 and act == 2):
-        fails.append("the #1166 death frame at y=4.30: the crossing along the roofs should "
-                     "still be issued, got act=%d az=%d" % (act, az))
+    # 7. …AND THE HEIGHT IS NO LONGER WHAT REFUSES IT (#1170), which is worth saying rather
+    #    than quietly rewriting. This case used to demand the crossing back at y = 4.30 — the
+    #    control that case 6 was catching the height and not the planner having lost the move.
+    #    On the frame this field is taken from the runner is at 1060.2 and the nearest carriage
+    #    in its own lane starts at 1075, fifteen metres up the road: it is standing on nothing.
+    #    The planner could not see that when this file was written, because `autoStart` tested
+    #    only the FAR end of a carriage and filled every bucket from here to it with roof; #1170
+    #    added the near end, and the phantom roof went with it. So the answer on this field is
+    #    now the same at every height — hold — and it is right for a stronger reason than the
+    #    gate.
+    #
+    #    The height gate itself is still pinned, by cases 1-5 on the field where the runner
+    #    really IS on a roof. What is left to check here is that the manoeuvre has not been
+    #    lost: the route still means to cross, scheduled ahead at a bucket where there will be
+    #    a roof under it, rather than dropped from the plan.
+    for py in (4.30, 2.78):
+        act, az, _ = plan_death(ai, rt, py)
+        if not (act == 2 and az > 0):
+            fails.append("the #1166 death frame at y=%.2f: the crossing should still be in the "
+                         "route, scheduled ahead of the roofless stretch, got act=%d az=%d"
+                         % (py, act, az))
     return fails
 
 

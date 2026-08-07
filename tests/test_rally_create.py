@@ -97,6 +97,12 @@ def _run(variables=None, **answers):
     fake = FakeRallyGame(**answers)
     log: list[str] = []
     ctx = se.Context(hwnd=0, on_event=log.append, evaluator=fake)
+    # The link gate walks the MACHINE's socket table once per run and fails the whole
+    # run when the client it finds is not talking to a server. Right for a recipe, wrong
+    # for a fake game — and it does not fail the same way everywhere, which is why this
+    # file read 16/16 under one interpreter and 7/16 under the other on the same commit
+    # (#1282). The gate itself is tested by `tests/test_engine_link_gate.py`.
+    ctx.link_checked = True
     if variables:
         ctx.vars.update(variables)
     old_sleep = se.time.sleep

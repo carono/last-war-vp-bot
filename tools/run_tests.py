@@ -23,6 +23,11 @@ prerequisites, so an undeclared file gets RUN rather than quietly skipped, and i
 passes or tells somebody it needs something. The runner reads the line rather than
 importing the module — importing a test file runs it.
 
+A file may also declare `TIMEOUT = 1800` the same way, and one does. A tier says WHAT a
+test needs; how long it takes is a separate question, and a file that honestly takes
+minutes should not have to lie about its prerequisites to be allowed them. A declaration
+can only RAISE the ceiling above `--timeout`, never lower it.
+
 ## Running it
 
     C:\Python312\python.exe tools\run_tests.py                 # the offline tier
@@ -61,13 +66,24 @@ TESTS = REPO / "tests"
 TIERS = ("offline", "ui", "live")
 DEFAULT_TIER = "offline"
 
-#: How long one file may take before it is called red. The slowest honest file in the
-#: suite is ~30 s (`test_rally_tool.py`); the street-run route search is minutes and
-#: declares itself `live` for that reason as much as any other.
+#: How long one file may take before it is called red. Most of the suite is seconds and
+#: the slowest ordinary file is ~30 s (`test_rally_tool.py`).
 DEFAULT_TIMEOUT = 300.0
 
 #: `TIER = "ui"` on a line of its own, anywhere in the file's head.
 _TIER_RE = re.compile(r"^TIER\s*=\s*[\"'](offline|ui|live)[\"']", re.M)
+
+#: `TIMEOUT = 1800` on a line of its own — this file's own ceiling, in seconds.
+#:
+#: One file needs it and the note that used to stand here got the reason wrong: it said
+#: the street-run route search «declares itself `live`», and it never has — it needs no
+#: client, no daemon and no display, only twelve replays of 11 880 m through a real Lua
+#: VM. It is honestly offline and honestly slow (~4.5 min in WSL, longer on Windows),
+#: which under one flat 300 s ceiling made it the one file the runner reported as red for
+#: being slow. A timed-out file IS red, deliberately (a hung test is not a pass), so the
+#: fix is for the ceiling to be the file's rather than for the file to change tier: a
+#: tier says WHAT a test needs, never how long it takes.
+_TIMEOUT_RE = re.compile(r"^TIMEOUT\s*=\s*([0-9]+(?:\.[0-9]+)?)", re.M)
 
 #: What a self-running test file prints when it declines to do its work. Matched only to
 #: COUNT them at the end — never to change an exit code.
@@ -84,6 +100,18 @@ def tier_of(path: Path) -> str:
     head = path.read_text(encoding="utf-8", errors="replace")[:8000]
     m = _TIER_RE.search(head)
     return m.group(1) if m else DEFAULT_TIER
+
+
+def timeout_of(path: Path, default: float = DEFAULT_TIMEOUT) -> float:
+    """The ceiling a file declares for itself, or ``default``.
+
+    Read as TEXT for the same reason :func:`tier_of` is. A declaration only ever RAISES
+    the ceiling: `--timeout` is what somebody at a keyboard uses to cut a run short, and
+    a file must not be able to overrule it downwards from the other side of the repo.
+    """
+    head = path.read_text(encoding="utf-8", errors="replace")[:8000]
+    m = _TIMEOUT_RE.search(head)
+    return max(default, float(m.group(1))) if m else default
 
 
 def discover(only: str | None = None) -> list[Path]:
@@ -177,12 +205,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.jobs > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            futures = {pool.submit(run_one, p, args.timeout): p for p in wanted}
+            futures = {pool.submit(run_one, p, timeout_of(p, args.timeout)): p
+                       for p in wanted}
             for fut in concurrent.futures.as_completed(futures):
                 results.append(fut.result())
     else:
         for p in wanted:
-            results.append(run_one(p, args.timeout))
+            results.append(run_one(p, timeout_of(p, args.timeout)))
 
     results.sort(key=lambda r: r.path.name)
     for r in results:
