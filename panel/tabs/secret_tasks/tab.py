@@ -41,8 +41,9 @@ lived on `Panel`; each is a small class beside this one, holding its own child p
 and its own loop (docs/research/panel-tabs-refactor.md §9.1/§9.3). «Автолут ★» is aimed
 by ONE number — «минимальный уровень», this level and everything above it (#1256) — and
 it picks its targets out of THIS TAB'S LIST (:meth:`SecretTasksTab.rob_candidates`),
-never out of a second reading of the sources. What each page SHOWS is that page's own
-«уровень от / до», which re-aims no robbery at all.
+never out of a second reading of the sources — so its block is drawn ON THE ★ PAGE, over
+that list, rather than as a strip above the whole notebook (#1271). What each page SHOWS
+is that page's own «уровень от / до», which re-aims no robbery at all.
 
 THERE ARE THREE TABLES, AND THEY ARE PAGES (#1244, #1251). The one described above is a
 WORKING list — the starred raids, gathered from two sources, kept across a restart,
@@ -633,7 +634,9 @@ class SecretTasksTab(PanelTab):
 
         self._build_coord_bar()
         self._build_monitor_bar()
-        self._build_filter_bar()
+        # «Автолут ★» is NOT here (#1271): it belongs to the ★ list, so it is drawn on
+        # the ★ page, by `_build_table` below. A rule aimed at one of five tables has no
+        # business standing above all five.
 
         self.tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                           justify="left"), "secrettasks.hint").pack(
@@ -736,22 +739,28 @@ class SecretTasksTab(PanelTab):
                                      justify="left")
         self._sweep_hint.pack(side="left", padx=(10, 0))
 
-    def _build_filter_bar(self) -> None:
-        """«Автолут ★», its one level box and the own-server prohibition — the rule the
-        robberies obey.
+    def _build_filter_bar(self, parent) -> None:
+        """«Автолут ★», its one level box and the line saying what the rule will do.
+
+        ON THE ★ PAGE, WITH THE LIST IT ROBS (#1271). It used to be a strip above the
+        whole notebook, which said «this governs the tab» when it governs one of five
+        tables: the ghost pages have their own robbery and their own switches, and a
+        person looking at «Операция Призрак» read a level box that had nothing to do with
+        what was on screen. `parent` is the ★ page's frame, and the block is the first
+        thing on it — the same position on the glass it had before, one level in.
 
         ONE BOX, AND IT IS A MINIMUM (#1256). The range it replaces read as two bounds
         and behaved as one: only its top was ever robbed, so a raidable level-6 star sat
         there untouched under «от 1 до 7». «Минимальный уровень 6» robs the 6 and every
         7 above it, best first.
 
-        Separate from the ★ page's own «Фильтры: уровень от / до» on purpose (#1099):
-        that pair is a pair of eyes and this one is a budget. «Не грабить на своём
-        сервере» is in THIS frame for the same reason — it gates the robberies and hides
-        nothing.
+        Separate from the page's own «Фильтры: уровень от / до» below it on purpose
+        (#1099): that pair is a pair of eyes and this one is a budget. The home server
+        is not among the two — it is refused when the model is built, and there is no
+        box that can allow it (#1188).
         """
-        frame = self.tr(ttk.LabelFrame(self.parent, padding=6), "secret.autoloot.frame")
-        frame.pack(fill="x", padx=10, pady=(0, 4))
+        frame = self.tr(ttk.LabelFrame(parent, padding=6), "secret.autoloot.frame")
+        frame.pack(fill="x", pady=(0, 4))
         bar = ttk.Frame(frame)
         bar.pack(fill="x")
         self.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
@@ -760,7 +769,9 @@ class SecretTasksTab(PanelTab):
         self.tr(ttk.Label(bar), "secret.autoloot.level_min").pack(
             side="left", padx=(12, 2))
         NumericEntry(bar, textvariable=self.level_min_var, width=4).pack(side="left")
-        self._rule_lbl = ttk.Label(frame, foreground="#888", wraplength=760,
+        # Narrower than the strip it replaces: the page sits inside the notebook's own
+        # padding, so a label still demanding 760 px would widen the whole window.
+        self._rule_lbl = ttk.Label(frame, foreground="#888", wraplength=720,
                                    justify="left")
         self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
         # Typing the minimum keeps the rule line true and bounces the event-driven
@@ -810,6 +821,9 @@ class SecretTasksTab(PanelTab):
         stars = ttk.Frame(book, padding=6)
         self._add_page(stars, "secrettasks.page.stars")
         self._empty = self.tr(ttk.Label(stars, foreground="#888"), "secrettasks.empty")
+        # The standing order first, then the eyes, then the list (#1271): «Автолут ★»
+        # spends the day's robberies on THIS table, so it is read where the table is.
+        self._build_filter_bar(stars)
         self._build_star_filters(stars)
         self._body = ttk.Frame(stars)
         self._body.pack(fill="both", expand=True)
@@ -859,10 +873,10 @@ class SecretTasksTab(PanelTab):
     def _build_star_filters(self, parent) -> None:
         """The ★ page's own box: «Скрывать со своего сервера», ON by default (#1251).
 
-        A DISPLAY rule and nothing else. «Не грабить на своём сервере» in the auto-loot
-        frame above gates the ROBBERIES and hides nothing; this hides rows and robs
-        nothing. Two settings, two places, deliberately — a tile at home stays
-        shareable, jumpable and collectable by hand whichever way this box is set.
+        A DISPLAY rule and nothing else — it hides rows and robs nothing. The auto-loot
+        frame directly above it is the other half: it spends the day's robberies and
+        hides nothing, and a home tile is refused there whatever this box says (#1188).
+        A tile at home stays shareable, jumpable and collectable by hand either way.
         """
         bar = ttk.Frame(parent)
         bar.pack(fill="x", pady=(0, 4))
@@ -1962,6 +1976,11 @@ class SecretTasksTab(PanelTab):
         # checkbox. It is the reading somebody away from the machine most needs: the
         # tiles say what is on the map, this says whether anything is going to be taken
         # — and «nothing, the day's five are spent» is not a thing to guess at (#1227).
+        # It stays the card DIRECTLY ABOVE the ★ one, which is where the window now
+        # draws it too: inside the ★ page, over the list it robs (#1271). A screen
+        # scrolls where a window switches pages, so the adjacency is the whole of the
+        # mirroring — and there is still no button here. The phone READS the standing
+        # order; starting a robbery from it stays forbidden (#1188).
         state_key, state_datum = self.autoloot.state()
         low = self.autoloot.level_min()
         return {"cards": [{"title": "secret.autoloot.frame",
