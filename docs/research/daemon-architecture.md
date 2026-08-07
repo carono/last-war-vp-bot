@@ -329,3 +329,105 @@ What NOT to do: do not add a fourteenth reading, and do not let the heartbeat an
 question `game_link.probe()` answers (§6). Two different truths — «a chunk reaches the
 client» and «the client reaches the server» — and every incident in this file so far came
 from one of them being read as the other.
+
+---
+
+# 9. What was built, and what it measured (2026-08-07, same day)
+
+All four items above, in that order, agreed by the person before any of it was written.
+Numbers taken the way §7 says, against the live client and the daemon the panel had
+started for it.
+
+## 9.1 The four, as built
+
+| § | what it is now | where |
+|---|---|---|
+| 1 | `Pulse`: every run that comes back stamps `last_ok`; a failure adds a reason and a strike without erasing it; `due()` says when the silence is worth a probe. `verdict()` decides age first, pid second — and a daemon too old to carry an age is judged the way it always was, because a warm daemon runs for days | `tools/lib/daemon_pulse.py` |
+| 1 | the daemon probes ITSELF with one trivial chunk when nothing has landed for ten seconds, never waiting for the run lock to do it, and never at all while there is no client to attach to; the ping carries `last_ok_age`, `probe_error`, `misses` | `tools/lua_daemon.py` |
+| 2 | three failures in a row and the daemon LEAVES, freeing the port for the fresh one the panel already knows how to start | `_watch_client`, on #1286's `_leave` |
+| 3 | `health()` decides on the pulse; `GameLink.ready()` is the reader's cheap half (one ping, 0.8 ms); eleven callers that asked «does a port answer» and meant «may I read the game» now ask that; `debug.log` gained the third word | `panel/runtime/daemon.py`, and the eleven |
+| 4 | `LuaEval.send` injects and hands back a `Pending`; `harvest` waits and holds nothing; `Daemon.run` locks only the injection; each call gets its own answer file, folded back into the shared record afterwards | `tools/lib/lua_eval.py`, `tools/lua_daemon.py` |
+
+Four `up()` callers were deliberately left: the indicator that has to tell «stale» from
+«off», the shutdown when a profile closes, and the two ensure-gates. Their question
+really is the port.
+
+**And one call site was migrated and then put back**, which is worth the line: the
+graphics SWITCH is an act, not a reading, and `tests/test_panel_graphics.py` says in so
+many words that a client whose picture cannot be read still gets the switch. Gating a
+press on a reading is how a person loses a control because something else was unreadable.
+
+## 9.2 The acceptance, live
+
+`tools/dev/daemon_acceptance.py`, all three forms, on the running client:
+
+| | result |
+|---|---|
+| **form 1** — daemon and client alive | verdict `live`; `last_ok_age` present; a chunk sent now came back (`['ACC ok']`); a ping 0.63–0.68 ms; **a live chunk 58–63 ms**; a real errand reset the age to **0.00 s** |
+| **form 3** — no daemon | verdict `none`; a dead port still costs its whole 358 ms timeout |
+| **form 2** — the client killed under the daemon | below |
+
+Form 2 is the one the whole task exists for. Idle gate first: the machine had not been
+touched for 5 006 s, against a floor of 300, and the check is repeated inside the run
+rather than only beside it. Then the client was killed, and nothing else was done:
+
+```
+    0s  verdict=live   port=yes  held=41092  running=41092  age=1.7
+   18s  verdict=stale  port=yes  held=None   running=88624  age=19.6
+   20s  verdict=none   port=no   held=None   running=88624
+   28s  verdict=stale  port=yes  held=None   running=88624
+   39s  verdict=none   port=no   held=None   running=88624
+   42s  verdict=live   port=yes  held=88624  running=88624
+```
+
+* **the verdict stopped being live after 18 s** — where the old reading stayed «warm»
+  indefinitely;
+* **the daemon let go of the port after 20 s**, by itself;
+* **everything was green again after 42 s, with nobody helping.**
+
+Against the same profile's day before this: a deaf window of **median 250 s and a tail
+of hours** (§3). And the client came back `online` — the one that was killed had been
+sitting on a `lost` link, so the acceptance also cured what it was measuring.
+
+**The two cycles at 28 s and 39 s are real and are left alone.** A daemon started while
+the client is still booting cannot attach, collects its three strikes and leaves; the
+panel starts another, which attaches. It converged in one extra cycle here, each costing
+a 0.2 s process start, and the log says why each time. The alternative — teaching the
+daemon to be patient with a young client — is untested cleverness on top of a green
+acceptance, and this file has already argued once (§5.2) that the age growing IS the
+report rather than a fault to be smoothed over.
+
+## 9.3 The lock, before and after
+
+The number §2.1 said had to move, measured the same way both times — one foreground
+`early` call against three background readers holding patient settles:
+
+| | free | behind three readers | ratio |
+|---|---|---|---|
+| before | 60 ms | **3 855 ms** | ×64 |
+| after | 57 ms | **59 ms** | **×1.0** |
+
+## 9.4 What it cost elsewhere
+
+Three test stand-ins had to learn the call the daemon now makes (`send` returning
+something with `harvest`), and two had to learn `ready()`. Every one of them failed the
+same way its own comment already described from #1282: the daemon reads an
+`AttributeError` from a stand-in as a stale handle, rebuilds a REAL evaluator, and an
+offline test goes looking for a game client on a machine that has none. **A stand-in that
+is behind its subject does not fail as a stand-in; it fails as whatever it fell back to.**
+
+Tiers after the change: **offline 44/44** (244 s), **ui 50/50**, plus the new
+`test_daemon_heartbeat` (12), `test_daemon_pulse` (17) and `test_lua_answer_split` (10).
+
+## 9.5 What is still open
+
+* **The panel process was started before this and holds the old module.** The daemon half
+  is proven live above; the panel half — `ready()`, the third word in `debug.log`, and
+  #1286's own `health` wiring — reaches a running window only through a restart, which is
+  the person's press («⟳ Перезапустить панель», #1258).
+* **`up()` is still reachable.** Nothing fails a build that adds a fifteenth caller of it.
+  A test that refuses a new `up()` outside `panel/runtime/daemon.py` is the guard this
+  wants and does not have.
+* **The self-probe interval is one number for every machine.** Ten seconds costs a client
+  at the 10 fps headless floor about two frames per ten seconds; a machine running the
+  game at 60 fps would not notice a shorter one, and nothing measures which it is.
