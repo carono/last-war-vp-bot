@@ -245,47 +245,39 @@ def test_tab_builds_and_drives_its_controls():
         shared._clear()
         assert not shared._rows
 
-        # The level range reads as a pair, blank ends meaning "no bound".
-        assert shared._levels() == (None, None)
-        shared._from_var.set("3")
-        shared._to_var.set("7")
-        assert shared._levels() == (3, 7)
+        # This page keeps NO rule of its own any more (#1188) — no «грабить сразу», no
+        # star box, no level pair. It shows the one on «Секретки» instead.
+        for gone in ("_rob_var", "_star_var", "_from_var", "_to_var", "_levels"):
+            assert not hasattr(shared, gone), gone
 
         # The dig squad is a real choice, defaulting to the first slot.
         assert treasure._squad_var.get() == cp.TREASURE_SQUADS[0]
         treasure._squad_var.set(3)
         assert treasure._squad_var.get() == 3
 
-        # The rule and the squad are kept in the profile: what is saved comes back, and
-        # a junk block cannot smuggle in a bound or a squad the page would not offer.
-        shared._rob_var.set(True)
-        shared._star_var.set(False)
+        # The squad is kept in the profile; the shared page keeps nothing at all, and a
+        # junk block cannot smuggle in a squad the page would not offer.
         saved = tab.config()
-        # No `skip_own_server` in the block any more (#1188): the home server is never
-        # robbed and there is nothing left to remember about it.
-        assert saved["pages"]["shared"] == {"rob": True, "stars_only": False,
-                                            "level_from": "3", "level_to": "7"}
+        assert saved["pages"]["shared"] == {}, saved["pages"]["shared"]
         assert saved["pages"]["treasure"] == {"squad": 3}
         tab.apply_config({})
-        assert tab.config()["pages"]["shared"] == {"rob": False, "stars_only": True,
-                                                   "level_from": "", "level_to": ""}
+        assert tab.config()["pages"]["shared"] == {}
         assert tab.config()["pages"]["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
         tab.apply_config(saved)
         assert tab.config() == saved
-        tab.apply_config({"pages": {"shared": {"level_from": "nonsense",
-                                               "level_to": -4},
+        # An OLD block still naming the rule this page used to keep is simply ignored —
+        # not restored, and not able to bring a second standing order back.
+        tab.apply_config({"pages": {"shared": {"rob": True, "stars_only": False,
+                                               "level_from": "3", "level_to": "7"},
                                     "treasure": {"squad": 9}}})
-        assert shared._levels() == (None, None)
+        assert tab.config()["pages"]["shared"] == {}
         assert treasure._squad_var.get() == cp.TREASURE_SQUADS[0]
         tab.apply_config("not a block at all")
         assert tab.config()["pages"]["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
         # «Слушать эфир» is a running capture, not a setting — restoring a tick without
         # a listener behind it would claim the air is being watched when it is not.
         assert all(str(shared._listen_var) != str(v) for v in tab.persist_vars())
-        for var in (shared._rob_var, shared._star_var, shared._from_var,
-                    shared._to_var, treasure._squad_var):
-            assert any(str(var) == str(v) for v in tab.persist_vars()), \
-                f"{var} is not persisted"
+        assert any(str(treasure._squad_var) == str(v) for v in tab.persist_vars())
 
         # Shutting the tab down with nothing running is a no-op, not an error.
         tab.shutdown()
@@ -460,12 +452,18 @@ def test_a_missing_checkpoint_is_no_rows_not_a_crash():
     assert tpane._scanned_targets(set(), home=0) == []
 
 
-def test_the_wire_listener_is_told_about_the_own_server_prohibition():
-    """The page robs secret tasks by its own child, so the box has to reach that child.
+def test_the_shared_page_cannot_rob_by_itself_at_all():
+    """«Общие» WATCHES the air; it does not rob, and it may not (#1188).
 
-    «Не грабить на своём сервере» lives on the «Секретки» tab too (#1209); a listener
-    spawned here that was never told about it would happily raid the neighbours the
-    operator ticked the box to protect.
+    It used to keep its own «грабить сразу» / «только звёзды» / level pair and spawn
+    them into a listener of its own — a SECOND standing order over the same push, with
+    a rule nobody was looking at. That pair is what made «I turned auto-loot off» true
+    of one order and false of the other, and it cost the player a raid on their own
+    server and a fine for it.
+
+    So the child is spawned `--dry-run` always, carries no rule flags at all, and still
+    carries the home-server prohibition — three things checked together, because any
+    one of them coming back alone is the same bug.
     """
     cp = _module()
     if cp is None:
@@ -504,8 +502,19 @@ def test_the_wire_listener_is_told_about_the_own_server_prohibition():
         # The prohibition travels ALWAYS (#1188) — there is no box that could hold it
         # back, so the very first listener carries it.
         shared._start_listener()
-        assert spawned and "--skip-own-server" in spawned[0], spawned
+        assert spawned, spawned
+        cmd = spawned[0]
+        assert "--skip-own-server" in cmd, cmd
+        # …and it never robs: `--dry-run` unconditionally, and not one rule flag.
+        assert "--dry-run" in cmd, cmd
+        for flag in ("--star-max", "--level-min", "--level-max"):
+            assert flag not in cmd, (flag, cmd)
         shared._stop_listener()
+
+        # The rule it SHOWS is read from «Секретки» and not kept here. With no such tab
+        # in this window it says so instead of inventing one.
+        line = shared.autoloot_line()
+        assert line and line == rt.t("cmdpost.shared.rule_elsewhere_off"), line
     finally:
         app.destroy()
 

@@ -747,14 +747,16 @@ class SharedMissionsPane(_Pane):
         self.rt.tr(ttk.Checkbutton(row1, variable=self._listen_var,
                                 command=self._toggle_listen),
                 "cmdpost.shared.listen").pack(side="left")
-        self._rob_var = tk.BooleanVar(master=self.rt.root, value=False)
-        self.rt.tr(ttk.Checkbutton(row1, variable=self._rob_var,
-                                command=self._on_rule_change),
-                "cmdpost.shared.rob").pack(side="left", padx=(12, 0))
-        self._star_var = tk.BooleanVar(master=self.rt.root, value=True)
-        self.rt.tr(ttk.Checkbutton(row1, variable=self._star_var,
-                                command=self._on_rule_change),
-                "cmdpost.shared.stars_only").pack(side="left", padx=(12, 0))
+        # NO RULE OF ITS OWN ANY MORE (#1188). «грабить сразу», «только звёзды» and the
+        # level pair used to live here and be spawned into a listener of this page's own,
+        # which meant TWO independent standing orders robbing off one push — so «I turned
+        # auto-loot off» turned off one of them and the other went on raiding. That pair
+        # is what cost the player a raid at home and a fine. This page watches; the
+        # robbery has exactly one home, on «Секретки», and the line below SHOWS that
+        # state rather than keeping a second copy of it.
+        self._rule_var = tk_stringvar(self.rt.root)
+        ttk.Label(row1, textvariable=self._rule_var, foreground=DIM).pack(
+            side="left", padx=(12, 0))
 
         # There is no «Не грабить на своём сервере» box here either (#1188): this page
         # robs secret tasks by its own listener, and the listener is started with the
@@ -764,14 +766,6 @@ class SharedMissionsPane(_Pane):
 
         row2 = ttk.Frame(box)
         row2.pack(fill="x", pady=(6, 0))
-        self.rt.tr(ttk.Label(row2), "cmdpost.shared.level_from").pack(side="left")
-        self._from_var = tk_stringvar(self.rt.root)
-        NumericEntry(row2, textvariable=self._from_var, width=4).pack(
-            side="left", padx=(4, 0))
-        self.rt.tr(ttk.Label(row2), "cmdpost.shared.level_to").pack(side="left", padx=(8, 0))
-        self._to_var = tk_stringvar(self.rt.root)
-        NumericEntry(row2, textvariable=self._to_var, width=4).pack(
-            side="left", padx=(4, 0))
         self.rt.tr(ttk.Button(row2, width=14, command=self._clear),
                 "cmdpost.shared.clear").pack(side="right")
 
@@ -792,16 +786,12 @@ class SharedMissionsPane(_Pane):
             return
         cmd = [self.rt.children.python(), "-u",
                os.path.join(TOOLS, "secret_share_autoloot.py"),
-               "--limit", str(self.rt.settings.opt_int("autoloot_limit", low=1, high=50))]
-        if not self._rob_var.get():
-            cmd.append("--dry-run")
-        if self._star_var.get():
-            cmd.append("--star-max")
-        lo, hi = self._levels()
-        if lo is not None:
-            cmd += ["--level-min", str(lo)]
-        if hi is not None:
-            cmd += ["--level-max", str(hi)]
+               "--limit", str(self.rt.settings.opt_int("autoloot_limit", low=1, high=50)),
+               # ALWAYS (#1188). This page decodes the air and lists what crosses it; it
+               # does not rob, and it may not, because the robbery it used to do was a
+               # SECOND standing order over the same push with a rule of its own. One
+               # ability, one place it is switched on — «Автолут ★» on «Секретки».
+               "--dry-run"]
         # Unconditional (#1188). The listener resolves the own server itself, so the
         # prohibition travels as a flag; there is no box left that could withhold it.
         cmd.append("--skip-own-server")
@@ -826,13 +816,6 @@ class SharedMissionsPane(_Pane):
             self._listen_var.set(False)
         except Exception:              # noqa: BLE001 — panel already gone
             pass
-
-    def _on_rule_change(self) -> None:
-        """A rule box was toggled: restart the listener so the change takes effect."""
-        if self._child is None:
-            return
-        self._stop_listener()
-        self._start_listener()
 
     def _on_line(self, line: str) -> None:
         """One line of the listener's output → a row, when it names a mission.
@@ -886,7 +869,29 @@ class SharedMissionsPane(_Pane):
         self._info("cmdpost.shared.info", left=left, n=len(self._rows))
         self._paint()
 
+    def autoloot_line(self) -> str:
+        """What «Автолут ★» on «Секретки» will take — READ from it, never kept here.
+
+        The one state, shown in a second place (#1188). This page had its own copy of
+        the rule and its own listener to spend it, so two standing orders raced over one
+        push and «выключил автолут» could be true of one of them; the pair is what cost
+        the player a raid at home. Now the switch has exactly one home and this line is
+        a window onto it.
+
+        `rt.tabs.get` is the sanctioned way for one tab to read another
+        (docs/panel-tabs.md); it answers `None` when the window does not carry
+        «Секретки» at all — a profile may switch it off — and then this says so rather
+        than inventing a rule.
+        """
+        tab = self.rt.tabs.get("secret_tasks") if self.rt.tabs is not None else None
+        order = getattr(tab, "autoloot", None)
+        if order is None:
+            return self.rt.t("cmdpost.shared.rule_elsewhere_off")
+        return self.rt.t("cmdpost.shared.rule_elsewhere",
+                         rule=order.rule_text(), state=order.state_text())
+
     def _paint(self) -> None:
+        self._rule_var.set(self.autoloot_line())
         self._clear_list()
         if not self._rows:
             self._empty("cmdpost.shared.empty")
@@ -921,43 +926,27 @@ class SharedMissionsPane(_Pane):
         return frame
 
     # -- actions ------------------------------------------------------------
-    def _levels(self):
-        """The «уровень от / до» pair as ints, either end ``None`` when left blank."""
-        def bound(var):
-            raw = var.get().strip()
-            return int(raw) if raw.isdigit() else None
-        return bound(self._from_var), bound(self._to_var)
-
     # -- what is remembered between sessions --------------------------------
     def config(self) -> dict:
-        """The robbery rule as it is stored in the profile.
+        """Nothing. This page keeps no rule of its own any more (#1188).
 
-        «Слушать эфир» is deliberately not in it: a listener is a running capture, not a
-        setting, and a tick restored without one would say the air is being watched when
-        nothing is.
+        It used to keep four — «грабить сразу», «только звёзды» and a level pair — and
+        spawn them into a listener of its own, which is how one push could be robbed by
+        two independent standing orders and how «I turned auto-loot off» could be true
+        and false at the same time. The rule lives on «Секретки»; this page shows it.
+
+        «Слушать эфир» is deliberately not stored either: a listener is a running
+        capture, not a setting, and a tick restored without one would say the air is
+        being watched when nothing is.
         """
-        lo, hi = self._levels()
-        return {
-            "rob": bool(self._rob_var.get()),
-            "stars_only": bool(self._star_var.get()),
-            "level_from": "" if lo is None else str(lo),
-            "level_to": "" if hi is None else str(hi),
-        }
+        return {}
 
     def apply_config(self, raw) -> None:
-        """Restore the rule from a profile's block (anything unreadable -> the default)."""
-        raw = raw if isinstance(raw, dict) else {}
-        self._rob_var.set(bool(raw.get("rob", False)))
-        self._star_var.set(bool(raw.get("stars_only", True)))
-        # `skip_own_server` is neither read nor written any more (#1188) — a profile that
-        # still carries it keeps it as dead weight, and it decides nothing.
-        for key, var in (("level_from", self._from_var), ("level_to", self._to_var)):
-            var.set(_level_text(raw.get(key)))
+        """Nothing to restore — see :meth:`config`. Old blocks are simply ignored."""
 
     def persist_vars(self) -> list:
-        """The controls a change of has to be written to the profile."""
-        return [self._rob_var, self._star_var,
-                self._from_var, self._to_var]
+        """Nothing of this page is written to the profile (see :meth:`config`)."""
+        return []
 
     def _steal(self, mission: dict) -> None:
         """Rob one shared mission by hand — `hero.dispatch.steal {uuid, targetServer}`.
@@ -1371,7 +1360,13 @@ class CommandPostTab(PanelTab):
                          else "cmdpost.shared.matched" if mission.get("matched")
                          else None),
             })
-        return {"title": "cmdpost.tab.shared", "items": items,
+        # The window's «grabbing lives on «Секретки»» line, on the phone too (#1188).
+        # This card used to carry its own rule and its own robberies; whoever reads it
+        # from away has to be told where the switch actually is, or the card reads as
+        # «nothing is being taken» when something is.
+        rows = ([{"label": "cmdpost.shared.frame", "value": pane.autoloot_line()}]
+                if pane is not None else [])
+        return {"title": "cmdpost.tab.shared", "items": items, "rows": rows,
                 "empty": "cmdpost.shared.empty"}
 
     def _web_treasures(self, coords) -> dict:
