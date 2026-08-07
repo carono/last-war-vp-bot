@@ -29,6 +29,8 @@ Needs Tk and a display; it opens a hidden window and takes it down again.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

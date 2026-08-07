@@ -26,6 +26,8 @@ No Tk, no game, no pywin32: the two Windows calls are the seam
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

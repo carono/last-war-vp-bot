@@ -3,6 +3,8 @@ repaints the Inventory tab (task #1133). The trigger registration and the panel'
 dispatch/refresh logic are tested without Tk or a game."""
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

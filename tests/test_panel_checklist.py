@@ -40,6 +40,8 @@ WSL python does not ship — those tests say SKIP there and run under the Window
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import re
 import sys

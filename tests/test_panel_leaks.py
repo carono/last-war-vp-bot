@@ -25,6 +25,8 @@ The Tk cases need a display; they say SKIP without one::
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 import tempfile
 import threading

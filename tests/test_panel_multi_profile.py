@@ -28,6 +28,8 @@ Tk-free on purpose — none of this is about widgets. Runs anywhere:
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import logging
 import os

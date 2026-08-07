@@ -428,6 +428,35 @@ flag, check it still exists before acting on it.
   the project's narrative.
 - **Don't `--no-verify`** on commits, don't `--force` push, don't
   amend published commits.
+
+- **Run the tests before you commit.** They are self-running scripts and
+  they stay that way (no pytest), but there is a runner over them now
+  (#1282):
+
+  ```
+  C:\Python312\python.exe tools\run_tests.py           # the offline tier
+  C:\Python312\python.exe tools\run_tests.py ui        # before any panel commit
+  python3 tools/run_tests.py offline --jobs 4          # in WSL, in parallel
+  C:\Python312\python.exe tools\run_tests.py --list    # what is in which tier
+  ```
+
+  Three tiers, and a file declares its own with `TIER = "ui"` /
+  `TIER = "live"` near the top: `offline` needs nothing but Python,
+  `ui` needs Tk and a display, `live` needs a running client. **No
+  declaration means `offline`** — the tier with no prerequisites, so a
+  new file gets run rather than quietly skipped.
+
+  Baseline the day the runner landed, Windows 3.12: offline 31/37 green
+  in 344 s, ui 40/48 in 137 s. Some of those reds are older than the
+  runner — a suite nobody can run is a suite nobody notices going red,
+  which is how a #1215 regression guard sat broken through a whole task
+  (#1273 changed the tab count under it; the guard now asserts the
+  RATIO, that no tab which is not `EAGER` is drawn with the page).
+
+  Watch for the green line that ran nothing: a file without Tk prints
+  «SKIP …» and exits 0. That is why the tiers exist, and the runner
+  counts those files at the end of a run rather than letting them pass
+  quietly.
 - **One coherent change per commit**. Script-only commits stay tiny;
   Python commits explain *why* the DSL was insufficient.
 - **Never put a username into a path** — use `%LOCALAPPDATA%`,

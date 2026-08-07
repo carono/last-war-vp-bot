@@ -24,6 +24,8 @@ moves under the link the way an applied profile moves it.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

@@ -50,6 +50,8 @@ real Tk would answer that by hanging or by raising, neither of which is a test.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 import threading
 import time

@@ -20,6 +20,8 @@ No Tk, no game, no daemon: this reads a file and asks what the panel makes of it
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import sys
 import types

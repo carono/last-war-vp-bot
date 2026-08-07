@@ -14,6 +14,8 @@ seconds (#1265), so there is no serpentine waypoint list left to get wrong.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

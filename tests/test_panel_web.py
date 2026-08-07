@@ -19,6 +19,8 @@ a port the operating system picks.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import os
 import re

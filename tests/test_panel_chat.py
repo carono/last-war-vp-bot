@@ -22,6 +22,8 @@ tkinter/PIL/Tk (e.g. the WSL python3). Run the full set under Windows:
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import hashlib
 import json
 import os

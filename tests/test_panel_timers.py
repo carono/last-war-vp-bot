@@ -36,6 +36,8 @@ display is missing.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import sys
 import tempfile

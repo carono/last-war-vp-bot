@@ -22,6 +22,8 @@ slots is always this bug. Run it with the panel's own interpreter::
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import ast
 import sys
 import time

@@ -29,6 +29,8 @@ Runs anywhere: psutil is stubbed, so there is no game and no sockets.
 """
 from __future__ import annotations
 
+TIER = "live"      # a running client on this machine — see tools/run_tests.py
+
 import sys
 import types
 from pathlib import Path

@@ -23,6 +23,8 @@ Runs anywhere: the child is a stand-in, so there is no capture, no npcap and no 
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

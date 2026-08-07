@@ -26,6 +26,8 @@ Tk-free — none of this is about widgets. Runs anywhere:
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 import threading
 from pathlib import Path

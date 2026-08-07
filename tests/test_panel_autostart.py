@@ -29,6 +29,8 @@ it. So it says SKIP under the WSL python3, like the rest of the panel's tests.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import os
 import sys

@@ -24,6 +24,8 @@ Needs no Tk and no display: this is the JSON layer.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import ast
 import json
 import os

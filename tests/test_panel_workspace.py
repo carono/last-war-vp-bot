@@ -23,6 +23,8 @@ The `Workspace` never touches a widget, which is what lets this run with no disp
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import os
 import sys

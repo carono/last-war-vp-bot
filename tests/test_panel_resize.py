@@ -27,6 +27,8 @@ test is about when the panel asks for them, not about user32.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 import types
 from pathlib import Path

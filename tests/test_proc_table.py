@@ -33,6 +33,8 @@ No Windows, no Tk and no game needed — the machine is stubbed.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import ast
 import os
 import sys

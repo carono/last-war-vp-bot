@@ -21,6 +21,8 @@ phone left on a screen would otherwise poll the client all day.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import re
 import sys

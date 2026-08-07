@@ -17,6 +17,8 @@ construct and drive its controls without raising; it skips where there is no dis
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import re
 import sys

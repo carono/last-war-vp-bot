@@ -29,6 +29,8 @@ Nothing here touches the panel's own checkout.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import os
 import shutil
 import subprocess

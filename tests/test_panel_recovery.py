@@ -27,6 +27,8 @@ No Tk, no game, no clock of its own — the time is passed in.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

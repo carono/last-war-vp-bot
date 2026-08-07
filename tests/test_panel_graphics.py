@@ -30,6 +30,8 @@ Needs Tk and a display, so it says SKIP under the WSL python3 (no tkinter).
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

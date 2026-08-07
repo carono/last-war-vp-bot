@@ -26,6 +26,8 @@ heartbeat.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 import tempfile
 import time
@@ -199,7 +201,7 @@ def _built(harness: "_Harness") -> None:
 
 
 def test_a_page_draws_only_the_tabs_that_have_to_be_there() -> None:
-    """The whole of #1215, in one page: fifteen tabs made, four of them drawn.
+    """The whole of #1215, in one page: every tab made, only the EAGER ones drawn.
 
     A page used to draw every tab it had — between one and a half and eight seconds of
     Tk with the window answering nothing, for fourteen tabs nobody had asked to see.
@@ -210,6 +212,14 @@ def test_a_page_draws_only_the_tabs_that_have_to_be_there() -> None:
     What must NOT change with it: every tab is still MADE, still registered, still
     carries its errands, and still hands back its saved block when the profile is
     written — which is the half that would fail silently and is asserted here too.
+
+    The guard is a RATIO, not a count (#1282). It used to read «more than five tabs were
+    left undrawn», which said the same thing only for as long as the registry stayed the
+    size it was on the day it was written: #1273 hid eleven tabs behind development mode,
+    an ordinary profile went to seven tabs with four undrawn, and a #1215 regression
+    guard went red on clean HEAD with nobody able to see it. What the contract actually
+    says has no number in it — every tab that is not EAGER is undrawn — and that survives
+    a registry of five tabs or fifty.
     """
     harness = _open(staged=False)
     if harness is None:
@@ -220,9 +230,16 @@ def test_a_page_draws_only_the_tabs_that_have_to_be_there() -> None:
             tabs = app._plugin_tabs
             drawn = {i for i, t in tabs.items() if t.built}
             eager = {i for i, t in tabs.items() if type(t).EAGER}
+            lazy = set(tabs) - eager
             assert drawn == eager, (sorted(drawn), sorted(eager))
-            assert len(tabs) - len(drawn) > 5, \
-                f"only {len(tabs) - len(drawn)} tabs were left undrawn — is LAZY on?"
+            # The ratio: not one LAZY tab was drawn with the page…
+            assert not (lazy & drawn), \
+                f"drawn without being looked at: {sorted(lazy & drawn)} — is LAZY on?"
+            # …and there is at least one, or the page proves nothing about laziness and
+            # this whole test would pass vacuously on a registry of EAGER tabs.
+            assert lazy, (
+                f"every tab in this page is EAGER ({sorted(eager)}) — nothing was "
+                f"left for the LAZY contract to hold")
             # An undrawn tab still answers for the profile: what it was handed on the
             # way up is what it writes back, so a save while nobody has opened it
             # cannot flatten its settings into defaults.

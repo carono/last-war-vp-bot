@@ -7,6 +7,8 @@ state off the game and are not asserted here. Skips without a Tk display.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

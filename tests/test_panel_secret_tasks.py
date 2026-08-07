@@ -4,6 +4,8 @@ and the ready-row lifecycle — the countdown to raidability, the poll that drop
 tiles, and the auto-loot rule. All tested without Tk or a game."""
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import sys
 from pathlib import Path
 

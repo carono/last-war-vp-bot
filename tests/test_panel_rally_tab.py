@@ -25,6 +25,8 @@ Needs Tk and a display; says SKIP under the WSL python3.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import json
 import sys
 import threading

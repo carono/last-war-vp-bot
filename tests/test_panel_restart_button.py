@@ -30,6 +30,8 @@ an argument actually handed to a call counts.
 """
 from __future__ import annotations
 
+TIER = "ui"        # Tk and a display — see tools/run_tests.py
+
 import ast
 import sys
 from pathlib import Path
