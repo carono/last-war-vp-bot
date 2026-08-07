@@ -109,12 +109,13 @@ Still open:
 - `web_press` has no «Ограбить». The reason written beside `WEB_SCREEN` (a parking tool is spawned first) stopped being true for this list in #1272 — the omission is now a choice nobody has revisited.
 - A cold daemon still costs ~5 s on the first call of a session, whatever the caller is.
 
-Fixed in #1280, kept here because each was a visible symptom:
+Fixed in #1280, kept here because each was a visible symptom. All four presses were
+re-checked against a live client afterwards, and the numbers are in the list:
 
-- «Обойти карту» never became «Остановить» — two lines of `__init__` sat below the `finally` of `_live_tick` and ran four times a second.
-- The lap walked `WorldFavoDataManager.curServerId` (falling back to `LW_DEFAULT_SERVER`, 0 by default) instead of the «Сервер» box, which is why a jump to another server and an immediate lap went back where the person came from. `SWEEP_MAP` takes `SERVER id`, the box fills it, and every jump writes into the box.
+- «Обойти карту» never became «Остановить» — two lines of `__init__` sat below the `finally` of `_live_tick` and ran four times a second. **Live:** the title survives forty real 250 ms ticks, and a 60-second lap stopped four seconds in left the map-response count flat at 10 for the next twenty seconds instead of climbing to 121.
+- The lap walked `WorldFavoDataManager.curServerId` (falling back to `LW_DEFAULT_SERVER`, 0 by default) instead of the «Сервер» box, which is why a jump to another server and an immediate lap went back where the person came from. `SWEEP_MAP` takes `SERVER id`, the box fills it, and every jump writes into the box. **Live:** after a cross-server jump the client's own answer named a THIRD server — neither the one left nor the one arrived at — while two laps run back to back, with the camera left where it was and only the box changed, collected **1323 of 1333 tiles from the first named server and 1236 of 1240 from the second**.
 - The ★ capture was spawned without `--shared-json`, so 📣 off the wire arrived only while the ghost capture ran.
 - «Очистить список» forgot what had been robbed, and the tile came back as a target. The checkpoint carries a book of robbed uuids with an expiry against each.
-- «Обновить состояние» and the automatic check looked at ready rows only. The press covers the list; `secret_state` covers it unattended, 20 rows every 30 s.
-- The grid blinked: a page whose `row_values` was shorter than `COLUMNS` rewrote that cell on every draw, and equal sort keys let rows swap places between reads.
-- The lag before a lap: the panel-side half is 41 ms of cold import plus 0.4 ms to resolve and parse the scenario. What was left was queueing — the daemon holds its lock for a whole settle, and the alliance read slept a flat 1.1 s after it had answered. It ends on its own `VT_END` line now: **1100 ms → 52 ms** measured on a stand-in log.
+- «Обновить состояние» and the automatic check looked at ready rows only. The press covers the list; `secret_state` covers it unattended, 20 rows every 30 s. **Live:** six rows seeded with a stale `0/3` were corrected to the game's own counts on the chain's first turn, with nothing pressed, and it re-armed on the half-minute.
+- The grid blinked: a page whose `row_values` was shorter than `COLUMNS` rewrote that cell on every draw, and equal sort keys let rows swap places between reads. **Live:** 60 rows in a real `ttk.Treeview` — first draw 60 inserts, a confirming redraw 0 writes and 0 moves, one changed loot count exactly 1 write.
+- The lag before a lap: the panel-side half is 41 ms of cold import plus 0.4 ms to resolve and parse the scenario. What was left was queueing — the daemon holds its lock for a whole settle, and the alliance read slept a flat 1.1 s after it had answered. It ends on its own `VT_END` line now: **1100 ms → 52 ms** on a stand-in log, and **1.10 s → 0.07 s for 144 live alliance tasks** against a running client.
