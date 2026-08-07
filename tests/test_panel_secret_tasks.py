@@ -1307,6 +1307,51 @@ def test_the_alliance_grid_carries_who_is_running_the_task():
     assert (row["completed_at"], row["expires_at"]) == (111_000, 222_000)
 
 
+def test_a_redraw_that_changes_nothing_writes_nothing():
+    """«Грид не должен мигать при обновлении» (#1272, #1280).
+
+    The draw used to delete every row and insert every row back, so a read that confirmed
+    what was already there blanked the table in front of whoever was reading it. It is a
+    diff now: the second draw over unchanged rows writes no cell and moves no row, and a
+    changed cell is the only thing written.
+    """
+    tree = _FakeTable()
+    g = _alliance_grid(tree)
+    now = int(__import__("time").time() * 1000)
+    rows = [_member_task(1, completed_at=now + 120_000, expires_at=now + 600_000),
+            _member_task(2, completed_at=now + 240_000, expires_at=now + 900_000)]
+    g.apply(rows)
+    assert tree.rows == ["1", "2"], tree.rows
+
+    tree.writes = tree.moves = 0
+    g.apply(rows)                                  # the same answer, read again
+    assert (tree.writes, tree.moves) == (0, 0), (tree.writes, tree.moves)
+    assert tree.rows == ["1", "2"], "the order moved under the hand reading it"
+
+    # …and a value that really moved is written, and only it.
+    rows[0]["loot_count"] = 2
+    g.apply(rows)
+    assert tree.writes == 1, tree.writes
+    assert tree.moves == 0
+
+
+def test_two_rows_that_sort_the_same_keep_their_order():
+    """A tie used to be broken by the model's dict order, which changes whenever a feed
+    drops and re-adds a row — so two identical-looking tiles swapped places for no reason
+    a person could see (#1280). Every sort key ends in the uuid now."""
+    now = int(__import__("time").time() * 1000)
+    a = _member_task(1, level=7, completed_at=now + 60_000, expires_at=now + 600_000)
+    b = _member_task(2, level=7, completed_at=now + 60_000, expires_at=now + 600_000)
+    rows = [gr.new_row(r, _Var("")) for r in (a, b)]
+
+    assert [r["uuid"] for r in gr.sort_rows(rows, None)] == \
+           [r["uuid"] for r in gr.sort_rows(list(reversed(rows)), None)]
+    for column in gr.SORT_KEYS:
+        first = [r["uuid"] for r in gr.sort_rows(rows, (column, False))]
+        again = [r["uuid"] for r in gr.sort_rows(list(reversed(rows)), (column, False))]
+        assert first == again, column
+
+
 def test_the_alliance_grid_counts_down_and_drops_the_expired():
     """The same per-second arithmetic as the table above — `grid.refresh_timers`."""
     tree = _FakeTable()

@@ -112,16 +112,28 @@ ACTION_COLUMN = "action"
 #: the ready ones first, then the shortest countdown — which is what the eye is
 #: after, rather than the alphabet of a translated sentence. The action column is
 #: not in here: a button is not an order, so its heading does not sort.
+#:
+#: EVERY KEY ENDS IN THE UUID (#1280). Python's sort is stable, so equal keys keep the
+#: order they came IN — and that order is the model's dict, which changes whenever a row
+#: is dropped and re-added by a feed. Two tiles of the same level and the same expiry
+#: would then swap places for no reason a person can see, under the hand of whoever was
+#: reading them. A tie-break nobody can see makes the order the same every draw.
 SORT_KEYS = {
-    "owner": lambda r: (r.get("owner_name") or "").lower(),
-    "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0)),
-    "server": lambda r: int(r["server"] or 0),
-    "lvl": lambda r: int(r["level"] or 0),
+    "owner": lambda r: ((r.get("owner_name") or "").lower(), _uuid(r)),
+    "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), _uuid(r)),
+    "server": lambda r: (int(r["server"] or 0), _uuid(r)),
+    "lvl": lambda r: (int(r["level"] or 0), _uuid(r)),
     "state": lambda r: (0 if r.get("ready") else 1,
                         (r["expires_at"] if r.get("ready")
-                         else r["completed_at"]) or 0),
-    "slots": lambda r: int(r["loot_count"] or 0),
+                         else r["completed_at"]) or 0,
+                        _uuid(r)),
+    "slots": lambda r: (int(r["loot_count"] or 0), _uuid(r)),
 }
+
+
+def _uuid(row) -> str:
+    """The row's own id as the last word of every sort key — see :data:`SORT_KEYS`."""
+    return str(row.get("uuid") or "")
 
 
 def make_tree(parent) -> ttk.Treeview:
@@ -174,7 +186,8 @@ def sort_rows(rows, sort) -> list:
     """
     if sort is None:
         return sorted(rows, key=lambda r: (-int(r["level"] or 0),
-                                           r["expires_at"] or float("inf")))
+                                           r["expires_at"] or float("inf"),
+                                           _uuid(r)))
     column, backwards = sort
     key = SORT_KEYS.get(column)
     if key is None:
@@ -443,8 +456,12 @@ def sync_tree(tree, rows, values_of, tag_of) -> None:
             current = tuple(tree.item(iid, "values") or ())
             for pos, column in enumerate(columns):
                 new = values[pos] if pos < len(values) else ""
-                old = current[pos] if pos < len(current) else None
-                if old is None or str(old) != str(new):
+                # A cell the row does not carry reads as EMPTY, not as «unknown» — a
+                # grid whose `values_of` is shorter than COLUMNS (the ghost pages leave
+                # the action cell off) would otherwise be written on every single draw,
+                # which is the blinking this diff exists to stop (#1280).
+                old = current[pos] if pos < len(current) else ""
+                if str(old) != str(new):
                     tree.set(iid, column, new)
             if tuple(tree.item(iid, "tags") or ()) != (tag,):
                 tree.item(iid, tags=(tag,))
