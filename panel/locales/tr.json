@@ -428,6 +428,7 @@
   "profile.prompt_name": "Profil adı:",
   "profile.rename": "Adını değiştir",
   "profile.client.shared": "…ve onu {others} de sürüyor — istemci tek, yani hesap da hepsi için tek. Bu profil kendi istemcisini «{tab}» → «{page}» → «{frame}» altında alır.",
+  "rally.blind": "yakalama çalışmıyor: otomatik katılma sürüyor ama kör — yer ve hedef türü olmadan",
   "rally.alert": "Beni uyar",
   "rally.alert.fired": "★ RALLİ (sancak {team}) — katılınabilir",
   "rally.autojoin": "Kendi katılsın («Otomatik katılma» görevi)",

@@ -911,12 +911,20 @@ class RallyTab(PanelTab):
         mon = self.rt.children.spawn("rally", cmd,
                                      on_line=self._on_line, on_exit=self._on_exit)
         if not mon.start():
-            # The capture is what all three switches ride, so a child that will not
-            # start takes all three down — leaving one ticked would promise a join
-            # that has nothing to hear.
+            # The capture is what the LISTENING switches ride, so a child that will
+            # not start takes those down — leaving one ticked would promise a bell
+            # that has nothing to ring for.
+            #
+            # THE STANDING ORDER IS NOT ONE OF THEM, and that correction cost a live
+            # regression the same evening it was written (#1281): the auto-join is a
+            # wire trigger of the schedule's and joins perfectly well with no capture
+            # at all — it only loses the seats and the target's kind, which the capture
+            # is the only source of. Switching it off here wrote «off» into the profile
+            # for a reason that has nothing to do with whether the person wants to join.
             self._monitor_var.set(False)
             self._alert_var.set(False)
-            self._set_autojoin(False)
+            if self._autojoin_on():
+                self.say("rally", "rally.blind")
             return
         self._proc, self._archiving = mon, archive
 
@@ -925,7 +933,9 @@ class RallyTab(PanelTab):
         self._proc = None
         self._monitor_var.set(False)
         self._alert_var.set(False)
-        self._set_autojoin(False)
+        # …and the standing order stays exactly where the person left it (above).
+        if self._autojoin_on():
+            self.say("rally", "rally.blind")
 
     def _stop_capture(self) -> None:
         mon, self._proc = self._proc, None

@@ -428,6 +428,7 @@
   "profile.prompt_name": "Nome do perfil:",
   "profile.rename": "Renomear",
   "profile.client.shared": "…e {others} também: um só cliente, portanto uma só conta para todos. Este perfil terá o seu em «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "a captura está parada: a auto-entrada continua, mas às cegas — sem lugares nem tipo de alvo",
   "rally.alert": "Me avisar",
   "rally.alert.fired": "★ MOBILIZAÇÃO (estandarte {team}) — dá para entrar",
   "rally.autojoin": "Entrar sozinho (a tarefa «Auto-entrada»)",

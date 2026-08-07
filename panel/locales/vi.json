@@ -428,6 +428,7 @@
   "profile.prompt_name": "Tên hồ sơ:",
   "profile.rename": "Đổi tên",
   "profile.client.shared": "…và {others} cũng điều khiển nó — chỉ một client, nên cũng chỉ một tài khoản cho tất cả. Hồ sơ này sẽ có client riêng ở «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "bản ghi đã dừng: tự động tham gia vẫn chạy, nhưng mù — không biết chỗ trống và loại mục tiêu",
   "rally.alert": "Báo cho tôi",
   "rally.alert.fired": "★ TẬP KẾT (cờ {team}) — có thể tham gia",
   "rally.autojoin": "Tự tham gia (lệnh «Tự động tham gia»)",

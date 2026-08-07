@@ -428,6 +428,7 @@
   "profile.prompt_name": "Name des Profils:",
   "profile.rename": "Umbenennen",
   "profile.client.shared": "…und {others} ebenfalls — ein Client, also für alle ein Konto. Einen eigenen bekommt dieses Profil unter «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "Die Aufzeichnung läuft nicht: der Auto-Beitritt tritt weiter bei, aber blind — ohne Plätze und Zielart",
   "rally.alert": "Mich benachrichtigen",
   "rally.alert.fired": "★ VERSAMMLUNG (Banner {team}) — beitretbar",
   "rally.autojoin": "Selbst beitreten (Auftrag «Auto-Beitritt»)",

@@ -428,6 +428,7 @@
   "profile.prompt_name": "Nama profil:",
   "profile.rename": "Ganti nama",
   "profile.client.shared": "…dan {others} juga menjalankannya — kliennya satu, jadi akunnya pun satu untuk semua. Klien sendiri didapat profil ini di «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "penangkapan mati: auto-gabung tetap bergabung, tapi buta — tanpa kursi dan jenis target",
   "rally.alert": "Beri tahu aku",
   "rally.alert.fired": "★ RELI (panji {team}) — bisa diikuti",
   "rally.autojoin": "Bergabung sendiri (tugas «Auto-gabung»)",

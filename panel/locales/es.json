@@ -428,6 +428,7 @@
   "profile.prompt_name": "Nombre del perfil:",
   "profile.rename": "Renombrar",
   "profile.client.shared": "…y también lo maneja {others}: un solo cliente, así que una sola cuenta para todos. Este perfil tendrá el suyo en «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "la captura está parada: la auto-unión sigue uniéndose, pero a ciegas — sin plazas ni tipo de objetivo",
   "rally.alert": "Avisarme",
   "rally.alert.fired": "★ REUNIÓN (estandarte {team}) — se puede unir",
   "rally.autojoin": "Unirse solo (la tarea «Auto-unión»)",

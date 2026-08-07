@@ -503,6 +503,42 @@ def test_the_two_boxes_are_one_state():
         root.destroy()
 
 
+def test_a_dead_capture_does_not_switch_the_standing_order_off():
+    """A regression caught live the same evening the one-state change shipped (#1281).
+
+    The capture is what the LISTENING switches ride, and taking them down with it is
+    right. The auto-join is not one of them: it is a wire trigger of the schedule's and
+    joins perfectly well with no capture at all — it only loses the seats and the
+    target's kind. Switching it off here wrote «off» into the profile for a reason that
+    has nothing to do with whether the person wants to join, and the live profile lost
+    its auto-join two minutes after a restart.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        state = _hold_autojoin(tab, True)
+        tab._monitor_var.set(True)
+        tab._alert_var.set(True)
+
+        tab._on_exit()                                   # the child died
+
+        assert state["on"] is True, "the standing order was switched off by a dead capture"
+        assert tab._monitor_var.get() is False and tab._alert_var.get() is False
+        # …and the person is TOLD what the join has lost, rather than left to wonder.
+        said = rt.i18n.t("rally.blind")
+        assert any(said in str(line) for line in rt.log.lines), rt.log.lines[-3:]
+    finally:
+        root.destroy()
+
+
 def test_the_capture_driven_join_asks_the_same_question_before_it_starts():
     """The tab is the SECOND driver, and it must not start a pointless run either (#1281).
 

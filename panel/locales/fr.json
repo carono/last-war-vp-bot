@@ -428,6 +428,7 @@
   "profile.prompt_name": "Nom du profil :",
   "profile.rename": "Renommer",
   "profile.client.shared": "…et « {others} » aussi — un seul client, donc un seul compte pour tous. Ce profil aura le sien dans « {tab} » → « {page} » → « {frame} ».",
+  "rally.blind": "la capture est arrêtée : l’auto-ralliement rejoint toujours, mais à l’aveugle — sans places ni type de cible",
   "rally.alert": "Me prévenir",
   "rally.alert.fired": "★ RALLIEMENT (étendard {team}) — on peut rejoindre",
   "rally.autojoin": "Rejoindre tout seul (la consigne « Auto-ralliement »)",

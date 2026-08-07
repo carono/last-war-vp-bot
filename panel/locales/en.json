@@ -428,6 +428,7 @@
   "profile.prompt_name": "Profile name:",
   "profile.rename": "Rename",
   "profile.client.shared": "…and so does {others} — one client, so one account for all of them. This profile gets one of its own in «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "the capture is down: the auto-join still joins, but blind — no seats, no target kind",
   "rally.alert": "Alert me",
   "rally.alert.fired": "★ RALLY (banner {team}) — joinable",
   "rally.autojoin": "Join by itself (the «Auto-join rallies» order)",

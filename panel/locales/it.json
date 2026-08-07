@@ -428,6 +428,7 @@
   "profile.prompt_name": "Nome del profilo:",
   "profile.rename": "Rinomina",
   "profile.client.shared": "…e lo guida anche {others}: un client solo, quindi un account solo per tutti. Questo profilo avrà il suo in «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "la cattura è ferma: l’auto-adesione continua, ma alla cieca — senza posti né tipo di bersaglio",
   "rally.alert": "Avvisami",
   "rally.alert.fired": "★ RALLY (stendardo {team}) — ci si può unire",
   "rally.autojoin": "Unirsi da solo (l’ordine «Auto-adesione»)",

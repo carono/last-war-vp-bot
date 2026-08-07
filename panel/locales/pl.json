@@ -428,6 +428,7 @@
   "profile.prompt_name": "Nazwa profilu:",
   "profile.rename": "Zmień nazwę",
   "profile.client.shared": "…i prowadzi go też {others} — jeden klient, więc jedno konto dla wszystkich. Własnego ten profil dostanie w «{tab}» → «{page}» → «{frame}».",
+  "rally.blind": "przechwytywanie nie działa: auto-dołączanie nadal działa, ale na ślepo — bez miejsc i rodzaju celu",
   "rally.alert": "Powiadom mnie",
   "rally.alert.fired": "★ RAJD (sztandar {team}) — można dołączyć",
   "rally.autojoin": "Dołączaj sam (zlecenie «Auto-dołączanie»)",
