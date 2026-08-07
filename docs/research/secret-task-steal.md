@@ -125,6 +125,7 @@ uuid.
 | `TAP dismiss_steal_reward` | loot window closed |
 | queue + `actions/steal_secret_task.md` (uuid …0444144278) | **robbed**, 3 → 2 left, queue emptied |
 | `--queue-only` + `actions/steal_secret_task.md`, starred level-7 tile (#1188) | `queued 1 target(s)` → `xall -> 1 press(es)` → **robbed**, 5 → 4 left, queue emptied |
+| the same, on a FOREIGN server, chosen by the panel's own rule (#1188 acceptance) | `own server: 935 — its tiles are not targets` → `starred targets: 1 at level 7` → **robbed**, 4 → 3 left; tile on server 1002, `cfg 60000701` = level 7 / `is_special` 1 by the game's config |
 
 ## 6a. Auto-loot — the panel checkbox
 
@@ -494,21 +495,46 @@ range list, and an attempt on a tile there was written up during this task as «
 out of sector» when the truth was that the client was kicked and NOTHING was
 round-tripping (server-link-status.md §5.3). Read the range before blaming the sector.
 
-## 6f. A starred level-7 tile abroad is RARE, and that shapes the rule
+## 6f. Starred level-7 tiles abroad are COMMON — and how the opposite got measured
 
-Measured while looking for an acceptance target under «rob abroad, level 7, starred»:
-four servers swept at zoom 600 (`936`, `1007`, `971`, `1024`), 1500-1600 live tiles each.
-Every one of them carried **exactly one** starred raidable tile, and all four were level
-5. The level-7 stars were all at HOME — which makes sense: a star is the one-per-player
-special task, and the tiles that reach a player's own server are their own alliance's,
-levelled like they are.
+An earlier draft of this section said they were rare, on the strength of four servers
+that each showed exactly one starred tile, all level 5. **That was wrong, and the way it
+was wrong is the useful part.**
 
-So a standing order with «rob abroad only» AND «level 7» AND «starred» can go a long
-time with nothing to fire at, and that is the rule working rather than the panel being
-broken. Two consequences worth knowing before somebody «fixes» it: the level minimum is
-where the tuning lives (`autoloot_level_min`, and it is a minimum, not an equality), and
-the wire listener — which catches an ally SHARING a tile — is the path most likely to
-bring a foreign star in, not the map sweep.
+Counted off the panel's own monitor over one day: **2474** foreign starred level-7 tiles
+with a free loot slot, against 90 at home. One server alone (`1007`) held 283 stars, 167
+of them level 7. So «rob abroad, level 7, starred» has targets most of the time, and a
+standing order idling is worth investigating rather than explaining away.
+
+**The bad measurement came from running a SECOND capture.** `tools/secret_task_capture.py`
+was started by hand while the panel's «Мониторинг секреток» — the same script — was
+already running on the same interface. The hand-started one saw a trickle:
+
+```
+traffic: 20 delivered / 11 with payload, 0 map response(s), 0 tile(s), kinds {}
+Packets arrived but no map data.
+```
+
+…while the panel's own instance, at that same minute, was reporting `5117 map
+response(s), 918999 tile(s)`. Two npcap captures over one stream, and the second one
+gets almost nothing. It reads exactly like a dead client — a full map lap producing no
+map data at all — which is why it was believed twice before anybody compared the two
+counters.
+
+**So: do not start a capture of your own while the panel's monitor is on.** Use what it
+is already writing — `panel/profiles/<profile>/secret_tasks.json`, which is the tab's own
+source — or switch its monitor off first. Two more traps found alongside:
+
+* the capture's port auto-detection can elect the CHAT port (`:17935`) and then decode
+  nothing, because the map rides `:10012`. Take the port from the client's own live
+  socket (`game_link.probe().conn`) rather than from a default;
+* the monitor re-elects the on-screen server and **drops its index when the camera
+  crosses to another server**, so hopping servers loses the previous one's findings.
+  Read the checkpoint after each server, not at the end of a tour.
+
+What survives from the earlier draft: the level minimum is where the tuning lives
+(`autoloot_level_min` — a minimum, not an equality), and the wire listener still catches
+an ally SHARING a tile faster than any sweep can pan over it.
 
 ## 7. Open
 
