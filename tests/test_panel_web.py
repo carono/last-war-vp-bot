@@ -12,8 +12,11 @@ in a remote control somebody wrote in a hurry:
   HTML and every `T('…')` in the JavaScript is in ALL ELEVEN locales, which the Python
   i18n test cannot see because it only walks `.py`.
 
-Needs no display and no game: everything below is either a plain object or a socket on
-a port the operating system picks.
+Needs no game: everything below is either a plain object or a socket on a port the
+operating system picks. TWO of the tests do need a display — the pair that check the
+WINDOW draws the same row as the phone build a real page rather than reading
+`panel/__main__.py` as text (#1282), and they skip where there is none, which is why the
+file declares `TIER = "ui"`.
 
     C:\Python312\python.exe tests\test_panel_web.py
 """
@@ -42,6 +45,8 @@ from panel import tabs as tabsreg          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
+from panel.runtime import panic as panicmod  # noqa: E402
+from panel.runtime import recovery as recoverymod  # noqa: E402
 from panel.runtime.log import LogBus       # noqa: E402
 from panel.web import api as apimod        # noqa: E402
 from panel.web import server as webmod     # noqa: E402
@@ -167,6 +172,15 @@ class _Runtime:
         self.schedule = _Schedule(home)
         self.tabs = _Tabs()
         self.actions = _Actions()
+        # The REAL bookkeeping object, not a stand-in: `/api/state` reads
+        # `recovery.state(now)` and the page draws its numbers, so a fake would only
+        # pin the shape this file happens to imagine. It is pure state — no window, no
+        # client, no thread — so there is nothing to fake (#1282; the routes here have
+        # errored on its absence since the read was added).
+        self.recovery = recoverymod.Recovery()
+        # …and the same for «Включить обратно»: `/api/state` reads `panic.state(now)`
+        # and `/api/panel` gates the resume on `panic.stopped`.
+        self.panic = panicmod.Panic()
         self.played: list = []
         self.busy_next = False
 
@@ -192,6 +206,35 @@ def _api(home: str):
     rt = _Runtime(home)
     api = apimod.WebApi(rt)
     return rt, api
+
+
+def _shell_page():
+    """A real window with a real page in it, or `None` where there is no display.
+
+    Two facts in this file are about the WINDOW rather than about the web: that its game
+    row is built from `game_control.CONTROLS`, and that its restart button takes its word
+    and its route from `panel_control`. Both used to be asserted by reading
+    `panel/__main__.py` as text and looking for a name in it — which passes over dead
+    code, fails on a rename, and is not the fact anybody cares about (#1282, audit §4.4).
+
+    The harness that builds a real page against a temporary profile already exists in
+    `tests/test_panel_page_build.py`; this borrows it rather than growing a second one.
+    A machine with no display gets `None`, and the caller checks the web half only —
+    that is why this file declares `TIER = "ui"`.
+    """
+    sys.path.insert(0, str(_REPO / "tests"))
+    try:
+        import test_panel_page_build as pagebuild
+
+        import tkinter as tk
+
+        tk.Tk().destroy()
+    except Exception:                                  # noqa: BLE001 — no display
+        return None
+    try:
+        return pagebuild._Harness(staged=False)
+    except Exception:                                  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -781,9 +824,34 @@ def test_the_window_and_the_phone_draw_the_same_three():
     `app.js` (one button per entry of `game.controls`). Neither may name a press of its
     own — that is how one front-end ends up with a button the other has never heard of.
     """
-    shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
-    assert "gamectl.CONTROLS" in shell, "the window no longer builds its row from the table"
-    assert "gamectl.available" in shell, "the window greys its buttons by some other rule"
+    # THE WINDOW: built, not grepped (#1282, audit §4.4). This used to assert that the
+    # string «gamectl.CONTROLS» appears in `panel/__main__.py`, which passes over dead
+    # code and fails on a rename — neither of which is the fact anybody cares about. So
+    # a real page is built and its real row is compared to the table.
+    harness = _shell_page()
+    if harness is not None:
+        try:
+            app = harness.app
+            buttons = app._game_buttons
+            assert list(buttons) == [c.id for c in gamectl.CONTROLS], \
+                f"the window's row is {list(buttons)}, the table is " \
+                f"{[c.id for c in gamectl.CONTROLS]}"
+            for control in gamectl.CONTROLS:
+                assert buttons[control.id].cget("text") == app._t(control.label), \
+                    f"{control.id}: the window words it its own way"
+            # …and the greying is the table's rule, asked of the table, for both answers
+            # it has: a link that is up enables what `available` enables, and one that
+            # is not disables what it disables.
+            for link in (gamectl.game_process.ONLINE, gamectl.game_process.OFFLINE):
+                app._paint_game_buttons(link)
+                for control in gamectl.CONTROLS:
+                    on = str(buttons[control.id].cget("state")) != "disabled"
+                    assert on == gamectl.available(control, link), \
+                        f"{control.id} on link {link}: window says {on}, table says " \
+                        f"{gamectl.available(control, link)}"
+        finally:
+            harness.close()
+
     script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
     # The browser is handed `enabled` and obeys it; a page computing it from the link
     # itself would be the second opinion this table exists to prevent.
@@ -925,12 +993,41 @@ def test_the_restart_is_the_windows_and_the_phones_one_press():
     window builds its button from the table and asks the table's question, the page
     posts the id to `/api/panel` and asks the very same question first.
     """
+    # THE WINDOW: built and pressed, not grepped (#1282, audit §4.4). The word on the
+    # button and the route it takes are both runtime facts, so they are asserted as
+    # runtime facts — a rename can no longer break the test, and dead code can no longer
+    # pass it.
+    harness = _shell_page()
+    if harness is not None:
+        try:
+            app = harness.app
+            control = panelctl.BY_ID[panelctl.RESTART]
+            assert app._update_restart_btn.cget("text") == app._t(control.label), \
+                "the window's restart button no longer takes its word from the table"
+            asked, sent = [], []
+            import panel.__main__ as pm
+
+            saved_ask = pm.messagebox.askyesno
+            saved_request = panelctl.request
+            pm.messagebox.askyesno = lambda *a, **kw: asked.append(a) or True
+            panelctl.request = lambda rt, action=panelctl.RESTART: sent.append(action)
+            try:
+                app._restart_panel()
+            finally:
+                pm.messagebox.askyesno = saved_ask
+                panelctl.request = saved_request
+            assert asked, "the window restarts without asking"
+            assert sent == [panelctl.RESTART], \
+                f"the window restarts by some other route than the table's ({sent})"
+        finally:
+            harness.close()
+
+    # …and the one fact with no runtime form in a harness: the handler is registered in
+    # `Panel.__init__`, which is the boot this harness deliberately skips (a splash, a
+    # daemon per profile, a lock on the machine). Read as text, and only this one.
     shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
     assert "panelctl.set_handler" in shell, \
         "nothing registers the shell — a press from the phone reaches nobody"
-    assert "panelctl.BY_ID[panelctl.RESTART].label" in shell, \
-        "the window's button no longer takes its word from the table"
-    assert "panelctl.request" in shell, "the window restarts by some other route"
     script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
     assert "'/api/panel'" in script
     assert "control.confirm" in script and "window.confirm" in script, \
