@@ -70,9 +70,9 @@ which it does cleanly, with a tip and no cost.
 **Range is real and it bites.** Robbing a task on server 971 while the client sat
 on 534 was refused with tips `458632`: «Операция не удалась! Не в том же секторе,
 что и целевая зона боевых действий!» `todayStealNum` did not move, so a refusal
-costs nothing but the attempt. (`MsgDefines.GetServerStealRangeList` =
-`get.server.steal.range.list` presumably enumerates the reachable servers; it was
-not requested here.)
+costs nothing but the attempt. **`MsgDefines.GetServerStealRangeList` does enumerate
+the reachable servers, and it has been asked now — §6e**, which also has the reply's
+surprising home and the 153 servers it came back with.
 
 ## 4. Naming a target: coordinate → uuid, headless
 
@@ -473,6 +473,42 @@ checkpoint half of the tab uses: run `tools/secret_task_capture.py --json …` a
 tasks, 8 of them raidable — which is also the cheapest POSITIVE proof that the link
 round-trips at all, since those tiles come off the wire rather than out of the
 client's memory.
+
+## 6e. Which servers are robbable at all — `get.server.steal.range.list` ANSWERED
+
+§3 left this as «presumably enumerates the reachable servers; it was not requested
+here». It was requested (#1188). `SFSNetwork.SendMessage(MsgDefines.GetServerStealRangeList)`
+takes no arguments and the reply lands in **`DataCenter.ActGhostreconManager.dispatchStealRange`**
+— note the manager: the GHOST-recon one holds the range for the hero-dispatch steal, which
+is not where anybody would look. It is a SET keyed by server id (`{[935] = true, …}`), not
+a list, so `#t` is 0 and it has to be walked with `pairs`. Found by dumping
+`ActGhostreconManager:OnStealRangeUpdate`, whose constants name `dispatchStealRange` and
+broadcast `EventId.DispatchStealRangeUpdate`.
+
+Live it came back with **153 servers**, in runs (`933…1060`, plus `8117…8132` and
+`8903…8911`), the account's own among them.
+
+**This corrects §3's other half.** The tips-`458632` refusal recorded there is real, but
+it is not what a modern out-of-range attempt looks like from here: server `1033` is IN the
+range list, and an attempt on a tile there was written up during this task as «refused,
+out of sector» when the truth was that the client was kicked and NOTHING was
+round-tripping (server-link-status.md §5.3). Read the range before blaming the sector.
+
+## 6f. A starred level-7 tile abroad is RARE, and that shapes the rule
+
+Measured while looking for an acceptance target under «rob abroad, level 7, starred»:
+four servers swept at zoom 600 (`936`, `1007`, `971`, `1024`), 1500-1600 live tiles each.
+Every one of them carried **exactly one** starred raidable tile, and all four were level
+5. The level-7 stars were all at HOME — which makes sense: a star is the one-per-player
+special task, and the tiles that reach a player's own server are their own alliance's,
+levelled like they are.
+
+So a standing order with «rob abroad only» AND «level 7» AND «starred» can go a long
+time with nothing to fire at, and that is the rule working rather than the panel being
+broken. Two consequences worth knowing before somebody «fixes» it: the level minimum is
+where the tuning lives (`autoloot_level_min`, and it is a minimum, not an equality), and
+the wire listener — which catches an ally SHARING a tile — is the path most likely to
+bring a foreign star in, not the map sweep.
 
 ## 7. Open
 
