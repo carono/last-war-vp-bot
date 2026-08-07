@@ -73,6 +73,26 @@ the one cheap thing nobody had tried. A daemon restart costs a fraction of a sec
 takes nothing away from a client, which is why it is safe to reach for on a guess where a
 client restart is not.
 
+THE FIFTH THING (#1270): **a kick is a state, not a footnote on a lost link.**
+
+The two ways of losing an account are not, in fact, symmetrical, and the difference was
+paid for on 2026-08-07. A server that hangs up leaves the sockets half-closed and
+`game_link` says `lost`. An account taken by another device can leave ONE established
+conversation standing — five half-closed beside it, which is also what a perfectly
+healthy client looks like — so the link reads `online`, `dead=0`, and every reading in
+the panel agrees that nothing is wrong. The kick flag knew; it was simply never asked,
+because it was asked only while the link already said `lost`. Two and a quarter hours of
+timers went into a client that could not send, and not one of them failed.
+
+So `kicked` is now read on every poll (`panel/__main__.py`, `tools/lib/game_kick.py`) and
+is deaf ON ITS OWN. The reading had to get narrower to bear that weight — it is the
+game's own sentence out of the client's own language tables, not «some dialog is open» —
+and everything that makes a restart safe is unchanged around it.
+
+…AND THE SIXTH, which is a reading rather than a cure: :meth:`Recovery.note_run`, the
+count of errands that tried to press and pressed nothing. It is the only thing in that
+morning's log that was ever true, and nothing was counting it.
+
 WHAT IT DOES **NOT** DO. It does not pause the schedule, because the schedule already
 pauses itself: while the client is not running, `Schedule.gate` holds every errand and
 says `timers.log.skip_game`, and since #1259 it holds them PER ERRAND so the recovery
@@ -136,6 +156,29 @@ DAEMON_COOLDOWN_SEC = 120.0
 #: fixed is better than the evidence that it is. Live it took SIX before a person looked.
 FRUITLESS = 2
 
+#: Consecutive readings of «the client is showing the kick modal» before it is acted on.
+#: Two, and for the same reason as :data:`DAEMON_STRIKES` rather than the link's three:
+#: this is not an inference off a socket table but the game's OWN sentence, read out of
+#: the dialog and matched against the client's own language tables
+#: (`tools/lib/game_kick.py`). The only thing a second reading buys is not acting on a
+#: single unlucky poll.
+KICK_STRIKES = 2
+
+#: Errands that tried a counted press and fired NOTHING, before the panel says so.
+#:
+#: «Успешно ничего» is what the fifth form of this failure looks like from the log
+#: (`docs/research/server-link-status.md` §5.3): every timer reports OK, every `TAP …
+#: xall` answers `0 press(es)`, and the client is reading its own stale memory. It is
+#: the same kind of evidence as :data:`FRUITLESS` — a cure, or here an errand, repeated
+#: with nothing ever changing — and it is deliberately NOT a cure of its own: a healthy
+#: account late in the day genuinely has nothing left to press, and restarting a client
+#: for being finished would be the same mistake in the other direction.
+#:
+#: Eight is roughly «every errand on the clock has come round and done nothing», which
+#: on a spent account is ordinary and on a deaf one is the only thing in the log that
+#: was ever true.
+BARREN = 8
+
 
 class Recovery:
     """One client's answer to «has it been deaf long enough to restart?»
@@ -147,7 +190,7 @@ class Recovery:
 
     __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_daemon_last", "_daemon_restarts", "_daemon_held",
-                 "_fruitless", "_blame")
+                 "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said")
 
     def __init__(self) -> None:
         #: Consecutive `lost` readings so far.
@@ -180,6 +223,14 @@ class Recovery:
         #: "" | "client" | "daemon" — WHAT this thinks is broken, for both front-ends.
         #: A person watching a restart is owed the answer to «что именно чинится».
         self._blame = ""
+        #: Consecutive readings of the kick modal. Its own run, because a kick is its own
+        #: state and is true at moments when the link reads perfectly ONLINE (#1270).
+        self._kick_run = 0
+        #: Errands in a row that tried a counted press and fired nothing at all.
+        self._barren = 0
+        #: Whether the current barren streak has already been said, so it is one line and
+        #: not one a minute.
+        self._barren_said = False
 
     # -- reading -------------------------------------------------------------
     @property
@@ -225,7 +276,10 @@ class Recovery:
                 # back. Shown because it is the evidence, not the verdict: a person
                 # seeing «2 подряд впустую» can tell that the panel is about to change
                 # its mind, and why.
-                "fruitless": self._fruitless}
+                "fruitless": self._fruitless,
+                # …and the reading that says nothing is reaching the game at all, while
+                # every other one still looks healthy: errands that pressed nothing.
+                "barren": self._barren, "barren_of": BARREN}
 
     # -- deciding ------------------------------------------------------------
     def note(self, link: str, now: float,
@@ -237,8 +291,25 @@ class Recovery:
         restarts the client exactly when the key is :data:`ACT` — one return value for
         both, so a caller cannot act without saying why, which is the whole of what went
         wrong the day nothing was said and nothing was done.
+
+        **`kicked` is not a footnote on a lost link — it is a state of its own** (#1270).
+        It used to be read only while `link == lost`, and a kick behind ONE surviving
+        socket therefore reads `online`: the account was taken at ~04:38 on 2026-08-07,
+        the strip said online, and nothing asked the one flag that knew until a person
+        looked at 07:27. So a positive kick is «deaf» whatever the sockets say, on its
+        own shorter patience (:data:`KICK_STRIKES`) — it is the game's own sentence
+        rather than an inference — and every gate below it is unchanged: the person at
+        the machine still wins, the cooldown still holds, and the cure is still the one
+        act that was already wired.
+
+        The one state a kick may NOT override is `offline`: no process, nothing on
+        screen, and therefore nothing that can be showing a modal. That reading belongs
+        to the watchdog and two things must not relaunch one client — the rule this
+        module has kept since it was written, and a `kicked` left over from the poll
+        before must not be the thing that breaks it.
         """
-        if link == game_link.ONLINE:
+        kicked = bool(kicked) and link != game_link.OFFLINE
+        if link == game_link.ONLINE and not kicked:
             # The cure WORKED — whatever it was. This is the only reading that clears
             # the fruitless count, and it has to be ONLINE rather than «not lost»: a
             # client that has just been relaunched is `offline` and then `unknown` for
@@ -248,7 +319,12 @@ class Recovery:
             self._fruitless = 0
             self._blame = ""
 
-        if link != game_link.LOST:
+        if kicked:
+            self._kick_run += 1
+        else:
+            self._kick_run = 0
+
+        if link != game_link.LOST and not kicked:
             # Anything else ends the run — including `offline`, which is the PROCESS
             # being gone and the watchdog's business, not this one's. Two things must
             # not both relaunch the same client.
@@ -257,8 +333,13 @@ class Recovery:
             self._why = ""
             return None
 
-        self._run += 1
-        if self._run < STRIKES:
+        if link == game_link.LOST:
+            self._run += 1
+        # A kick and a hang-up can be true at once — the sockets went AND the modal is
+        # up, which is the ordinary shape of a kick — so the run each of them has to
+        # clear is checked separately and whichever is satisfied first decides. A kick
+        # is the shorter of the two because it is a reading of the game's own words.
+        if self._run < STRIKES and self._kick_run < KICK_STRIKES:
             return None
 
         # SOMEBODY IS AT THE MACHINE. Not a reason to restart — a reason not to: the
@@ -300,7 +381,13 @@ class Recovery:
         #
         # Booked against the DAEMON's clock and the client's counters are left alone:
         # this is not a client restart being withheld, it is a different act.
-        if self._fruitless >= FRUITLESS:
+        #
+        # A KICK IS EXEMPT, because the alternation exists for a diagnosis nobody has.
+        # Here there is one, in the game's own words: the account is on another device,
+        # and no daemon on this machine has anything to do with that. Restarting it
+        # would be reaching for the wrong thing on purpose — the mistake #1268 is about,
+        # committed with the evidence in hand.
+        if self._fruitless >= FRUITLESS and not kicked:
             self._blame = "daemon"
             since_d = now - self._daemon_last if self._daemon_last else None
             if since_d is not None and since_d < DAEMON_COOLDOWN_SEC:
@@ -316,6 +403,7 @@ class Recovery:
             self._daemon_held = False
             self._fruitless = 0              # …so the client is tried again next round
             self._run = 0
+            self._kick_run = 0
             self._held = False
             self._why = ""
             return (ACT_DAEMON_STUCK, {"n": spent})
@@ -325,6 +413,7 @@ class Recovery:
         self._fruitless += 1                 # …until a reading says ONLINE
         self._blame = "client"
         self._run = 0                        # the next reading starts a fresh run
+        self._kick_run = 0
         self._held = False
         self._why = ""
         # The two are the same act and NOT the same event, so they are not the same
@@ -335,6 +424,41 @@ class Recovery:
             self._kicks += 1
             return (ACT_KICK, {})
         return (ACT, {"secs": STRIKES * 8})
+
+    def note_run(self, tried: int, fired: int) -> "tuple | None":
+        """Feed the outcome of one errand: counted presses ATTEMPTED, and presses MADE.
+
+        «Успешно ничего» — the shape the fifth form of this failure had in the log
+        (`docs/research/server-link-status.md` §5.3). Every timer reported OK and every
+        one of them answered `TAP … xall -> 0 press(es)`, because the client was reading
+        its own stale memory: the quota it thought it had spent, the list it thought was
+        empty. Nothing in the panel counted that, so from outside two and a quarter hours
+        of doing nothing looked exactly like two and a quarter hours of having nothing
+        left to do.
+
+        **Evidence, never a cure**, and that is the whole design of it. A healthy account
+        late in the day genuinely presses nothing all evening; restarting a client for
+        being finished would be the same mistake this file is about, made in the other
+        direction. So :data:`BARREN` errands in a row that tried and fired nothing earn a
+        SENTENCE — once per streak, drawn by both front-ends while it lasts — and the
+        acts stay where they are.
+
+        Only COUNTED presses are fed here. A plain `TAP x3` fires blind and learns
+        nothing about whether the game noticed, so it is evidence of neither kind; a
+        gated one (`xall`, a batch) reads the button's own count in the same call it
+        presses, which is what makes a zero mean something.
+        """
+        if tried <= 0:
+            return None                      # nothing was attempted — no evidence either way
+        if fired > 0:
+            self._barren = 0
+            self._barren_said = False
+            return None
+        self._barren += 1
+        if self._barren < BARREN or self._barren_said:
+            return None
+        self._barren_said = True
+        return (SAY_BARREN, {"n": self._barren})
 
     def note_daemon(self, stale: bool, now: float) -> "tuple | None":
         """Feed one reading of «is the daemon on the client that is actually running?»
@@ -395,7 +519,7 @@ HOLD = "log.game.deaf_hold"
 BUSY = "log.game.deaf_busy"
 #: The same act, a different event: the client was KICKED — the account was logged in
 #: somewhere else and the client is showing the game's own «вход с другого устройства»
-#: (`lua_actions.kicked_out()`, the game's key `E100083`). Worth its own sentence,
+#: (`tools/lib/game_kick.py`, the game's key `E100083`). Worth its own sentence,
 #: because «связь пропала» and «у вас забрали аккаунт» want different things done.
 ACT_KICK = "log.game.kick_restart"
 
@@ -408,6 +532,10 @@ ACT_DAEMON = "log.game.daemon_restart"
 ACT_DAEMON_STUCK = "log.game.daemon_after_restarts"
 #: …and the daemon's own «too soon», so its wait is never silent either.
 HOLD_DAEMON = "log.game.daemon_hold"
+
+#: Errands keep succeeding at nothing. Says the count and NOTHING ELSE — see
+#: :meth:`Recovery.note_run` for why this one may not become an act.
+SAY_BARREN = "log.game.barren"
 
 #: EVERY answer that means «restart the client now». A caller asks this set, never one
 #: constant: :data:`ACT_KICK` was added beside :data:`ACT` and the panel went on testing
@@ -423,3 +551,10 @@ RESTARTS = frozenset({ACT, ACT_KICK})
 #: from two different methods and a caller that tested one constant would wire half of
 #: it, which is precisely the bug this file already carries a paragraph about.
 DAEMON_RESTARTS = frozenset({ACT_DAEMON, ACT_DAEMON_STUCK})
+
+#: …and the answers that are only ever SAID. A third set rather than «everything not in
+#: the other two», so that adding an act and forgetting to wire it fails loudly instead
+#: of quietly becoming a sentence — which is exactly how `ACT_KICK` spent a night being
+#: announced and never performed. A key in none of the three sets is a bug, and
+#: `tests/test_panel_recovery.py` says so.
+SAYINGS = frozenset({SAY_BARREN})

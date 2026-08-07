@@ -179,8 +179,31 @@ def session_ready(ev) -> bool:
 
     False also when the daemon is down or the read failed: either way there is
     nothing to act on.
+
+    **WHY THE CLOCK ALONE SAID YES TO A KICKED CLIENT** (#1270). The offset this reads
+    is `UITimeManager.serverDeltaTime`, and the client keeps it as a difference from the
+    DEVICE's clock rather than asking the server for the time (see the module note). It
+    is set when the session begins and it survives the session ending: an account taken
+    by another device leaves a client that still answers with a perfectly plausible
+    epoch, and on 2026-08-07 this returned `True` for two and a quarter hours with the
+    kick modal on screen. The clock proves the client HAS logged in. It has never proved
+    the client still IS in a session, and reading it as though it did is the fifth
+    instance of one reading being used to choose between two states
+    (docs/research/server-link-status.md §5).
+
+    So the kick is asked too, and only a POSITIVE one refuses: `game_kick.read` answers
+    `None` for every way of not knowing, and this helper already fails closed on a read
+    it could not make — turning «could not ask about the kick» into `False` as well would
+    strand a healthy client behind a question nobody could answer.
     """
-    return read(ev) is not None
+    if read(ev) is None:
+        return False
+    try:
+        import game_kick                     # lazy: keeps a plain import cheap
+
+        return game_kick.read(ev) is not True
+    except Exception:                        # noqa: BLE001 — an unasked question is not a no
+        return True
 
 
 def parse_ms(lines) -> "int | None":

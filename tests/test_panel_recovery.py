@@ -92,6 +92,18 @@ def test_offline_is_the_watchdogs_and_not_this_ones():
     assert r.restarts == 0
 
 
+def test_a_kick_cannot_override_offline_either():
+    """No process, nothing on screen — so nothing can be showing a modal (#1270).
+
+    The kick is deaf on its own whatever the SOCKETS say; `offline` is not a socket
+    reading, it is «there is no client», and that one stays the watchdog's.
+    """
+    r = rec.Recovery()
+    for i in range(rec.KICK_STRIKES * 3):
+        assert r.note(OFFLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True) is None
+    assert r.restarts == 0
+
+
 def test_a_second_restart_waits_out_the_cooldown_and_says_so_once():
     r = rec.Recovery()
     assert _deaf(r, rec.STRIKES)[0][0] == rec.ACT
@@ -176,7 +188,7 @@ def test_a_kick_is_the_same_act_but_not_the_same_sentence():
     The player saw the game's own «В ваш аккаунт был выполнен вход с другого
     устройства» — key `E100083` — which is what disproved the earlier conclusion that
     a kick leaves no trace in the client. The flag is the disconnect window
-    (`lua_actions.kicked_out()`), and it earns its own line in the log.
+    (`lua_actions.kick_tip()`, judged by `game_kick`), and it earns its own line.
     """
     r = rec.Recovery()
     said = [x for i in range(rec.STRIKES)
@@ -195,15 +207,106 @@ def test_a_kick_does_not_override_the_person_at_the_machine():
 
 
 def test_the_kick_flag_reads_a_window_and_fails_closed():
-    """It may only ever ADD a reason — anything unreadable answers «no kick»."""
+    """It may only ever ADD a reason — anything unreadable answers «no dialog»."""
     import lua_actions
 
-    expr = lua_actions.kicked_out()
+    expr = lua_actions.kick_tip()
     # The window it asks for, by name — watched live, neither of the two disconnect
     # windows this once named ever opens, and the stack cannot see the one that does
     # (`DontPushWindowStack`). Only `IsWindowOpen` on the generic tip finds it.
     assert "UICommonMessageTip" in expr and "IsWindowOpen" in expr, expr
-    assert "pcall" in expr and "return 0" in expr, "it must not raise into the caller"
+    assert "pcall" in expr and "return ''" in expr, "it must not raise into the caller"
+    # …and the OPEN check must come before the text is fetched: `GetWindow` hands back
+    # a closed window with its last message still on it (#1270).
+    assert expr.index("IsWindowOpen") < expr.index("GetWindow"), expr
+
+
+def test_a_kick_is_deaf_even_while_the_sockets_read_online():
+    """THE FIFTH FORM (#1270), as a decision.
+
+    On 2026-08-07 the account was taken by another device and the client kept ONE
+    established conversation of the six it had — so `classify` answered `online,
+    dead=0`, honestly. The kick flag was only ever consulted while the link already read
+    `lost`, so nothing asked it, and the panel played timers into a client that could
+    not send from 05:13 to 07:27.
+
+    A live socket and the kick modal together mean the client cannot be played. The
+    patience is the kick's own and shorter than the link's: this is the game's own
+    sentence, not an inference off a socket table.
+    """
+    r = rec.Recovery()
+    said = [x for i in range(rec.KICK_STRIKES)
+            if (x := r.note(ONLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
+    assert [k for k, _ in said] == [rec.ACT_KICK], said
+    assert r.restarts == 1 and r.state(1000.0)["kicks"] == 1
+    assert rec.ACT_KICK in rec.RESTARTS, "announced and never performed — the #1259 bug"
+
+
+def test_one_kick_reading_is_not_a_reason_either():
+    """A single unlucky poll acts on nothing, exactly like a single lost reading."""
+    r = rec.Recovery()
+    assert r.note(ONLINE, 1000.0, idle_sec=9999.0, kicked=True) is None
+    assert r.restarts == 0
+
+
+def test_a_kick_that_clears_takes_its_run_with_it():
+    """The modal going away is the account coming back — nothing is owed to it."""
+    r = rec.Recovery()
+    r.note(ONLINE, 1000.0, idle_sec=9999.0, kicked=True)
+    r.note(ONLINE, 1008.0, idle_sec=9999.0, kicked=False)
+    assert r.note(ONLINE, 1016.0, idle_sec=9999.0, kicked=True) is None
+    assert r.restarts == 0
+
+
+def test_a_kick_never_blames_the_daemon():
+    """The alternation of #1268 exists for a diagnosis nobody has. Here there is one.
+
+    Two client restarts with the link never back move the blame to the daemon — right,
+    while the fault is unknown. An account on another device is not something a daemon
+    on this machine can be restarted out of, and reaching for it would be the #1268
+    mistake made deliberately.
+    """
+    r = rec.Recovery()
+    now = 1000.0
+    for _ in range(rec.FRUITLESS + 2):
+        for i in range(rec.KICK_STRIKES):
+            r.note(ONLINE, now + i * 8, idle_sec=9999.0, kicked=True)
+        now += rec.COOLDOWN_SEC + 60
+    assert r.state(now)["daemon_restarts"] == 0, "a kick was blamed on the daemon"
+    assert r.restarts >= rec.FRUITLESS + 1, r.restarts
+
+
+def test_errands_that_press_nothing_are_counted_and_said_once():
+    """«Успешно ничего» — the only true line in the log that morning (#1270).
+
+    Evidence, never a cure: it is said and drawn, and it restarts nothing, because a
+    spent account genuinely presses nothing all evening.
+    """
+    r = rec.Recovery()
+    said = [x for _ in range(rec.BARREN * 2) if (x := r.note_run(1, 0))]
+    assert [k for k, _ in said] == [rec.SAY_BARREN], said
+    assert said[0][1]["n"] == rec.BARREN, said
+    assert rec.SAY_BARREN not in rec.RESTARTS | rec.DAEMON_RESTARTS
+    assert rec.SAY_BARREN in rec.SAYINGS
+    assert r.restarts == 0, "a reading became a cure"
+
+
+def test_a_press_that_landed_clears_the_barren_count():
+    r = rec.Recovery()
+    for _ in range(rec.BARREN - 1):
+        r.note_run(1, 0)
+    assert r.note_run(1, 3) is None
+    assert r.state(1000.0)["barren"] == 0
+    assert [x for _ in range(rec.BARREN - 1) if (x := r.note_run(1, 0))] == []
+
+
+def test_an_errand_that_attempted_no_counted_press_is_no_evidence():
+    """A plain `TAP x3` fires blind and learns nothing; a read-only errand presses
+    nothing by design. Neither may be counted as the game refusing."""
+    r = rec.Recovery()
+    for _ in range(rec.BARREN * 2):
+        assert r.note_run(0, 0) is None
+    assert r.state(1000.0)["barren"] == 0
 
 
 def test_a_healthy_client_is_never_touched_however_long_it_runs():
@@ -227,7 +330,8 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
     st = r.state(1000.0 + 60)
     assert set(st) == {"deaf_for", "strikes", "restarts", "kicks", "cooldown_left",
                        "held_by", "blame", "daemon_stale", "daemon_strikes",
-                       "daemon_restarts", "daemon_cooldown_left", "fruitless"}, st
+                       "daemon_restarts", "daemon_cooldown_left", "fruitless",
+                       "barren", "barren_of"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
     assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC
     words = ("held_by", "blame")
@@ -634,7 +738,7 @@ def test_both_its_sentences_are_in_every_shipped_locale():
     import json
 
     keys = (rec.ACT, rec.HOLD, rec.BUSY, rec.ACT_KICK,
-            rec.ACT_DAEMON, rec.ACT_DAEMON_STUCK, rec.HOLD_DAEMON)
+            rec.ACT_DAEMON, rec.ACT_DAEMON_STUCK, rec.HOLD_DAEMON, rec.SAY_BARREN)
     for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
         locale = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in keys if k not in locale]

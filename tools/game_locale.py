@@ -97,13 +97,23 @@ def locale_dir() -> Path:
     """Where the game keeps its language tables.
 
     ``LW_LOCALE_DIR`` wins; otherwise the launcher path the active profile already
-    knows, because the panel needs it to start the game anyway.
+    knows, because the panel needs it to start the game anyway — and failing that, the
+    ordinary install, which is what a profile that has never been given a launcher is
+    using anyway. The last step was missing, so this said «no game found» on a perfectly
+    ordinary machine whose profiles simply carry no `launcher` key (found while making
+    `tools/lib/game_kick.py` read the kick sentence out of these tables, #1270).
     """
     if os.environ.get("LW_LOCALE_DIR"):
         return Path(os.environ["LW_LOCALE_DIR"])
 
     launcher = _launcher_from_profile()
     if launcher is None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+        import game_paths                    # tools/lib — the one answer about paths
+
+        ordinary = game_paths.locale_dir()
+        if ordinary:
+            return Path(ordinary)
         raise SystemExit("no game found — set LW_LOCALE_DIR to .../StreamingAssets/locale/<build>")
     root = launcher.parent / "Game" / "LastWar_Data" / "StreamingAssets" / "locale"
     if not root.is_dir():

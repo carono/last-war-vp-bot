@@ -261,6 +261,7 @@ class Schedule:
         name = getattr(errand, "name", "")
         if not self.rt.game.claim("timer"):
             return False
+        ctx = None
         try:
             handler = self._handlers.get(name)
             # A tab's own handler that needs nothing from the game runs BEFORE the
@@ -307,8 +308,38 @@ class Schedule:
                 record(spent)
             return True
         finally:
+            self._note_presses(ctx)
             self.rt.game.release()
             self.rt.game.on_settled()
+
+    def _note_presses(self, ctx) -> None:
+        """Tell the recovery whether this errand pressed anything at all.
+
+        «Успешно ничего» is what a client nobody can reach looks like from here: the
+        errand finishes, the log says OK, and every counted press answers `0 press(es)`
+        because the client is reading its own stale memory. Two and a quarter hours of it
+        went unnoticed on 2026-08-07 because nothing was keeping the tally
+        (docs/research/server-link-status.md §5.3).
+
+        In `finally`, so an errand that failed half way still reports what it managed —
+        a run that pressed something before it broke is not barren, and the evidence
+        being collected is about the GAME rather than about the scenario.
+
+        Said from here rather than through `Panel._act_on` because there is no act: the
+        one-door rule (#1259) exists so that a decision cannot be announced without being
+        carried out, and this one is a reading with nothing to carry out. It is
+        deliberately not a cure — a spent account presses nothing all evening.
+        """
+        if ctx is None:
+            return
+        try:
+            said = self.rt.recovery.note_run(int(getattr(ctx, "taps_tried", 0) or 0),
+                                             int(getattr(ctx, "taps_fired", 0) or 0))
+        except Exception:                    # noqa: BLE001 — a tally is never the fault
+            return
+        if said:
+            key, fmt = said
+            self.rt.say("game", key, **fmt)
 
     def args(self, errand) -> dict:
         """The variables an errand runs with: its own, plus the ones read LIVE.

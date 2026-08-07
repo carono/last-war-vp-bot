@@ -157,6 +157,12 @@ function paintState(state) {
                             done: rec.daemon_restarts || 0 });
   } else if (rec.fruitless) {
     recEl.textContent = T('web.ui.recovery.fruitless', { n: rec.fruitless });
+  } else if (rec.barren_of && rec.barren >= rec.barren_of) {
+    /* «Успешно ничего»: errands running and pressing nothing at all. Not a fault by
+     * itself — a spent account presses nothing all evening — so it is drawn and never
+     * acted on. It was the only true line in the log through the two and a quarter
+     * hours of docs/research/server-link-status.md §5.3, and nothing counted it (#1270). */
+    recEl.textContent = T('web.ui.recovery.barren', { n: rec.barren });
   } else if (rec.held_by === 'cooldown' || rec.cooldown_left) {
     recEl.textContent = T('web.ui.recovery.wait',
                           { mins: Math.ceil((rec.cooldown_left || 0) / 60) });

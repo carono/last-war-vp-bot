@@ -465,14 +465,18 @@ UIManager.Instance:IsWindowOpen('UIDisconnect')
 UIManager.Instance:IsWindowOpen('UICrossDisconnect')
 ```
 
-That is `lua_actions.kicked_out()`, and it is what the panel now reads — only while the
-link is already `lost`, because it is a round trip into the VM and a healthy client
-would always answer the same. It fails CLOSED: anything unreadable is «no kick», so it
-can add a reason and never remove one.
+That is `tools/lib/game_kick.py`, and it is what the panel reads. It was originally asked
+**only while the link was already `lost`** — a round trip into the VM, and a healthy
+client would always answer the same. That assumption was disproved by §5.3 three days
+later: a healthy-looking client with a kicked account answers differently, and the flag
+was never consulted for two and a quarter hours. It is now asked whatever the sockets
+say, which meant narrowing the reading from «a dialog is open» to «the dialog is showing
+the game's own sentence» — see §5.3's fix. It still fails CLOSED: anything unreadable is
+«no kick», so it can add a reason and never remove one.
 
-**Still unwatched:** which of the two windows a kick raises, and whether it stays up
-long enough for an eight-second poll to catch it. The next live kick answers both — and
-that is the moment to look, not after a restart.
+**Still unwatched:** which of the two windows a kick raises. That it stays up long enough
+for an eight-second poll is answered — seven minutes and still up, watched (§4 of
+[`session-kick.md`](session-kick.md)).
 
 ## 4.4 The restart closed a window somebody was playing in
 
@@ -508,6 +512,7 @@ because a fourth is likelier than not.
 | 4.3 | «the client was kicked, restarting» | it was — and the restart was announced and never played | nineteen minutes deaf, rescued only when the client died on its own (#1259) |
 | 5.1 | «the client is broken, restarting it» | the CLIENT was fine; the daemon held a dead pid | six relaunches in fifty minutes, each ending in a five-minute scene timeout (#1268) |
 | 5.2 | «the client is online, so errands may be sent» | it was online — on its CONTROL channel; the game's own conversation did not exist yet | every errand let through into a client still logging in, succeeding at nothing (#1269) |
+| 5.3 | «the link is online, so nothing needs asking about a kick» | the account had been taken by another device; one of six sockets was still up, so the link read online | the kick flag was never consulted for 2¼ hours; every timer ran and pressed nothing (#1270) |
 
 The common shape, in one sentence: **a reading that cannot distinguish two states was
 used to choose between two cures, and the wrong cure left no trace that it was wrong.**
@@ -705,3 +710,90 @@ attached to the pid that had just been killed (#1268's shape, from the launch si
 client that actually came back was the panel's own next attempt, which restarted the
 daemon first: `WAIT scene == city -> matched`, and all six :10012 sockets ESTABLISHED.
 After that the acceptance ran first time.
+
+#### What was done about it (#1270)
+
+**A kick is a state, not a footnote on a lost link.** It is asked on every status poll
+and in front of every send, whatever the sockets and the clock say — the two readings
+that agreed the client was fine.
+
+Making it askable at any moment meant making it conclusive first, and that is the part
+worth reading. The window is `UICommonMessageTip`, the client's GENERIC dialog: while the
+question was only put to a client whose link already read `lost`, «a dialog is open» was
+proof enough, because a merely stranded client shows none (watched live, twice —
+[`session-kick.md`](session-kick.md) §4). Asked of a healthy client the same reading is a
+false kick every time the game puts a message up, and the cure for a kick is a restart —
+the expensive direction, since it closes the window somebody may be playing in.
+
+**So the TEXT is compared with the game's own sentence.** The client renders the modal
+from key `E100083`, and the tables are on disk in every language it ships
+([`game-locale-tables.md`](game-locale-tables.md)) — nineteen of them, the same key in
+each. Read live off this machine's install while this was written:
+
+```
+ru  В ваш аккаунт был выполнен вход с другого устройства
+en  Your account is currently active on a different device!
+de  Dein Konto ist derzeit auf einem anderen Gerät aktiv!
+…   17 distinct sentences over 19 languages, ~60 ms a table, 1.2 s for the set, once
+```
+
+All of them are compared, not the panel's language and not the account's: what language
+the player plays in is not something the panel knows or should ask. `tools/lib/game_kick.py`
+is the whole reading — where the tables are (`game_paths.locale_dir()`, added for this and
+answering `None` rather than raising), the scan that stops at the key rather than building
+52 000 pairs, and the normalisation that lets Thai's zero-width spaces and a title prefix
+still compare equal.
+
+**It fails closed in both directions of not knowing.** A tip that cannot be read is «no
+kick»; tables that cannot be found are «cannot judge the text», and then the reading
+falls back to exactly the pair rule that shipped before — a dialog counts only while the
+link is already `lost`. A machine that cannot locate its install is therefore no worse
+off than it was, and never worse off than a false restart.
+
+Where it is now read:
+
+* **the status poll** (`Panel._read_kicked`) — on every poll while it matters (a lost
+  link, or a kick already on screen) and every `KICK_POLL_SEC` otherwise, since the round
+  trip is ~0.7 s and the modal does not self-dismiss. The throttle CARRIES the last
+  answer rather than reporting «no kick» in the gaps: the recovery counts consecutive
+  readings, and a gap that answered False would keep resetting the run it feeds;
+* **the recovery** (`recovery.note`) — a positive kick is «deaf» whatever the link says,
+  on its own shorter patience (`KICK_STRIKES`, two rather than three: this is the game's
+  own sentence, not an inference off a socket table). Every gate around it is unchanged —
+  the person at the machine still wins, the cooldown still holds — and the daemon
+  alternation of #1268 is skipped, because here the diagnosis is known and no daemon on
+  this machine can be restarted out of another device holding the account;
+* **the send gate** (`script_engine._link_lost`) — asked after the socket verdict and the
+  clock, and refused with its own sentence. It fails OPEN on every way of not knowing,
+  like the rest of that gate.
+
+**And `session_ready` lied for a reason worth writing down.** The clock it asks is
+`UITimeManager.serverDeltaTime`, which the client sets at login and then keeps as a
+difference from the DEVICE's clock rather than asking the server (`tools/lib/game_clock.py`).
+It survives the session ending, so a kicked client answers with a perfectly plausible
+epoch. The clock proves the client HAS logged in; it has never proved the client still IS
+in a session, and reading it as though it did is this section's own pattern — the ONE
+reading used to choose between two states. It now asks the kick too, and only a positive
+one refuses.
+
+**«Успешно ничего» is counted now, as evidence and not as a cure.** Every `TAP … xall ->
+0 press(es)` in that morning's log was true and nothing was tallying them, so from
+outside two and a quarter hours of doing nothing looked exactly like two and a quarter
+hours of having nothing left to do. The interpreter counts GATED presses only — `xall`
+and batches read the button's own count in the same call they press, so a zero means
+something, while a plain `TAP x3` fires blind and is evidence of neither kind — and
+`recovery.note_run` says so once after `BARREN` errands in a row. Deliberately no act
+hangs off it: a spent account presses nothing all evening, and restarting a client for
+being finished would be this same mistake made in the other direction.
+
+Pinned by `tests/test_game_kick.py` (the reading, on stubbed tables and a fake client),
+`tests/test_panel_recovery.py` (a live socket plus a kick modal means the client cannot be
+played; the barren tally; a kick never blames the daemon) and
+`tests/test_engine_link_gate.py` (the gate refuses it, and every way of not reading it is
+a pass).
+
+**Still the person's decision, and still not made here:** whether a kick should restart at
+all. A restart takes the account back off whoever has it, and if that is the owner on
+their phone, the panel is fighting its own player — §4.4 and
+[`session-kick.md`](session-kick.md) §6. What #1270 changes is only that the panel can now
+SEE the state; what it does about it is the wiring that was already there.

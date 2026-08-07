@@ -68,6 +68,9 @@ GAMERES_SUBPATH = os.path.join("Game", "LastWar_Data", "StreamingAssets",
 ASSET_CACHE_SUBPATH = os.path.join("Cache", "AssetBundles")
 #: The client itself, relative to the installation folder (the launcher's sibling).
 GAME_EXE_SUBDIR = "Game"
+#: The game's own translations — one directory per build, one `<lang>.bin` per language
+#: inside it (`docs/research/game-locale-tables.md`). Relative to the install.
+LOCALE_SUBPATH = os.path.join("Game", "LastWar_Data", "StreamingAssets", "locale")
 
 #: The TCP port the client talks to the game server on. A *fallback*: the capture tools
 #: ask the live connection first (`map_capture.detect_game_ports`), because this has
@@ -221,6 +224,40 @@ def gameres() -> str:
 def asset_cache() -> str:
     """The downloaded-bundle cache. Machine-specific: it can sit on any drive."""
     return _env("LW_ASSET_CACHE", os.path.join(game_dir(), ASSET_CACHE_SUBPATH))
+
+
+def locale_root() -> str:
+    """Where the game keeps its own translations — the folder holding the build dirs."""
+    return os.path.join(game_dir(), LOCALE_SUBPATH)
+
+
+def locale_dir() -> "str | None":
+    """The build directory of language tables, or ``None`` if there is none to read.
+
+    `LW_LOCALE_DIR` names it outright — that is what a machine with the game somewhere
+    unusual sets, and it is the variable `tools/game_locale.py` has always documented.
+    Otherwise it is the newest build under :func:`locale_root` that actually holds
+    tables: the client leaves the previous build's folder behind after an update, and an
+    empty one is not an answer.
+
+    **Never raises and never guesses.** A caller reads the game's own wording out of
+    this — the kick sentence, a glossary term — and «the tables are not here» has to be
+    distinguishable from «the tables say no», or a reading built on them fails closed on
+    a machine whose install this cannot find (`tools/lib/game_kick.py`).
+    """
+    forced = (os.environ.get("LW_LOCALE_DIR") or "").strip()
+    if forced:
+        return forced if os.path.isdir(forced) else None
+    root = locale_root()
+    builds = []
+    try:
+        for name in os.listdir(root):
+            path = os.path.join(root, name)
+            if os.path.isdir(path) and any(f.endswith(".bin") for f in os.listdir(path)):
+                builds.append(path)
+        return max(builds, key=lambda p: os.stat(p).st_mtime) if builds else None
+    except OSError:
+        return None
 
 
 # --- what the capture tools need ---------------------------------------------------

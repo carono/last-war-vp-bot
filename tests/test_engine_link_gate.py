@@ -127,28 +127,33 @@ def _sockets_for(state):
     return [_Conn("ESTABLISHED")]
 
 
-def _gate(state, pid=4242, session=True):
+def _gate(state, pid=4242, session=True, kicked=False):
     """`Interpreter._link_lost()` with the socket table and the client's pid stubbed.
 
     ``session`` is what the client itself would answer about being logged in — the
-    input #1269 added, because `online` alone stopped being enough.
+    input #1269 added, because `online` alone stopped being enough. ``kicked`` is the
+    third of them (#1270): the account is on another device, which is true at moments
+    when both of the others read perfectly healthy.
     """
     interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
     interp._tools_lib_on_path()
     real_sockets, real_port = game_link.sockets_of, interp._game_port
     real_confirm = script_engine.Interpreter._session_confirmed
+    real_kick = script_engine.Interpreter._kicked
     fake_client = type(sys)("game_client")
     fake_client.target_pid = lambda **kw: pid
     saved = sys.modules.get("game_client")
     sys.modules["game_client"] = fake_client
     game_link.sockets_of = lambda _pids: _sockets_for(state)
     script_engine.Interpreter._session_confirmed = lambda _self: session
+    script_engine.Interpreter._kicked = lambda _self: kicked
     interp._game_port = lambda: 47654
     try:
         return interp._link_lost()
     finally:
         game_link.sockets_of, interp._game_port = real_sockets, real_port
         script_engine.Interpreter._session_confirmed = real_confirm
+        script_engine.Interpreter._kicked = real_kick
         if saved is None:
             sys.modules.pop("game_client", None)
         else:
@@ -335,6 +340,79 @@ def test_the_confirmation_never_builds_a_local_evaluator():
     script_engine.Interpreter._evaluator = lambda _s: built.append(1)
     try:
         assert interp._session_confirmed() is True
+    finally:
+        lua_client.is_running = real_running
+        script_engine.Interpreter._evaluator = real_eval
+    assert built == [], "the gate built an evaluator against a daemon that is not there"
+
+
+# ---------------------------------------------------------------------------
+# #1270 — a KICK behind a live socket
+#
+# The account was taken by another device at ~04:38 on 2026-08-07. The client kept ONE
+# established conversation on the game's own port, so `classify` said `online, dead=0`;
+# it had logged in hours earlier, so it still knew what time it was and the #1269
+# confirmation passed as well. Both readings were honest and both were about something
+# else. Every errand was let through and every one of them pressed nothing
+# (docs/research/server-link-status.md §5.3).
+# ---------------------------------------------------------------------------
+def test_a_live_socket_and_a_kick_modal_together_mean_the_client_cannot_be_played():
+    """THE SHAPE. Online, clock answering, account gone — and the run is refused."""
+    said = _gate(game_link.ONLINE, session=True, kicked=True)
+    assert said, "an errand was let through into a client that had been kicked"
+    assert "another device" in said, said
+    assert "session-kick" in said, "the failure has to point at the write-up"
+
+
+def test_the_kick_is_asked_even_though_the_sockets_and_the_clock_both_say_yes():
+    """The point of the fix, stated as the difference it makes.
+
+    With the kick unread, exactly the same client passes — which is what shipped, and
+    what let two and a quarter hours of timers into a deaf client.
+    """
+    assert _gate(game_link.ONLINE, session=True, kicked=False) is None
+    assert _gate(game_link.ONLINE, session=True, kicked=True) is not None
+
+
+def test_a_kick_that_cannot_be_read_is_never_a_refusal():
+    """Fail OPEN, like every other half of this gate — asserted on the real method.
+
+    `game_kick.read` answers `None` for every way of not knowing, and a gate may only
+    ever stop a run it has positive evidence against.
+    """
+    interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
+    interp._tools_lib_on_path()
+    import game_kick
+    import lua_client
+
+    real_running = lua_client.is_running
+    lua_client.is_running = lambda **kw: False           # nothing warm on the port
+    try:
+        assert interp._kicked() is False
+    finally:
+        lua_client.is_running = real_running
+
+    class _Boom:
+        def run(self, *a, **kw):
+            raise RuntimeError("daemon said no")
+
+    interp.ctx.evaluator = _Boom()
+    assert interp._kicked() is False
+    assert game_kick.read(_Boom()) is None, "an unreadable client must not be a verdict"
+
+
+def test_the_kick_check_never_builds_a_local_evaluator():
+    """Same rule as the clock's: a cold port is a pass, without one being built."""
+    interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
+    interp._tools_lib_on_path()
+    import lua_client
+
+    real_running, built = lua_client.is_running, []
+    real_eval = script_engine.Interpreter._evaluator
+    lua_client.is_running = lambda **kw: False
+    script_engine.Interpreter._evaluator = lambda _s: built.append(1)
+    try:
+        assert interp._kicked() is False
     finally:
         lua_client.is_running = real_running
         script_engine.Interpreter._evaluator = real_eval

@@ -845,6 +845,16 @@ class Context:
     # that taps thirty times must not walk the socket table thirty times, and a
     # caller chaining several actions through one context pays for it once.
     link_checked: bool = False
+    # COUNTED presses attempted, and presses that actually went in. Only the gated
+    # forms are counted (`TAP … xall`, a batch): they read the button's own count in
+    # the same call they press, so a zero MEANS something. A plain `TAP x3` fires
+    # blind and learns nothing, and is deliberately evidence of neither kind.
+    #
+    # What reads them is `panel/runtime/recovery.py::note_run` — «успешно ничего», the
+    # only line in the log that was true through the two and a quarter hours of
+    # docs/research/server-link-status.md §5.3, and which nothing was counting.
+    taps_tried: int = 0
+    taps_fired: int = 0
 
 
 class _HaltSignal(Exception):
@@ -1410,6 +1420,8 @@ class Interpreter:
             return
         if btn.batch_lua and stmt.count > 1:
             fired = self._press_batch(btn, stmt.count)
+            self.ctx.taps_tried += 1
+            self.ctx.taps_fired += fired
             self._log(f"TAP {btn.label} x{stmt.count} -> {fired} press(es)")
             time.sleep(btn.wait)
             return
@@ -1526,6 +1538,8 @@ class Interpreter:
             else:
                 self._log(f"TAP {btn.label} ({pressed}; {int(remaining)} available)")
             time.sleep(btn.wait)
+        self.ctx.taps_tried += 1
+        self.ctx.taps_fired += pressed
         self._log(f"TAP {btn.label} xall -> {pressed} press(es)")
 
     def _eval_lua_value(self, expr: str) -> str | None:
@@ -1638,10 +1652,19 @@ class Interpreter:
         already cost ~1.0 s before it, and it runs once per scenario rather than once per
         statement.
 
+        **NOR IS A CLOCK THE WHOLE ANSWER (#1270).** The confirmation above asks the
+        client what time it is, because a client at the login screen cannot say. A
+        KICKED one can, and does: the offset it answers from was set when it logged in
+        and is kept locally (`UITimeManager.serverDeltaTime`), so it survives the account
+        being taken and `game_clock.session_ready` stayed `True` throughout the two and a
+        quarter hours of §5.3. The clock proves the client HAS logged in — never that it
+        still IS in a session. So the kick is asked as its own question, of every client
+        that gets this far, whatever its sockets and its clock said.
+
         **A failed ASK is not a refusal.** No daemon, no evaluator, a read that raised —
         all of that is «could not tell», and the gate goes on failing open, exactly as it
-        does for `unknown`. Only a client that answers and says it is NOT in a session is
-        stopped.
+        does for `unknown`. Only a client that answers and says it is NOT in a session,
+        or that shows the game's own «logged in on another device», is stopped.
         """
         try:
             self._tools_lib_on_path()
@@ -1661,6 +1684,15 @@ class Interpreter:
                         "Restart the client; see docs/research/server-link-status.md")
             if state != game_link.ONLINE:    # unknown / offline still fail OPEN
                 return None
+            # The two questions a live-looking client still has to answer, in the order
+            # that costs least: the socket verdict was free, the clock is one round trip,
+            # the kick is another — and it is asked LAST because it is the rarer state,
+            # not because it is the weaker reading.
+            if self._kicked():
+                return ("the account has been logged in on another device — this client "
+                        "is showing the game's own «logged in elsewhere» message and "
+                        "nothing sent from here will reach the server. See "
+                        "docs/research/session-kick.md")
             if self._session_confirmed():
                 return None
         except Exception:                    # noqa: BLE001 — a gate must never be the fault
@@ -1669,6 +1701,38 @@ class Interpreter:
                 "is not the game's own conversation and the client will not say what "
                 "time it is. Wait for the login to finish; see "
                 "docs/research/server-link-status.md")
+
+    def _kicked(self) -> bool:
+        """Is this client showing «logged in on another device»? Anything else is False.
+
+        The same fail-open rule as everything else in this gate, arrived at the same
+        way: `game_kick.read` answers `None` for every way of not knowing — no daemon, a
+        read that raised, a client that would not say — and `None` is a pass. Only a
+        positive reading of the game's own sentence stops a run.
+
+        No `link_lost` fallback is passed, deliberately: this is asked only where the
+        sockets read `online`, so the reading has to stand on the game's own wording or
+        not at all. A machine whose language tables cannot be found therefore keeps
+        exactly the behaviour it had before this existed, rather than gaining a guess.
+
+        **Only ever through a WARM daemon**, for the same reason
+        :meth:`_session_confirmed` insists on one: a gate may not build an evaluator, and
+        a vision-only scenario is documented never to touch the daemon at all.
+        """
+        try:
+            import game_kick
+            import lua_client
+
+            ev = self.ctx.evaluator
+            if ev is None:
+                port = self.ctx.game_port
+                port = int(port) if port is not None else lua_client.PORT
+                if not lua_client.is_running(port=port, timeout=0.3):
+                    return False
+                ev = self._evaluator()
+            return game_kick.read(ev) is True
+        except Exception:                    # noqa: BLE001 — «could not tell» is a pass
+            return False
 
     def _session_confirmed(self) -> bool:
         """Does the CLIENT say it is in a session? ``True`` also when it cannot be asked.

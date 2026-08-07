@@ -242,6 +242,15 @@ WATCHDOG_STRIKES = 2
 # Least time between two watchdog relaunches. A client that dies on startup would
 # otherwise be relaunched every eight seconds forever.
 WATCHDOG_COOLDOWN_SEC = 300.0
+# How often «has the account been taken from us» is asked of a client that otherwise
+# looks fine. Unlike the socket walk this is a round trip into the game VM (~0.7 s), so
+# it is not free enough to make every eight seconds — but the kick modal does not
+# self-dismiss and was still up seven minutes later when it was watched
+# (docs/research/session-kick.md §4), so three polls is comfortably inside it.
+#
+# A lost link, and a kick already seen, are both asked EVERY poll: there the answer is
+# the thing being decided, and the recovery counts consecutive readings.
+KICK_POLL_SEC = 24.0
 
 # How quiet the window size has to go before the window is painted again after a
 # drag (see Panel._install_resize_damper). Long enough that the pauses inside a
@@ -466,6 +475,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
         "_game_gone", "_game_was_up", "_watchdog_last", "_link_gone",
+        "_kick_at", "_kick_was",
         # the three lifecycle buttons, greyed off this profile's own client
         "_game_buttons",
         # the DSL command line
@@ -1040,6 +1050,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the edges reach the log rather than every eight seconds of it
         # (see `_announce_link`).
         self._link_gone = 0
+        # When the kick modal was last asked about, and what it said. The answer is
+        # CARRIED between reads rather than re-read every poll (`_read_kicked`): the
+        # recovery counts consecutive readings, so a throttle that answered «no kick»
+        # in the gaps would reset the count it is meant to be feeding.
+        self._kick_at = 0.0
+        self._kick_was = False
         # Account dashboard: the last readings and the poller's stop flag. The WIDGET is
         # made when «Аккаунты» is first drawn and not before (`_on_tab_realized`,
         # #1215), so the poller has to be able to run with nowhere to paint.
@@ -3395,13 +3411,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # that cost six pointless client restarts is a fact, not an inference
                 # (#1268, panel/runtime/recovery.py).
                 stale = self._daemon_stale(found, warm)
-                # ONLY when the link is already lost, and on THIS thread: it is a round
-                # trip into the game VM, and asking it every eight seconds of a healthy
-                # client would be paying for an answer that is always the same. What it
-                # tells apart is «the server stopped answering» from «somebody took the
-                # account» — the game's own «вход с другого устройства» (#1259).
-                if found.link == runtime.game_process.LOST:
-                    kicked = self._read_kicked()
+                # HAS THE ACCOUNT BEEN TAKEN? Asked whatever the sockets say, because a
+                # kick can sit behind a link that reads `online` — one surviving
+                # conversation out of six — and while this was asked only on a lost link
+                # the one flag that knew was never consulted for two and a quarter hours
+                # (#1270, docs/research/server-link-status.md §5.3). On THIS thread: it
+                # is a round trip into the game VM.
+                kicked = self._read_kicked(found, warm)
             finally:
                 self._status_busy = False
             ok = found.running
@@ -3523,6 +3539,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if said is None:
             return
         key, fmt = said
+        if key in runtime.recovery.SAYINGS:
+            # A reading, not a cure. It is said whatever the watchdog switch is set to:
+            # somebody who has turned the automatic restart OFF is exactly the person
+            # who has to be told that their errands are pressing nothing, since nothing
+            # is going to act on it for them.
+            self._say("game", key, **fmt)
+            return
         if not self._opt_bool("watchdog"):
             return
         self._say("game", key, **fmt)
@@ -3536,22 +3559,49 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # silently overrode the button's.
             self._restart_daemon()
 
-    def _read_kicked(self) -> bool:
+    def _read_kicked(self, found, warm: bool) -> bool:
         """Is the client showing the game's own «вход с другого устройства» modal?
 
-        A worker-thread read, and a forgiving one: any failure is `False`, so this can
-        only ever ADD a reason and never take one away. The expression is
-        `lua_actions.kicked_out()` — see it for why the flag is a WINDOW and not a field.
-        """
-        try:
-            import lua_actions
+        ASKED WHATEVER THE SOCKETS SAY (#1270). It used to be asked only while the link
+        already read `lost`, on the reasoning that a healthy client would always answer
+        the same — and a kick that leaves one conversation standing reads `online`,
+        `dead=0`, which is precisely the answer that reasoning assumed could not happen.
+        The account was taken at ~04:38 on 2026-08-07 and the flag was never once
+        consulted until a person looked at 07:27.
 
-            chunk = ('CS.UnityEngine.Debug.LogError("KICKQ " .. tostring(%s))'
-                     % lua_actions.kicked_out())
-            lines = self._rt.game.evaluator().run(chunk, marker="KICKQ", settle=0.4)
-            return bool(lines) and lines[0].split()[-1].strip() == "1"
-        except Exception:                    # noqa: BLE001 — a reading, never the fault
+        A worker-thread read, and a forgiving one: any failure leaves the last answer
+        standing, so this can only ever ADD a reason and never take one away. What is
+        read, and why it is the modal's TEXT rather than «is a dialog open», is
+        `tools/lib/game_kick.py` — the reading had to become conclusive on its own
+        before it could be trusted against a healthy-looking link.
+
+        Only ever through a WARM daemon, and only with a client to ask: `evaluator()`
+        would otherwise build a local `LuaEval`, which costs seconds and an attach, on a
+        status poll that runs every eight seconds for ever.
+        """
+        if not warm or not getattr(found, "running", False):
+            self._kick_at, self._kick_was = 0.0, False
             return False
+        now = time.time()
+        # Every poll while it matters — a lost link, or a kick already on screen — and
+        # otherwise on the throttle. The previous answer is what fills the gaps: the
+        # recovery counts CONSECUTIVE readings, and a throttle that reported «no kick»
+        # in between would keep resetting the run it exists to feed.
+        due = (found.link == runtime.game_process.LOST or self._kick_was
+               or (now - self._kick_at) >= KICK_POLL_SEC)
+        if not due:
+            return self._kick_was
+        try:
+            import game_kick
+
+            said = game_kick.read(self._rt.game.evaluator(),
+                                  link_lost=found.link == runtime.game_process.LOST)
+        except Exception:                    # noqa: BLE001 — a reading, never the fault
+            said = None
+        self._kick_at = now
+        if said is not None:                 # `None` is «could not tell» — keep the last
+            self._kick_was = said
+        return self._kick_was
 
     def _paint_recovery(self, st: dict) -> None:
         """Say the restart bookkeeping on the strip — and nothing at all while it is idle."""
@@ -3575,6 +3625,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # The evidence, while it is still evidence: two restarts spent with the link
             # never back means the panel is about to change its mind about the diagnosis.
             text = self._t("status.recovery.fruitless", n=st["fruitless"])
+        elif st.get("barren", 0) >= st.get("barren_of", 0) > 0:
+            # «Успешно ничего»: errands running and pressing nothing. Not a fault on its
+            # own — a spent account presses nothing all evening — which is why it is
+            # drawn rather than acted on (#1270).
+            text = self._t("status.recovery.barren", n=st["barren"])
         elif why == "cooldown" or st.get("cooldown_left"):
             text = self._t("status.recovery.wait",
                            mins=int(st.get("cooldown_left", 0) // 60) + 1)

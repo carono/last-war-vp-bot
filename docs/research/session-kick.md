@@ -126,8 +126,15 @@ already `lost`) is comfortably enough.
 
 The sockets alone cannot tell them apart; the window can. `UICommonMessageTip` is a
 GENERIC dialog and proves nothing on its own — the client uses it for anything — so the
-pair is what makes it conclusive: **a lost link AND a message tip carrying text**. That
-is `lua_actions.kicked_out()`, and it is asked only while the link is already lost.
+pair was what made it conclusive: **a lost link AND a message tip carrying text**, asked
+only while the link already read lost.
+
+**That pairing was not enough, and §4.1 below is what it cost.** A kick can sit behind a
+link that reads `online`, so the flag has to be askable of a client that looks perfectly
+healthy — and there «a dialog is open» is a false kick every time the game puts a message
+up. What makes it conclusive on its own is the TEXT: the modal is compared with the
+game's own wording for `E100083`, in every language the client ships
+(`tools/lib/game_kick.py`, #1270).
 
 The READING was proven end to end by accident of timing: the panel was brought back up
 while the client was still kicked, and its very first poll said «выкинуло: вход с
@@ -147,6 +154,23 @@ readings above came out of the same log and only one of them was true; the diffe
 is that «выкинуло» was checked against the game and «перезапускаю» was not checked
 against anything. Fixed with `recovery.RESTARTS` — the set of every act that means the
 press — so the next act added to the decision cannot be announced-only.
+
+### 4.1 …and asking it only on a lost link hid the next one entirely (#1270)
+
+Written into the design as a saving — «a healthy client would always answer the same, and
+this is a round trip» — and true right up until a kick that left one socket standing.
+
+On 2026-08-07 the account was taken by another device at ~04:38. Five of the client's six
+game sockets went to `CLOSE_WAIT` and the sixth stayed established, so `classify`
+answered `online, dead=0`; the client had logged in hours before, so it still knew what
+time it was and `game_clock.session_ready()` said `True`; and every timer ran and pressed
+nothing, reporting success. `kicked_out()` would have answered 1 at any moment of those
+two and a quarter hours, and nothing asked it.
+
+The flag is now read on every status poll and in front of every send. What that cost was
+not a round trip — it was the reading's precision: it had to stop meaning «a dialog is
+open» and start meaning «the dialog says what the game says when an account is taken».
+The whole of it is `docs/research/server-link-status.md` §5.3.
 
 ### What this does NOT fix
 

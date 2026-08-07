@@ -3990,38 +3990,34 @@ def codename_sent() -> str:
 # that sees it.
 #
 # `UICommonMessageTip` is a GENERIC dialog and is not, by itself, proof of a kick — the
-# client uses it for anything. What makes the pair conclusive is that it is asked ONLY
-# while the link is already `lost`, and a merely stranded client shows NO window at all
-# (watched live, twice). So: lost link + a message tip with text = kicked.
+# client uses it for anything. While the question was asked ONLY on a lost link the pair
+# was conclusive enough (a merely stranded client shows no window at all, watched live
+# twice): lost link + a message tip with text = kicked.
+#
+# THAT PAIR IS NOT THE QUESTION ANY MORE (#1270). A kick can sit behind a link that reads
+# `online` — one established socket out of six — so the flag is now asked on every poll
+# and in front of every send, and on a healthy client «some dialog is open» would be a
+# false kick, whose cure is a restart. So the expression hands back the TEXT and
+# `tools/lib/game_kick.py` decides, by comparing it with the game's own wording for key
+# `E100083` out of the client's own language tables. One reading, and the strength of
+# the evidence is judged where the sentences are.
 
-def kicked_out() -> str:
-    """Lua *expression* -> 1 when the client is showing the «logged in elsewhere» modal.
+def kick_tip() -> str:
+    """Lua *expression* -> the text of the open message dialog, or '' if none is open.
 
-    The difference between «the server stopped answering» and «somebody took the
-    account», which matters because they want opposite things done: a stranded client
-    should be restarted, and a kicked one means a person is playing somewhere else.
+    Both halves matter. `IsWindowOpen` first, because `GetWindow` hands back a window
+    that has been CLOSED with its last text still on it — a stale sentence read off a
+    shut dialog would be a kick that ended minutes ago. And the text rather than a flag,
+    because the dialog is generic: the words are the only thing that tells a kick from
+    every other message the client puts up (`tools/lib/game_kick.py`).
 
-    Answers 0 for anything it cannot read, so it can only ever ADD a reason, never
+    Answers '' for anything it cannot read, so it can only ever ADD a reason, never
     remove one.
     """
     return ("(function() local ok, v = pcall(function() "
             "local m = UIManager.Instance "
-            "if not m:IsWindowOpen('UICommonMessageTip') then return 0 end "
+            "if not m:IsWindowOpen('UICommonMessageTip') then return '' end "
             "local w = m:GetWindow('UICommonMessageTip') "
-            "local t = w and w.View and w.View.tipText "
-            "if t == nil or tostring(t) == '' then return 0 end "
-            "return 1 end) if not ok then return 0 end return v end)()")
-
-
-def kick_message() -> str:
-    """Lua *expression* -> the text the modal is showing, or '' — for the log and a trace.
-
-    Read alongside :func:`kicked_out` when something is being written down: the WORDS are
-    what a person recognises, and they are what proved this flag rather than any amount
-    of reasoning about sockets.
-    """
-    return ("(function() local ok, v = pcall(function() "
-            "local w = UIManager.Instance:GetWindow('UICommonMessageTip') "
             "local t = w and w.View and w.View.tipText "
             "return t == nil and '' or tostring(t) end) "
             "if not ok then return '' end return v end)()")
