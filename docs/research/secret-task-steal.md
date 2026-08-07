@@ -124,6 +124,7 @@ uuid.
 | rob uuid …2503547575 on **534** (direct) | **robbed**, 1 → 2, loot window raised |
 | `TAP dismiss_steal_reward` | loot window closed |
 | queue + `actions/steal_secret_task.md` (uuid …0444144278) | **robbed**, 3 → 2 left, queue emptied |
+| `--queue-only` + `actions/steal_secret_task.md`, starred level-7 tile (#1188) | `queued 1 target(s)` → `xall -> 1 press(es)` → **robbed**, 5 → 4 left, queue emptied |
 
 ## 6a. Auto-loot — the panel checkbox
 
@@ -412,6 +413,54 @@ pressed in the game shows up within a second of the capture writing it.
 Stamped on the machine's own clock, unlike everything else on this tab: the timestamp
 is ours rather than the game's, and it is only ever used to age a mark out long after
 the tile itself is gone.
+
+## 6c. Reading `level` / `is_special` with no task record in hand
+
+`task_rank` wants the game's own `lw_dispatch_tasks` row, and every reader in this
+repo gets there through `v.cfg` — the row already hanging off a live record in
+`allianceTask` / `singleTask`. When neither table holds the tile (a pcap target, or a
+client that has only just restarted, §6d) there was no way to ask the game at all, so
+the digits were the only answer left. There is one, and it is two globals:
+
+```lua
+local row = LocalController.instance():getLine(TableName.LwDispatchTask, cfgId)
+local level      = tonumber(row:getValue("level"))
+local is_special = tonumber(row:getValue("is_special"))
+```
+
+`LocalController.instance` is a FUNCTION, not a field — `LocalController.instance:getLine(…)`
+raises «attempt to index a function value». The path was read out of the bytecode of
+`ActDispatchTaskDataManager:UpdateOneAllianceTask` (`string.dump`, then its string
+constants in order), which is the method that attaches `cfg` to a task in the first
+place.
+
+Read live while accepting #1188, and it settles the #1267 example from the other side:
+
+| cfgId | the game's config row | the digits |
+|---|---|---|
+| `60000701` | level 7, `is_special` 1 | level 7, starred |
+| `60000501` | level 5, `is_special` 1 | level 5, starred |
+| `60000301` | level 3, `is_special` 1 | level 3, starred |
+| `300704` | level 7, `is_special` 0 | level 7, not starred |
+| **`60009903`** | **level 7**, `is_special` **0** | **level 99**, starred family |
+
+## 6d. `allianceTask` is EMPTY for a while after every client restart
+
+It is not a list the client fetches — it is one that ACCUMULATES from
+`push.alliance.share.mission.*` as allies press «поделиться» (§6a). A restart throws
+it away, and calling `GetAllAllianceTasksFromServer()` moves `lastGetAllianceTasksTime`
+and populates nothing: measured live, the table stayed at 0 rows for 40+ s after a
+restart that had reached the city scene with six ESTABLISHED game sockets, and
+`singleTask` stayed at 0 with it.
+
+So **`--from-vm` is blind for a while after a restart, and its silence looks exactly
+like «nothing raidable on the map»** — the same shape as the stranded client in
+server-link-status.md §5.3. The deterministic route to a target is the one the
+checkpoint half of the tab uses: run `tools/secret_task_capture.py --json …` and play
+`actions/scan_map.md` over it. One lap at zoom 600 took ~8 s and brought back 755
+tasks, 8 of them raidable — which is also the cheapest POSITIVE proof that the link
+round-trips at all, since those tiles come off the wire rather than out of the
+client's memory.
 
 ## 7. Open
 

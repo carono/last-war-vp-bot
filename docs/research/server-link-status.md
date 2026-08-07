@@ -661,3 +661,47 @@ existed. **Both mistakes were the same shape as the bugs being fixed**: a fix th
 confident about one direction and has never been asked about the other. Adding the
 opposite-direction test before trusting a fix is the cheapest guard here, and it has now
 paid twice.
+
+### 5.3 A KICK behind one live socket is invisible to the watchdog (2026-08-07, #1188 acceptance)
+
+Two and a quarter hours of a client doing nothing while every indicator said it was fine.
+Read live at the start of the acceptance:
+
+```
+probe()   -> Link(running=True, link='online', dead=0, conn='…:10012')
+netstat   -> 1 ESTABLISHED :10012, 5 CLOSE_WAIT :10012   (same local ports 40 min later —
+                                                          nothing had reconnected)
+Lua       -> scene=Launch, UICommonMessageTip=true,
+             kicked_out()=1, «В ваш аккаунт был выполнен вход с другого устройства»
+```
+
+The account had been taken by another device at ~04:38. The client kept ONE established
+conversation, so `classify` answered `online` — and `_read_kicked` is asked **only while
+the link already reads `lost`** (§4.3). The one flag that could have named the state was
+therefore never consulted, `ACT_KICK` never fired, and the panel sat at `link=online`
+from 05:13 to 07:27 playing timers into a client that could not send. `dead=0` beside
+five half-closed sockets is the same shortcut §5.2 disproved, seen from the other side.
+
+**Three readings that all looked healthy and were not**, worth naming because each is a
+plausible thing to stop at:
+
+* `probe().link == 'online'` — one live socket out of six;
+* `game_clock.session_ready() == True` — it stayed True throughout, kick modal and all,
+  which is a second reason not to lean on it as a gate (see the near-miss above);
+* every `TAP … xall -> 0 press(es)` in the log — a client reading its own stale memory.
+
+The only reading that told the truth was a ROUND TRIP: a request sent, and its answer
+looked for. `world.get.detail.new` came back empty; so did `GetAllAllianceTasksFromServer`;
+and the reply handler `PushHeroDispatchMissionStealHandler`, hooked for the occasion,
+never fired for two robberies that left Lua cleanly (`pcall` → `ok=true`). Neither
+robbery cost anything — `todayStealNum` does not move on a message the server never
+answers, which is the same accounting as the out-of-sector refusal in §3 of
+secret-task-steal.md.
+
+**The cure was a restart, and it needed two goes.** The first `restart_game` reported
+`launch_game FAILED — WAIT scene == city timed out after 300s`, and so had four automatic
+attempts overnight — every one of them waiting for the scene through a daemon still
+attached to the pid that had just been killed (#1268's shape, from the launch side). The
+client that actually came back was the panel's own next attempt, which restarted the
+daemon first: `WAIT scene == city -> matched`, and all six :10012 sockets ESTABLISHED.
+After that the acceptance ran first time.
