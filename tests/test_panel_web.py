@@ -80,6 +80,14 @@ class _Game:
     def up(self) -> bool:
         return False
 
+    def last_health(self) -> str:
+        """The status poll's last verdict — «nobody has asked lately» here (#1286).
+
+        The page draws the daemon off this rather than asking for itself: the reading
+        walks the process list and a phone polls faster than the status thread does.
+        """
+        return ""
+
     def claim(self, owner: str = "panel") -> bool:
         self.claimed.append(owner)
         return False                     # nothing in a test may drive a game

@@ -39,9 +39,10 @@ sys.path.insert(0, str(ROOT / "tools" / "lib"))
 import game_link  # noqa: E402
 
 try:
+    from panel.runtime import daemon as daemonmod  # noqa: E402
     from panel.runtime import recovery as rec  # noqa: E402
 except Exception as _exc:                      # noqa: BLE001
-    rec, _WHY = None, _exc
+    rec, daemonmod, _WHY = None, None, _exc
 
 LOST = "lost"
 ONLINE = "online"
@@ -418,6 +419,9 @@ def test_the_daemons_cure_is_the_daemons_own_restart():
     assert "taskkill" not in body and "terminate" not in body, body
     daemon = (ROOT / "panel" / "runtime" / "daemon.py").read_text(encoding="utf-8")
     assert "def attached_pid" in daemon, "nothing can tell which client the daemon holds"
+    # …and the reading that turns that pid into a verdict, which `ensure` asks before it
+    # may call a daemon warm (#1286). Without it «already warm» is a port check again.
+    assert "def health" in daemon, "nothing can tell a live daemon from a corpse"
 
 
 def test_every_act_that_means_a_restart_is_in_the_set():
@@ -708,6 +712,19 @@ def test_the_state_says_what_is_being_blamed_and_how_hard_it_has_tried():
                for k, v in st.items()), "the state is numbers, the words are the locales'"
 
 
+def _held(pid):
+    """A game link whose daemon answers a ping naming ``pid`` — the real comparison.
+
+    A `GameLink` with nothing built but its answer to the wire, so the two-pid reading
+    under test is `GameLink.health`'s own and not a restatement of it here. Since #1286
+    that is where «stale» is defined, because `ensure` has to ask the same question
+    before it can say «already warm» over a daemon holding a client that has gone.
+    """
+    link = daemonmod.GameLink.__new__(daemonmod.GameLink)
+    link.ping = lambda: {"ok": True, "warm": pid is not None, "pid": pid}
+    return link
+
+
 def test_a_daemon_that_will_not_say_which_client_is_never_a_reason():
     """`unknown` is never a reason — the rule the link half already keeps.
 
@@ -718,7 +735,7 @@ def test_a_daemon_that_will_not_say_which_client_is_never_a_reason():
 
     app = _Press()
     app._rt = app
-    app.game = type("G", (), {"attached_pid": staticmethod(lambda: None)})()
+    app.game = _held(None)
     assert pm.Panel._daemon_stale(app, _Found(ONLINE), False) is False, "no daemon"
     assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=0), True) is False, "no client"
     dead = type("F", (), {"link": ONLINE, "running": False, "pid": 7})()
@@ -731,8 +748,12 @@ def test_the_pids_are_compared_and_nothing_else_is():
 
     app = _Press()
     app._rt = app
-    app.game = type("G", (), {"attached_pid": staticmethod(lambda: 4242)})()
+    app.game = _held(4242)
     assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=4242), True) is False
+    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=9999), True) is True
+    # …and a daemon that answers for NO client while one is running is the same fault
+    # wearing another answer: it never attached, or it let go (#1286).
+    app.game = _held(None)
     assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=9999), True) is True
 
 

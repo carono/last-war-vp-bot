@@ -513,6 +513,7 @@ because a fourth is likelier than not.
 | 5.1 | «the client is broken, restarting it» | the CLIENT was fine; the daemon held a dead pid | six relaunches in fifty minutes, each ending in a five-minute scene timeout (#1268) |
 | 5.2 | «the client is online, so errands may be sent» | it was online — on its CONTROL channel; the game's own conversation did not exist yet | every errand let through into a client still logging in, succeeding at nothing (#1269) |
 | 5.3 | «the link is online, so nothing needs asking about a kick» | the account had been taken by another device; one of six sockets was still up, so the link read online | the kick flag was never consulted for 2¼ hours; every timer ran and pressed nothing (#1270) |
+| 5.4 | «the daemon is already warm» — the port accepted a connection | the daemon was a corpse holding a dead pid, and it was holding the port with it | asked to bring the daemon back it did nothing, half an hour at a time; 12 of 30 rally joins deaf (#1286) |
 
 The common shape, in one sentence: **a reading that cannot distinguish two states was
 used to choose between two cures, and the wrong cure left no trace that it was wrong.**
@@ -798,6 +799,68 @@ their phone, the panel is fighting its own player — §4.4 and
 [`session-kick.md`](session-kick.md) §6. What #1270 changes is only that the panel can now
 SEE the state; what it does about it is the wiring that was already there.
 
+### 5.4 «already warm» over a corpse that was holding the port (2026-08-07, #1286)
+
+The fourth instance, and it arrived within the day of the sentence above saying a fourth
+was likelier than not. Found while the rally auto-join's numbers were being collected:
+in the window 16:12–16:41 the client went through three process ids — 133040 → 99908 →
+49788, restarted by other work — and **12 of 30 auto-join runs came back «связь с
+сервером пропала»**. Asked to bring the daemon back, the panel answered «already warm on
+port 47654» and left it exactly as it was.
+
+**The daemon does not die with its client.** That was the assumption in the report and it
+is worth correcting first, because it points the search at the wrong process: the daemon
+is a separate Python process, it survives the client perfectly well, and what dies is
+only its ATTACHMENT — it goes on listening on the port while holding a pid that no longer
+exists (§8, the state that had no name).
+
+**Why the restart could not clear it.** The polite shutdown is ACKNOWLEDGED BEFORE IT IS
+CARRIED OUT. `tools/lua_daemon.py` replied `{"ok":true}`, then called `Daemon.close()`,
+which takes the run lock — and the run lock was held for ever by a call wedged against
+the dead client. So `os._exit(0)` was never reached, the process stayed, and the port
+stayed bound. The log measures it to the tenth of a second:
+
+```
+16:34:55.953  [game]   служебный демон держит клиент, которого уже нет — перезапускаю демон
+16:34:55.954  [daemon] перезапуск…
+16:35:00.980  [daemon] already warm on port 47654        <- 5.03 s = FREE_TRIES × FREE_WAIT
+```
+
+Five seconds of waiting for a port that was never going to come free, a silent give-up,
+and then `ensure()` reading the corpse's own listening socket as a warm daemon. Twice
+more the same hour, at 16:40:58 and 16:42:59.
+
+**The proxy, once again, was the port.** `up()` means «something accepted a connection»,
+and three callers read it as «the daemon works». It cannot tell a daemon from its
+remains, because at the socket level there is nothing to tell.
+
+What was built instead — the same three guards §5 already names, applied here:
+
+* **Read the thing, not a proxy for it.** `GameLink.health()` answers one of THREE states
+  — no daemon / a daemon on a client that is gone / a daemon on the client that is
+  running — by asking the ping for the pid it holds and comparing it with the pid that is
+  actually running. That reading is `panel/runtime/daemon.py`'s alone now, and
+  `Panel._daemon_stale` asks it rather than keeping a second copy. The pid that is
+  running is read WITHOUT the daemon (`game_client.running_pid` /
+  `session_pids_of`), since asking the daemon whether the daemon is right compares an
+  answer with itself.
+* **The port is the verdict, never the reply.** A daemon that acknowledges a shutdown and
+  keeps the port is ended by the pid its own ping named — `{"op":"ping"}` carries `self`
+  now, because nothing outside can work it out (a daemon in another Windows session is
+  not in the asker's process list). A port still held after that starts NO second daemon:
+  one that cannot bind is the same lie one process further along, and the failure is said
+  out loud (`log.daemon.wont_die`).
+* **The daemon follows its own client.** `follow_client` watches the pid it holds every
+  five seconds and, when that process is gone, lets go and takes hold of the one that
+  replaced it — so an ordinary restart needs nobody's help, and the panel's restart is
+  the last resort rather than the routine. It never waits for the run lock: a wedged call
+  holds it for ever, and a watcher queued behind it would be a second thing stuck.
+  `shutdown` leaves on a timer whatever the close does, which is the mechanism above
+  removed at its root.
+
+Pinned by `tests/test_panel_daemon_health.py` — the three answers, `ensure` refusing to
+call a corpse warm, the kill-by-pid and its refusal, and the daemon's own two halves.
+
 ## 8. «daemon=warm» over a daemon bound to a client that has gone (#1281 → #1268)
 
 Two separate ways the panel reports a working daemon while nothing it sends reaches the
@@ -811,8 +874,9 @@ The class's own docstring already named `ensure` as the one caller that must ask
 the wait loop below it did, the check in front of it did not. Pinned by
 `tests/test_panel_daemon_port.py::test_ensure_asks_the_socket_rather_than_its_own_cache`.
 
-**The second is #1268's and is NOT fixed.** A daemon can answer its port perfectly while
-being attached to a client that no longer exists:
+**The second was #1268's, and is fixed in #1286 — §5.4 above has what was built and why
+the restart could not clear it.** What follows is the state as it was found. A daemon can
+answer its port perfectly while being attached to a client that no longer exists:
 
 ```
 panel strip :  daemon=warm            <- the port answers, which is all `up()` means

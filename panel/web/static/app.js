@@ -185,9 +185,15 @@ function paintState(state) {
   $('panic-mark').className = 'small' + (pan.stopped ? ' bad' : '');
   paintPanicControls(pan);
 
+  /* THREE STATES, the same three the window's indicator draws (#1286). A daemon holding
+   * a client that has gone still answers its port, so «работает» was what the phone said
+   * for half an hour while nothing the person pressed reached the game. Amber, not red:
+   * the daemon is there, and the panel is already restarting it for them. */
   const daemon = $('daemon-dot');
-  daemon.textContent = state.daemon.up ? T('web.ui.on') : T('web.ui.off');
-  daemon.className = 'pill ' + (state.daemon.up ? 'ok' : 'off');
+  const daemonStale = state.daemon.up && state.daemon.stale;
+  daemon.textContent = daemonStale ? T('web.ui.stale')
+    : (state.daemon.up ? T('web.ui.on') : T('web.ui.off'));
+  daemon.className = 'pill ' + (daemonStale ? 'warn' : (state.daemon.up ? 'ok' : 'off'));
   $('daemon-text').textContent = T('web.ui.port', { port: state.daemon.port });
   /* WHICH Windows account this profile's client belongs to — the login picked on
    * «Настройки» → «Игра» (#1263). A reading, not a control: the picker is a list of

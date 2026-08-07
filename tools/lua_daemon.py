@@ -9,7 +9,7 @@ Protocol — newline-delimited JSON on 127.0.0.1:47654 (see tools/lua_client.py)
     {"op":"run","chunk":"<lua>","marker":"X","settle":1.2}  -> {"ok":true,"lines":[...]}
     …plus optional "early":true — `settle` becomes a DEADLINE and the answer comes
     back as soon as the marker has landed (tools/lib/lua_eval.py `collect`)
-    {"op":"ping"}     -> {"ok":true,"warm":<bool>}
+    {"op":"ping"}     -> {"ok":true,"warm":<bool>,"pid":<client pid>,"self":<own pid>}
     {"op":"reload"}   -> rebuild the LuaEval (after a game restart) -> {"ok":true}
     {"op":"shutdown"} -> {"ok":true} then exit
     {"op":"acquire","owner":"panel/rally","ttl":120} -> {"ok":true,"token":"…"}
@@ -50,6 +50,15 @@ One daemon per client: a second Windows session runs its own daemon on its own p
 attaches to the client of *that* session (`LW_GAME_PID` / same-session preference in
 `il2cpp_probe.find_game_pid`). See tools/rdp_instance.py and
 docs/research/multi-instance-rdp.md.
+
+IT FOLLOWS ITS CLIENT ACROSS A RESTART BY ITSELF (#1286). A client is restarted several
+times an hour here — by the watchdog, by `actions/restart_game.md`, by a person — and
+every restart leaves this daemon holding a process id that no longer exists. It used to
+sit there until something drove it into a call that failed twice over; measured live,
+that state lasted half an hour at a time while the panel reported a warm daemon. So
+`follow_client` watches the pid it holds and, the moment that process is gone, lets go
+and takes hold of the client that replaced it. Nothing outside has to notice, ask or
+restart anything.
 """
 from __future__ import annotations
 import argparse
@@ -58,12 +67,25 @@ import os
 import socket
 import sys
 import threading
+import time
 
 # Absolute, not "tools/lib": resolve regardless of the launcher's cwd.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import lua_client  # HOST/PORT only — lightweight
 from game_lease import DEFAULT_TTL as DEFAULT_LEASE_TTL, Lease
 
+
+#: How often the daemon checks that the client it holds is still a running process.
+#: Five seconds: a client restart takes the better part of a minute to come back, so
+#: this is never the slow part, and the check itself is one `psutil.Process` lookup.
+CLIENT_WATCH_SEC = 5.0
+
+#: How long a shutdown is given to close the evaluator tidily before the process leaves
+#: anyway. THE ANSWER TO `shutdown` USED TO BE THE ONLY THING GUARANTEED TO HAPPEN: the
+#: close takes the run lock, and a call wedged against a dead client holds it for ever,
+#: so the daemon acknowledged the shutdown and never exited — leaving the port bound and
+#: the panel reading a corpse as «already warm» (#1286).
+EXIT_GRACE_SEC = 1.0
 
 class ClientUnreachable(RuntimeError):
     """This daemon cannot get at the client it is meant to drive (#1266).
@@ -156,6 +178,64 @@ class Daemon:
         """Which client this daemon is attached to — the thing to check when two run."""
         return getattr(getattr(self._ev, "x", None), "pid", None)
 
+    @staticmethod
+    def _client_present() -> bool:
+        """Is there a client of this session to attach to at all?
+
+        Asked before an attach is attempted, so a daemon started on a machine with no
+        game running does not build a `LuaEval` every few seconds for nothing. The pin
+        answers first when there is one, and a pin that is dead does NOT mean absent:
+        `_repin` re-aims it at this session's client, which is the whole case this
+        watches for.
+        """
+        import game_client
+
+        pinned = (os.environ.get("LW_GAME_PID") or "").strip()
+        if pinned.isdigit() and game_client.alive(int(pinned)):
+            return True
+        return bool(game_client.session_pids())
+
+    def follow_client(self) -> bool:
+        """Let go of a client that has gone, and take hold of the one replacing it.
+
+        `True` when this call attached to something. The daemon is pinned to a process
+        id and a restarted client is a NEW one, so without this the daemon holds a dead
+        pid until a call drives it into `run`'s rebuild — and if that rebuild fails, for
+        ever after that (#1286). The panel could restart the daemon for it, and does as
+        a last resort, but a daemon that follows its own client needs nobody's help and
+        is right within five seconds rather than within two status polls.
+
+        NEVER WAITS FOR THE RUN LOCK. A call in flight is the ordinary case and its
+        client is by definition alive; a call WEDGED holds the lock for ever, and the
+        one thing this must not become is a second thread stuck behind it. It simply
+        tries again on the next tick, and the panel's `_kill` is what ends a daemon that
+        is past helping.
+        """
+        try:
+            import game_client
+
+            pid = self.target_pid()
+            if pid is not None and game_client.alive(pid):
+                return False                          # the ordinary case: nothing to do
+            if not self._client_present():
+                return False                          # no client yet: nothing to hold
+        except BaseException:                         # noqa: BLE001 — cannot ask ⇒ leave it
+            return False
+        if not self._lock.acquire(blocking=False):
+            return False
+        try:
+            if pid is not None:
+                print(f"[daemon] the client at pid {pid} is gone — letting go", flush=True)
+            self._drop()
+            self._ensure()
+        except BaseException as exc:                  # noqa: BLE001 — it may still be booting
+            print(f"[daemon] no client to attach to yet: {exc}", flush=True)
+            return False
+        finally:
+            self._lock.release()
+        print(f"[daemon] attached to pid {self.target_pid()}", flush=True)
+        return True
+
     def run(self, chunk: str, marker, settle: float, early: bool = False,
             sentinel: "str | None" = None):
         with self._lock:
@@ -207,6 +287,39 @@ class Daemon:
             self._drop()
 
 
+def _leave(daemon: Daemon) -> None:
+    """Exit. Tidily if the evaluator can be closed, and regardless if it cannot.
+
+    THE PROCESS LEAVING IS THE POINT, and closing the evaluator is only good manners on
+    the way out. `Daemon.close` takes the run lock, and a call wedged against a client
+    that has gone holds that lock for ever — so the polite path used to reply
+    `{"ok":true}`, block on the close, and never reach `os._exit`. From outside that is
+    indistinguishable from a healthy daemon: the port stays bound and answers, which is
+    all `up()` ever meant, and the panel reported «already warm» over it for half an
+    hour (#1286).
+
+    The timer is what makes the guarantee unconditional: whatever the close does, this
+    process is gone :data:`EXIT_GRACE_SEC` later. It is armed BEFORE the close for the
+    same reason — a promise made after the thing that can block is not a promise.
+    """
+    threading.Timer(EXIT_GRACE_SEC, os._exit, args=(0,)).start()
+    try:
+        daemon.close()
+    except BaseException:                             # noqa: BLE001 — leaving either way
+        pass
+    os._exit(0)
+
+
+def _watch_client(daemon: Daemon, every: float = CLIENT_WATCH_SEC) -> None:
+    """Ask `follow_client` every few seconds, for ever. Started as a daemon thread."""
+    while True:
+        time.sleep(every)
+        try:
+            daemon.follow_client()
+        except BaseException as exc:                  # noqa: BLE001 — never the last word
+            print(f"[daemon] client watch: {exc}", flush=True)
+
+
 def _handle(conn: socket.socket, daemon: Daemon) -> None:
     f = conn.makefile("rwb")
     try:
@@ -218,8 +331,13 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
             op = req.get("op", "run")
             try:
                 if op == "ping":
+                    # `self` is this daemon's OWN pid, and it is here because nothing
+                    # outside can work it out: a daemon in another Windows session is
+                    # not in the asker's process list. It is what ends a daemon that
+                    # acknowledges a shutdown without carrying it out (#1286).
                     resp = {"ok": True, "warm": daemon.is_warm(),
                             "pid": daemon.target_pid(),
+                            "self": os.getpid(),
                             "lease": daemon.lease.state()}
                 elif op == "run":
                     # The lease gate runs BEFORE the evaluator: a caller whose lease
@@ -245,7 +363,7 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
                 elif op == "reload":
                     daemon.reload(); resp = {"ok": True, "warm": daemon.is_warm()}
                 elif op == "shutdown":
-                    f.write(b'{"ok":true}\n'); f.flush(); daemon.close(); os._exit(0)
+                    f.write(b'{"ok":true}\n'); f.flush(); _leave(daemon)
                 else:
                     resp = {"ok": False, "error": f"unknown op {op!r}"}
             except ClientUnreachable as exc:
@@ -298,6 +416,9 @@ def main() -> int:
         return 1
     srv.listen(8)
     print(f"[daemon] listening {args.host}:{args.port}", flush=True)
+    # Started only once the port is ours: a daemon that could not bind is about to exit
+    # and has no business re-aiming anything at a client it will never drive.
+    threading.Thread(target=_watch_client, args=(daemon,), daemon=True).start()
     try:
         while True:
             conn, _ = srv.accept()

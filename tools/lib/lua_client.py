@@ -49,6 +49,14 @@ LEASE_ENV_VAR = "LW_GAME_LEASE"
 #: not going to. See `DaemonClient.__init__` for what the shared number used to cost.
 CONNECT_TIMEOUT = 0.5
 
+#: How long an op that only ASKS the daemon something — `ping`, and the two readings off
+#: its reply — may wait for the answer. None of them touches the run lock (the daemon
+#: handles every connection on its own thread), so a daemon that is there answers in a
+#: fraction of a millisecond even while a call is wedged inside it. Two seconds is
+#: therefore not patience, it is the point at which «no answer» is the honest reading —
+#: and the caller asking is usually deciding whether the daemon is alive at all (#1286).
+ASK_TIMEOUT = 2.0
+
 
 def current_lease() -> str:
     """The token this process holds or inherited, or ``""``."""
@@ -118,10 +126,14 @@ class DaemonClient:
         # unleased (a read that must never queue behind, or be refused by, a lease).
         self.token = current_lease() if token is None else token
 
-    def _rpc(self, req: dict) -> dict:
+    def _rpc(self, req: dict, timeout: "float | None" = None) -> dict:
         s = socket.create_connection((self.host, self.port),
                                      timeout=self.connect_timeout)
-        s.settimeout(self.timeout)       # …and the ANSWER may take as long as it takes
+        # …and the ANSWER may take as long as it takes — for a `run`. The ops that only
+        # ASK the daemon something say how long they are prepared to wait, because they
+        # are asked BY a caller deciding whether the daemon is alive, and a minute and a
+        # half of waiting to find out is the same as no answer (#1286).
+        s.settimeout(self.timeout if timeout is None else float(timeout))
         try:
             s.sendall((json.dumps(req) + "\n").encode("utf-8"))
             buf = b""
@@ -166,9 +178,26 @@ class DaemonClient:
 
     def ping(self) -> bool:
         try:
-            return bool(self._rpc({"op": "ping"}).get("ok"))
+            return bool(self._rpc({"op": "ping"}, timeout=ASK_TIMEOUT).get("ok"))
         except OSError:
             return False
+
+    def status(self) -> dict:
+        """The daemon's whole `{"op":"ping"}` answer, or ``{}`` when nothing answers.
+
+        ONE round trip for the facts that are only useful together: whether it is warm,
+        which client it holds (``pid``), and which process it is itself (``self``) —
+        the last being the only way to end a daemon that acknowledges a shutdown and
+        does not carry it out (#1286, panel/runtime/daemon.py `_kill`).
+
+        :meth:`target_pid` and :meth:`lease_state` are the one-fact readings of the same
+        reply and stay exactly as they are; a caller that wants all of it should not pay
+        three connects for three fields of one answer.
+        """
+        try:
+            return self._rpc({"op": "ping"}, timeout=ASK_TIMEOUT) or {}
+        except OSError:
+            return {}
 
     def target_pid(self) -> "int | None":
         """Which client process this daemon is attached to, or ``None``.
@@ -180,11 +209,7 @@ class DaemonClient:
         the only honest reading of "the game", and a process name is not.
         """
         try:
-            pid = self._rpc({"op": "ping"}).get("pid")
-        except OSError:
-            return None
-        try:
-            return int(pid) or None
+            return int(self.status().get("pid")) or None
         except (TypeError, ValueError):
             return None
 
@@ -218,10 +243,7 @@ class DaemonClient:
             self.token = ""
 
     def lease_state(self) -> dict:
-        try:
-            return self._rpc({"op": "ping"}).get("lease") or {}
-        except OSError:
-            return {}
+        return self.status().get("lease") or {}
 
     def reload(self):
         return self._rpc({"op": "reload"})

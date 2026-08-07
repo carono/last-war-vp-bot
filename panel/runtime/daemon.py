@@ -81,6 +81,39 @@ UP_CACHE_SEC = 1.0
 START_TRIES, START_WAIT = 60, 0.5
 # How long `restart()` waits for the old one to let go of the port.
 FREE_TRIES, FREE_WAIT = 20, 0.25
+# How long a daemon that has been asked to die is given to actually go, once the polite
+# route has already failed and the process is being ended from outside.
+KILL_WAIT_SEC = 3.0
+
+#: What :meth:`GameLink.health` answers, and the three states it exists to tell apart.
+#:
+#: A PORT THAT ACCEPTS A CONNECTION IS NOT ONE OF THEM (#1286). `up()` means «something
+#: is listening», which is what `ensure` used to call warm — and on 2026-08-07 it said
+#: «already warm» for half an hour over a daemon holding a client that had been
+#: restarted out from under it. The three answers below are the question actually worth
+#: asking, and every one of them has a different cure.
+DAEMON_NONE = "none"      # nothing answered: start one
+DAEMON_STALE = "stale"    # something answered, for a client that is not the one running
+DAEMON_LIVE = "live"      # it answered, and it names the client that is running
+
+# How long a `{"op":"ping"}` may take to come back. A daemon that is there answers in a
+# fraction of a millisecond; one that is wedged inside a call still answers, because the
+# ping is handled on its own connection thread and never touches the run lock.
+PING_TIMEOUT_SEC = 2.0
+
+# How long the last verdict is worth repeating to a front-end that must not ask for
+# itself. The status poll asks every eight seconds; thirty is «the poll has stopped or
+# was never running», and then a drawer says so by falling back rather than by drawing a
+# verdict from a minute ago.
+HEALTH_MEMORY_SEC = 30.0
+
+
+def _as_pid(value) -> "int | None":
+    """``value`` as a process id, or ``None`` — the wire says `null`, JSON says string."""
+    try:
+        return int(value) or None
+    except (TypeError, ValueError):
+        return None
 
 
 class GameLink:
@@ -264,6 +297,112 @@ class GameLink:
         except Exception:                             # noqa: BLE001 — a reading, never the panel
             return None
 
+    def ping(self) -> dict:
+        """The daemon's whole `{"op":"ping"}` answer, FRESH, or ``{}`` when none comes.
+
+        Three facts in one round trip, because the three are only useful together: is it
+        warm, which client it holds (``pid``), and which process it is itself (``self``,
+        the pid used to end a daemon that will not end itself). Asked with
+        ``fresh=True``: this is the reading that decides whether a daemon exists, and a
+        cached yes is exactly how a dead one gets called warm (#1281).
+
+        ``{}`` for every «no answer» — down, refused, timed out, or a daemon too old to
+        say. Never raises: a reading of the link may not become the panel's fault.
+        """
+        if not self.up(fresh=True):
+            return {}
+        client = self.client
+        if client is None:
+            return {}
+        try:
+            if hasattr(client, "status"):
+                return dict(client.status() or {})
+            # A stand-in, or a client older than `status`: the one fact it can give.
+            pid = client.target_pid() if hasattr(client, "target_pid") else None
+            return {"ok": True, "pid": pid}
+        except Exception:                             # noqa: BLE001 — a reading, never the panel
+            return {}
+
+    def daemon_pid(self) -> "int | None":
+        """The pid of the daemon PROCESS itself, or ``None`` — see :meth:`_kill`."""
+        return _as_pid(self.ping().get("self"))
+
+    def _running_pid(self) -> "int | None":
+        """The client that is RUNNING for this profile — never the daemon's own word.
+
+        `game_client.target_pid` deliberately prefers the daemon's attachment, and for
+        good reasons everywhere else: one daemon per client makes it the narrowest
+        evidence there is. Here it is the one answer that must not be used, because the
+        question is whether that attachment is still true — asking the daemon would
+        compare its answer with itself and call every corpse healthy.
+
+        ``None`` means «no client of this profile is running», which is not a fault and
+        must not be treated as one.
+        """
+        try:
+            import game_client
+        except Exception:                             # noqa: BLE001 — not Windows, no psutil
+            return None
+        user = self.user()
+        try:
+            if not user:
+                return game_client.running_pid()
+            session = game_client.session_of(user)
+            if session is None:
+                return None
+            found = game_client.session_pids_of(session)
+            return found[0] if found else None
+        except Exception:                             # noqa: BLE001 — a reading, never the panel
+            return None
+
+    def health(self, client_pid: "int | None" = None) -> str:
+        """Is there a daemon, and is it holding the client that is actually running?
+
+        THREE ANSWERS, and the whole of #1286 is that there are three of them:
+
+        * :data:`DAEMON_NONE` — nothing answered the port. Start one.
+        * :data:`DAEMON_STALE` — something answered, and the client it names is not the
+          one running: a daemon whose client was restarted under it and which never let
+          go, or one wedged inside a rebuild that cannot succeed — which is why the port
+          is still bound at all. Restart the DAEMON, never the client (#1268).
+        * :data:`DAEMON_LIVE` — it answered, and it names the client that is running.
+
+        ``client_pid`` is the pid the caller has already found (the status poll has it
+        from its own probe); ``None`` asks :meth:`_running_pid` for it.
+
+        A machine with NO client running is not this fault, so a daemon that answers is
+        LIVE there. «Could not tell» may never be a reason for a restart — the rule
+        `panel/runtime/recovery.py` already keeps for `unknown` link readings.
+        """
+        answer = self._verdict(client_pid)
+        self._health_seen = (time.monotonic(), answer)
+        return answer
+
+    def _verdict(self, client_pid) -> str:
+        reply = self.ping()
+        if not reply.get("ok"):
+            return DAEMON_NONE
+        running = _as_pid(client_pid) if client_pid is not None else self._running_pid()
+        if not running:
+            return DAEMON_LIVE
+        held = _as_pid(reply.get("pid"))
+        return DAEMON_LIVE if held == running else DAEMON_STALE
+
+    def last_health(self) -> str:
+        """The most recent verdict of :meth:`health`, or ``""`` if there is none recent.
+
+        For the front-ends, and it costs nothing: the status poll asks `health` every
+        eight seconds anyway, and both the window's indicator and the phone's dot have
+        to say the same thing about the same daemon. Neither may ask for itself — the
+        phone's page polls faster than the status thread does, and a reading that walks
+        the process list per request is how a page becomes a load.
+
+        ``""`` is «nobody has asked lately», not «healthy»: a drawer falls back to
+        :meth:`up` there, which is what it drew before any of this existed.
+        """
+        at, answer = getattr(self, "_health_seen", (0.0, ""))
+        return answer if (time.monotonic() - at) < HEALTH_MEMORY_SEC else ""
+
     def evaluator(self):
         """The warm evaluator, on this profile's port and under THIS link's lease.
 
@@ -319,26 +458,50 @@ class GameLink:
                                   say=lambda msg: self._log.put(f"[daemon] {msg}"))
 
     def ensure(self) -> bool:
-        """Make sure the daemon is up, starting it if not. Blocks; call off the Tk thread.
+        """Make sure the daemon is up AND on the client that is running. Blocks; off Tk.
 
-        ASKED FRESH, and that is the whole of #1281's second afternoon. `up()` reuses its
-        answer for :data:`UP_CACHE_SEC` — right for the status poll and the schedule's
-        gate, wrong for the one caller whose job is to notice a daemon that has gone. A
-        client restarted by anything (the watchdog, a person, another errand) takes its
-        daemon with it, and `ensure` was then answering «already warm on port 47654» off
-        a cached yes, doing nothing, and leaving the port dead: the rally auto-join was
-        deaf for stretches at a time with the panel reporting a warm daemon. Seen live,
-        three times in twenty minutes, while the numbers for #1281 were being collected.
+        ASKED FRESH, and that was #1281's second afternoon. `up()` reuses its answer for
+        :data:`UP_CACHE_SEC` — right for the status poll and the schedule's gate, wrong
+        for the one caller whose job is to notice a daemon that has gone. `ensure` was
+        answering «already warm on port 47654» off a cached yes, doing nothing, and
+        leaving the port dead.
 
-        The class's own docstring already said so — «the callers that would notice —
-        `ensure`, which is watching for one it has just started — ask with fresh=True» —
-        and the loop below did; the check in front of it did not.
+        ASKED ABOUT THE CLIENT, which is #1286 and the half a cache could never explain.
+        A daemon does not always die with the client it drives: it can answer its port
+        perfectly while attached to a process that no longer exists, and it can be
+        WEDGED there — `Daemon.run` rebuilds once, the rebuild fails against a dead pid,
+        and the polite shutdown that follows is acknowledged before it is carried out
+        (§8). So the port went on being held by a corpse, and every ask to bring the
+        daemon back was answered by that corpse's own listening socket. Half an hour of
+        it on 2026-08-07, with twelve of thirty rally joins reporting «связь с сервером
+        пропала» and the strip reporting a warm daemon throughout.
+
+        The question is :meth:`health` now — the ping's pid against the pid that is
+        actually running — and a daemon answering for a client that is gone is RESTARTED
+        here rather than reported as warm. Never the client: that is #1268's six
+        pointless relaunches.
         """
         port = self.port()
-        if self.up(fresh=True):
+        state = self.health()
+        if state == DAEMON_LIVE:
             self._note("already warm on port %s", port)
             self.on_state("warm", True)
             return True
+        if state == DAEMON_STALE:
+            self._log.say("daemon", "log.daemon.stale")
+            self._note_warn("on port %s answers for a client that is gone — restarting "
+                            "the daemon", port)
+            return self.restart()
+        return self._start()
+
+    def _start(self) -> bool:
+        """Launch a daemon and wait for it. Asks nothing about what is already there.
+
+        Split out of :meth:`ensure` so a restart cannot bounce between the two: `ensure`
+        decides WHETHER a daemon is wanted, `restart` gets rid of the one that is in the
+        way, and this one and only this one starts a process.
+        """
+        port = self.port()
         user = self.user()
         self._log.say("daemon", "log.daemon.starting")
         self._note("starting on port %s (session %s)", port, user or "this desktop")
@@ -361,12 +524,26 @@ class GameLink:
                 self.on_state("error", False)
                 return False
             for _ in range(START_TRIES):
-                if self.up(fresh=True):   # watching for one we have just started
+                # The port first, because it is the cheap half and it is what the wait
+                # is really for. A daemon binds it only AFTER it has taken hold of the
+                # client (`tools/lua_daemon.py::main`), so a port that answers and a
+                # health that is still STALE means the attach failed rather than that it
+                # has not happened yet — but it is given the rest of the tries anyway,
+                # since the daemon re-aims itself at a client that is still booting.
+                if self.up(fresh=True) and self.health() == DAEMON_LIVE:
                     self._log.say("daemon", "log.daemon.ready")
                     self._note("ready on port %s", port)
                     self.on_state("warm", True)
                     return True
                 time.sleep(START_WAIT)
+        if self.up(fresh=True):
+            # It is there and it never got hold of a client. Reported as its own fault,
+            # because «did not come up» would send the next reader looking for a process
+            # that is running perfectly well.
+            self._log.say("daemon", "log.daemon.no_client")
+            self._note_warn("came up on port %s but holds no client", port)
+            self.on_state("error", False)
+            return False
         self._log.say("daemon", "log.daemon.timeout")
         self._note_warn("did not come up on port %s within timeout", port)
         self.on_state("none", False)
@@ -375,26 +552,81 @@ class GameLink:
     def restart(self) -> bool:
         """Shut the daemon down and bring it back. Blocks; call off the Tk thread.
 
-        The shutdown is asked for politely (the daemon answers the op and exits); a
-        daemon too wedged to answer is reported and the start still runs, because a
-        fresh one binding the port is the outcome either way.
+        The shutdown is asked for politely (the daemon answers the op and exits), and
+        THE ANSWER IS NOT THE ACT. That is what turned a stale daemon into a permanent
+        one on 2026-08-07: the daemon replies `{"ok":true}` before it closes its
+        evaluator, closing takes the run lock, and the lock was held by a call wedged
+        against a client that had gone — so it acknowledged the shutdown and never
+        exited. The port stayed bound, the five-second wait below expired in silence,
+        and `ensure` read the corpse's socket as «already warm» (#1286).
+
+        So the port is the verdict, never the reply: if it is still held, the process
+        the ping named is ended from outside, and only a port that has actually come
+        free gets a new daemon started on it. A second daemon that cannot bind is the
+        same lie one process further along.
         """
         self._log.say("daemon", "log.daemon.restarting")
         self.on_state("starting", None)
         with self._activity.step("activity.daemon.restart", port=self.port()):
+            # Asked BEFORE the shutdown: a daemon that has gone answers nothing, and
+            # this is the only place its own pid can still be had.
+            doomed = self.daemon_pid()
             try:
                 self.client.shutdown()
             except Exception as exc:                  # noqa: BLE001
                 self._log.say("daemon", "log.daemon.shutdown_failed", error=exc)
-            for _ in range(FREE_TRIES):               # let the port come free
-                if not self.up(fresh=True):           # …one we have just shut down
-                    break
-                time.sleep(FREE_WAIT)
+            if not self._wait_free():
+                self._kill(doomed)
+                if not self._wait_free():
+                    self._log.say("daemon", "log.daemon.wont_die", port=self.port())
+                    self._note_warn("port %s is still held after a kill — not starting "
+                                    "a second daemon that cannot bind it", self.port())
+                    self.on_state("error", False)
+                    return False
             # No token carried over: the daemon that granted it is gone, so the lease
             # died with it. A fresh one starts unleased rather than waving a dead token
             # about.
             self.client = lua_client.DaemonClient(port=self.port(), token="")
-            return self.ensure()
+            return self._start()
+
+    def _wait_free(self) -> bool:
+        """Has the port come free? Waits up to FREE_TRIES × FREE_WAIT for it."""
+        for _ in range(FREE_TRIES):
+            if not self.up(fresh=True):               # …one we have just shut down
+                return True
+            time.sleep(FREE_WAIT)
+        return False
+
+    def _kill(self, pid: "int | None") -> bool:
+        """End the daemon PROCESS. ``True`` when it is gone.
+
+        Reached only when a daemon acknowledged a shutdown and did not carry it out —
+        never as the ordinary route, because a daemon killed mid-call leaves the game's
+        Lua VM with whatever the call was in the middle of.
+
+        The pid comes off the daemon's own `{"op":"ping"}`; nothing else on the machine
+        can name it, since a second Windows session's daemon is not in this session's
+        process list. That is also the case this cannot always win: a daemon belonging
+        to another Windows LOGIN is not this token's to terminate, and the refusal is
+        reported rather than retried.
+        """
+        if not pid:
+            return False
+        self._log.say("daemon", "log.daemon.killing", pid=int(pid))
+        try:
+            import psutil
+
+            proc = psutil.Process(int(pid))
+            proc.terminate()
+            try:
+                proc.wait(timeout=KILL_WAIT_SEC)
+            except psutil.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=KILL_WAIT_SEC)
+            return True
+        except Exception as exc:                      # noqa: BLE001 — gone, or not ours
+            self._log.say("daemon", "log.daemon.kill_failed", error=exc)
+            return False
 
     # -- the claim ----------------------------------------------------------
     def claim(self, owner: str = "panel") -> bool:
@@ -605,7 +837,11 @@ class GameLink:
         def work() -> None:
             handle = self._activity.begin("activity.game.jump", x=x, y=y)
             try:
-                if not self.up() and not self.ensure():
+                # …and a daemon holding a client that has gone is not one to jump
+                # through either. The status poll's verdict, not a fresh one: see the
+                # same gate in `panel/runtime/schedule.py` (#1286).
+                if (self.last_health() == DAEMON_STALE or not self.up()) \
+                        and not self.ensure():
                     self._log.say("coord", "log.no_daemon")
                     return
                 # ONE trip to the VM, not two. A coordinate with no server used to be

@@ -40,6 +40,7 @@ from .bus import EventBus
 from . import claims
 from .children import ChildFactory
 from .captures import CAPTURE_OPTIONS, SECRET_TASK_CAPTURE
+from . import daemon
 from .daemon import GameLink
 from . import diag
 from . import game_process

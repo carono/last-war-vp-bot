@@ -261,6 +261,11 @@ def test_ensure_asks_the_socket_rather_than_its_own_cache():
 
     Checked by asking whether the reading was FRESH, not by counting sockets: the cache
     is what the class is allowed to keep, and the guarantee is only about this caller.
+
+    The reading itself has moved on since (#1286): `ensure` asks `health`, which asks the
+    daemon what CLIENT it is holding, because a port that answers turned out not to mean
+    a daemon that works. The freshness is the same promise one layer down — `ping` is
+    what now has to ask the socket rather than the cache — and it is still this caller's.
     """
     asked: list = []
 
@@ -275,13 +280,20 @@ def test_ensure_asks_the_socket_rather_than_its_own_cache():
             asked.append(fresh)
             return True
 
+        def _running_pid(self):
+            return 4242                              # the client that is running
+
         def _note(self, *a, **k):
             pass
 
         def on_state(self, *a, **k):
             pass
 
-    assert _Link().ensure() is True
+    link = _Link()
+    link._client = type("C", (), {"status": staticmethod(
+        lambda: {"ok": True, "warm": True, "pid": 4242})})()
+    link._client_port = 47654
+    assert link.ensure() is True
     assert asked == [True], (
         "ensure() read the cached answer; a daemon that died inside the cache window "
         "is then reported warm and never restarted")

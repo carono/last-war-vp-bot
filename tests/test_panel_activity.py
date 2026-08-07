@@ -150,6 +150,7 @@ class _Log:
 
 
 def test_the_daemon_says_it_is_starting_one() -> None:
+    import panel.runtime.daemon as daemonmod
     from panel.runtime.daemon import GameLink
 
     act = Activity()
@@ -157,7 +158,11 @@ def test_the_daemon_says_it_is_starting_one() -> None:
     act.listen(lambda: seen.append(act.current()))
     link = GameLink(port=lambda: 47999, python=lambda: sys.executable, log=_Log(),
                     env=dict, cwd=str(_REPO), daemon_script="nope.py", activity=act)
-    link.up = lambda: False                       # nothing there, and nothing started
+    # Nothing there, and nothing started. `health` rather than `up`, because «is there a
+    # daemon» stopped being a question about the port the moment a daemon could answer
+    # one while holding a client that had gone (#1286).
+    link.health = lambda client_pid=None: daemonmod.DAEMON_NONE
+    link.up = lambda fresh=False: False
     link._python = lambda: "no-such-interpreter-anywhere"
     assert link.ensure() is False
     keys = [s.key for s in seen if s is not None]
@@ -166,12 +171,14 @@ def test_the_daemon_says_it_is_starting_one() -> None:
 
 
 def test_a_daemon_already_warm_reports_nothing() -> None:
+    import panel.runtime.daemon as daemonmod
     from panel.runtime.daemon import GameLink
 
     act = Activity()
     link = GameLink(port=lambda: 47999, python=lambda: sys.executable, log=_Log(),
                     env=dict, cwd=str(_REPO), daemon_script="nope.py", activity=act)
-    link.up = lambda: True
+    link.health = lambda client_pid=None: daemonmod.DAEMON_LIVE
+    link.up = lambda fresh=False: True
     seen: list = []
     act.listen(lambda: seen.append(act.current()))
     assert link.ensure() is True

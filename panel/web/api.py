@@ -48,6 +48,7 @@ import time
 
 from .. import i18n as i18nmod
 from .. import timers as timersmod
+from ..runtime import daemon as daemonmod
 from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
 from ..runtime import panic as panicmod
@@ -289,7 +290,13 @@ class WebApi:
             # that tab has no phone screen by decision — but which account a profile is
             # pointed at is exactly what somebody away from the machine needs to be able
             # to check, because getting it wrong looks identical to «клиент не запущен».
+            # `stale` is «it answers the port and holds a client that is gone» — the
+            # state the window's indicator draws amber (#1286). Read off the LAST
+            # verdict the status poll made rather than asked for here: the page polls
+            # faster than that poll runs, and the reading walks the process list.
+            # Empty («nobody has asked lately») draws as it always did, off `up`.
             "daemon": {"up": rt.game.up(), "port": self._port(rt),
+                       "stale": rt.game.last_health() == daemonmod.DAEMON_STALE,
                        "busy": bool(rt.game.busy),
                        "shared": self._shared_client(name, rt),
                        "user": self._client_args(rt)[1] or ""},

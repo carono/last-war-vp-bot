@@ -3425,6 +3425,22 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except (tk.TclError, RuntimeError):      # the window is going away
             pass
 
+    def _daemon_word(self, warm: bool, stale: bool) -> tuple:
+        """The word and the colour for the daemon indicator: ``(text, ok)``.
+
+        Three states, the same three the link answers with (`GameLink.health`). The
+        middle one had nowhere to be drawn before #1286 and was therefore drawn as the
+        good one — a daemon holding a client that is gone answers its port, so «тёплый»
+        was what a person saw for half an hour while nothing they pressed reached the
+        game. Amber rather than red: the daemon is there, and the panel is already
+        restarting it.
+        """
+        if not warm:
+            return self._t("daemon.none"), False
+        if stale:
+            return self._t("daemon.stale"), None
+        return self._t("daemon.warm"), True
+
     def _set_daemon(self, text: str, ok) -> None:
         color = "#3c3" if ok else ("#888" if ok is None else "#c33")
         self._daemon_var.set(text)
@@ -3476,7 +3492,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._set_status_msg(found.message),
                 self._status_lbl.configure(
                     foreground=LINK_COLOURS.get(found.link, "#888")),
-                self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
+                # THE INDICATOR SAYS WHAT `health` FOUND, not what the port did. «Тёплый»
+                # over a daemon holding a client that has gone is the sentence this whole
+                # task is about (#1286): the port answers, so `up()` is True, and the
+                # person reading the strip is told the one thing that is not so. The
+                # reading is free here — the poll has just made it, two lines up.
+                self._set_daemon(*self._daemon_word(warm, stale)),
                 self._dbg_status(ok, warm, found.link),
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
@@ -3531,19 +3552,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         cure is a restart and «I could not tell» is never a reason for one (the rule
         `panel/runtime/recovery.py` already keeps for `unknown` link readings).
 
-        Runs on the status thread: it is a socket, and `attached_pid` guards itself with
+        Runs on the status thread: it is a socket, and the reading guards itself with
         `up()` so a profile whose daemon is down pays nothing for asking.
+
+        ONE DEFINITION OF STALE, and it lives on the link (`GameLink.health`) because
+        `ensure` has to ask the same question before it says «already warm» over a
+        daemon holding a client that is gone (#1286). A warm daemon that names NO client
+        while one is running is the same fault wearing a different answer — it never
+        attached, or it let go — and the same restart fixes it; it is also what a daemon
+        says in the seconds after a client is replaced, which is what DAEMON_STRIKES is
+        for.
         """
         if not warm or not found.running or not found.pid:
             return False
-        held = self._rt.game.attached_pid()
-        if not held:
-            # A warm daemon that names NO client while one is running is the same fault
-            # wearing a different answer — it never attached, or it let go — and the
-            # same restart fixes it. But it is also what a daemon says in the seconds
-            # after a client is replaced, which is exactly what DAEMON_STRIKES is for.
-            return True
-        return int(held) != int(found.pid)
+        return self._rt.game.health(found.pid) == runtime.daemon.DAEMON_STALE
 
     def _recovery_check(self, found, kicked: bool = False,
                         stale: bool = False) -> None:

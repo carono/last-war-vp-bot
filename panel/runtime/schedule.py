@@ -30,6 +30,7 @@ from .. import i18n as i18nmod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
+from . import daemon as daemonmod
 from . import game_control
 from . import game_process
 
@@ -284,7 +285,17 @@ class Schedule:
                 # store), so a fire is a no-op here — the arm-sweep submit must not try
                 # to run the placeholder scenario.
                 return True
-            if not self.rt.game.up() and not self.rt.game.ensure():
+            # A DAEMON HOLDING A CLIENT THAT IS GONE IS NOT A DAEMON THIS ERRAND CAN
+            # USE. The port answers, so `up()` says yes and the errand runs into a link
+            # that reaches nothing — twelve of thirty rally joins on 2026-08-07 came back
+            # «связь с сервером пропала» that way (#1286). The verdict is the STATUS
+            # POLL's, at most eight seconds old, rather than one made here: this runs in
+            # front of every errand, including the auto-join that is racing other
+            # alliances, and the reading walks the process list. `ensure` makes its own
+            # fresh one before it acts.
+            link = self.rt.game
+            if (link.last_health() == daemonmod.DAEMON_STALE or not link.up()) \
+                    and not link.ensure():
                 raise RuntimeError(self.rt.t("timers.log.no_daemon"))
             if handler is not None:
                 handler()
