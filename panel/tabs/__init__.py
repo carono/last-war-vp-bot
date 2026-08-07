@@ -16,6 +16,13 @@ Which tabs a window actually shows is the PROFILE's business
   back on the next start;
 * a tab whose import or ``build()`` raises is skipped and reported, and the rest of the
   panel still opens.
+
+…with ONE thing the profile does not get a say in: a tab still being written
+(``TabSpec(in_development=True)`` / ``PanelTab.IN_DEVELOPMENT``) is not shown at all
+unless the profile is in DEVELOPMENT MODE, which is «Разработка» being switched on and
+nothing else (:data:`DEV_TAB`, #1273). The gate FILTERS and never edits: the profile's
+own tick list and every tab's settings block are left exactly as they are, so nothing is
+lost by a tab going quiet and nothing has to be restored when it comes back.
 """
 from __future__ import annotations
 
@@ -34,12 +41,18 @@ class TabSpec:
 
     def __init__(self, tab_id: str, module: str, cls_name: str, order: int = 100,
                  default_enabled: bool = True, title_key: str | None = None,
-                 aggregates: bool = False) -> None:
+                 aggregates: bool = False, in_development: bool = False) -> None:
         self.id = tab_id
         self.module = module
         self.cls_name = cls_name
         self.order = order
         self.default_enabled = default_enabled
+        # Still being written (#1273) — hidden unless the profile is in DEVELOPMENT MODE
+        # (`DEV_TAB` below). Declared here as well as on the class for the same reason
+        # `aggregates` is: :func:`resolve` decides what to build before anything is
+        # imported, and importing every module to read one boolean would undo the
+        # laziness this table exists for. The contract test pins the two to each other.
+        self.in_development = in_development
         # Whether this tab draws parts CONTRIBUTED BY OTHER TABS — «Настройки» and its
         # per-tab pages (§6). Declared here as well as on the class for the same reason
         # `title_key` is: :func:`build_order` has to answer before anything is imported,
@@ -144,6 +157,16 @@ class TabRegistry:
         return len(self._live)
 
 
+#: The tab whose being switched on IS «development mode» (#1273).
+#:
+#: There is no separate switch for it, on purpose. «Разработка» already means «this
+#: profile is for working on the bot» — it ships off, it holds the sniffers and the
+#: `actions/*.md` list, and a person who has ticked it has said the only thing a second
+#: checkbox would have asked. A switch of its own would be a second answer to one
+#: question, and the first time the two disagreed there would be nothing to settle it
+#: with; this way the mode is visible in the same list that shows what it unhides.
+DEV_TAB = "develop"
+
 # Order numbers are spaced so a tab can be slotted between two without renumbering.
 TABS: tuple = (
     TabSpec("checklist", "panel.tabs.checklist", "ChecklistTab", order=20),
@@ -152,19 +175,27 @@ TABS: tuple = (
     TabSpec("settings",  "panel.tabs.settings",  "SettingsTab",  order=40,
             aggregates=True),
     TabSpec("web",       "panel.tabs.web",       "WebTab",       order=45),
-    TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50),
-    TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200),
-    TabSpec("profile",   "panel.tabs.profile",   "ProfileTab",   order=210),
-    TabSpec("inventory", "panel.tabs.inventory", "InventoryTab", order=220),
-    TabSpec("heroes",    "panel.tabs.heroes",    "HeroesTab",    order=230),
-    TabSpec("accounts",  "panel.tabs.accounts",  "AccountsTab",  order=240),
-    TabSpec("stats",     "panel.tabs.stats",     "StatsTab",     order=250),
+    TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50,
+            in_development=True),
+    TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200,
+            in_development=True),
+    TabSpec("profile",   "panel.tabs.profile",   "ProfileTab",   order=210,
+            in_development=True),
+    TabSpec("inventory", "panel.tabs.inventory", "InventoryTab", order=220,
+            in_development=True),
+    TabSpec("heroes",    "panel.tabs.heroes",    "HeroesTab",    order=230,
+            in_development=True),
+    TabSpec("accounts",  "panel.tabs.accounts",  "AccountsTab",  order=240,
+            in_development=True),
+    TabSpec("stats",     "panel.tabs.stats",     "StatsTab",     order=250,
+            in_development=True),
     TabSpec("rally",     "panel.tabs.rally",     "RallyTab",     order=300),
     TabSpec("secret_tasks", "panel.tabs.secret_tasks", "SecretTasksTab",
             order=310),
     TabSpec("command_post", "panel.tabs.command_post", "CommandPostTab",
-            order=320),
-    TabSpec("vs_duel",   "panel.tabs.vs_duel",   "VsDuelTab",    order=330),
+            order=320, in_development=True),
+    TabSpec("vs_duel",   "panel.tabs.vs_duel",   "VsDuelTab",    order=330,
+            in_development=True),
     TabSpec("develop",   "panel.tabs.develop",   "DevelopTab",   order=900,
             default_enabled=False),
 )
@@ -186,6 +217,51 @@ def ranker(order: "list | None" = None):
     return key
 
 
+def chosen_ids(enabled: "list | None" = None, known: "list | None" = None,
+               on_unknown=None) -> list:
+    """The tabs this profile ASKS FOR — before the development gate is applied.
+
+    Separate from :func:`resolve` because the «Вкладки» page needs both answers: what a
+    profile asked for is what its tick boxes have to show, and a tab hidden by the gate
+    must keep the answer it was given rather than be quietly unticked by a page it was
+    not on (#1273).
+    """
+    if enabled is None:
+        return [s.id for s in TABS if s.default_enabled]
+    chosen = []
+    for tab_id in enabled:
+        if tab_id in BY_ID:
+            chosen.append(tab_id)
+        elif on_unknown is not None:
+            on_unknown(tab_id)
+    seen = set(known if known is not None else enabled)
+    chosen += [s.id for s in TABS
+               if s.default_enabled and s.id not in seen and s.id not in chosen]
+    return chosen
+
+
+def dev_mode(enabled: "list | None" = None, known: "list | None" = None) -> bool:
+    """Is this profile in DEVELOPMENT MODE — i.e. is «Разработка» switched on? (#1273)
+
+    The one definition, asked here by everything that needs it, so «what counts as
+    development mode» cannot come to mean two things in two files (:data:`DEV_TAB`).
+    """
+    return DEV_TAB in chosen_ids(enabled, known)
+
+
+def listed(enabled: "list | None" = None, known: "list | None" = None) -> list:
+    """The specs «Настройки → Вкладки» offers a tick for, in the order they sit in.
+
+    Every tab, unless the profile is out of development mode — then the ones still being
+    written are not offered either, because a box for a tab that cannot appear is a box
+    that does nothing and says nothing about why.
+    """
+    specs = sorted(TABS, key=lambda s: s.order)
+    if dev_mode(enabled, known):
+        return specs
+    return [s for s in specs if not s.in_development]
+
+
 def resolve(enabled: "list | None" = None, order: "list | None" = None,
             known: "list | None" = None, on_unknown=None) -> list:
     """The specs to build, in the order to build them.
@@ -198,19 +274,16 @@ def resolve(enabled: "list | None" = None, order: "list | None" = None,
     and not in ``enabled`` was switched OFF and stays off; a tab in neither is new and
     appears. Falling back to ``enabled`` when the profile has no ``known`` list is what
     keeps a profile written before this existed behaving as it did.
+
+    AND THEN THE DEVELOPMENT GATE (#1273): a tab marked `in_development` is dropped
+    unless «Разработка» is among the chosen — whatever the profile says about it. That
+    is a filter and not an edit: the profile's own list is left alone, so a tab ticked
+    before it was marked comes straight back the moment the mode is on or the mark comes
+    off, with its settings block untouched throughout.
     """
-    if enabled is None:
-        chosen = [s.id for s in TABS if s.default_enabled]
-    else:
-        chosen = []
-        for tab_id in enabled:
-            if tab_id in BY_ID:
-                chosen.append(tab_id)
-            elif on_unknown is not None:
-                on_unknown(tab_id)
-        seen = set(known if known is not None else enabled)
-        chosen += [s.id for s in TABS
-                   if s.default_enabled and s.id not in seen and s.id not in chosen]
+    chosen = chosen_ids(enabled, known, on_unknown)
+    if DEV_TAB not in chosen:
+        chosen = [t for t in chosen if not BY_ID[t].in_development]
 
     key = ranker(order)
     return sorted((BY_ID[t] for t in chosen), key=lambda s: key(s.id, s.order))

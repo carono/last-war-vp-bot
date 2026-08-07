@@ -530,6 +530,7 @@
   "settings.tab.general": "General",
   "settings.tab.tabs": "Pestañas",
   "settings.tabs.hint": "Qué pestañas enseña este perfil. Una pestaña apagada no se construye en absoluto: ni controles, ni página de ajustes propia, ni disparadores ofrecidos, ni ninguna de sus capturas o vigías arrancados — «Tareas Secretas» apagada son una captura y dos hilos vigía que nunca corren. Sin tocar aquí, una pestaña sigue la propia elección del perfil POR DEFECTO — cámbiala allí para llegar a cada perfil que nunca la haya fijado por sí mismo. La columna de al lado dice qué levanta cada una cuando está encendida.",
+  "settings.tabs.in_development": "Algunas pestañas todavía se están escribiendo y no están en esta lista: solo aparecen mientras «Desarrollo» está encendido. Nada se pierde mientras tanto — sus ajustes se guardan y vuelven con ellas el día en que el trabajo esté terminado.",
   "settings.tabs.restart": "Guardado. La lista se aplica en el siguiente arranque del panel — una pestaña levanta sus órdenes permanentes al construirse, y desmontarla en vuelo no es lo mismo.",
   "standalone.started": "{tab} — ventana aparte, perfil «{profile}»",
   "splash.daemon": "Conectando con el demonio…",

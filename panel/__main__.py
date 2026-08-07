@@ -2252,10 +2252,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         saved = self._settings.get("tabs")
         block = dict(saved) if isinstance(saved, dict) else {}
-        # Every tab this build offers. A tab that is in here and not in `enabled` was
-        # switched off ON PURPOSE; without the record it would be indistinguishable
-        # from one that did not exist yet, and would come back on the next start.
-        block["known"] = [spec.id for spec in tabsreg.TABS]
+        # Every tab this build OFFERS THIS PROFILE. A tab that is in here and not in
+        # `enabled` was switched off ON PURPOSE; without the record it would be
+        # indistinguishable from one that did not exist yet, and would come back on the
+        # next start.
+        #
+        # Which is why a tab still being written does not go in while it is hidden
+        # (#1273): it was never offered, so recording it as offered-and-declined would
+        # be the one lie that keeps it away for ever — the day its mark comes off, the
+        # rule above would read it as a tab this profile had already said no to.
+        was_known = set(block.get("known") or ())
+        offered = {spec.id for spec in tabsreg.listed(
+            enabled=block.get("enabled"), known=block.get("known"))}
+        block["known"] = [spec.id for spec in tabsreg.TABS
+                          if spec.id in offered or spec.id in was_known]
         config = dict(block.get("config") or {})
         for tab in getattr(self, "_plugin_tabs", {}).values():
             # `stored_config`, not `config`: a tab nobody has opened has no widgets to

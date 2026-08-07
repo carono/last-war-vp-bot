@@ -21,6 +21,10 @@ class ProfileTab(DataTab):
     ID = "profile"
     TITLE_KEY = "tab.profile"
     ORDER = 210
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     LOCALE_NS = ('profile', 'tabx')
 
     def build(self) -> None:

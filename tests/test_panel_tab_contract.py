@@ -51,6 +51,13 @@ def test_every_tab_imports():
         assert cls.AGGREGATES_TABS == spec.aggregates, (
             f"{spec.id}: registry says aggregates={spec.aggregates}, class says "
             f"{cls.AGGREGATES_TABS}")
+        # …and for «is this tab still being written» (#1273), which `resolve` has to
+        # answer before a single module is imported. Declared in both places, so
+        # neither may drift: a mark taken off the class and left in the registry is a
+        # finished tab nobody can see.
+        assert cls.IN_DEVELOPMENT == spec.in_development, (
+            f"{spec.id}: registry says in_development={spec.in_development}, class "
+            f"says {cls.IN_DEVELOPMENT}")
 
 
 def test_the_aggregator_is_built_after_every_page_it_collects():
@@ -114,7 +121,7 @@ def test_the_registry_ids_are_unique_and_ordered():
 def test_resolve_defaults_to_the_default_enabled_set():
     got = [s.id for s in tabsreg.resolve()]
     assert got == [s.id for s in sorted(tabsreg.TABS, key=lambda s: s.order)
-                   if s.default_enabled], got
+                   if s.default_enabled and not s.in_development], got
 
 
 def test_develop_is_off_until_a_profile_asks_for_it():
@@ -139,37 +146,104 @@ def test_develop_is_off_until_a_profile_asks_for_it():
     assert on == ["stats", "develop"], on
 
 
+def test_a_tab_still_being_written_is_not_shown_without_development_mode():
+    """The mark is a HIDE, and «Разработка» is the only thing that lifts it (#1273).
+
+    A tab marked `in_development` must not reach an ordinary panel by any of the three
+    doors `resolve` has: the fresh-profile defaults, a profile that names it in
+    `enabled`, and the "a tab nobody has been offered appears" rule.
+    """
+    wip = [s.id for s in tabsreg.TABS if s.in_development]
+    assert wip, "nothing is marked as still being written — did the marks go?"
+    every = [s.id for s in tabsreg.TABS]
+
+    fresh = [s.id for s in tabsreg.resolve()]
+    assert not set(wip) & set(fresh), f"{sorted(set(wip) & set(fresh))} in a fresh panel"
+
+    # A profile that ASKS for one — because it had it ticked before the mark went on —
+    # still does not get it, and is not broken by asking: everything else it named is
+    # built exactly as before.
+    asked = [s.id for s in tabsreg.resolve(enabled=["timers", wip[0]], known=every)]
+    assert asked == ["timers"], asked
+
+    # …and the "never offered, so show it" rule does not smuggle one in either.
+    old = [s.id for s in tabsreg.resolve(enabled=["timers"], known=["timers"])]
+    assert not set(wip) & set(old), old
+
+
+def test_development_mode_shows_them_and_is_develop_being_on():
+    """The other direction: with «Разработка» ticked, the marked tabs are back.
+
+    And what "development mode" MEANS is one thing in one place — the `develop` tab
+    being among the chosen. No second switch, so there is nothing for the two to
+    disagree about.
+    """
+    wip = [s.id for s in tabsreg.TABS if s.in_development]
+    every = [s.id for s in tabsreg.TABS]
+
+    assert not tabsreg.dev_mode(), "a fresh profile is not in development mode"
+    assert tabsreg.dev_mode(enabled=["develop"], known=every)
+    assert tabsreg.DEV_TAB == "develop"
+
+    on = [s.id for s in tabsreg.resolve(enabled=every, known=every)]
+    assert set(wip) <= set(on), f"{sorted(set(wip) - set(on))} still hidden"
+    # …one of them alone, with the mode on, is exactly what the profile asked for.
+    pair = [s.id for s in tabsreg.resolve(enabled=[wip[0], "develop"], known=every)]
+    assert set(pair) == {wip[0], "develop"}, pair
+    # …and a marked tab the profile switched OFF stays off in development mode too:
+    # the gate hides, it does not tick.
+    off = [s.id for s in tabsreg.resolve(enabled=["develop"], known=every)]
+    assert off == ["develop"], off
+
+
+def test_the_tabs_page_lists_what_a_profile_can_actually_have():
+    """`listed()` is what «Настройки → Вкладки» offers a box for.
+
+    A row for a tab that cannot appear whatever it says would be a control that does
+    nothing; a missing row for one that CAN is a tab nobody can switch on.
+    """
+    wip = {s.id for s in tabsreg.TABS if s.in_development}
+    every = [s.id for s in tabsreg.TABS]
+
+    plain = {s.id for s in tabsreg.listed()}
+    assert not plain & wip, sorted(plain & wip)
+    assert "develop" in plain, "the way INTO development mode has to be on the page"
+
+    full = {s.id for s in tabsreg.listed(enabled=["develop"], known=every)}
+    assert full == set(every), sorted(set(every) - full)
+
+
 def test_switching_a_tab_off_in_the_profile_leaves_it_out():
     """The whole point of the refactor, in one assertion: a tab the profile does not
     name is not resolved — so it is never built, contributes no settings page, and
     starts none of its captures or watchers."""
     every = [s.id for s in tabsreg.TABS]
-    got = [s.id for s in tabsreg.resolve(enabled=["stats", "heroes"], known=every)]
-    assert got == ["stats", "heroes"] or set(got) == {"stats", "heroes"}, got
+    got = [s.id for s in tabsreg.resolve(enabled=["timers", "rally"], known=every)]
+    assert got == ["timers", "rally"] or set(got) == {"timers", "rally"}, got
     # …and an EMPTY list is "none of them", not "the defaults" — an operator who wants
     # a panel with nothing but the log must be able to say so.
     assert [s.id for s in tabsreg.resolve(enabled=[], known=every)] == []
     # A tab the profile has never been offered still appears: `known` is what tells
     # "switched off" from "did not exist when this profile was written".
-    fresh = [s.id for s in tabsreg.resolve(enabled=["stats"], known=["stats", "heroes"])]
-    assert "heroes" not in fresh, fresh
-    assert "rally" in fresh, fresh
+    fresh = [s.id for s in tabsreg.resolve(enabled=["timers"], known=["timers", "rally"])]
+    assert "rally" not in fresh, fresh
+    assert "secret_tasks" in fresh, fresh
 
 
 def test_a_profile_naming_a_tab_that_no_longer_exists_is_survivable():
     """A profile written by a newer build must not break an older panel."""
     unknown = []
-    got = [s.id for s in tabsreg.resolve(enabled=["stats", "a-tab-from-the-future"],
+    got = [s.id for s in tabsreg.resolve(enabled=["timers", "a-tab-from-the-future"],
                                          on_unknown=unknown.append)]
     assert unknown == ["a-tab-from-the-future"], unknown
-    assert "stats" in got, got
+    assert "timers" in got, got
     # …and a tab the profile has never heard of still appears, at its own order.
-    assert "heroes" in got, got
+    assert "rally" in got, got
 
 
 def test_the_profile_order_wins_over_the_declared_one():
-    got = [s.id for s in tabsreg.resolve(order=["stats", "heroes"])]
-    assert got[:2] == ["stats", "heroes"], got
+    got = [s.id for s in tabsreg.resolve(order=["rally", "timers"])]
+    assert got[:2] == ["rally", "timers"], got
 
 
 def test_every_tab_builds_cold_and_survives_the_lifecycle():

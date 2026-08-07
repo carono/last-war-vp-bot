@@ -530,6 +530,7 @@
   "settings.tab.general": "Genel",
   "settings.tab.tabs": "Sekmeler",
   "settings.tabs.hint": "Bu profilin hangi sekmeleri gösterdiği. Kapalı bir sekme hiç kurulmaz: ne denetim, ne kendi ayar sayfası, ne sunulan tetikleyici, ne de yakalamaları ya da bekçileri başlatılır — «Gizli Görevler» kapalıyken bu, hiç çalışmayan bir yakalama ve iki bekçi ipliği demektir. Burada dokunulmazsa, bir sekme VARSAYILAN profilin kendi seçimini izler — onu orada değiştir ki kendisi hiç ayarlamamış her profile ulaşsın. Yanındaki sütun, her biri açıkken neyi ayağa kaldırdığını söyler.",
+  "settings.tabs.in_development": "Bazı sekmeler hâlâ yazılıyor ve bu listede yok: yalnızca «Geliştirme» açıkken görünürler. Bu arada hiçbir şey kaybolmaz — ayarları saklanır ve üzerlerindeki iş bittiği gün onlarla birlikte geri gelir.",
   "settings.tabs.restart": "Kaydedildi. Liste panelin bir sonraki açılışında geçerlidir — bir sekme kendi kalıcı emirlerini kurulurken ayağa kaldırır, uçarken sökmek aynı şey değildir.",
   "standalone.started": "{tab} — ayrı pencere, profil «{profile}»",
   "splash.daemon": "Cine bağlanılıyor…",

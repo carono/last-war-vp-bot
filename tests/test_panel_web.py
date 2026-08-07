@@ -36,6 +36,7 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from panel import i18n as i18nmod          # noqa: E402
+from panel import tabs as tabsreg          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
@@ -1160,6 +1161,39 @@ def test_only_the_tabs_this_profile_built_offer_a_screen():
         rt.tabs.live = [screen]
         rt.tabs.get = lambda tab_id: screen if tab_id == "demo" else None
         assert api.screens()["screens"] == [{"id": "demo", "title": "tab.demo"}]
+
+
+def _stand_ins(specs) -> list:
+    """One stand-in per spec, as the shell would have built them — id, title, screen."""
+    return [type("_T", (), {"ID": spec.id, "TITLE_KEY": spec.title_key,
+                            "WEB_SCREEN": spec.load().WEB_SCREEN})()
+            for spec in specs]
+
+
+def test_a_tab_still_being_written_hands_the_phone_no_screen():
+    """The phone shows what this profile BUILT, so the development gate reaches it too.
+
+    Not a second rule — the same one (#1273). `screens()` walks the tabs the window has,
+    and a tab hidden by the gate was never built, so there is nothing to offer. Pinned
+    here because the guarantee is a consequence rather than a line of code: somebody
+    listing the registry instead of `rt.tabs.live` would put a half-written tab on a
+    phone with nothing failing.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        wip = {s.id for s in tabsreg.TABS if s.in_development}
+        assert wip, "nothing is marked as still being written"
+
+        rt.tabs.live = _stand_ins(tabsreg.resolve())
+        offered = {s["id"] for s in api.screens()["screens"]}
+        assert offered, "no screens at all — the stand-ins are wrong, not the gate"
+        assert not offered & wip, sorted(offered & wip)
+
+        # …and with «Разработка» on, the marked ones that have a screen are offered
+        # exactly like any other tab.
+        every = [s.id for s in tabsreg.TABS]
+        rt.tabs.live = _stand_ins(tabsreg.resolve(enabled=every, known=every))
+        assert {s["id"] for s in api.screens()["screens"]} & wip
 
 
 def test_a_screen_is_handed_over_as_data_and_a_press_reaches_the_tab():

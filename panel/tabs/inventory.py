@@ -25,6 +25,10 @@ class InventoryTab(DataTab):
     ID = "inventory"
     TITLE_KEY = "tab.inventory"
     ORDER = 220
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     LOCALE_NS = ('inventory', 'tabx')
 
     def build(self) -> None:

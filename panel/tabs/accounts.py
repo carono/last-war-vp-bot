@@ -37,6 +37,10 @@ class AccountsTab(DataTab):
     ID = "accounts"
     TITLE_KEY = "tab.accounts"
     ORDER = 240
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     LOCALE_NS = ('accounts', 'dash', 'tabx')
 
     COLUMNS = ("accounts.col.name", "accounts.col.server", "accounts.col.zone",

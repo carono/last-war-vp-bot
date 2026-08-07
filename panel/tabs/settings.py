@@ -77,6 +77,12 @@ class SettingsTab(PanelTab):
         that in the right order with a capture mid-flight. The list is a profile
         setting, so it is written now and obeyed at the next start — said in as many
         words on the page, rather than left to be discovered.
+
+        AND WHAT IS NOT LISTED: a tab still being written has no row here unless
+        «Разработка» is on (#1273). A box for a tab that cannot appear whatever it says
+        would be a control that does nothing and explains nothing; the line under the
+        list says where they went instead. Their saved state is carried through
+        untouched — see :meth:`_save_tab_choice`.
         """
         from .. import tabs as tabsreg
 
@@ -86,11 +92,14 @@ class SettingsTab(PanelTab):
         grid.pack(fill="x")
 
         saved = self.rt.settings.tab_list("enabled")
-        shown = {spec.id for spec in tabsreg.resolve(
-            enabled=saved, known=self.rt.settings.tab_list("known"))}
+        known = self.rt.settings.tab_list("known")
+        # What the PROFILE asks for, before the development gate — a tab hidden by the
+        # gate keeps whatever answer it was given rather than reading as unticked.
+        asked = set(tabsreg.chosen_ids(enabled=saved, known=known))
+        listed = tabsreg.listed(enabled=saved, known=known)
         self._tab_vars = {}
-        for row, spec in enumerate(sorted(tabsreg.TABS, key=lambda s: s.order)):
-            var = tk.BooleanVar(master=self.rt.root, value=spec.id in shown)
+        for row, spec in enumerate(listed):
+            var = tk.BooleanVar(master=self.rt.root, value=spec.id in asked)
             self._tab_vars[spec.id] = var
             box = ttk.Checkbutton(grid, variable=var, command=self._save_tab_choice)
             self.tr(box, spec.title_key).grid(row=row, column=0, sticky="w", pady=1)
@@ -98,20 +107,39 @@ class SettingsTab(PanelTab):
             needs = ", ".join(sorted(spec.load().NEEDS)) if _loadable(spec) else "?"
             ttk.Label(grid, foreground="#888", text=needs).grid(
                 row=row, column=1, sticky="w", padx=(14, 0))
+        #: The tabs this page did NOT offer a row for, and whether the profile had asked
+        #: for each. Written back exactly as it stands, so switching «Разработка» off
+        #: does not silently untick everything it was hiding.
+        self._tab_hidden = {spec.id: spec.id in asked for spec in tabsreg.TABS
+                            if spec.id not in self._tab_vars}
+        if self._tab_hidden:
+            self.tr(ttk.Label(parent, foreground="#888", wraplength=620,
+                              justify="left"),
+                    "settings.tabs.in_development").pack(anchor="w", pady=(8, 0))
         self._tabs_note = ttk.Label(parent, foreground="#e0a84f", wraplength=620,
                                     justify="left")
         self._tabs_note.pack(anchor="w", pady=(8, 0))
 
     def _save_tab_choice(self) -> None:
-        """Write the ticked list into the profile, and say a restart is what applies it."""
+        """Write the ticked list into the profile, and say a restart is what applies it.
+
+        A tab this page did not list keeps the answer it already had (`_tab_hidden`),
+        and does not join `known` on the strength of a page it was never on: «offered
+        and switched off» and «never offered» are what tell a tab that has to come back
+        by itself from one somebody unticked, and a hidden row can honestly claim
+        neither.
+        """
         from .. import tabs as tabsreg
 
         enabled = [spec.id for spec in sorted(tabsreg.TABS, key=lambda s: s.order)
-                   if self._tab_vars[spec.id].get()]
+                   if (self._tab_vars[spec.id].get() if spec.id in self._tab_vars
+                       else self._tab_hidden.get(spec.id, False))]
         values = self.rt.settings.values
         block = dict(values.get("tabs") or {})
         block["enabled"] = enabled
-        block["known"] = [spec.id for spec in tabsreg.TABS]
+        was_known = set(block.get("known") or ())
+        block["known"] = [spec.id for spec in tabsreg.TABS
+                          if spec.id in self._tab_vars or spec.id in was_known]
         values["tabs"] = block
         self.rt.settings.save()
         try:

@@ -108,6 +108,23 @@ class PanelTab:
     #: Set it to ``False`` only for a tab that must exist before it is looked at, and
     #: say beside it why. Nothing does today.
     LAZY: bool = True
+    #: Is this tab STILL BEING WRITTEN? (#1273)
+    #:
+    #: A tab that says yes is not shown at all unless the profile is in DEVELOPMENT
+    #: MODE — which is «Разработка» being switched on, and nothing else
+    #: (`panel.tabs.DEV_TAB`). It is not built, so it draws nothing, offers no trigger,
+    #: starts no capture and hands the phone no screen; its saved block is left exactly
+    #: as it is, so a profile that had it ticked before loses nothing by it going quiet.
+    #:
+    #: **The mark belongs where the tab is declared**, beside `DEFAULT_ENABLED` and
+    #: `WEB_SCREEN`, so that a half-finished tab is marked in the one file its author is
+    #: already editing rather than in a list of names somewhere else.
+    #:
+    #: It comes OFF when the tab's abilities have been proven in the live game and said
+    #: so in `docs/farming.md` / `docs/farming.ru.md` — that confirmation is the whole
+    #: definition. `DEFAULT_ENABLED` decides what happens next: the tab appears for
+    #: everybody on the following start unless it says otherwise.
+    IN_DEVELOPMENT: bool = False
 
     # -- what it owns -------------------------------------------------------
     LOCALE_NS: tuple = ()

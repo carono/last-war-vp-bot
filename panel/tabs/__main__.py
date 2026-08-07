@@ -19,10 +19,16 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 2
     width = max(len(s.id) for s in TABS)
-    print(f"{'id'.ljust(width)}  order  default  module")
+    print(f"{'id'.ljust(width)}  order  default  state    module")
     for spec in sorted(TABS, key=lambda s: s.order):
         mark = "on " if spec.default_enabled else "off"
-        print(f"{spec.id.ljust(width)}  {spec.order:>5}  {mark:>7}  {spec.module}")
+        # A tab still being written is in no panel but one whose «Разработка» is on
+        # (#1273) — worth saying here, because this listing is what somebody reads
+        # when a tab they can see in the tree is nowhere in their window.
+        state = "wip" if spec.in_development else ""
+        print(f"{spec.id.ljust(width)}  {spec.order:>5}  {mark:>7}  {state:<7}  "
+              f"{spec.module}")
+    print(f"\n`wip` — still being written: shown only when «Разработка» is switched on.")
     print(f"\nRun one on its own:  python -m panel.tabs.<id> --profile <name>")
     return 0
 

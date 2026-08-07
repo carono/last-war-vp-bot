@@ -20,6 +20,10 @@ class StatsTab(PanelTab):
     ID = "stats"
     TITLE_KEY = "tab.stats"
     ORDER = 250
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     LOCALE_NS = ("stats",)
     #: The tally is only ever filled by this: a balance-changed push, read and
     #: differenced. The trigger is the tab's own — with the tab switched off nothing

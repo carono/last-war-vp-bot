@@ -27,6 +27,10 @@ class HeroesTab(DataTab):
     ID = "heroes"
     TITLE_KEY = "tab.heroes"
     ORDER = 230
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     LOCALE_NS = ('heroes', 'tabx')
 
     COLUMNS = ("heroes.col.icon", "heroes.col.name", "heroes.col.level",

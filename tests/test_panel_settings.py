@@ -146,8 +146,10 @@ def test_the_tabs_page_writes_the_profile_and_asks_for_a_restart():
         tab = SettingsTab(rt, ttk.Frame(root))
         tab._build_tabs_settings(ttk.Frame(root))
 
-        # Every registered tab has a row, ticked as the profile resolves it.
-        assert set(tab._tab_vars) == {s.id for s in tabsreg.TABS}, tab._tab_vars
+        # Every tab this profile can actually have has a row, ticked as the profile
+        # resolves it. A tab still being written has none unless «Разработка» is on
+        # (#1273) — `tabsreg.listed` is the one answer to which those are.
+        assert set(tab._tab_vars) == {s.id for s in tabsreg.listed()}, tab._tab_vars
         assert tab._tab_vars["rally"].get() is True
         assert tab._tab_vars["develop"].get() is False, "a default-off tab starts off"
 
@@ -202,6 +204,60 @@ def test_ticking_develop_on_the_tabs_page_turns_it_on():
         resolved = [s.id for s in tabsreg.resolve(enabled=saved["tabs"]["enabled"],
                                                   known=saved["tabs"]["known"])]
         assert resolved[-1] == "develop", resolved
+    finally:
+        root.destroy()
+
+
+def test_the_tabs_page_carries_a_hidden_tab_through_untouched():
+    """A tab still being written has no row here — and loses nothing by it (#1273).
+
+    The failure this guards against is the quiet one. The page writes `tabs.enabled`
+    from its boxes; a tab with no box would drop out of that list, and the day its mark
+    came off it would come back SWITCHED OFF for everybody who had ever opened this
+    page — with its settings block still on disk and nothing on screen saying why the
+    tab is not there. So a hidden tab keeps exactly the answer it had, and does not
+    join `known` on the strength of a page it was never on.
+    """
+    if ttk is None:
+        _skip()
+        return
+    try:
+        import tkinter as tk                                 # noqa: F401
+        import fake_runtime
+        from panel import tabs as tabsreg
+        from panel.tabs.settings import SettingsTab
+        root = tk.Tk()
+    except Exception as exc:                                 # noqa: BLE001
+        _skip(exc)
+        return
+    root.withdraw()
+    try:
+        wip = [s.id for s in tabsreg.TABS if s.in_development]
+        assert wip, "nothing is marked as still being written"
+        hidden = wip[0]
+        rt = fake_runtime.cold_runtime(root)
+        # A profile from before the mark: it had the tab ticked and had been offered it.
+        saved = {"tabs": {"enabled": ["rally", hidden], "known": [s.id for s in tabsreg.TABS]}}
+        rt.settings.values = saved
+        rt.settings.save = lambda raw=None: None
+        tab = SettingsTab(rt, ttk.Frame(root))
+        tab._build_tabs_settings(ttk.Frame(root))
+
+        assert hidden not in tab._tab_vars, "a tab that cannot appear got a box"
+        assert tab._tab_hidden.get(hidden) is True, tab._tab_hidden
+
+        tab._tab_vars["rally"].set(False)      # any ordinary change writes the block
+        tab._save_tab_choice()
+        assert hidden in saved["tabs"]["enabled"], saved["tabs"]
+        assert "rally" not in saved["tabs"]["enabled"], saved["tabs"]
+        # …still hidden while the mode is off, and back the moment it is on.
+        off = [s.id for s in tabsreg.resolve(enabled=saved["tabs"]["enabled"],
+                                             known=saved["tabs"]["known"])]
+        assert hidden not in off, off
+        on = [s.id for s in tabsreg.resolve(
+            enabled=saved["tabs"]["enabled"] + ["develop"],
+            known=saved["tabs"]["known"])]
+        assert hidden in on, on
     finally:
         root.destroy()
 

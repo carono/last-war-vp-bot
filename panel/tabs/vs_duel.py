@@ -486,6 +486,10 @@ class VsDuelTab(PanelTab):
     ID = "vs_duel"
     TITLE_KEY = "tab.vs_duel"
     ORDER = 330
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     LOCALE_NS = ("vsduel",)
     # Nothing is played from here yet, so the tab costs a profile nothing to switch on.
     NEEDS = frozenset()

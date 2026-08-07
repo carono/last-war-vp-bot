@@ -1247,6 +1247,10 @@ class CommandPostTab(PanelTab):
     ID = "command_post"
     TITLE_KEY = "tab.command_post"
     ORDER = 320
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     PREFERRED_SIZE = "900x700"
     LOCALE_NS = ("cmdpost", "ghost")
     NEEDS = frozenset({"daemon", "children"})

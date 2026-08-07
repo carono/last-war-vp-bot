@@ -76,6 +76,10 @@ class ChatTab(PanelTab):
     ID = "chat"
     TITLE_KEY = "tab.chat"
     ORDER = 50
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     PREFERRED_SIZE = "1000x760"
     LOCALE_NS = ("chat",)
     NEEDS = frozenset({"daemon", "children"})

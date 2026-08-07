@@ -21,6 +21,10 @@ class AllianceTab(DataTab):
     ID = "alliance"
     TITLE_KEY = "tab.alliance"
     ORDER = 200
+    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
+    #: comes off when this tab's abilities are proven live and said so in
+    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
+    IN_DEVELOPMENT = True
     LOCALE_NS = ('alliance', 'tabx')
 
     COLUMNS = ("alliance.col.name", "alliance.col.level", "alliance.col.power",

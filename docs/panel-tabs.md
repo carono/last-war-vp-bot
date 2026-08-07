@@ -68,6 +68,7 @@ All of these are class attributes with defaults, so declare only what is true.
 | `TITLE_KEY` | Locale key of the tab's label. **Must equal the registry's** — the notebook labels a tab before building it, and the contract test pins the two together. | Always; keep it `tab.<ID>`. |
 | `ORDER` | Where it sits. Existing tabs are spaced by tens, so there is room between any two. | Always. |
 | `DEFAULT_ENABLED` | Is it in a fresh profile's list. `False` for something most people never use — `develop` is the example. | Rarely. |
+| `IN_DEVELOPMENT` | Is the tab still being written? Hidden entirely unless «Разработка» is on. Set the matching `in_development=True` on its registry entry too. | While it is unfinished — see below. |
 | `PREFERRED_SIZE` | The standalone window's default geometry. | If `760x600` is wrong for it. |
 | `LOCALE_NS` | The locale prefixes this tab owns. | Always — it is what keeps the locale files reviewable. |
 | `NEEDS` | `"daemon"` / `"children"` / `"actions"` / `"schedule"`. Shown beside the tab on the «Вкладки» page, so a person can see what switching it on costs. | Always. |
@@ -91,6 +92,48 @@ controls which tabs are on for every profile at once is the `default` profile's
 own Settings page — tick a tab there and every profile that never ticked it for
 itself picks it up on its next start. A profile that DOES want to differ (its own
 tick list) keeps overriding the default exactly as before.
+
+---
+
+## A tab that is still being written
+
+`IN_DEVELOPMENT = True` — plus `in_development=True` on the registry entry — means **this
+tab is not finished, so nobody sees it** (#1273). It is not in the notebook, it is not
+built, it draws nothing, offers no trigger, starts no capture and hands the phone no
+screen. It is not even on «Настройки → Вкладки»: a box for a tab that cannot appear
+whatever it says is a control that does nothing and explains nothing, so the page carries
+one line saying where those tabs went instead.
+
+**Development mode is «Разработка» being switched on, and nothing else**
+(`panel.tabs.DEV_TAB`). There is no second checkbox on purpose. That tab already means
+«this profile is for working on the bot» — it ships off, and it holds the sniffers and
+the `actions/*.md` list — so a person who has ticked it has already answered the only
+question a switch of its own would ask. Two switches would be two answers to one
+question, with nothing to settle it the first time they disagreed; this way the mode
+lives in the same list that shows what it unhides.
+
+**The mark hides; it never edits.** The profile's tick list is carried through
+untouched and so is the tab's settings block (`tabs.config.<ID>`), so a profile that had
+the tab switched on before the mark went on loses nothing — the tab simply stops being
+built, and comes back with its settings the moment the mode is on or the mark comes off.
+A hidden tab is also kept OUT of `tabs.known`, because «offered and declined» is what
+`resolve` uses to tell a tab somebody unticked from one that did not exist yet, and a
+tab that was never on the page can honestly claim neither.
+
+**Where it goes.** On the class, beside `DEFAULT_ENABLED` and `WEB_SCREEN`, and on the
+registry entry — the registry has to answer before anything is imported, exactly as it
+does for `aggregates`. `tests/test_panel_tab_contract.py` pins the two to each other and
+fails if one is changed without the other, so the mark cannot be half-removed.
+
+**When it comes off.** When the tab's abilities have been proven in the LIVE game and
+said so in `docs/farming.md` / `docs/farming.ru.md` — that confirmation is the whole
+definition, the same one `CLAUDE.md` uses for calling any ability done. Take both
+declarations off in one commit; `DEFAULT_ENABLED` then decides what happens next, and
+every profile that never unticked the tab has it on the following start.
+
+Nothing about this reaches the phone as a control: the mark is set in code and the page
+that lists tabs lives on «Настройки», which is one of the three tabs with no web screen
+at all, so there is nothing to mirror.
 
 ---
 

@@ -530,6 +530,7 @@
   "settings.tab.general": "Umum",
   "settings.tab.tabs": "Tab",
   "settings.tabs.hint": "Tab mana yang ditampilkan profil ini. Tab yang dimatikan tidak dibangun sama sekali: tidak ada kendali, tidak ada halaman setelannya sendiri, tidak ada pemicu yang ditawarkan, dan tak satu pun penangkapan atau penjaganya dijalankan — «Tugas Rahasia» yang mati berarti satu penangkapan dan dua utas penjaga yang tak pernah jalan. Jika tak disentuh di sini, sebuah tab mengikuti pilihan profil BAWAAN sendiri — ubah di sana untuk menjangkau setiap profil yang belum pernah mengaturnya sendiri. Kolom di sebelahnya menyebutkan apa yang dinyalakan masing-masing saat hidup.",
+  "settings.tabs.in_development": "Beberapa tab masih ditulis dan tidak ada di daftar ini: mereka muncul hanya selama «Pengembangan» dinyalakan. Sementara itu tidak ada yang hilang — setelannya tersimpan dan kembali bersamanya pada hari pengerjaannya selesai.",
   "settings.tabs.restart": "Tersimpan. Daftarnya berlaku pada panel yang dimulai berikutnya — sebuah tab menyalakan perintah tetapnya sendiri saat dibangun, dan membongkarnya sambil terbang bukan hal yang sama.",
   "standalone.started": "{tab} — jendela tersendiri, profil «{profile}»",
   "splash.daemon": "Menyambung ke daemon…",
