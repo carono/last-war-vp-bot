@@ -100,11 +100,22 @@ def join_gate(rt):
     return [rallylimitsmod.UNKNOWN_TYPE]
 
 
-def record_joins(rt, types) -> None:
-    """Count one join per eligible rally type, persisted for today."""
+def record_joins(rt, types, did: int = 1) -> None:
+    """Count what the run actually JOINED, persisted for today.
+
+    ``did`` is the run's own `joined` — squads standing in a rally that were not before
+    it. Nothing is written for a run that joined nothing, which is most of them: a rally
+    announces itself on the wire every few seconds and the trigger fires on each. Until
+    #1281 the gate answered by reading the game, so it only ever said «yes» when a rally
+    was out; now that it answers from this file, counting the RUN instead of the JOIN
+    would spend a day's budget on a quiet map in an afternoon.
+    """
+    if did <= 0 or not types:
+        return
     path = rt.profiles.rally_counts_json()
     counts = rallylimitsmod.load_counts(path)
-    for key in types:
+    key = types[0]
+    for _ in range(did):
         counts = counts.record(key)
     rallylimitsmod.save_counts(counts, path)
 

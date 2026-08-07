@@ -132,6 +132,12 @@ class Schedule:
         it entirely) or a list of whatever ``record`` is to be told about afterwards.
         The rally auto-join's daily cap is the one user; the rule lives with the rally
         code and only the wiring is here.
+
+        ``record(spent, did)`` is told how many times the errand actually DID the thing
+        it is budgeted for — the run's own `joined` variable — and not merely that it
+        ran. The two used to be the same because the gate could only answer for a run it
+        had already read the game for; now that it answers from a file, a quiet push
+        would spend a day's budget on a run that joined nothing (#1281).
         """
         self._gates[name] = (gate, record)
 
@@ -308,12 +314,26 @@ class Schedule:
                     raise RuntimeError(
                         reason or self.rt.t("timers.log.step_failed", step=step))
             if spent and record is not None:
-                record(spent)
+                record(spent, self._did(ctx))
             return True
         finally:
             self._note_presses(ctx)
             self.rt.game.release()
             self.rt.game.on_settled()
+
+    @staticmethod
+    def _did(ctx) -> int:
+        """How many times the run did the thing its budget is counted in.
+
+        The recipe's own `joined` — the number of our squads standing in a rally that
+        were not before it, which is the only honest count of a join (#1237). Absent on
+        every path that sent nothing, and that is exactly the answer wanted there: a
+        push over a quiet map must not spend a day's rallies.
+        """
+        try:
+            return max(0, int(float(getattr(ctx, "vars", {}).get("joined", 0) or 0)))
+        except (TypeError, ValueError):
+            return 0
 
     def _note_presses(self, ctx) -> None:
         """Tell the recovery whether this errand pressed anything at all.

@@ -193,10 +193,29 @@ def test_the_gate_returns_the_type_still_under_its_cap():
         assert rt.said == []
 
 
+def test_a_run_that_joined_nothing_spends_none_of_the_day():
+    """The budget counts JOINS, not runs (#1281).
+
+    A rally re-announces itself on the wire every few seconds and the trigger fires on
+    each; most of those runs find nothing to do. The gate used to read the game and so
+    could only say «yes» when a rally was actually out — now that it answers from the
+    counts file, counting the run would empty a day's budget over a quiet map.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 5}))
+        gate.record_joins(rt, [rl.UNKNOWN_TYPE], 0)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for(rl.UNKNOWN_TYPE) == 0, counts
+        # …and a run that joined TWO rallies in one press costs two.
+        gate.record_joins(rt, [rl.UNKNOWN_TYPE], 2)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for(rl.UNKNOWN_TYPE) == 2, counts
+
+
 def test_the_gate_refuses_the_whole_join_once_every_type_is_capped():
     with tempfile.TemporaryDirectory() as td:
         rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 1}))
-        gate.record_joins(rt, ["monster"])                       # today's one is spent
+        gate.record_joins(rt, ["monster"], 1)                    # today's one is spent
         assert gate.join_gate(rt) == []
         assert rt.said == ["triggers.log.rally_capped"], rt.said
         # …and the count landed in the profile's own file, not merely in memory.

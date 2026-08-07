@@ -1089,7 +1089,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._schedule.register_gate(
             "rally_auto_join",
             self._bound(lambda rt=self._rt: rallygate.join_gate(rt)),
-            self._bound(lambda spent, rt=self._rt: rallygate.record_joins(rt, spent)))
+            self._bound(lambda spent, did, rt=self._rt:
+                        rallygate.record_joins(rt, spent, did)))
         self._schedule.register_args("rally_auto_join",
                                      self._bound(self._rally_join_args))
         self._build_ui(page, staged=staged,
