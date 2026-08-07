@@ -306,6 +306,7 @@
   "log.secret.started_move_map": "bản bắt đang chạy (pid {pid}); đầu ra của nó đi vào nhật ký — hãy kéo bản đồ hoặc bấm «Quét bản đồ», nếu không sẽ chẳng có lưu lượng",
   "log.secret.starting": "đang khởi động bản bắt: {script} …",
   "log.secret.state_done": "đã đọc lại trạng thái: kiểm tra {checked}, cập nhật {updated}, biến mất {gone}, chưa xác nhận {unconfirmed}",
+  "log.secret.state_none": "không có gì để đọc lại — danh sách trống",
   "log.secret.stopped": "đã dừng trình theo dõi",
   "log.select_all": "Chọn tất cả",
   "log.server.current": "máy chủ hiện tại: {srv}",

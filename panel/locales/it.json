@@ -306,6 +306,7 @@
   "log.secret.started_move_map": "la cattura è in funzione (pid {pid}); la sua uscita va nel registro — muovi la mappa o premi «Percorrere la mappa», altrimenti non ci sarà traffico",
   "log.secret.starting": "avvio della cattura: {script} …",
   "log.secret.state_done": "stato riletto: {checked} controllate, {updated} aggiornate, {gone} sparite, {unconfirmed} non confermate",
+  "log.secret.state_none": "niente da rileggere — l'elenco è vuoto",
   "log.secret.stopped": "monitor fermato",
   "log.select_all": "Seleziona tutto",
   "log.server.current": "server attuale: {srv}",

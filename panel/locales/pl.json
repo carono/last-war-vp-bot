@@ -306,6 +306,7 @@
   "log.secret.started_move_map": "przechwytywanie działa (pid {pid}); jego wyjście idzie do dziennika — porusz mapą albo naciśnij «Objedź mapę», bo inaczej nie będzie ruchu",
   "log.secret.starting": "uruchamiam przechwytywanie: {script} …",
   "log.secret.state_done": "stan odczytany ponownie: sprawdzono {checked}, zaktualizowano {updated}, zniknęło {gone}, niepotwierdzone {unconfirmed}",
+  "log.secret.state_none": "nie ma czego odczytać ponownie — lista jest pusta",
   "log.secret.stopped": "monitor zatrzymany",
   "log.select_all": "Zaznacz wszystko",
   "log.server.current": "bieżący serwer: {srv}",

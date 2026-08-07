@@ -306,6 +306,7 @@
   "log.secret.started_move_map": "la captura está en marcha (pid {pid}); su salida va al registro — mueve el mapa o pulsa «Recorrer el mapa», o no habrá tráfico",
   "log.secret.starting": "arrancando la captura: {script} …",
   "log.secret.state_done": "estado releído: {checked} comprobadas, {updated} actualizadas, {gone} desaparecidas, {unconfirmed} sin confirmar",
+  "log.secret.state_none": "nada que releer: la lista está vacía",
   "log.secret.stopped": "monitor detenido",
   "log.select_all": "Seleccionar todo",
   "log.server.current": "servidor actual: {srv}",
