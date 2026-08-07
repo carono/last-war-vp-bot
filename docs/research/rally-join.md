@@ -440,3 +440,84 @@ the message and did NOT end in a march, where three unhooked runs did. The hooks
 obvious suspect — they replace three xLua-bound statics for the length of the press — but
 that is a suspicion, not a measurement, and anyone repeating this should count first and
 judge the join on a clean run.
+
+## Why the auto-join still missed banners, measured end to end (#1281)
+
+The join itself worked. What did not was everything around it — and none of the four
+causes below is visible from inside the recipe, which is why «пытается, эффекта ноль»
+survived three tasks.
+
+### 1. The recipe took eight readings before it sent anything
+
+`tools/dev/rally_latency.py` walks the readings the old `join_rally.md` made, in its
+order, against the live client and times each. Two rounds, taken while the panel was
+doing its ordinary background work:
+
+```
+rally_monitor read        11500 ms      16406 ms
+squads sieve              13422 ms      17204 ms
+free_squads               10328 ms      18296 ms
+rallies_out               12719 ms      13360 ms
+before-count              15031 ms      12422 ms
+armed?                    19156 ms      10875 ms
+soldiers                  19000 ms      11640 ms
+TOTAL before the send    101156 ms     100203 ms
+```
+
+**A hundred seconds to the send, twice over.** The client was not the problem: measured
+in the same session, `tools/dev/call_latency.py` reported a frame time of 16.9 ms (59
+fps) with a reaction of 4.2 s p50 — 227 client frames spent waiting for a chunk to be
+delivered. Nor is the floor anything like that: with the daemon free the same call is
+**0.14 s**. What varies by two orders of magnitude is how much else is queued in front of
+it, because `lua_daemon.Daemon.run` serialises every chunk behind one lock and holds it
+across the settle (`docs/research/architecture-audit.md` §1.1).
+
+So the number of CALLS is the only part of this the ability controls, and it is the part
+that was wrong. `lua_actions.rally_join_all` does the sieve, the pairing and the send in
+one chunk; the recipe parks its argument in another. Measured back to back on the same
+client, in the same minute, with a rally out:
+
+```
+OLD to the send: 5.48 s (7 calls)      # the daemon happened to be quiet
+NEW to the send: 0.19 s (2 calls)
+```
+
+### 2. One run joined ONE rally, and the second push was coalesced away
+
+The old recipe armed one rally, sent one squad and stopped. A second banner going up
+while that run was in flight fired the trigger again — and `TimerScheduler.submit`
+dropped it, because an errand of the same name was already claimed. Two banners in a
+minute were one join at best. The chunk now pairs every free squad with a different
+banner in one pass, and a fire that lands mid-run is re-armed rather than dropped.
+
+### 3. The daily-cap gate cost a whole game call, in front of the join
+
+`panel/tabs/rally/limits.py::join_gate` read the march table through the VM
+(`settle=0.8`) before the recipe was allowed to start — to be told the constant the
+module already knew, since no rally classification is confirmed live and every rally came
+back as the fallback type. It answers from the counts file now.
+
+### 4. A fire was announced, a run was not
+
+`TriggerWatcher._fire` logged «пришло push.alliance.march — запускаю сценарий» BEFORE
+submitting, and discarded what submit answered. On 2026-08-07 one profile logged that
+line **10 035 times and ran the scenario not once**: its client was down, the schedule's
+gate refused every one of them, and the refusal — «жду запуска игры» — is said once per
+stretch and names no errand. Thirty-one lines for ten thousand skips, none of them
+attached to a rally.
+
+That profile heard those pushes at all because a capture cannot separate two accounts by
+port and falls back to the whole machine when it cannot resolve the client's pids
+(`panel/runtime/wire.py`) — with the client down, there are no pids, so it was firing off
+ANOTHER account's alliance. Worth knowing when reading a log: a profile with no client
+still hears everything.
+
+### What a squad screen is still for
+
+The one thing the headless send cannot do is fill a squad standing EMPTY from the base's
+pool — the client refuses a squad with no soldiers before a byte leaves. That is not the
+march, so it is no longer on the march's path: `join_rally.md` sends for every squad that
+has an army first, and only a run that sent nothing at all calls
+`join_rally_via_screen.md`. On the account this was measured against, all three
+formations read `totalSoldierNum = 0` with `state = 0` and `IsFree() = true`, so that
+path is not hypothetical — dropping it would have dropped the ability.

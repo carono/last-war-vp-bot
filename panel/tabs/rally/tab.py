@@ -145,6 +145,10 @@ class RallyTab(PanelTab):
         # teamUuids already alerted on this session. A rally emits create AND refresh
         # events, and an alert per event would ring four times for one стяг.
         self._seen: set = set()
+        # …and what the JOIN has tried, per teamUuid: `(attempts, last-attempt)`. Kept
+        # apart from `_seen` because they answer different questions — one banner is one
+        # bell, but one banner may well be worth a second attempt at joining (#1281).
+        self._join_at: dict = {}
         self._kind_var = tk.StringVar(master=master, value=RALLY_KIND_ELITE)
         # The box and the quick-pick buttons share this one variable: each button is a
         # radio whose value is its level, so pressing it writes the number into the box,
@@ -843,15 +847,46 @@ class RallyTab(PanelTab):
         if "team=" not in clean:
             return False                  # a solo march, or a progress line
         team = clean.split("team=")[1].split()[0].strip()
-        if not team or team in self._seen:
+        if not team:
             return False
+        # THE BELL IS ONE PER BANNER; THE JOIN IS NOT (#1281). `_seen` used to gate both,
+        # and it was marked HERE — before the join had been tried — so a join the game
+        # was too busy to start, or one every squad was out for, was never tried again
+        # for that banner. That is one of the ways a rally went by with nothing said.
+        #
+        # So the mark now covers what it is honestly about: the ALERT. A banner
+        # re-announces itself on the wire every few seconds and nobody wants the bell
+        # each time. The JOIN gets its own, bounded, retry — see `_may_join_again`.
+        fresh = team not in self._seen
         self._seen.add(team)
-        if self._alert_var.get():
+        if fresh and self._alert_var.get():
             self.say("rally", "rally.alert.fired", team=team)
             self._bell()
-        if self._autojoin_var.get():
+        if self._autojoin_var.get() and self._may_join_again(team):
             self._after(self.join_now)
         return False                      # already logged above
+
+    #: How long after an attempt at one banner the next may be made, and how many
+    #: attempts a banner is worth. A rally re-announces itself every few seconds; joining
+    #: on every push would be a press per push, and giving up after the first would be
+    #: the bug this replaces. The recipe refuses a rally we are already in by itself, so
+    #: a wasted retry costs two calls and says «nothing to join».
+    JOIN_RETRY_SEC = 12.0
+    JOIN_TRIES = 3
+
+    def _may_join_again(self, team: str) -> bool:
+        """May the auto-join have another go at ``team`` right now?
+
+        Called from the capture's reader thread, which is the only writer of `_join_at`.
+        """
+        import time as _time
+
+        tried, last = self._join_at.get(team, (0, 0.0))
+        now = _time.monotonic()
+        if tried >= self.JOIN_TRIES or now - last < self.JOIN_RETRY_SEC:
+            return False
+        self._join_at[team] = (tried + 1, now)
+        return True
 
     def join_now(self) -> None:
         """Join the rallies that are out, with the squads the settings page allows.

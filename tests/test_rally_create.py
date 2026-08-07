@@ -238,12 +238,27 @@ def test_an_idle_flag_that_will_not_answer_is_unknown_and_not_busy():
     Checked as TEXT because the only thing that can run the fix is the game's own Lua VM,
     and this file deliberately needs no game. It is the shape that matters: a `pcall`
     whose success is captured, not one whose failure is silently a «no».
+
+    THE LUA A RECIPE RUNS IS NOT ONLY THE LUA IN THE RECIPE. `join_rally.md` kept its
+    sieve inline until #1281 and now presses one button that carries the whole of it —
+    which is the point of that change, and would have quietly disarmed this test if it
+    went on reading the file alone. So the text under examination is what the recipe
+    RUNS: its own `LUA` / `READ_LUA` lines plus the chunk behind every button it taps.
     """
+    import game_buttons                              # noqa: PLC0415 — Lua text only
+
     for name in ("create_rally", "join_rally"):
         path = _REPO / "src" / "lastwar_bot" / "actions" / f"{name}.md"
         text = path.read_text(encoding="utf-8")
-        lua = "\n".join(line for line in text.splitlines()
-                        if line.startswith(("LUA ", "READ_LUA ")))
+        parts = [line for line in text.splitlines()
+                 if line.startswith(("LUA ", "READ_LUA "))]
+        for line in text.splitlines():
+            if not line.startswith("TAP "):
+                continue
+            button = game_buttons.BUTTONS.get(line.split()[1])
+            if button is not None:
+                parts.append(button.lua or "")
+        lua = "\n".join(parts)
         assert "IsFree" in lua, f"{name}: no idle-flag reading left to guard"
         assert "local free = false pcall(" not in lua, (
             f"{name}: `IsFree()` is back inside a pcall whose failure reads as busy — "

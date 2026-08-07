@@ -566,29 +566,43 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         root.destroy()
 
 
-def test_the_join_recipe_tells_an_empty_list_from_squads_that_are_all_out():
-    """Two empty answers, two sentences — the reading alone cannot tell them apart.
+def test_the_join_names_every_squad_and_rally_it_passed_over():
+    """No squad is left behind without a word for why (#1281).
 
-    Nobody ticked a squad and every ticked squad is marching both leave the sieve empty,
-    and for weeks the auto-join blamed the second for the first (#1237). The count that
-    arrived is kept in the game VM so ONE reading answers both: -1 for «none ticked».
+    «Тихо не поехали» is the fault this pins. Nobody ticked a squad, every ticked squad
+    is marching, and a ticked squad standing at home with no soldiers all used to leave
+    the same empty sieve, and the auto-join blamed whichever it happened to check first
+    (#1237). Each has its own word now, written by the chunk that does the sieving, and
+    the recipe reads the whole sentence back and logs it — so a run that joined nothing
+    always says which of them it was.
+
+    Read off the Lua rather than the recipe because the sieve moved INTO the one press
+    the recipe makes: eight readings before the send cost 100 s on a live client, which
+    is longer than the banner they were about.
     """
+    import importlib
+
     from lastwar_bot import script_engine as se
 
+    la = importlib.import_module("lib.lua_actions")
+    chunk = la.rally_join_all()
+    for word in ("':out'", "':empty'", "':no-formation'"):
+        assert word in chunk, f"no word for a squad passed over: {word}"
+    assert "no rally of this alliance is out" in chunk, chunk[-600:]
+    assert "not one of the chosen squads can be sent" in chunk, chunk[-600:]
+    assert "more rallies than squads" in chunk, chunk[-600:]
+    assert "__lw_rally_report" in chunk
+
+    # …and the recipe reads that sentence back and puts it in the log, every run.
     src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
         encoding="utf-8")
     body, _ = se.prepare_source(src, {"squads": []})
     stmts = se.parse_text(body)
-    fails = {stmt.condition: stmt.then_block[0].reason
-             for stmt in stmts if isinstance(stmt, se.IfStmt)
-             and stmt.then_block and isinstance(stmt.then_block[0], se.FailStmt)}
-    assert "free_squads == -1" in fails, fails
-    assert "free_squads == 0" in fails, fails
-    assert fails["free_squads == -1"] != fails["free_squads == 0"], fails
-    # …and it costs no extra round trip for THAT question: one reading answers both.
-    sentinel = [s for s in stmts if isinstance(s, se.ReadLuaStmt)
-                and "__lw_rally_want" in s.text]
-    assert len(sentinel) == 1, [s.text[:60] for s in stmts]
+    reads = [s for s in stmts if isinstance(s, se.ReadLuaStmt)]
+    assert any(s.var == "report" and "__lw_rally_report" in s.text for s in reads), \
+        [s.var for s in reads]
+    assert any(isinstance(s, se.LogStmt) and "{report}" in s.text for s in stmts), \
+        [type(s).__name__ for s in stmts]
 
 
 # ---------------------------------------------------------------------------
@@ -646,29 +660,28 @@ def test_the_join_counts_what_it_achieved_instead_of_reporting_ok():
     stmts = se.parse_text(body)
 
     reads = [s for s in stmts if isinstance(s, se.ReadLuaStmt)]
-    assert any(s.var == "rallies_out" for s in reads), [s.var for s in reads]
     assert any(s.var == "joined" for s in reads), [s.var for s in reads]
+    assert any(s.var == "todo" for s in reads), [s.var for s in reads]
 
-    # Nothing out is a deliberate SUCCESS — a trigger firing on every march must not
-    # log a failure for an ordinary quiet minute.
+    # Nothing SENT is a deliberate success — a trigger firing on every alliance march
+    # must not log a failure for an ordinary quiet minute, and the chunk has already
+    # said in words which quiet minute it was.
     quiet = [s for s in stmts if isinstance(s, se.IfStmt)
-             and s.condition == "rallies_out == 0"][0]
+             and s.condition == "todo == 0"][0]
     kinds = [type(x).__name__ for x in quiet.then_block]
     assert "StopStmt" in kinds and "FailStmt" not in kinds, kinds
 
-    # …and a press that achieved nothing is a FAILURE, so the auto-join tries again.
-    nothing = [s for s in stmts if isinstance(s, se.IfStmt)
-               and s.condition == "joined < 1"][0]
-    assert [type(x).__name__ for x in nothing.then_block] == ["FailStmt"], nothing
+    # …while a send that achieved nothing IS a failure: that is the client's link, not
+    # a quiet map, and it is the one ending worth waking somebody for.
+    fails = [s for s in stmts if isinstance(s, se.FailStmt)]
+    assert len(fails) == 1, [f.reason for f in fails]
 
     # The count is read AFTER the press, or it would be measuring the wrong moment.
-    order = [i for i, s in enumerate(stmts)]
     tap = [i for i, s in enumerate(stmts)
-           if isinstance(s, se.TapStmt) and s.name == "rally_join_launch"][0]
+           if isinstance(s, se.TapStmt) and s.name == "rally_join_all"][0]
     after = [i for i, s in enumerate(stmts)
              if isinstance(s, se.ReadLuaStmt) and s.var == "joined"][0]
     assert after > tap, f"the verdict is read before the press ({after} < {tap})"
-    assert order
 
 
 def test_a_busy_game_makes_the_join_wait_rather_than_drop_the_rally():
@@ -719,16 +732,18 @@ def test_a_busy_game_makes_the_join_wait_rather_than_drop_the_rally():
         root.destroy()
 
 
-def test_the_join_tries_the_screenless_send_before_it_opens_anything():
-    """The squad screen is the FALLBACK, not the route (#1238).
+def test_the_join_opens_nothing_and_reaches_the_send_in_two_calls():
+    """No window at any point, and as little as possible in front of the send (#1281).
 
-    It adds nothing to the message — the send builds that out of the squad — so the join
-    is one press whenever the squad has soldiers in it. The screen earns its place on the
-    one case the send cannot cover: a squad standing empty, which the client refuses to
-    send before a byte leaves.
+    The screen was the fallback for a squad standing EMPTY, and it cost four more
+    presses. The person asked for a march with no windows, and the measurement agrees:
+    a call into the game VM was 1.3 s at best and 10–19 s under the panel's ordinary
+    load, so four presses spent filling one squad are four presses the next banner pays
+    for. An empty squad is now reported as `empty` and left at home.
 
-    Pinned because the order is the whole saving: a run that opens the screen first pays
-    four presses and a couple of seconds for a rally that lasts one minute.
+    THE TWO CALLS ARE THE ACCEPTANCE CRITERION, so they are pinned rather than described:
+    park the argument, then press. The version this replaced took EIGHT readings before
+    it sent anything — measured at 100 s to the send on a live client, twice over.
     """
     from lastwar_bot import script_engine as se
 
@@ -737,22 +752,32 @@ def test_the_join_tries_the_screenless_send_before_it_opens_anything():
     body, _ = se.prepare_source(src, {"squads": [1]})
     stmts = se.parse_text(body)
 
-    gate = [s for s in stmts if isinstance(s, se.IfStmt) and s.condition == "soldiers > 0"]
-    assert gate, "the screenless send is not gated on the squad having soldiers"
-    inner = [type(x).__name__ for x in gate[0].then_block]
-    assert "TapStmt" in inner, inner
-    assert gate[0].then_block[0].name == "rally_join_send", gate[0].then_block[0]
+    press = [i for i, s in enumerate(stmts)
+             if isinstance(s, se.TapStmt) and s.name == "rally_join_all"]
+    assert len(press) == 1, [type(s).__name__ for s in stmts]
 
-    # …and it happens BEFORE the screen is opened, or it is not a fast path at all.
-    send = stmts.index(gate[0])
-    opens = [i for i, s in enumerate(stmts)
-             if isinstance(s, se.TapStmt) and s.name == "rally_join_open"]
-    assert opens and send < opens[0], (send, opens)
+    # Nothing that reaches the game stands in front of it but the one park.
+    before = [s for s in stmts[:press[0]]
+              if isinstance(s, (se.TapStmt, se.LuaStmt, se.ReadLuaStmt))]
+    assert len(before) == 1, [type(s).__name__ for s in before]
+    assert isinstance(before[0], se.LuaStmt) and "__lw_rally_squads" in before[0].chunk
 
-    # A late send must not cost a second squad: the fallback asks the map first.
-    guard = [s for s in gate[0].then_block
-             if isinstance(s, se.ReadLuaStmt) and s.var == "already_in"]
-    assert guard, "nothing checks whether the send landed late before opening the screen"
+    # …and no screen is opened by this recipe at all. The one thing a window still does
+    # is fill a squad standing EMPTY from the base's pool, which is not the march — so it
+    # lives in its own file and is reached only down the branch where NOTHING could be
+    # sent, after every squad that had an army has already gone.
+    windows = [s.name for s in stmts if isinstance(s, se.TapStmt)
+               and s.name in ("rally_join_open", "rally_join_squad",
+                              "rally_join_launch", "close")]
+    assert windows == [], windows
+
+    branch = [s for s in stmts if isinstance(s, se.IfStmt) and s.condition == "todo < 0"]
+    assert branch, [getattr(s, "condition", None) for s in stmts]
+    calls = [x.action_name for x in branch[0].then_block
+             if type(x).__name__ == "CallStmt"]
+    assert calls == ["join_rally_via_screen"], calls
+    assert not [s for s in stmts if type(s).__name__ == "CallStmt"], \
+        "the screen path is reachable outside the «nothing could be sent» branch"
 
 
 def test_the_arm_prefers_a_squad_that_can_actually_be_sent():

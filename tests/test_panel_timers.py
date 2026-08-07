@@ -1097,6 +1097,88 @@ def test_a_row_can_be_added_renamed_and_deleted():
     assert settled.by_name("morning").enabled is False
 
 
+class _Errand:
+    """The least a trigger's errand is: a name and a scenario (panel/triggers.py)."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.scenario = ("noop",)
+        self.args: dict = {}
+
+
+def test_a_fire_that_lands_mid_run_is_re_armed_rather_than_dropped():
+    """A second banner raised while the first is being joined must not be lost (#1281).
+
+    `submit` coalesces a burst to one press, which is right for a fire that arrives
+    while the errand is still WAITING — that run has read nothing yet and will see
+    whatever the new push was about. It is wrong for one that arrives while the errand
+    is RUNNING: that run has already read the map and cannot know. It used to be dropped
+    all the same, and the panel's log said «запускаю сценарий» over it.
+    """
+    runs: list = []
+    errand = _Errand("rally_auto_join")
+    sched = timersmod.TimerScheduler(
+        store=_store(Path(tempfile.mkdtemp())),
+        catalogue=lambda: timersmod.default_catalogue(),
+        config=lambda: {}, log=lambda key, **fmt: None,
+        runner=lambda timer: (runs.append(timer.name), True)[1])
+
+    # Waiting, not running: the second fire rides on the first.
+    assert sched.submit(errand) == "queued"
+    assert sched.submit(errand) == "waiting"
+
+    # …and one that lands mid-run is marked, and runs again the moment the first lets
+    # go — under the SAME claim, so nothing else can line it up twice in between.
+    def runner(timer):
+        runs.append(timer.name)
+        if len(runs) == 1:                     # the push that lands mid-run
+            assert sched.submit(errand) == "refired"
+        return True
+
+    sched._runner = runner
+    assert sched.drain() == [errand.name, errand.name], runs
+    assert runs == [errand.name, errand.name], runs
+    assert sched.pending() == set(), sched.pending()
+
+
+def test_a_skip_says_which_errand_and_why_and_rolls_up_when_it_repeats():
+    """«Тихо не поехали» is the fault; a log full of one line is the other one (#1281).
+
+    A profile whose client was down heard 10 035 rally pushes in a day and its log
+    carried 31 lines about it, none of them naming the errand they had refused. So the
+    first skip is said at once, the same reason repeats at most once a minute, and the
+    line carries how many piled up in between.
+    """
+    said: list = []
+    sched = timersmod.TimerScheduler(
+        store=_store(Path(tempfile.mkdtemp())),
+        catalogue=lambda: timersmod.default_catalogue(),
+        config=lambda: {}, runner=lambda timer: True,
+        log=lambda key, **fmt: said.append((key, fmt)))
+
+    assert sched.note_skip("rally_auto_join", "timers.log.skip_game") is True
+    assert said[0][0] == "timers.log.skipped_once"
+    assert said[0][1]["name"] == "rally_auto_join"
+    # …and the reason travels INSIDE the line rather than as a line of its own, which
+    # is how «жду запуска игры» floated free of the errand it was about.
+    assert said[0][1]["reason"] == "timers.log.skip_game"
+
+    for _ in range(200):                       # the flood
+        sched.note_skip("rally_auto_join", "timers.log.skip_game")
+    assert len(said) == 1, said                # …costs nothing more, for now
+
+    sched._skips["rally_auto_join"][2] -= timersmod.SKIP_NOTE_SEC + 1
+    assert sched.note_skip("rally_auto_join", "timers.log.skip_game") is True
+    assert said[1][0] == "timers.log.skipped_times"
+    # 200 that were swallowed plus the one that finally got to speak: the number is
+    # «skips since the last line», so nothing is lost between two lines.
+    assert said[1][1]["count"] == 201, said[1]
+
+    # A DIFFERENT reason is news and is said at once, however recently the other was.
+    assert sched.note_skip("rally_auto_join", "timers.log.no_daemon") is True
+    assert said[2][0] == "timers.log.skipped_once"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

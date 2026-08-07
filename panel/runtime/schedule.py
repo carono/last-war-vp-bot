@@ -93,6 +93,9 @@ class Schedule:
             config=self.timer_config,
             runner=self.run_errand,
             log=lambda key, **fmt: rt.put("[timer] " + rt.t(key, **fmt)),
+            # …and the same words WITHOUT a line around them, for a skip that has to
+            # name its reason inside one sentence (`TimerScheduler.note_skip`).
+            translate=rt.t,
             gate=self.gate,
             debug=rt.dbg("timers"),
         )

@@ -574,9 +574,15 @@ def test_args_reach_conditions_as_variables():
 def test_join_rally_recipe_spends_one_squad_per_rally():
     """actions/join_rally.md: `squads` picks which squads go, one rally each.
 
-    The two things worth pinning: the argument really reaches the parked queue (so
-    `squads=[2,3]` cannot silently send squad 1), and the press is `xall` off a live
-    count — a fixed count would either leave a rally unjoined or send a squad twice.
+    Two things worth pinning: the argument really reaches the parked list (so
+    `squads=[2,3]` cannot silently send squad 1), and the whole ability is ONE press.
+
+    THE PRESS COUNT IS THE ABILITY (#1281). Every step this recipe used to take before
+    it sent anything was a call into the game VM, measured at 1.3 s at best and 10–19 s
+    under the panel's ordinary background load on a live client at 59 fps — eight of them,
+    100 s to the send, for a banner that lives tens of seconds. The sieve, the pick, the
+    pairing and the send are one chunk now (`lua_actions.rally_join_all`), and every
+    rally out is joined in that same chunk rather than one per run.
     """
     import game_buttons as gb
 
@@ -585,41 +591,34 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     src = path.read_text(encoding="utf-8")
 
     body, merged = se.prepare_source(src, {})
-    assert merged["squads"] == [1, 2, 3], "the recipe must default to all three squads"
+    assert merged["squads"] == [1, 2, 3, 4], "the recipe must default to every squad"
     stmts = se.parse_text(body)
-    # The recipe leads with `CALL rally_monitor` — it logs who is in the rallies (the
-    # members and squads) before spending anything (#1130) — then parks the squads,
-    # SIEVES them down to the ones standing in the base (#1222), refuses when none is
-    # left, and then joins ONE rally THROUGH THE GAME'S OWN SCREENS.
-    #
-    # The single `TAP join_rally xall` this used to end with is gone with the direct
-    # send it drove: that message matched the player's own argument for argument and the
-    # server created no march (#1237, docs/research/rally-join.md). The join is made the
-    # way `create_rally.md` makes a raise — open the squad screen, pick, launch — which
-    # is one rally per run rather than one per squad, and the trigger fires again on the
-    # next banner.
-    assert stmts[0].action_name == "rally_monitor"
-    assert "{ 1, 2, 3 }" in stmts[1].chunk, stmts[1].chunk
-    # The sieve is in the recipe rather than in the panel: a squad already out joins
-    # nothing, and the send for it is a silent no-op that looks exactly like a join.
-    assert "IsFree" in stmts[1].chunk and "ArmyFormationList" in stmts[1].chunk, stmts[1].chunk
-    assert stmts[2].var == "free_squads", stmts[2]
-    assert type(stmts[3].then_block[0]).__name__ == "FailStmt", stmts[3]
+    # Park the argument, then press. Nothing else reaches the game before the send —
+    # not the monitor's listing, not a sieve, not a count.
+    assert type(stmts[0]).__name__ == "LuaStmt", type(stmts[0]).__name__
+    assert "{ 1, 2, 3, 4 }" in stmts[0].chunk, stmts[0].chunk
+    assert type(stmts[1]).__name__ == "TapStmt" and stmts[1].name == "rally_join_all"
 
     presses = [s.name for s in stmts if type(s).__name__ == "TapStmt"]
-    assert presses[:1] == ["rally_join_arm"], presses
-    for want in ("rally_join_open", "rally_join_squad", "rally_join_launch"):
-        assert want in presses, presses
-        assert want in gb.BUTTONS, f"{want} is not a button"
+    assert presses == ["rally_join_all"], presses
+    assert "rally_join_all" in gb.BUTTONS, "rally_join_all is not a button"
+
+    # The sieve is in the ability rather than in the panel: a squad already out joins
+    # nothing, and the send for it is a silent no-op that looks exactly like a join.
+    chunk = gb.BUTTONS["rally_join_all"].lua
+    assert "IsFree" in chunk and "ArmyFormationList" in chunk, chunk[:400]
     # …and the rally it goes for is THIS ALLIANCE'S. Another alliance's banner cannot be
     # joined at all — the server refuses it, which is what «invalid end point» was, and
     # the recipe spent weeks pressing at rallies it could never enter.
+    assert "__lw_my_alliance" in chunk
+    # The proof is counted, not assumed: squads in a rally before the press and after.
     reads = {s.var: s.expr for s in stmts if type(s).__name__ == "ReadLuaStmt"}
-    assert "__lw_my_alliance" in reads["rallies_out"], reads["rallies_out"][:200]
-    # The proof is still counted, not assumed: squads in a rally before and after.
+    assert "__lw_rally_before" in chunk, chunk[:800]
     assert "joined" in reads and "__lw_rally_before" in reads["joined"], reads.get("joined")
+    # …and what it left behind is read back and logged, so no run is silent.
+    assert "report" in reads and "__lw_rally_report" in reads["report"], reads.get("report")
 
-    # The parked squads live on the LuaStmt (now the second statement, after CALL).
+    # The parked squads live on the LuaStmt the recipe leads with.
     def _lua_chunk(squads):
         for s in se.parse_text(se.prepare_source(src, {"squads": squads})[0]):
             if type(s).__name__ == "LuaStmt":
@@ -632,14 +631,20 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     # Two squads -> both parked, in the order asked for.
     two = _lua_chunk([2, 3])
     assert "{ 2, 3 }" in two, two
-    # Every run starts by forgetting the previous one's joins, or a second run
-    # would refuse every rally it joined the first time.
-    assert "__lw_rally_joined" in two
+    # The marks of a previous run are PRUNED rather than forgotten: a mark that outlived
+    # its rally reads as «already joined» for ever, and one thrown away too early sends
+    # a second squad to a banner the server has not confirmed yet.
+    assert "__lw_rally_joined" in chunk
 
-    button = gb.get("join_rally")
-    assert button is not None and button.count_lua, "xall needs a count expression"
-    # The count is min(squads left, rallies not already joined) -> a quiet map is a
-    # clean no-op rather than a press that goes nowhere.
+
+def test_the_legacy_join_rally_button_still_counts_its_own_quota():
+    """`TAP join_rally xall` — the one-press-per-squad button `tools/rally_join.py` drives.
+
+    Not what `actions/join_rally.md` plays any more (#1281 made that one press that joins
+    every rally at once), but the shell tool still uses it and the gate is what keeps it
+    from pressing at a quiet map: the count is min(squads left, rallies not already
+    joined), so it stops on its own from either end.
+    """
     ev = FakeEval(rluas=[2, 1, 0])
     _run("TAP join_rally xall", ev)
     assert ev.presses == 2, f"expected two rallies joined, got {ev.presses}"

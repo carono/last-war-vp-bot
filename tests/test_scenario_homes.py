@@ -74,6 +74,12 @@ EXEMPT = {
     # and the person it happens to is not at the machine. A button would be a way to
     # relog for no reason, which the client's own «Перезапустить» already is.
     "recover_from_kick": "a reaction to a kick, not something anybody presses",
+    # Half of `join_rally`, kept in its own file so a reader of that one can see at a
+    # glance that none of it is on the path that catches a banner: it is the four calls
+    # and the window that fill a squad standing EMPTY from the base's pool, reached only
+    # when the headless send had nothing to send with (#1281). Pressing it on its own
+    # would open a squad screen against whatever the last run happened to park.
+    "join_rally_via_screen": "the empty-squad half of join_rally — CALLed, never pressed",
 }
 
 

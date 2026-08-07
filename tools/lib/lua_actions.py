@@ -3270,6 +3270,121 @@ def rally_joined_count() -> str:
             "return n end)()")
 
 
+def rally_join_all() -> str:
+    """Join EVERY rally that can be joined right now — sieve, pair and send, in ONE chunk.
+
+    THE WHOLE ABILITY IN A SINGLE CALL, and the reason is a measurement rather than a
+    taste for short code. A call into the game VM cost **1.3 s at best and 10–19 s under
+    the panel's ordinary background load** on the live client (task #1281,
+    `tools/dev/rally_latency.py`; the client itself was at 59 fps, so none of it is the
+    game's). The recipe this replaces took EIGHT readings before it sent anything —
+    measured at 100 s to the send, twice over — and a banner during an event is gone in
+    a fraction of that. Everything that used to be a reading is now a local variable:
+
+      * which rallies are out that belong to this alliance and we are not already in
+        (`_RALLY_PRELUDE_MINE`);
+      * which of the parked squads are standing at home, idle, and have soldiers;
+      * the pairing, one squad per rally, in the order both arrived;
+      * the send itself, the same `SendCreateMarchMessage` the game's own squad screen
+        ends at (`rally_join_send` — the type is the SECOND argument, #1277);
+      * and the count of our squads standing in rallies BEFORE any of it, so the recipe
+        can prove afterwards that the map moved.
+
+    EVERY SQUAD AND EVERY RALLY LEFT BEHIND IS NAMED. `DataCenter.__lw_rally_report` is
+    a sentence the recipe reads back and logs: how many were sent, how many rallies were
+    out, and one word per squad that was passed over — `out` (marching, gathering,
+    already in a rally), `empty` (no soldiers), `no-formation` (the game knows no squad
+    in that slot) — plus the server's own refusal for a send that threw. «Тихо не
+    поехали» is what this exists to make impossible.
+
+    NOTHING IS OPENED ON SCREEN BY THIS CHUNK, and on the path that catches a banner
+    nothing is opened at all. The march itself never needed a window — that is the whole
+    finding, and it is the same one «Кодовое имя» rests on (#1259): five screens a person
+    walks converge on one send, and the target is addressed by uuid.
+
+    The one thing a window still does is FILL AN EMPTY SQUAD from the base's pool, and
+    the client refuses a squad with no soldiers before a byte leaves. That is not the
+    march, so it is not on the march's path: this chunk reports such a squad as `empty`
+    and sets `__lw_rally_todo = -1`, and the recipe decides — after the fast send has
+    already gone out for every squad that had an army — whether to spend the four extra
+    calls opening the game's own screen for the ones that had not.
+
+    A JOIN IS MARKED THE MOMENT IT IS SENT (`__lw_rally_joined`), because the server
+    takes seconds to answer and two squads landing on one banner is worse than a slow
+    join. The marks are PRUNED first against the rallies actually on the map, so a
+    banner that came down and a banner we failed to join both stop being marked — a mark
+    that outlived its rally is how «joined once, never again» would look.
+    """
+    return (
+        # The marks first, and only the ones whose rally is still out. Before the
+        # prelude, which reads this table to decide what is already ours.
+        "local wm0 = DataCenter.WorldMarchDataManager "
+        "local live = {} local c0 = wm0 and wm0:GetAllMarches() "
+        "if c0 then local e0 = c0:GetEnumerator() while e0:MoveNext() do local m0 = e0.Current "
+        "local ok0, v0 = pcall(function() return m0.Value end) if ok0 and v0 ~= nil then m0 = v0 end "
+        "local ok1, t0 = pcall(function() return m0.teamUuid end) "
+        "if ok1 and t0 ~= nil then live[tostring(t0)] = true end end end "
+        "local keep = {} "
+        "for k in pairs(DataCenter.__lw_rally_joined or {}) do if live[k] then keep[k] = true end end "
+        "DataCenter.__lw_rally_joined = keep " +
+        _RALLY_PRELUDE_MINE +
+        # What the run will be judged against: our squads standing in a rally right now.
+        "local before = 0 "
+        "local afd = DataCenter.ArmyFormationDataManager "
+        "for _, f in pairs(afd.ArmyFormationList) do pcall(function() "
+        "local m = wm:GetOwnerFormationMarch(P.uid, f.uuid, P.allianceId) "
+        "if m ~= nil and tostring(m.teamUuid) ~= '0' then before = before + 1 end end) end "
+        "DataCenter.__lw_rally_before = before "
+        # The sieve, with a word for every squad it drops. A squad whose state cannot be
+        # read at all is KEPT: a gate that cannot see must not refuse (#1237).
+        "local home, skipped = {}, {} "
+        "for _, s in ipairs(squads) do "
+        "local f = nil "
+        "for _, v in pairs(afd.ArmyFormationList) do "
+        "local ok, idx = pcall(function() return v.index end) "
+        "if ok and tonumber(idx) ~= nil and tonumber(idx) == tonumber(s) then f = v end end "
+        "if f == nil then skipped[#skipped+1] = tostring(s)..':no-formation' "
+        "else "
+        "local st = tonumber(f.state) "
+        "local ok, idle = pcall(function() return f:IsFree() end) "
+        "local free = true if ok and idle ~= nil then free = (idle and true or false) end "
+        "local n = 0 pcall(function() n = tonumber(f.totalSoldierNum) or 0 end) "
+        "if st ~= nil and not (st == 0 and free) then skipped[#skipped+1] = tostring(s)..':out' "
+        "elseif n <= 0 then skipped[#skipped+1] = tostring(s)..':empty' "
+        "else home[#home+1] = {slot = s, uuid = f.uuid} end end end "
+        # Pair and send. One squad per rally, both in the order they arrived.
+        "local sent, errs = 0, {} "
+        "local pairs_n = #home if #rallies < pairs_n then pairs_n = #rallies end "
+        "for i = 1, pairs_n do local r, q = rallies[i], home[i] "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
+        "if ok then sent = sent + 1 keep[tostring(r.team)] = true "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_all send squad="..tostring(q.slot)'
+        '.." team="..tostring(r.team).." point="..tostring(r.point).." server="..tostring(r.server)) '
+        "else errs[#errs+1] = tostring(q.slot)..':'..tostring(err) end end "
+        "DataCenter.__lw_rally_joined = keep "
+        "DataCenter.__lw_rally_sent = sent "
+        # WHAT THE RECIPE DOES NEXT, decided here so it costs no reading of its own.
+        # `sent` when anything went; `-1` when nothing did and the only thing in the way
+        # was an EMPTY squad with a rally standing there for it — the one case the
+        # headless send cannot cover, because the client refuses a squad with no soldiers
+        # before a byte leaves and only the game's own screen fills one from the base's
+        # pool; `0` when there is nothing to be done at all.
+        "local empty = 0 "
+        "for _, s in ipairs(skipped) do if string.find(s, ':empty', 1, true) then empty = empty + 1 end end "
+        "DataCenter.__lw_rally_todo = sent "
+        "if sent == 0 and empty > 0 and #rallies > 0 then DataCenter.__lw_rally_todo = -1 end "
+        "local report = 'sent='..sent..' rallies='..#rallies..' free='..#home "
+        "if #skipped > 0 then report = report..' left=['..table.concat(skipped, ' ')..']' end "
+        "if #errs > 0 then report = report..' refused=['..table.concat(errs, ' ')..']' end "
+        "if #rallies == 0 then report = report..' -- no rally of this alliance is out that we are not already in' "
+        "elseif #home == 0 then report = report..' -- not one of the chosen squads can be sent' "
+        "elseif sent < #rallies then report = report..' -- more rallies than squads to spend' end "
+        "DataCenter.__lw_rally_report = report "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_all "..report)'
+    )
+
+
 # --------------------------------------------------------------------------
 # Alliance rally: JOIN one THROUGH THE GAME'S OWN SCREENS
 # --------------------------------------------------------------------------

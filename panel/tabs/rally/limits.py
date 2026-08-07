@@ -45,6 +45,11 @@ def types_out(rt) -> list:
 
     ``[]`` when the game or the daemon cannot answer — the caller then lets the join
     proceed uncounted rather than blocking it on a failed read.
+
+    NOT ON THE JOIN'S PATH ANY MORE (#1281): see :func:`join_gate` for why a reading in
+    front of a banner costs more than it can save. Kept because it is the one place that
+    knows how to classify a rally off the game, and the shape a real zombie/drill signal
+    would slot into.
     """
     if not rt.game.up():
         return []
@@ -69,20 +74,30 @@ def read(rt):
 
 
 def join_gate(rt):
-    """The rally types out that are still under their daily cap.
+    """The rally types still under their daily cap — answered from the FILE, not the game.
 
-    ``None`` when the types could not be read (the join then proceeds uncounted);
-    ``[]`` when every type out is at its cap (the caller skips the join); otherwise the
+    ``[]`` when every type is at its cap (the caller skips the join); otherwise the
     eligible types, which are counted after a clean join.
+
+    **IT USED TO COST A GAME CALL, AND IT STOOD IN FRONT OF THE JOIN** (#1281). The gate
+    ran :func:`types_out` — a read of the whole march table, `settle=0.8` — before the
+    recipe was allowed to start, and a call into the VM was measured at 1.3 s at best and
+    10–19 s under the panel's ordinary load. A budget check that delays the thing it is
+    budgeting by ten seconds costs more rallies than the budget saves.
+
+    It also bought nothing, and that is the part worth writing down: the push carries no
+    type and no reliable zombie/drill signal is confirmed live, so `types_out` classified
+    every rally as the SAME fallback type. Reading the game to be told the constant this
+    module already knows is a call spent on arithmetic (#1230). So the question is asked
+    of the counts file: is the fallback type still under its cap. The day a real
+    classification exists, this is where it goes back — but it goes back BEHIND the join,
+    counted against what was actually sent, not in front of it.
     """
-    types = types_out(rt)
-    if not types:
-        return None
     limits, counts = read(rt)
-    eligible = [t for t in types if counts.allowed(t, limits)]
-    if not eligible:
+    if not counts.allowed(rallylimitsmod.UNKNOWN_TYPE, limits):
         rt.say("trigger", "triggers.log.rally_capped")
-    return eligible
+        return []
+    return [rallylimitsmod.UNKNOWN_TYPE]
 
 
 def record_joins(rt, types) -> None:

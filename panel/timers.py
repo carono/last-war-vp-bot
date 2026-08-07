@@ -124,6 +124,15 @@ RETRY_HOLD_SEC = 300.0
 # in a tight loop while a person's own button press runs its course.
 BUSY_RETRY_SEC = 5.0
 
+# How often ONE errand may repeat the same reason for being skipped. A skip has to be
+# said — «тихо не поехали» is exactly what #1281 was about, and a wire trigger can be
+# refused hundreds of times an hour (a profile whose client is down heard 10 035 rally
+# pushes on 2026-08-07 and its log carried 31 lines about it, none of them attached to a
+# rally). Saying every one would drown the log; saying only the first hides how much is
+# being lost. So the first is said at once and the rest are rolled up: the same reason
+# repeats at most this often, carrying the count it has gathered since.
+SKIP_NOTE_SEC = 60.0
+
 # Bounds enforced on whatever the config asks for, so a hand-edited file cannot
 # ask for a timer that fires every second or one that never fires at all.
 MIN_INTERVAL_SEC = 10
@@ -918,7 +927,8 @@ class TimerScheduler:
 
     def __init__(self, *, store: LastRunStore, catalogue, config, runner, log,
                  gate=None, tick: float = TICK_SEC,
-                 busy_retry: float = BUSY_RETRY_SEC, debug=None) -> None:
+                 busy_retry: float = BUSY_RETRY_SEC, debug=None,
+                 translate=None) -> None:
         # `debug` is the OWNING RUNTIME's technical logger (`rt.dbg("timers")`), so two
         # open profiles keep two debug.logs (#1206). The module-level one is the
         # fallback for a scheduler built without a runtime, which is what the tests do.
@@ -928,6 +938,11 @@ class TimerScheduler:
         self._config = config
         self._runner = runner
         self._log = log
+        # `log` says a locale KEY as a whole line; `translate` turns one into words that
+        # can go INSIDE a line. A skip needs the second: the errand's name, the count and
+        # the reason belong in one sentence (:meth:`note_skip`). Optional, so a test can
+        # build a scheduler without an i18n at all and read the raw key back.
+        self._translate = translate
         self._gate = gate
         self._tick = tick
         self._busy_retry = busy_retry
@@ -953,6 +968,17 @@ class TimerScheduler:
         # running (a claim covers both), and `cancel` has to: one is cancellable and
         # the other is not.
         self._running: str | None = None
+        # Names whose moment came again WHILE they were running. A push that lands
+        # mid-run used to be dropped by the claim below, which is how a second banner
+        # raised while the first was being joined was lost without a word (#1281): the
+        # run in flight had already read the map and could not know about it. Marked
+        # here and re-queued the moment the run lets go, so the burst costs one extra
+        # run rather than a rally. A name merely WAITING in the queue is still
+        # coalesced — that run has not looked at anything yet and will see the new
+        # rally by itself.
+        self._refire: set[str] = set()
+        # Repeated skips, rolled up: name -> [reason, count, last-said-monotonic].
+        self._skips: dict = {}
         self._queue_lock = threading.Lock()
         # Wall clock the worker may take from the queue again, set when the panel
         # turns an errand down as busy. Without it the item goes straight back on
@@ -994,16 +1020,34 @@ class TimerScheduler:
         never in parallel with them. ``errand`` needs only ``.name`` and
         ``.scenario`` (a :class:`~panel.triggers.Trigger`); it is remembered by name
         for the run because the worker looks errands up in the catalogue and this one
-        is not there. ``False`` if one of the same name is already queued or running
-        (a burst of pushes coalesces to one press).
+        is not there.
+
+        Returns WHAT HAPPENED to the fire, because «dropped» and «will run» used to be
+        the same `False` and the caller logged «запускаю сценарий» over both (#1281):
+
+        * ``"queued"``  — it is on the queue and will run;
+        * ``"waiting"`` — one of the same name is already queued and has not looked at
+          anything yet, so it will see whatever this fire was about; the burst
+          coalesces to one press, which is what that coalescing is for;
+        * ``"refired"`` — one of the same name is RUNNING. It has already read the
+          game and cannot know about this, so the name is marked and re-queued the
+          moment it lets go (:meth:`_release`). This is the case that used to lose a
+          rally: a second banner going up while the first was being joined.
+
+        Every one of the three is truthy, so a caller that only asked «did it take it»
+        still gets a yes — none of these three means the fire was thrown away.
         """
         with self._queue_lock:
             if errand.name in self._queued:
-                return False
+                self._adhoc.setdefault(errand.name, errand)
+                if errand.name == self._running:
+                    self._refire.add(errand.name)
+                    return "refired"
+                return "waiting"
             self._queued.add(errand.name)
             self._adhoc[errand.name] = errand
         self._queue.put((errand.name, False))
-        return True
+        return "queued"
 
     def _enqueue(self, name: str, scheduled: bool) -> bool:
         with self._queue_lock:
@@ -1024,6 +1068,14 @@ class TimerScheduler:
 
     def _release(self, name: str) -> None:
         with self._queue_lock:
+            # Its moment came again while it was running (:meth:`submit`): put it
+            # straight back rather than letting go of it. The claim is KEPT — it never
+            # leaves the queued set — so nothing else can line the same name up twice
+            # in between, and the errand it re-runs is the same one it just finished.
+            if name in self._refire:
+                self._refire.discard(name)
+                self._queue.put((name, False))
+                return
             self._queued.discard(name)
             self._adhoc.pop(name, None)   # a submitted trigger errand is done with
             # The cancel mark goes with the claim. A cancel that arrived while the
@@ -1150,27 +1202,79 @@ class TimerScheduler:
             reason = self._gate(name)
             if reason:
                 # The game went away between queueing and running: drop it rather
-                # than fail it — the next tick queues it again, unchanged.
-                if reason != self._gate_said:
-                    self._log(reason)
-                    self._gate_said = reason
+                # than fail it — the next tick queues it again, unchanged. SAID WITH
+                # THE ERRAND'S NAME AND A COUNT (#1281): «жду запуска игры» once an
+                # hour told nobody that two hundred rally pushes had been refused for
+                # it, and a skip with nothing attached to it reads as nothing at all.
+                self.note_skip(name, reason)
+                self._gate_said = reason
                 self._release(name)
                 return "skipped"
         # Mark it as running for the whole call, so `cancel` can tell "waiting in
-        # the queue" (cancellable) from "in flight" (not).
+        # the queue" (cancellable) from "in flight" (not) — and so a fire landing
+        # mid-run is re-armed rather than coalesced away (`submit`). Cleared inside
+        # `_release`, under the same lock, or a fire arriving in the gap between the
+        # two would see neither a running errand nor a free queue and be dropped.
         with self._queue_lock:
             self._running = name
         try:
             ok, busy = self.run_one(timer, scheduled=scheduled)
         finally:
-            with self._queue_lock:
-                self._running = None
+            if busy:
+                with self._queue_lock:
+                    self._running = None
         if busy:
             self._hold_until = time.time() + self._busy_retry
             self._requeue(name, scheduled)   # stays claimed: it is still waiting
             return "busy"
         self._release(name)
         return "ran" if ok else "skipped"
+
+    def note_skip(self, name: str, reason: str, **fmt) -> bool:
+        """Say that ``name`` did not run, and why — rolled up when it keeps happening.
+
+        The first time a reason appears it is said at once. While the SAME reason keeps
+        coming back for the same errand it is said again at most every
+        :data:`SKIP_NOTE_SEC`, carrying how many skips have piled up since the last
+        line. A different reason starts over, because that is news.
+
+        Returns whether a line was written, which is what the tests read.
+        """
+        now = time.monotonic()
+        with self._queue_lock:
+            note = self._skips.get(name)
+            if note is not None and note[0] == reason:
+                note[1] += 1
+                if now - note[2] < SKIP_NOTE_SEC:
+                    return False
+                count, note[1], note[2] = note[1], 0, now
+            else:
+                self._skips[name] = [reason, 0, now]
+                count = 1
+        if count > 1:
+            self._log("timers.log.skipped_times", name=name, count=count,
+                      reason=self._reason_text(reason, **fmt))
+        else:
+            self._log("timers.log.skipped_once", name=name,
+                      reason=self._reason_text(reason, **fmt))
+        self._dbg.info("skipped %s x%d — %s", name, count, reason)
+        return True
+
+    def _reason_text(self, reason: str, **fmt) -> str:
+        """A skip's reason as WORDS, whether it arrived as a locale key or a sentence.
+
+        The gate answers in locale keys (`timers.log.skip_game`) and a caller may hand in
+        a finished sentence; both have to end up inside one line rather than being logged
+        as a line of their own, which is what let «жду запуска игры» float free of the
+        errand it was about.
+        """
+        translate = getattr(self, "_translate", None)
+        if translate is not None:
+            try:
+                return str(translate(reason, **fmt))
+            except Exception:                # noqa: BLE001 — a word, never the skip
+                pass
+        return reason
 
     def tick_once(self, now: float | None = None) -> list[str]:
         """Queue what is due and work the queue off, in order. Names that ran.

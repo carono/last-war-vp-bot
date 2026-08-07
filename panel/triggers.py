@@ -851,17 +851,38 @@ class TriggerWatcher:
         self._log("triggers.log.off", name=name)
         self._dbg.info("stopped listening on %s", name)
 
+    #: What `TimerScheduler.submit` can answer → the locale key that says it. A fire is
+    #: not a run, and until #1281 the log said «запускаю сценарий» over all three: a
+    #: profile whose client was down printed that line 10 035 times in a day and ran the
+    #: scenario not once. The line now says what actually became of the push.
+    _FIRE_WORDS = {
+        "queued": "triggers.log.fire",
+        # One of the same name is already waiting and has read nothing yet, so it will
+        # see whatever this push was about. Coalescing working as intended, said out
+        # loud rather than silently.
+        "waiting": "triggers.log.fire_waiting",
+        # One of the same name is RUNNING and has already read the game. It is marked
+        # and will run again the moment it lets go — the case that used to lose the
+        # second banner of a burst.
+        "refired": "triggers.log.fire_again",
+    }
+
     def _fire(self, trigger) -> None:
         """The trigger's moment came — put the scenario on the shared queue.
 
         Runs on the listener's thread (a wire child's reader, or a poll thread).
-        ``submit`` is thread-safe (it hands to the scheduler's queue) and coalesces a
-        burst: a second fire while the errand is still queued or running is dropped, so
-        a flurry of pushes — or a modal seen twice — costs one press.
+        ``submit`` is thread-safe (it hands to the scheduler's queue); what it does with
+        a fire that arrives while one of the same name is already in flight is its
+        business, and the WORD it answers with is what this logs (:data:`_FIRE_WORDS`).
+
+        A submit that answers something this does not recognise — an older scheduler, a
+        test's stub returning a plain bool — is said the way it always was. A fire is
+        never silent.
         """
-        self._log("triggers.log.fire", name=trigger.name, event=trigger.signal())
         self._dbg.info("fire %s on %s", trigger.name, trigger.signal())
-        self._submit(trigger)
+        outcome = self._submit(trigger)
+        key = self._FIRE_WORDS.get(outcome, "triggers.log.fire")
+        self._log(key, name=trigger.name, event=trigger.signal())
 
     def on_listener_exit(self, name: str) -> None:
         """A listener died on its own — forget the handle so :meth:`sync` respawns."""

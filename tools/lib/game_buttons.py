@@ -561,13 +561,26 @@ BUTTONS: dict[str, Button] = {
         max_taps=5,
     ),
     # --- alliance rally: JOIN one --------------------------------------------
-    # `rally_join_send` is the join, and it opens nothing: the squad screen adds nothing
-    # to the message that the squad does not already carry (docs/research/rally-join.md).
-    # The three presses after it are the FALLBACK — open the screen, pick the squad,
-    # launch, with the recipe waiting for each state in between — and they are what fills
-    # a squad standing empty. The screen is never closed by them: it closes itself on
-    # success, and closing it early is exactly what left the old press with nothing
-    # behind it.
+    # THE WHOLE JOIN IN ONE PRESS (#1281): sieve the squads, pair each with a different
+    # banner and send them all, with no reading in front of it and no window behind it.
+    # What it left behind and why is `DataCenter.__lw_rally_report`, which the recipe
+    # reads back and logs. It is what `actions/join_rally.md` plays; everything below it
+    # is the older, step-at-a-time shape, kept for the one thing a headless send cannot
+    # do (see `rally_join_open`).
+    "rally_join_all": Button(
+        lua=_lua_actions.rally_join_all(),
+        # The marches appear when the SERVER answers and the recipe polls for that.
+        # Sleeping here holds the game's lease in front of the next banner for nothing.
+        wait=0.1, label="join every rally that can be joined",
+    ),
+    # `rally_join_send` is the join for ONE armed rally, and it opens nothing: the squad
+    # screen adds nothing to the message that the squad does not already carry
+    # (docs/research/rally-join.md). The three presses after it are the FALLBACK — open
+    # the screen, pick the squad, launch, with the recipe waiting for each state in
+    # between — and they are what fills a squad standing empty
+    # (`actions/join_rally_via_screen.md`). The screen is never closed by them: it closes
+    # itself on success, and closing it early is exactly what left the old press with
+    # nothing behind it.
     "rally_join_arm": Button(
         # Not a press in the game: pick the rally and the squad and park them, so every
         # step below reads one answer rather than racing the map for its own.

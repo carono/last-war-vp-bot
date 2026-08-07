@@ -122,21 +122,29 @@ class _Profiles:
 
 
 class _Game:
-    """A game link answering the one read the gate makes — or refusing to."""
+    """A game link that COUNTS what the gate asked it, and answers the classify read.
+
+    The count is the point of it now (#1281): the gate must reach the budget's own two
+    files and nothing else. It used to read the whole march table through the VM before
+    the join was allowed to start, at 1.3–19 s a call on the live client — a budget check
+    that delays the thing it is budgeting past the life of a banner.
+    """
 
     def __init__(self, types_out):
         self._types = types_out
+        self.reads = 0
 
     def up(self):
         return self._types is not None
 
     def evaluator(self):
-        types = self._types
+        types, game = self._types, self
 
         class _Ev:
             @staticmethod
             def run(chunk, marker=None, settle=None, early=False):
                 assert marker == "RTYPE", marker
+                game.reads += 1
                 return ["RTYPE=%s" % t for t in types] + ["RTYPE end"]
         return _Ev()
 
@@ -155,18 +163,33 @@ class _Rt:
         self.said.append(key)
 
 
-def test_the_gate_lets_a_join_through_when_nothing_can_be_read():
-    """A failed read must not block the join — this is a budget, not a lock."""
+def test_the_gate_never_touches_the_game():
+    """The budget is two files. Reading the VM in front of a banner is what cost #1281.
+
+    A whole call into the game VM stood between the push and the recipe, to be told the
+    constant this module already knows — the push carries no rally type and every rally
+    classifies as the fallback one, so the read answered `monster` and nothing else. The
+    call is gone; this is what stops it coming back.
+    """
     with tempfile.TemporaryDirectory() as td:
-        assert gate.join_gate(_Rt(Path(td), None)) is None       # no daemon
-        assert gate.join_gate(_Rt(Path(td), [])) is None         # no rally out
+        rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 5}))
+        assert gate.join_gate(rt) == [rl.UNKNOWN_TYPE]
+        assert rt.game.reads == 0, "the gate read the game"
 
 
-def test_the_gate_returns_the_types_still_under_their_cap():
+def test_the_gate_lets_a_join_through_with_no_daemon_at_all():
+    """A budget is not a lock: nothing about the client decides whether it answers."""
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), None)                                  # no daemon
+        assert gate.join_gate(rt) == [rl.UNKNOWN_TYPE]
+        assert rt.said == []
+
+
+def test_the_gate_returns_the_type_still_under_its_cap():
     with tempfile.TemporaryDirectory() as td:
         rt = _Rt(Path(td), ["monster", "monster"],
                  limits=rl.RallyLimits({"monster": 5}))
-        assert gate.join_gate(rt) == ["monster", "monster"]
+        assert gate.join_gate(rt) == [rl.UNKNOWN_TYPE]
         assert rt.said == []
 
 
