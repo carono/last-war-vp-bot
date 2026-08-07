@@ -11,10 +11,12 @@ There are two producers, and this class is the reader of both:
   tab's `_share_done`;
 * **the game**, whenever anyone presses share in the client — the player included. That
   broadcast is on the wire (`push.alliance.share.mission.add`), and the standing list of
-  what is currently shared arrives on login (`get.alliance.share.mission.list`); the two
-  capture children this tab already runs — «Мониторинг» (`secret_task_capture.py`) and
-  the auto-loot listener (`secret_share_autoloot.py`) — decode them and append a mark of
-  their own.
+  what is currently shared arrives on login (`get.alliance.share.mission.list`). Every
+  child this tab runs that decodes the stream appends a mark of its own: «Мониторинг ★»
+  (`secret_task_capture.py`), the ghost sniffer (`secret_mission_capture.py`) and the
+  auto-loot listener (`secret_share_autoloot.py`). The first of the three was being
+  started without the path to write to until #1280, which is why a profile running only
+  the ★ sniffer saw its own shares and never a mate's.
 
 That is why the store is a file rather than a dict: the writers are separate processes.
 `tools/lib/share_marks.py` owns its shape; this class holds the profile's path, reloads

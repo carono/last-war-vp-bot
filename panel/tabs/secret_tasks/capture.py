@@ -118,6 +118,23 @@ class Capture:
         if self._proc is not None:
             return
         script = capturemod.CAPTURE_OPTIONS[self.index]["script"]
+        cmd = self.command(script)
+        # …and the rest — the game and the spawn — off the Tk thread. `_starting` is what
+        # stops a second press (or a second `ensure_loaded`) launching a second capture
+        # in the gap before `_proc` is set.
+        if self._starting:
+            return
+        self._starting = True
+        threading.Thread(target=self._launch, args=(cmd, script),
+                         name="panel-capture-start", daemon=True).start()
+
+    def command(self, script: str) -> list:
+        """The child's command line — everything the TAB knows, and nothing that blocks.
+
+        Its own method so it can be read back without spawning anything: which paths a
+        capture is given decides what reaches the tab, and «this one was never given the
+        share file» is exactly the kind of omission a test should catch (#1280).
+        """
         # NO --all-tcp. It sets the BPF to a bare "tcp", so on a busy adapter (this box
         # sees ~280 tcp frames/s) scapy's Python callback cannot keep up and npcap's ring
         # overflows — ~98% of packets, the game's map frames among them, are dropped
@@ -136,6 +153,14 @@ class Capture:
         # shape, and auto-loot must never be handed that by mistake.
         if script == capturemod.SECRET_TASK_CAPTURE:
             cmd += ["--json", self.rt.profiles.tasks_json()]
+            # …AND THE SHARES, which this one was not being asked for (#1280). The mark
+            # «уже поделились» is written by whichever child decodes the broadcast, and
+            # only the GHOST capture was given a path to write it to — so a profile
+            # running the ★ sniffer alone saw its own shares and never a mate's, while
+            # `shared.py` said both children fed it. The two captures decode the same
+            # stream; both record it now, into the same file, and appending twice is
+            # what `share_marks` already deduplicates.
+            cmd += ["--shared-json", self.rt.profiles.secret_shared_json()]
         else:
             # THE GHOST CAPTURE NEEDS A CHECKPOINT TOO (#1251). It was launched without
             # one — «--json only for the secret-task capture» — so everything it found
@@ -155,14 +180,7 @@ class Capture:
         interval = (self.interval.get().strip() if self.interval is not None else "")
         if interval.isdigit() and int(interval) > 0:
             cmd += ["--interval", interval]
-        # …and the rest — the game and the spawn — off the Tk thread. `_starting` is what
-        # stops a second press (or a second `ensure_loaded`) launching a second capture
-        # in the gap before `_proc` is set.
-        if self._starting:
-            return
-        self._starting = True
-        threading.Thread(target=self._launch, args=(cmd, script),
-                         name="panel-capture-start", daemon=True).start()
+        return cmd
 
     def _launch(self, cmd: list, script: str) -> None:
         """Seed the server, spawn the child, say what happened. Worker thread."""

@@ -617,6 +617,14 @@ class _FakeProfiles:
         import os
         return os.path.join(os.path.dirname(self._path), "secret_shared.jsonl")
 
+    def tasks_json(self, name=None) -> str:
+        import os
+        return os.path.join(os.path.dirname(self._path), "tasks.json")
+
+    def ghost_json(self, name=None) -> str:
+        import os
+        return os.path.join(os.path.dirname(self._path), "ghost.json")
+
 
 class _FakeOrder:
     """A stand-in for `Capture`/`AutoLoot`/`Sweep`: only `start`/`stop` are called.
@@ -3200,6 +3208,35 @@ def test_the_two_sniffers_have_two_independent_switches():
     from panel.runtime import captures as capturemod
     assert len(capturemod.CAPTURE_OPTIONS) == 2
     assert capturemod.CAPTURE_OPTIONS[0]["script"] == capturemod.SECRET_TASK_CAPTURE
+
+
+def test_both_captures_are_told_where_to_record_a_share():
+    """«Уже поделились» is written by whichever child decodes the broadcast (#1280).
+
+    The star sniffer was started without `--shared-json`, so a profile running only that
+    one saw its own shares and never a mate's — while `shared.py` said both children fed
+    the store. Each capture also keeps its own checkpoint: handing the ghost one's record
+    shape to the secret-task reader is the mix-up worth pinning.
+    """
+    import types
+    from panel.runtime import captures as capturemod
+    from panel.tabs.secret_tasks import capture as cap
+
+    rt = types.SimpleNamespace(
+        children=types.SimpleNamespace(python=lambda: "python"),
+        profiles=_FakeProfiles(_state_path()))
+    made = cap.Capture.__new__(cap.Capture)
+    made.rt, made.interval = rt, _Var("1")
+
+    star = made.command(capturemod.SECRET_TASK_CAPTURE)
+    ghost = made.command(capturemod.CAPTURE_OPTIONS[1]["script"])
+    shared = rt.profiles.secret_shared_json()
+
+    assert "--shared-json" in star and star[star.index("--shared-json") + 1] == shared
+    assert "--shared-json" in ghost and ghost[ghost.index("--shared-json") + 1] == shared
+    assert star[star.index("--json") + 1] == rt.profiles.tasks_json()
+    assert ghost[ghost.index("--json") + 1] == rt.profiles.ghost_json()
+    assert star[star.index("--interval") + 1] == "1"
 
 
 def test_every_page_filters_by_its_own_level_range():
