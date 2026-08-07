@@ -431,3 +431,68 @@ Tiers after the change: **offline 44/44** (244 s), **ui 50/50**, plus the new
 * **The self-probe interval is one number for every machine.** Ten seconds costs a client
   at the 10 fps headless floor about two frames per ten seconds; a machine running the
   game at 60 fps would not notice a shorter one, and nothing measures which it is.
+
+---
+
+# 10. THE TWO TRUTHS, caught side by side — read this before «чиню связь»
+
+Found by accident an hour after §9, and it is worth more than half the task: **the client
+was `link=lost` while the daemon was `live` with a `last_ok_age` of two seconds.**
+
+```
+link   = lost     pid = 88624
+daemon = {"ok": true, "warm": true, "pid": 88624, "last_ok_age": 1.97, "misses": 0}
+```
+
+Both readings are correct, and they are about different things:
+
+* **`last_ok_age` — «a chunk reaches the CLIENT».** The daemon injected Lua into that
+  process two seconds ago and got its answer back. The hijack works, the Lua VM answers,
+  the panel can read and press.
+* **`link` — «the client reaches the SERVER».** That same client is holding a socket the
+  far end closed (`server-link-status.md` §2). Everything it reads is yesterday's, and
+  everything it sends goes nowhere.
+
+**Every incident in this file came from one being read as the other**, in both
+directions:
+
+* #1259 spent an afternoon proving «the server silently refuses this march» against a
+  client the panel had already declared deaf — a LINK failure investigated as a game
+  protocol;
+* #1268 restarted the CLIENT six times because the daemon could not reach it — a DAEMON
+  failure cured as a client one;
+* and the whole of §3 is the opposite mistake standing still: `daemon=warm` said over a
+  client that was not up-and-online, 194 times in one day.
+
+So the rule, for whoever reads this next:
+
+> **A green daemon does not mean the account is playing, and a lost link does not mean the
+> daemon is broken. Read both, name which one you are fixing, and never let one stand in
+> for the other.**
+
+The panel now says both, separately, in the same line — `game=up link=lost daemon=warm`
+is a true sentence and a common one: the client is up, the panel can drive it, and the
+account is not on the server. The cure for the third field is a daemon restart; the cure
+for the second is a client restart; and doing the wrong one is how six restarts and an
+afternoon were spent.
+
+## 10.1 The restart that proved the panel half
+
+The panel was put back on this code with its own press (#1258, from the phone's side).
+The strip's own record, straight through the change:
+
+```
+18:09:10  game=down link=offline daemon=warm    <- the OLD panel's last line: the lie itself
+18:09:18  game=up   link=online  daemon=down    <- new code, no daemon yet
+18:09:26  game=up   link=online  daemon=stale   <- the third word, live, for the first time
+18:09:42  game=up   link=online  daemon=warm    <- attached, and honest
+```
+
+The line at 18:09:10 is `daemon=warm` with **no client process at all** — the state §3
+counted three times that day — and it is the last one of its kind in the file. Sixteen
+seconds later the same situation reads `stale`.
+
+Everything else came back as #1258 promises: three profiles, eight timers and six
+triggers on the account that has them, the watchdog on, the secret-task auto-loot exactly
+as the person had left it, and the daemon holding the client that is running
+(`last_ok_age` 3.1 s, `verdict=live`, `ready()` true, fourteen dashboard readings since).
