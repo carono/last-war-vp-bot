@@ -656,6 +656,7 @@
   "timers.log.scheduler_on": "programación encendida",
   "timers.reason.busy": "el panel está ocupado con otra cosa",
   "timers.log.unfinished": "{name}: la ejecución anterior nunca volvió — se da por fallida y espera su pausa de reintento",
+  "rally.skip.squads_out": "todos los escuadrones que puede enviar están fuera — no se inicia",
   "timers.log.skip_busy": "{name}: el panel está ocupado — se queda en la cola",
   "timers.log.skipped_once": "{name}: omitido — {reason}",
   "timers.log.skipped_times": "{name}: omitido {count} vez(veces) — {reason}",

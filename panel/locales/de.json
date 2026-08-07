@@ -656,6 +656,7 @@
   "timers.log.scheduler_on": "Zeitplan an",
   "timers.reason.busy": "Das Panel ist mit etwas anderem beschäftigt",
   "timers.log.unfinished": "{name}: der vorige Lauf kam nie zurück — als fehlgeschlagen verbucht, wartet die Wiederholpause ab",
+  "rally.skip.squads_out": "jeder Trupp, den er schicken darf, ist unterwegs — nicht gestartet",
   "timers.log.skip_busy": "{name}: das Pult ist beschäftigt — bleibt in der Warteschlange",
   "timers.log.skipped_once": "{name}: übersprungen — {reason}",
   "timers.log.skipped_times": "{name}: {count}-mal übersprungen — {reason}",

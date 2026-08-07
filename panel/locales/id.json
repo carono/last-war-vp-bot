@@ -656,6 +656,7 @@
   "timers.log.scheduler_on": "penjadwalan hidup",
   "timers.reason.busy": "panel sedang sibuk dengan hal lain",
   "timers.log.unfinished": "{name}: jalan sebelumnya tidak pernah kembali — dianggap gagal, menunggu jeda sebelum diulang",
+  "rally.skip.squads_out": "semua regu yang bisa dikirim sedang di luar — tidak dijalankan",
   "timers.log.skip_busy": "{name}: panel sedang sibuk — tetap di antrean",
   "timers.log.skipped_once": "{name}: dilewati — {reason}",
   "timers.log.skipped_times": "{name}: dilewati {count} kali — {reason}",

@@ -84,6 +84,9 @@ class Schedule:
         # Keeps this class free of knowing what a rally is.
         self._gates: dict = {}
         self._args: dict = {}
+        # Per-errand preconditions: «may this even START right now», asked in front of
+        # the run instead of inside it (:meth:`register_precondition`).
+        self._before: dict = {}
         # Read the switches off the widgets when there are any, off the catalogue when
         # there are not — which is the case for a profile that does not show the tab.
         self.timer_config_source = None
@@ -144,6 +147,25 @@ class Schedule:
         would spend a day's budget on a run that joined nothing (#1281).
         """
         self._gates[name] = (gate, record)
+
+    def register_precondition(self, name: str, check) -> None:
+        """Why one named errand must not even be STARTED — asked before the run (#1281).
+
+        ``check()`` answers ``None`` (go ahead) or a locale key naming the reason. It is
+        asked at the moment of the decision, on the queue's own thread, so the answer is
+        as fresh as the fire — and it is asked BEFORE anything is claimed, a context is
+        made or a scenario is parsed.
+
+        «Не нужно вообще запускать сценарий авторалли, если все отряды заняты — только
+        стек заполнять понапрасну.» Every banner on the map sends a push, and a run that
+        can only discover it has nobody to send costs a claim, a context and the queue
+        slot behind it. The reason lands in the schedule's roll-up like any other, so it
+        is said once with a count rather than once per push.
+
+        Kept apart from :meth:`register_gate`, which answers a different question — what
+        a run that IS happening may be counted under.
+        """
+        self._before[name] = check
 
     def register_args(self, name: str, source) -> None:
         """Variables one named errand must read LIVE rather than carry (:meth:`args`)."""
@@ -234,7 +256,20 @@ class Schedule:
         if name is not None and self._is_recovery(name):
             return None
         running, _text = game_process.profile_status(self.rt.settings)
-        return None if running else "timers.log.skip_game"
+        if not running:
+            return "timers.log.skip_game"
+        # …and then whatever the errand itself said would make the run pointless
+        # (:meth:`register_precondition`). Only asked with the client up, so the check
+        # never pays for a reading that cannot answer.
+        check = self._before.get(name) if name is not None else None
+        if check is None:
+            return None
+        try:
+            return check() or None
+        except Exception:                     # noqa: BLE001 — a gate that throws is not a refusal
+            self.rt.dbg("timers").warning("precondition of %s failed", name,
+                                          exc_info=True)
+            return None
 
     #: The scenarios that END with a client running, out of the lifecycle table both
     #: front-ends already read (`game_control.CONTROLS`) — so a press that grows there

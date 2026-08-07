@@ -656,6 +656,7 @@
   "timers.log.scheduler_on": "planification active",
   "timers.reason.busy": "le panneau est occupé à autre chose",
   "timers.log.unfinished": "{name} : l’exécution précédente n'est jamais revenue — comptée comme échouée, en attente avant nouvelle tentative",
+  "rally.skip.squads_out": "toutes les escouades qu’il peut envoyer sont en route — non lancé",
   "timers.log.skip_busy": "{name} : le panneau est occupé — il reste en file",
   "timers.log.skipped_once": "{name} : passé — {reason}",
   "timers.log.skipped_times": "{name} : passé {count} fois — {reason}",

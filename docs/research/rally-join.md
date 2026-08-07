@@ -981,3 +981,33 @@ The report names both:
 ```
 no_seat=[<team>:banner-full(5/5) <team>:refused-full]
 ```
+
+### The run that should never have started
+
+«Не нужно вообще запускать сценарий авторалли, если все отряды заняты — только стек
+заполнять понапрасну.» Every banner on the map sends a push, and each one used to raise
+a run: a claim on the client, a scenario context, a queue slot behind it — to discover in
+its own first chunk that there was nobody to send.
+
+The question is answered before any of that now, by the schedule's own gate
+(`Schedule.register_precondition` → `panel/tabs/rally/limits.py::join_precondition`).
+Three things make it safe:
+
+* **It is cheap.** Counting the free squads is `state == 0` and `IsFree()` over
+  `ArmyFormationList` — measured five times back to back on the live client at
+  **0.059 / 0.095 / 0.062 / 0.063 / 0.062 s**. The run it saves costs more than that
+  before it sends anything.
+* **It is fresh.** Asked at the moment of the decision and never cached: «занят» stops
+  being true in seconds, and a cached answer would skip banners for a reason that had
+  already expired.
+* **It cannot refuse blindly.** No reading, no game, an answer it cannot parse — the run
+  goes ahead, and the sieve inside it reports `left=[…:out]` as before.
+
+**An EMPTY squad is not a busy one.** The chunk never looks at `totalSoldierNum`: a squad
+with no soldiers is one request away from being full (#1285) and is not a reason to skip
+a banner.
+
+The express path had to learn the gate too. «Сразу» skips the queue — and skipped
+`_run_queued`, which was the only place a refusal was read; the errand most likely to
+carry that flag is this one. The reason is rolled up like any other skip, so it is said
+once with a count rather than once per push.

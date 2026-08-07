@@ -237,6 +237,55 @@ def test_the_chunk_reports_the_games_count_and_says_what_the_threshold_costs():
 
 
 
+def test_the_join_does_not_start_when_every_squad_it_may_send_is_out():
+    """The check is in front of the run, and it is fresh (#1281).
+
+    «Не нужно вообще запускать сценарий авторалли, если все отряды заняты — только стек
+    заполнять понапрасну.» A push lands for every banner on the map, and a run that can
+    only discover there is nobody to send costs a claim, a context and the queue slot
+    behind it. Measured at 0.06–0.10 s on the live client, which is what makes asking
+    first cheaper than finding out.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"])
+
+        class _Ev:
+            answer = "FS free=0"
+
+            @staticmethod
+            def run(chunk, marker=None, settle=None, early=False):
+                _Ev.seen = chunk
+                return [_Ev.answer]
+
+        rt.game.evaluator = lambda: _Ev()
+
+        # Nobody home: the errand is not started, and the reason is a locale key.
+        assert gate.join_precondition(rt, [1, 2]) == "rally.skip.squads_out"
+        # …asked about THOSE squads and no others.
+        assert "[1]=true" in _Ev.seen and "[2]=true" in _Ev.seen, _Ev.seen
+
+        # One squad home: the run goes ahead.
+        _Ev.answer = "FS free=1"
+        assert gate.join_precondition(rt, [1, 2]) is None
+
+        # A GATE THAT CANNOT SEE DOES NOT REFUSE — an unreadable answer lets it run.
+        _Ev.answer = "nothing of the sort"
+        assert gate.join_precondition(rt, [1]) is None
+        rt.game._types = None                       # game not ready at all
+        assert gate.free_squads(rt, [1]) is None
+        assert gate.join_precondition(rt, [1]) is None
+
+
+def test_an_empty_squad_is_not_a_busy_one():
+    """«Отряд пуст» and «отряд занят» are different answers (#1285, #1281).
+
+    An empty squad is one request away from being full, so it must not stop the run from
+    starting — the chunk counts a squad by its STATE and never looks at its soldiers.
+    """
+    assert "totalSoldierNum" not in gate.FREE_SQUADS_CHUNK, gate.FREE_SQUADS_CHUNK
+    assert "IsFree" in gate.FREE_SQUADS_CHUNK and "f.state" in gate.FREE_SQUADS_CHUNK
+
+
 def test_a_banner_with_no_seat_left_is_never_a_target():
     """A rally still gathering can still be shut, and the chunk must see it (#1281).
 

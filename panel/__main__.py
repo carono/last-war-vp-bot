@@ -1110,6 +1110,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
                         rallygate.record_joins(rt, kinds, did)))
         self._schedule.register_args("rally_auto_join",
                                      self._bound(self._rally_join_args))
+        # …and it does not START at all when every squad it may spend is out (#1281).
+        # A push lands for every banner on the map; a run that can only discover there
+        # is nobody to send still costs a claim, a context and the queue slot behind it.
+        # The reading is 0.06–0.10 s on the live client and is taken fresh at the moment
+        # of the decision — «занят» stops being true in seconds, so nothing is cached.
+        self._schedule.register_precondition(
+            "rally_auto_join",
+            self._bound(lambda rt=self._rt:
+                        rallygate.join_precondition(rt, rallytab.join_squads(rt))))
         self._build_ui(page, staged=staged,
                        done=lambda: self._finish_session_page(session, done))
 

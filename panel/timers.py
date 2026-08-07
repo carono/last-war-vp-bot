@@ -1200,6 +1200,18 @@ class TimerScheduler:
         errand = self._errand(name)
         if errand is None:
             return False
+        # THE GATE IS ASKED HERE TOO, and it was not (#1281). An express errand skips
+        # the queue, and with it `_run_queued` — the one place a refusal was read. So
+        # `rally_auto_join`, which is exactly the errand somebody would mark «сразу»,
+        # raised a run for every banner on the map whatever the answer would have been.
+        # Asked BEFORE the name is claimed and the thread is spawned: no run, no queue
+        # slot, and the reason rolled up with a count like any other skip.
+        if self._gate is not None:
+            reason = self._gate(name)
+            if reason:
+                self.note_skip(name, reason)
+                self._gate_said = reason
+                return False
         with self._queue_lock:
             if name in self._queued:
                 # A FIRE landing mid-run is re-armed (`refire`); a CLOCK finding the

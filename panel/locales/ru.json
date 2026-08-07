@@ -656,6 +656,7 @@
   "timers.log.scheduler_on": "расписание включено",
   "timers.reason.busy": "панель занята другой работой",
   "timers.log.unfinished": "{name}: прошлый прогон не вернулся — считаю его провалившимся, жду паузу до повтора",
+  "rally.skip.squads_out": "все отряды, которые он может послать, в разъездах — не запускаю",
   "timers.log.skip_busy": "{name}: панель занята — остаётся в очереди",
   "timers.log.skipped_once": "{name}: пропуск — {reason}",
   "timers.log.skipped_times": "{name}: пропусков {count} — {reason}",

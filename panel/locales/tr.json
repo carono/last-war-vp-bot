@@ -656,6 +656,7 @@
   "timers.log.scheduler_on": "zamanlama açık",
   "timers.reason.busy": "panel başka bir işle meşgul",
   "timers.log.unfinished": "{name}: önceki çalışma hiç geri dönmedi — başarısız sayıldı, yeniden deneme molasını bekliyor",
+  "rally.skip.squads_out": "gönderebileceği tüm birlikler yolda — başlatılmadı",
   "timers.log.skip_busy": "{name}: panel meşgul — sırada kalıyor",
   "timers.log.skipped_once": "{name}: atlandı — {reason}",
   "timers.log.skipped_times": "{name}: {count} kez atlandı — {reason}",

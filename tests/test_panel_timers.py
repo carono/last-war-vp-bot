@@ -770,6 +770,52 @@ def test_gate_holds_everything_and_says_so_once():
     assert s.sched.tick_once() == [BASE], s.ran
 
 
+def test_an_express_errand_asks_the_gate_before_it_raises_a_run():
+    """«Сразу» skipped the queue AND the refusal — it must not (#1281).
+
+    The express path exists so that a wire fire does not wait behind the schedule, and
+    it runs on a thread of its own rather than through `_run_queued` — which was the one
+    place a gate's answer was read. So `rally_auto_join`, the very errand somebody would
+    mark «сразу», raised a run for every banner on the map whatever the gate would have
+    said: a claim, a scenario context and a queue slot, to discover there was nobody to
+    send. The person put it plainly: «Не нужно вообще запускать сценарий авторалли, если
+    все отряды заняты — только стек заполнять понапрасну.»
+    """
+    tmp = Path(tempfile.mkdtemp())
+    cat = _catalogue()
+    timer = cat.by_name(BASE)
+    express = timersmod.Timer(**{**timer.as_dict(), "immediate": True}) \
+        if hasattr(timersmod.Timer, "as_dict") else None
+    if express is None:                                  # pragma: no cover
+        raise AssertionError("Timer has no as_dict to copy from")
+
+    refused = ["rally.skip.squads_out"]
+    s = _Scheduler(tmp, _cfg(**{BASE: 3600}), gate=lambda _n: refused[0])
+    s.sched._adhoc[BASE] = express
+
+    for _ in range(4):
+        assert s.sched.submit(express) == "waiting", "an express fire got through a gate"
+    _wait_quiet(s)
+    assert s.ran == [], s.ran
+    assert s.sched.pending() == set(), s.sched.pending()
+    # Said ONCE with a count behind it, not once per push.
+    assert s.logs.count("timers.log.skipped_once") == 1, s.logs
+
+    # …and when the squads come home it runs at once, without waiting for a tick.
+    refused[0] = None
+    assert s.sched.submit(express) == "queued"
+    _wait_quiet(s)
+    assert s.ran == [BASE], s.ran
+
+
+def _wait_quiet(s, timeout: float = 2.0) -> None:
+    """Let any express thread finish — they run outside the queue."""
+    end = time.time() + timeout
+    while time.time() < end and s.sched.pending():
+        time.sleep(0.02)
+    time.sleep(0.05)
+
+
 def test_the_gate_is_asked_per_errand_so_recovery_is_not_held_by_its_own_reason():
     """#1259: «the game is not running» must not hold the errand that RUNS it.
 

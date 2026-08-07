@@ -74,6 +74,73 @@ def types_out(rt) -> list:
     return out
 
 
+#: The squads' own states, and nothing else — the cheapest question that can answer
+#: «is there anybody to send». `state == 0` with `IsFree()` is the game's own idea of a
+#: squad standing at home; a squad with NO SOLDIERS is deliberately counted as FREE,
+#: because an empty squad is one request away from being full (#1285) and is not a
+#: reason to skip a banner.
+FREE_SQUADS_CHUNK = (
+    'local afd = DataCenter.ArmyFormationDataManager local free = 0 '
+    'local want = {%s} '
+    'for _, f in pairs(afd.ArmyFormationList) do '
+    'local idx = nil pcall(function() idx = tonumber(f.index) end) '
+    'local wanted = (next(want) == nil) '
+    'if not wanted and idx ~= nil then wanted = (want[idx] == true) end '
+    'if wanted then '
+    'local st = nil pcall(function() st = tonumber(f.state) end) '
+    'local idle = true local ok, v = pcall(function() return f:IsFree() end) '
+    'if ok and v ~= nil then idle = (v and true or false) end '
+    'if st == nil or (st == 0 and idle) then free = free + 1 end end end '
+    'CS.UnityEngine.Debug.LogError("FS free="..free)'
+)
+
+
+def free_squads(rt, squads=None):
+    """How many of ``squads`` are standing at home RIGHT NOW — ``None`` if unreadable.
+
+    Measured on the live client at **0.06–0.10 s** a call, which is what makes it cheap
+    enough to ask BEFORE a run rather than inside one: the run it saves costs a claim,
+    a scenario context and several calls of its own.
+
+    Read fresh every time and never cached. «Занят» is a state that changes in seconds —
+    a squad that was marching a minute ago may well be home — so a cached answer would
+    skip banners for a reason that had already stopped being true.
+    """
+    if not rt.game.ready():
+        return None
+    want = ",".join("[%d]=true" % int(s) for s in (squads or [])
+                    if str(s).strip().isdigit())
+    try:
+        lines = rt.game.evaluator().run(FREE_SQUADS_CHUNK % want, marker="FS",
+                                        settle=0.4, early=True)
+    except Exception:                        # noqa: BLE001 — a gate that cannot see must not refuse
+        return None
+    for line in reversed(lines or []):
+        if "FS free=" in line:
+            try:
+                return int(line.split("FS free=", 1)[1].split()[0])
+            except ValueError:
+                return None
+    return None
+
+
+def join_precondition(rt, squads=None):
+    """Why the auto-join must not even START — or ``None`` to let it run (#1281).
+
+    «Не нужно вообще запускать сценарий авторалли, если все отряды заняты — только стек
+    заполнять понапрасну.» A push arrives for every banner on the map and every one of
+    them used to raise a run that claimed the client, opened a scenario context and
+    found what could have been known in a tenth of a second: there is nobody to send.
+
+    A GATE THAT CANNOT SEE DOES NOT REFUSE. An unreadable answer lets the run go ahead —
+    the sieve inside it says `left=[…:out]` and nothing is lost but the run itself.
+    """
+    free = free_squads(rt, squads)
+    if free is None or free > 0:
+        return None
+    return "rally.skip.squads_out"
+
+
 def read(rt):
     """This profile's caps and today's counts, as a pair."""
     return (rallylimitsmod.load_limits(rt.profiles.rally_limits_json()),

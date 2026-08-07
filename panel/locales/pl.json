@@ -656,6 +656,7 @@
   "timers.log.scheduler_on": "harmonogram włączony",
   "timers.reason.busy": "panel jest zajęty czymś innym",
   "timers.log.unfinished": "{name}: poprzedni przebieg nigdy nie wrócił — uznany za nieudany, czeka na przerwę przed ponowieniem",
+  "rally.skip.squads_out": "wszystkie oddziały, które może wysłać, są w drodze — nie uruchamiam",
   "timers.log.skip_busy": "{name}: panel jest zajęty — zostaje w kolejce",
   "timers.log.skipped_once": "{name}: pominięto — {reason}",
   "timers.log.skipped_times": "{name}: pominięto {count} raz(y) — {reason}",
