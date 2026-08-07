@@ -248,7 +248,8 @@ def _matching(text: str, marker) -> list:
 
 
 def collect(path: str, since: int, marker, settle: float, early: bool = False,
-            poll: float = POLL_SEC, quiet: float = QUIET_SEC) -> list:
+            poll: float = POLL_SEC, quiet: float = QUIET_SEC,
+            sentinel: "str | None" = None) -> list:
     """The marker lines a chunk wrote to `path`, waiting for them up to `settle`.
 
     `settle` has always been a plain sleep, and it is what a press cost: the answer of
@@ -271,8 +272,18 @@ def collect(path: str, since: int, marker, settle: float, early: bool = False,
 
     With no marker there is nothing to recognise an answer by, so an `early` call waits
     exactly as a patient one does.
+
+    `sentinel` is the SURE version of the same saving, for a chunk whose answer has a
+    known last line (#1272). `early` guesses that an answer is complete because it has
+    stopped growing for `quiet`, and a chunk that prints a hundred lines through
+    `Debug.LogError` — a stack trace apiece — can pause for longer than that mid-answer,
+    so the guess truncates it. A chunk that ENDS by printing one recognisable line does
+    not need guessing: the wait is over the moment that line appears, whole answer in
+    hand, typically inside a poll interval instead of a whole settle. It is a substring
+    match against the collected lines, and `settle` remains the deadline for the case
+    where the line never comes.
     """
-    if not early or marker is None:
+    if sentinel is None and (not early or marker is None):
         time.sleep(settle)
         return _matching(_tail(path, since), marker)
     deadline = time.monotonic() + settle
@@ -281,8 +292,10 @@ def collect(path: str, since: int, marker, settle: float, early: bool = False,
         found = _matching(_tail(path, since), marker)
         if len(found) > len(lines):
             lines, grew_at = found, time.monotonic()
+        if sentinel is not None and any(sentinel in ln for ln in lines):
+            break
         now = time.monotonic()
-        if lines and (now - grew_at) >= quiet:
+        if early and lines and (now - grew_at) >= quiet:
             break
         if now >= deadline:
             break
@@ -311,22 +324,27 @@ class LuaEval:
         s = self.x.il2_string_new(chunk)
         self.x.invoke(self.sd, self.mgr, [("ref", s)], "SafeDoString")
 
-    def run(self, chunk, marker=None, settle=1.2, early=False):
+    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None):
         """Run one chunk and hand back the marker lines it wrote.
 
         The answer comes out of the private file (:func:`wrap_chunk`) unless this chunk
         opted out of it. `Player.log` is still read when that file stayed empty — a
         client that could not write it logged to the game instead, and the caller must
         get its answer either way, slowly rather than not at all.
+
+        `sentinel` names the chunk's own last line, and ends the wait when it lands —
+        see :func:`collect`.
         """
         if not redirects(chunk):
             since = _size(self.log)
             self._send(chunk)
-            return collect(self.log, since, marker, settle, early=early)
+            return collect(self.log, since, marker, settle, early=early,
+                           sentinel=sentinel)
         since_file = _empty_if_huge(self.answers)
         since_log = _size(self.log)
         self._send(wrap_chunk(chunk, self.answers))
-        lines = collect(self.answers, since_file, marker, settle, early=early)
+        lines = collect(self.answers, since_file, marker, settle, early=early,
+                        sentinel=sentinel)
         # The settle has already been sat out, so the fallback is a plain read.
         return lines or _matching(_tail(self.log, since_log), marker)
 
@@ -335,11 +353,12 @@ class LuaEval:
         P.CloseHandle(self.x.h)
 
 
-def run_lua(chunk, marker=None, settle=1.2, early=False):
+def run_lua(chunk, marker=None, settle=1.2, early=False, sentinel=None):
     """One-shot convenience: build a LuaEval, run one chunk, tear down."""
     ev = LuaEval()
     try:
-        return ev.run(chunk, marker=marker, settle=settle, early=early)
+        return ev.run(chunk, marker=marker, settle=settle, early=early,
+                      sentinel=sentinel)
     finally:
         ev.close()
 

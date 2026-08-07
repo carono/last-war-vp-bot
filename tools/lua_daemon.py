@@ -156,12 +156,13 @@ class Daemon:
         """Which client this daemon is attached to — the thing to check when two run."""
         return getattr(getattr(self._ev, "x", None), "pid", None)
 
-    def run(self, chunk: str, marker, settle: float, early: bool = False):
+    def run(self, chunk: str, marker, settle: float, early: bool = False,
+            sentinel: "str | None" = None):
         with self._lock:
             for attempt in (1, 2):
                 try:
                     return self._ensure().run(chunk, marker=marker, settle=settle,
-                                              early=early)
+                                              early=early, sentinel=sentinel)
                 except BaseException as exc:
                     # Stale handle (game restarted?) or transient hijack failure —
                     # drop the warm state and rebuild once before giving up.
@@ -230,7 +231,8 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
                     else:
                         lines = daemon.run(req.get("chunk", ""), req.get("marker"),
                                            float(req.get("settle", 1.2)),
-                                           early=bool(req.get("early")))
+                                           early=bool(req.get("early")),
+                                           sentinel=req.get("sentinel"))
                         resp = {"ok": True, "lines": lines}
                 elif op == "acquire":
                     resp = daemon.lease.acquire(req.get("owner", "?"),
