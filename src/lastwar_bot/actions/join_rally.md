@@ -47,10 +47,18 @@
 
 ARGS squads = [1, 2, 3, 4]
 ARGS targets = ""
+ARGS slots = ""
 
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}"
+#
+# `slots` is `team:seats,…` off the same push the targets come from: how big each banner
+# is. The chunk counts how many marches are standing in it already and passes over the
+# ones with no seat left — the player watched the Marshal event and named it, every squad
+# thrown at a banner nobody could enter (#1281). `__lw_rally_shut` starts empty every run: it
+# collects the banners THIS run has been refused by, and a refusal is only terminal for
+# as long as that banner stands — the next run asks the map again.
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_shut = {}
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.
@@ -143,6 +151,48 @@ WHILE joined < 1 LIMIT 6
 
 IF joined >= 1
     LOG "the squads are in the rally — the count above is how many more of ours are standing in one"
+    STOP
+
+# --- refused: TAKE THAT BANNER OUT AND GO TO THE NEXT ONE, in the same run ---------
+#
+# «Мест уже нет» is a TERMINAL refusal — the game's own words for it are key `390857`,
+# «Rally participant full. Unable to join.» — and the one thing that must not happen next
+# is asking the same banner again. Nothing about it will change while it stands; every
+# further squad spent on it is a squad not spent on the banner beside it, and during an
+# event that is the whole difference (#1281).
+#
+# So the banners this pass sent to are written off for the rest of the run and the sieve
+# runs again immediately: the squads that came back go to the NEXT rallies on the map,
+# and the report names the shut ones under `no_seat=[…]` with `refused-full`. Only what
+# can actually change is retried — a squad still on its way is caught by the wait above,
+# not by this.
+#
+# Bounded on purpose. Two passes, because the third would be spending seconds a banner
+# does not have, and what is left is reported rather than chased.
+LUA pcall(function() local b = DataCenter.__lw_rally_shut or {} for t in string.gmatch(tostring(DataCenter.__lw_rally_sent_teams or ""), "[^,]+") do b[t] = true end DataCenter.__lw_rally_shut = b end)
+
+LOG "no squad appeared where this pass sent — those banners are written off as full for this run, going to the next ones"
+
+TAP rally_join_all
+
+READ_LUA (DataCenter.__lw_rally_report or "the second pass left no report — the press did not run") INTO report
+
+LOG "the line above is the second pass, with the shut banners taken out"
+
+READ_LUA (DataCenter.__lw_rally_sent or 0) INTO resent
+
+IF resent == 0
+    LOG "no other banner had a seat for the squads that came back — nothing more to try this run"
+    STOP
+
+READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
+
+WHILE joined < 1 LIMIT 6
+    WAIT 0.5
+    READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
+
+IF joined >= 1
+    LOG "the squads are in a rally after moving on from the shut ones"
     STOP
 
 # A PLACEHOLDER DOES NOT WORK HERE, and it is documented not to: `{x}` is substituted

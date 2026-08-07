@@ -151,6 +151,12 @@ class RallyTab(PanelTab):
         # (#1281) — so the wire is the only place a rally's KIND can be known before a
         # squad is sent, and this is where the panel keeps what it heard.
         self._targets: dict = {}
+        # HOW BIG EACH BANNER IS: `teamUuid -> assemblyMarchMax`, off the same line. Also
+        # wire-only, and the reason the player asked for this: a rally that has not left
+        # yet can still have no seat free, and nothing in the client's own march record
+        # says so. Measured during the Marshal event: nine banners, every one 5 of 5, and
+        # every squad we owned was being sent at one of them (#1281).
+        self._slots: dict = {}
         # …and what the JOIN has tried, per teamUuid: `(attempts, last-attempt)`. Kept
         # apart from `_seen` because they answer different questions — one banner is one
         # bell, but one banner may well be worth a second attempt at joining (#1281).
@@ -892,6 +898,11 @@ class RallyTab(PanelTab):
             content = clean.split("content=")[1].split()[0].strip()
             if content and content.isdigit():
                 self._targets[team] = content
+        if "slots=" in clean:
+            seats = clean.split("slots=")[1].split()[0].strip()
+            taken, _, cap = seats.partition("/")
+            if cap.isdigit() and int(cap) > 0:
+                self._slots[team] = cap
         # THE BELL IS ONE PER BANNER; THE JOIN IS NOT (#1281). `_seen` used to gate both,
         # and it was marked HERE — before the join had been tried — so a join the game
         # was too busy to start, or one every squad was out for, was never tried again
@@ -1024,6 +1035,19 @@ def target_map(rt) -> str:
     tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
     known = dict(getattr(tab, "_targets", {}) or {}) if tab is not None else {}
     return ",".join(f"{team}:{content}" for team, content in known.items())
+
+
+def slot_map(rt) -> str:
+    """`team:seats,…` — how many marches each banner holds, for the banners we heard.
+
+    The join uses it with the occupancy it counts itself in the client's march list: a
+    banner whose seats are all taken is not a candidate and is named `banner-full` in the
+    run's report. A banner whose size was never heard is NOT filtered — an unheard size is
+    not a full banner, and the refusal path is what catches those (#1281).
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    known = dict(getattr(tab, "_slots", {}) or {}) if tab is not None else {}
+    return ",".join(f"{team}:{cap}" for team, cap in known.items())
 
 
 def join_squads(rt) -> list:

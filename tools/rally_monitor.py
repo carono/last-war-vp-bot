@@ -276,8 +276,16 @@ class RallyMonitor(LiveDecoder):
         # is sent, and this line is where the panel reads it.
         content = payload.get("targetContentId") or payload.get("targetUid")
         kind = f"  content={content}" if content else ""
+        # HOW MANY SEATS THE BANNER HAS. `assemblyMarchMax` is on the wire and nowhere in
+        # the client's march record, exactly like `targetContentId` — so this line is the
+        # only place the panel can learn that a rally which is still gathering has no room
+        # left in it. The player watched the Marshal event and named the symptom: the
+        # active-rally list is full of banners you can no longer enter, and every squad we
+        # had was being thrown at one (#1281).
+        cap = payload.get("assemblyMarchMax")
+        seats = f"  slots={len(marches)}/{cap}" if cap else ""
         print(f"{_stamp()} {command}  {tag}  "
-              f"participants={len(marches)} [{who}]{where}{kind}", flush=True)
+              f"participants={len(marches)} [{who}]{where}{kind}{seats}", flush=True)
 
     def report(self):
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")

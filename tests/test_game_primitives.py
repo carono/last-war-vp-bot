@@ -635,7 +635,12 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     assert type(stmts[1]).__name__ == "TapStmt" and stmts[1].name == "rally_join_all"
 
     presses = [s.name for s in stmts if type(s).__name__ == "TapStmt"]
-    assert presses == ["rally_join_all"], presses
+    # ONE press in front of a banner, and every later one is the same press again with
+    # a shut banner taken out: «мест уже нет» (the game's own key 390857) is terminal, so
+    # the squads that came back are aimed at the NEXT rally inside the same run rather
+    # than at the one that just refused them (#1281).
+    assert set(presses) == {"rally_join_all"}, presses
+    assert presses[0] == "rally_join_all" and len(presses) <= 2, presses
     assert "rally_join_all" in gb.BUTTONS, "rally_join_all is not a button"
 
     # The sieve is in the ability rather than in the panel: a squad already out joins

@@ -913,3 +913,71 @@ being folded into an existing key.
 * **the target's tile** — `WS.PointManager:GetPointInfo(pointId)` (note: `WS`, found via
   `FIND_WORLD_SCENE`; `WorldScene.PointManager` is nil) answers `false` for a rally's
   target after a jump, and a jump costs 0.14–0.57 s. Not needed either.
+
+## A banner that is still gathering can already be shut (#1281)
+
+The player watched the Marshal event and said it plainly: the list of active rallies is
+full of banners **you can no longer enter**, and the auto-join was throwing every squad
+it had at one of them. `endTime` cannot see that — it answers «still standing», which is
+true and useless here.
+
+### Where the seats are, and where they are not
+
+```
+push.alliance.march.create/refresh
+    ├─ assemblyMarchMax      how many marches fit          measured live: 5
+    ├─ leaderMarch           one march                     ┐ occupancy =
+    └─ members[]             the rest                      ┘ 1 + #members
+```
+
+`WorldMarchDataManager:GetAllMarches()` keeps **neither** — the same 25-of-33 truncation
+that drops `targetContentId`. So the size is wire-only, and the panel learns it exactly
+where it learns the target: `tools/rally_monitor.py` prints `slots=<taken>/<max>` on its
+rally line, the «Ралли» tab remembers `teamUuid -> max`, and the join is handed the map as
+`slots="team:max,…"`.
+
+**Occupancy is counted in the client, not taken from the push.** Every member march of a
+rally IS in `GetAllMarches()`, so the count is current at the moment of the send rather
+than as of the last push we happened to hear. Measured on three live banners: 2, 3 and 1
+marches, against a size of 5.
+
+Nine banners sampled on the wire during the event, every one of them:
+
+```
+#    max    occupied  currSoldiers
+1    5      5         2675
+2    5      5         545
+…    5      5         …
+9    5      5         537
+```
+
+A banner whose size was never heard is **not** filtered. An unheard size is not a full
+banner, and shutting an open one costs a join for nothing; the refusal below is what
+catches those.
+
+### «Мест уже нет» — the key, and what to do about it
+
+The game's own words are key **`390857`** — *«Rally participant full. Unable to join.»*
+(`tools/game_locale.py --key 390857`). Its neighbours in the same family are worth
+knowing apart: `120210` «The troop is full» is about an army, `dispatch_march_full_1..3`
+are about your own march queue, and `ghostrecon_051/069/077` belong to the other event.
+
+It is a **terminal** refusal: nothing about that banner will change while it stands. So
+the rule the auto-join follows now, and the rule any future refusal should follow:
+
+* **terminal** (full / gone / not allowed) → drop the target, move to the next one in the
+  SAME run;
+* **can still change** (a squad on its way, a server that has not answered yet) → wait,
+  which is what the join's `WHILE joined < 1` already does.
+
+In the recipe that is: the chunk records where each pass sent
+(`__lw_rally_sent_teams`), and if no march of ours appeared, those banners go into
+`__lw_rally_shut` and the sieve runs again — the squads that came back are aimed at the
+next rallies on the map instead of at the one that just refused them. `__lw_rally_shut`
+starts empty every run: a refusal is terminal for the banner, not for ever.
+
+The report names both:
+
+```
+no_seat=[<team>:banner-full(5/5) <team>:refused-full]
+```

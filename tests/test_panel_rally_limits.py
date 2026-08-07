@@ -230,8 +230,33 @@ def test_the_chunk_reports_the_games_count_and_says_what_the_threshold_costs():
     assert "trophies=" in chunk
     assert "the joins still go out" in chunk, "the wording must not read as a refusal"
     assert "capped-" not in chunk, "a banner may not be skipped on our own count"
-    assert "__lw_rally_blocked" not in chunk
+    # …and no banner is held back by a count of OURS under any other name either. What
+    # the chunk may skip on is what the GAME says: a banner with no seat left
+    # (`banner-full`) or one the server has just refused us (`refused-full`).
+    assert "capped" not in chunk, chunk[:200]
 
+
+
+def test_a_banner_with_no_seat_left_is_never_a_target():
+    """A rally still gathering can still be shut, and the chunk must see it (#1281).
+
+    Occupancy is counted in the client's own march list (every member march of a rally is
+    in it) and the SIZE comes off the wire — `assemblyMarchMax`, which the client's march
+    record drops exactly as it drops `targetContentId`. Nine banners measured live during
+    the Marshal event read 5 of 5 while `endTime` still said they were standing.
+    """
+    import lua_actions
+
+    chunk = lua_actions.rally_join_all()
+    assert "__lw_rally_slots" in chunk, "the seats never reach the chunk"
+    assert "count_of" in chunk, "occupancy is not counted"
+    assert "banner-full" in chunk and "no_seat=[" in chunk, "a shut banner is not named"
+    # …and a banner whose size was never heard is NOT filtered: an unheard size is not a
+    # full banner, and shutting one that was open costs a join for nothing.
+    assert "mx ~= nil and mx > 0 and taken >= mx" in chunk, chunk[:200]
+    # A refusal from the server is terminal for the run and named as its own reason.
+    assert "__lw_rally_shut" in chunk and "refused-full" in chunk
+    assert "__lw_rally_sent_teams" in chunk, "the recipe cannot tell which banners refused"
 
 
 def test_the_kinds_are_the_games_own_species():

@@ -4819,7 +4819,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # through on a day the ordinary twenty are gone.
         # …and what each banner we have HEARD of is going for, so the chunk can name
         # the kind before a squad leaves (#1281). The wire is the only place it exists.
-        return {"squads": squads, "targets": rallytab.target_map(self._rt)}
+        #
+        # …and how many seats each of them has, for the same reason and from the same
+        # line: a banner that has not left yet can still be shut, and the join must not
+        # spend a squad on one it cannot enter.
+        return {"squads": squads,
+                "targets": rallytab.target_map(self._rt),
+                "slots": rallytab.slot_map(self._rt)}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

@@ -3485,10 +3485,26 @@ def rally_join_all() -> str:
         # counted as an ordinary monster because something must be counted, and the report
         # says how many were counted that way.
         "return 'monster', false end "
-        "local seen_t, our_t, end_of, target_of = {}, {}, {}, {} "
+        # HOW MANY SEATS THE BANNER HAS, and how many are taken. The wire says the size
+        # (`assemblyMarchMax`, measured live at 5) and the client's own march list says
+        # the occupancy — every member march of a rally is in it, which is how the count
+        # stays right without waiting for another push. The panel parks the sizes here
+        # as `team:max,…` exactly as it parks the targets (#1281).
+        "local max_of = {} "
+        "pcall(function() for pair in string.gmatch(tostring("
+        "DataCenter.__lw_rally_slots or ''), '[^,]+') do "
+        "local team, mx = string.match(pair, '(%d+):(%d+)') "
+        "if team ~= nil then max_of[team] = tonumber(mx) end end end) "
+        # Banners this run has already been refused by — the recipe writes them here when
+        # a send produced no march, and they are not offered again inside the same run.
+        "local blocked = {} "
+        "pcall(function() for k in pairs(DataCenter.__lw_rally_shut or {}) do "
+        "blocked[tostring(k)] = true end end) "
+        "local seen_t, our_t, end_of, target_of, count_of = {}, {}, {}, {}, {} "
         "if col then local e9 = col:GetEnumerator() while e9:MoveNext() do local m9 = cur(e9) "
         "local t9 = g(m9, 'teamUuid') local ts9 = tostring(t9) "
         "if t9 ~= nil and ts9 ~= '0' and ts9 ~= 'nil' then seen_t[ts9] = true "
+        "count_of[ts9] = (count_of[ts9] or 0) + 1 "
         "local u9 = g(m9, 'uuid') local lead9 = false "
         "pcall(function() lead9 = (tostring(u9) == tostring(t9 - 1)) end) "
         "if lead9 then end_of[ts9] = tonumber(g(m9, 'endTime')) or 0 "
@@ -3516,6 +3532,24 @@ def rally_join_all() -> str:
         "if et == nil or et <= 0 or et > now_ms then still[#still+1] = r "
         "else arrived[#arrived+1] = tostring(r.team) end end "
         "rallies = still end "
+        # A BANNER STILL GATHERING CAN STILL BE SHUT (#1281). The player watched the
+        # Marshal event and named it: the list of active rallies is full of banners that
+        # have not left yet and have no seat left in them, and every squad we owned was
+        # being thrown at one. `endTime` cannot see that — it says the banner is still
+        # standing, which is true. Seats can: nine banners measured on the wire during
+        # that event and every one of them read 5 of 5.
+        #
+        # A banner whose size we never heard is NOT filtered — an unheard size is not a
+        # full banner, and the refusal path below is what catches those.
+        "local full = {} "
+        "local still2 = {} "
+        "for _, r in ipairs(rallies) do local ts = tostring(r.team) "
+        "local mx, taken = max_of[ts], count_of[ts] or 0 "
+        "if blocked[ts] then full[#full+1] = ts..':refused-full' "
+        "elseif mx ~= nil and mx > 0 and taken >= mx then "
+        "full[#full+1] = ts..':banner-full('..taken..'/'..mx..')' "
+        "else still2[#still2+1] = r end end "
+        "rallies = still2 "
         "local function _n(t) local k = 0 for _ in pairs(t) do k = k + 1 end return k end "
         # COUNTED FROM OUR OWN MARCHES, not from the marks. `taken` also carries the
         # teams this run has just SENT to, and a mark outlives the squad that came home —
@@ -3541,6 +3575,7 @@ def rally_join_all() -> str:
         "kb = MM:GetKillBossNum() kbmax = MM:GetMaxKillBossNum() "
         "kbleft = MM:GetRestKillBossNum() end) "
         "local sent, errs, went, left_over, kinds, went_kind = 0, {}, {}, {}, {}, {} "
+        "local sent_teams = {} "
         "local unknown_kind = 0 "
         "local pairs_n = #home if #rallies < pairs_n then pairs_n = #rallies end "
         "local qi = 0 "
@@ -3553,6 +3588,7 @@ def rally_join_all() -> str:
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
         "if ok then sent = sent + 1 keep[tostring(r.team)] = 0 "        # age 0: freshly sent
+        "sent_teams[#sent_teams+1] = tostring(r.team) "
         "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
         "kinds[#kinds+1] = kind "
         "went_kind[#went_kind+1] = tostring(r.team)..'='..kind"
@@ -3564,6 +3600,9 @@ def rally_join_all() -> str:
         "DataCenter.__lw_rally_joined = keep "
         "DataCenter.__lw_rally_sent = sent "
         "DataCenter.__lw_rally_kinds = table.concat(kinds, ',') "
+        # WHERE THIS PASS SENT, so the recipe can take those banners out and go to the
+        # next ones when the server answers «Rally participant full» (game key 390857).
+        "DataCenter.__lw_rally_sent_teams = table.concat(sent_teams, ',') "
         # WHAT THE RECIPE DOES NEXT, decided here so it costs no reading of its own.
         # `sent` when anything went; `-1` when nothing did and the only thing in the way
         # was an EMPTY squad with a rally standing there for it — the one case the
@@ -3596,6 +3635,7 @@ def rally_join_all() -> str:
         "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind"
         "..' (the event list could not be read — counted as monster, said rather than assumed)' end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "
+        "if #full > 0 then report = report..' no_seat=['..table.concat(full, ' ')..']' end "
         "if #left_over > 0 then report = report..' passed=['..table.concat(left_over, ' ')..']' end "
         "if #skipped > 0 then report = report..' left=['..table.concat(skipped, ' ')..']' end "
         "if #errs > 0 then report = report..' refused=['..table.concat(errs, ' ')..']' end "

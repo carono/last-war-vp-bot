@@ -417,6 +417,74 @@ def test_the_alert_fires_once_per_banner():
         root.destroy()
 
 
+def test_the_tab_remembers_how_big_each_banner_is_and_hands_it_to_the_join():
+    """`slots=2/5` off the capture line becomes the join's `slots` argument (#1281).
+
+    A rally that has not left yet can still be shut, and the client's own march record
+    has no field that says so — `assemblyMarchMax` is on the wire only, exactly like the
+    target's config id. The player watched the Marshal event and named the symptom: the
+    active-rally list was full of banners nobody could enter and every squad we had was
+    being thrown at one. Nine banners measured on the wire during that event read 5 of 5.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab._bell = lambda: None
+        tab._alert_var.set(False)
+        tab._autojoin_var.set(False)
+        tab._on_line("[rally] push.alliance.march.create  team=77  participants=2 [a] "
+                     "content=1031023  slots=2/5")
+        tab._on_line("[rally] push.alliance.march.refresh  team=88  participants=5 [b] "
+                     "slots=5/5")
+        # A line with no seats at all leaves nothing behind — an unheard size is not a
+        # full banner, and inventing one would shut a rally that was open.
+        tab._on_line("[rally] push.alliance.march.create  team=99  participants=1 [c]")
+        assert tab._slots == {"77": "5", "88": "5"}, tab._slots
+
+        from panel.tabs.rally import tab as rallytab
+        rt.tabs = {rallytab.RallyTab.ID: tab}
+        rendered = dict(pair.split(":") for pair in rallytab.slot_map(rt).split(","))
+        assert rendered == {"77": "5", "88": "5"}, rendered
+    finally:
+        root.destroy()
+
+
+def test_a_refused_banner_is_written_off_and_the_squads_go_to_the_next_one():
+    """«Мест уже нет» is terminal: the same banner is not asked twice (#1281).
+
+    The game's own words for it are key `390857` — «Rally participant full. Unable to
+    join.» Nothing about that banner will change while it stands, so a second squad spent
+    on it is a squad not spent on the rally beside it. The recipe writes the banners this
+    pass sent to into `__lw_rally_shut` and presses again, and the chunk passes over them.
+    """
+    from lastwar_bot import script_engine as se
+
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    stmts = se.parse_text(se.prepare_source(src, {})[0])
+
+    # The run starts with an EMPTY write-off list: a refusal is terminal for the banner,
+    # not for ever — the next run asks the map again.
+    assert "__lw_rally_shut = {}" in stmts[0].chunk, stmts[0].chunk
+
+    presses = [i for i, s in enumerate(stmts) if isinstance(s, se.TapStmt)]
+    marks = [i for i, s in enumerate(stmts)
+             if isinstance(s, se.LuaStmt) and "__lw_rally_sent_teams" in s.chunk]
+    assert marks, [type(s).__name__ for s in stmts]
+    # The write-off happens AFTER a press and is followed by another one: that is what
+    # «go to the next banner in the same run» is.
+    assert any(p < marks[0] for p in presses), (presses, marks)
+    assert any(p > marks[0] for p in presses), (presses, marks)
+
+
 def test_join_now_refuses_with_no_squad_ticked():
     """A join with no squad would be a silent no-op that looked like it had worked."""
     try:
@@ -721,7 +789,7 @@ def test_a_busy_game_makes_the_join_wait_rather_than_drop_the_rally():
         # Busy for the first two asks, then free: the join must still happen.
         asks = {"n": 0}
 
-        def claim(owner="panel"):
+        def claim(owner="panel", priority=0):
             asks["n"] += 1
             return asks["n"] > 2
 
@@ -763,7 +831,11 @@ def test_the_join_opens_nothing_and_reaches_the_send_in_two_calls():
 
     press = [i for i, s in enumerate(stmts)
              if isinstance(s, se.TapStmt) and s.name == "rally_join_all"]
-    assert len(press) == 1, [type(s).__name__ for s in stmts]
+    # WHAT IS PINNED IS THE FIRST press, not the only one. Later passes exist and are
+    # supposed to: a banner that answers «мест уже нет» is written off and the squads go
+    # to the next one in the same run (#1281). They all sit AFTER the first send and
+    # after the wait that proves it, so none of them is in front of a banner.
+    assert press and press[0] == 1, [type(s).__name__ for s in stmts]
 
     # Nothing that reaches the game stands in front of it but the one park.
     before = [s for s in stmts[:press[0]]
