@@ -111,7 +111,6 @@ from . import i18n as i18nmod
 from . import runtime
 from .runtime import stall as stallmod
 from .runtime import tick as tickmod
-from . import debug_sender as dbgsender
 from . import profile as profilemod
 from . import tabs as tabsreg
 from .tabs import rally as rallytab
@@ -1438,7 +1437,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _open_send_log_dialog(self) -> None:
         """«Помощь → Отправить лог разработчику»: a modal that shows what would be
         sent (the zipped debug log + a preview of its tail), reassures that nothing
-        personal leaves the box, and ships it via panel/debug_sender.py."""
+        personal leaves the box, and ships it via panel/debug_sender.py.
+
+        The sender is imported here, not at the top of the module (#1282): it pulls
+        `zipfile`, which is 32 ms of every start for an archive that is only built when
+        this dialog opens."""
+        from . import debug_sender as dbgsender
+
         existing = getattr(self, "_senddiag_win", None)
         if existing is not None and existing.winfo_exists():
             existing.lift()

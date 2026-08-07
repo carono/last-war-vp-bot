@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import threading
 
-from .. import debug_sender as dbgsender
 from .paths import repo_rel
 
 
@@ -26,7 +25,14 @@ def send_archive(rt) -> None:
 
     Packing reads a rotated log that may be megabytes, so it happens on a thread; every
     line it reports is posted back onto the Tk thread.
+
+    The packer is imported HERE rather than at the top of the file (#1282). This module
+    IS re-exported by `panel.runtime`, so its imports are paid by every panel start and
+    every `python -m panel.tabs.<id>` — and `panel.debug_sender` pulls `zipfile` for
+    32 ms to build an archive nobody gets until somebody presses a button.
     """
+    from .. import debug_sender as dbgsender
+
     url = rt.settings.opt_str("debug_send_url")
     path = rt.profiles.debug_log()
     rt.say("debug", "log.debug.packing")

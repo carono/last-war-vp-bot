@@ -73,7 +73,6 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
-from xml.sax.saxutils import escape
 
 from .. import profile as profilemod
 from ..i18n import Message
@@ -752,7 +751,15 @@ def task_xml(*, python: str | None = None, repo: str | None = None,
     Every path in it is this installation's — the interpreter running right now and the
     repository this file is in — so a copy of the panel somewhere else registers the
     copy, not whatever the first machine happened to have.
+
+    The XML escaper is imported HERE rather than at the top of the file (#1282): this is
+    the only function in the module that needs it, it runs when somebody ticks a
+    checkbox, and `xml.sax.saxutils` drags in `urllib.request` — with `http.client` and
+    `ssl` behind it — for 47 ms of every panel start, every `python -m panel.tabs.<id>`
+    and every child process that touches the runtime.
     """
+    from xml.sax.saxutils import escape
+
     who = escape(account if account is not None else _account())
     user = f"      <UserId>{who}</UserId>\n" if who else ""
     # A boundary in the past plus StartWhenAvailable means the first look happens now
