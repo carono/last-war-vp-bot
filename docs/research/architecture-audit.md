@@ -486,6 +486,72 @@ one that can tell «the panel feels slow» from «the client is at 21 fps».
 
 ---
 
+# 6a. What was carried out — task #1282
+
+Eleven commits, in the order the table below sorts by. Every number here was taken on
+this checkout the way §«How the numbers were taken» says; where an item was NOT done, the
+reason is written down rather than left to be guessed at.
+
+| § | what happened | number, before → after |
+|---|---|---|
+| 4.3 | `tools/run_tests.py`, three tiers (`TIER = "ui"` / `"live"` in the file, **no declaration means `offline`**), and the red guard rewritten as a RATIO — no tab that is not `EAGER` is drawn with the page | page-build file 10/11 → 11/11; baseline recorded: offline 31/37 green in 344 s, ui 40/48 in 137 s |
+| 2.1 | `xml.sax.saxutils` (and `urllib`/`ssl`/`http.client` behind it) and `panel.debug_sender` (`zipfile`) moved into the functions that use them | `autostart` 54.5 → 20 ms, `diag` 33 → 0.6 ms, `import panel.__main__` 240–306 → 197–212 ms warm |
+| 1.2 step 1 | `early=True` on the tools' reads that log their whole answer in one line — ghost `read_status` / `queue_set` / the per-tile `can_steal` probe, secret-task `queue_set` and the detail read-back | ghost `--queue-only`: 1.6 s of sleep → ~30 ms per line |
+| 5.2 | `tools/lib/repo_git.py` — the git directory resolved and spelled for whichever platform asks (`/mnt/p/…` ⇄ `P:\…`) | hygiene in a WSL-made worktree 4/6 → 6/6, and the `check-ignore` check no longer reads git's 128 as «not ignored» |
+| 5.1 | `load_locale` merges `panel/locales/<lang>.json` with `panel/locales/<lang>/<tab>.json`; `tools/dev/split_locales.py` migrates a prefix at a time | reading half only — see below |
+| 5.3 | a `Worker: #<task>` trailer, written into `AGENTS.md` §8 | — |
+| 4.2 | `panel/kept.py` — no `clear()` at all, removals name `EXPIRED` / `GAME_SAID_GONE` / `PERSON_ASKED`, each store declares which it accepts, `merge()` only adds | 11 tests; no store migrated onto it yet — see below |
+| 4.1 + 1.3 | `verify_lua` on `Button`: the before-value read in the same chunk as the press, then polled, and `wait` becomes the DEADLINE on that poll. A press that changed nothing fails the recipe | mechanism + 8 tests; **no button declares one yet**, so no recipe changed |
+| 4.4 | the two source-text assertions in `test_panel_web.py` replaced by building the page and pressing the button; `_Runtime` given the real `recovery` / `panic` it had fallen behind | 55/69 → 69/69 |
+| 1.4 | `collect` advances a byte cursor and splits only what is new; a partial last line is held back until its newline | up to 200 full re-reads of a 200-line answer → each byte read once; and a half-written line can no longer be returned as an answer |
+| 6 | `tools/dev/bench.py` — numbers 1, 2, 3 and 9, one JSON line per run into `results/bench.jsonl` | today: import 0.135 s, first page build 1.04 s, warm 0.359 s, 3 of 7 tabs drawn and all three EAGER |
+
+**What the runner found the moment it existed.** Twelve test files are RED on clean
+`HEAD` (checked in a throwaway worktree at `c06cf51`, so none of it is somebody's
+uncommitted work), and not one of them needs a game: `test_game_primitives` 46/63,
+`test_rally_create` 7/16, `test_panel_web` 55/69, `test_panel_command_post` 20/21,
+`test_panel_daemon_port` 7/8, `test_panel_multi_profile` 22/26, `test_panel_profile_compat`
+and `test_secret_missions` crashing outright, `test_game_port_detection` 12/14, the two
+street-run files, and the page-build guard. Two of them were fixed here (`test_panel_web`,
+`test_lua_settle` — whose stand-in had fallen behind #1272 and silently went looking for a
+live client). The rest are what a suite nobody could run looks like after a while, and
+they are now visible instead of theoretical.
+
+## What was deliberately NOT done, and what each one is waiting for
+
+* **1.1, the lock off the settle.** The design is unchanged from §1.1 and the cheapest
+  form is not the nonce but a per-CALL answer file — one path per call, no cross-talk to
+  disambiguate, `collect` outside the lock. What stops it landing here is not the code: it
+  changes when a second chunk may be INJECTED, and the hijack parks the game's main
+  thread. Nothing offline can tell a working version from one that wedges the client, and
+  the acceptance run (`tools/dev/check_answer_channel.py`) needs a live game. It goes in
+  with a client running, and is the first thing to measure afterwards (§6, number 7).
+* **1.2 step 2, inverting the `early` default**, and **4.5, declaring the answer shape on
+  the chunk.** Step 1 is in; the inversion is a property of ~280 chunks in
+  `tools/lib/lua_actions.py`, which was being edited by another worker throughout this
+  task. It is one file, one worker, one sitting — not something to interleave.
+* **3.3, one raidable predicate**, for the same reason: it spans the decoder, the Lua
+  reads and the secret-task tab, and the tab was under active edit (#1272, #1280).
+* **2.3, caching the phone's view.** The cache is easy; the INVALIDATION is the design,
+  and doing it per tab means editing every tab that has a `web_view`. Doing it by a short
+  max-age instead would make a card stale for exactly as long as it saves, which is the
+  one thing §2.3 says not to do. It wants the person's call on which tabs may lag and by
+  how much, and it wants the tabs to be quiet.
+* **3.1 (the shell, one block per task) and 3.2 (settings out of the widgets).** Days
+  and «large» respectively, both across files several tasks touch at once. Neither is a
+  thing to start in the same hour as eleven other changes.
+* **5.1, the locale migration itself.** The reader takes both layouts and the migration
+  tool is written and dry-runnable, but the move rewrites all eleven files in one go and
+  another worker had locale edits in flight for the whole of this task. Run
+  `tools/dev/split_locales.py <prefix>` per prefix when the tree is quiet — `log` (188
+  keys), `web` (95), `secrettasks` (81), `vsduel` (81) first.
+* **4.2's first customer and 4.1's first button.** Both mechanisms are additive by
+  design and both first customers live in files that were being edited: the ★ list
+  (`panel/tabs/secret_tasks/tab.py`) and any button whose `count_lua` would be its
+  verifier. Each is a small, separate change with a live check behind it.
+
+---
+
 # 7. Sorted by win / risk
 
 | | item | win | risk | size |
