@@ -46,10 +46,10 @@ import os
 import threading
 import time
 
-from .. import __version__ as APP_VERSION
 from .. import i18n as i18nmod
 from .. import timers as timersmod
 from ..runtime import game_control, game_process, panel_control, provision
+from ..runtime import updates
 from ..runtime import panic as panicmod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
@@ -309,7 +309,13 @@ class WebApi:
             # divergences there are»), and what such a tab genuinely needs on the move
             # goes on «Состояние». Empty `controls` in a process that is not a panel —
             # a tab launched on its own answers this route too.
-            "panel": {"version": APP_VERSION, "controls": panel_control.state()},
+            # `version` is the RELEASE this checkout is on, with the `+N-dev` mark when
+            # it sits between two of them (#1274) — the same string the window draws,
+            # out of the same cached reading, because «какая у тебя версия» must not
+            # have two answers depending on which front-end was asked. It falls back to
+            # the packaged number where there is no git to ask.
+            "panel": {"version": updates.version_text(),
+                      "controls": panel_control.state()},
             # «Стоп всё» and its undo. A MARK rather than a log line, because the
             # line scrolls away and a stopped profile looks exactly like an idle
             # one — which is how seven hours went past with a dead client behind

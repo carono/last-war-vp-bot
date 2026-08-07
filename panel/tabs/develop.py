@@ -53,9 +53,18 @@ Three things about the scenario half worth keeping straight:
 * **Stop is not a kill.** The interpreter checks a flag between statements, so the step
   in flight finishes and nothing is left half-sent to the game.
 
+**The update channel** (#1274), one tick. The panel follows RELEASES — annotated
+`vMAJOR.MINOR.PATCH` tags — and «Обновлять до dev-версии» makes it follow the branch tip
+instead, which is what it did for every checkout before releases existed. It is here
+because wanting the unreleased state IS working on the bot, and this tab being switched
+on already says that (`panel/tabs/__init__.py::DEV_TAB` — the mode has one switch, not
+two). The answer is panel-wide, not the profile's: one checkout serves every profile in
+the window. `docs/panel-updates.md` says how a release is cut.
+
 The `TAP` reference is opened here but drawn by the shell — the dialog drops its choice
 into the DSL command line on «Главная», which is not this tab's to write to
 (docs/research/panel-tabs-refactor.md §7). So the button publishes and the shell listens.
+The update tick travels the same way, to the same place, for the same reason.
 """
 from __future__ import annotations
 
@@ -71,6 +80,7 @@ from tkinter.scrolledtext import ScrolledText
 
 # The runtime FIRST: importing it is what puts tools/ and tools/lib on sys.path, and
 # the three bare-name modules below live there.
+from .. import profile as profilemod
 from ..runtime import ActionRunner, list_actions
 from ..runtime.paths import TOOLS, TOOLS_LIB, repo_rel
 from ..widgets import font as ui_font, numeric_spinbox
@@ -165,7 +175,54 @@ class DevelopTab(PanelTab):
                           justify="left"), "develop.hint").pack(
             anchor="w", padx=10, pady=(0, 10))
 
+        self._build_update_channel()
         self._build_scenarios()
+
+    # -- which updates this panel takes (#1274) --------------------------------
+    def _build_update_channel(self) -> None:
+        """The tick that says «follow the branch», not «follow the releases».
+
+        WHY HERE. «Обновление» on «Главная» belongs to everybody; this is the knob that
+        changes what it MEANS, and wanting the unreleased state is the definition of
+        working on the bot — which is what this tab is and what having it switched on
+        already says (`panel/tabs/__init__.py::DEV_TAB`). So it is one more thing behind
+        the switch that is already there rather than a second switch beside it.
+
+        WHY IT IS NOT A PROFILE SETTING, and so is not in `config()` below: there is one
+        checkout and every profile in the window runs out of it
+        (`panel/profile.py::dev_updates`). The tick is read off disk when the tab is
+        drawn, so a second window that changed it is reflected the moment this page is
+        looked at.
+
+        NO SCREEN ON THE PHONE, and that is the tab's standing exception rather than a
+        new one: «Разработка» declares `WEB_SCREEN = False` (CLAUDE.md, «The three
+        divergences there are»). What the phone DOES get is the consequence — the
+        version line on «Состояние» carries the `+N-dev` mark, so a checkout following
+        the branch says so wherever it is read.
+        """
+        box = self.tr(ttk.LabelFrame(self.parent, padding=8), "develop.updates.frame")
+        box.pack(fill="x", padx=10, pady=(0, 8))
+        self._dev_updates_var = tk.BooleanVar(master=self.rt.root,
+                                              value=profilemod.dev_updates())
+        self.tr(ttk.Checkbutton(box, variable=self._dev_updates_var,
+                                command=self._toggle_dev_updates),
+                "develop.updates.dev").pack(anchor="w")
+        self.tr(ttk.Label(box, foreground="#888", wraplength=660, justify="left"),
+                "develop.updates.hint").pack(anchor="w", pady=(6, 0))
+
+    def _toggle_dev_updates(self) -> None:
+        """Write the answer, say which channel it is now, and make «Главная» re-ask.
+
+        The re-ask is published rather than called: the block that acts on it is the
+        shell's, on «Главная», and a tab does not reach into another page (§7). Without
+        it the tick would take effect at the next six-hourly check, which is the same as
+        not taking effect as far as anybody watching is concerned.
+        """
+        flag = bool(self._dev_updates_var.get())
+        profilemod.set_dev_updates(flag)
+        self.say("panel", "log.update.channel.dev" if flag
+                 else "log.update.channel.release")
+        self.rt.bus.publish("update.channel", flag)
 
     def _build_scenarios(self) -> None:
         """List the DSL action scripts, edit one, and run or loop it.

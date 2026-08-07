@@ -112,6 +112,13 @@ question a switch of its own would ask. Two switches would be two answers to one
 question, with nothing to settle it the first time they disagreed; this way the mode
 lives in the same list that shows what it unhides.
 
+**Two things hang off that one switch, and they are meant to.** Having «Разработка» on
+unhides the unfinished tabs (here), and the tab itself carries «Обновлять до dev-версии»
+— whether the panel follows release tags or the branch tip (#1274,
+`docs/panel-updates.md`). Both are the same answer to the same question: *is this profile
+for working on the bot?* If a third thing ever needs it, it goes behind this switch too
+rather than beside it.
+
 **The mark hides; it never edits.** The profile's tick list is carried through
 untouched and so is the tab's settings block (`tabs.config.<ID>`), so a profile that had
 the tab switched on before the mark went on loses nothing — the tab simply stops being
@@ -779,6 +786,12 @@ Three things bound it:
   written in `CLAUDE.md`. `tests/test_panel_web_screens.py` fails if one of them grows
   a screen quietly — and a fourth exception is added the same way: ask, agree, write it
   in both files, pin it in the test.
+* **A control added to one of those three is covered by its standing exception, not by
+  a new one** — but say so where you add it, or the next reader cannot tell. «Обновлять
+  до dev-версии» on «Разработка» (#1274) is the worked example: the tick exists only in
+  the window, and what the phone gets instead is the CONSEQUENCE of it — the version on
+  «Состояние» carries the same `+N-dev` mark, out of the same reading, so a checkout
+  following the branch says so wherever it is read. See `docs/panel-updates.md` §4.
 
 ## Reaching another tab
 

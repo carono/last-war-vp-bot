@@ -209,6 +209,12 @@ UPDATE_COLOURS = {
     runtime.updates.BEHIND: "#e8c069",
     runtime.updates.AHEAD: "#888",
     runtime.updates.DIVERGED: "#e8c069",
+    # Green, like CURRENT: a checkout past the newest release has everything the
+    # release channel can give it, which is the same "nothing to do here" — the version
+    # line beside it is what says the code is newer than any release (#1274).
+    runtime.updates.DEV_AHEAD: "#3c3",
+    # Grey: a branch with no release on it is «не могу сказать», not a fault.
+    runtime.updates.NO_RELEASE: "#888",
     # Grey, not red: an origin that could not be reached is «не знаю», the same weight
     # as «нечего предлагать» — the panel works exactly as well either way. Red is kept
     # for ERROR, which is git itself refusing and worth a person's attention.
@@ -1015,8 +1021,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._dbg_ui = self._rt.dbg("ui")
         self._logbus.set_debug_logger(self._dbg_ui)
         self._dbg_status_prev = None
-        self._dbg.info("panel starting — profile %r, version %s",
-                       self._profiles.active, APP_VERSION)
+        # The RELEASE, warmed here once — this is the line a bug report is read off,
+        # and «1.0.0» when the person is on `v1.4.0+3-dev` is the exact confusion #1274
+        # exists to end. One `git describe` on the way up, cached for everything after.
+        self._dbg.info("panel starting — profile %r, version %s (channel %s)",
+                       self._profiles.active, runtime.updates.version_text(),
+                       self._update_channel())
         # Everything the panel says goes through one sink (panel/runtime/log.py): the
         # queue this page drains, the profile's panel.log, and the debug log. The
         # WIDGET is this page's — a tab launched on its own has none, and says the
@@ -1412,7 +1422,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         frm.pack(fill="both", expand=True)
         ttk.Label(frm, text=self._t("about.name"),
                   font=("", 12, "bold")).pack(anchor="w")
-        ttk.Label(frm, text=self._t("about.version", version=APP_VERSION),
+        # The RELEASE, not the packaged constant: a dialog opened on demand can afford
+        # the git call, and the cache behind it is nearly always warm by then (#1274).
+        ttk.Label(frm, text=self._t("about.version",
+                                    version=runtime.updates.version_text()),
                   foreground="#888").pack(anchor="w", pady=(2, 8))
         ttk.Label(frm, text=self._t("about.description"), wraplength=360,
                   justify="left").pack(anchor="w")
@@ -2441,6 +2454,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # The «Сценарии» tab's `TAP` reference drops its choice into the DSL command
         # line, which lives here on «Главная» — so it asks rather than reaching (§7).
         self._rt.bus.subscribe("cmd.reference", lambda _p: self._show_button_reference())
+        # «Разработка» owns the tick that says which channel updates come from, and the
+        # block below is what acts on it — so the tab publishes the change and this
+        # re-asks straight away, instead of the operator ticking a box and then waiting
+        # six hours (or hunting for «Проверить») to see what it did (#1274).
+        self._rt.bus.subscribe("update.channel", lambda _p: self._check_updates(manual=True))
 
 
         top = ttk.Frame(main, padding=8)
@@ -3694,11 +3712,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
     # -- «Обновление»: is this checkout still the current one? ---------------
     #
-    # There is no release channel: the bot IS the git checkout it runs from, and updating
-    # it used to mean remembering to open a terminal and type `git pull` — which is why a
-    # box could sit weeks behind `origin` with nobody noticing. The block below is the
-    # whole feature's face: which commit this is, whether `origin` has moved, and one
-    # button when (and only when) a fast-forward is safe.
+    # The bot IS the git checkout it runs from, and updating it used to mean remembering
+    # to open a terminal and type `git pull` — which is why a box could sit weeks behind
+    # with nobody noticing. The block below is the whole feature's face: which RELEASE
+    # this is, whether a newer one has been cut, and one button when (and only when) a
+    # fast-forward is safe.
+    #
+    # «Newer» is a TAG since #1274, not a commit: a push made ten minutes ago is not an
+    # update anybody asked for, and offering it as one put half-finished work in front
+    # of somebody who only wanted to farm. The other channel — the branch tip, which is
+    # what this block did for every checkout before — is a tick on «Разработка», and the
+    # panel-wide answer is `panel/profile.py::update_channel`.
     #
     # Everything it decides lives in panel/runtime/updates.py — this half draws the
     # answer and keeps the two buttons in step with it. The three states an operator
@@ -3746,8 +3770,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # static ones, and the state they are formatted from is not a locale key.
         self._hook(self._paint_update, key="update-block")
 
+    def _update_channel(self) -> str:
+        """Releases or the branch tip? Re-read every time, never remembered here.
+
+        The tick lives on «Разработка» and the answer on disk (`panel/profile.py`); a
+        copy held in the window would be a second one, and the first thing it would do
+        is disagree with the box the operator is looking at.
+        """
+        return profilemod.update_channel()
+
     def _check_updates(self, manual: bool = False) -> None:
-        """Ask `origin` whether this checkout has fallen behind. Off the Tk thread.
+        """Ask `origin` whether a newer release exists. Off the Tk thread.
 
         `manual` is the ↻ press: it says so in the log even when the answer is "всё
         актуально", which the periodic check keeps to itself.
@@ -3757,11 +3790,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._update_busy = True
         self._update_status_var.set(self._t("update.st.checking"))
         self._update_status_lbl.configure(foreground="#888")
+        channel = self._update_channel()
 
         def work() -> None:
             handle = self._activity.begin("activity.update.check")
             try:
-                state = runtime.updates.check()
+                state = runtime.updates.check(channel=channel)
             except Exception as exc:       # noqa: BLE001 — a broken probe is a label,
                 state = runtime.updates.UpdateState(   # not a dead panel
                     runtime.updates.ERROR, detail=str(exc))
@@ -3787,10 +3821,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if not manual and prev is not None and prev.state == state.state:
             return
         if state.state == upd.BEHIND:
-            self._say("panel", "log.update.behind", branch=state.branch,
-                      behind=state.behind, remote=state.remote)
+            if state.channel == upd.RELEASE:
+                self._say("panel", "log.update.behind_release", release=state.release,
+                          behind=state.behind, version=state.version)
+            else:
+                self._say("panel", "log.update.behind", branch=state.branch,
+                          behind=state.behind, remote=state.remote)
         elif state.state == upd.CURRENT and manual:
             self._say("panel", "log.update.current", local=state.local)
+        elif state.state == upd.DEV_AHEAD and manual:
+            self._say("panel", "log.update.dev_ahead", version=state.version,
+                      release=state.release)
+        elif state.state == upd.NO_RELEASE and manual:
+            self._say("panel", "log.update.no_release", branch=state.branch)
         elif state.state == upd.OFFLINE:
             # NOT in the log unless the operator asked. An origin that cannot be reached
             # is nothing they can act on — a home connection that was not up yet when the
@@ -3820,16 +3863,22 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # Until the first check lands the label is just the version, which is true.
         local = state.local if state is not None else ""
         branch = state.branch if state is not None else ""
+        # The RELEASE this checkout is on, with the `+N-dev` mark when it is between
+        # two of them (#1274). Off the last reading, which is the only place a git
+        # answer may be taken from here; before the first check it is the packaged
+        # number, which is what the release commit set it to.
+        version = (state.version if state is not None and state.version
+                   else APP_VERSION)
         if local and branch:
             self._update_version_var.set(self._t("update.version.branch",
-                                                 version=APP_VERSION,
+                                                 version=version,
                                                  branch=branch, local=local))
         elif local:
             self._update_version_var.set(self._t("update.version.commit",
-                                                 version=APP_VERSION, local=local))
+                                                 version=version, local=local))
         else:
             self._update_version_var.set(self._t("update.version",
-                                                 version=APP_VERSION))
+                                                 version=version))
 
         if self._update_ready:
             # A pull has already landed. Nothing else the block could say matters until
@@ -3847,12 +3896,21 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         # Behind AND dirty is the one combination that needs two facts in one line: the
         # update exists, and it is the operator's own uncommitted work that is holding
-        # it — not a failure of anything the panel does.
-        key = ("update.st.behind_dirty" if state.state == upd.BEHIND and state.dirty
-               else f"update.st.{state.state}")
+        # it — not a failure of anything the panel does. And a release is not a commit
+        # count: on the release channel the line names the version being offered, which
+        # is the only thing about it anybody can act on (#1274).
+        if state.state == upd.BEHIND:
+            key = "update.st.behind"
+            if state.channel == upd.RELEASE:
+                key = "update.st.behind_release"
+            if state.dirty:
+                key += "_dirty"
+        else:
+            key = f"update.st.{state.state}"
         self._update_status_var.set(self._t(
             key, branch=state.branch, local=state.local, remote=state.remote,
-            behind=state.behind, ahead=state.ahead, detail=state.detail))
+            behind=state.behind, ahead=state.ahead, detail=state.detail,
+            release=state.release, version=state.version))
         self._update_status_lbl.configure(
             foreground=UPDATE_COLOURS.get(state.state, "#888"))
         if state.can_pull:
@@ -3865,23 +3923,33 @@ class Panel(runtime.SessionScoped, tk.Tk):
         state = self._update_state
         if self._update_busy or state is None or not state.can_pull:
             return
+        release = state.channel == runtime.updates.RELEASE
         if not messagebox.askyesno(
                 self._t("update.confirm.title"),
-                self._t("update.confirm.body", branch=state.branch,
-                        behind=state.behind, remote=state.remote), parent=self):
+                self._t("update.confirm.body_release" if release
+                        else "update.confirm.body",
+                        branch=state.branch, behind=state.behind, remote=state.remote,
+                        release=state.release, version=state.version), parent=self):
             return
         self._update_busy = True
         self._update_status_var.set(self._t("update.st.pulling"))
         self._update_status_lbl.configure(foreground="#888")
         self._update_pull_btn.pack_forget()
-        self._say("panel", "log.update.pulling", branch=state.branch,
-                  remote=state.remote)
+        if release:
+            self._say("panel", "log.update.pulling_release", release=state.release)
+        else:
+            self._say("panel", "log.update.pulling", branch=state.branch,
+                      remote=state.remote)
         before = state.local
+        # The channel THIS press was offered under, not whatever the tick says by the
+        # time the worker gets there: the button appeared because a particular target
+        # was behind, and pulling a different one would not be the press that was made.
+        channel = state.channel
 
         def work() -> None:
             handle = self._activity.begin("activity.update.pull")
             try:
-                res = runtime.updates.pull()
+                res = runtime.updates.pull(channel=channel)
             except Exception as exc:       # noqa: BLE001
                 res = runtime.updates.PullResult(runtime.updates.FAIL_ERROR,
                                                  detail=str(exc))
@@ -3928,6 +3996,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
             messagebox.showwarning(self._t("update.fail.title"),
                                    self._t("update.fail.offline", detail=res.detail),
                                    parent=self)
+        elif res.reason == upd.FAIL_NO_RELEASE:
+            self._say("panel", "log.update.fail_no_release")
+            messagebox.showwarning(self._t("update.fail.title"),
+                                   self._t("update.fail.no_release"), parent=self)
         elif res.reason == upd.FAIL_NOTHING:
             self._say("panel", "log.update.current", local=res.state.local
                       if res.state is not None else "")

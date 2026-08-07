@@ -617,6 +617,53 @@ class ProfileManager:
         return name
 
 
+# -- the update channel: panel-wide, and deliberately not a profile's (#1274) ----
+#
+# WHY IT IS NOT A PROFILE SETTING. There is ONE checkout, and every profile in the
+# window runs out of it. Two profiles that disagreed about whether to follow releases or
+# the branch tip would be two answers to a question with one subject, and the first
+# press would settle it for both of them without saying so. So it sits in the panel-wide
+# file beside `active_profile` and `open_profiles` — the other two facts about the
+# window rather than about an account.
+#
+# WHY THESE ARE MODULE FUNCTIONS AND NOT METHODS. A `ProfileManager` held by an open
+# session is PINNED and refuses to write this file, because the two keys already in it
+# are the workspace's to write and a session must not fight over them. This key has no
+# such conflict — whichever session ticks the box means the same thing by it — so it is
+# read and written without a manager at all, by the tab that draws the tick and by the
+# shell that acts on it.
+
+#: The key in `panel/settings.json`. Absent means «releases», which is the default a
+#: panel that has never heard of the tick behaves by.
+DEV_UPDATES_KEY = "dev_updates"
+
+
+def dev_updates() -> bool:
+    """Is this panel following the BRANCH TIP rather than the newest release?"""
+    return bool(ProfileManager._read_settings().get(DEV_UPDATES_KEY, False))
+
+
+def set_dev_updates(flag: bool) -> None:
+    """Remember the answer for the whole panel. Written even when nothing else is."""
+    data = ProfileManager._read_settings()
+    flag = bool(flag)
+    if bool(data.get(DEV_UPDATES_KEY, False)) == flag:
+        return
+    data[DEV_UPDATES_KEY] = flag
+    _write_json(SETTINGS_FILE, data)
+
+
+def update_channel() -> str:
+    """The channel name `panel/runtime/updates.py` speaks — `"dev"` or `"release"`.
+
+    Here rather than in the runtime so that the STORED answer and the two constants meet
+    in one place: a caller asks this and passes the result on, and nothing else has to
+    know that the preference is a boolean on disk.
+    """
+    from .runtime import updates as updatesmod
+    return updatesmod.DEV if dev_updates() else updatesmod.RELEASE
+
+
 def _leftovers(path: str, most: int = 5) -> str:
     """What is still in a directory that would not delete — the useful half of «why».
 
