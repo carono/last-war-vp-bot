@@ -144,6 +144,58 @@ def test_the_rest_of_a_growing_answer_is_not_cut_off():
         log.close()
 
 
+def test_a_poll_reads_only_what_is_new():
+    """Each byte of an answer is read and split ONCE, however long the wait is (#1282).
+
+    `collect` used to re-read and re-split the whole answer every `POLL_SEC` — 10 ms
+    apart — so a 200-line answer waited out over two seconds cost up to 200 full reads
+    of the same text, and the cost grew with exactly the answers that are biggest: the
+    map sweep and the alliance dumps.
+    """
+    log = _Log()
+    try:
+        log.write("ACT row 1\n")
+        log.write_in(0.10, "ACT row 2\n")
+        reads = []
+        real_read = lua_eval._LineReader.read
+
+        def counting(self):
+            before = self.cursor
+            text = real_read(self)
+            reads.append(self.cursor - before)
+            return text
+
+        lua_eval._LineReader.read = counting
+        try:
+            lines = lua_eval.collect(log.path, log.since, "ACT", 2.0,
+                                     early=True, quiet=0.25)
+        finally:
+            lua_eval._LineReader.read = real_read
+        assert lines == ["ACT row 1", "ACT row 2"], lines
+        # Many polls, and between them exactly the answer's own bytes — never a byte
+        # twice, whatever the poll count happened to be.
+        assert len(reads) > 3, f"the test did not actually poll ({len(reads)})"
+        # Against the file's own growth rather than against a character count: Windows
+        # writes "\n" as two bytes and the reader counts BYTES.
+        grew = Path(log.path).stat().st_size - log.since
+        assert sum(reads) == grew, (sum(reads), grew)
+    finally:
+        log.close()
+
+
+def test_a_line_that_arrives_in_two_pieces_is_not_reported_half_written():
+    """The reader holds back a line with no newline yet — an answer split across two
+    appends must come back whole, never as «ACT curserver=1» followed by «00»."""
+    log = _Log()
+    try:
+        log.write("ACT curserver=1")
+        log.write_in(0.20, "00\n")
+        lines = lua_eval.collect(log.path, log.since, "ACT", 2.0, early=True, quiet=0.1)
+        assert lines == ["ACT curserver=100"], lines
+    finally:
+        log.close()
+
+
 def test_a_silent_chunk_still_costs_the_whole_settle():
     log = _Log()
     try:
@@ -176,9 +228,16 @@ class _Recorder:
     def __init__(self) -> None:
         self.calls = []
 
-    def run(self, chunk, marker=None, settle=1.2, early=False):
-        self.calls.append({"chunk": chunk, "marker": marker,
-                           "settle": settle, "early": early})
+    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None):
+        # `sentinel` arrived with #1272 and this stand-in did not hear about it. What
+        # that cost is worth a line: `Daemon.run` passes it on, the call raised
+        # TypeError, the daemon's own «stale handle?» recovery dropped the stub and
+        # built a REAL evaluator — so an offline test went looking for a game, failed to
+        # snapshot a client that is not there, and took the whole file down with it
+        # (#1282). A stand-in that is behind its subject does not fail as a stand-in; it
+        # fails as whatever it fell back to.
+        self.calls.append({"chunk": chunk, "marker": marker, "settle": settle,
+                           "early": early, "sentinel": sentinel})
         return [f"{marker or 'X'} ok"]
 
     def close(self) -> None:

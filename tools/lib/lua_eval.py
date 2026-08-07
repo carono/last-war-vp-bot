@@ -288,10 +288,19 @@ def collect(path: str, since: int, marker, settle: float, early: bool = False,
         return _matching(_tail(path, since), marker)
     deadline = time.monotonic() + settle
     lines, grew_at = [], None
+    # Only what is NEW, each time round (#1282). This used to re-read and re-split the
+    # whole answer on every poll — 10 ms apart, so a 200-line answer waited out over two
+    # seconds was up to 200 full reads and 200 full splits of the same text, and the
+    # cost grew with the very answers that are biggest: the map sweep and the alliance
+    # dumps. The reader now advances as lines are consumed and keeps only the trailing
+    # PARTIAL line, so a line that was written in two appends is still seen whole.
+    reader = _LineReader(path, since)
     while True:
-        found = _matching(_tail(path, since), marker)
-        if len(found) > len(lines):
-            lines, grew_at = found, time.monotonic()
+        fresh = reader.read()
+        if fresh:
+            picked = _matching(fresh, marker)
+            if picked:
+                lines, grew_at = lines + picked, time.monotonic()
         if sentinel is not None and any(sentinel in ln for ln in lines):
             break
         now = time.monotonic()
@@ -301,6 +310,40 @@ def collect(path: str, since: int, marker, settle: float, early: bool = False,
             break
         time.sleep(min(poll, max(0.0, deadline - now)))
     return lines
+
+
+class _LineReader:
+    """Whole lines out of a growing file, reading each byte exactly once.
+
+    The offset is in BYTES and the decode happens after the split, so a multi-byte
+    character straddling two appends cannot desynchronise the cursor. A last line with
+    no newline yet is held back rather than returned half-written — the chunk's buffer
+    is flushed in one append, but the game may still be mid-write when a poll lands.
+    """
+
+    def __init__(self, path: str, since: int) -> None:
+        self.path = path
+        self.cursor = since
+        self._partial = b""
+
+    def read(self) -> str:
+        """Every COMPLETE line written since the last call, as one string."""
+        try:
+            with open(self.path, "rb") as fh:
+                fh.seek(self.cursor)
+                data = fh.read()
+        except OSError:
+            return ""
+        if not data:
+            return ""
+        self.cursor += len(data)
+        data = self._partial + data
+        head, sep, tail = data.rpartition(b"\n")
+        if not sep:                      # nothing complete yet — keep waiting
+            self._partial = data
+            return ""
+        self._partial = tail
+        return (head + b"\n").decode("utf-8", "replace")
 
 
 class LuaEval:
