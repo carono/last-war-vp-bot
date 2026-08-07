@@ -32,8 +32,6 @@ import tkinter as tk
 import game_paths
 import lua_client
 
-from .. import mapsweep as mapsweepmod
-
 # Where the Windows client and its launcher live by default. A profile may name
 # another install (a second client in its own Windows session), which is the whole
 # reason these are knobs and not constants any more — and the DEFAULT behind the knob
@@ -141,13 +139,16 @@ DEFAULTS: dict = {
     # empty until economy has been switched on once.
     "graphics_mode": "standard",
     "graphics_stock": "",
-    "sweep_radius": mapsweepmod.DEFAULT_RADIUS,
-    "sweep_dwell": mapsweepmod.DEFAULT_DWELL,
-    "sweep_rest_min": 5,           # pause between two full passes, minutes
-    # No `sweep_step` and no `sweep_zoom`: how far back the camera sits and how far
-    # apart the waypoints go are ONE decision, and it is the «Зум» control on the
-    # «Секретки» coordinate bar (#1265). A step measured at one height means nothing at
-    # another, so the two could never honestly be set apart.
+    # No `sweep_*` knobs any more (#1272). «Автообъезд карты» — the pass-and-rest walk
+    # they paced — is gone: «Обойти карту» on the «Секретки» coordinate bar schedules the
+    # jumps in the game itself and covers the whole server in about three seconds (#1265),
+    # so there is no box to size, no dwell to tune and no rest to sit out.
+    # How often «Автопомощь» looks for an alliance task worth one of the day's five helps,
+    # and how long it waits once they are spent (panel/tabs/secret_tasks/autoassist.py).
+    # Slow on purpose: tasks finish all day, nothing is racing anybody for them, and the
+    # budget resets once.
+    "autoassist_poll": 300.0,      # seconds between two looks
+    "autoassist_pause_min": 60,    # minutes to wait out a spent budget
     # Where «Отправить диагностику» ships the zipped debug logs (panel/debug_sender.py).
     # Empty = do not send: the archive is still written, but nothing leaves the box.
     "debug_send_url": "",

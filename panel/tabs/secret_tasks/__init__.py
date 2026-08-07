@@ -1,4 +1,4 @@
-"""The «Secret Tasks» tab — the starred raidable tiles, and the three orders behind them.
+"""The «Secret Tasks» tab — the starred raidable tiles, and the orders behind them.
 
 Six files, because the parts fail in different ways and are worth reading apart:
 
@@ -11,7 +11,8 @@ Six files, because the parts fail in different ways and are worth reading apart:
 * :mod:`~panel.tabs.secret_tasks.capture` — the passive pcap child that feeds the list;
 * :mod:`~panel.tabs.secret_tasks.autoloot` — the standing order that spends the day's
   five robberies, and therefore the delicate one (#1099);
-* :mod:`~panel.tabs.secret_tasks.sweep` — the camera walk that keeps the capture fed.
+* :mod:`~panel.tabs.secret_tasks.autoassist` — the OTHER daily five (#1272): helping the
+  alliance finish its own tasks, a different command over a different list.
 
 The tab is imported lazily (PEP 562) for the same reason the rally package does it: a
 module here should be readable without dragging tkinter in behind it.
@@ -20,7 +21,8 @@ from __future__ import annotations
 
 import importlib
 
-_SUBMODULES = frozenset({"tab", "grid", "alliance", "capture", "autoloot", "sweep"})
+_SUBMODULES = frozenset({"tab", "grid", "alliance", "capture", "autoloot",
+                         "autoassist"})
 
 
 def __getattr__(name: str):

@@ -186,11 +186,11 @@ class Capture:
                 return
             self._proc = mon
             # Confirm the child really started (so a silent monitor is never mistaken for
-            # a crash). A passive pcap only yields tiles while the map is scrolling — so
-            # say so, unless «Автообъезд карты» is already doing the scrolling.
-            self.tab.say("secret",
-                         "log.secret.started" if self.tab.sweep.running
-                         else "log.secret.started_move_map", pid=mon.pid)
+            # a crash). A passive pcap only yields tiles while the map is scrolling, and
+            # nothing scrolls it by itself any more (#1272 — «Автообъезд карты» is gone),
+            # so this always says which press to make: «Обойти карту», one lap, the whole
+            # server in about three seconds.
+            self.tab.say("secret", "log.secret.started_move_map", pid=mon.pid)
         except Exception as exc:          # noqa: BLE001 — a capture, never the window
             self.tab.say("secret", "log.secret.ended")
             self.rt.dbg("secret").error("capture start failed: %s", exc, exc_info=True)

@@ -345,6 +345,30 @@ BUTTONS: dict[str, Button] = {
              "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end"),
         wait=0.5, label="dismiss steal-reward popup",
     ),
+    # --- alliance -> help a mate's finished secret task -----------------------
+    # A THIRD daily budget on this tab and a THIRD command (#1272): `help_ally_all`
+    # answers building requests and is unlimited, `steal_secret_task` robs strangers,
+    # and this HELPS an alliancemate's finished hero dispatch — `hero.dispatch.assist`,
+    # five a day, and what the daily plan calls «помочь выполнить 5 секретных заданий
+    # ранга UR или Звезда». No queue to fill: the targets are the client's own
+    # `allianceTask` table, so the press chooses for itself out of the rule parked
+    # beside it. See docs/research/secret-task-assist.md.
+    "assist_secret_task": Button(
+        lua=_lua_actions.assist_next_secret_task(),
+        # The counter only moves when the reply lands, and a press that helped nothing
+        # (the list had gone stale) is answered with a tip rather than a budget change.
+        wait=2.0, label="Help a secret task (alliance)",
+        # min(tasks the rule matches, helps left today).
+        count_lua=_lua_actions.secret_task_assists_pending(),
+        max_taps=10,
+    ),
+    "refresh_alliance_secret_tasks": Button(
+        # `hero.dispatch.alliance.list`, fire and forget. NOT optional before a help:
+        # the local copy keeps tasks somebody else has already helped with, and every
+        # one of those costs a refusal instead of a help (docs/research/…-assist.md).
+        lua=_lua_actions.secret_task_assist_refresh(),
+        wait=2.0, label="Re-read the alliance's secret tasks",
+    ),
     # --- world -> rob a ghost-recon squad («Операция Призрак») ----------------
     # A DIFFERENT feature from `steal_secret_task` above: that one robs a hero
     # dispatch («секретка», `hero.dispatch.steal`), this one robs the weekly

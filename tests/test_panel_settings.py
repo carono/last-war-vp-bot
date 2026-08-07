@@ -104,10 +104,11 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
         # placeholder — «Общие» and «Игра» hold the knobs that used to be constants
         # in panel/__main__.py.
         assert all(builder for _key, builder in SHELL_PAGES), SHELL_PAGES
-        # `sweep_step` was here and is gone (#1265): a step means nothing without the
-        # camera height it was measured at, so both live on the «Секретки» coordinate
-        # bar as one control. `sweep_radius` is still the shell's — it is about the box.
-        for key in ("win_python", "daemon_port", "watchdog", "sweep_radius"):
+        # The whole `sweep_*` family was here and is gone (#1265, #1272): a step means
+        # nothing without the camera height it was measured at, and then «Автообъезд
+        # карты» itself was replaced by «Обойти карту» on the «Секретки» coordinate bar,
+        # which walks the server in about three seconds and needs no box to be sized.
+        for key in ("win_python", "daemon_port", "watchdog", "autoassist_poll"):
             assert key in rt.settings.vars, key
         # …and the panel reads them back through the same accessors, defaults and all.
         assert rt.settings.opt_int("daemon_port") == rtmod.DEFAULTS["daemon_port"]

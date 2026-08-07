@@ -405,15 +405,26 @@ called «Операция Призрак». Both boxes were built, mapped, and 4
 nobody had a reason to open. **A control in the right place that nobody finds is worse
 than one in a slightly wrong place, because everything about it looks fine.**
 
+**And a copy is undone when its reason goes.** The ★ one is drawn ONCE again (#1272):
+what made it unfindable was a half-empty frame at the top of the tab that still claimed
+the subject, and both that frame and the map sweep inside it are gone, so the box lives
+with the list it fills and nothing above it is pretending to be about sniffing. The
+ghost pair stays, because its reason has not changed — two pages, and the one people
+search under is not the one its findings land on. A second copy is a cost (two places
+to edit, one variable to keep believing in), so it is paid where it buys findability and
+withdrawn where it stops.
+
 **How to draw it twice.** Bind both widgets to the ONE variable the tab already has, and
 give both the same `command`:
 
 ```python
-# ✅ the frame at the top, and the page it belongs to — one variable, one toggle
-self.tr(ttk.Checkbutton(bar, variable=self.monitor_var,
-                        command=self.capture.toggle), "secret.monitoring.stars")
-self.tr(ttk.Checkbutton(page, variable=self.monitor_var,
-                        command=self.capture.toggle), "secret.monitoring.stars")
+# ✅ the page its findings land on, and the page people search under — one variable
+self.tab.tr(ttk.Checkbutton(bar, variable=self.monitor_var,
+                            command=self.tab.ghost_capture.toggle),
+            "secret.monitoring.ghost")
+self.tab.tr(ttk.Checkbutton(other, variable=self.monitor_var,
+                            command=self.tab.ghost_capture.toggle),
+            "secret.monitoring.ghost")
 ```
 
 ```python

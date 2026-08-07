@@ -54,6 +54,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from ...widgets import NumericEntry
 from . import grid
 
 
@@ -71,6 +72,42 @@ class AllianceGrid(grid.TaskGrid):
         # hides most of what it mirrors before anybody asks it to is not a mirror.
         self.ur_var = tk.BooleanVar(master=tab.rt.root, value=False)
         self.star_var = tk.BooleanVar(master=tab.rt.root, value=False)
+
+    # -- the standing order over this list ------------------------------------------
+    def build_filters(self, parent) -> None:
+        """«Автопомощь» first, then this page's own eyes (#1272).
+
+        The same layout the ★ page grew in #1271, and for the same reason: the order that
+        SPENDS something goes above the boxes that only hide rows, on the page holding the
+        list it spends itself over. A help is one of five a day and it is taken from THIS
+        table — the alliance's own finished tasks — so a strip above all five pages would
+        say «this governs the tab» about a rule that governs one of them.
+
+        It is deliberately not «Автолут ★» twice over. That one robs strangers with
+        `hero.dispatch.steal`; this one helps alliancemates with `hero.dispatch.assist`,
+        out of a separate daily cap, and pays the owner as well as the helper. The two
+        share a shape and nothing else.
+        """
+        tab = self.tab
+        frame = tab.tr(ttk.LabelFrame(parent, padding=6), "autoassist.frame")
+        frame.pack(fill="x", pady=(4, 0))
+        bar = ttk.Frame(frame)
+        bar.pack(fill="x")
+        tab.tr(ttk.Checkbutton(bar, variable=tab.autoassist_var,
+                               command=tab._on_autoassist_toggle),
+               "autoassist.enabled").pack(side="left")
+        tab.tr(ttk.Label(bar), "autoassist.level_min").pack(side="left", padx=(12, 2))
+        NumericEntry(bar, textvariable=tab.assist_level_var, width=4).pack(side="left")
+        # What the checkbox is about to do, and what it is doing about it — the two
+        # questions the auto-loot line answers on the ★ page. A standing order with
+        # nothing to help is silent otherwise, which reads exactly like a broken one.
+        tab._assist_lbl = ttk.Label(frame, foreground="#888", wraplength=720,
+                                    justify="left")
+        tab._assist_lbl.pack(fill="x", anchor="w", pady=(4, 0))
+        tab.assist_level_var.trace_add(
+            "write", lambda *_a: tab._on_assist_level_change())
+        super().build_filters(parent)
+        tab._refresh_rule_hints()
 
     # -- the boxes ----------------------------------------------------------------
     def extra_filters(self, bar) -> None:

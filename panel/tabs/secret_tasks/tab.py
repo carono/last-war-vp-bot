@@ -93,16 +93,15 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from ...widgets import (NumericEntry, numeric_spinbox, tk_stringvar,
-                        font as ui_font)
+from ...widgets import NumericEntry, tk_stringvar, font as ui_font
 from ..base import PanelTab, TriggerSpec
 from . import grid
 from .alliance import AllianceGrid
+from .autoassist import AutoAssist
 from .autoloot import AutoLoot
 from .capture import Capture
 from .ghost import GhostAllianceGrid, GhostGrid, GhostMapGrid
 from .shared import SharedMarks
-from .sweep import Sweep
 
 # The table itself — its columns, its colours, its sort keys and its countdown — is
 # `grid.py` now (#1244), because the tab draws it TWICE: once for the starred raid
@@ -130,6 +129,14 @@ POLL_MS = 30_000
 # than a drift of seconds a day needs; the read is one line through the warm daemon.
 CLOCK_MS = 5 * 60_000
 
+# How often the ★ sniffer flushes what it has decoded, in seconds. ONE, and there is no
+# box for it any more (#1272): the capture exists so that a starred tile is known while
+# it is still worth robbing, and a fifteen-second flush was fourteen seconds of a tile
+# sitting undiscovered for no gain anybody could name. A profile that wants another
+# number still carries `monitor_interval` and it is still honoured — it is simply not
+# something the tab asks about.
+DEFAULT_INTERVAL = "1"
+
 # The two channels a task can be forwarded to. The room ids are built from the player's
 # own server / alliance, read once and cached (see `_self_ids`).
 SHARE_ALLIANCE = "alliance"
@@ -155,18 +162,17 @@ class SecretTasksTab(PanelTab):
     TITLE_KEY = "tab.secret_tasks"
     ORDER = 260
     PREFERRED_SIZE = "900x700"
-    LOCALE_NS = ("secrettasks", "secret", "sweep", "autoloot", "tabx")
+    LOCALE_NS = ("secrettasks", "secret", "autoloot", "autoassist", "tabx")
     NEEDS = frozenset({"daemon", "children", "actions"})
-    # The capture, the watcher and the sweep are standing orders: they have to be
-    # RUNNING, not waiting for somebody to open the tab.
+    # The capture and the two watchers are standing orders: they have to be RUNNING,
+    # not waiting for somebody to open the tab.
     EAGER = True
     # Identity, deliberately: §5 rule 3 forbids renaming a key in the wave that moves
     # it, so the block spells every one of them exactly as the flat profile did.
     LEGACY_KEYS = {k: k for k in (
         "monitor_kind", "monitor_interval", "secret_monitor",
         "filter_level_from", "filter_level_to",
-        "autoloot", "autoloot_level_from", "autoloot_level_to",
-        "map_sweep", "sweep_centre_x", "sweep_centre_y")}
+        "autoloot", "autoloot_level_from", "autoloot_level_to")}
     # `autoloot_level_from` / `autoloot_level_to` are kept above to READ a profile
     # written before the range became one minimum (#1256) — `apply_config` migrates
     # them. Nothing writes them any more: the rule is `autoloot_level_min`.
@@ -231,7 +237,12 @@ class SecretTasksTab(PanelTab):
 
         # -- the controls the three orders read ------------------------------
         self.monitor_var = tk.BooleanVar(master=master, value=False)
-        self.interval_var = tk.StringVar(master=master, value="15")
+        # HOW OFTEN THE SNIFFER FLUSHES, AND IT IS NOT ON SCREEN ANY MORE (#1272). One
+        # second is what the capture is for — a tile is worth knowing about the moment it
+        # lands, and every slower number was a way of finding out late. A machine that
+        # genuinely needs it slower still says so, in the profile's `monitor_interval`;
+        # what went away is the box, not the setting.
+        self.interval_var = tk.StringVar(master=master, value=DEFAULT_INTERVAL)
         self.filter_from_var = tk.StringVar(master=master)
         self.filter_to_var = tk.StringVar(master=master)
         self.autoloot_var = tk.BooleanVar(master=master, value=False)
@@ -260,10 +271,13 @@ class SecretTasksTab(PanelTab):
         # how a rule about spending five raids a day silently became a rule about what
         # is on screen.
         self.hide_own_var = tk.BooleanVar(master=master, value=True)
-        self.sweep_var = tk.BooleanVar(master=master, value=False)
-        self.sweep_cx_var = tk.StringVar(master=master)
-        self.sweep_cy_var = tk.StringVar(master=master)
-        self._sweep_hint = None
+        # «Автопомощь» and its own minimum level (#1272). A SECOND budget and a second
+        # standing order, on the alliance page because that is the list it spends itself
+        # over — the same reasoning that moved «Автолут ★» onto the ★ page (#1271).
+        self.autoassist_var = tk.BooleanVar(master=master, value=False)
+        self.assist_level_var = tk_stringvar(master)
+        self._assist_lbl = None
+        self._assist_line = None
         self._rule_lbl = None
         # The words currently on the auto-loot label, so the countdown can leave it
         # alone while they have not changed.
@@ -310,7 +324,10 @@ class SecretTasksTab(PanelTab):
                                      switch=self.ghost_map.monitor_var,
                                      interval=self.ghost_map.interval_var)
         self.autoloot = AutoLoot(rt, self)
-        self.sweep = Sweep(rt, self)
+        # …and the alliance page's own standing order (#1272), which spends a DIFFERENT
+        # daily budget on a DIFFERENT command: five helps a day through
+        # `hero.dispatch.assist`, over the alliance's own finished tasks.
+        self.autoassist = AutoAssist(rt, self)
         # The second table (#1244): what the alliancemates are running, filled by its
         # own read — see `_roster`.
 
@@ -324,7 +341,7 @@ class SecretTasksTab(PanelTab):
         """Run ``func`` on the Tk thread; a window that has gone simply drops it.
 
         Through the runtime's hand-over queue rather than `root.after`: the callers are
-        the capture's reader, the auto-loot watcher and the sweep, all of them workers,
+        the capture's reader and the two standing orders' watchers, all of them workers,
         and `after` from a worker waits on the event loop that draws every other open
         profile (#1226).
         """
@@ -349,8 +366,8 @@ class SecretTasksTab(PanelTab):
             self.ghost_capture.start()
         if self.autoloot_var.get():
             self.autoloot.start()
-        if self.sweep_var.get():
-            self.sweep.start()
+        if self.autoassist_var.get():
+            self.autoassist.start()
 
     def on_show(self) -> None:
         """Somebody opened the tab: restore the last session's list, start the
@@ -395,7 +412,7 @@ class SecretTasksTab(PanelTab):
         self.capture.stop()
         self.ghost_capture.stop()
         self.autoloot.stop()
-        self.sweep.stop()
+        self.autoassist.stop()
         # Another account is another server and another alliance: both cached readings
         # would otherwise answer for the profile that has just been left — and the own
         # server is what the robbery prohibition is judged against.
@@ -441,8 +458,8 @@ class SecretTasksTab(PanelTab):
             self.capture.start()
         if self.autoloot_var.get():
             self.autoloot.start()
-        if self.sweep_var.get():
-            self.sweep.start()
+        if self.autoassist_var.get():
+            self.autoassist.start()
 
     def on_language_change(self) -> None:
         self._retranslate_headings()
@@ -477,7 +494,7 @@ class SecretTasksTab(PanelTab):
         for name, var, order in (("monitor", self.monitor_var, self.capture),
                                  ("ghost", self.ghost_map.monitor_var, self.ghost_capture),
                                  ("autoloot", self.autoloot_var, self.autoloot),
-                                 ("sweep", self.sweep_var, self.sweep)):
+                                 ("autoassist", self.autoassist_var, self.autoassist)):
             self._was[name] = bool(var.get())
             var.set(False)
             order.stop()
@@ -494,7 +511,7 @@ class SecretTasksTab(PanelTab):
         for name, var in (("monitor", self.monitor_var),
                           ("ghost", self.ghost_map.monitor_var),
                           ("autoloot", self.autoloot_var),
-                          ("sweep", self.sweep_var)):
+                          ("autoassist", self.autoassist_var)):
             if was.get(name):
                 var.set(True)
 
@@ -502,7 +519,7 @@ class SecretTasksTab(PanelTab):
         self.capture.stop()
         self.ghost_capture.stop()
         self.autoloot.stop()
-        self.sweep.stop()
+        self.autoassist.stop()
         for name in ("secret_tick", "secret_poll", "secret_nudge",
                      "secret_clock", "autoloot_push_restart"):
             self.rt.tick.disarm(name)
@@ -530,9 +547,12 @@ class SecretTasksTab(PanelTab):
             "autoloot": bool(self.autoloot_var.get()),
             # One number now (#1256) — the lowest level worth one of the day's five.
             "autoloot_level_min": self.level_min_var.get(),
-            "map_sweep": bool(self.sweep_var.get()),
-            "sweep_centre_x": self.sweep_cx_var.get(),
-            "sweep_centre_y": self.sweep_cy_var.get(),
+            # …and the alliance page's own order and its own minimum (#1272). A second
+            # key rather than a shared one: the two budgets are different commands with
+            # different daily caps, and a level worth one of five robberies abroad is not
+            # necessarily a level worth one of five helps at home.
+            "autoassist": bool(self.autoassist_var.get()),
+            "autoassist_level_min": self.assist_level_var.get(),
             "coord_x": self.coord_x_var.get(),
             "coord_y": self.coord_y_var.get(),
             "coord_server": self.coord_srv_var.get(),
@@ -542,7 +562,7 @@ class SecretTasksTab(PanelTab):
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
-        self.interval_var.set(str(raw.get("monitor_interval", "15")))
+        self.interval_var.set(str(raw.get("monitor_interval") or DEFAULT_INTERVAL))
         blocks = raw.get("grids") if isinstance(raw.get("grids"), dict) else {}
         for page in self._grid_pages():
             page.apply_config(blocks.get(page.CONFIG_KEY, {}))
@@ -591,9 +611,12 @@ class SecretTasksTab(PanelTab):
         # A profile that still carries it keeps it as dead weight rather than being
         # rewritten behind the person's back, and it decides nothing: the home server is
         # excluded whatever it says.
-        self.sweep_var.set(bool(raw.get("map_sweep", False)))
-        self.sweep_cx_var.set(raw.get("sweep_centre_x", ""))
-        self.sweep_cy_var.set(raw.get("sweep_centre_y", ""))
+        # «Автопомощь» (#1272). `map_sweep` / `sweep_centre_x` / `sweep_centre_y` are
+        # read from no profile any more and written to none: «Автообъезд карты» is gone,
+        # and a profile that still carries the three keeps them as dead weight rather
+        # than being rewritten behind the person's back.
+        self.autoassist_var.set(bool(raw.get("autoassist", False)))
+        self.assist_level_var.set(str(raw.get("autoassist_level_min") or ""))
         self.coord_x_var.set(str(raw.get("coord_x", "")))
         self.coord_y_var.set(str(raw.get("coord_y", "")))
         self.coord_srv_var.set(str(raw.get("coord_server", "")))
@@ -616,7 +639,7 @@ class SecretTasksTab(PanelTab):
                 self.hide_own_var,
                 self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_min_var,
-                self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
+                self.autoassist_var, self.assist_level_var,
                 self.coord_x_var, self.coord_y_var, self.coord_srv_var]
 
     # -- UI -------------------------------------------------------------------
@@ -633,10 +656,11 @@ class SecretTasksTab(PanelTab):
             side="right", padx=8)
 
         self._build_coord_bar()
-        self._build_monitor_bar()
-        # «Автолут ★» is NOT here (#1271): it belongs to the ★ list, so it is drawn on
-        # the ★ page, by `_build_table` below. A rule aimed at one of five tables has no
-        # business standing above all five.
+        # NOTHING ABOUT ONE LIST STANDS OVER ALL FIVE (#1271, #1272). «Автолут ★» went
+        # onto the ★ page with the list it robs; «Мониторинг ★-секреток» has followed it
+        # there, and «Автообъезд карты» is gone altogether — «Обойти карту» on the
+        # coordinate bar walks the whole server in about three seconds (#1265), which is
+        # what the pass-and-rest loop had been approximating for a year.
 
         self.tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                           justify="left"), "secrettasks.hint").pack(
@@ -688,57 +712,6 @@ class SecretTasksTab(PanelTab):
         self._set_jump_history(self._jump_hist)
         self._sync_zoom_combo()
 
-    def _build_monitor_bar(self) -> None:
-        """The ★ sniffer's switch where the eye goes for it, and the map sweep.
-
-        THE SWITCHES BELONG TO THEIR PAGES (#1251). One «Мониторинг» box with a dropdown
-        beside it meant choosing which sniffer to watch STOPPED the other one, and one
-        «уровень от / до» narrowed lists it had nothing to do with — ghost squads are
-        levels 3-5 where secret tasks run 1-7. Each page carries its own switch, its own
-        interval and its own range.
-
-        AND THE ★ ONE IS DRAWN HERE AS WELL (#1264). Moving it off this frame left the
-        frame standing with its old title and only the sweep inside, so whoever had been
-        pressing «Мониторинг» here for months found nothing and reported the switch
-        gone — it was four hundred pixels down, inside a page of a five-page notebook.
-        **This is the SAME `monitor_var` and the same `capture.toggle`, not a second
-        box**: Tk drives every checkbutton bound to one variable, so the two are one
-        switch drawn twice and cannot disagree. Do not «tidy» either away — see
-        docs/panel-tabs.md, «One state, several places».
-
-        The sweep stays shared on purpose: it is one camera, it feeds both captures at
-        once, and two boxes driving one camera would fight each other.
-        """
-        sec = self.tr(ttk.LabelFrame(self.parent, padding=8), "secret.frame")
-        sec.pack(fill="x", padx=10, pady=(0, 4))
-
-        mon = ttk.Frame(sec)
-        mon.pack(fill="x", pady=(0, 6))
-        self.tr(ttk.Checkbutton(mon, variable=self.monitor_var,
-                                command=self.capture.toggle),
-                "secret.monitoring.stars").pack(side="left")
-        self.tr(ttk.Label(mon), "secret.interval").pack(side="left", padx=(12, 2))
-        numeric_spinbox(mon, from_=1, to=3600, width=5,
-                        textvariable=self.interval_var).pack(side="left")
-        self.tr(ttk.Label(mon, foreground="#888", wraplength=520,
-                          justify="left"), "secret.hint").pack(side="left", padx=10)
-
-        # «Автообъезд карты»: the passive scan only learns tiles while the map moves, so
-        # this walks the camera over a box around a centre.
-        sweep = self.tr(ttk.LabelFrame(sec, padding=6), "sweep.frame")
-        sweep.pack(fill="x")
-        self.tr(ttk.Checkbutton(sweep, variable=self.sweep_var,
-                                command=self.sweep.toggle),
-                "sweep.enabled").pack(side="left")
-        self.tr(ttk.Label(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
-        NumericEntry(sweep, textvariable=self.sweep_cx_var, width=6,
-                     signed=True).pack(side="left", padx=(0, 2))
-        NumericEntry(sweep, textvariable=self.sweep_cy_var, width=6,
-                     signed=True).pack(side="left")
-        self._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
-                                     justify="left")
-        self._sweep_hint.pack(side="left", padx=(10, 0))
-
     def _build_filter_bar(self, parent) -> None:
         """«Автолут ★», its one level box and the line saying what the rule will do.
 
@@ -783,11 +756,10 @@ class SecretTasksTab(PanelTab):
         # happening on the table is the very confusion this fix is about.
         for var in (self.filter_from_var, self.filter_to_var):
             var.trace_add("write", lambda *_a: self._on_display_filter_change())
-        for var in (self.sweep_cx_var, self.sweep_cy_var):
-            var.trace_add("write", lambda *_a: self._refresh_rule_hints())
         # The capture's interval is a child-process argument, so a change only takes
         # effect on the next launch: bounce a running one rather than waiting for a
-        # manual toggle.
+        # manual toggle. There is no box for it any more (#1272) — this is what carries a
+        # `monitor_interval` typed into the profile while the panel is up.
         self.interval_var.trace_add("write", lambda *_a: self._on_interval_change())
 
     # -- the table -------------------------------------------------------------
@@ -889,18 +861,23 @@ class SecretTasksTab(PanelTab):
                                 command=self._on_hide_own_change),
                 "secrettasks.filter.hide_own").pack(side="left", padx=(16, 0))
 
-        # …and the SECRET-TASK sniffer's own switch, on the page it feeds (#1251) — the
-        # SAME variable as the copy in «Секретные задания» above (#1264), so whichever
-        # one is pressed, both move. Same label too: two boxes reading the same words
-        # and moving together say «one switch» where two spellings would say «two».
+        # …and the SECRET-TASK sniffer's own switch, on the page it feeds — AND NOWHERE
+        # ELSE NOW (#1272). It was drawn twice for a while (#1264, the same variable in
+        # two places) because moving it off the frame above had left that frame standing
+        # with its old title and only the map sweep inside, and whoever had been pressing
+        # «Мониторинг» there reported the switch gone. The frame itself is gone now, so
+        # there is nothing left for the copy to reassure: one box, on the page whose list
+        # it fills, beside the rule that spends what it finds.
+        #
+        # NO INTERVAL BESIDE IT (#1272). It flushes every second — see `DEFAULT_INTERVAL`
+        # — and a profile that wants another number says so in `monitor_interval`.
         mon = ttk.Frame(parent)
         mon.pack(fill="x", pady=(0, 4))
         self.tr(ttk.Checkbutton(mon, variable=self.monitor_var,
                                 command=self.capture.toggle),
                 "secret.monitoring.stars").pack(side="left")
-        self.tr(ttk.Label(mon), "secret.interval").pack(side="left", padx=(12, 2))
-        numeric_spinbox(mon, from_=1, to=3600, width=5,
-                        textvariable=self.interval_var).pack(side="left")
+        self.tr(ttk.Label(mon, foreground="#888", wraplength=520,
+                          justify="left"), "secret.hint").pack(side="left", padx=10)
 
     def _on_hide_own_change(self) -> None:
         """The box was flipped: redraw the ★ list, read nothing, rob nothing."""
@@ -1374,12 +1351,9 @@ class SecretTasksTab(PanelTab):
         robbery got spent on a level-6 star.
         """
         self._rule_line = None                 # say it again even if the words match
+        self._assist_line = None
         self._refresh_autoloot_line()
-        if self._sweep_hint is not None:
-            try:
-                self._sweep_hint.configure(text=self.sweep.rule_text())
-            except tk.TclError:
-                pass
+        self._refresh_assist_line()
 
     def _refresh_autoloot_line(self) -> None:
         """Redraw the auto-loot label, and only when its words have actually changed.
@@ -1398,6 +1372,43 @@ class SecretTasksTab(PanelTab):
             self._rule_lbl.configure(text=line)
         except tk.TclError:
             pass
+
+    def _assist_line_text(self) -> str:
+        """«Автопомощь» in one line: what it would help with, and what it is doing."""
+        return f"{self.autoassist.rule_text()} · {self.autoassist.state_text()}"
+
+    def _refresh_assist_line(self) -> None:
+        """Redraw the auto-help label, and only when its words have actually changed.
+
+        Same shape as the auto-loot one directly above and for the same reason: the state
+        moves on the watcher's thread, the countdown is what notices, and a `configure`
+        per second per profile is the Tk traffic #1226 went looking for.
+        """
+        if self._assist_lbl is None:
+            return
+        line = self._assist_line_text()
+        if line == self._assist_line:
+            return
+        self._assist_line = line
+        try:
+            self._assist_lbl.configure(text=line)
+        except tk.TclError:
+            pass
+
+    def _on_autoassist_toggle(self) -> None:
+        """«Автопомощь» was ticked or cleared: start/stop it (#1272)."""
+        self.rt.settings.changed()
+        self.autoassist.toggle()
+        self._refresh_rule_hints()
+
+    def _on_assist_level_change(self) -> None:
+        """The help rule's own minimum was typed: keep its line true, remember it.
+
+        Nothing is re-spawned — unlike «Автолут ★», this order has no sniffer of its own
+        and re-reads the rule on every tick.
+        """
+        self.rt.settings.changed()
+        self._refresh_rule_hints()
 
     def _on_level_filter_change(self) -> None:
         """«Минимальный уровень» was typed: keep the rule line true and re-aim the
@@ -1983,6 +1994,10 @@ class SecretTasksTab(PanelTab):
         # order; starting a robbery from it stays forbidden (#1188).
         state_key, state_datum = self.autoloot.state()
         low = self.autoloot.level_min()
+        # …and the same pair for the other standing order (#1272), read here so the card
+        # below is a dictionary walk like everything else on this screen.
+        assist_state, assist_datum = self.autoassist.state()
+        assist_low = self.autoassist.level_min()
         return {"cards": [{"title": "secret.autoloot.frame",
                            # The RULE as well as the state (#1256): the window draws the
                            # two side by side under the checkbox, and «минимальный
@@ -2019,6 +2034,25 @@ class SecretTasksTab(PanelTab):
                                                   if self.hide_own_var.get()
                                                   else "secrettasks.filter.hide_own")},
                                        {"id": "clear", "label": "secrettasks.clear"}]},
+                          # …and «Автопомощь» directly above the list it helps, the way
+                          # «Автолут ★» sits above the ★ one (#1272). A card of its own
+                          # rather than rows on the alliance card: it is a standing order
+                          # with a budget, not a filter, and the phone is where somebody
+                          # checks whether today's five have gone.
+                          {"title": "autoassist.frame",
+                           "rows": [{"label": "autoassist.level_min",
+                                     "value": (str(assist_low) if assist_low is not None
+                                               else self.t("autoassist.any_level"))},
+                                    {"label": assist_state, "value": assist_datum}],
+                           # A press the phone MAY make: the whole ability is
+                           # `actions/assist_secret_task.md` and nothing spawns a tool
+                           # first, so there is no hand-driven half to copy out of the
+                           # house (`CLAUDE.md`, #1188). It turns the standing order on
+                           # and off — the window's checkbox, in the phone's idiom.
+                           "actions": [{"id": "autoassist",
+                                        "label": ("autoassist.off"
+                                                  if self.autoassist_var.get()
+                                                  else "autoassist.on")}]},
                           {"title": "secrettasks.alliance",
                            "items": self.alliance.web_items(),
                            "empty": "secrettasks.alliance.empty",
@@ -2109,6 +2143,12 @@ class SecretTasksTab(PanelTab):
         if action in ("ur_only", "star_only"):
             self.post(lambda: self._toggle_alliance_filter(action))
             return {"ok": True}
+        if action == "autoassist":
+            # The window's own checkbox, flipped from the phone (#1272). Through the same
+            # handler a finger goes through, so the two front-ends cannot end up with the
+            # box saying one thing and the watcher doing another.
+            self.post(self._toggle_autoassist)
+            return {"ok": True}
         if action == "clear":
             self.post(self._clear)
             return {"ok": True}
@@ -2132,6 +2172,11 @@ class SecretTasksTab(PanelTab):
         self._zoom_level = nxt
         self._sync_zoom_combo()
         self._on_zoom_choice()
+
+    def _toggle_autoassist(self) -> None:
+        """Flip «Автопомощь» from the phone, on the Tk thread (#1272)."""
+        self.autoassist_var.set(not self.autoassist_var.get())
+        self._on_autoassist_toggle()
 
     def _toggle_show_spent(self) -> None:
         """Flip «Показывать исчерпанные» from the phone, on the Tk thread.
@@ -2441,6 +2486,7 @@ class SecretTasksTab(PanelTab):
             # The standing order reports from its own thread; this is where the words
             # under the checkbox catch up with it.
             self._refresh_autoloot_line()
+            self._refresh_assist_line()
             self._maybe_start_poll()
             # The other pages count down on the same second as this one — one chain for
             # the tab, not a timer per table.

@@ -1,6 +1,15 @@
 # How far the map camera may be pulled back before secret tasks stop arriving
 
-The map sweep («Автообъезд карты») walks the camera over a box so the client asks the
+> **The box sweep itself is gone (#1272).** «Автообъезд карты», its checkbox, its three
+> settings and `panel/mapsweep.py` were removed once the whole-map lap below had been
+> proven: a lap that covers the entire server in under three seconds leaves nothing for a
+> pass-and-rest walk over a neighbourhood to be better at. Everything measured here still
+> holds and is still what «Обойти карту» and the «Зум» control are built on — the numbers
+> are the finding, the checkbox was only one of the things they were spent on. Where this
+> note says «the sweep walks `panel/mapsweep.waypoints`», read it as a record of how the
+> measurement was taken, not as a description of code that is still there.
+
+The map sweep («Автообъезд карты») walked the camera over a box so the client asked the
 server for map tiles. It walked it in **eight-tile steps**, which is a screenful every
 four or five jumps — slow, and slow for no reason anybody had measured. Task #1265 asked
 the obvious question: pull the camera back, cover more ground per jump, and find the

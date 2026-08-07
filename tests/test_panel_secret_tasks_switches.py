@@ -1,22 +1,23 @@
-r"""One monitoring switch, drawn in more than one place — and never copied (task #1264).
+r"""One monitoring switch per sniffer, however many places it is drawn (task #1264, #1272).
 
-Both sniffer switches used to be reachable from exactly one page each, and the ★ one had
-been moved off the frame it lived on for months. Live, that read as «галок мониторинга
-нет»: the boxes were built, mapped and four hundred pixels down inside a five-page
-notebook, and the frame still standing at the top with its old title held only the map
-sweep. The ghost one was worse — the page carrying it is called «Призрак: карта», while
-the page a person looks under is called «Операция Призрак».
+The ghost switch is drawn TWICE, and it has to be: the page carrying it is called
+«Призрак: карта», while the page a person looks under is called «Операция Призрак». The ★
+one is drawn ONCE — on the ★ page, over the list it fills (#1272). It had a second copy
+for a while, up on a frame called «Секретные задания», because moving it down had left
+that frame standing with its old title and only the map sweep inside and the switch read
+as gone; the frame and the sweep are both gone now, so the reassurance has nothing left
+to reassure and the box lives with its list.
 
-So each switch is now drawn twice. **The danger of that is a second variable**, and it is
-not hypothetical: two checkbuttons over one capture, each holding its own state, agree
-until the first time anything else moves it — a capture that stops on its own, a config
-restored, a press from the phone — and from then on one of them is lying with no way to
-tell which. Tk makes the safe version free: every checkbutton bound to ONE variable moves
-together, whichever is pressed.
+**The danger of drawing one twice is a second variable**, and it is not hypothetical: two
+checkbuttons over one capture, each holding its own state, agree until the first time
+anything else moves it — a capture that stops on its own, a config restored, a press from
+the phone — and from then on one of them is lying with no way to tell which. Tk makes the
+safe version free: every checkbutton bound to ONE variable moves together, whichever is
+pressed.
 
 That is what this file pins, by building the real tab and reading the widgets back:
 
-  * exactly two checkbuttons carry the ★ capture, and both name the SAME variable;
+  * every checkbutton carrying the ★ capture names the SAME variable — and there is one;
   * exactly two carry the ghost capture, and both name the same variable;
   * the two variables are still different ones from each other (#1251: two sniffers,
     two switches — neither drawn copy may quietly merge them);
@@ -89,17 +90,22 @@ def _named(boxes, var) -> list:
     return [b for b in boxes if str(b.cget("variable")) == str(var)]
 
 
-def test_the_star_switch_is_one_variable_in_two_places():
+def test_the_star_switch_is_on_the_star_page_and_nowhere_else():
+    """One box, on the page it fills (#1272) — and it is REACHABLE, which is the point.
+
+    The count is pinned in both directions on purpose. Zero is the bug #1264 was opened
+    for (a switch nobody can find reads as a switch that is gone); two is the copy that
+    was there while a frame above needed something in it, and a copy is what invites a
+    second variable the next time somebody edits one of the pair.
+    """
     built = _built()
     if built is None:
         return
     root, frame, tab = built
     try:
         mine = _named(_boxes(frame), tab.monitor_var)
-        assert len(mine) == 2, f"expected the frame and the ★ page, got {len(mine)}"
-        # …and they are literally the same variable, not two spelled alike.
-        assert len({str(b.cget("variable")) for b in mine}) == 1, mine
-        # Pressing either moves both, because there is only one state to move.
+        assert len(mine) == 1, f"expected the ★ page and only it, got {len(mine)}"
+        # Pressing it moves the state the capture reads, and there is only one.
         tab.monitor_var.set(True)
         assert all(b.getvar(str(b.cget("variable"))) for b in mine)
     finally:

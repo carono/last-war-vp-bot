@@ -1,10 +1,13 @@
-r"""The account dashboard and the map sweep — the two decisions behind the strip
-and the wrist, both without a display, a daemon or a client.
+r"""The account dashboard — the strip, without a display, a daemon or a client.
 
-Neither module touches Tk or the game, which is the point: what is easy to get
-quietly wrong here is *the geometry* (a sweep that misses a band of tiles finds
-nothing and says nothing) and *the reading* (a budget that could not be read must
-never look like a budget of zero). Both are plain functions, so both are tested.
+The module touches neither Tk nor the game, which is the point: what is easy to
+get quietly wrong here is *the reading* — a budget that could not be read must
+never look like a budget of zero — and that is a plain function, so it is tested.
+
+The map sweep used to be tested here beside it. Both the walk and its geometry
+(`panel/mapsweep.py`) are gone with «Автообъезд карты» (#1272): «Обойти карту»
+schedules the jumps inside the game and covers the whole server in about three
+seconds (#1265), so there is no serpentine waypoint list left to get wrong.
 
     C:\Python312\python.exe tests\test_panel_dashboard.py
     python3 tests/test_panel_dashboard.py            # no tkinter needed
@@ -20,7 +23,6 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
         sys.path.insert(0, str(_p))
 
 from panel import dashboard as dashmod          # noqa: E402
-from panel import mapsweep as sweepmod          # noqa: E402
 
 
 # -- the dashboard ---------------------------------------------------------
@@ -104,61 +106,6 @@ def test_every_reading_has_a_label_in_both_locales():
                               encoding="utf-8"))
         for reading in dashmod.READINGS:
             assert reading.label_key in have, (lang, reading.label_key)
-
-
-# -- the map sweep ---------------------------------------------------------
-
-def test_the_sweep_covers_the_whole_box_including_its_far_edge():
-    """A pass that stopped short of the edge would leave exactly the band a
-    neighbour's tiles sit in — so both ends of each axis are visited."""
-    points = sweepmod.waypoints(100, 100, radius=24, step=8)
-    xs = {x for x, _y in points}
-    ys = {y for _x, y in points}
-    for axis in (xs, ys):
-        assert min(axis) == 76 and max(axis) == 124, sorted(axis)
-    assert len(points) == 49, len(points)
-
-    # A radius the step does not divide evenly still reaches the edge.
-    uneven = sweepmod.waypoints(100, 100, radius=10, step=8)
-    assert min(x for x, _ in uneven) == 90 and max(x for x, _ in uneven) == 110, uneven
-
-
-def test_the_walk_is_serpentine_so_the_camera_never_teleports():
-    """Row left-to-right then right-to-left: every waypoint is next to the last.
-
-    A raster scan would jump the whole width of the box between two rows, which
-    both wastes the travel and loads the blocks out of order.
-    """
-    points = sweepmod.waypoints(100, 100, radius=24, step=8)
-    row = 7                                    # 7x7 box
-    assert points[row - 1][0] == points[row][0], (points[row - 1], points[row])
-    assert points[0][0] < points[row - 1][0]   # first row runs one way…
-    assert points[row][0] > points[2 * row - 1][0]   # …the second, the other
-
-
-def test_a_base_at_the_map_edge_does_not_ask_for_tiles_off_the_map():
-    points = sweepmod.waypoints(2, 2, radius=24, step=8)
-    assert all(sweepmod.MIN_COORD <= x <= sweepmod.MAX_COORD for x, _y in points)
-    assert all(sweepmod.MIN_COORD <= y <= sweepmod.MAX_COORD for _x, y in points)
-    # Clamping folds waypoints together; the same jump must not be asked for twice.
-    assert len(points) == len(set(points)), points
-
-
-def test_degenerate_boxes_are_one_jump_not_none():
-    assert sweepmod.waypoints(50, 50, radius=0, step=8) == [(50, 50)]
-    # A hand-typed step of nonsense is bounded, not obeyed.
-    assert sweepmod.waypoints(50, 50, radius=24, step=0)
-    assert sweepmod.waypoints(50, 50, radius=24, step=10 ** 6)
-
-
-def test_the_ui_can_say_what_a_pass_costs_before_the_first_jump():
-    """The person ticking the box is agreeing to a length of time."""
-    jumps, seconds = sweepmod.describe(500, 500, 24, 8, 3.0)
-    assert jumps == 49
-    assert seconds == 49 * 3.0
-    # A dwell below the floor is clamped, so the estimate is never a fantasy.
-    _jumps, floored = sweepmod.describe(500, 500, 24, 8, 0.01)
-    assert floored == 49 * sweepmod.MIN_DWELL
 
 
 def _run_standalone() -> int:

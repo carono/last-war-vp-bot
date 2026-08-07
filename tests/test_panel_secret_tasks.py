@@ -811,12 +811,16 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab = _make_tab({"9": _row(9, 5, -5_000, 600_000)})
     tab.rt = _fake_rt(_state_path())
     tab.loaded = True
-    tab.capture, tab.autoloot, tab.sweep = _FakeOrder(), _FakeOrder(), _FakeOrder()
+    tab.capture, tab.autoloot = _FakeOrder(), _FakeOrder()
+    # …and the alliance page's own standing order, which spends a second daily budget
+    # over a second list and so has to be bounced onto the new account too (#1272).
+    tab.autoassist = _FakeOrder()
     # The ghost sniffer is a second, independent capture since #1251 — its switch lives
     # on the map page, so the fixture carries both.
     tab.ghost_capture = _FakeOrder()
-    tab.monitor_var, tab.sweep_var = _Var(False), _Var(False)
-    tab._sweep_hint = tab._rule_lbl = tab._rule_line = None
+    tab.monitor_var, tab.autoassist_var = _Var(False), _Var(False)
+    tab._rule_lbl = tab._rule_line = None
+    tab._assist_lbl = tab._assist_line = None
     tab._ids, tab._own_server = ("1", "a"), 1
     # The live re-seeds have tests of their own; this one is about the rows.
     tab._snapshot = tab._roster = tab._ghost = lambda: None
@@ -839,7 +843,8 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     # (#1256 — the book moved onto the watcher when the choosing did).
     assert tab._collected == set() and tab.autoloot._seen == set()
     assert tab._ids is None and tab._own_server == 0
-    assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1 and tab.sweep.stopped == 1
+    assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1
+    assert tab.autoassist.stopped == 1, "the help order stayed on the old account"
 
 
 # -- the alliance grid (#1244) -------------------------------------------------------
@@ -1171,6 +1176,10 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # answers both questions the phone asks of the standing order.
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
+    # …and the same pair for «Автопомощь», whose card sits above the alliance one (#1272).
+    tab.autoassist = types.SimpleNamespace(
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: 6)
+    tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(
         ur_var=_Var(False), star_var=_Var(False),
         web_items=lambda: [{"text": "X:1 Y:2", "facts": [], "until": None, "pill": None}])
@@ -1211,6 +1220,16 @@ def test_the_phone_is_shown_every_page_the_window_has():
     ally = {a["id"]: a["label"] for a in cards["secrettasks.alliance"]["actions"]}
     assert {"ur_only", "star_only"} == set(ally), ally
     assert ally["ur_only"] == "secrettasks.filter.ur_on"            # it is not on yet
+    # «Автопомощь» is a card of its own directly above the list it helps (#1272): the
+    # rule, the state, and the one press the phone may make — the whole ability is a
+    # scenario, so there is no hand-driven half to copy out of the house.
+    assert "autoassist.frame" in cards, cards
+    assist = cards["autoassist.frame"]
+    assert [r["label"] for r in assist["rows"]] == ["autoassist.level_min",
+                                                    "autoassist.state.off"]
+    assert assist["rows"][0]["value"] == "6"
+    assert [a["id"] for a in assist["actions"]] == ["autoassist"]
+    assert assist["actions"][0]["label"] == "autoassist.on"         # it is not on yet
     # THE GHOST SWITCH IS ON BOTH GHOST CARDS (#1264): on the one its findings land on,
     # and on the one named «Операция Призрак», which is where a person looks for it.
     for title in ("secrettasks.ghost", "secrettasks.ghost.map"):
@@ -1330,6 +1349,9 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
     # answers both questions the phone asks of the standing order.
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
+    tab.autoassist = types.SimpleNamespace(
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+    tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False))
     tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
@@ -1625,8 +1647,8 @@ def _config_stub():
     stub.filter_from_var = stub.filter_to_var = _Var("")
     stub.autoloot_var = _Var(False)
     stub.level_min_var = _Var("")
-    stub.sweep_var = _Var(False)
-    stub.sweep_cx_var = stub.sweep_cy_var = _Var("")
+    stub.autoassist_var = _Var(False)
+    stub.assist_level_var = _Var("")
     stub.coord_x_var = stub.coord_y_var = stub.coord_srv_var = _Var("")
     stub._jump_hist = []
     stub._zoom_level = "tile"

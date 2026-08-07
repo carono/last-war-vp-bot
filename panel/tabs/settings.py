@@ -2,7 +2,7 @@
 
 Two halves. The SHELL's own knobs are here: which Python runs the children, which
 daemon this profile drives, how big the log grows, the auto-loot budget, the game's
-paths, the map-sweep box, the debug log. Their values and their defaults live in
+paths, the debug log. Their values and their defaults live in
 `panel/runtime/settings.py`, so a knob is a line there, a row on a page below, and two
 locale strings.
 
@@ -24,7 +24,6 @@ from tkinter import messagebox, ttk
 
 from ..runtime import autostart as autostartmod
 from .. import i18n as i18nmod
-from .. import mapsweep as mapsweepmod
 from .. import runtime
 from ..runtime import diag
 from ..widgets import numeric_spinbox
@@ -147,29 +146,6 @@ class SettingsTab(PanelTab):
         except tk.TclError:
             pass
 
-    def _sweep_box(self) -> tuple:
-        """``(radius, step, dwell, rest)`` of the map sweep, all bounded.
-
-        Read here only to describe the box in words under its knobs — the sweep itself
-        reads its own (panel/tabs/secret_tasks/sweep.py), because a tab must not depend
-        on another tab being present to know what it is doing.
-
-        The STEP is not a setting: it belongs to the camera height, which is the «Зум»
-        control on the «Секретки» coordinate bar (#1265). This page cannot see that tab
-        — it may not even be switched on — so the sentence under the knobs describes the
-        box with the default level's step, which is what a fresh profile sweeps at.
-        """
-        import lua_actions
-        opt = self.rt.settings
-        return (
-            opt.opt_int("sweep_radius", low=mapsweepmod.MIN_RADIUS,
-                        high=mapsweepmod.MAX_RADIUS),
-            lua_actions.zoom_level(lua_actions.DEFAULT_ZOOM_LEVEL)[1],
-            opt.opt_float("sweep_dwell", low=mapsweepmod.MIN_DWELL,
-                          high=mapsweepmod.MAX_DWELL),
-            opt.opt_int("sweep_rest_min", low=0, high=1440) * 60.0,
-        )
-
     def build(self) -> None:
         """The Settings page: an aggregator, not a page.
 
@@ -214,7 +190,7 @@ class SettingsTab(PanelTab):
     # -- settings: the knobs that used to be constants in this file -----------
     #
     # Both tabs said "Скоро" while WIN_PYTHON, the auto-loot budget, the trace
-    # filter, the game paths and the sweep box were all edit-the-source. Every row
+    # filter and the game paths were all edit-the-source. Every row
     # below is one entry in runtime.DEFAULTS bound to its `_opt_vars` variable, so
     # a new knob is a line there plus a row here plus two locale strings.
     def _opt_row(self, parent: ttk.Frame, row: int, key: str, *,
@@ -307,6 +283,12 @@ class SettingsTab(PanelTab):
                 ("autoloot_limit", {"spin": (1, 50), "width": 10}),
                 ("autoloot_poll", {"spin": (1, 600), "width": 10}),
                 ("autoloot_pause_min", {"spin": (1, 1440), "width": 10}),
+                # …and the OTHER standing order's pace (#1272). Its own pair rather than
+                # a share of the auto-loot's: helping is a different budget over a
+                # different list, and a look every two seconds — which is what the robbery
+                # wants — would be four hundred game reads a day for five presses.
+                ("autoassist_poll", {"spin": (30, 3600), "width": 10}),
+                ("autoassist_pause_min", {"spin": (1, 1440), "width": 10}),
                 ("trace_filter", {"width": 20}),
                 ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
         )):
@@ -432,12 +414,11 @@ class SettingsTab(PanelTab):
                       error=last.get("error") or "")
 
     def on_language_change(self) -> None:
-        """The two blocks the page words itself: the sweep hint and the autostart note.
+        """The one block the page words itself: the autostart note.
 
         `tr` re-labels what it registered; a string built with `t` is not registered and
         would keep whatever language it was drawn in until the tab was rebuilt.
         """
-        self._refresh_sweep_settings_hint()
         self._refresh_autostart()
 
     def _build_debug_log_settings(self, parent: ttk.Frame) -> None:
@@ -457,7 +438,7 @@ class SettingsTab(PanelTab):
                  "debug.send").grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     def _build_game_settings(self, parent: ttk.Frame) -> None:
-        """«Игра»: where the client is, whether to put it back, and the sweep box.
+        """«Игра»: where the client is, and whether to put it back.
 
         WHERE THE CLIENT IS IS NOT ASKED (#1252). The launcher and the process name are
         readings off `tools/lib/game_paths.py` — one answer per machine, an environment
@@ -476,25 +457,11 @@ class SettingsTab(PanelTab):
 
         self._build_session_settings(parent)
         self._build_graphics_settings(parent)
-        sweep = self.tr(ttk.LabelFrame(parent, padding=8), "sweep.frame")
-        sweep.pack(fill="x", pady=(12, 0))
-        sweep.columnconfigure(2, weight=1)
-        for row, (key, kwargs) in enumerate((
-                ("sweep_radius", {"spin": (mapsweepmod.MIN_RADIUS,
-                                           mapsweepmod.MAX_RADIUS), "width": 10}),
-                ("sweep_dwell", {"spin": (mapsweepmod.MIN_DWELL,
-                                          mapsweepmod.MAX_DWELL), "width": 10}),
-                ("sweep_rest_min", {"spin": (0, 1440), "width": 10}),
-        )):
-            self._opt_row(sweep, row, key, **kwargs)
-        # The box in words, so the numbers above are not abstract.
-        hint = ttk.Label(sweep, foreground="#888", wraplength=520, justify="left")
-        hint.grid(row=9, column=0, columnspan=3, sticky="w", pady=(8, 0))
-        self._sweep_settings_hint = hint
-        for key in ("sweep_radius", "sweep_dwell"):
-            self.rt.settings.vars[key].trace_add(
-                "write", lambda *a: self._refresh_sweep_settings_hint())
-        self._refresh_sweep_settings_hint()
+        # NO «Автообъезд карты» BOX ANY MORE (#1272). The three knobs here — radius,
+        # dwell, rest — paced a camera walk that has been replaced by «Обойти карту» on
+        # the «Секретки» coordinate bar: the jumps are scheduled inside the game and the
+        # whole server is covered in about three seconds (#1265), so there is nothing
+        # left to size or to slow down.
 
     def _build_session_settings(self, parent: ttk.Frame) -> None:
         """«Windows-сессия»: is this profile's client the one on this desktop?
@@ -1126,21 +1093,6 @@ class SettingsTab(PanelTab):
         """
         return (not vsync and fps <= self.LOW_GRAPHICS["fps"]
                 and quality <= self.LOW_GRAPHICS["quality"])
-
-    def _refresh_sweep_settings_hint(self) -> None:
-        hint = getattr(self, "_sweep_settings_hint", None)
-        if hint is None:
-            return
-        radius, step, dwell, _rest = self._sweep_box()
-        # A centre of (0, 0) would be clamped against the map edge and undercount, so
-        # describe the box from a point well inside the map instead.
-        jumps, seconds = mapsweepmod.describe(500, 500, radius, step, dwell)
-        try:
-            hint.configure(text=self.t("sweep.settings_hint", side=radius * 2 + 1,
-                                        jumps=jumps, mins=max(1, int(seconds // 60))))
-        except tk.TclError:
-            pass
-
 
     def _send_debug_archive(self) -> None:
         """«Отправить диагностику»: the packing lives in the runtime.

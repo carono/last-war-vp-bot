@@ -1383,6 +1383,150 @@ def game_server_time() -> str:
             + 'CS.UnityEngine.Debug.LogError("ACT NOWMS="..tostring(nowms))')
 
 
+# --------------------------------------------------------------------------
+# Helping an alliancemate's secret task — `hero.dispatch.assist`
+# --------------------------------------------------------------------------
+# A THIRD thing, and not the alliance «Помочь всем» (#1272). `al.help.all`
+# answers building/research requests and is unlimited; this answers the alliance's
+# own FINISHED hero-dispatch tasks, costs one of five a day, and is what the daily
+# plan means by «помочь выполнить 5 секретных заданий ранга UR или Звезда».
+#
+#     --> hero.dispatch.assist   {uuid: long, targetServer: int}
+#     <-- hero.dispatch.assist   {errorCode | reward[], …}
+#
+# Read out of the live client (docs/research/secret-task-assist.md):
+#
+#   * the press is `DispatchTaskItem:OnGoClick` — one
+#     `SFSNetwork.SendMessage(MsgDefines.DispatchAssist, infos.uuid, infos.targetServer)`
+#     behind a `GetTodayAssistNum() < GetDispatchSetting("aid_count")` gate;
+#   * the message class puts exactly those two fields on the wire
+#     (`DispatchAssistMessage:OnCreate` — `PutLong(uuid)`, `PutInt(targetServer)`),
+#     so it is headless: no window, no marker tap, no camera move;
+#   * a task is helpable while it is FINISHED and unrewarded, which is precisely
+#     what `GetAllianceAssisTaskCount()` counts (72 = the finished tasks, live).
+#
+# THE LIST GOES STALE AND THAT IS THE WHOLE TRAP. The client only learns that a
+# task has been helped by somebody else when a push tells it, and a headless bot
+# has no window open to ask. Sending against a stale entry is answered with
+# `dispatch_des028` — «Спасибо, но задача уже решена с помощью других лиц» — and
+# `todayAssistNum` does not move, so it reads exactly like a bot that pressed
+# nothing. Live, the first two attempts failed that way and the third, sent right
+# after `GetAllAllianceTasksFromServer()`, took the counter 0 -> 1.
+
+def secret_task_assists_left() -> str:
+    """Lua *expression* -> helps the account may still send today.
+
+    `GetDispatchSetting("aid_count")` is the daily cap (5 on the live account) and
+    `GetTodayAssistNum()` what has been spent. The same shape as
+    `secret_task_steals_left`, and a DIFFERENT budget: robbing and helping have a cap
+    each, and spending one does not touch the other.
+    """
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "local cap=tonumber(M:GetDispatchSetting('aid_count')) or 0 "
+            "local used=tonumber(M:GetTodayAssistNum()) or 0 "
+            "local left=cap-used if left<0 then left=0 end return left end)()")
+
+
+def secret_task_assist_refresh() -> str:
+    """Ask the server for the alliance's task list again — `hero.dispatch.alliance.list`.
+
+    The first half of every help, and not optional (see the block above): the local copy
+    keeps tasks other people have already helped with, and the server refuses those with
+    a tip rather than with anything the budget records. Fire-and-forget — the reply lands
+    on its own thread, so a caller reads the list AFTER a settle, never in this chunk.
+    """
+    return ('pcall(function() DataCenter.ActDispatchTaskDataManager'
+            ':GetAllAllianceTasksFromServer() end) '
+            'CS.UnityEngine.Debug.LogError("ACT assist_list_requested")')
+
+
+def secret_task_assist_rule(level_min: int) -> str:
+    """Park the help rule in the VM: the lowest level worth one of the day's five.
+
+    `TAP` takes no arguments, so the rule cannot travel with the press — it is left on
+    the dispatch manager's own table, the same place the robbery queue lives, because
+    this VM rejects some new globals. The RANK half of the rule is not a setting: only
+    the top two ranks are ever helped (see :func:`secret_task_assistable`).
+    """
+    return ("local M=DataCenter.ActDispatchTaskDataManager M.__lw_assist_level=%d "
+            'CS.UnityEngine.Debug.LogError("ACT assist_rule level="..tostring(%d))'
+            % (int(level_min), int(level_min)))
+
+
+#: The Lua that walks `allianceTask` and leaves the best helpable task in `best`.
+#:
+#: «Best» is the highest level, and a starred task before a plain one at the same level
+#: — one of five a day is worth aiming. The rank gate is «UR or ★», which is the game's
+#: own wording in the daily plan and not a preference: the config's `color` reaches 5 at
+#: UR (the same number `grid.is_ur` reads) and `is_special` is what draws the star. Live,
+#: one task in two hundred was starred and thirty-four were finished URs — a star-only
+#: rule would have helped roughly never.
+_ASSIST_PICK = (
+    "local M=DataCenter.ActDispatchTaskDataManager "
+    + _SERVER_NOW_MS +
+    "local now=nowms local low=tonumber(M.__lw_assist_level) or 0 "
+    "local best,bestrank=nil,-1 "
+    "for _,v in pairs(M.allianceTask or {}) do "
+    "local done=tonumber(v.completionTime) or 0 "
+    "local rewarded=tonumber(v.rewarded) or 0 "
+    "local lvl,spec,colour=0,0,0 "
+    "pcall(function() lvl=tonumber(v.cfg:getValue('level')) or 0 "
+    "spec=tonumber(v.cfg:getValue('is_special')) or 0 "
+    "colour=tonumber(v.cfg:getValue('color')) or 0 end) "
+    "if done>0 and done<=now and rewarded==0 and lvl>=low "
+    "and (colour>=5 or spec==1) then "
+    "local rank=lvl*2+spec if rank>bestrank then best,bestrank=v,rank end "
+    "end end ")
+
+
+def secret_task_assistable() -> str:
+    """Lua *expression* -> how many alliance tasks the parked rule would help with.
+
+    Counted the same way :data:`_ASSIST_PICK` chooses, so the number the log shows and
+    the task the press picks can never disagree.
+    """
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            + _SERVER_NOW_MS +
+            "local now=nowms local low=tonumber(M.__lw_assist_level) or 0 local n=0 "
+            "for _,v in pairs(M.allianceTask or {}) do "
+            "local done=tonumber(v.completionTime) or 0 "
+            "local rewarded=tonumber(v.rewarded) or 0 "
+            "local lvl,spec,colour=0,0,0 "
+            "pcall(function() lvl=tonumber(v.cfg:getValue('level')) or 0 "
+            "spec=tonumber(v.cfg:getValue('is_special')) or 0 "
+            "colour=tonumber(v.cfg:getValue('color')) or 0 end) "
+            "if done>0 and done<=now and rewarded==0 and lvl>=low "
+            "and (colour>=5 or spec==1) then n=n+1 end end return n end)()")
+
+
+def secret_task_assists_pending() -> str:
+    """Lua *expression* -> presses `assist_secret_task` can still make.
+
+    `min(tasks the rule matches, helps left today)` — the button's `count_lua`, so `xall`
+    stops both when the list runs out and when the daily five are spent.
+    """
+    return ("(function() local q=%s local b=%s if q<b then return q end return b end)()"
+            % (secret_task_assistable(), secret_task_assists_left()))
+
+
+def assist_next_secret_task() -> str:
+    """Help the best matching alliance task — one press, one `hero.dispatch.assist`.
+
+    The chosen task is dropped from the LOCAL list before the send
+    (`DeleteAllianceTasks`, which is what the reply's own handler does on success). That
+    is what keeps `xall` moving: a refusal («уже решена с помощью других лиц») leaves the
+    budget untouched, so a press that did not drop its target would pick the same doomed
+    uuid on every round until the loop's cap. It costs nothing to drop — the next
+    `hero.dispatch.alliance.list` brings back whatever is still real.
+    """
+    return (_ASSIST_PICK +
+            "if best and %s > 0 then local u,s=best.uuid,best.targetServer "
+            "pcall(function() M:DeleteAllianceTasks(u) end) "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchAssist, u, s) end) "
+            'CS.UnityEngine.Debug.LogError("ACT assist_sent uuid="..tostring(u)'
+            '.." srv="..tostring(s)) end' % secret_task_assists_left())
+
+
 def dispatch_task_cfg_rank(cfg_ids) -> str:
     """Emit `ACT CFG cfg=<id> lvl=<n> spec=<0|1>` for each secret-task TEMPLATE id.
 
