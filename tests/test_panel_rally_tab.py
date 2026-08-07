@@ -60,6 +60,25 @@ def _tab():
     return root, rt, tab
 
 
+def _hold_autojoin(tab, on: bool = False) -> dict:
+    """Give this tab an auto-join state of its own, in memory.
+
+    The state is the «rally_auto_join» standing order and it lives in the PROFILE's
+    triggers.json — which a test must not write to. So the two calls the tab makes are
+    answered here instead, and the box is still exercised end to end (#1281).
+    """
+    state = {"on": bool(on)}
+
+    def _set(_name, value):
+        state["on"] = bool(value)
+        return True
+
+    tab.rt.schedule.trigger_enabled = lambda _name: state["on"]
+    tab.rt.schedule.set_trigger_enabled = _set
+    tab._autojoin_var.set(state["on"])
+    return state
+
+
 # ---------------------------------------------------------------------------
 # the form
 # ---------------------------------------------------------------------------
@@ -173,7 +192,10 @@ def test_config_round_trip_and_bad_blocks():
         fresh = tab.config()
         assert fresh["form"] == {"kind": rl.RALLY_KIND_ELITE, "level": rl.RALLY_LEVEL_MIN,
                                  "squads": [], "repeats": 1}
-        assert (fresh["monitor"], fresh["alert"], fresh["autojoin"]) == (True, True, False)
+        assert (fresh["monitor"], fresh["alert"]) == (True, True), fresh
+        # The auto-join is NOT in this block: it is the «rally_auto_join» standing
+        # order, shown here and on the Timers tab, stored once (#1281).
+        assert "autojoin" not in fresh, fresh
         assert fresh["autorally"]["squads"] == []
 
         tab._kind_var.set(rl.RALLY_KIND_MONSTER)
@@ -181,12 +203,14 @@ def test_config_round_trip_and_bad_blocks():
         tab._squad_vars[2].set(True)
         tab._squad_vars[4].set(True)
         tab._repeats_var.set("7")
-        tab._autojoin_var.set(True)
+        _hold_autojoin(tab, False)
+        tab._set_autojoin(True)
         tab.autorally._squad_vars[1].set(True)
         saved = tab.config()
         assert saved["form"] == {"kind": rl.RALLY_KIND_MONSTER, "level": 120,
                                  "squads": [2, 4], "repeats": 7}
-        assert saved["autojoin"] is True
+        assert "autojoin" not in saved, saved
+        assert tab._autojoin_on() is True, "the box did not move the standing order"
         assert saved["autorally"]["squads"] == [1]
 
         tab.apply_config({})
@@ -236,6 +260,7 @@ def test_a_profile_written_before_the_move_still_aims_the_tab():
         return
     from panel.tabs.rally.tab import RallyTab
     try:
+        _hold_autojoin(tab, False)
         rt.settings.values = {
             "rally_tab": {"kind": "monster", "level": 60, "squads": [1, 3], "repeats": 4},
             "autorally": {"squads": [2, 4]},
@@ -245,7 +270,13 @@ def test_a_profile_written_before_the_move_still_aims_the_tab():
         got = tab.config()
         assert got["form"] == {"kind": "monster", "level": 60,
                                "squads": [1, 3], "repeats": 4}, got["form"]
-        assert (got["monitor"], got["alert"], got["autojoin"]) == (False, False, True)
+        assert (got["monitor"], got["alert"]) == (False, False), got
+        # THE AUTO-JOIN IS NO LONGER STORED HERE (#1281). It is the «rally_auto_join»
+        # standing order, and a second copy of it in this block is exactly what made two
+        # boxes disagree about one thing. An old profile that had it ON carries the
+        # value over into the order, once, so a refactor loses nobody's switch.
+        assert "autojoin" not in got, got
+        assert tab._autojoin_on() is True, "the old profile's switch was dropped"
         assert tab.join_squads() == [2, 4]
         # And the new block wins once it is there — while the flat keys are still
         # written beside it, so an older panel opening this profile finds them (§5 r2).
@@ -417,6 +448,56 @@ def test_the_alert_fires_once_per_banner():
         root.destroy()
 
 
+def test_the_two_boxes_are_one_state():
+    """«Какая из них настоящая?» must stop being a question a person can ask (#1281).
+
+    There were two switches for one thing: this tab's «Присоединяться сам», stored in the
+    profile's config.json, and the «rally_auto_join» row on the Timers tab, stored in
+    triggers.json. Each drove a different half and neither knew about the other — the
+    same shape as the two sets of autoloot rules (#1272) and the two rally counters.
+
+    Now the box is a VIEW of the standing order and a setter for it: moved here it moves
+    there, moved there it shows here, and nothing about it is written into this tab's own
+    block.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, _rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        state = _hold_autojoin(tab, False)
+
+        # The box moves the ORDER…
+        tab._autojoin_var.set(True)
+        tab._on_autojoin_click()
+        assert state["on"] is True, state
+
+        # …and an order moved elsewhere (the Timers tab, the phone) shows up here.
+        state["on"] = False
+        tab._show_autojoin()
+        assert tab._autojoin_var.get() is False
+        assert tab._autojoin_on() is False
+
+        # …and there is no second copy of it in this tab's block.
+        assert "autojoin" not in tab.config(), tab.config()
+
+        # «Стоп всё» stops the order itself, not just the box that shows it.
+        state["on"] = True
+        tab._autojoin_var.set(True)
+        tab.panic()
+        assert state["on"] is False, "«Стоп всё» left the standing order running"
+        tab.resume()
+        assert state["on"] is True, "«Включить обратно» did not put it back"
+    finally:
+        root.destroy()
+
+
 def test_the_capture_driven_join_asks_the_same_question_before_it_starts():
     """The tab is the SECOND driver, and it must not start a pointless run either (#1281).
 
@@ -445,6 +526,7 @@ def test_the_capture_driven_join_asks_the_same_question_before_it_starts():
         tab.join_now = lambda: started.append(1)
         tab._after = lambda fn: fn()
 
+        _hold_autojoin(tab, True)
         answers = {"reason": "rally.skip.squads_out"}
         rallylimits.join_precondition = lambda _rt, _squads=None: answers["reason"]
         tab._on_line("[rally] push.alliance.march.create  team=4242  participants=1 [x]")
@@ -641,9 +723,9 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         _skip(exc)
         return
     try:
+        _hold_autojoin(tab, False)
         tab._monitor_var.set(True)
         tab._alert_var.set(False)
-        tab._autojoin_var.set(False)
         pills = {i["label"]: i.get("pill") for i in tab._web_autojoin_card()["items"]}
         assert pills == {"rally.monitor": "rally.state.on",
                          "rally.alert": "rally.state.off",
@@ -654,7 +736,7 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         squads = [i for i in card["items"] if i["label"] == "autorally.squads"][0]
         assert squads.get("pill") == "rally.state.none", squads
 
-        tab._autojoin_var.set(True)
+        tab._set_autojoin(True)          # the box moves the STATE, and the card reads it
         tab.autorally._squad_vars[2].set(True)
         tab.autorally._squad_vars[3].set(True)
         card = tab._web_autorally_card()

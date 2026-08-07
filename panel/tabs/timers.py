@@ -380,6 +380,23 @@ class TimersTab(PanelTab):
         row["enabled"].set(bool(on))
         return True
 
+    def set_trigger_enabled(self, name: str, on: bool) -> bool:
+        """Tick or untick one STANDING ORDER from outside. ``False`` if it has no row.
+
+        Same reason :meth:`set_enabled` exists, for the wire half: while this tab is
+        drawn its boxes ARE the configuration, so a switch written straight to
+        `triggers.json` would be undone by the next save. The «Ралли» tab's own
+        «Присоединяться сам» presses this, which is what makes the two boxes ONE state
+        rather than two switches disagreeing about the same thing (#1281).
+
+        TK THREAD ONLY, like every other variable in this file.
+        """
+        var = self._trigger_vars.get(name)
+        if var is None:
+            return False
+        var.set(bool(on))
+        return True
+
     def set_immediate(self, name: str, on: bool) -> bool:
         """Mark one errand «сразу» FROM OUTSIDE, or take the mark off (#1288).
 

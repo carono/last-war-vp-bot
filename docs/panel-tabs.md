@@ -869,3 +869,31 @@ Then check the two things a test cannot:
 * `python -m panel.tabs.<id> --profile <name>` opens and works;
 * unticking it in «Настройки → Вкладки» and restarting leaves no trace of it — no
   widgets, no settings page, no listener, no capture.
+
+## One state, several places that draw it
+
+A switch a person can reach from two screens must be ONE state with two views — never
+two variables that happen to mean the same thing. The panel has been bitten by the other
+arrangement three times: two sets of autoloot rules (#1272), two counters for the rally
+budget, and the rally auto-join's own two boxes (#1281) — the «Ралли» tab's
+«Присоединяться сам», stored in the profile's `config.json`, beside the
+«rally_auto_join» row on the «Таймеры» tab, stored in `triggers.json`. Each drove a
+different half of the same ability and neither could see the other, so «какая из них
+настоящая» had no answer in the code.
+
+The shape that works:
+
+* **The state lives in exactly one file** — for a standing order that is the profile's
+  `triggers.json`, read through `Schedule.trigger_enabled(name)` and moved through
+  `Schedule.set_trigger_enabled(name, on)`. Those two know the one rule that matters:
+  while the «Таймеры» tab is drawn its boxes ARE the configuration, and the file is the
+  configuration when it is not.
+* **Every other place is a VIEW**: it reads the state when it draws, writes through the
+  setter when it is clicked, and re-reads on `on_show` — otherwise two screens show
+  different things until one of them is rebuilt.
+* **Nothing keeps a copy.** A tab that stored the value in its own block drops it and
+  carries an old profile's value over ONCE, so a refactor loses nobody's switch.
+* **The words say so.** Where two boxes genuinely mean two things, they are named so that
+  a person does not have to guess: «Слушать стяги (места и цель)» is the capture,
+  «Присоединяться сам (поручение «Автостяг»)» is the standing order — and the Timers row
+  says «та же галка, что на вкладке «Ралли»».

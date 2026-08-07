@@ -222,6 +222,45 @@ class Schedule:
             raw = self.trigger_catalogue.enabled_config()
         return {name: bool(on) and self.offered(name) for name, on in raw.items()}
 
+    def trigger_enabled(self, name: str) -> bool:
+        """Is this standing order ON? THE one answer, wherever it is drawn (#1281).
+
+        There were two switches for the rally auto-join and no rule saying which won:
+        the Timers tab's trigger row and a box on the «Ралли» tab, each stored in a
+        different file, each driving a different half. The same shape as the two sets of
+        autoloot rules (#1272) and the two rally counters — and the same cure: one state,
+        several places that show it.
+
+        The state lives where the schedule already reads it from: the Timers tab's
+        widgets while that tab is drawn, and the profile's `triggers.json` when it is
+        not. Everything else asks HERE rather than keeping a copy.
+        """
+        return bool(self.trigger_config().get(name, False))
+
+    def set_trigger_enabled(self, name: str, on: bool) -> bool:
+        """Turn a standing order on or off from anywhere — the tab, the phone, a test.
+
+        Writes wherever the truth currently lives: through the Timers tab's own variable
+        when that tab is drawn (its boxes ARE the configuration — a file written behind
+        them is undone by their next save), and into the profile's `triggers.json` when
+        it is not. ``False`` when there is no such trigger.
+        """
+        if self.trigger_catalogue.by_name(name) is None:
+            return False
+        tab = self.rt.tabs.get("timers") if self.rt.tabs is not None else None
+        if tab is not None and getattr(tab, "built", False) and \
+                hasattr(tab, "set_trigger_enabled"):
+            if tab.set_trigger_enabled(name, on):
+                return True
+        config = {n: {"enabled": bool(v)}
+                  for n, v in self.trigger_catalogue.enabled_config().items()}
+        config[name] = {"enabled": bool(on)}
+        self.trigger_catalogue = self.trigger_catalogue.with_enabled(config, {})
+        triggersmod.save_catalogue(self.trigger_catalogue,
+                                   self.rt.profiles.triggers_json())
+        self.triggers.sync()
+        return True
+
     def offered(self, name: str) -> bool:
         """Whether this window can carry out the named trigger at all."""
         trigger = self.trigger_catalogue.by_name(name)

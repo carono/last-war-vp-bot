@@ -178,6 +178,12 @@ class RallyTab(PanelTab):
         self._squads_off = None     # the unsubscribe, while this tab is on screen
         self._monitor_var = tk.BooleanVar(master=master, value=True)
         self._alert_var = tk.BooleanVar(master=master, value=True)
+        # «Присоединяться сам» IS the «rally_auto_join» standing order, shown here as
+        # well as on the Timers tab — not a second switch beside it (#1281). There used
+        # to be two, stored in two files, driving two different halves, with no rule
+        # saying which won: the same shape as the two sets of autoloot rules (#1272) and
+        # the two rally counters. This variable is a VIEW of the trigger's state and a
+        # setter for it; nothing about it is stored in this tab's own block any more.
         self._autojoin_var = tk.BooleanVar(master=master, value=False)
         self._hint = None
         self._quick_buttons: dict = {}
@@ -318,7 +324,7 @@ class RallyTab(PanelTab):
                                 command=self._sync_capture),
                 "rally.alert").pack(side="left", padx=(12, 0))
         self.tr(ttk.Checkbutton(top, variable=self._autojoin_var,
-                                command=self._sync_capture),
+                                command=self._on_autojoin_click),
                 "rally.autojoin").pack(side="left", padx=(12, 0))
         self.tr(ttk.Button(top, command=self.join_now),
                 "rally.join_now").pack(side="right")
@@ -361,6 +367,10 @@ class RallyTab(PanelTab):
         """
         if self._squads_off is None:
             self._squads_off = self.rt.squads.watch(self._on_squads)
+        # The box is a VIEW of the standing order, and the Timers tab draws the same
+        # one — so it is re-read whenever somebody looks here, or the two would show
+        # different things until this tab happened to be rebuilt (#1281).
+        self._show_autojoin()
 
     def on_hide(self) -> None:
         self._unwatch_squads()
@@ -428,7 +438,7 @@ class RallyTab(PanelTab):
                 {"label": "rally.alert",
                  "pill": _switch(self._alert_var.get())},
                 {"label": "rally.autojoin",
-                 "pill": _switch(self._autojoin_var.get())},
+                 "pill": _switch(self._autojoin_on())},
             ],
         }
 
@@ -558,7 +568,7 @@ class RallyTab(PanelTab):
                      "autojoin": bool(self._autojoin_var.get())}
         self._monitor_var.set(False)
         self._alert_var.set(False)
-        self._autojoin_var.set(False)
+        self._set_autojoin(False)          # «Стоп всё» stops the standing order too
         self._stop_capture()
         self._stop_run()
 
@@ -573,7 +583,7 @@ class RallyTab(PanelTab):
             return
         self._monitor_var.set(was["monitor"])
         self._alert_var.set(was["alert"])
-        self._autojoin_var.set(was["autojoin"])
+        self._set_autojoin(was["autojoin"])
 
     def shutdown(self) -> None:
         self._stop_run()
@@ -635,7 +645,9 @@ class RallyTab(PanelTab):
             "autorally": self.autorally.config(),
             "monitor": bool(self._monitor_var.get()),
             "alert": bool(self._alert_var.get()),
-            "autojoin": bool(self._autojoin_var.get()),
+            # NO «autojoin» HERE ANY MORE. The auto-join is the «rally_auto_join»
+            # standing order and lives in the profile's `triggers.json`; storing a
+            # second copy beside it is what made two boxes disagree (#1281).
         }
 
     def apply_config(self, raw) -> None:
@@ -665,7 +677,14 @@ class RallyTab(PanelTab):
         # to switch off is what makes the alert work on the day it matters.
         self._monitor_var.set(bool(raw.get("monitor", True)))
         self._alert_var.set(bool(raw.get("alert", True)))
-        self._autojoin_var.set(bool(raw.get("autojoin", False)))
+        # …and the auto-join is READ from the standing order rather than from this
+        # block. A profile written before they were one carries its old value over
+        # once — a switch somebody left on must not be lost to a refactor.
+        legacy = raw.get("autojoin")
+        if legacy is not None and bool(legacy) and not self._autojoin_on():
+            self._set_autojoin(True)
+        else:
+            self._show_autojoin()
 
     def persist_vars(self) -> list:
         """Every control a change of has to be written to the profile (the container
@@ -808,6 +827,34 @@ class RallyTab(PanelTab):
         return (archive or bool(self._alert_var.get())
                 or bool(self._autojoin_var.get())), archive
 
+    #: The standing order this tab's «Присоединяться сам» box shows and sets. One
+    #: state, two places that draw it — the Timers tab's own row is the other.
+    AUTOJOIN_TRIGGER = "rally_auto_join"
+
+    def _autojoin_on(self) -> bool:
+        """Is the auto-join standing order on? Asked of the schedule, never remembered."""
+        try:
+            return bool(self.rt.schedule.trigger_enabled(self.AUTOJOIN_TRIGGER))
+        except Exception:                 # noqa: BLE001 — a tab opened on its own
+            return bool(self._autojoin_var.get())
+
+    def _set_autojoin(self, on: bool) -> None:
+        """Move the one state, and the box that shows it, together."""
+        self._autojoin_var.set(bool(on))
+        try:
+            self.rt.schedule.set_trigger_enabled(self.AUTOJOIN_TRIGGER, bool(on))
+        except Exception:                 # noqa: BLE001 — a tab opened on its own
+            pass
+
+    def _show_autojoin(self) -> None:
+        """Re-read the box from the state, for when it was moved somewhere else."""
+        self._autojoin_var.set(self._autojoin_on())
+
+    def _on_autojoin_click(self) -> None:
+        """The box was clicked: move the standing order, then the capture it needs."""
+        self._set_autojoin(bool(self._autojoin_var.get()))
+        self._sync_capture()
+
     def _sync_capture(self) -> None:
         """Bring the capture up, take it down, or re-point it — whatever the boxes say.
 
@@ -856,7 +903,7 @@ class RallyTab(PanelTab):
             # that has nothing to hear.
             self._monitor_var.set(False)
             self._alert_var.set(False)
-            self._autojoin_var.set(False)
+            self._set_autojoin(False)
             return
         self._proc, self._archiving = mon, archive
 
@@ -865,7 +912,7 @@ class RallyTab(PanelTab):
         self._proc = None
         self._monitor_var.set(False)
         self._alert_var.set(False)
-        self._autojoin_var.set(False)
+        self._set_autojoin(False)
 
     def _stop_capture(self) -> None:
         mon, self._proc = self._proc, None
