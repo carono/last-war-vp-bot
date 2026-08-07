@@ -161,7 +161,7 @@ class _Ev:
     def __init__(self, rows):
         self.rows, self.asked = rows, []
 
-    def run(self, chunk, marker, settle):        # noqa: ARG002 — the shape ev.run has
+    def run(self, chunk, marker, settle, **kw):  # noqa: ARG002 — the shape ev.run has
         self.asked.append(chunk)
         out = []
         for cfg, (lvl, spec) in self.rows.items():

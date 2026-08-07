@@ -438,7 +438,7 @@ class _FakeEv:
     def __init__(self, lines):
         self.lines = list(lines)
 
-    def run(self, chunk, marker=None, settle=1.2):
+    def run(self, chunk, marker=None, settle=1.2, **kw):   # `sentinel`, `early`
         import time as _time
         return ["ACT NOWMS=%d" % int(_time.time() * 1000)] + list(self.lines)
 
@@ -503,7 +503,7 @@ class _StealEv:
         self.chunks = []
         self.left = left
 
-    def run(self, chunk, marker=None, settle=1.2):
+    def run(self, chunk, marker=None, settle=1.2, **kw):   # `sentinel`, `early`
         self.chunks.append(chunk)
         if "ACT left=" in chunk:               # the _steals_left() probe
             return ["ACT left=%d" % self.left]
@@ -514,22 +514,29 @@ def test_share_autoloot_robs_once_on_a_matching_push():
     """A matching push fires exactly one robbery; a repeat and a non-match fire none."""
     import secret_share_autoloot as sa
 
+    import steal_secret_task as steal
+
     ev = _StealEv(left=5)
     mon = sa.ShareAutoloot(ev, star_max=True, level_min=1, level_max=7,
                            limit=5, dry_run=False)
+    # The home server is refused unconditionally now (#1188), so a listener that cannot
+    # read one robs nothing at all — which is a different test, one page down.
+    saved, steal.own_server = steal.own_server, lambda _ev: 1
+    try:
+        mon._consider(_mission(111, 60000701))     # starred level 7 -> robbed
+        assert mon.robbed == 1, mon.robbed
+        assert any("steal_sent uuid=111" in c and "946" in c for c in ev.chunks), ev.chunks
 
-    mon._consider(_mission(111, 60000701))     # starred level 7 -> robbed
-    assert mon.robbed == 1, mon.robbed
-    assert any("steal_sent uuid=111" in c and "946" in c for c in ev.chunks), ev.chunks
+        # Same tile pushed again (or echoed): dedup, no second robbery.
+        mon._consider(_mission(111, 60000701))
+        assert mon.robbed == 1, mon.robbed
 
-    # Same tile pushed again (or echoed): dedup, no second robbery.
-    mon._consider(_mission(111, 60000701))
-    assert mon.robbed == 1, mon.robbed
-
-    # A starred level-6 under «до 7» is left alone; a plain tile too.
-    mon._consider(_mission(222, 60000601))
-    mon._consider(_mission(333, 50000704))
-    assert mon.robbed == 1, mon.robbed
+        # A starred level-6 under «до 7» is left alone; a plain tile too.
+        mon._consider(_mission(222, 60000601))
+        mon._consider(_mission(333, 50000704))
+        assert mon.robbed == 1, mon.robbed
+    finally:
+        steal.own_server = saved
 
 
 def test_share_autoloot_leaves_the_own_server_alone():
@@ -545,7 +552,7 @@ def test_share_autoloot_leaves_the_own_server_alone():
 
     ev = _StealEv(left=5)
     mon = sa.ShareAutoloot(ev, star_max=True, level_min=None, level_max=None,
-                           limit=5, dry_run=False, skip_own_server=True)
+                           limit=5, dry_run=False)
     saved, steal.own_server = steal.own_server, lambda _ev: 946
     try:
         mon._consider(_mission(111, 60000701, server=946))     # home -> left alone
@@ -556,8 +563,7 @@ def test_share_autoloot_leaves_the_own_server_alone():
 
         # An own server nobody could read robs NOTHING — the flag fails safe.
         blind = sa.ShareAutoloot(_StealEv(left=5), star_max=True, level_min=None,
-                                 level_max=None, limit=5, dry_run=False,
-                                 skip_own_server=True)
+                                 level_max=None, limit=5, dry_run=False)
         steal.own_server = lambda _ev: 0
         blind._consider(_mission(333, 60000701, server=999))
         assert blind.robbed == 0, blind.robbed
@@ -582,10 +588,16 @@ def test_share_autoloot_dry_run_never_sends():
     """--dry-run decodes and decides but sends no robbery (budget-safe verification)."""
     import secret_share_autoloot as sa
 
+    import steal_secret_task as steal
+
     ev = _StealEv(left=5)
     mon = sa.ShareAutoloot(ev, star_max=True, level_min=None, level_max=None,
                            limit=5, dry_run=True)
-    mon._consider(_mission(555, 60000701))
+    saved, steal.own_server = steal.own_server, lambda _ev: 1
+    try:
+        mon._consider(_mission(555, 60000701))
+    finally:
+        steal.own_server = saved
     assert mon.robbed == 0, mon.robbed
     assert ev.chunks == [], ev.chunks          # not even the budget probe runs
 
