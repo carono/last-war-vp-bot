@@ -704,3 +704,75 @@ The MATCH is on the newest code and is the one the summary was reported from. Th
 stopped matching the confirming read inside a nested branch, which is the same defect
 this file records under the counter. The third line is not a disagreement and must not be
 read as one — a window reaching past the last collection has no rows to check against.
+
+## The game keeps the count itself, and ours was wrong (#1281)
+
+The person asked how rallies are counted per monster kind, and the answer turned out to
+be that the question has a different shape: **the client keeps ONE daily rally-boss
+counter, and it is the game's, not ours.**
+
+```
+DataCenter.MonsterManager
+  daily_kill_boss          = 8      GetKillBossNum()        -> 8
+  kill_boss_max_num        = 20     GetMaxKillBossNum()     -> 20
+                                    GetRestKillBossNum()    -> 12
+  find_monster_max_level   = 35     GetCanFindMonsterMaxLevel()
+                                    GetCurCanAttackBossMaxLevel() -> 3
+  UpdateKillBossNum(...)
+```
+
+**Twenty a day in total, not twenty per kind.** The «20» the daily plan speaks of is real
+and it is the client's own number; what is not real is the per-kind split, and no reading
+found anywhere in this task supports one (see the four dead ends below).
+
+**And our own count disagreed with it, in the direction that costs rallies.** At the same
+instant the game said `daily_kill_boss = 8`, `profiles/<name>/rally_counts.json` said
+`{"monster": 20}` and the auto-join had been refusing every banner since 19:42 with «the
+daily cap is spent». Twelve rallies we were entitled to, refused by a number we keep
+ourselves. The cure is not a better tally — it is to stop keeping one: `GetRestKillBossNum()`
+is the answer, from the authority that decides it.
+
+### How the kind was looked for, and the four places it is not
+
+Recorded so the next person does not repeat them:
+
+1. **the leader's march** — `monsterId=0`, `monsterType=0` on every rally on the map;
+2. **`GetMonsterData(targetUuid)`** — no data: the monster is outside the loaded part of
+   the map, and the bot never looks there;
+3. **the trophy's `contentId`** — resolved against **740** config tables through
+   `LocalController.instance:getValue(table, id, field, default)` (which is what the
+   global `GetTableData` wraps — read out of its `string.dump`), by `id` and by `name`:
+   not one table knows it. It indexes the reward's content, not a monster;
+4. **the rally list's own window** — `UIAllianceAutoJoinRally`, opened once and closed
+   with `Ctrl:CloseSelf()`. Its view reaches for `MonsterManager`, `GetKillBossNum`,
+   `GetMaxKillBossNum` and `ShowRewardList` — a COUNT and a reward, no per-kind
+   vocabulary anywhere in its bytecode.
+
+So «who the rally is going for» is drawn from something the view resolves at paint time,
+and the counter behind the screen is a single number. Until a reading proves otherwise,
+per-kind budgeting has nothing to stand on.
+
+## The game has its own server-side auto-join (#1281 — NOT enabled, not experimented with)
+
+Found while looking for the list above, written down because it is potentially larger
+than everything this task built. **Nothing here has been switched on**; a separate task
+decides whether it complements our path or replaces it.
+
+| `MsgDefines` name | wire command |
+| --- | --- |
+| `GetAllianceAutoJoinRallyInfo` | `user.get.auto.join.team.info` |
+| `StartAllianceAutoRally` | `user.create.auto.join.team` |
+| `StopAllianceAutoRally` | `user.cancel.auto.join.team` |
+| `AllianceBossSetAutoRally` | `alliance.boss.set.auto.rally` |
+| `RadarRallyGetBossCount` | `get.rally.boss.count` |
+
+The settings window is `UIAllianceAutoJoinRally`; its view calls
+`StartAllianceAutoRally` / `StopAllianceAutoRally` off `OnClickAutoJoinBtn`, so the
+server joins on the player's behalf and the whole race on the wire — the push, the queue,
+the two-call send this task spent a day shortening — may not be needed for the plain case.
+
+What is known about the state: `DataCenter.AllianceBaseDataManager.autoRallyInfo` holds
+`{endTime = 0}`, which reads as «the subscription is not running». Asking
+`user.get.auto.join.team.info` headlessly succeeded (`ok=true`) and left the field
+unchanged, so `endTime` is this account's own subscription rather than a list of rallies,
+and the list the window draws comes from somewhere else.
