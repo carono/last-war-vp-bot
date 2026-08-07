@@ -19,8 +19,10 @@ does not, per chunk and regardless of how many lines (measured, #1230 / #1232 �
 docs/research/game-call-latency.md).
 """
 from __future__ import annotations
+import itertools
 import os
 import sys
+import threading
 import time
 
 sys.path.insert(0, "tools/lib")
@@ -346,6 +348,123 @@ class _LineReader:
         return (head + b"\n").decode("utf-8", "replace")
 
 
+class Pending:
+    """A chunk that has ALREADY run in the game, and the answer still to be read.
+
+    Everything :func:`harvest` needs and nothing else — no evaluator, no process handle,
+    no lock. That is deliberate: the daemon lets go of its run lock the moment
+    :meth:`LuaEval.send` returns, and what it carries out of that lock must not be able
+    to touch the hijack.
+    """
+
+    __slots__ = ("path", "since", "marker", "settle", "early", "sentinel",
+                 "log_path", "log_since", "record")
+
+    def __init__(self, path, since, marker, settle, early, sentinel,
+                 log_path=None, log_since=0, record=None) -> None:
+        self.path, self.since = path, since
+        self.marker, self.settle = marker, settle
+        self.early, self.sentinel = early, sentinel
+        #: The game's own log, read only when the private file stayed empty. ``None``
+        #: for a chunk that opted out of the private file — then `path` IS that log.
+        self.log_path, self.log_since = log_path, log_since
+        #: The shared answer file a per-call one is folded back into, or ``None``.
+        self.record = record
+
+
+#: Serialises the fold-back of per-call answer files into the shared record. Two
+#: harvests finish whenever their settles are over, and an append is not atomic.
+_RECORD_LOCK = threading.Lock()
+
+#: Numbers the per-call answer files of this process. `os.getpid()` is in the name too,
+#: so two daemons on one machine cannot collide either.
+_CALL_SEQ = itertools.count(1)
+
+#: How old a leftover per-call answer file has to be before it is swept. A call that is
+#: still running owns its file; an hour is far past any settle in the tree (the longest
+#: is 4 s) and past any wedged call worth keeping evidence of.
+STALE_ANSWER_SEC = 3600.0
+
+
+def _per_call_path(base: str) -> str:
+    """An answer file for one call, beside the shared one."""
+    root, ext = os.path.splitext(base)
+    return "%s.%d-%d%s" % (root, os.getpid(), next(_CALL_SEQ), ext or ".log")
+
+
+def _sweep_per_call(base: str, older_than: float = STALE_ANSWER_SEC) -> int:
+    """Delete per-call answer files nobody is going to collect. Returns how many.
+
+    A call whose process died between :meth:`LuaEval.send` and :func:`harvest` leaves
+    its file behind, and the daemon that replaces it would otherwise accumulate them for
+    ever in the account's own log folder.
+    """
+    root, ext = os.path.splitext(base)
+    folder = os.path.dirname(base) or "."
+    prefix, cutoff, gone = os.path.basename(root) + ".", time.time() - older_than, 0
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith(prefix) or (ext and not name.endswith(ext)):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.path.getmtime(path) > cutoff:
+                continue
+            os.remove(path)
+            gone += 1
+        except OSError:
+            continue
+    return gone
+
+
+def _fold_back(path: str, record: str) -> None:
+    """Append a per-call answer file to the shared record and delete it.
+
+    The shared file is what a person reads when something went wrong — a `lua-error` is
+    written there deliberately, unmarked, so that it reaches a reader and never a caller
+    (:func:`wrap_chunk`), and `tools/dev/check_answer_channel.py` checks exactly that.
+    Giving each call its own file to avoid cross-talk must not quietly end that, so the
+    transport is per call and the RECORD stays one file.
+    """
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        data = b""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    if not data:
+        return
+    with _RECORD_LOCK:
+        try:
+            _empty_if_huge(record)
+            with open(record, "ab") as fh:
+                fh.write(data)
+        except OSError:
+            pass
+
+
+def harvest(pending: "Pending") -> list:
+    """The marker lines of a chunk that has already been sent. Waits; takes no lock.
+
+    Split out of :meth:`LuaEval.run` so a daemon can sit out a settle without holding
+    the hijack (#1287, `docs/research/architecture-audit.md` §1.1).
+    """
+    lines = collect(pending.path, pending.since, pending.marker, pending.settle,
+                    early=pending.early, sentinel=pending.sentinel)
+    if pending.record is not None:
+        _fold_back(pending.path, pending.record)
+    if lines or pending.log_path is None:
+        return lines
+    # The settle has already been sat out, so the fallback is a plain read.
+    return _matching(_tail(pending.log_path, pending.log_since), pending.marker)
+
+
 class LuaEval:
     """Reusable SafeDoString driver — resolve once, run many chunks."""
 
@@ -362,12 +481,51 @@ class LuaEval:
             raise SystemExit("XLuaManager.SafeDoString not resolved")
         self.log = player_log_path()
         self.answers = answer_log_path()
+        # Whatever a previous evaluator left behind when it died mid-call. Once per
+        # build, which for a daemon is once per client.
+        _sweep_per_call(self.answers)
 
     def _send(self, chunk) -> None:
         s = self.x.il2_string_new(chunk)
         self.x.invoke(self.sd, self.mgr, [("ref", s)], "SafeDoString")
 
-    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None):
+    def send(self, chunk, marker=None, settle=1.2, early=False, sentinel=None,
+             private: bool = False) -> "Pending":
+        """Run the chunk in the game and hand back what READING its answer needs.
+
+        THE INJECTION IS OVER WHEN THIS RETURNS. `SafeDoString` is synchronous on the
+        game's main thread, and `wrap_chunk` flushes the chunk's whole buffer as the
+        chunk comes back — so by the time this returns, an ordinary chunk's answer is
+        already in the file, and the settle that follows is a wait for whatever arrives
+        LATER (a server reply, a callback the chunk installed).
+
+        That is the whole reason this is a separate call: the hijack must be serialised
+        and the waiting must not be. Measured on this machine (#1287): one call is 60 ms
+        free and 3 855 ms behind three background readers holding patient settles, and
+        95 % of that lock occupancy is :func:`collect` sleeping inside it.
+
+        ``private`` gives THIS call an answer file of its own. Two calls collecting from
+        one file at once cannot tell their lines apart — both filter by the same marker
+        — so the caller that means to overlap them says so, and everything that does not
+        keeps the one shared file it always had. What the private file collected is
+        folded back into the shared one afterwards (:func:`harvest`), because that file
+        is also the record a person reads a `lua-error` out of.
+        """
+        if not redirects(chunk):
+            since = _size(self.log)
+            self._send(chunk)
+            return Pending(self.log, since, marker, settle, early, sentinel)
+        if private:
+            path, since_file, record = _per_call_path(self.answers), 0, self.answers
+        else:
+            path, since_file, record = self.answers, _empty_if_huge(self.answers), None
+        since_log = _size(self.log)
+        self._send(wrap_chunk(chunk, path))
+        return Pending(path, since_file, marker, settle, early, sentinel,
+                       log_path=self.log, log_since=since_log, record=record)
+
+    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None,
+            private: bool = False):
         """Run one chunk and hand back the marker lines it wrote.
 
         The answer comes out of the private file (:func:`wrap_chunk`) unless this chunk
@@ -377,19 +535,13 @@ class LuaEval:
 
         `sentinel` names the chunk's own last line, and ends the wait when it lands —
         see :func:`collect`.
+
+        Send and harvest in one, for every caller that does its own waiting anyway. The
+        daemon splits them (:meth:`send` / :func:`harvest`) so that only the first half
+        is under its lock.
         """
-        if not redirects(chunk):
-            since = _size(self.log)
-            self._send(chunk)
-            return collect(self.log, since, marker, settle, early=early,
-                           sentinel=sentinel)
-        since_file = _empty_if_huge(self.answers)
-        since_log = _size(self.log)
-        self._send(wrap_chunk(chunk, self.answers))
-        lines = collect(self.answers, since_file, marker, settle, early=early,
-                        sentinel=sentinel)
-        # The settle has already been sat out, so the fallback is a plain read.
-        return lines or _matching(_tail(self.log, since_log), marker)
+        return harvest(self.send(chunk, marker=marker, settle=settle, early=early,
+                                 sentinel=sentinel, private=private))
 
     def close(self):
         import il2cpp_probe as P
