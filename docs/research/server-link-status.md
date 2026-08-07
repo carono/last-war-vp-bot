@@ -797,3 +797,39 @@ all. A restart takes the account back off whoever has it, and if that is the own
 their phone, the panel is fighting its own player — §4.4 and
 [`session-kick.md`](session-kick.md) §6. What #1270 changes is only that the panel can now
 SEE the state; what it does about it is the wiring that was already there.
+
+## 8. «daemon=warm» over a daemon bound to a client that has gone (#1281 → #1268)
+
+Two separate ways the panel reports a working daemon while nothing it sends reaches the
+game. Both were seen live inside one hour on 2026-08-07, while the rally auto-join's
+numbers were being collected, and both make the auto-join deaf without saying so.
+
+**The first was ours and is fixed.** `GameLink.ensure()` asked `up()` without
+`fresh=True`, so a daemon that died inside the cache window (`UP_CACHE_SEC`) was
+reported «already warm on port 47654», nothing was started, and the port stayed dead.
+The class's own docstring already named `ensure` as the one caller that must ask fresh;
+the wait loop below it did, the check in front of it did not. Pinned by
+`tests/test_panel_daemon_port.py::test_ensure_asks_the_socket_rather_than_its_own_cache`.
+
+**The second is #1268's and is NOT fixed.** A daemon can answer its port perfectly while
+being attached to a client that no longer exists:
+
+```
+panel strip :  daemon=warm            <- the port answers, which is all `up()` means
+ping        :  {"ok": true, "warm": false, "pid": null}
+run         :  ClientGone  [SystemExit: snapshot failed err=5]
+```
+
+`Daemon.run` rebuilds once and retries on a stale handle, and that rebuild is what fails
+here — so the daemon stays up, wedged, indefinitely. Every errand in that state fails
+with a named reason, which is right, but the STRIP says warm and the recovery has nothing
+to act on. **`up()` means «the port answers»; three callers read it as «the daemon
+works».** The honest reading is the ping's `pid`: a daemon with no attached pid is not a
+daemon anybody can use, and the cure is a restart of the daemon rather than of the
+client.
+
+Frequency, measured rather than guessed: the client was restarted four times in
+thirty-five minutes by other work (each restart is somebody else's legitimate business),
+and each one left the daemon in one of those two states. A babysitter that treated
+«answers the port» as healthy missed the second kind entirely and had to be taught to ask
+for the pid.
