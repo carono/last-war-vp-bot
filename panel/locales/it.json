@@ -264,6 +264,7 @@
   "log.rally.stopped": "monitor fermato",
   "log.secret.cfg_reranked": "la configurazione del gioco ha corretto livello o stella di {n} casella/e che la cattura aveva indovinato",
   "log.secret.ended": "il flusso del monitor è terminato",
+  "log.secret.no_own_server_feed": "il server dell'account non è leggibile — la lista dei raid resta vuota invece di rischiare un furto in casa",
   "log.secret.seed_server": "server preso dal gioco: {srv}",
   "log.secret.started": "la cattura è in funzione (pid {pid}); la sua uscita va nel registro",
   "log.secret.started_move_map": "la cattura è in funzione (pid {pid}); la sua uscita va nel registro — muovi la mappa (o accendi la battuta), altrimenti non ci sarà traffico",

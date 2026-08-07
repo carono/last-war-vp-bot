@@ -209,9 +209,12 @@ class SecretTasksTab(PanelTab):
         self._polling = False
         # Cached (server, allianceId) for the chat room ids — read once, live.
         self._ids = None
-        # The player's OWN server, cached the same way: what «не грабить на своём
-        # сервере» compares a tile against. 0 = not read yet / unreadable.
+        # The player's OWN server, cached the same way: what the home-server
+        # prohibition compares a tile against. 0 = not read yet / unreadable.
         self._own_server = 0
+        #: «home is unreadable, so the raid list admits nothing» — said once per spell
+        #: of not knowing rather than once per feed (`_abroad_only`).
+        self._warned_no_own_feed = False
         self._status_var = tk_stringvar(master)
         # -- the table ------------------------------------------------------
         self._tree = None
@@ -1696,7 +1699,39 @@ class SecretTasksTab(PanelTab):
             # Said in the panel's own words, not the tool's: the child's line is English
             # by construction and this one is read by whoever is watching the tab.
             self.say("secret", "log.secret.cfg_reranked", n=fixed)
-        return [t for t in tasks if t.starred]
+        return self._abroad_only([t for t in tasks if t.starred])
+
+    def _abroad_only(self, tasks) -> list:
+        """Drop every tile on the account's OWN server — THE FEED'S OWN GATE (#1188).
+
+        This list is the raid list, and a raid at home is forbidden outright: the game
+        fines the player for it. `rob_candidates` refuses one too, and that was not
+        enough, because a row that is on the list AT ALL is a row some path can reach.
+        It was reachable: `on_show` fires `_prime_own_server` on a thread and
+        `_snapshot` immediately after, so the first feed can land while the own server
+        is still unknown — and everything that judges a row against home (the display
+        rule, the standing order) reads «unknown» as «nothing is home». Live that showed
+        up as home tiles appearing in the grid for about a second and then vanishing as
+        the priming caught up, and one second is long enough for a 2-second poll to
+        take one.
+
+        So the gate moved to where the rows COME IN, ahead of the model rather than in
+        front of each consumer of it. Both feeds run off the Tk thread, so asking the
+        game here costs the window nothing — and `own_server()` reads live when the
+        cache is cold, which is what removes the race rather than narrowing it.
+
+        AN UNREADABLE OWN SERVER ADMITS NOTHING. «I cannot tell home from abroad» must
+        never come out as «none of it is home», which is the exact shape of the bug
+        above. The list stays empty and says why, once.
+        """
+        mine = self.own_server()
+        if not mine:
+            if not self._warned_no_own_feed:
+                self._warned_no_own_feed = True
+                self.say("secret", "log.secret.no_own_server_feed")
+            return []
+        self._warned_no_own_feed = False
+        return [t for t in tasks if int(getattr(t, "server_id", 0) or 0) != mine]
 
     def _fetch_vm(self) -> list:
         """The first-open snapshot: every live starred alliance task straight from the VM.
@@ -1711,7 +1746,7 @@ class SecretTasksTab(PanelTab):
         """
         import steal_secret_task
         tasks = steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
-        return [t for t in tasks if t.starred]
+        return self._abroad_only([t for t in tasks if t.starred])
 
     def _merge(self, tasks, verify: "set | None" = None) -> None:
         """Add tiles the list does not have yet; keep the ones it does.

@@ -39,7 +39,6 @@ Usage (run under the Windows Python so it can both capture and reach the daemon)
 --------------------------------------------------------------------------------
     C:\Python312\python.exe tools\secret_share_autoloot.py
     C:\Python312\python.exe tools\secret_share_autoloot.py --star-max --level-min 1 --level-max 7
-    C:\Python312\python.exe tools\secret_share_autoloot.py --star-max --skip-own-server
     C:\Python312\python.exe tools\secret_share_autoloot.py --seconds 1800
     C:\Python312\python.exe tools\secret_share_autoloot.py --dry-run     # decode + decide, never send
     C:\Python312\python.exe tools\secret_share_autoloot.py --list-ifaces
@@ -123,8 +122,7 @@ class ShareAutoloot(LiveDecoder):
     """
 
     def __init__(self, ev, star_max: bool, level_min, level_max,
-                 limit: int, dry_run: bool, skip_own_server: bool = False,
-                 shared_json: str | None = None):
+                 limit: int, dry_run: bool, shared_json: str | None = None):
         super().__init__()
         self._ev = ev
         # Where «this task has already been shared» is recorded (#1245), or None to
@@ -139,7 +137,6 @@ class ShareAutoloot(LiveDecoder):
         self._level_max = level_max
         self._limit = limit
         self._dry_run = dry_run
-        self._skip_own = skip_own_server
         # The own server, resolved lazily on the first push that matters and then kept:
         # the listener is started with the panel (often before the game is logged in), so
         # asking at start-up would answer "unknown" for the whole run.
@@ -186,7 +183,11 @@ class ShareAutoloot(LiveDecoder):
             print(f"{_stamp()} {C_DIM}share: {label} — outside the rule, left alone"
                   f"{C_RESET}", flush=True)
             return
-        if self._skip_own and not self._allowed_server(server):
+        # UNCONDITIONAL (#1188). This listener fires on the share push itself, before
+        # any list has a row to filter, so it is the fastest way there is to rob at
+        # home — and the game fines the player for that. There is no flag left that
+        # could withhold the check.
+        if not self._allowed_server(server):
             return
         if (uuid, server) in self._seen:
             return
@@ -307,9 +308,9 @@ def main() -> int:
                     help="stop sending after this many robberies this run (default 5, the "
                          "daily cap; the server enforces the real budget regardless)")
     ap.add_argument("--skip-own-server", action="store_true",
-                    help="never rob a share standing on the player's own server (the "
-                         "panel's «не грабить на своём сервере»); an own server that "
-                         "cannot be read refuses the robbery rather than allowing it")
+                    help="accepted and ignored: the player's own server is never robbed, "
+                         "with or without it (#1188). Kept so older call sites keep "
+                         "working")
     ap.add_argument("--dry-run", action="store_true",
                     help="decode and decide, but never send a robbery (for verifying the "
                          "wire path without spending the budget)")
@@ -335,7 +336,7 @@ def main() -> int:
 
     monitor = ShareAutoloot(ev, star_max=args.star_max, level_min=args.level_min,
                             level_max=args.level_max, limit=args.limit,
-                            dry_run=args.dry_run, skip_own_server=args.skip_own_server,
+                            dry_run=args.dry_run,
                             shared_json=args.shared_json)
     stop, bpf = start_capture(monitor, args)
 
@@ -346,7 +347,7 @@ def main() -> int:
                         args.level_max if args.level_max is not None else "")) or "any"
     window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
     mode = " (dry-run — nothing is sent)" if args.dry_run else ""
-    own = ", own server left alone" if args.skip_own_server else ""
+    own = ", own server left alone"          # always (#1188)
     print(f"{C_DIM}rule: {rule}, level {span}{own}; robbing on {SHARE_ADD}{mode}\n"
           f"listening {window} — an ally must share a secret task for anything to "
           f"arrive{C_RESET}\n")

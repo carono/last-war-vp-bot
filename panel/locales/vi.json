@@ -264,6 +264,7 @@
   "log.rally.stopped": "đã dừng trình theo dõi",
   "log.secret.cfg_reranked": "cấu hình của trò chơi đã sửa cấp độ hoặc sao của {n} ô mà bản ghi đã đoán",
   "log.secret.ended": "luồng của trình theo dõi đã kết thúc",
+  "log.secret.no_own_server_feed": "không đọc được máy chủ của tài khoản — danh sách đột kích để trống thay vì cướp ngay tại nhà",
   "log.secret.seed_server": "máy chủ lấy từ trò chơi: {srv}",
   "log.secret.started": "bản bắt đang chạy (pid {pid}); đầu ra của nó đi vào nhật ký",
   "log.secret.started_move_map": "bản bắt đang chạy (pid {pid}); đầu ra của nó đi vào nhật ký — hãy kéo bản đồ (hoặc bật lượt quét), nếu không sẽ chẳng có lưu lượng",

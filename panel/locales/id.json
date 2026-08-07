@@ -264,6 +264,7 @@
   "log.rally.stopped": "pemantau dihentikan",
   "log.secret.cfg_reranked": "konfigurasi gim memperbaiki level atau bintang pada {n} petak yang ditebak oleh tangkapan",
   "log.secret.ended": "aliran pemantau berakhir",
+  "log.secret.no_own_server_feed": "server milik akun tidak terbaca — daftar serbuan dibiarkan kosong daripada merampok di rumah",
   "log.secret.seed_server": "server diambil dari permainan: {srv}",
   "log.secret.started": "penangkapan berjalan (pid {pid}); keluarannya masuk ke catatan",
   "log.secret.started_move_map": "penangkapan berjalan (pid {pid}); keluarannya masuk ke catatan — geser peta (atau hidupkan sapuan), kalau tidak takkan ada lalu lintas",

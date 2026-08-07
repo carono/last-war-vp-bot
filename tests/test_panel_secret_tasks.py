@@ -2401,6 +2401,71 @@ def test_the_alliance_page_stays_a_mirror_on_purpose():
     assert "MIRROR" in src.upper() and "протухло" in src
 
 
+def _abroad_tab(own):
+    """A tab reduced to what `_abroad_only` touches: the home server and the log."""
+    said = []
+    tab = object.__new__(st.SecretTasksTab)
+    tab._own_server = own
+    tab._warned_no_own_feed = False
+    tab.own_server = lambda: tab._own_server
+    tab.say = lambda tag, key, **fmt: said.append(key)
+    return tab, said
+
+
+def _feed(uuid, server):
+    """A `SecretTask` as a feed hands one over — only `server_id` matters here."""
+    import lastwar_proto as proto
+    return proto.SecretTask.from_dict({
+        "uuid": uuid, "server_id": server, "x": 1, "y": 2, "level": 7,
+        "cfg_id": 60000701, "family": "6000", "looted_by": [],
+        "expires_at": 0, "completed_at": 0, "starred_cfg": True})
+
+
+def test_a_home_tile_never_ENTERS_the_list_at_all():
+    """The gate is on the FEED, not in front of each consumer of the list (#1188).
+
+    A home tile used to reach `_rows` and be filtered afterwards — by the display rule
+    when drawing, by `rob_candidates` when robbing. That left a window nobody had to
+    invent: `on_show` primes the own server on a THREAD and fires the first snapshot
+    immediately, so a feed can land while home is still unknown, and everything that
+    judges a row against home reads «unknown» as «nothing is home». Live it showed as
+    home tiles in the grid for about a second — long enough for a 2-second poll, and
+    the game fines the player for a raid at home.
+    """
+    tab, _said = _abroad_tab(935)
+    kept = st.SecretTasksTab._abroad_only(tab, [_feed(1, 935), _feed(2, 999),
+                                                _feed(3, 935), _feed(4, 1024)])
+    assert [t.uuid for t in kept] == [2, 4], [t.uuid for t in kept]
+
+
+def test_an_unreadable_home_server_admits_NOTHING_to_the_raid_list():
+    """«I cannot tell home from abroad» must never come out as «none of it is home».
+
+    That is the exact shape of the bug above, so the feed refuses instead — and says so
+    once per spell of not knowing rather than once per read.
+    """
+    tab, said = _abroad_tab(0)
+    assert st.SecretTasksTab._abroad_only(tab, [_feed(1, 999)]) == []
+    assert st.SecretTasksTab._abroad_only(tab, [_feed(2, 999)]) == []
+    assert said == ["log.secret.no_own_server_feed"], said
+
+    # …and once home IS known the complaint resets, so a later spell is said again.
+    tab._own_server = 935
+    assert [t.uuid for t in st.SecretTasksTab._abroad_only(tab, [_feed(3, 999)])] == [3]
+    tab._own_server = 0
+    assert st.SecretTasksTab._abroad_only(tab, [_feed(4, 999)]) == []
+    assert said == ["log.secret.no_own_server_feed"] * 2, said
+
+
+def test_both_feeds_go_through_the_gate_and_not_only_one():
+    """Two sources fill this list, and a gate on one of them is not a gate."""
+    src = (Path(__file__).resolve().parents[1] /
+           "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
+    for feed in ("_fetch_scan", "_fetch_vm"):
+        body = src.split(f"def {feed}")[1].split("\n    def ")[0]
+        assert "_abroad_only" in body, f"{feed} still admits home tiles"
+
+
 def test_the_capture_only_fills_the_list_and_never_empties_it():
     """«Мониторинг только наполняет наши таблицы» (#1251).
 

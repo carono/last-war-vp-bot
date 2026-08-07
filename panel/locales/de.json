@@ -264,6 +264,7 @@
   "log.rally.stopped": "Überwachung gestoppt",
   "log.secret.cfg_reranked": "die Spielkonfiguration hat Stufe oder Stern bei {n} Feld(ern) korrigiert, die der Mitschnitt geraten hatte",
   "log.secret.ended": "der Strom der Überwachung ist zu Ende",
+  "log.secret.no_own_server_feed": "der eigene Server war nicht lesbar — die Raid-Liste bleibt leer, statt zu Hause zu rauben",
   "log.secret.seed_server": "Server aus dem Spiel übernommen: {srv}",
   "log.secret.started": "die Aufzeichnung läuft (pid {pid}); ihre Ausgabe geht ins Protokoll",
   "log.secret.started_move_map": "die Aufzeichnung läuft (pid {pid}); ihre Ausgabe geht ins Protokoll — bewege die Karte (oder schalte die Kartenabfahrt ein), sonst kommt kein Verkehr",

@@ -264,6 +264,7 @@
   "log.rally.stopped": "monitor detenido",
   "log.secret.cfg_reranked": "la configuración del juego corrigió el nivel o la estrella de {n} casilla(s) que la captura había adivinado",
   "log.secret.ended": "el flujo del monitor ha terminado",
+  "log.secret.no_own_server_feed": "no se pudo leer el servidor propio — la lista de asaltos queda vacía en vez de arriesgar un robo en casa",
   "log.secret.seed_server": "servidor tomado del juego: {srv}",
   "log.secret.started": "la captura está en marcha (pid {pid}); su salida va al registro",
   "log.secret.started_move_map": "la captura está en marcha (pid {pid}); su salida va al registro — mueve el mapa (o enciende el barrido), o no habrá tráfico",

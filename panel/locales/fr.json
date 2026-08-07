@@ -264,6 +264,7 @@
   "log.rally.stopped": "moniteur arrêté",
   "log.secret.cfg_reranked": "la configuration du jeu a corrigé le niveau ou l'étoile de {n} case(s) que la capture avait devinées",
   "log.secret.ended": "le flux du moniteur s'est terminé",
+  "log.secret.no_own_server_feed": "le serveur du compte n'a pas pu être lu — la liste de raids reste vide plutôt que de risquer un pillage chez soi",
   "log.secret.seed_server": "serveur pris dans le jeu : {srv}",
   "log.secret.started": "la capture tourne (pid {pid}) ; sa sortie va au journal",
   "log.secret.started_move_map": "la capture tourne (pid {pid}) ; sa sortie va au journal — déplace la carte (ou active le balayage), sinon il n'y aura pas de trafic",
