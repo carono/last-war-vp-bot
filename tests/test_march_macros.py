@@ -13,13 +13,18 @@ What this file exists to hold:
   the design accepts, written down so it cannot be widened by accident;
 * **nothing fires unless the GAME is the foreground window.**
 
-Offline: the catalogue, the recipes and the listener are all Tk-free and none of them
-talks to the game here — the listener is driven with a fake runtime and a fake
-foreground title.
+Nothing here talks to the game — the listener is driven with a fake runtime and a fake
+foreground title — but it is not Tk-free, whatever this paragraph said when it was
+written: `from panel.runtime import hotkeys` runs `panel/runtime/__init__.py`, which
+imports the host, which imports the settings binder, which imports tkinter. So the file
+is `ui` and it says so; run under an interpreter without Tk it did not skip, it failed
+on `ModuleNotFoundError: tkinter` (#1284).
 
     C:\Python312\python.exe tests\test_march_macros.py
 """
 from __future__ import annotations
+
+TIER = "ui"        # Tk (not a display) — see tools/run_tests.py
 
 import sys
 from pathlib import Path
