@@ -169,6 +169,12 @@ DETAIL_POLL_SEC = 0.12
 STATE_MS = 30_000
 STATE_SLICE = 20
 
+# How long a uuid we robbed is remembered when nothing said when its tile expires
+# (#1280). A dispatch task does not live a day, so a day is «until it cannot exist any
+# more» with room to spare — and the entry is dropped the moment the tile's OWN expiry
+# passes, which is what the book normally goes by.
+ROBBED_KEEP_MS = 24 * 60 * 60 * 1000
+
 # How long BEFORE a tile matures «Собрать» is already offered (#1272). A star is taken
 # in the first moment it is takeable — «счёт может идти на микросекунды, потому что много
 # желающих уже кликают» — and a button that appears at the instant of readiness is one
@@ -363,6 +369,10 @@ class SecretTasksTab(PanelTab):
         # Tasks robbed by hand this session: a rescan must not re-add one the server has
         # not yet dropped from `allianceTask`.
         self._collected: set = set()
+        # …and the same book with an expiry against each uuid, which is what survives the
+        # session (#1280). `_collected` answers «has this been robbed», this one answers
+        # «until when is that worth remembering» — see `_robbed_book`.
+        self._robbed_until: dict = {}
         # …and the uuids with a press already in flight (#1272). A press made inside the
         # ten-second window waits out the remainder before sending, and the row keeps
         # offering «Собрать» throughout — it is still counting down — so without this a
@@ -600,6 +610,7 @@ class SecretTasksTab(PanelTab):
         # with it; the new profile's own list is read in below.
         self._rows.clear()
         self._collected.clear()
+        self._robbed_until.clear()
         # …and what the standing order had already fired at belongs to that account's
         # map, not this one's (#1256). A press waiting out its ten seconds belongs to the
         # old client too (#1272): the worker will fire into whatever is there and be
@@ -2429,9 +2440,21 @@ class SecretTasksTab(PanelTab):
         `_load_persisted` needs to rebuild a row are kept; the countdown StringVar and
         the `ready`/`soon` flags are UI state, recomputed from `expires_at`/
         `completed_at` the moment the row is drawn again.
+
+        IT CARRIES THE BOOK OF WHAT WE ROBBED, not just the rows (#1280). The uuids we
+        have spent a robbery on used to live for the session only, so «Очистить список»
+        — or a restart after the row had expired off the list — put a tile we had already
+        taken back among the targets, where the standing order could spend one of the
+        day's five on the server's «задание уже взято». The book outlives the row on
+        purpose: it is what a later capture is checked against.
+
+        The file is a dict now; a list is the shape written before this and is still
+        read (see :meth:`_load_persisted`).
         """
         from ...profile import _write_json
-        _write_json(self.rt.profiles.secret_tasks_state_json(), [
+        _write_json(self.rt.profiles.secret_tasks_state_json(), {
+            "robbed": self._robbed_book(),
+            "rows": [
             {"uuid": r["uuid"], "server": r["server"], "x": r["x"], "y": r["y"],
              "level": r["level"], "cfg_id": r["cfg_id"], "loot_count": r["loot_count"],
              "expires_at": r["expires_at"], "completed_at": r["completed_at"],
@@ -2449,7 +2472,30 @@ class SecretTasksTab(PanelTab):
              # can still be shared, and a restart that forgot the mark would put back a
              # row offering «Собрать» on a tile the server has already refused us once.
              "robbed": bool(r.get("robbed"))}
-            for r in self._rows.values()])
+            for r in self._rows.values()]})
+
+    def _robbed_book(self) -> list:
+        """The uuids we have robbed, each with the moment it stops being worth keeping.
+
+        A tile cannot be robbed by us twice — the server answers «задание уже взято» —
+        so the book has to outlive both the row and the session. It does NOT have to
+        outlive the TASK: once a tile's `expires_at` has passed it is off the map and its
+        uuid can never come back, so an entry past its own moment is dropped here rather
+        than growing the file for ever. A tile whose expiry was never read is kept a day
+        (:data:`ROBBED_KEEP_MS`), which is longer than a dispatch task lives.
+        """
+        import game_clock
+        now = game_clock.now_ms()
+        # Whatever a row on the list currently says outranks the book: a robbery made
+        # this second is in `_collected` before its checkpoint entry exists.
+        for key, row in self._rows.items():
+            if row.get("robbed"):
+                self._robbed_until[str(key)] = int(row.get("expires_at")
+                                                   or now + ROBBED_KEEP_MS)
+        for key in self._collected:
+            self._robbed_until.setdefault(str(key), now + ROBBED_KEEP_MS)
+        self._robbed_until = {k: v for k, v in self._robbed_until.items() if v > now}
+        return [{"uuid": k, "until": v} for k, v in self._robbed_until.items()]
 
     def _load_persisted(self) -> set:
         """Read back the last session's list; return the keys still needing a live check.
@@ -2478,9 +2524,27 @@ class SecretTasksTab(PanelTab):
                 records = json.load(fh)
         except (OSError, ValueError):
             return set()
+        now = game_clock.now_ms()
+        # TWO SHAPES, ONE MEANING (#1280). A dict carries the rows AND the book of what
+        # we have robbed; a bare list is the shape written before the book existed, and
+        # is read exactly as it always was.
+        if isinstance(records, dict):
+            for entry in records.get("robbed") or ():
+                if not isinstance(entry, dict):
+                    continue
+                key, until = str(entry.get("uuid") or ""), entry.get("until")
+                if not key:
+                    continue
+                try:
+                    until = int(until)
+                except (TypeError, ValueError):
+                    continue
+                if until > now:
+                    self._robbed_until[key] = until
+                    self._collected.add(key)
+            records = records.get("rows")
         if not isinstance(records, list):
             return set()
-        now = game_clock.now_ms()
         restored: set = set()
         for rec in records:
             if not isinstance(rec, dict):
@@ -3546,6 +3610,11 @@ class SecretTasksTab(PanelTab):
             row = self._rows.get(key)
             if row is not None:
                 row["robbed"] = True
+            # …and into the book that outlives both the row and the session (#1280), with
+            # the tile's own expiry as the moment it stops being worth remembering.
+            import game_clock
+            self._robbed_until[key] = int((row or {}).get("expires_at")
+                                          or game_clock.now_ms() + ROBBED_KEEP_MS)
             # The same tile can be on both tables — one robbery, so both are marked.
             self.alliance.mark_robbed(key)
             self._render()
@@ -3656,10 +3725,16 @@ class SecretTasksTab(PanelTab):
 
         Not a tidy-up of the stale ones — expired tiles already fall off on their own
         each second, so a button that only swept those away had nothing left to do. This
-        empties the table outright and forgets the session's collected set, so a task
-        robbed earlier can be re-listed by the next scan if the server still shows it
-        raidable. Nothing here is lost for good: the wire feed and the next VM snapshot
-        repopulate the list from the live game, same as a fresh «Обновить».
+        empties the table outright. Nothing here is lost for good: the wire feed and the
+        next VM snapshot repopulate the list from the live game, same as a fresh
+        «Обновить».
+
+        WHAT WE ROBBED IS NOT FORGOTTEN (#1280). It used to be — the set went with the
+        rows, on the reasoning that a re-listed tile is harmless — and it is not: the
+        tile comes back looking raidable, «Собрать» is offered on it and the standing
+        order can spend one of the day's five to be told «задание уже взято». The book
+        (`_robbed_until`) is about tiles rather than about this table, so it survives the
+        press and expires with the tasks in it.
 
         The alliance table below is deliberately untouched: it accumulates nothing to
         clear — every read replaces it whole — so wiping it would only blank a mirror
@@ -3670,8 +3745,8 @@ class SecretTasksTab(PanelTab):
         is the panel deciding on the operator's behalf that what they found is no longer
         worth keeping, and it has been wrong about that three times.
         """
+        # `_collected` and `_robbed_until` are deliberately NOT cleared — see above.
         self._rows.clear()
-        self._collected.clear()
         self._restore_pending = set()
         self._render()
         self._update_status()

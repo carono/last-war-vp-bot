@@ -175,6 +175,11 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     tab.autoloot = _FakeAutoLoot(tab)
     tab._rows = rows
     tab._collected = set()
+    # The book of what we robbed, which outlives both the row and the session (#1280).
+    tab._robbed_until = {}
+    # …and the unattended state re-check's own flags (#1280): a fixture never arms the
+    # chain, but everything that persists or lands goes past them.
+    tab._state_busy, tab._state_cursor = False, 0
     # Presses waiting out the ten-second window (#1272) — a fresh tab has none.
     tab._pressing = set()
     tab._polling = False
@@ -904,6 +909,11 @@ def test_clear_wipes_every_row_including_ones_not_expired():
     The button used to only sweep out already-expired tiles — which the countdown
     drops on its own each second anyway, so it had nothing left to do. Now it wipes
     the whole list, on screen and on the checkpoint `_persist_rows` writes.
+
+    WHAT WE ROBBED IS NOT WIPED WITH IT (#1280). The uuid is about the TILE, not about
+    this table: forgetting it put a tile we had already taken back among the targets,
+    where the standing order could spend one of the day's five to be told «задание уже
+    взято». It comes back with the checkpoint too.
     """
     path = _state_path()
     rows = {"1": _row(1, 7, 120_000, 600_000),      # far from expiring
@@ -911,18 +921,20 @@ def test_clear_wipes_every_row_including_ones_not_expired():
     tab = _make_tab(rows)
     tab.rt = _fake_rt(path)
     tab._collected = {"9"}
+    tab._robbed_until = {"9": int(__import__("time").time() * 1000) + 600_000}
     tab._restore_pending = {"1"}
 
     tab._clear()
 
     assert tab._rows == {}, tab._rows
-    assert tab._collected == set()
+    assert tab._collected == {"9"}, "the tile we robbed was offered as a target again"
     assert tab._restore_pending == set()
     assert tab._rendered == 1
 
     fresh = _make_tab({})
     fresh.rt = _fake_rt(path)
     assert fresh._load_persisted() == set(), "the wipe must reach the checkpoint too"
+    assert fresh._collected == {"9"}, "the book did not survive the restart"
 
 
 def test_web_press_clear_runs_the_wipe_on_the_tk_thread():
