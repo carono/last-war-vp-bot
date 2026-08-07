@@ -214,6 +214,42 @@ def test_the_repeat_sends_directly_and_opens_nothing():
     assert "__lw_macro_last" in lua
 
 
+def test_both_chunks_are_lua_a_client_would_accept():
+    """Compile them offline — the merge of #1290 put a `(function() … end)()` in each.
+
+    A press that is not valid Lua fails the way this repository's worst failures fail:
+    `SafeDoString` swallows it, the marker line never lands, and the recipe reports the
+    ordinary «no march went out». Compiling them here costs nothing and needs no game.
+    """
+    try:
+        import lupa
+    except ImportError:                       # noqa: PERF203 — an absent lupa is not a fault
+        return
+    runtime = lupa.LuaRuntime()
+    for name in ("macro_send", "macro_repeat", "macro_result", "macro_repeat_result",
+                 "macro_repeat_ready", "macro_sent", "macro_repeat_sent"):
+        chunk = getattr(lua_actions, name)()
+        # An expression-shaped helper is compiled as one; a press is a block.
+        source = f"return {chunk}" if chunk.lstrip().startswith("(") else chunk
+        try:
+            runtime.compile(source)
+        except Exception as exc:              # noqa: BLE001 — the message is the point
+            raise AssertionError(f"{name} is not valid Lua: {exc}") from exc
+
+
+def test_the_immediately_invoked_block_cannot_be_read_as_a_call():
+    """The one shape Lua's grammar is genuinely ambiguous about, pinned in both chunks.
+
+    `(function() … end)()` after a statement whose last token is a NAME or a `)` parses
+    as a call OF that thing — valid Lua that compiles, and dies at runtime with «attempt
+    to call a number value», which the compile test above cannot see. Both chunks end the
+    statement before it in a numeric literal, and a literal is not something Lua will try
+    to call. Anybody rearranging those lines has to keep that true, or write a `;`.
+    """
+    assert "p.result = 0 (function()" in lua_actions.macro_send()
+    assert "m.result = 0 (function()" in lua_actions.macro_repeat()
+
+
 def test_the_repeat_parks_which_of_the_three_it_did():
     lua = lua_actions.macro_repeat()
     for verdict in ("m.result = 0", "m.result = -1", "m.result = 1"):
