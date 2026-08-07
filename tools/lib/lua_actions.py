@@ -3439,12 +3439,45 @@ def rally_join_all() -> str:
         "pcall(function() if mon.pointId ~= nil then inv_set['p'..tostring(mon.pointId)] = true end end) "
         "pcall(function() if mon.point ~= nil then inv_set['p'..tostring(mon.point)] = true end end) "
         "end end end end end) "
+        # WHAT EACH BANNER IS GOING FOR, off the wire. The push carries
+        # `targetContentId` — the monster's config id — and the client's own march record
+        # drops it (25 of the push's 33 fields survive into `GetAllMarches()`, not this
+        # one), so the panel hears it and parks it here as `team:contentId,…` (#1281).
+        # `lw_world_monster` turns it into a type and a level: 7 is the zombie line
+        # (Invading Zombies / Zombie Boss), 8 is the Doom line (Роковая Элита).
+        "local target_of_team = {} "
+        "pcall(function() for pair in string.gmatch(tostring("
+        "DataCenter.__lw_rally_targets or ''), '[^,]+') do "
+        "local team, cid = string.match(pair, '(%d+):(%d+)') "
+        "if team ~= nil then target_of_team[team] = tonumber(cid) end end end) "
+        "local LCI = nil pcall(function() LCI = LocalController.instance() end) "
+        "local function monster_of(cid) "
+        "if LCI == nil or cid == nil then return nil, nil end "
+        "local ty, lv = nil, nil "
+        "pcall(function() ty = LCI:getValue('lw_world_monster', cid, 'type', nil) end) "
+        "pcall(function() lv = LCI:getValue('lw_world_monster', cid, 'level', nil) end) "
+        "return ty, lv end "
+        # THE INVASION EVENT STILL ANSWERS FIRST: its own monster lists are the only thing
+        # that marks a banner as one the event does not ration, and that is a different
+        # question from what species is standing on the tile.
         "local function kind_of(r) "
-        "if not inv_ok then return 'monster', false end "
+        "local cid = target_of_team[tostring(r.team)] "
+        "local ty, lv = monster_of(cid) "
+        "r.level = lv r.mtype = ty "
+        "if inv_ok then "
         "local tu = r.target "
         "if tu ~= nil and inv_set[tostring(tu)] then return 'zombie_invasion', true end "
-        "if r.point ~= nil and inv_set['p'..tostring(r.point)] then return 'zombie_invasion', true end "
-        "return 'monster', true end "
+        "if r.point ~= nil and inv_set['p'..tostring(r.point)] then return 'zombie_invasion', true end end "
+        # …and then the species, which is the split the player reads off the screen.
+        "if ty ~= nil then "
+        "if tonumber(ty) == 8 then return 'doom_elite', true end "
+        "if tonumber(ty) == 7 then return 'monster', true end "
+        "return 'monster_type_'..tostring(ty), true end "
+        # NOT HEARD OF, and said so rather than assumed. A banner raised before the panel
+        # started listening has no push behind it, so its kind is genuinely unknown; it is
+        # counted as an ordinary monster because something must be counted, and the report
+        # says how many were counted that way.
+        "return 'monster', false end "
         "local seen_t, our_t, end_of, target_of = {}, {}, {}, {} "
         "if col then local e9 = col:GetEnumerator() while e9:MoveNext() do local m9 = cur(e9) "
         "local t9 = g(m9, 'teamUuid') local ts9 = tostring(t9) "
@@ -3500,7 +3533,7 @@ def rally_join_all() -> str:
         "pcall(function() local MM = DataCenter.MonsterManager "
         "kb = MM:GetKillBossNum() kbmax = MM:GetMaxKillBossNum() "
         "kbleft = MM:GetRestKillBossNum() end) "
-        "local sent, errs, went, left_over, kinds = 0, {}, {}, {}, {} "
+        "local sent, errs, went, left_over, kinds, went_kind = 0, {}, {}, {}, {}, {} "
         "local unknown_kind = 0 "
         "local pairs_n = #home if #rallies < pairs_n then pairs_n = #rallies end "
         "local qi = 0 "
@@ -3515,6 +3548,8 @@ def rally_join_all() -> str:
         "if ok then sent = sent + 1 keep[tostring(r.team)] = 0 "        # age 0: freshly sent
         "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
         "kinds[#kinds+1] = kind "
+        "went_kind[#went_kind+1] = tostring(r.team)..'='..kind"
+        "..((r.level ~= nil) and (' lv'..tostring(r.level)) or '') "
         'CS.UnityEngine.Debug.LogError("ACT rally_join_all send squad="..tostring(q.slot)'
         '.." team="..tostring(r.team).." point="..tostring(r.point).." server="..tostring(r.server)) '
         "else errs[#errs+1] = tostring(q.slot)..':'..tostring(err) "
@@ -3546,7 +3581,7 @@ def rally_join_all() -> str:
         ".monsterInvasionData.attackNum end) "
         "if inv_n ~= nil then report = report..' game_attackNum='..tostring(inv_n) end "
         "if #went > 0 then report = report..' to=['..table.concat(went, ' ')..']' end "
-        "if #kinds > 0 then report = report..' kinds=['..table.concat(kinds, ' ')..']' end "
+        "if #went_kind > 0 then report = report..' going_for=['..table.concat(went_kind, ' ')..']' end "
         "if kb ~= nil then report = report..' trophies='..tostring(kb)..'/'..tostring(kbmax) "
         "if kbleft ~= nil and tonumber(kbleft) ~= nil and tonumber(kbleft) <= 0 then "
         "report = report..' -- past the trophy threshold: the joins still go out, the game "

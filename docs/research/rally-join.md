@@ -859,3 +859,57 @@ monster's row: `WorldScene.PointManager:GetMonsterData(targetUuid)` answers nil 
 map around the target is not streamed in, which it is not when the bot never looks there.
 The map CAN be made to stream (docs/research — the map sweep sets a zoom and jumps), so
 this is a known road rather than an unknown one; it is simply not walked yet.
+
+## «На кого идёт стяг» — the chain, whole (#1281)
+
+```
+push.alliance.march.create/refresh          33 fields on the wire
+    └─ targetContentId  (== targetUid)      the monster's config id
+         └─ lw_world_monster / <id>         LocalController.instance():getValue(...)
+              ├─ type   7  → the zombie line      name 2901011 Invading Zombies
+              │            │                      name 2901012 Zombie Boss
+              │            8  → the Doom line     monster_boss_name_001 Doom Walker
+              │                                   («Роковая Элита»)
+              └─ level  5…150 in steps of 5
+                   └─ python tools/game_locale.py --key <name>   the game's own words
+```
+
+**IT IS NOT IN THE CLIENT'S MARCH RECORD, and that is the part worth writing down.**
+`WorldMarchDataManager:GetAllMarches()` keeps 25 of the push's 33 fields and
+`targetContentId` is not one of them. Read the record through the wrapper's metatable
+and it answers to exactly these:
+
+```
+uuid teamUuid ownerUid ownerName allianceName allianceAbbr type:userdata status:userdata
+targetPos targetUuid startPos homePos serverId targetServer srcServer
+startTime endTime createTime curHp power monsterId=0 monsterType=0
+fixedSoldierType worldId worldType
+```
+
+`monsterId` and `monsterType` are present and **always zero**. `pairs()` on the wrapper
+yields nothing and IL2CPP has no reflection metadata (`GetType():GetProperties()` comes
+back empty), so the field list can only be built by naming — which is why this took four
+wrong turns before the wire was tried.
+
+**So the wire is the only source, and the panel already has it.** `tools/rally_monitor.py`
+prints `content=<targetContentId>` on its rally line, the «Ралли» tab remembers
+`teamUuid -> contentId`, and the join is handed the map as `targets=«team:id,…»`. The
+chunk resolves each one and the run's report says what every squad went for:
+
+```
+going_for=[<team>=monster lv115 <team>=doom_elite lv120]
+```
+
+Two ways it can still not know, both said rather than assumed: a banner raised before the
+panel started listening has no push behind it (counted as `monster`, tallied under
+`unclassified=`), and a type nobody has seen lands under `monster_type_<n>` instead of
+being folded into an existing key.
+
+### Two dead ends already paid for
+
+* **the rally bubble** `UIWindowNames.UIAllianceRally` carries a `rallyType` — the marker
+  the player taps. Not needed once the wire is read, and never compared against
+  `lw_world_monster.type`; if anybody wants that comparison it needs a live banner.
+* **the target's tile** — `WS.PointManager:GetPointInfo(pointId)` (note: `WS`, found via
+  `FIND_WORLD_SCENE`; `WorldScene.PointManager` is nil) answers `false` for a rally's
+  target after a jump, and a jump costs 0.14–0.57 s. Not needed either.

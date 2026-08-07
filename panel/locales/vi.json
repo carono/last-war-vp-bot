@@ -443,6 +443,7 @@
   "rally_limit.frame": "Giới hạn tập kết mỗi ngày theo loại quái",
   "rally_limit.hint": "Mỗi ngày việc tự tham gia được vào bao nhiêu tập kết mỗi loại. 0 = không giới hạn. Bộ đếm đặt lại hằng ngày.",
   "rally_limit.type.alliance_drill": "Diễn Tập Liên Minh",
+  "rally_limit.type.doom_elite": "Dòng Diệt Vong (Kẻ Bước Diệt Vong)",
   "rally_limit.type.monster": "Quái vật",
   "rally_limit.type.zombie_invasion": "Zombie xâm lăng",
   "rally_tab.frame": "Mở tập kết vào một con quái trên bản đồ",

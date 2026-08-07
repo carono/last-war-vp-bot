@@ -443,6 +443,7 @@
   "rally_limit.frame": "Batas reli harian menurut jenis monster",
   "rally_limit.hint": "Berapa reli tiap jenis yang boleh diikuti sehari oleh pengikutan otomatis. 0 = tanpa batas. Penghitungnya disetel ulang tiap hari.",
   "rally_limit.type.alliance_drill": "Latihan Aliansi",
+  "rally_limit.type.doom_elite": "Garis Kiamat (Pejalan Kiamat)",
   "rally_limit.type.monster": "Monster",
   "rally_limit.type.zombie_invasion": "Serbuan zombi",
   "rally_tab.frame": "Buat reli pada monster di peta",

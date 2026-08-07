@@ -443,6 +443,7 @@
   "rally_limit.frame": "Limites diários de mobilizações por tipo de monstro",
   "rally_limit.hint": "Em quantas mobilizações de cada tipo a entrada automática pode entrar por dia. 0 = sem limite. O contador zera todo dia.",
   "rally_limit.type.alliance_drill": "Exercício da Aliança",
+  "rally_limit.type.doom_elite": "Linhagem do Flagelo (Andarilho do Flagelo)",
   "rally_limit.type.monster": "Monstros",
   "rally_limit.type.zombie_invasion": "Invasão de zumbis",
   "rally_tab.frame": "Lançar uma mobilização num monstro do mapa",

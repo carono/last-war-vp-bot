@@ -443,6 +443,7 @@
   "rally_limit.frame": "Limiti giornalieri di rally per tipo di mostro",
   "rally_limit.hint": "A quanti rally di ogni tipo può unirsi al giorno l'unione automatica. 0 = nessun limite. Il contatore si azzera ogni giorno.",
   "rally_limit.type.alliance_drill": "Esercitazione dell'Alleanza",
+  "rally_limit.type.doom_elite": "Linea del Fato (Camminatore del Fato)",
   "rally_limit.type.monster": "Mostri",
   "rally_limit.type.zombie_invasion": "Invasione di zombie",
   "rally_tab.frame": "Lanciare un rally su un mostro della mappa",

@@ -4817,7 +4817,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # kind BEFORE the send instead of the day noticing afterwards (#1281). A kind
         # configured uncapped is never in this list, which is what lets an invasion boss
         # through on a day the ordinary twenty are gone.
-        return {"squads": squads}
+        # …and what each banner we have HEARD of is going for, so the chunk can name
+        # the kind before a squad leaves (#1281). The wire is the only place it exists.
+        return {"squads": squads, "targets": rallytab.target_map(self._rt)}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

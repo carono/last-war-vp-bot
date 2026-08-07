@@ -268,8 +268,16 @@ class RallyMonitor(LiveDecoder):
         tag = (f"{C_RALLY}team={team_here}{C_RESET}" if team_here
                else f"{C_DIM}solo{C_RESET}")
         where = f"  {coords.fmt(target[0], target[1], target[2])}" if target else ""
+        # WHAT THE BANNER IS GOING FOR, and it is only here (#1281). The push carries
+        # `targetContentId` — the monster's config id, which resolves in the client's
+        # `lw_world_monster` to a type and a level — and the client's own march record
+        # does NOT: `GetAllMarches()` keeps 25 of the push's 33 fields and drops this
+        # one. So the wire is the only place a rally's kind can be read before a squad
+        # is sent, and this line is where the panel reads it.
+        content = payload.get("targetContentId") or payload.get("targetUid")
+        kind = f"  content={content}" if content else ""
         print(f"{_stamp()} {command}  {tag}  "
-              f"participants={len(marches)} [{who}]{where}", flush=True)
+              f"participants={len(marches)} [{who}]{where}{kind}", flush=True)
 
     def report(self):
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")

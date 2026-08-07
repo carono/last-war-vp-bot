@@ -233,6 +233,51 @@ def test_the_chunk_reports_the_games_count_and_says_what_the_threshold_costs():
     assert "__lw_rally_blocked" not in chunk
 
 
+
+def test_the_kinds_are_the_games_own_species():
+    """Type 7 and type 8 are different keys, and an unseen type names itself (#1281).
+
+    `lw_world_monster.type` is the split the player reads off the screen: 7 is the zombie
+    line, 8 is the Doom line («Роковая Элита»). Counting both as `monster` is what made
+    the budget one bucket, and the chunk classifies for real now.
+    """
+    import lua_actions
+
+    chunk = lua_actions.rally_join_all()
+    # the id comes off the WIRE — the client's march record does not carry it
+    assert "__lw_rally_targets" in chunk
+    assert "lw_world_monster" in chunk
+    # …and the two species land in two keys, with an unseen one naming itself
+    assert "'doom_elite'" in chunk, "type 8 has no key of its own"
+    assert "tonumber(ty) == 8" in chunk and "tonumber(ty) == 7" in chunk
+    assert "'monster_type_'" in chunk, "an unknown type must name itself, not become monster"
+    # a banner nobody heard the push for is counted, and SAID
+    assert "return 'monster', false end" in chunk
+    assert "unclassified=" in chunk
+    # …and the report says what each squad went for
+    assert "going_for=[" in chunk
+
+
+def test_doom_elite_is_a_key_of_its_own_with_its_own_budget():
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"])
+        limits = rl.load_limits(rt.profiles.rally_limits_json())
+        assert "doom_elite" in limits.types(), limits.types()
+        gate.record_joins(rt, ["doom_elite", "monster", "doom_elite"], 3)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("doom_elite") == 2, counts
+        assert counts.count_for("monster") == 1, counts
+
+
+def test_a_profile_written_before_the_doom_key_grows_it():
+    """The vocabulary grew; an old profile's file must not stay one bucket short."""
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 20}))
+        limits = rl.load_limits(rt.profiles.rally_limits_json())
+        assert limits.limit_for("monster") == 20
+        assert "doom_elite" in limits.types(), limits.types()
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

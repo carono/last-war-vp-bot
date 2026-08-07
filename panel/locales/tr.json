@@ -443,6 +443,7 @@
   "rally_limit.frame": "Canavar türüne göre günlük ralli sınırları",
   "rally_limit.hint": "Otomatik katılımın günde her türden kaç ralliye katılabileceği. 0 = sınırsız. Sayaç her gün sıfırlanır.",
   "rally_limit.type.alliance_drill": "İttifak Tatbikatı",
+  "rally_limit.type.doom_elite": "Kıyamet hattı (Kıyamet Yürüyücüsü)",
   "rally_limit.type.monster": "Canavarlar",
   "rally_limit.type.zombie_invasion": "Zombi istilası",
   "rally_tab.frame": "Harita canavarına ralli kur",

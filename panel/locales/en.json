@@ -443,6 +443,7 @@
   "rally_limit.frame": "Daily rally caps by monster type",
   "rally_limit.hint": "How many rallies of each type auto-join may join per day. 0 = no cap. The count resets daily.",
   "rally_limit.type.alliance_drill": "Alliance Exercise",
+  "rally_limit.type.doom_elite": "Doom line (Doom Walker)",
   "rally_limit.type.monster": "Monsters",
   "rally_limit.type.zombie_invasion": "Zombie invasion",
   "rally_tab.frame": "Raise a rally on a world monster",

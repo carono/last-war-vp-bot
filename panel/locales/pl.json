@@ -443,6 +443,7 @@
   "rally_limit.frame": "Dzienne limity rajdów wg rodzaju potwora",
   "rally_limit.hint": "Do ilu rajdów każdego rodzaju automatyczne dołączanie może dołączyć dziennie. 0 = bez limitu. Licznik zeruje się codziennie.",
   "rally_limit.type.alliance_drill": "Ćwiczenia Sojuszu",
+  "rally_limit.type.doom_elite": "Linia Zagłady (Kroczący Zagłady)",
   "rally_limit.type.monster": "Potwory",
   "rally_limit.type.zombie_invasion": "Inwazja zombie",
   "rally_tab.frame": "Wystaw rajd na potwora z mapy",

@@ -443,6 +443,7 @@
   "rally_limit.frame": "Topes diarios de reuniones por tipo de monstruo",
   "rally_limit.hint": "A cuántas reuniones de cada tipo puede unirse al día la unión automática. 0 = sin tope. El contador se reinicia a diario.",
   "rally_limit.type.alliance_drill": "Ejercicio de Alianza",
+  "rally_limit.type.doom_elite": "Línea del Fatídico (Caminante Fatídico)",
   "rally_limit.type.monster": "Monstruos",
   "rally_limit.type.zombie_invasion": "Invasión zombi",
   "rally_tab.frame": "Lanzar una reunión contra un monstruo del mapa",

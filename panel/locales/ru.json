@@ -443,6 +443,7 @@
   "rally_limit.frame": "Дневные лимиты стягиваний по типу монстра",
   "rally_limit.hint": "Сколько стягиваний каждого типа автосбор присоединяет за день. 0 = без лимита. Счётчик сбрасывается ежедневно.",
   "rally_limit.type.alliance_drill": "Учение Альянса",
+  "rally_limit.type.doom_elite": "Линия Разрушителя (Роковая Элита)",
   "rally_limit.type.monster": "Монстры",
   "rally_limit.type.zombie_invasion": "Зомби-вторжение",
   "rally_tab.frame": "Запуск стягивания на монстра карты",

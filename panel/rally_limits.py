@@ -28,12 +28,18 @@ import os
 from .profile import _write_json
 
 # The built-in vocabulary and its caps: what a profile with no limits file is seeded
-# from, and the last-resort fallback. Keys are monster-type categories a rally can be
-# classified into (panel/__main__.py `_rally_monster_type`); a cap of 0 means the type
-# is never held back. The starting numbers are the ones the task named — normal
+# from, and the last-resort fallback. A cap of 0 means the key is never held back.
+#
+# THE KEYS ARE THE GAME'S OWN SPECIES (#1281), not a guess: a rally's `targetContentId`
+# — carried by `push.alliance.march.*` and dropped from the client's march record —
+# resolves in `lw_world_monster` to a `type`, and the two that exist are 7 (Invading
+# Zombies / Zombie Boss) and 8 (Doom Walker, the «Роковая Элита» line). A type nobody
+# has seen before lands under `monster_type_<n>` and is folded in here on the next read
+# rather than being silently counted as something it is not. The starting numbers are the ones the task named — normal
 # monsters and the alliance drill are worth capping, the zombie invasion is not.
 DEFAULT_RALLY_LIMITS: dict[str, int] = {
-    "monster": 20,           # ordinary world monsters
+    "monster": 20,           # the zombie line — `lw_world_monster.type == 7`
+    "doom_elite": 20,        # the Doom line — type 8, «Роковая Элита»
     "zombie_invasion": 0,    # зомби-вторжение — no cap
     "alliance_drill": 20,    # учения альянса
 }

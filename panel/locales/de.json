@@ -443,6 +443,7 @@
   "rally_limit.frame": "Tagesgrenzen für Versammlungen je Monsterart",
   "rally_limit.hint": "Wie vielen Versammlungen jeder Art der Auto-Beitritt am Tag beitreten darf. 0 = keine Grenze. Der Zähler wird täglich zurückgesetzt.",
   "rally_limit.type.alliance_drill": "Allianz-Übung",
+  "rally_limit.type.doom_elite": "Verderben-Linie (Verderbenswandler)",
   "rally_limit.type.monster": "Monster",
   "rally_limit.type.zombie_invasion": "Zombie-Invasion",
   "rally_tab.frame": "Eine Versammlung gegen ein Weltmonster starten",

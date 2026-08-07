@@ -443,6 +443,7 @@
   "rally_limit.frame": "Limites quotidiennes de ralliements par type de monstre",
   "rally_limit.hint": "Combien de ralliements de chaque type l'adhésion auto peut rejoindre par jour. 0 = sans limite. Le compteur se remet à zéro chaque jour.",
   "rally_limit.type.alliance_drill": "Exercice d'Alliance",
+  "rally_limit.type.doom_elite": "Lignée du Fléau (Marcheur du Fléau)",
   "rally_limit.type.monster": "Monstres",
   "rally_limit.type.zombie_invasion": "Invasion de zombies",
   "rally_tab.frame": "Lancer un ralliement sur un monstre de la carte",

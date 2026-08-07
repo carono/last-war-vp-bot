@@ -145,6 +145,12 @@ class RallyTab(PanelTab):
         # teamUuids already alerted on this session. A rally emits create AND refresh
         # events, and an alert per event would ring four times for one стяг.
         self._seen: set = set()
+        # WHAT EACH BANNER IS GOING FOR: `teamUuid -> targetContentId`, off the capture's
+        # own line. The push carries it and the client's march record does not — 25 of the
+        # push's 33 fields survive into `GetAllMarches()` and this is not one of them
+        # (#1281) — so the wire is the only place a rally's KIND can be known before a
+        # squad is sent, and this is where the panel keeps what it heard.
+        self._targets: dict = {}
         # …and what the JOIN has tried, per teamUuid: `(attempts, last-attempt)`. Kept
         # apart from `_seen` because they answer different questions — one banner is one
         # bell, but one banner may well be worth a second attempt at joining (#1281).
@@ -882,6 +888,10 @@ class RallyTab(PanelTab):
         team = clean.split("team=")[1].split()[0].strip()
         if not team:
             return False
+        if "content=" in clean:
+            content = clean.split("content=")[1].split()[0].strip()
+            if content and content.isdigit():
+                self._targets[team] = content
         # THE BELL IS ONE PER BANNER; THE JOIN IS NOT (#1281). `_seen` used to gate both,
         # and it was marked HERE — before the join had been tried — so a join the game
         # was too busy to start, or one every squad was out for, was never tried again
@@ -1000,6 +1010,20 @@ class RallyTab(PanelTab):
 
     def _log(self, key: str, **fmt) -> None:
         self._after(lambda: self.say("rally", key, **fmt))
+
+
+def target_map(rt) -> str:
+    """`team:contentId,…` for the banners this profile has HEARD about (#1281).
+
+    The recipe parks it and the chunk resolves each id in `lw_world_monster` for the
+    target's type and level — which is what «на кого идёт стяг» means, and what the
+    budget's keys are filled from. Empty when the tab is not in this window: the join
+    then classifies what it can (the invasion event's own lists) and says «unclassified»
+    for the rest rather than calling it all `monster`.
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    known = dict(getattr(tab, "_targets", {}) or {}) if tab is not None else {}
+    return ",".join(f"{team}:{content}" for team, content in known.items())
 
 
 def join_squads(rt) -> list:

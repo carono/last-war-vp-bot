@@ -46,10 +46,11 @@
 # tools/lib/lua_actions.py; the reverse-engineering is docs/research/rally-join.md.
 
 ARGS squads = [1, 2, 3, 4]
+ARGS targets = ""
 
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
-LUA DataCenter.__lw_rally_squads = { {squads} }
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}"
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.
