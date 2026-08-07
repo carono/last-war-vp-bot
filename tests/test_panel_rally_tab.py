@@ -417,6 +417,47 @@ def test_the_alert_fires_once_per_banner():
         root.destroy()
 
 
+def test_the_capture_driven_join_asks_the_same_question_before_it_starts():
+    """The tab is the SECOND driver, and it must not start a pointless run either (#1281).
+
+    The schedule's «rally_auto_join» trigger is not the only thing that plays the join:
+    the capture's reader raises one for every banner it hears, on a thread of its own,
+    and that path never passes the schedule's gate. Measured live on the Marshal event —
+    41 pushes, 34 runs, four of the six that joined something came through here.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.rally import limits as rallylimits
+
+        tab._bell = lambda: None
+        tab._alert_var.set(False)
+        tab._autojoin_var.set(True)
+        started = []
+        tab.join_now = lambda: started.append(1)
+        tab._after = lambda fn: fn()
+
+        answers = {"reason": "rally.skip.squads_out"}
+        rallylimits.join_precondition = lambda _rt, _squads=None: answers["reason"]
+        tab._on_line("[rally] push.alliance.march.create  team=4242  participants=1 [x]")
+        assert started == [], "a run was raised with every squad out"
+
+        # …and when somebody is home the banner is joined exactly as before.
+        answers["reason"] = None
+        tab._on_line("[rally] push.alliance.march.create  team=4343  participants=1 [x]")
+        assert started == [1], started
+    finally:
+        root.destroy()
+
+
 def test_the_tab_remembers_how_big_each_banner_is_and_hands_it_to_the_join():
     """`slots=2/5` off the capture line becomes the join's `slots` argument (#1281).
 

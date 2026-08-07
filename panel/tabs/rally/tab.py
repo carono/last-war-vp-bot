@@ -917,8 +917,33 @@ class RallyTab(PanelTab):
             self.say("rally", "rally.alert.fired", team=team)
             self._bell()
         if self._autojoin_var.get() and self._may_join_again(team):
+            if self._nobody_to_send():
+                return False
             self._after(self.join_now)
         return False                      # already logged above
+
+    def _nobody_to_send(self) -> bool:
+        """Is every squad the auto-join may spend out? Then it does not START (#1281).
+
+        THIS TAB IS THE SECOND DRIVER, and the first version of the check missed it: the
+        schedule's «rally_auto_join» trigger is not the only thing that plays the join —
+        the capture's own reader raises one for every banner it hears, on a thread of its
+        own, and that path never passes the schedule's gate. Measured live on the Marshal
+        event: 41 pushes, 34 runs, and four of the six that joined something came through
+        HERE rather than through the trigger.
+
+        The reading is the same one and costs the same 0.06–0.10 s, it is taken fresh at
+        the moment of the decision, and the reason lands in the schedule's roll-up so
+        both drivers share one counter instead of each keeping its own.
+        """
+        reason = rallylimits.join_precondition(self.rt, self.join_squads())
+        if not reason:
+            return False
+        try:
+            self.rt.schedule.timers.note_skip("rally_auto_join", reason)
+        except Exception:                 # noqa: BLE001 — a tab on its own has no schedule
+            self.say("rally", reason)
+        return True
 
     #: How long after an attempt at one banner the next may be made, and how many
     #: attempts a banner is worth. A rally re-announces itself every few seconds; joining
