@@ -4807,7 +4807,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         squads = rallytab.join_squads(self._rt)
         if not squads:
             self._say("trigger", "triggers.log.no_squads")
-        return {"squads": squads}
+        # …and which budgets are already spent, so the chunk can skip a banner of that
+        # kind BEFORE the send instead of the day noticing afterwards (#1281). A kind
+        # configured uncapped is never in this list, which is what lets an invasion boss
+        # through on a day the ordinary twenty are gone.
+        return {"squads": squads,
+                "blocked": ",".join(rallygate.blocked_types(self._rt))}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

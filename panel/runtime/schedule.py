@@ -325,7 +325,7 @@ class Schedule:
                     raise RuntimeError(
                         reason or self.rt.t("timers.log.step_failed", step=step))
             if spent and record is not None:
-                record(spent, self._did(ctx))
+                record(self._kinds(ctx) or spent, self._did(ctx))
             return True
         finally:
             self._note_presses(ctx)
@@ -345,6 +345,19 @@ class Schedule:
             return max(0, int(float(getattr(ctx, "vars", {}).get("joined", 0) or 0)))
         except (TypeError, ValueError):
             return 0
+
+    @staticmethod
+    def _kinds(ctx) -> list:
+        """What KIND each thing the run spent was, in the order it spent them.
+
+        The rally auto-join is the one user: the chunk classifies every banner it sends
+        to and hands the list back as `kinds` (`zombie_invasion`, `monster`, …). Empty
+        when the run did not report any, and then the caller falls back to whatever the
+        gate allowed — which is what every run did before there was a classifier, and
+        what made an uncapped kind spend a capped one's budget (#1281).
+        """
+        raw = getattr(ctx, "vars", {}).get("kinds", "")
+        return [part for part in str(raw or "").split(",") if part.strip()]
 
     def _note_presses(self, ctx) -> None:
         """Tell the recovery whether this errand pressed anything at all.

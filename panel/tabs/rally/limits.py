@@ -76,46 +76,58 @@ def read(rt):
 def join_gate(rt):
     """The rally types still under their daily cap — answered from the FILE, not the game.
 
-    ``[]`` when every type is at its cap (the caller skips the join); otherwise the
-    eligible types, which are counted after a clean join.
+    ``[]`` when EVERY type is at its cap (the caller skips the join entirely); otherwise
+    the keys still allowed, which is what the recipe is handed so it can skip the banners
+    whose kind is spent and send to the rest.
 
     **IT USED TO COST A GAME CALL, AND IT STOOD IN FRONT OF THE JOIN** (#1281). The gate
-    ran :func:`types_out` — a read of the whole march table, `settle=0.8` — before the
-    recipe was allowed to start, and a call into the VM was measured at 1.3 s at best and
-    10–19 s under the panel's ordinary load. A budget check that delays the thing it is
-    budgeting by ten seconds costs more rallies than the budget saves.
+    read the whole march table before the recipe was allowed to start, at 1.3–19 s a
+    call, to be told a constant. It answers from the counts file now.
 
-    It also bought nothing, and that is the part worth writing down: the push carries no
-    type and no reliable zombie/drill signal is confirmed live, so `types_out` classified
-    every rally as the SAME fallback type. Reading the game to be told the constant this
-    module already knows is a call spent on arithmetic (#1230). So the question is asked
-    of the counts file: is the fallback type still under its cap. The day a real
-    classification exists, this is where it goes back — but it goes back BEHIND the join,
-    counted against what was actually sent, not in front of it.
+    **AND IT USED TO ASK ABOUT ONE KEY ONLY.** `zombie_invasion` is configured uncapped
+    because the event does not ration those rallies — and the gate asked whether
+    `monster` was spent, so once the ordinary twenty were gone the auto-join refused
+    invasion bosses too. Every key is asked now, and a kind with no cap keeps the door
+    open for itself alone.
     """
     limits, counts = read(rt)
-    if not counts.allowed(rallylimitsmod.UNKNOWN_TYPE, limits):
+    allowed = [key for key in limits.types() if counts.allowed(key, limits)]
+    if not allowed:
         rt.say("trigger", "triggers.log.rally_capped")
-        return []
-    return [rallylimitsmod.UNKNOWN_TYPE]
+    return allowed
 
 
-def record_joins(rt, types, did: int = 1) -> None:
-    """Count what the run actually JOINED, persisted for today.
+def blocked_types(rt) -> list:
+    """The keys that ARE at their cap — what the recipe parks so the chunk can skip them.
 
-    ``did`` is the run's own `joined` — squads standing in a rally that were not before
-    it. Nothing is written for a run that joined nothing, which is most of them: a rally
-    announces itself on the wire every few seconds and the trigger fires on each. Until
-    #1281 the gate answered by reading the game, so it only ever said «yes» when a rally
-    was out; now that it answers from this file, counting the RUN instead of the JOIN
-    would spend a day's budget on a quiet map in an afternoon.
+    The mirror of :func:`join_gate`, and it is the half that stops a squad: the gate only
+    says whether the run may start at all, and a run allowed because invasion bosses are
+    uncapped must still not spend an ordinary monster's twenty-first.
     """
-    if did <= 0 or not types:
+    limits, counts = read(rt)
+    return [key for key in limits.types() if not counts.allowed(key, limits)]
+
+
+def record_joins(rt, kinds, did: int = 1) -> None:
+    """Count what the run actually joined, EACH UNDER ITS OWN KEY, persisted for today.
+
+    ``kinds`` is the run's own list — one entry per squad the chunk sent, in the order it
+    sent them (`DataCenter.__lw_rally_kinds`). It used to be the gate's answer and every
+    join was written under `types[0]`, so an invasion boss — which the event does not
+    ration and which this file is configured never to cap — spent the ordinary monsters'
+    budget. A key whose cap is 0 is unlimited and recording under it costs nothing, which
+    is exactly what «uncapped» has to mean.
+
+    ``did`` is how many joins the game confirmed. Fewer than the sends means some did not
+    land, and the ones that did are counted from the front of the list rather than all of
+    them: a send that achieved nothing must not spend a day's budget (#1281).
+    """
+    kinds = [str(k).strip() for k in (kinds or []) if str(k).strip()]
+    if did <= 0 or not kinds:
         return
     path = rt.profiles.rally_counts_json()
     counts = rallylimitsmod.load_counts(path)
-    key = types[0]
-    for _ in range(did):
+    for key in kinds[:did]:
         counts = counts.record(key)
     rallylimitsmod.save_counts(counts, path)
 

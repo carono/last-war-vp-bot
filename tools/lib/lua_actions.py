@@ -3409,13 +3409,50 @@ def rally_join_all() -> str:
         # alliances', and the ones we are already standing in. Without the split, «two
         # were missed» cannot be said or denied, which is exactly what the summary had to
         # admit. One more pass over the collection already in hand, so it costs nothing.
-        "local seen_t, our_t, end_of = {}, {}, {} "
+        # WHAT KIND OF RALLY EACH ONE IS, and it is a real question rather than a
+        # placeholder (#1281). The budget has had three keys since it was written —
+        # `monster`, `zombie_invasion` (uncapped on purpose), `alliance_drill` — and no
+        # classifier at all: the reading that was supposed to tell them apart assigned
+        # the SAME key to every rally, so an invasion boss, which the event does not
+        # ration, spent the ordinary monsters' twenty a day.
+        #
+        # The march itself cannot answer: every leader on the map reads `monsterId=0`,
+        # `monsterType=0`, `type=ASSEMBLY_MARCH`. What CAN is the event's own list of
+        # monsters (`ActivityMonsterInvasionDataManager.monsterInvasionData`, fields
+        # `selfMonsters` / `aliMonsters`), so a rally whose target is in it is an
+        # invasion boss and everything else is an ordinary monster.
+        #
+        # Indexed by uuid AND by tile, because the element shape could not be read from a
+        # live event — the lists are empty between waves — and a key that is not there
+        # simply never matches. `inv_ok` says whether the lists could be read at all,
+        # which is the difference between «this is not an invasion boss» and «nobody
+        # could tell», and the report says which.
+        "local inv_set, inv_ok = {}, false "
+        "pcall(function() local im = DataCenter.ActivityMonsterInvasionDataManager "
+        "local d = im and im.monsterInvasionData "
+        "if d ~= nil then inv_ok = true "
+        "for _, nm in ipairs({'selfMonsters', 'aliMonsters'}) do "
+        "local lst = nil pcall(function() lst = d[nm] end) "
+        "if type(lst) == 'table' then for kk, mon in pairs(lst) do "
+        "inv_set[tostring(kk)] = true "
+        "pcall(function() if mon.uuid ~= nil then inv_set[tostring(mon.uuid)] = true end end) "
+        "pcall(function() if mon.pointId ~= nil then inv_set['p'..tostring(mon.pointId)] = true end end) "
+        "pcall(function() if mon.point ~= nil then inv_set['p'..tostring(mon.point)] = true end end) "
+        "end end end end end) "
+        "local function kind_of(r) "
+        "if not inv_ok then return 'monster', false end "
+        "local tu = r.target "
+        "if tu ~= nil and inv_set[tostring(tu)] then return 'zombie_invasion', true end "
+        "if r.point ~= nil and inv_set['p'..tostring(r.point)] then return 'zombie_invasion', true end "
+        "return 'monster', true end "
+        "local seen_t, our_t, end_of, target_of = {}, {}, {}, {} "
         "if col then local e9 = col:GetEnumerator() while e9:MoveNext() do local m9 = cur(e9) "
         "local t9 = g(m9, 'teamUuid') local ts9 = tostring(t9) "
         "if t9 ~= nil and ts9 ~= '0' and ts9 ~= 'nil' then seen_t[ts9] = true "
         "local u9 = g(m9, 'uuid') local lead9 = false "
         "pcall(function() lead9 = (tostring(u9) == tostring(t9 - 1)) end) "
-        "if lead9 then end_of[ts9] = tonumber(g(m9, 'endTime')) or 0 end "
+        "if lead9 then end_of[ts9] = tonumber(g(m9, 'endTime')) or 0 "
+        "target_of[ts9] = g(m9, 'targetUuid') end "
         "local n9 = tostring(g(m9, 'allianceName')) "
         "if mine ~= nil and n9 == mine then our_t[ts9] = true end end end end "
         # A RALLY THAT HAS ALREADY ARRIVED IS NOT A RALLY TO JOIN (#1281). The client
@@ -3453,22 +3490,36 @@ def rally_join_all() -> str:
         # Pair and send. One squad per rally, both in the order they arrived. EVERY BANNER
         # IS NAMED — the one it went to, and the one it did not and why — so «not a banner
         # missed» can be checked one at a time instead of as a total (#1281).
-        "local sent, errs, went, left_over = 0, {}, {}, {} "
+        # WHICH BUDGETS ARE SPENT, parked by the recipe the way the squads are. A rally
+        # whose kind is at its cap is skipped BEFORE the send and named `capped`, so the
+        # budget stops a squad rather than being noticed after one has gone.
+        "local blocked = {} "
+        "pcall(function() for k in string.gmatch(tostring("
+        "DataCenter.__lw_rally_blocked or ''), '[^,]+') do "
+        "blocked[k] = true end end) "
+        "local sent, errs, went, left_over, kinds = 0, {}, {}, {}, {} "
+        "local unknown_kind = 0 "
         "local pairs_n = #home if #rallies < pairs_n then pairs_n = #rallies end "
-        "for i = 1, pairs_n do local r, q = rallies[i], home[i] "
+        "local qi = 0 "
+        "for i = 1, #rallies do local r = rallies[i] "
+        "r.target = target_of[tostring(r.team)] "
+        "local kind, known = kind_of(r) "
+        "if not known then unknown_kind = unknown_kind + 1 end "
+        "if blocked[kind] then left_over[#left_over+1] = tostring(r.team)..':capped-'..kind "
+        "elseif qi >= #home then left_over[#left_over+1] = tostring(r.team)..(#home == 0 and ':no-squad' or ':squads-spent') "
+        "else qi = qi + 1 local q = home[qi] "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
         "if ok then sent = sent + 1 keep[tostring(r.team)] = 0 "        # age 0: freshly sent
         "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
+        "kinds[#kinds+1] = kind "
         'CS.UnityEngine.Debug.LogError("ACT rally_join_all send squad="..tostring(q.slot)'
         '.." team="..tostring(r.team).." point="..tostring(r.point).." server="..tostring(r.server)) '
         "else errs[#errs+1] = tostring(q.slot)..':'..tostring(err) "
-        "left_over[#left_over+1] = tostring(r.team)..':refused' end end "
-        # …and the banners this run could see and did not reach, each with its reason.
-        "for i = pairs_n + 1, #rallies do "
-        "left_over[#left_over+1] = tostring(rallies[i].team)..(#home == 0 and ':no-squad' or ':squads-spent') end "
+        "left_over[#left_over+1] = tostring(r.team)..':refused' end end end "
         "DataCenter.__lw_rally_joined = keep "
         "DataCenter.__lw_rally_sent = sent "
+        "DataCenter.__lw_rally_kinds = table.concat(kinds, ',') "
         # WHAT THE RECIPE DOES NEXT, decided here so it costs no reading of its own.
         # `sent` when anything went; `-1` when nothing did and the only thing in the way
         # was an EMPTY squad with a rally standing there for it — the one case the
@@ -3484,7 +3535,18 @@ def rally_join_all() -> str:
         # are this alliance's and how many we are already standing in. `joinable` is the
         # denominator «not one missed» is measured against; the rest are not chances.
         "report = report..' seen='..seen_n..' ours='..our_n..' already_in='..in_n "
+        # THE EVENT'S OWN NUMBER, beside ours. The invasion rations attacks itself
+        # (`attackNum`), and our per-day cap is a different thing with a different unit —
+        # so both are shown and neither is substituted for the other, and a person
+        # reading «nothing was sent» can see whose ceiling it was (#1281).
+        "local inv_n = nil "
+        "pcall(function() inv_n = DataCenter.ActivityMonsterInvasionDataManager"
+        ".monsterInvasionData.attackNum end) "
+        "if inv_n ~= nil then report = report..' game_attackNum='..tostring(inv_n) end "
         "if #went > 0 then report = report..' to=['..table.concat(went, ' ')..']' end "
+        "if #kinds > 0 then report = report..' kinds=['..table.concat(kinds, ' ')..']' end "
+        "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind"
+        "..' (the event list could not be read — counted as monster, said rather than assumed)' end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "
         "if #left_over > 0 then report = report..' passed=['..table.concat(left_over, ' ')..']' end "
         "if #skipped > 0 then report = report..' left=['..table.concat(skipped, ' ')..']' end "

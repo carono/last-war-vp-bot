@@ -21,8 +21,9 @@ import tempfile
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+for _p in (_REPO_ROOT, _REPO_ROOT / "tools" / "lib"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from panel import rally_limits as rl  # noqa: E402
 from panel.tabs.rally import limits as gate  # noqa: E402
@@ -173,7 +174,7 @@ def test_the_gate_never_touches_the_game():
     """
     with tempfile.TemporaryDirectory() as td:
         rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 5}))
-        assert gate.join_gate(rt) == [rl.UNKNOWN_TYPE]
+        assert rl.UNKNOWN_TYPE in gate.join_gate(rt), gate.join_gate(rt)
         assert rt.game.reads == 0, "the gate read the game"
 
 
@@ -181,7 +182,7 @@ def test_the_gate_lets_a_join_through_with_no_daemon_at_all():
     """A budget is not a lock: nothing about the client decides whether it answers."""
     with tempfile.TemporaryDirectory() as td:
         rt = _Rt(Path(td), None)                                  # no daemon
-        assert gate.join_gate(rt) == [rl.UNKNOWN_TYPE]
+        assert rl.UNKNOWN_TYPE in gate.join_gate(rt), gate.join_gate(rt)
         assert rt.said == []
 
 
@@ -189,7 +190,7 @@ def test_the_gate_returns_the_type_still_under_its_cap():
     with tempfile.TemporaryDirectory() as td:
         rt = _Rt(Path(td), ["monster", "monster"],
                  limits=rl.RallyLimits({"monster": 5}))
-        assert gate.join_gate(rt) == [rl.UNKNOWN_TYPE]
+        assert rl.UNKNOWN_TYPE in gate.join_gate(rt), gate.join_gate(rt)
         assert rt.said == []
 
 
@@ -206,22 +207,107 @@ def test_a_run_that_joined_nothing_spends_none_of_the_day():
         gate.record_joins(rt, [rl.UNKNOWN_TYPE], 0)
         counts = rl.load_counts(rt.profiles.rally_counts_json())
         assert counts.count_for(rl.UNKNOWN_TYPE) == 0, counts
-        # …and a run that joined TWO rallies in one press costs two.
-        gate.record_joins(rt, [rl.UNKNOWN_TYPE], 2)
+        # …and a run that joined TWO rallies in one press costs two — one entry per
+        # squad it sent, which is the shape the chunk hands back.
+        gate.record_joins(rt, [rl.UNKNOWN_TYPE, rl.UNKNOWN_TYPE], 2)
         counts = rl.load_counts(rt.profiles.rally_counts_json())
         assert counts.count_for(rl.UNKNOWN_TYPE) == 2, counts
 
 
 def test_the_gate_refuses_the_whole_join_once_every_type_is_capped():
     with tempfile.TemporaryDirectory() as td:
-        rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 1}))
-        gate.record_joins(rt, ["monster"], 1)                    # today's one is spent
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"monster": 1, "zombie_invasion": 1,
+                                        "alliance_drill": 1}))
+        gate.record_joins(rt, ["monster", "zombie_invasion", "alliance_drill"], 3)
         assert gate.join_gate(rt) == []
         assert rt.said == ["triggers.log.rally_capped"], rt.said
         # …and the count landed in the profile's own file, not merely in memory.
         counts = rl.load_counts(rt.profiles.rally_counts_json())
         assert counts.count_for("monster") == 1
 
+
+
+# ---------------------------------------------------------------------------
+# the kinds: an uncapped one must not spend a capped one's day (#1281)
+# ---------------------------------------------------------------------------
+
+def test_an_uncapped_kind_keeps_the_door_open_for_itself_alone():
+    """`zombie_invasion` is configured uncapped because the event does not ration it.
+
+    The gate used to ask about ONE key, so the day the ordinary twenty were gone the
+    auto-join refused invasion bosses too — and, worse, counted them under `monster`
+    while it still let them through, which is what spent the twenty in the first place.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"monster": 1, "zombie_invasion": 0}))
+        gate.record_joins(rt, ["monster"], 1)             # the day's one is spent
+        allowed = gate.join_gate(rt)
+        assert "monster" not in allowed, allowed
+        assert "zombie_invasion" in allowed, allowed
+        assert rt.said == [], "a run that may still join something must not say capped"
+        # …and the recipe is told which keys to skip, which is the half that stops a squad.
+        assert gate.blocked_types(rt) == ["monster"], gate.blocked_types(rt)
+
+
+def test_every_kind_at_its_cap_is_the_only_thing_that_stops_the_run():
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"monster": 1, "zombie_invasion": 1,
+                                        "alliance_drill": 1}))
+        gate.record_joins(rt, ["monster", "zombie_invasion", "alliance_drill"], 3)
+        assert gate.join_gate(rt) == []
+        assert rt.said == ["triggers.log.rally_capped"], rt.said
+
+
+def test_each_join_is_counted_under_the_kind_it_actually_was():
+    """The run hands back one kind per squad it sent, in order — not «one join».
+
+    Counting them all under the gate's first key is what made an invasion boss spend an
+    ordinary monster's budget, with the config saying in as many words that it should
+    not be capped at all.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"monster": 20, "zombie_invasion": 0}))
+        gate.record_joins(rt, ["zombie_invasion", "monster", "zombie_invasion"], 3)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 1, counts
+        assert counts.count_for("zombie_invasion") == 2, counts
+        # An uncapped key is still under its (absent) cap however many are recorded.
+        limits = rl.RallyLimits({"monster": 20, "zombie_invasion": 0})
+        assert counts.allowed("zombie_invasion", limits) is True
+
+
+def test_only_the_joins_the_game_confirmed_are_counted():
+    """Three sends and one confirmed join costs one, from the front of the list."""
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 20}))
+        gate.record_joins(rt, ["monster", "monster", "monster"], 1)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 1, counts
+
+
+def test_the_chunk_classifies_by_the_events_own_list_and_says_when_it_cannot():
+    """The three endings the classifier has, pinned as text — the Lua needs a game.
+
+    `monsterId` and `monsterType` read 0 on every leader march on the map, so the rally
+    itself cannot say what it is; the event's own monster lists can, and «nobody could
+    tell» has to be a sentence rather than a silent fallback to `monster`.
+    """
+    import lua_actions
+
+    chunk = lua_actions.rally_join_all()
+    assert "ActivityMonsterInvasionDataManager" in chunk
+    assert "selfMonsters" in chunk and "aliMonsters" in chunk
+    assert "'zombie_invasion'" in chunk, "the invasion kind is never returned"
+    assert "inv_ok" in chunk, "nothing tells «not an invasion boss» from «could not read»"
+    assert "unclassified=" in chunk, "an unreadable event list must be said, not assumed"
+    # …and a banner whose kind is spent is skipped BEFORE the send, named.
+    assert "capped-" in chunk
+    # …and the event's own allowance is shown beside ours rather than replacing it.
+    assert "game_attackNum=" in chunk
 
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())

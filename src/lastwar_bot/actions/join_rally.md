@@ -47,10 +47,19 @@
 
 ARGS squads = [1, 2, 3, 4]
 
-# The squads this run may spend, parked where the press can read them — `TAP` carries no
-# arguments of its own. One call, and it is the only thing that stands between the push
-# and the send.
-LUA DataCenter.__lw_rally_squads = { {squads} }
+ARGS blocked = ""
+
+# The squads this run may spend and the budgets already spent, parked where the press
+# can read them — `TAP` carries no arguments of its own. One call, and it is the only
+# thing that stands between the push and the send.
+#
+# `blocked` is the keys at their daily cap, comma-separated — a STRING and not a list,
+# because a list renders as bare words and a bare word is a nil global in Lua
+# (panel/tabs/rally/limits.py). A banner of a
+# blocked kind is skipped before the send and named `capped-<kind>`; a kind configured
+# uncapped is never in the list, which is what lets an invasion boss through on a day
+# the ordinary twenty are gone (#1281).
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_blocked = "{blocked}"
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.
@@ -66,6 +75,11 @@ LOG "the line above is what the press did, banner by banner"
 # «there is a rally standing there and the only squads left are empty», which is the one
 # case `fill_empty_squads.md` earns its keep in.
 READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
+
+# WHAT EACH SQUAD WENT TO, in the order it went — the budget is told this rather than
+# «one join happened», so an invasion boss is counted under `zombie_invasion` and never
+# against the ordinary monsters' twenty (`Schedule._kinds`, #1281).
+READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
 
 IF todo == 0
     LOG "nothing was sent — the reason is on the line above"
