@@ -222,23 +222,39 @@ def test_with_no_marker_there_is_nothing_to_be_early_about():
 # -- and it travels to the daemon ----------------------------------------------
 
 
+class _Answered:
+    """What `send` hands back: the daemon collects with `pending.harvest()` (#1287)."""
+
+    def __init__(self, lines) -> None:
+        self.lines = lines
+
+    def harvest(self) -> list:
+        return self.lines
+
+
 class _Recorder:
     """Stands in for the warm LuaEval: remembers how it was asked to wait."""
 
     def __init__(self) -> None:
         self.calls = []
 
-    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None):
-        # `sentinel` arrived with #1272 and this stand-in did not hear about it. What
-        # that cost is worth a line: `Daemon.run` passes it on, the call raised
-        # TypeError, the daemon's own «stale handle?» recovery dropped the stub and
-        # built a REAL evaluator — so an offline test went looking for a game, failed to
-        # snapshot a client that is not there, and took the whole file down with it
-        # (#1282). A stand-in that is behind its subject does not fail as a stand-in; it
-        # fails as whatever it fell back to.
+    def send(self, chunk, marker=None, settle=1.2, early=False, sentinel=None,
+             private=False):
+        # `sentinel` arrived with #1272 and this stand-in did not hear about it; `send`
+        # itself arrived with #1287, and it did not hear about that either. What it
+        # costs is worth a line: `Daemon.run` calls what it expects, the call raises
+        # TypeError or AttributeError, the daemon's own «stale handle?» recovery drops
+        # the stub and builds a REAL evaluator — so an offline test goes looking for a
+        # game, fails to snapshot a client that is not there, and takes the whole file
+        # down with it (#1282, and again in #1287). A stand-in that is behind its
+        # subject does not fail as a stand-in; it fails as whatever it fell back to.
         self.calls.append({"chunk": chunk, "marker": marker, "settle": settle,
-                           "early": early, "sentinel": sentinel})
-        return [f"{marker or 'X'} ok"]
+                           "early": early, "sentinel": sentinel, "private": private})
+        return _Answered([f"{marker or 'X'} ok"])
+
+    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None,
+            private=False):
+        return self.send(chunk, marker, settle, early, sentinel, private).harvest()
 
     def close(self) -> None:
         pass
