@@ -47,11 +47,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 FIRE = "fire rally_auto_join on"
 RUN = "rally_auto_join: > action: join_rally"
 #: THE INDENT IS NOT PART OF THE LINE (#1281). The interpreter indents a step by how
-#: deeply it is nested, so the same reading is «\u00a0\u00a0\u00a0READ_LUA joined» at the top
-#: level and «\u00a0\u00a0\u00a0\u00a0\u00a0READ_LUA joined» inside an `IF` — and a needle carrying three
-#: spaces silently stopped seeing it the day the recipe grew a branch. Four confirmed
-#: joins went uncounted that way before the numbers were checked against the log by
-#: hand. Matched on the two ends instead, with the indent between them ignored.
+#: deeply it is nested, so the same reading is «   READ_LUA joined» at the top level and
+#: «     READ_LUA joined» inside an `IF` — and a needle carrying three spaces silently
+#: stopped seeing it the day the recipe grew a branch. Matched on the two ends instead,
+#: with whatever the interpreter put between them ignored.
 SEND = ("rally_auto_join:", "TAP join every rally")
 REPORT = ("rally_auto_join:", "READ_LUA report = ")
 JOINED = ("rally_auto_join:", "READ_LUA joined = ")
