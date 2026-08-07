@@ -459,6 +459,23 @@ flag, check it still exists before acting on it.
   quietly.
 - **One coherent change per commit**. Script-only commits stay tiny;
   Python commits explain *why* the DSL was insufficient.
+
+- **Say which task a commit came from, in a trailer.** All 200 of the
+  commits before #1282 carry one author — the project's shared identity —
+  and 188 of them a `Co-Authored-By` naming the MODEL rather than the
+  worker. Several agents share one working tree and one index, so
+  «somebody else's edit landed in my commit» is a thing that happens;
+  with one author on everything it can only be remembered, never
+  detected. So every commit ends with:
+
+  ```
+  Worker: #<task>
+  Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+  ```
+
+  It costs a line and makes the next audit of this possible. The task
+  number in the subject stays as it is — the trailer is what a
+  `git log --format='%(trailers:key=Worker)'` can group by.
 - **Never put a username into a path** — use `%LOCALAPPDATA%`,
   `%USERPROFILE%`, etc. `LAUNCH` paths expand them automatically.
 - **Never put an INSTALL into a path either.** Where the game is, is
