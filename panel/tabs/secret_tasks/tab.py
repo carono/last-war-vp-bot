@@ -310,6 +310,10 @@ class SecretTasksTab(PanelTab):
         # this one only DRAWS, four times a second, and it is armed while there is a
         # clock running anywhere on the tab.
         self._living = False
+        # …and whether a lap of the map is walking right now (#1272): the one button says
+        # «Обойти карту» or «Остановить» by it, and a second press is the stop.
+        self._sweeping = False
+        self._sweep_btn = None
         # Cached (server, allianceId) for the chat room ids — read once, live.
         self._ids = None
         # The player's OWN server, cached the same way: what the home-server
@@ -395,7 +399,9 @@ class SecretTasksTab(PanelTab):
         # Imported here and not at the top for the reason `web_view` gives: tools/lib
         # is only on the path once `panel.runtime.paths` has run.
         import lua_actions
-        self._zoom_level = lua_actions.DEFAULT_ZOOM_LEVEL
+        # The LAP's height (#1272) — «тайл» is not one of them any more, and the default
+        # is the one that actually collects secret tasks. A jump takes no height at all.
+        self._zoom_level = lua_actions.SWEEP_LEVELS[0]
         self._zoom_label_var = tk_stringvar(master)
         self._zoom_combo = None
 
@@ -583,7 +589,7 @@ class SecretTasksTab(PanelTab):
             return
         try:
             for index, key in enumerate(self._page_keys):
-                book.tab(index, text=self.t(key))
+                book.tab(index, text=self._page_label(index, key))
         except tk.TclError:
             return
 
@@ -801,8 +807,9 @@ class SecretTasksTab(PanelTab):
                                         values=self._zoom_choices())
         self._zoom_combo.pack(side="left")
         self._zoom_combo.bind("<<ComboboxSelected>>", self._on_zoom_choice)
-        self.tr(ttk.Button(box, command=self._sweep_once),
-                "coord.sweep_now").pack(side="left", padx=(8, 0), ipady=2)
+        self._sweep_btn = self.tr(ttk.Button(box, command=self._sweep_once),
+                                  "coord.sweep_now")
+        self._sweep_btn.pack(side="left", padx=(8, 0), ipady=2)
         # «Обновить состояние» — the FIRST stage of keeping the ★ list true (#1272), and
         # a hand on it before any of it is automatic. It re-asks the game about the rows
         # that are ALREADY on the list — how many times each has been robbed, whether the
@@ -947,6 +954,8 @@ class SecretTasksTab(PanelTab):
         """Add one page to the notebook and remember the key its label is said from."""
         self._pages.add(frame, text=self.t(key))
         self._page_keys.append(key)
+        # …the count lands on it as soon as the page has rows (`sync_page_counts`); at
+        # build time every list is still empty, so the bare name is the honest label.
 
     def _build_star_filters(self, parent) -> None:
         """The ★ page's own box: «Скрывать со своего сервера», ON by default (#1251).
@@ -1296,13 +1305,22 @@ class SecretTasksTab(PanelTab):
     # -- jumping ---------------------------------------------------------------
     # -- how far back the camera sits (#1265) ----------------------------------
     def _zoom_choices(self) -> list:
-        """The zoom levels as words, in the order the camera pulls back."""
+        """The lap's heights as words, in the order the camera pulls back."""
         import lua_actions
-        return [self.t(f"coord.zoom.{name}") for name in lua_actions.ZOOM_LEVELS]
+        return [self.t(f"coord.zoom.{name}") for name in lua_actions.SWEEP_LEVELS]
 
     def _zoom_names(self) -> list:
+        """What the box may hold — the LAP's heights, and «тайл» is not one (#1272).
+
+        A lap at the tile view needs a 24-tile step: **88 seconds of camera against 6**,
+        and it finds nothing the 600 lap does not. It was on the list only because this
+        one box also decided how high a JUMP landed, so anybody who wanted to land
+        somewhere readable signed up for the 88-second sweep without knowing it. Jumps
+        take no height any more, so the box is the lap's alone. A profile still holding
+        «тайл» is moved to the first of these by `_sync_zoom_combo`.
+        """
         import lua_actions
-        return list(lua_actions.ZOOM_LEVELS)
+        return list(lua_actions.SWEEP_LEVELS)
 
     def _sync_zoom_combo(self) -> None:
         """Put the current level's word in the box — after a load, or a language change."""
@@ -1442,25 +1460,98 @@ class SecretTasksTab(PanelTab):
         self._persist_rows()
 
     def _sweep_once(self) -> None:
-        """«Обойти карту»: one lap of the whole server at the chosen height.
+        """«Обойти карту» — and «Остановить» while one is walking (#1272).
 
         The ability is `actions/scan_map.md` and the panel only plays it — the waypoints,
         the timer that walks them and the height they are walked at all live in the
-        scenario and its primitive (`CLAUDE.md`). What the tab decides is WHEN, and with
-        which of the three levels the bar is set to.
+        scenario and its primitive (`CLAUDE.md`). What the tab decides is WHEN.
+
+        IT STARTS FROM A CLEAN LIST, and that does not contradict the accumulating rule.
+        The list accumulates between laps and no READ may empty it — that is what stopped
+        it being wiped every start-up (`_answerable`). But a person pressing «Обойти
+        карту» IS the explicit «покажи, что на карте сейчас»: leaving yesterday's finds
+        mixed in with this lap's makes the table a blend of two moments that nobody can
+        tell apart. What survives the wipe is the session's robbed set, so a tile taken
+        earlier cannot be re-offered as a target.
+
+        AND IT CAN BE STOPPED. A lap hands every waypoint to the game's own timer at once
+        — there is nothing to call back — so «Остановить» bumps the run token those
+        closures check (`lua_actions.fast_map_sweep_stop`) and the camera stays where it
+        got to. Without it a lap at the wrong height is 88 seconds of a panel that looks
+        hung, which is exactly what was reported.
 
         The lap only produces traffic; something has to be listening to it, which is the
         ★ monitor. Saying so is the difference between «nothing was found» and «nothing
         was written down».
         """
+        if self._sweeping:
+            self._sweep_stop()
+            return
         import lua_actions
         height, step = lua_actions.zoom_level(self._zoom_level)
         if not (self.capture.running or self.ghost_capture.running):
             self.say("coord", "log.coord.sweep_unwatched")
+        self._wipe_for_sweep()
         seconds = lua_actions.fast_sweep_seconds(step) + 2
         self.say("coord", "log.coord.sweeping",
                  level=self.t(f"coord.zoom.{self._zoom_level}"), secs=int(seconds))
-        self.rt.play_async("scan_map", {"zoom": height, "step": step}, tag="coord")
+        started = self.rt.play_async(
+            "scan_map", {"zoom": height, "step": step}, tag="coord",
+            on_start=lambda: self.post(self._sweep_began),
+            on_done=self._sweep_ended)
+        if not started:
+            self._sweep_ended()
+
+    def _wipe_for_sweep(self) -> None:
+        """Empty the ★ list so the lap fills it with what is on the map NOW (#1272).
+
+        Deliberately NOT `_clear`: the session's robbed uuids stay, or a tile this
+        account has already taken today could be offered as a target again the moment the
+        lap re-finds it.
+        """
+        n = len(self._rows)
+        self._rows.clear()
+        self._restore_pending = set()
+        if n:
+            self.say("coord", "log.coord.sweep_wiped", n=n)
+        self._render()
+        self._update_status()
+        self._persist_rows()
+
+    def _sweep_began(self) -> None:
+        """The lap is walking: the button becomes «Остановить» and says so."""
+        self._sweeping = True
+        self._retitle_sweep()
+
+    def _sweep_ended(self) -> None:
+        """…and back, whether it finished, was stopped, or never started."""
+        self._sweeping = False
+        self.post(self._retitle_sweep)
+
+    def _sweep_stop(self) -> None:
+        """Disown the waypoints still pending — the press that was missing."""
+        self.say("coord", "log.coord.sweep_stopped")
+
+        def work() -> None:
+            try:
+                import lua_actions
+                self.rt.game.evaluator().run(lua_actions.fast_map_sweep_stop(),
+                                             marker="ACT", settle=0.6)
+            except Exception:                 # noqa: BLE001 — a stop is never fatal
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
+        self._sweep_ended()
+
+    def _retitle_sweep(self) -> None:
+        """One button, two words — «Обойти карту» / «Остановить»."""
+        if self._sweep_btn is None:
+            return
+        try:
+            self.tr(self._sweep_btn,
+                    "coord.sweep_stop" if self._sweeping else "coord.sweep_now")
+        except tk.TclError:
+            pass
 
     def _jump(self, x: int, y: int, server) -> None:
         """The one way this tab walks the camera anywhere. Remembers where it went.
@@ -1468,14 +1559,14 @@ class SecretTasksTab(PanelTab):
         ``server`` may be None — the runtime then jumps on whatever server the client is
         currently looking at, which is what an empty «Сервер» box means.
 
-        The height is the bar's own choice and applies to EVERY jump this tab makes,
-        including a coordinate clicked in the table: two ways to reach the same tile that
-        arrived at different zooms would be the sort of difference nobody can explain
-        afterwards. «Тайл» is the default and is what the jump always did (#1265).
+        NO HEIGHT TRAVELS WITH IT (#1272). Every coordinate jump in the panel lands at
+        the tile view and that is decided inside `GameLink.jump`, not here — «это для
+        ЛЮБЫХ переходов по координатам». This tab used to pass its «Зум» box in, so a
+        coordinate clicked in a table arrived at a different height from the same
+        coordinate clicked in the log, and the box that caused it looked like a display
+        preference. The box is about the LAP now, and only the lap.
         """
-        import lua_actions
-        height, _step = lua_actions.zoom_level(self._zoom_level)
-        if self.rt.game.jump(x, y, server, zoom=height):
+        if self.rt.game.jump(x, y, server):
             self._remember_jump(x, y, server)
 
     def _goto_coord(self) -> None:
@@ -2338,8 +2429,12 @@ class SecretTasksTab(PanelTab):
                           # stopped having one strip on top: a press has to say which
                           # list it is about.
                           {"title": "secrettasks.page.stars", "items": items,
-                           "rows": ([{"label": "secrettasks.filter.hide_own",
-                                      "value": str(hidden)}] if hidden else []),
+                           # How many are on the card, and how many the boxes are
+                           # holding back (#1272) — with the home-server rule named
+                           # separately, because it is the one most easily forgotten.
+                           "rows": (self._count_rows()
+                                    + ([{"label": "secrettasks.filter.hide_own",
+                                         "value": str(hidden)}] if hidden else [])),
                            "empty": "secrettasks.empty",
                            # …and the button says WHAT it turns on (#1264). «Включить
                            # мониторинг» on a screen with two of them is a button whose
@@ -2379,6 +2474,7 @@ class SecretTasksTab(PanelTab):
                                                   else "autoassist.on")}]},
                           {"title": "secrettasks.alliance",
                            "items": self.alliance.web_items(),
+                           "rows": self._count_rows(self.alliance),
                            "empty": "secrettasks.alliance.empty",
                            "actions": [{"id": "ur_only",
                                         "label": ("secrettasks.filter.ur_off"
@@ -2397,16 +2493,18 @@ class SecretTasksTab(PanelTab):
                           # `web_press` into the same variable — the phone cannot grow a
                           # second state here any more than the window can.
                           {"title": "secrettasks.ghost",
-                           "rows": self.ghost.web_rows(),
+                           "rows": self.ghost.web_rows() + self._count_rows(self.ghost),
                            "items": self.ghost.web_items(),
                            "empty": "secrettasks.ghost.empty",
                            "actions": [self._ghost_monitor_action()]},
                           {"title": "secrettasks.ghost.allies",
                            "items": self.ghost_allies.web_items(),
+                           "rows": self._count_rows(self.ghost_allies),
                            "empty": "secrettasks.ghost.allies.empty"},
                           # …and the sniffer's own card, where its tiles land (#1251).
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
+                           "rows": self._count_rows(self.ghost_map),
                            "empty": "secrettasks.ghost.map.empty",
                            "actions": [self._ghost_monitor_action()]}],
                 "now": now,
@@ -2429,6 +2527,20 @@ class SecretTasksTab(PanelTab):
                             {"id": "zoom",
                              "label": f"coord.zoom.{self._zoom_level}"},
                             {"id": "sweep_now", "label": "coord.sweep_now"}]}
+
+    def _count_rows(self, page=None) -> list:
+        """One card's «Показано / Скрыто» pair, for the phone (#1272).
+
+        The same two numbers the window puts on the notebook tab, said the way a card
+        says facts: a bare label and a value. «Скрыто» only appears when something IS
+        hidden — a zero beside it would be noise — but «Показано» is always there,
+        including at zero, which is the case the counter exists for.
+        """
+        shown, hidden = page.counts() if page is not None else self.counts()
+        rows = [{"label": "secrettasks.shown_label", "value": str(shown)}]
+        if hidden:
+            rows.append({"label": "secrettasks.hidden_label", "value": str(hidden)})
+        return rows
 
     def _ghost_monitor_action(self) -> dict:
         """The ghost sniffer's button, built once and drawn on both ghost cards (#1264).
@@ -2793,21 +2905,64 @@ class SecretTasksTab(PanelTab):
                 and (show_spent or not self._spent(r) or r.get("robbed"))
                 and not (mine and int(r["server"] or 0) == mine)]
 
+    def counts(self) -> tuple:
+        """`(shown, hidden)` for the ★ page — the same pair every grid answers (#1272).
+
+        «Hidden» is everything the page's own rules keep off the table, not just the
+        home-server one: the level range and «Показывать исчерпанные» hide rows too, and
+        a table that went blank because of any of them looks the same from the outside.
+        """
+        shown = len(self._visible_rows())
+        return shown, max(len(self._rows) - shown, 0)
+
     def _update_status(self) -> None:
-        """«секреток: N» — and how many of them the home-server rule is holding back.
+        """«секреток: N · скрыто фильтрами: M», on the ★ page and on its notebook tab.
 
         A box that empties the table without saying so is indistinguishable from a tab
         that read nothing (#1251): one live account has every star it can see on its
         own server, and the whole list going blank on first open is exactly what that
-        looks like. The count says which of the two it is.
+        looks like. The count says which of the two it is — and it is said at zero as
+        well, which is the case it exists for.
+
+        The home-server rule keeps a line of its own beside it: it is the one hiding
+        rule a person is most likely to have forgotten is on.
         """
-        n = len(self._visible_rows())
-        hidden = self._hidden_at_home()
-        line = self.t("secrettasks.count", n=n) if n else ""
-        if hidden:
-            mark = self.t("secrettasks.hidden_own", n=hidden)
-            line = "%s · %s" % (line, mark) if line else mark
+        shown, hidden = self.counts()
+        line = grid.count_text(self.t, shown, hidden)
+        at_home = self._hidden_at_home()
+        if at_home:
+            line = "%s · %s" % (line, self.t("secrettasks.hidden_own", n=at_home))
         self._status_var.set(line)
+        self.sync_page_counts()
+
+    def sync_page_counts(self) -> None:
+        """Put each page's count on its own notebook tab (#1272).
+
+        THE NUMBER GOES IN THE LABEL, because that is what «видно, не открывая её» means
+        and because a `ttk.Notebook` label is a plain string this tab already rewrites on
+        every language change — so it costs one `book.tab(…, text=…)` per page and no new
+        widget at all. Five lists, five numbers, readable at a glance.
+        """
+        book = self._pages
+        if book is None:
+            return
+        try:
+            for index, key in enumerate(self._page_keys):
+                book.tab(index, text=self._page_label(index, key))
+        except tk.TclError:
+            return
+
+    def _page_label(self, index: int, key: str) -> str:
+        """One notebook tab's words: its name, and what it is holding right now."""
+        page = {1: self.alliance, 2: self.ghost, 3: self.ghost_allies,
+                4: self.ghost_map}.get(index)
+        try:
+            shown, hidden = page.counts() if page is not None else self.counts()
+        except Exception:                     # noqa: BLE001 — a label is never a failure
+            return self.t(key)
+        if not (shown or hidden):
+            return self.t(key)
+        return "%s · %d%s" % (self.t(key), shown, "+%d" % hidden if hidden else "")
 
     def _hidden_at_home(self) -> int:
         """How many rows «Скрывать со своего сервера» is keeping off the table."""
@@ -2898,6 +3053,10 @@ class SecretTasksTab(PanelTab):
                 self.rt.tick.arm("secret_live", LIVE_MS, self._live_tick)
             else:
                 self._living = False
+        # …and whether a lap of the map is walking right now (#1272): the one button says
+        # «Обойти карту» or «Остановить» by it, and a second press is the stop.
+        self._sweeping = False
+        self._sweep_btn = None
 
     def _tick(self) -> None:
         """Every second: rewrite each row's timer, drop the expired, flip the matured.

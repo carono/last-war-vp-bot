@@ -324,6 +324,21 @@ def state_text(row, now: int, t) -> str:
     return state
 
 
+def count_text(t, shown: int, hidden: int) -> str:
+    """«секреток: N · скрыто фильтрами: M» — one wording for every list here (#1272).
+
+    SAID EVEN AT ZERO, and that is the whole reason it exists. An empty table with no
+    number on it reads as «ничего не нашли», and it is routinely not: one live account
+    had every star it could see sitting on its own server, so the raid page went blank on
+    open while the model held thirty-four rows (#1251). «0 · скрыто 34» is a different
+    sentence from «0», and only one of them is true.
+    """
+    line = t("secrettasks.count", n=shown)
+    if hidden:
+        line = "%s · %s" % (line, t("secrettasks.hidden", n=hidden))
+    return line
+
+
 def has_countdown(rows) -> bool:
     """Is any of these rows counting down? — what the fast repaint is armed on (#1272).
 
@@ -685,9 +700,22 @@ class TaskGrid:
         except tk.TclError:
             pass
 
+    def counts(self) -> tuple:
+        """`(shown, hidden)` — what this page draws, and what its own boxes hold back.
+
+        «Hidden» is every row of the model this page's filters keep off the table: its
+        level range, and whatever :meth:`narrow` adds. It is not a detail — a page that
+        goes blank because a box is ticked looks exactly like a page that read nothing.
+        """
+        shown = len(self.visible_rows())
+        return shown, max(len(self._rows) - shown, 0)
+
     def _update_count(self) -> None:
-        n = len(self.visible_rows())
-        self._count_var.set(self.tab.t("secrettasks.count", n=n) if n else "")
+        shown, hidden = self.counts()
+        self._count_var.set(count_text(self.tab.t, shown, hidden))
+        # …and the same pair on the notebook's own tab, so it is readable without
+        # opening the page (#1272).
+        self.tab.sync_page_counts()
 
     def _sort_by(self, column: str) -> None:
         """A heading was clicked: sort by it, and flip the direction on a second click."""

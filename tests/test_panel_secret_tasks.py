@@ -178,6 +178,9 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     tab._polling = False
     tab._rendered = 0
     tab._render = lambda: setattr(tab, "_rendered", tab._rendered + 1)
+    # The counters live on the notebook tabs now (#1272); a fixture with no notebook
+    # simply has nothing to relabel.
+    tab.sync_page_counts = lambda: None
     tab._update_status = lambda: None
     # `_persist_rows` runs after every structural change now (#1242) — a throwaway file
     # so the timer / poll paths this fixture is FOR do not have to know that, and a test
@@ -1029,6 +1032,9 @@ def _alliance_grid(tree=None):
                                 # redraws (#1251); with no window there is nothing to
                                 # aim, so the fixture only has to answer the call.
                                 sync_actions=lambda: None,
+                                # …and the per-page counters, which land on a notebook
+                                # this fixture does not have (#1272).
+                                sync_page_counts=lambda: None,
                                 _row_values=lambda row: tuple(
                                     str(row[c]) for c in ("x", "y", "level", "uuid",
                                                           "loot_count", "server")))
@@ -1342,11 +1348,13 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
-                                         star_var=_Var(False))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+                                         star_var=_Var(False),
+                                         counts=lambda: (0, 0))
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
-                                          monitor_var=_Var(False))
+                                          monitor_var=_Var(False),
+                                          counts=lambda: (0, 0))
 
     cards = {c.get("title"): c for c in tab.web_view()["cards"]}
     item = cards["secrettasks.page.stars"]["items"][0]
@@ -1406,11 +1414,13 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
-                                         star_var=_Var(False))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+                                         star_var=_Var(False),
+                                         counts=lambda: (0, 0))
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
-                                          monitor_var=_Var(False))
+                                          monitor_var=_Var(False),
+                                          counts=lambda: (0, 0))
 
     cards = {c.get("title"): c for c in tab.web_view()["cards"]}
     pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
@@ -1545,11 +1555,13 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
-                                         star_var=_Var(False))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+                                         star_var=_Var(False),
+                                         counts=lambda: (0, 0))
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
-                                          monitor_var=_Var(False))
+                                          monitor_var=_Var(False),
+                                          counts=lambda: (0, 0))
 
     cards = {c.get("title"): c for c in tab.web_view()["cards"]}
     pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
@@ -1772,17 +1784,19 @@ def test_the_phone_is_shown_every_page_the_window_has():
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: 6)
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(
-        ur_var=_Var(False), star_var=_Var(False),
+        ur_var=_Var(False), star_var=_Var(False), counts=lambda: (1, 0),
         web_items=lambda: [{"text": "X:1 Y:2", "facts": [], "until": None, "pill": None}])
     tab.ghost = types.SimpleNamespace(
+        counts=lambda: (1, 0),
         web_rows=lambda: [{"label": "secrettasks.ghost.state_line", "value": "идёт"}],
         web_items=lambda: [{"text": "#3 X:4 Y:5", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_allies = types.SimpleNamespace(
+        counts=lambda: (1, 0),
         web_items=lambda: [{"text": "#6 X:7 Y:8", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_map = types.SimpleNamespace(
-        monitor_var=_Var(False),
+        monitor_var=_Var(False), counts=lambda: (1, 0),
         web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
                             "pill": None}])
 
@@ -1947,11 +1961,13 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
-                                         star_var=_Var(False))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+                                         star_var=_Var(False),
+                                         counts=lambda: (0, 0))
+    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
-                                          monitor_var=_Var(False))
+                                          monitor_var=_Var(False),
+                                          counts=lambda: (0, 0))
     item = [c for c in tab.web_view()["cards"] if c.get("items")][0]["items"][0]
     assert item["text"].startswith(gr.SHARED_GLYPH), item
     assert {"label": "secrettasks.shared_mark", "value": ""} in item["facts"], item
@@ -2310,6 +2326,9 @@ def _ghost_grid(cls=None):
     rt = types.SimpleNamespace(root=None, profiles=_FakeProfiles(_state_path()))
     tab = types.SimpleNamespace(t=i18n.t, rt=rt, _rank=_rank,
                                 sync_actions=lambda: None,
+                                # …and the per-page counters, which land on a notebook
+                                # this fixture does not have (#1272).
+                                sync_page_counts=lambda: None,
                                 _collectable=lambda row: bool(row.get("ready")),
                                 _row_values=lambda row: ())
     tab.shared = _shared_marks(tab)
@@ -2884,27 +2903,113 @@ def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
     import types
     import lua_actions
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
-    tab = object.__new__(st.SecretTasksTab)
-    tab.t = i18n.t
-    tab._zoom_level = "tasks"
-    said, played = [], []
-    tab.say = lambda tag, key, **fmt: said.append(key)
-    tab.capture = types.SimpleNamespace(running=True)
-    tab.ghost_capture = types.SimpleNamespace(running=False)
-    tab.rt = types.SimpleNamespace(
-        play_async=lambda name, args=None, **kw: played.append((name, args)) or True)
+    tab = _sweep_tab()
+    played = tab.rt.played
 
     tab._sweep_once()
     assert played == [("scan_map", {"zoom": lua_actions.SWEEP_ZOOM_MAX,
                                     "step": lua_actions.FAST_STEP})]
     # Nothing was said about an unwatched lap: the ★ monitor is on.
-    assert "log.coord.sweep_unwatched" not in said
+    assert "log.coord.sweep_unwatched" not in tab.said
 
     # …and with both sniffers off it says so, because a lap nobody reads finds nothing.
     played.clear()
+    tab._sweeping = False
     tab.capture = types.SimpleNamespace(running=False)
     tab._sweep_once()
-    assert "log.coord.sweep_unwatched" in said
+    assert "log.coord.sweep_unwatched" in tab.said
+
+
+def _sweep_tab(rows=None):
+    """A tab wired for the lap: no window, no game, just the decisions it makes."""
+    import types
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
+    tab = object.__new__(st.SecretTasksTab)
+    tab.t = i18n.t
+    tab._zoom_level = "tasks"
+    tab._sweeping, tab._sweep_btn = False, None
+    tab._rows = dict(rows or {})
+    tab._collected, tab._restore_pending = {"already-robbed"}, {"x"}
+    tab.said = []
+    tab.say = lambda tag, key, **fmt: tab.said.append(key)
+    tab.capture = types.SimpleNamespace(running=True)
+    tab.ghost_capture = types.SimpleNamespace(running=False)
+    tab.post = lambda fn: fn()
+    tab._render = tab._update_status = tab._persist_rows = lambda: None
+    tab._retitle_sweep = lambda: None
+    played = []
+    tab.rt = types.SimpleNamespace(
+        played=played,
+        play_async=lambda name, args=None, **kw: played.append((name, args)) or True)
+    return tab
+
+
+def test_pressing_the_lap_empties_the_list_first():
+    """«При клике обход карты убрать из списка тайл» (#1272).
+
+    The list accumulates between laps and no READ may empty it — that is the rule that
+    stopped it being wiped every start-up. A PERSON pressing «Обойти карту» is the
+    explicit «покажи, что на карте сейчас», which is a different thing entirely: leaving
+    yesterday's finds mixed with this lap's makes the table a blend nobody can read.
+    """
+    tab = _sweep_tab({"1": _row(1, 7, -5_000, 600_000)})
+
+    tab._sweep_once()
+
+    assert tab._rows == {}, "the lap started on top of yesterday's finds"
+    assert "log.coord.sweep_wiped" in tab.said
+    # …but the session's robbed set survives, or a tile taken today could be offered
+    # again the moment the lap re-finds it.
+    assert tab._collected == {"already-robbed"}
+
+
+def test_a_second_press_stops_the_lap_instead_of_starting_another():
+    """«Кнопки завершения нет» — now there is, and it is the same button (#1272)."""
+    import types
+    tab = _sweep_tab()
+    stopped = []
+    tab.rt.game = types.SimpleNamespace(
+        evaluator=lambda: types.SimpleNamespace(
+            run=lambda chunk, marker=None, settle=0: stopped.append(chunk) or []))
+
+    tab._sweep_once()
+    tab._sweeping = True                     # what `on_start` sets on the Tk thread
+    tab._sweep_once()
+
+    assert len(tab.rt.played) == 1, "the second press started a second lap"
+    assert "log.coord.sweep_stopped" in tab.said
+    import time as _time
+    for _ in range(200):
+        if stopped:
+            break
+        _time.sleep(0.01)
+    assert stopped and "__lw_sweep_run" in stopped[0], stopped
+    assert tab._sweeping is False
+
+
+def test_the_lap_heights_no_longer_offer_the_tile_view():
+    """A lap at the tile view is 88 seconds against 6 and finds nothing extra — it was
+    only ever on the list because this box also decided how high a JUMP landed (#1272)."""
+    import lua_actions
+    assert "tile" not in lua_actions.SWEEP_LEVELS
+    assert lua_actions.SWEEP_LEVELS == ("tasks", "bases")
+    slow = lua_actions.fast_sweep_seconds(lua_actions.ZOOM_LEVELS["tile"][1])
+    quick = lua_actions.fast_sweep_seconds(lua_actions.ZOOM_LEVELS["tasks"][1])
+    assert slow > 10 * quick, (slow, quick)
+
+
+def test_every_coordinate_jump_lands_at_the_tile_view():
+    """«Это для ЛЮБЫХ переходов по координатам» (#1272) — so the rule is in the jump
+    itself and no caller can forget it: there is nothing left to pass."""
+    import inspect
+    from panel.runtime import daemon as daemonmod
+    sig = inspect.signature(daemonmod.GameLink.jump)
+    assert "zoom" not in sig.parameters, "a caller can still choose a height"
+    src = inspect.getsource(daemonmod.GameLink.jump)
+    assert "jump_to_coord(x, y, target)" in src, src
+    # …and the tab's own jump passes nothing either.
+    tabsrc = inspect.getsource(st.SecretTasksTab._jump)
+    assert "zoom=" not in tabsrc, tabsrc
 
 
 def test_the_two_sniffers_have_two_independent_switches():

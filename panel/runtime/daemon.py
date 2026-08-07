@@ -555,8 +555,7 @@ class GameLink:
             self._log.say("server", "log.server.read_failed", error=exc)
         return DEFAULT_SERVER
 
-    def jump(self, x: int, y: int, server, quiet: bool = False,
-             zoom: "int | None" = None) -> bool:
+    def jump(self, x: int, y: int, server, quiet: bool = False) -> bool:
         """Jump the camera to a tile, on a worker thread. Serialised with every action.
 
         The claim is the ordinary one, so a coordinate clicked in the log and a timer
@@ -566,10 +565,19 @@ class GameLink:
         progress line is enough, and a «занят» every few seconds while an errand runs
         would be worse still.
 
-        ``zoom`` is the camera height, and it is `None` for every jump that is about a
-        tile — a coordinate clicked in the log lands where a person can read it. The map
-        sweep passes one, because how high the camera sits is how much map the client
-        asks the server for (`lua_actions.jump_to_coord`, task #1265).
+        **EVERY COORDINATE JUMP LANDS AT THE TILE VIEW, AND THAT IS DECIDED HERE (#1272).**
+        «При переходе по координатам всегда зум делать на уровень тайла… это для ЛЮБЫХ
+        переходов.» It used to be an argument, and the «Секретки» tab passed its own
+        «Зум» box into it — so a coordinate clicked in the log arrived at one height, the
+        same coordinate clicked in a table at another, and nobody could say why. The
+        parameter is GONE rather than defaulted: a rule that has to be remembered at four
+        call sites is a rule the fifth one will not have. `jump_to_coord` with no height
+        is the game's own jump, which is the tile view (`lua_actions.JUMP_ZOOM`).
+
+        The lap is the one thing that legitimately walks the camera at another height,
+        and it is not a coordinate jump at all: it schedules its own waypoints inside the
+        game (`actions/scan_map.md` → `lua_actions.fast_map_sweep`) and never comes
+        through here.
 
         Returns whether the jump was STARTED — ``False`` means the claim was taken by
         something else. The sweep uses that to keep its place instead of losing the
@@ -596,7 +604,7 @@ class GameLink:
                     self._log.say("coord", "log.coord.jumping",
                                   where=coords.fmt(x, y, target))
                 for line in self.client.run(
-                        lua_actions.jump_to_coord(x, y, target, zoom),
+                        lua_actions.jump_to_coord(x, y, target),
                         marker="ACT", settle=1.6, early=True):
                     self._log.put(f"[coord] {line}")
                 if not quiet:
