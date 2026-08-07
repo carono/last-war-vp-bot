@@ -108,6 +108,17 @@ GHOST_JSON = "ghost_recon_tiles.json"
 #: list is the panel's, survives a restart, and empties by its own rules.
 GHOST_MAP_STATE = "ghost_map_state.json"
 TREASURES_JSON = "world_treasures.json"
+#: What the SECOND listener writes (#1289) — the mines off the same map responses, and
+#: the player trucks and alliance trains off the march stream. One file with a list per
+#: kind, rewritten every tick by the very same capture child that writes TASKS_JSON:
+#: two npcap captures over one interface starve each other (044c19f), so the second
+#: listener is an index inside the first one's process, never a second process.
+WORLD_JSON = "world_map.json"
+#: …and each world PAGE's own gathered list, the way GHOST_MAP_STATE is the ghost page's.
+#: One file per page (`world_state_<page>.json`): the four hold different shapes, and
+#: handing one page's checkpoint to another's reader is the mix-up the separate files
+#: above already exist to prevent.
+WORLD_STATE = "world_state_%s.json"
 # The profile's own timer catalogue and the record of when each of them last ran
 # (panel/timers.py). Both per profile: one account's schedule is not the other's,
 # and neither is its clock. A profile with no catalogue yet is seeded from the
@@ -730,6 +741,21 @@ class ProfileManager:
         keeping — the distinction the whole «мониторинг только наполняет» rule is about.
         """
         return os.path.join(self.dir(name), GHOST_MAP_STATE)
+
+    def world_json(self, name: str | None = None) -> str:
+        """Where the world listener checkpoints the mines, trucks and trains (#1289).
+
+        Written by the SAME capture child as `tasks_json`, because the wire may only be
+        read once per client — see `tools/lib/world_index.py`.
+        """
+        return os.path.join(self.dir(name), WORLD_JSON)
+
+    def world_state_json(self, page: str, name: str | None = None) -> str:
+        """Where ONE world page checkpoints its OWN gathered list (#1289).
+
+        `page` is the grid's `CONFIG_KEY` — «mines», «monsters», «trains», «trucks».
+        """
+        return os.path.join(self.dir(name), WORLD_STATE % page)
 
     def treasures_json(self, name: str | None = None) -> str:
         """Where the treasure scan checkpoints the chests it can see."""

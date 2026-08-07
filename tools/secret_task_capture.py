@@ -8,8 +8,14 @@ only Wireshark-related thing it needs is the npcap driver itself — no
 
 Protocol logic is imported from lastwar_proto.py, the stream reassembly from
 live_sniffer.py, and the transport plus the which-server-is-on-screen election
-from map_capture.py — none of it is reimplemented here. This module is a
-secret-task index, and nothing else.
+from map_capture.py — none of it is reimplemented here.
+
+This module is a secret-task index — and, since #1289, the process that CARRIES
+the world one as well (`--world-json`): mines off the same map responses, player
+trucks and alliance trains off the march stream. That is a second listener and
+deliberately not a second capture: two npcap captures over one interface starve
+each other, and the starved one reads exactly like a deaf client (044c19f). See
+`world_index.py`.
 
     python tools/secret_task_capture.py                       stream tasks, print them
                                                               (until Ctrl+C, no file written)
@@ -17,6 +23,8 @@ secret-task index, and nothing else.
     python tools/secret_task_capture.py --json out.json       also checkpoint to a file
     python tools/secret_task_capture.py --json out.json --interval 3
                                                               flush it every 3s, not 15
+    python tools/secret_task_capture.py --world-json w.json    ALSO index the mines,
+                                                              trucks and alliance trains
     python tools/secret_task_capture.py --level 7 --can-loot  only raidable level-7s
     python tools/secret_task_capture.py --level 7,8           level 7 or level 8
     python tools/secret_task_capture.py --dump traffic.jsonl  record every decoded
@@ -62,6 +70,7 @@ sys.path.insert(0, _HERE)
 import coords  # noqa: E402  (canonical #server X:x Y:y token — one format for every script)
 import lastwar_proto as proto  # noqa: E402
 import share_marks  # noqa: E402  (the «already shared» mark this capture also writes)
+import world_index  # noqa: E402  (the second listener, in this process — see --world-json)
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
     MapIndex, add_capture_arguments, check_platform, diagnose,
@@ -90,10 +99,21 @@ class TaskIndex(MapIndex):
     each other.
     """
 
+    #: The second listener, off by default — a class attribute so an index built for a
+    #: test (or by anything that does not go through `__init__`) is a plain task index
+    #: rather than one that raises the first time the server says something.
+    world = None
+
     def __init__(self, stale_after: float = STALE_AFTER_SECONDS,
-                 shared_json: str | None = None) -> None:
+                 shared_json: str | None = None, world=None) -> None:
         super().__init__()
         self.stale_after = stale_after
+        #: THE SECOND LISTENER, IN THIS PROCESS (#1289). Mines, trucks and
+        #: alliance trains are decoded off the very frames this index is already
+        #: being handed — never off a second capture, which on one interface gets
+        #: a trickle and reads exactly like a deaf client (044c19f). None when
+        #: `--world-json` was not given, and then nothing here costs anything.
+        self.world = world
         self._tasks: dict[tuple, proto.SecretTask] = {}
         # Wall-clock of the last time the map re-sent each task, so stale ones
         # can be evicted rather than served as if still live.
@@ -108,6 +128,8 @@ class TaskIndex(MapIndex):
             key = (task.server_id, task.uuid)
             self._tasks[key] = task
             self._seen_at[key] = now
+        if self.world is not None:
+            self.world.on_blocks(payload, blocks, now)
 
     def on_response(self, command, payload) -> None:
         """Every non-map answer — which is where the game announces a share.
@@ -126,7 +148,13 @@ class TaskIndex(MapIndex):
         record of «this one has been shared» the backlog is precisely what is wanted.
 
         `_index_lock` is held; the write is one appended line (`share_marks`).
+
+        It is also where the world listener hears the MARCH stream, which is what
+        trucks and alliance trains ride — they are not tiles and never appear in
+        a map block (#1289).
         """
+        if self.world is not None:
+            self.world.on_response(command, payload)
         if not self._shared_json or command not in proto.SHARE_MISSION_COMMANDS:
             return
         self.shares_marked += share_marks.mark_missions(
@@ -142,6 +170,8 @@ class TaskIndex(MapIndex):
         server's tiles go with them.
         """
         self._evict(lambda key: key[0] != self.current_server)
+        if self.world is not None:
+            self.world.on_server_left(server, self.current_server)
 
     def _evict(self, doomed) -> None:
         """Drop every indexed task whose key `doomed(key)` accepts.
@@ -240,6 +270,19 @@ def main() -> int:
                          "game says has been shared with the alliance — the "
                          "live broadcast and the list pulled on login alike "
                          "(default: shares are not recorded)")
+    ap.add_argument("--world-json", default=None, metavar="PATH",
+                    help="ALSO index the rest of the map into this file — the "
+                         "resource mines off the same map responses, and the "
+                         "player trucks and alliance trains off the march "
+                         "stream. A second listener in THIS process: two "
+                         "captures on one interface starve each other "
+                         "(default: the world is not indexed)")
+    ap.add_argument("--world-max", type=int, default=world_index.DEFAULT_MAX_PER_KIND,
+                    metavar="N",
+                    help=f"how many of each kind the world checkpoint may carry "
+                         f"(default {world_index.DEFAULT_MAX_PER_KIND}); a whole-"
+                         f"server lap finds about nine thousand mines. What is "
+                         f"dropped is reported, never silently cut")
     args = ap.parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter
     # rather than refused by a check about capturing packets.
@@ -252,7 +295,9 @@ def main() -> int:
     except Exception:
         pass
 
-    index = TaskIndex(shared_json=args.shared_json)
+    world = (world_index.WorldIndex(max_per_kind=args.world_max)
+             if args.world_json else None)
+    index = TaskIndex(shared_json=args.shared_json, world=world)
     stop, bpf = start_capture(index, args)
 
     print("Last War direct capture — scapy/npcap, no dumpcap")
@@ -339,6 +384,20 @@ def main() -> int:
                 if args.json and not dump_tasks(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
+                if world is not None:
+                    held = world.counts()
+                    if not dump_tasks(world.records(), args.world_json):
+                        print(f"{C_DIM}  (world checkpoint locked, skipped this "
+                              f"flush){C_RESET}")
+                    elif changed:
+                        # Said on the same tick as the task line, and only when
+                        # that one is speaking, so a quiet capture stays quiet.
+                        cut = ", ".join(f"{n} {k} dropped to the cap"
+                                        for k, n in world.dropped.items() if n)
+                        print(f"{C_DIM}  world: {held['mines']} mine(s), "
+                              f"{held['trucks']} truck(s), "
+                              f"{held['trains']} train(s)"
+                              f"{' — ' + cut if cut else ''}{C_RESET}")
                 if index.transcript is not None:
                     # Flushed here rather than per frame, so a reader tailing
                     # the transcript is one tick behind at worst and the
@@ -427,6 +486,15 @@ def main() -> int:
             print(f"{C_ERR}could not write {args.json} — the file is held by "
                   f"another process.{C_RESET} Close whatever has it open and "
                   f"re-run, or point --json somewhere else.")
+
+    if world is not None:
+        held = world.counts()
+        if dump_tasks(world.records(), args.world_json):
+            print(f"{C_OK}wrote {held['mines']} mine(s), {held['trucks']} truck(s) "
+                  f"and {held['trains']} train(s) to {args.world_json}{C_RESET}")
+        else:
+            print(f"{C_ERR}could not write {args.world_json} — the file is held "
+                  f"by another process.{C_RESET}")
 
     if index.transcript is not None:
         index.transcript.close()

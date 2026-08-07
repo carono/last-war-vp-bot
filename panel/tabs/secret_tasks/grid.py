@@ -136,19 +136,25 @@ def _uuid(row) -> str:
     return str(row.get("uuid") or "")
 
 
-def make_tree(parent) -> ttk.Treeview:
+def make_tree(parent, columns=None) -> ttk.Treeview:
     """The Treeview both grids are: the same columns, widths and row colours.
 
     Packed with its scrollbar into ``parent``; the bindings are the caller's, because
     what a click MEANS is the grid's own business even though where it lands is not.
+
+    ``columns`` defaults to the secret-task set every page on this tab was built for.
+    The world pages (#1289) hand in their own — a mine has a resource and a truck has a
+    cargo, and neither has an owner's dispatch level — which is the whole reason the
+    column set moved from a module constant to an argument.
     """
-    tree = ttk.Treeview(parent, columns=[c[0] for c in COLUMNS],
+    columns = COLUMNS if columns is None else columns
+    tree = ttk.Treeview(parent, columns=[c[0] for c in columns],
                         show="headings", selectmode="browse")
     bar = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=bar.set)
     bar.pack(side="right", fill="y")
     tree.pack(side="left", fill="both", expand=True)
-    for col, _key, width, anchor, stretch in COLUMNS:
+    for col, _key, width, anchor, stretch in columns:
         tree.column(col, width=width, anchor=anchor, stretch=stretch)
     # A ready tile is green and a counting-down one amber, exactly as the packed rows
     # were — the colour is the fastest read on the tab.
@@ -158,25 +164,28 @@ def make_tree(parent) -> ttk.Treeview:
     return tree
 
 
-def heading_command(tree, sort_by) -> None:
+def heading_command(tree, sort_by, columns=None, keys=None) -> None:
     """(Re)arm the sort command of every heading that has an order to sort in."""
-    for col, _key, _w, _a, _s in COLUMNS:
+    columns = COLUMNS if columns is None else columns
+    keys = SORT_KEYS if keys is None else keys
+    for col, _key, _w, _a, _s in columns:
         tree.heading(col, command=(lambda c=col: sort_by(c))
-                     if col in SORT_KEYS else "")
+                     if col in keys else "")
 
 
-def column_at(tree, event) -> str:
+def column_at(tree, event, columns=None) -> str:
     """Which column the pointer is over, "" when it is not over a cell."""
+    columns = COLUMNS if columns is None else columns
     if tree is None or tree.identify("region", event.x, event.y) != "cell":
         return ""
     col = tree.identify_column(event.x)          # "#1" … "#6"
     try:
-        return COLUMNS[int(col[1:]) - 1][0]
+        return columns[int(col[1:]) - 1][0]
     except (ValueError, IndexError):
         return ""
 
 
-def sort_rows(rows, sort) -> list:
+def sort_rows(rows, sort, keys=None) -> list:
     """The rows in the order the headings ask for.
 
     ``sort`` is ``(column id, reversed)`` once a heading has been clicked, and None
@@ -184,12 +193,13 @@ def sort_rows(rows, sort) -> list:
     highest star first, and within a level the tile that expires soonest — so it opens
     on the best raid without anybody having to ask for it.
     """
+    keys = SORT_KEYS if keys is None else keys
     if sort is None:
         return sorted(rows, key=lambda r: (-int(r["level"] or 0),
                                            r["expires_at"] or float("inf"),
                                            _uuid(r)))
     column, backwards = sort
-    key = SORT_KEYS.get(column)
+    key = keys.get(column)
     if key is None:
         return list(rows)
     return sorted(rows, key=key, reverse=backwards)
@@ -298,7 +308,13 @@ def state_text(row, now: int, t) -> str:
     whole distinction above.
     """
     done, exp, ready = row["completed_at"], row["expires_at"], bool(row.get("ready"))
-    if done and not ready:
+    if row.get("until_key") and exp is not None:
+        # A row that counts down to something OTHER than being raidable (#1289): a truck
+        # and a train count down to arriving, which is when they leave the map. Same
+        # clock, same formatting, its own word — «прибудет через …» rather than «готово
+        # через …», which would promise the person something to press.
+        state = t(row["until_key"], t=fmt_left(exp - now))
+    elif done and not ready:
         state = t("secrettasks.until_ready", t=fmt_left(done - now))
     elif ready and exp is not None:
         state = t("secrettasks.ready_expires", t=fmt_left(exp - now))
@@ -417,7 +433,7 @@ def _stale_minutes(seen_at) -> int:
     return int(age // 60) if age > STALE_AFTER else 0
 
 
-def sync_tree(tree, rows, values_of, tag_of) -> None:
+def sync_tree(tree, rows, values_of, tag_of, columns=None) -> None:
     """Bring the table to `rows` by CHANGING it, never by emptying and refilling (#1272).
 
     «И грид стирается и потом снова обновляется» — the old draw deleted every row and
@@ -444,7 +460,7 @@ def sync_tree(tree, rows, values_of, tag_of) -> None:
         for iid in list(tree.get_children("")):
             if iid not in wanted:
                 tree.delete(iid)
-        columns = [c[0] for c in COLUMNS]
+        columns = [c[0] for c in (COLUMNS if columns is None else columns)]
         for index, (iid, row) in enumerate(zip(want, rows)):
             values = tuple(values_of(row))
             tag = tag_of(row)
@@ -520,6 +536,14 @@ class TaskGrid:
     HINT_KEY = ""
     EMPTY_KEY = ""
 
+    #: The table's own columns and the order each of them sorts in. Class attributes
+    #: rather than the module constants they default to, because the world pages
+    #: (#1289) are the same page machinery over a different set of facts — a mine has a
+    #: resource where a task has an owner. Every helper below is handed these, so a
+    #: subclass changes the table by naming two things and nothing else.
+    COLUMNS = COLUMNS
+    SORT_KEYS = SORT_KEYS
+
     #: The key this page's own settings are stored under, so two pages' filters never
     #: land in one another's slot (#1251).
     CONFIG_KEY = ""
@@ -559,7 +583,7 @@ class TaskGrid:
         self._body = ttk.Frame(wrap)
         self._body.pack(fill="both", expand=True)
 
-        tree = make_tree(self._body)
+        tree = make_tree(self._body, self.COLUMNS)
         tree.bind("<Button-1>", self._on_click)
         tree.bind("<Double-Button-1>", self._on_double_click)
         tree.bind("<Button-3>", self._on_right_click)
@@ -618,9 +642,9 @@ class TaskGrid:
         if self._tree is None:
             return
         try:
-            for col, key, _w, _a, _s in COLUMNS:
+            for col, key, _w, _a, _s in self.COLUMNS:
                 self._tree.heading(col, text=self.tab.t(key))
-            heading_command(self._tree, self._sort_by)
+            heading_command(self._tree, self._sort_by, self.COLUMNS, self.SORT_KEYS)
         except tk.TclError:
             return
 
@@ -747,8 +771,8 @@ class TaskGrid:
         if tree is None:
             return
         self._refresh_timers()
-        rows = sort_rows(self.visible_rows(), self._sort)
-        sync_tree(tree, rows, self.row_values, row_tag)
+        rows = sort_rows(self.visible_rows(), self._sort, self.SORT_KEYS)
+        sync_tree(tree, rows, self.row_values, row_tag, self.COLUMNS)
         self._show_empty(not rows)
         self._update_count()
         self.tab.sync_actions()
@@ -783,6 +807,8 @@ class TaskGrid:
 
     def _sort_by(self, column: str) -> None:
         """A heading was clicked: sort by it, and flip the direction on a second click."""
+        if column not in self.SORT_KEYS:
+            return
         if self._sort and self._sort[0] == column:
             self._sort = (column, not self._sort[1])
         else:
@@ -808,7 +834,7 @@ class TaskGrid:
 
     def _on_click(self, event) -> None:
         """The two live cells: the coordinate, and the action where there is one."""
-        where = column_at(self._tree, event)
+        where = column_at(self._tree, event, self.COLUMNS)
         row = self._row_at(event)
         if row is None:
             return
@@ -824,7 +850,7 @@ class TaskGrid:
 
     def _on_motion(self, event) -> None:
         """The link cursor over a cell that acts, the ordinary one everywhere else."""
-        where = column_at(self._tree, event)
+        where = column_at(self._tree, event, self.COLUMNS)
         row = self._row_at(event)
         live = where == LINK_COLUMN or (
             where == ACTION_COLUMN and bool(row and self.collectable(row)))

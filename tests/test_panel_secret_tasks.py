@@ -634,6 +634,19 @@ class _FakeProfiles:
         import os
         return os.path.join(os.path.dirname(self._path), "ghost.json")
 
+    def world_json(self, name=None) -> str:
+        """Where the SECOND listener checkpoints the rest of the map (#1289).
+
+        Written by the very same capture child as `tasks_json` — the wire may only be
+        read once per client — so a fixture that has one has this one too.
+        """
+        import os
+        return os.path.join(os.path.dirname(self._path), "world_map.json")
+
+    def world_state_json(self, page: str, name=None) -> str:
+        import os
+        return os.path.join(os.path.dirname(self._path), "world_%s.json" % page)
+
 
 class _FakeOrder:
     """A stand-in for `Capture`/`AutoLoot`/`Sweep`: only `start`/`stop` are called.
@@ -1191,20 +1204,26 @@ def test_a_failed_roster_read_leaves_the_alliance_grid_alone():
 
 
 def test_refresh_presses_every_source():
-    """«Обновить» — and the phone's — press all four: wire, raid list, roster, ghost."""
+    """«Обновить» — and the phone's — press all five: wire, raid list, roster, ghost…
+
+    …and the monsters (#1289), which are the one list on this tab no capture can fill:
+    nothing on the wire names a monster, so the only moment their page is refilled is
+    the moment somebody asks for it.
+    """
     tab = object.__new__(st.SecretTasksTab)
     calls = []
     tab.refresh = lambda: calls.append("wire")
     tab._snapshot = lambda: calls.append("vm")
     tab._roster = lambda: calls.append("roster")
     tab._ghost = lambda: calls.append("ghost")
+    tab._read_monsters = lambda: calls.append("monsters")
 
     tab.refresh_both()
-    assert calls == ["wire", "vm", "roster", "ghost"], calls
+    assert calls == ["wire", "vm", "roster", "ghost", "monsters"], calls
 
     calls.clear()
     assert tab.web_press("refresh", {}) == {"ok": True}
-    assert calls == ["wire", "vm", "roster", "ghost"], calls
+    assert calls == ["wire", "vm", "roster", "ghost", "monsters"], calls
 
 
 def test_a_share_does_not_pay_for_the_roster_read():
@@ -1481,6 +1500,7 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           counts=lambda: (0, 0))
+    _empty_world_pages(tab)
 
     cards = {c.get("title"): c for c in tab.web_view()["cards"]}
     item = cards["secrettasks.page.stars"]["items"][0]
@@ -1547,6 +1567,7 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           counts=lambda: (0, 0))
+    _empty_world_pages(tab)
 
     cards = {c.get("title"): c for c in tab.web_view()["cards"]}
     pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
@@ -1688,6 +1709,7 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           counts=lambda: (0, 0))
+    _empty_world_pages(tab)
 
     cards = {c.get("title"): c for c in tab.web_view()["cards"]}
     pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
@@ -1980,6 +2002,21 @@ def _robbed_tab():
     return tab
 
 
+def _empty_world_pages(tab) -> None:
+    """The four world pages (#1289), empty — what `web_view` asks of them and no more.
+
+    Every card on this screen is drawn from the pages, so a fixture that builds the
+    screen has to carry all of them. These four say nothing; the test that is ABOUT them
+    builds its own with rows in.
+    """
+    import types
+    tab.mines = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0),
+                                      free_var=_Var(True))
+    tab.monsters = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0))
+    tab.trains = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0))
+    tab.trucks = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0))
+
+
 def test_the_phone_is_shown_every_page_the_window_has():
     """CLAUDE.md: what the window grew, the web grows in the same commit.
 
@@ -2020,6 +2057,17 @@ def test_the_phone_is_shown_every_page_the_window_has():
         monitor_var=_Var(False), counts=lambda: (1, 0),
         web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
                             "pill": None}])
+    # …and the four world pages (#1289), each a card of its own on the phone.
+    def _world(text, **extra):
+        return types.SimpleNamespace(
+            counts=lambda: (1, 0),
+            web_items=lambda: [{"text": text, "facts": [], "until": None}],
+            **extra)
+
+    tab.mines = _world("#1 X:2 Y:3", free_var=_Var(True))
+    tab.monsters = _world("#1 X:4 Y:5")
+    tab.trains = _world("#1 X:6 Y:7")
+    tab.trucks = _world("#1 X:8 Y:9")
 
     view = tab.web_view()
     cards = {c.get("title"): c for c in view["cards"]}
@@ -2035,6 +2083,19 @@ def test_the_phone_is_shown_every_page_the_window_has():
     assert cards["secrettasks.ghost.allies"]["items"][0]["text"] == "#6 X:7 Y:8"
     assert "secrettasks.ghost.map" in cards, cards
     assert cards["secrettasks.ghost.map"]["items"][0]["text"] == "#9 X:1 Y:1"
+    # …and the rest of the map, one card per window page (#1289). Readings, all four:
+    # gathering a mine, attacking a monster and robbing a truck are marches, and none
+    # of them is an ability yet — so the only presses here are the window's own box and
+    # the monster READ, which changes nothing in the game.
+    for title, where in (("world.mines", "#1 X:2 Y:3"),
+                         ("world.monsters", "#1 X:4 Y:5"),
+                         ("world.trains", "#1 X:6 Y:7"),
+                         ("world.trucks", "#1 X:8 Y:9")):
+        assert title in cards, cards
+        assert cards[title]["items"][0]["text"] == where
+    assert [a["id"] for a in cards["world.mines"]["actions"]] == ["mines_free"]
+    assert [a["id"] for a in cards["world.monsters"]["actions"]] == ["read_monsters"]
+    assert "actions" not in cards["world.trains"], cards["world.trains"]
     # EVERY BOX IS A BUTTON ON ITS OWN CARD (#1251) — a press has to say which list it
     # is about, exactly as the window's switches sit on their own pages.
     stars = {a["id"]: a["label"] for a in cards["secrettasks.page.stars"]["actions"]}
@@ -2189,6 +2250,7 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           counts=lambda: (0, 0))
+    _empty_world_pages(tab)
     item = [c for c in tab.web_view()["cards"] if c.get("items")][0]["items"][0]
     assert item["text"].startswith(gr.SHARED_GLYPH), item
     assert {"label": "secrettasks.shared_mark", "value": ""} in item["facts"], item
@@ -2457,7 +2519,8 @@ def test_the_display_rule_survived_the_robbery_rule_becoming_unconditional():
     assert "autoloot_skip_own_server" not in keys, keys
     # …and each page's own filters live under its own key, so one page's box can never
     # land in another's slot (#1251).
-    assert set(keys["grids"]) == {"alliance", "ghost", "ghost_allies", "ghost_map"}
+    assert set(keys["grids"]) == {"alliance", "ghost", "ghost_allies", "ghost_map",
+                                  "mines", "monsters", "trains", "trucks"}
     src = (Path(__file__).resolve().parents[1] /
            "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
     assert "hide_own_var" in src, "the display rule went with it"
@@ -2497,6 +2560,11 @@ def _config_stub():
     stub.ghost = _page("ghost")
     stub.ghost_allies = _page("ghost_allies")
     stub.ghost_map = _page("ghost_map")
+    # …and the four world pages (#1289), which keep settings of their own the same way.
+    stub.mines = _page("mines")
+    stub.monsters = _page("monsters")
+    stub.trains = _page("trains")
+    stub.trucks = _page("trucks")
     return stub
 
 

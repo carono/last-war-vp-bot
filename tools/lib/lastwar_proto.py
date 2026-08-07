@@ -1705,6 +1705,146 @@ def load_fresh_treasures(path, max_age_seconds: float = TASK_FRESH_SECONDS,
 # Position therefore has to be interpolated along the current leg — see
 # `Truck.position`.
 
+# --------------------------------------------------------------------------
+# Resource mines (`world.get.block` f2 = 7)
+# --------------------------------------------------------------------------
+#
+# The most common thing on the map by a wide margin — one recorded whole-server
+# lap at height 600 held 12 725 of them against 6 723 bases and 982 secret
+# tasks. The tile is tiny: everything is in the `f6` sub-message.
+#
+#     f6.f1   resource family * 100 + level, levels 1..10 (12 during a season)
+#     f6.f2   1 on all 12 725 mines of that lap — no meaning read off it yet
+#     f6.f3   the gathering activity's uuid, present only while it is taken
+#     f6.f8   the gathering player's uid        f6.f9   their server
+#     f6.f10  their alliance uuid
+#
+# The family → resource mapping was confirmed against the game screen by the
+# maintainer (docs/research/protocol.md, «Resource mines»); nothing on the wire
+# names them, so this table is a reading of the screen and not of the protocol.
+MINE_TILE_TYPE = 7
+
+#: `f6.f1 // 100` → what the mine yields. Families 0/1/2 are the ordinary three.
+#: A fourth family, 80, turned up FOUR times in the same lap (`8001`, `8004`,
+#: carrying an occupier under `f6.f7` instead of `f6.f8`) and is deliberately
+#: NOT named here: two tiles are not enough to say what a player sees on them,
+#: and a guessed name is worse than an honest «unknown» (see `Mine.resource`).
+MINE_RESOURCES = {0: "bread", 1: "iron", 2: "gold"}
+
+#: The stride the family and the level are packed with.
+MINE_FAMILY_STRIDE = 100
+
+
+def split_mine_value(value) -> tuple:
+    """`f6.f1` → `(family, level)`, or `(None, None)` when it is not a number."""
+    try:
+        packed = int(value)
+    except (TypeError, ValueError):
+        return None, None
+    family, level = divmod(packed, MINE_FAMILY_STRIDE)
+    return family, level
+
+
+@dataclass(slots=True)
+class Mine:
+    """One resource node on the world map, free or being gathered."""
+
+    point_id: int | None
+    server_id: int | None
+    x: int | None
+    y: int | None
+    family: int | None
+    level: int | None
+    #: The uid of whoever is gathering it, None while it is free.
+    owner_uid: str | None
+    owner_server: int | None
+    alliance_id: str | None
+    activity_uuid: int | None
+
+    @property
+    def resource(self) -> str | None:
+        """`"bread"` / `"iron"` / `"gold"`, or None for a family nobody has named."""
+        return MINE_RESOURCES.get(self.family)
+
+    @property
+    def free(self) -> bool:
+        """Nobody is gathering it — which is the only reason to march on one."""
+        return not self.owner_uid
+
+    @property
+    def uuid(self):
+        """What a list keys a mine BY, and it is the tile rather than an entity.
+
+        A mine carries no uuid of its own on the wire — `tools/dev/gather.py`
+        marches on one with `targetUuid = 0` — so the tile id is its identity.
+        Paired with the server, because a point id is only unique within one.
+        """
+        return "%s:%s" % (self.server_id, self.point_id)
+
+    def as_dict(self) -> dict:
+        return {
+            "uuid": self.uuid, "point_id": self.point_id,
+            "server_id": self.server_id, "x": self.x, "y": self.y,
+            "family": self.family, "level": self.level,
+            "resource": self.resource, "free": self.free,
+            "owner_uid": self.owner_uid, "owner_server": self.owner_server,
+            "alliance_id": self.alliance_id,
+            "activity_uuid": self.activity_uuid,
+        }
+
+
+def mines(payload: dict):
+    """Yield every resource mine in one decoded `world.get.block` response.
+
+    Coordinates come out **server-local**, exactly as in `secret_tasks()` and
+    `player_bases()` — the numbers the game shows on screen.
+    """
+    for block in payload.get("serverPointArr") or ():
+        area = block.get("maxAreaSize") or 1000
+        server = block.get("serverId")
+        for point in block.get("points") or ():
+            tile = (point or {}).get("_protobuf") or {}
+            if tile.get("f2") != MINE_TILE_TYPE:
+                continue
+            node = tile.get("f6") or {}
+            family, level = split_mine_value(node.get("f1"))
+            packed = tile.get("f1") or 0
+            # The fourth family parks its occupier one field over (`f6.f7.f1`),
+            # which is why the uid is read from both places rather than from
+            # the one the ordinary three use.
+            other = node.get("f7") if isinstance(node.get("f7"), dict) else {}
+            yield Mine(
+                point_id=packed or None,
+                server_id=tile.get("f102") or tile.get("f103") or server,
+                x=packed % area, y=packed // area,
+                family=family, level=level,
+                owner_uid=node.get("f8") or other.get("f1") or None,
+                owner_server=node.get("f9"),
+                alliance_id=node.get("f10"),
+                activity_uuid=node.get("f3") or other.get("f2"),
+            )
+
+
+def filter_mines(items, resource=None, level=None, free_only=False) -> list:
+    """Narrow a mine list. None/False means «any».
+
+    `resource` is a set of family names (`{"gold"}`) and/or family numbers, so a
+    caller can ask for the family the wire actually says as well as the one the
+    screen shows.
+    """
+    out = []
+    for mine in items:
+        if resource:
+            if mine.resource not in resource and mine.family not in resource:
+                continue
+        if level and mine.level not in level:
+            continue
+        if free_only and not mine.free:
+            continue
+        out.append(mine)
+    return out
+
+
 # `completeness` is exactly `1 - 0.25 * robTimes` on all 158 captured trucks
 # (110 at 0/1.0, 46 at 1/0.75, 2 at 2/0.5), so four robberies empty one. Three
 # and four were never observed, so the ceiling is read off the arithmetic
@@ -2096,6 +2236,130 @@ def filter_trucks(items, types=None, level=None, can_loot=False,
     # Fattest haul first, then least robbed — the order you would raid in.
     out.sort(key=lambda t: (-t.cargo, t.rob_times))
     return out
+
+
+# --------------------------------------------------------------------------
+# Alliance trains (`train.type` = 2)
+# --------------------------------------------------------------------------
+#
+# The OTHER thing that rides the truck shape, and `trucks()` deliberately skips
+# it: an alliance train belongs to no player and carries a `carriageList` of
+# seats where a truck has an escort squad. It is rare — 3 of the 1174 trains in
+# every recording on disk — because it runs as an alliance event rather than
+# all day, which is exactly why it wants a list of its own: one row a week is
+# a row nobody would find mixed into a hundred trucks.
+#
+# What one carries, over and above the march geometry the two share:
+#
+#     train.alliancename / .allianceId / .icon   whose train it is
+#     train.uid / .name                          the member who set it running
+#     train.seasonCfgId                          the season's train, not a tier
+#     train.completeness                         1.0 → nothing taken off it yet
+#     train.marchInfo.giftLv                     the reward tier it is at
+#     train.marchInfo.carriageList[]             the seats: `seatNum`,
+#         `passengerList[]` (uid, name, level, abbr), `trainGoods.full[]` and
+#         its `quality`, and `plunder[]` — who has robbed that carriage
+TRAIN_TYPE = 2
+
+
+@dataclass(slots=True)
+class Train:
+    """One alliance train, as the march stream describes it."""
+
+    uuid: int | None
+    march_uuid: int | None
+    server_id: int | None
+    owner_uid: str | None
+    owner_name: str | None
+    alliance_id: str | None
+    alliance_abbr: str | None
+    alliance_name: str | None
+    cfg_id: int | None
+    #: How full it still is — the game's own `completeness`, 1.0 down to 0.
+    completeness: float | None
+    gift_level: int | None
+    rob_times: int
+    seats: int
+    passengers: int
+    leg_from: tuple
+    leg_to: tuple
+    leg_start_ms: int | None
+    leg_end_ms: int | None
+    arrive_at: int | None
+
+    @property
+    def position(self) -> tuple:
+        """Where it is right now, interpolated along the leg it is on.
+
+        The same arithmetic `Truck.position` does, and for the same reason: the
+        server describes one hop at a time, so the tile it is standing on is
+        never a field — it is `leg_from` walked towards `leg_to` by however
+        much of the leg has elapsed.
+        """
+        start, end = self.leg_start_ms, self.leg_end_ms
+        if not start or not end or end <= start:
+            return self.leg_to
+        share = (game_clock.now_ms() - start) / float(end - start)
+        share = min(1.0, max(0.0, share))
+        return (int(round(self.leg_from[0] + (self.leg_to[0] - self.leg_from[0]) * share)),
+                int(round(self.leg_from[1] + (self.leg_to[1] - self.leg_from[1]) * share)))
+
+    def as_dict(self) -> dict:
+        x, y = self.position
+        return {
+            "uuid": self.uuid, "march_uuid": self.march_uuid,
+            "server_id": self.server_id, "owner_uid": self.owner_uid,
+            "owner_name": self.owner_name, "alliance_id": self.alliance_id,
+            "alliance_abbr": self.alliance_abbr,
+            "alliance_name": self.alliance_name, "cfg_id": self.cfg_id,
+            "completeness": self.completeness, "gift_level": self.gift_level,
+            "rob_times": self.rob_times, "seats": self.seats,
+            "passengers": self.passengers, "x": x, "y": y,
+            "leg_from": list(self.leg_from), "leg_to": list(self.leg_to),
+            "leg_start_ms": self.leg_start_ms, "leg_end_ms": self.leg_end_ms,
+            "arrive_at": self.arrive_at,
+        }
+
+
+def trains(payload: dict):
+    """Yield every ALLIANCE train in one decoded march response.
+
+    The mirror of `trucks()`, which skips exactly what this keeps. Coordinates
+    come out server-local, as everywhere else here.
+    """
+    for march in _iter_marches(payload):
+        if not isinstance(march, dict):
+            continue
+        train = march.get("train")
+        if not isinstance(train, dict) or train.get("type") != TRAIN_TYPE:
+            continue
+        info = (march.get("_proto") or {}).get("_protobuf") or {}
+        march_info = train.get("marchInfo") or {}
+        carriages = [c for c in march_info.get("carriageList") or ()
+                     if isinstance(c, dict)]
+        leg_from = _unpack_march_pos(info.get("f9")) or (0, 0)
+        leg_to = _unpack_march_pos(info.get("f10")) or leg_from
+        yield Train(
+            uuid=train.get("uuid"),
+            march_uuid=train.get("marchUid") or march.get("uuid"),
+            server_id=train.get("serverId") or info.get("f26"),
+            owner_uid=train.get("uid") or march.get("ownerUid"),
+            owner_name=info.get("f1") or train.get("name"),
+            alliance_id=train.get("allianceId"),
+            alliance_abbr=info.get("f34"),
+            alliance_name=train.get("alliancename"),
+            cfg_id=train.get("seasonCfgId") or train.get("cfgId"),
+            completeness=train.get("completeness"),
+            gift_level=march_info.get("giftLv"),
+            rob_times=march_info.get("robTimes") or 0,
+            seats=len(carriages),
+            passengers=sum(len(c.get("passengerList") or ()) for c in carriages),
+            leg_from=leg_from,
+            leg_to=leg_to,
+            leg_start_ms=info.get("f13"),
+            leg_end_ms=info.get("f14"),
+            arrive_at=train.get("arriveTime"),
+        )
 
 
 # --------------------------------------------------------------------------

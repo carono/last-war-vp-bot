@@ -104,6 +104,8 @@ from .autoloot import AutoLoot
 from .capture import Capture
 from .ghost import GhostAllianceGrid, GhostGrid, GhostMapGrid
 from .shared import SharedMarks
+from . import world
+from .world import MineGrid, MonsterGrid, TrainGrid, TruckGrid
 
 # The table itself — its columns, its colours, its sort keys and its countdown — is
 # `grid.py` now (#1244), because the tab draws it TWICE: once for the starred raid
@@ -492,6 +494,16 @@ class SecretTasksTab(PanelTab):
         # …and the OTHER sniffer (#1251): what a lap of the map found, which is the
         # only one of the three that sees other alliances at all.
         self.ghost_map = GhostMapGrid(self)
+        # THE REST OF THE MAP (#1289). Four more pages, three of them filled by the
+        # SECOND LISTENER — which lives inside the ★ capture's own child, because two
+        # npcap captures over one interface starve each other (044c19f) — and the
+        # fourth, the monsters, by a scenario, because nothing on the wire names one.
+        self.mines = MineGrid(self)
+        self.monsters = MonsterGrid(self)
+        self.trains = TrainGrid(self)
+        self.trucks = TruckGrid(self)
+        #: Whether the monster read is in flight — one game round trip at a time.
+        self._monster_busy = False
 
         # TWO SNIFFERS, TWO SWITCHES (#1251). The secret-task capture belongs to the ★
         # page and the ghost one to the map page; either may run while the other does
@@ -574,6 +586,12 @@ class SecretTasksTab(PanelTab):
         # …and the map page's own list, for the same reason: it is the panel's list, so
         # it survives the panel closing (#1251).
         self.ghost_map.restore()
+        # …and the MONSTER page's own list (#1289), which is the only one of the four
+        # that keeps a file: the other three come back out of the capture's own
+        # checkpoint a line below, and a monster read leaves nothing on disk behind it.
+        self.monsters.restore()
+        self.refresh_world()
+        self._read_monsters()
         self._start_clock_sync()
         self._start_ticking()
         self._state_sweep()
@@ -655,8 +673,7 @@ class SecretTasksTab(PanelTab):
         # The rows themselves carry words too («⭐×7», «готово через …»), and a heading
         # is only half the table. Every table, for the same reason.
         self._render()
-        for page in (self.alliance, self.ghost, self.ghost_allies,
-                     self.ghost_map):
+        for page in self._grid_pages():
             page.retranslate()
             page.render()
 
@@ -819,7 +836,8 @@ class SecretTasksTab(PanelTab):
         The ★ page's boxes are the tab's own variables (they predate the split and the
         profile spells them flat), so it is not in here; everything it saves is above.
         """
-        return (self.alliance, self.ghost, self.ghost_allies, self.ghost_map)
+        return (self.alliance, self.ghost, self.ghost_allies, self.ghost_map,
+                self.mines, self.monsters, self.trains, self.trucks)
 
     def persist_vars(self) -> list:
         pages = [v for page in self._grid_pages() for v in page.persist_vars()]
@@ -1008,6 +1026,12 @@ class SecretTasksTab(PanelTab):
         self._add_page(self.ghost.build(book), "secrettasks.page.ghost")
         self._add_page(self.ghost_allies.build(book), "secrettasks.page.ghost_allies")
         self._add_page(self.ghost_map.build(book), "secrettasks.page.ghost_map")
+        # …and the rest of the map, in the order a person reads it: the ground first,
+        # then what walks on it, then what drives over it (#1289).
+        self._add_page(self.mines.build(book), "world.page.mines")
+        self._add_page(self.monsters.build(book), "world.page.monsters")
+        self._add_page(self.trains.build(book), "world.page.trains")
+        self._add_page(self.trucks.build(book), "world.page.trucks")
         # Switching pages re-aims the strip below at whatever the new page has selected.
         book.bind("<<NotebookTabChanged>>", lambda _e: self.sync_actions())
 
@@ -2113,6 +2137,79 @@ class SecretTasksTab(PanelTab):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def refresh_world(self) -> None:
+        """Re-merge the world listener's checkpoint into the three pages it feeds.
+
+        A file read, no game and no server — the same shape `refresh_ghost_map` is, and
+        for the same reason: the capture child rewrites `world_map.json` every tick
+        while the map moves, so this is what turns a lap of the map into rows on
+        «Шахты», «Поезда» and «Грузовики».
+
+        The MONSTERS are not here. Nothing on the wire names one (#1289), so their page
+        is filled by :meth:`_read_monsters`, which plays a scenario against the client.
+        """
+        if not self.loaded:
+            return
+
+        def work() -> None:
+            try:
+                with open(self.rt.profiles.world_json(), encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except (OSError, ValueError):      # no capture has run yet, or a torn file
+                return
+            if not isinstance(data, dict):
+                return
+            rows = {
+                self.mines: world.mine_records(data.get("mines")),
+                self.trains: world.train_records(data.get("trains")),
+                self.trucks: world.truck_records(data.get("trucks")),
+            }
+            self.after(lambda: [page.apply(records)
+                                for page, records in rows.items()])
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _read_monsters(self) -> None:
+        """Play the monster read and merge what it found (#1289).
+
+        THE ONE LIST ON THIS TAB THAT IS NOT OFF THE WIRE. Monster placement is computed
+        client-side and never crosses the network — measured across pans, a full district
+        load, the login snapshot and a server switch (docs/research/protocol.md) — so the
+        only place the list exists is the client's own memory, and
+        `actions/read_world_monsters.md` is what reads it. The panel plays the scenario
+        and parses what it said; it assembles no Lua of its own (`CLAUDE.md`).
+
+        It follows that this read is as wide as the client's VIEW. A row merges into the
+        page and stays there under the same rule every list here follows, so walking the
+        map with «Обойти карту» and pressing «Обновить» along the way is how the page
+        fills up.
+        """
+        if not self.loaded or self._monster_busy:
+            return
+        self._monster_busy = True
+
+        def work() -> None:
+            text = ""
+            try:
+                if self.rt.game.ready():
+                    outcome = self.rt.actions.play("read_world_monsters",
+                                                   on_event=lambda _m: None)
+                    ctx = getattr(outcome, "ctx", None)
+                    raw = (getattr(ctx, "vars", {}) or {}).get("monsters")
+                    if outcome.ok and isinstance(raw, str):
+                        text = raw
+            except Exception:                  # noqa: BLE001 — a read, never the window
+                text = ""
+            records = world.parse_monsters(text, server=self._own_server or None)
+            self.after(lambda: self._monsters_landed(records))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _monsters_landed(self, records) -> None:
+        self._monster_busy = False
+        if records:
+            self.monsters.apply(records)
+
     def refresh_ghost_allies(self) -> None:
         """A push moved the alliance's ghost list: re-read it, locally, and redraw.
 
@@ -2180,6 +2277,11 @@ class SecretTasksTab(PanelTab):
         self._snapshot()
         self._roster()
         self._ghost()
+        # …and the monsters, which are the one list on this tab that no capture can
+        # fill: nothing on the wire names a monster (#1289), so «Обновить» is when the
+        # scenario that reads the client's own memory is played. The other three world
+        # pages ride `refresh` below, because they are a file read.
+        self._read_monsters()
 
     def refresh(self) -> None:
         """Merge the live capture checkpoint (the wire feed) into the list.
@@ -2192,6 +2294,10 @@ class SecretTasksTab(PanelTab):
         # capture is selected, re-merging its checkpoint is a file read, and this is
         # what turns a lap of the map into rows on the ghost-map page.
         self.refresh_ghost_map()
+        # …and the world listener's own checkpoint, on the same nudge and for the same
+        # reason: it is a file read, and it is what turns a lap of the map into rows on
+        # the mine, train and truck pages (#1289).
+        self.refresh_world()
         if self._busy:
             return
         self._busy = True
@@ -2804,7 +2910,37 @@ class SecretTasksTab(PanelTab):
                            "items": self.ghost_map.web_items(),
                            "rows": self._count_rows(self.ghost_map),
                            "empty": "secrettasks.ghost.map.empty",
-                           "actions": [self._ghost_monitor_action()]}],
+                           "actions": [self._ghost_monitor_action()]},
+                          # …and the rest of the map, one card per page, in the order
+                          # the window's notebook holds them (#1289). Readings only:
+                          # gathering a mine, attacking a monster and robbing a truck
+                          # are all marches, and none of them is an ability this
+                          # repository has yet — so there is nothing here to press but
+                          # the one display rule the window also has.
+                          {"title": "world.mines",
+                           "items": self.mines.web_items(),
+                           "rows": self._count_rows(self.mines),
+                           "empty": "world.mines.empty",
+                           "actions": [{"id": "mines_free",
+                                        "label": ("world.mines.show_taken"
+                                                  if self.mines.free_var.get()
+                                                  else "world.mines.free_only")}]},
+                          {"title": "world.monsters",
+                           "items": self.monsters.web_items(),
+                           "rows": self._count_rows(self.monsters),
+                           "empty": "world.monsters.empty",
+                           # The one card whose feed is a game read rather than the
+                           # sniffer, so it says so and offers the read itself.
+                           "actions": [{"id": "read_monsters",
+                                        "label": "world.monsters.read"}]},
+                          {"title": "world.trains",
+                           "items": self.trains.web_items(),
+                           "rows": self._count_rows(self.trains),
+                           "empty": "world.trains.empty"},
+                          {"title": "world.trucks",
+                           "items": self.trucks.web_items(),
+                           "rows": self._count_rows(self.trucks),
+                           "empty": "world.trucks.empty"}],
                 "now": now,
                 # What is left at the bottom is what belongs to the WHOLE tab.
                 #
@@ -2902,7 +3038,22 @@ class SecretTasksTab(PanelTab):
         if action == "refresh_state":
             self.post(self.refresh_state)
             return {"ok": True}
+        if action == "mines_free":
+            # «Только свободные» — the window's own box on the mine page (#1289), and a
+            # display rule like the two above: it hides rows and marches nowhere.
+            self.post(self._toggle_mines_free)
+            return {"ok": True}
+        if action == "read_monsters":
+            # The monster page's own feed. A READ — it presses nothing in the game —
+            # which is why it is a press the phone may make at all.
+            self.post(self._read_monsters)
+            return {"ok": True}
         return {"error": "unknown"}
+
+    def _toggle_mines_free(self) -> None:
+        """Flip «только свободные» through the very handler a finger goes through."""
+        self.mines.free_var.set(not self.mines.free_var.get())
+        self.mines.refilter()
 
     def _cycle_zoom(self) -> None:
         """Next zoom level, on the Tk thread — the phone's version of the window's box."""

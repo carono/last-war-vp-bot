@@ -161,6 +161,13 @@ class Capture:
             # stream; both record it now, into the same file, and appending twice is
             # what `share_marks` already deduplicates.
             cmd += ["--shared-json", self.rt.profiles.secret_shared_json()]
+            # …AND THE REST OF THE MAP, in this same child (#1289). Mines come off the
+            # very map responses this capture is already decoding, and trucks and
+            # alliance trains off the march stream it already hears; the only thing a
+            # separate capture would add is a second npcap reader on one interface,
+            # which starves both (044c19f). So the second listener is a flag, not a
+            # process — `tools/lib/world_index.py`.
+            cmd += ["--world-json", self.rt.profiles.world_json()]
         else:
             # THE GHOST CAPTURE NEEDS A CHECKPOINT TOO (#1251). It was launched without
             # one — «--json only for the secret-task capture» — so everything it found

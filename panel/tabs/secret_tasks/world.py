@@ -1,0 +1,752 @@
+"""The four world pages: mines, monsters, alliance trains and player trucks (#1289).
+
+The tab already draws five tables of things the map holds — the starred raids, the
+alliance's own dispatches, and the three ghost-recon lists. These are the rest of the
+map, and they are the same page machinery over different facts:
+
+* **«Шахты»** — every resource node the sniffer has seen, with what it yields, its level
+  and whether somebody is already gathering it. The most common thing on the map by a
+  wide margin: one recorded whole-server lap held 12 725 mine tiles against 6 723 bases.
+* **«Монстры»** — the one list that CANNOT come off the wire. Nothing in any message
+  names a monster (docs/research/protocol.md, «Monsters are not on the wire»), so this
+  page is filled by a scenario that reads the client's own memory,
+  `actions/read_world_monsters.md`, and is therefore as wide as the client's view rather
+  than as wide as the map.
+* **«Поезда»** — the alliance train, the rare one: three in every recording on disk,
+  because it runs as an event rather than all day.
+* **«Грузовики»** — the player trucks, which are not tiles either: they ride the march
+  stream, and their position has to be interpolated along the leg the server last
+  described.
+
+**Three of the four are fed by ONE capture and no new process.** Two npcap captures over
+one interface starve each other — measured live, `20 delivered / 0 map response(s)`
+against `5117 map response(s)` in the same minute (044c19f) — so the second listener
+lives INSIDE the first one's child (`tools/lib/world_index.py`, `--world-json`). What
+reaches this module is that child's checkpoint, exactly as `GhostMapGrid` reads the ghost
+one.
+
+**A row leaves by its own clock and nothing else** — the rule every list on this tab
+follows. For a truck and a train that clock is `arrive_at`, the moment the run ends and
+it leaves the map. A mine and a monster have no clock at all, and the honest substitute
+is the sighting's own age: a mine's occupancy changes under it, and a monster is drawn
+where the client last had it, so a record nobody has re-seen for
+:data:`SIGHTING_TTL_SEC` is not kept as if it were current. «Nobody has looked lately» is
+still said out loud in the state cell before it goes (`grid.state_text`).
+
+**And there is a cap on what is DRAWN, said out loud.** A lap of the map finds nine
+thousand mines; nine thousand rows is a table nobody reads and, worse, nine thousand Tk
+calls on the one event loop every open profile shares (#1226). So each page draws its
+best :data:`MAX_SHOWN` and counts the rest into «скрыто» beside the counter — the same
+number the level boxes are counted into, because a person seeing «показано 500 · скрыто
+8503» knows exactly what happened and one seeing «500» does not.
+"""
+from __future__ import annotations
+
+import json
+import time
+import tkinter as tk
+from tkinter import ttk
+
+from ...widgets import tk_stringvar
+from . import grid
+
+#: How long a sighting is drawn for once nothing re-confirms it. The capture's own
+#: freshness window (`lastwar_proto.TASK_FRESH_SECONDS`), so the panel and the child
+#: agree on what «current» means instead of one of them keeping what the other dropped.
+SIGHTING_TTL_SEC = 15 * 60
+
+#: How many rows a world page puts on its table. See the module docstring: the rest are
+#: counted into «скрыто», never dropped quietly.
+MAX_SHOWN = 500
+
+#: `lw_world_monster.type` — the split the player reads off the screen (#1281). 7 is the
+#: zombie line (Invading Zombies / Zombie Boss), 8 the Doom line («Роковая Элита»).
+MONSTER_TYPE_KEYS = {
+    7: "world.monster.type.zombie",
+    8: "world.monster.type.doom",
+}
+
+#: What a mine yields — `lastwar_proto.MINE_RESOURCES`, said in the person's language.
+#: A family nobody has named (the fourth one, four tiles in a whole lap) says so rather
+#: than being given an invented name.
+RESOURCE_KEYS = {
+    "bread": "world.mine.bread",
+    "iron": "world.mine.iron",
+    "gold": "world.mine.gold",
+}
+
+
+class _Text:
+    """A row's state cell where there is no countdown to draw in it.
+
+    `grid.new_row` wants something with `get`/`set`, and for the tables that DO count
+    down that is a Tk variable. A mine has no clock, and nine thousand Tk variables is a
+    real cost on the one event loop the open profiles share — so the pages without a
+    countdown hand in this instead. The same stand-in the grid tests use, for the same
+    reason: nothing here needs a Tk root.
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self) -> None:
+        self._value = ""
+
+    def get(self) -> str:
+        return self._value
+
+    def set(self, value) -> None:
+        self._value = str(value)
+
+
+def human_number(value) -> str:
+    """A cargo as a person reads it — «14.1M», not «14094000».
+
+    A pure numeric format and therefore one of the few things on this tab that may be a
+    literal (`CLAUDE.md`): there is no word in it to translate, and the suffixes are the
+    ones the game itself prints beside a resource.
+    """
+    number = float(value or 0)
+    for suffix in ("", "K", "M", "B"):
+        if abs(number) < 1000 or suffix == "B":
+            return ("%d%s" % (number, suffix) if suffix == ""
+                    else "%.1f%s" % (number, suffix))
+        number /= 1000.0
+    return str(int(value or 0))
+
+
+def _coords(row) -> str:
+    import coords as coords_fmt
+    return coords_fmt.fmt(row.get("x"), row.get("y"))
+
+
+class WorldGrid(grid.TaskGrid):
+    """One world page: a merged, capped, self-ageing list of one kind of thing."""
+
+    #: The key under `world.json` this page reads, or "" when it is not fed by the
+    #: capture at all (the monster page, whose feed is a scenario).
+    SOURCE = ""
+
+    #: Whether rows on this page have a clock of their own. False means they age out on
+    #: the sighting instead — see the module docstring.
+    HAS_CLOCK = False
+
+    def __init__(self, tab) -> None:
+        super().__init__(tab)
+        # What the last merge said, so the count line can be drawn before the page has
+        # ever been opened (`build` runs on first LOOK, not when the page is made).
+        self._last_seen = 0.0
+
+    # -- the row's own clock ------------------------------------------------
+    def new_timer(self):
+        return tk_stringvar(self.tab.rt.root) if self.HAS_CLOCK else _Text()
+
+    def has_countdown(self) -> bool:
+        """Only the two vehicle pages ever count down; the other two never repaint."""
+        return self.HAS_CLOCK and super().has_countdown()
+
+    # -- merging, never replacing -------------------------------------------
+    def apply(self, records) -> None:
+        """MERGE what a read said into this page's own list.
+
+        The same rule «Призрак: карта» follows and for the same reason: every source
+        here is partial. A lap of the map shows the ground it drove over, and a monster
+        read shows what the client had drawn — replacing the table with the last answer
+        would make it blink out and back on every tick.
+        """
+        for record in records or ():
+            key = str(record.get("uuid") or "")
+            if not key:
+                continue
+            row = self._rows.get(key)
+            if row is None:
+                row = grid.new_row(record, self.new_timer())
+            else:
+                self.update_row(row, record)
+            self.decorate(row, record)
+            self._rows[key] = row
+        self.render()
+        self.persist()
+
+    def update_row(self, row, record) -> None:
+        """A record we already had, said again: everything about it may have moved."""
+        row["x"], row["y"] = record.get("x"), record.get("y")
+        row["server"] = record.get("server")
+        row["level"] = record.get("level")
+        row["expires_at"] = record.get("expires_at")
+        row["completed_at"] = record.get("completed_at")
+
+    def decorate(self, row, record) -> None:
+        """The facts this page's own columns are drawn from."""
+        row["seen_at"] = record.get("seen_at")
+        row["state_key"] = self.state_key(row, record)
+
+    def state_key(self, row, record) -> str:
+        """The words in the state cell of a row with no countdown."""
+        return ""
+
+    # -- ageing out ---------------------------------------------------------
+    def tick(self) -> None:
+        """The per-second pass: the shared one, plus dropping stale sightings.
+
+        A page with a clock leaves the dropping to `grid.refresh_timers` — a truck's
+        `arrive_at` IS its deadline. A page without one drops on the age of the sighting,
+        which is the only deadline a mine or a monster has.
+        """
+        if not self.HAS_CLOCK:
+            self._drop_stale()
+        super().tick()
+
+    def _drop_stale(self) -> None:
+        cutoff = time.time() - SIGHTING_TTL_SEC
+        stale = [key for key, row in self._rows.items()
+                 if float(row.get("seen_at") or 0) < cutoff]
+        for key in stale:
+            self._rows.pop(key, None)
+
+    # -- what is drawn ------------------------------------------------------
+    def rank(self, row) -> tuple:
+        """Which rows survive the display cap. The freshest, by default."""
+        return (-float(row.get("seen_at") or 0), str(row.get("uuid") or ""))
+
+    def visible_rows(self) -> list:
+        rows = super().visible_rows()
+        if len(rows) <= MAX_SHOWN:
+            return rows
+        return sorted(rows, key=self.rank)[:MAX_SHOWN]
+
+    def collectable(self, row) -> bool:
+        """Nothing on these pages is collected — they are readings and a camera.
+
+        A mine is gathered with a squad, a monster is attacked with one and a truck is
+        robbed with one; all three are marches, and none of them is an ability this
+        repository has yet. When one arrives it will be a scenario, and the button will
+        appear here and on the phone in the same commit (`CLAUDE.md`).
+        """
+        return False
+
+    def persist(self) -> None:
+        """Checkpoint this page's own list, whole — the pattern every list here uses."""
+        from ...profile import _write_json
+        path = self.state_path()
+        if not path:
+            return
+        try:
+            _write_json(path, [{k: row.get(k) for k in self.PERSIST_KEYS}
+                               for row in self._rows.values()])
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    #: What survives a restart. Everything the columns are drawn from, and the sighting
+    #: time the ageing is judged on.
+    PERSIST_KEYS = ("uuid", "server", "x", "y", "level", "seen_at",
+                    "expires_at", "completed_at", "until_key")
+
+    def state_path(self) -> str:
+        """Where this page's own list is checkpointed, or "" for «it already is».
+
+        EMPTY FOR THREE OF THE FOUR PAGES, and that is the point. The mine, truck and
+        train lists come out of the capture's own checkpoint, which is written every
+        tick and survives a restart by itself — a second copy of five thousand mines,
+        rewritten on every nudge, is a megabyte of disk per finding and nothing gained.
+        The MONSTER page overrides it, because nothing else on disk remembers what a
+        read of the client found.
+        """
+        return ""
+
+    def restore(self) -> None:
+        """Read the page's own list back — what the last session had gathered."""
+        path = self.state_path()
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                records = json.load(fh)
+        except (OSError, ValueError):
+            return
+        if not isinstance(records, list):
+            return
+        cutoff = time.time() - SIGHTING_TTL_SEC
+        alive = [r for r in records if isinstance(r, dict) and r.get("uuid")
+                 and float(r.get("seen_at") or 0) >= cutoff]
+        if alive:
+            self.apply(alive)
+
+    # -- the phone ----------------------------------------------------------
+    def web_items(self) -> list:
+        """The page's rows as the phone's card items — a reading, like the window's."""
+        import coords
+
+        items = []
+        for row in grid.sort_rows(self.visible_rows(), self._sort, self.SORT_KEYS):
+            exp = row.get("expires_at")
+            items.append({
+                "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
+                "facts": self.web_facts(row),
+                "until": (exp / 1000.0) if exp else None,
+            })
+        return items
+
+    def web_facts(self, row) -> list:
+        """The row's own facts on the phone — the window's columns, one per line."""
+        return [{"label": "secrettasks.col.level",
+                 "value": str(int(row.get("level") or 0))}]
+
+
+# ---------------------------------------------------------------------------
+# Mines
+# ---------------------------------------------------------------------------
+class MineGrid(WorldGrid):
+    """Every resource node the sniffer has seen: what it yields, and who has it."""
+
+    CONFIG_KEY = "mines"
+    SOURCE = "mines"
+    TITLE_KEY = "world.mines"
+    HINT_KEY = "world.mines.hint"
+    EMPTY_KEY = "world.mines.empty"
+
+    COLUMNS = (
+        ("coords", "secrettasks.col.coords", 150, "w", False),
+        ("server", "secrettasks.col.server", 90, "w", False),
+        ("kind", "world.col.resource", 120, "w", False),
+        ("lvl", "secrettasks.col.level", 80, "w", False),
+        ("state", "secrettasks.col.state", 220, "w", True),
+        ("owner", "world.col.taken_by", 170, "w", False),
+    )
+    SORT_KEYS = {
+        "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), str(r["uuid"])),
+        "server": lambda r: (int(r["server"] or 0), str(r["uuid"])),
+        "kind": lambda r: (str(r.get("resource") or ""), str(r["uuid"])),
+        "lvl": lambda r: (int(r["level"] or 0), str(r["uuid"])),
+        "state": lambda r: (0 if r.get("free") else 1, str(r["uuid"])),
+        "owner": lambda r: (str(r.get("owner_uid") or ""), str(r["uuid"])),
+    }
+    PERSIST_KEYS = WorldGrid.PERSIST_KEYS + ("resource", "family", "free",
+                                             "owner_uid", "alliance_id")
+
+    def __init__(self, tab) -> None:
+        super().__init__(tab)
+        #: «только свободные» — ON for a profile that has never been asked. A mine
+        #: somebody is already gathering cannot be marched on, and nine tiles in ten are
+        #: free anyway, so the box is what brings the taken ones back rather than what
+        #: hides them.
+        self.free_var = tk.BooleanVar(master=tab.rt.root, value=True)
+
+    def extra_filters(self, bar) -> None:
+        self.tab.tr(ttk.Checkbutton(bar, variable=self.free_var,
+                                    command=self.refilter),
+                    "world.mines.free_only").pack(side="left", padx=(16, 0))
+
+    def narrow(self, rows) -> list:
+        return [r for r in rows if r.get("free")] if self.free_var.get() else rows
+
+    def config(self) -> dict:
+        return dict(super().config(), free_only=bool(self.free_var.get()))
+
+    def apply_config(self, raw) -> None:
+        super().apply_config(raw)
+        raw = raw if isinstance(raw, dict) else {}
+        self.free_var.set(bool(raw.get("free_only", True)))
+
+    def persist_vars(self) -> list:
+        return super().persist_vars() + [self.free_var]
+
+    def decorate(self, row, record) -> None:
+        super().decorate(row, record)
+        row["resource"] = record.get("resource")
+        row["family"] = record.get("family")
+        row["free"] = bool(record.get("free"))
+        row["owner_uid"] = record.get("owner_uid")
+        row["alliance_id"] = record.get("alliance_id")
+
+    def state_key(self, row, record) -> str:
+        return "world.mine.free" if record.get("free") else "world.mine.taken"
+
+    def rank(self, row) -> tuple:
+        """The best mine first when the cap bites: the highest level, then the freshest."""
+        return (-int(row.get("level") or 0), -float(row.get("seen_at") or 0),
+                str(row.get("uuid") or ""))
+
+    def resource_text(self, row) -> str:
+        key = RESOURCE_KEYS.get(row.get("resource"))
+        if key:
+            return self.tab.t(key)
+        # A family the screen has never been checked against: say WHICH one rather than
+        # invent a name for it (`lastwar_proto.MINE_RESOURCES`).
+        return self.tab.t("world.mine.unknown", family=int(row.get("family") or 0))
+
+    def row_values(self, row) -> tuple:
+        return (_coords(row),
+                self.tab.t("secrettasks.server", srv=row.get("server")),
+                self.resource_text(row),
+                str(int(row.get("level") or 0)),
+                row["timer"].get(),
+                row.get("owner_uid") or "")
+
+    def web_facts(self, row) -> list:
+        return [{"label": "world.col.resource", "value": self.resource_text(row)},
+                {"label": "secrettasks.col.level",
+                 "value": str(int(row.get("level") or 0))},
+                {"label": "secrettasks.col.state",
+                 "value": self.tab.t(row.get("state_key") or "world.mine.free")}]
+
+
+# ---------------------------------------------------------------------------
+# Monsters
+# ---------------------------------------------------------------------------
+class MonsterGrid(WorldGrid):
+    """What the client can see standing on the map — the only list not off the wire."""
+
+    CONFIG_KEY = "monsters"
+    SOURCE = ""                     # a scenario fills this one, not the capture
+    TITLE_KEY = "world.monsters"
+    HINT_KEY = "world.monsters.hint"
+    EMPTY_KEY = "world.monsters.empty"
+
+    COLUMNS = (
+        ("coords", "secrettasks.col.coords", 150, "w", False),
+        ("server", "secrettasks.col.server", 90, "w", False),
+        ("kind", "world.col.species", 190, "w", False),
+        ("lvl", "secrettasks.col.level", 80, "w", False),
+        ("state", "secrettasks.col.state", 220, "w", True),
+    )
+    SORT_KEYS = {
+        "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), str(r["uuid"])),
+        "server": lambda r: (int(r["server"] or 0), str(r["uuid"])),
+        "kind": lambda r: (int(r.get("monster_type") or 0), str(r["uuid"])),
+        "lvl": lambda r: (int(r["level"] or 0), str(r["uuid"])),
+        "state": lambda r: (str(r.get("source") or ""), str(r["uuid"])),
+    }
+    PERSIST_KEYS = WorldGrid.PERSIST_KEYS + ("monster_type", "kind_name",
+                                             "cfg_id", "source", "point_id")
+
+    def state_path(self) -> str:
+        """THE ONE PAGE THAT KEEPS ITS OWN LIST — nothing else on disk holds it.
+
+        The other three are re-read from the capture's checkpoint; a monster read leaves
+        no file behind it, so without this the page would be empty every time the panel
+        started and would stay empty until somebody pressed «Обновить» beside a map with
+        monsters on it.
+        """
+        return self.tab.rt.profiles.world_state_json(self.CONFIG_KEY)
+
+    def decorate(self, row, record) -> None:
+        super().decorate(row, record)
+        row["monster_type"] = record.get("monster_type")
+        row["kind_name"] = record.get("kind_name") or ""
+        row["cfg_id"] = record.get("cfg_id")
+        row["source"] = record.get("source")
+        row["point_id"] = record.get("point_id")
+
+    def state_key(self, row, record) -> str:
+        return ("world.monster.src.invasion" if record.get("source") == "invasion"
+                else "world.monster.src.scene")
+
+    def rank(self, row) -> tuple:
+        """The highest level first — the one worth a rally is the one worth showing."""
+        return (-int(row.get("level") or 0), -float(row.get("seen_at") or 0),
+                str(row.get("uuid") or ""))
+
+    def species_text(self, row) -> str:
+        """What KIND of monster this is: the game's own word where it answered.
+
+        `lw_world_monster.type` is the split the player reads off the screen — 7 the
+        zombie line, 8 the Doom line — and it is only answerable for a row that carried
+        a config id. One that did not falls back to the drawn object's own name, which
+        is all a roaming monster says about itself before it is selected.
+        """
+        key = MONSTER_TYPE_KEYS.get(int(row.get("monster_type") or 0))
+        if key:
+            return self.tab.t(key)
+        name = row.get("kind_name") or ""
+        return name or self.tab.t("world.monster.type.unknown")
+
+    def row_values(self, row) -> tuple:
+        return (_coords(row),
+                self.tab.t("secrettasks.server", srv=row.get("server")),
+                self.species_text(row),
+                str(int(row.get("level") or 0)),
+                row["timer"].get())
+
+    def web_facts(self, row) -> list:
+        return [{"label": "world.col.species", "value": self.species_text(row)},
+                {"label": "secrettasks.col.level",
+                 "value": str(int(row.get("level") or 0))},
+                {"label": "secrettasks.col.state",
+                 "value": self.tab.t(row.get("state_key")
+                                     or "world.monster.src.scene")}]
+
+
+# ---------------------------------------------------------------------------
+# Trucks and trains — the two that ride the march stream
+# ---------------------------------------------------------------------------
+class _VehicleGrid(WorldGrid):
+    """What a truck and a train share: a leg, an arrival, and an owner."""
+
+    HAS_CLOCK = True
+    PERSIST_KEYS = WorldGrid.PERSIST_KEYS + ("owner_name", "alliance_abbr")
+
+    #: What these two count down TO. Not «готово через …» — there is nothing here to
+    #: press when the clock runs out; the vehicle simply reaches its stop and leaves the
+    #: map, which is also when the row goes.
+    UNTIL_KEY = "world.vehicle.arrives"
+
+    def decorate(self, row, record) -> None:
+        super().decorate(row, record)
+        row["until_key"] = self.UNTIL_KEY
+        row["owner_name"] = record.get("owner_name") or ""
+        row["alliance_abbr"] = record.get("alliance_abbr") or ""
+
+    def update_row(self, row, record) -> None:
+        super().update_row(row, record)
+        row["owner_name"] = record.get("owner_name") or ""
+
+    def rank(self, row) -> tuple:
+        return (row.get("expires_at") or float("inf"), str(row.get("uuid") or ""))
+
+
+class TruckGrid(_VehicleGrid):
+    """The player trucks — where each one is now, how full, and how long it is out."""
+
+    CONFIG_KEY = "trucks"
+    SOURCE = "trucks"
+    TITLE_KEY = "world.trucks"
+    HINT_KEY = "world.trucks.hint"
+    EMPTY_KEY = "world.trucks.empty"
+
+    COLUMNS = (
+        ("owner", "secrettasks.col.owner", 150, "w", False),
+        ("coords", "secrettasks.col.coords", 150, "w", False),
+        ("server", "secrettasks.col.server", 90, "w", False),
+        ("kind", "world.col.tier", 120, "w", False),
+        ("state", "secrettasks.col.state", 200, "w", True),
+        ("cargo", "world.col.cargo", 110, "center", False),
+        ("robs", "world.col.robs", 90, "center", False),
+    )
+    SORT_KEYS = {
+        "owner": lambda r: ((r.get("owner_name") or "").lower(), str(r["uuid"])),
+        "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), str(r["uuid"])),
+        "server": lambda r: (int(r["server"] or 0), str(r["uuid"])),
+        "kind": lambda r: (str(r.get("tier") or ""), int(r["level"] or 0),
+                           str(r["uuid"])),
+        "state": lambda r: (r.get("expires_at") or 0, str(r["uuid"])),
+        "cargo": lambda r: (int(r.get("cargo") or 0), str(r["uuid"])),
+        "robs": lambda r: (int(r.get("rob_times") or 0), str(r["uuid"])),
+    }
+    PERSIST_KEYS = _VehicleGrid.PERSIST_KEYS + ("tier", "tier_name", "cargo",
+                                                "rob_times", "free_robs")
+
+    def decorate(self, row, record) -> None:
+        super().decorate(row, record)
+        row["tier"] = record.get("tier")
+        row["tier_name"] = record.get("tier_name") or ""
+        row["cargo"] = record.get("cargo") or 0
+        row["rob_times"] = record.get("rob_times") or 0
+        row["free_robs"] = record.get("free_robs")
+
+    def update_row(self, row, record) -> None:
+        super().update_row(row, record)
+        row["cargo"] = record.get("cargo") or 0
+        row["rob_times"] = record.get("rob_times") or 0
+
+    def rank(self, row) -> tuple:
+        """The fattest haul first — the raid order `filter_trucks` already prizes."""
+        return (-int(row.get("cargo") or 0), int(row.get("rob_times") or 0),
+                str(row.get("uuid") or ""))
+
+    def tier_text(self, row) -> str:
+        """«ур. N, <grade>» — and the grade names have never been checked by eye.
+
+        `lastwar_proto.TRUCK_TIER_NAMES` is an inference from the cargo ordering: what
+        the evidence establishes is the ORDER, not which colour the client paints each
+        rank. So the tier number is said as well as its name, and the number is the part
+        to trust.
+        """
+        name = str(row.get("tier_name") or row.get("tier") or "")
+        return self.tab.t("world.truck.tier", level=int(row.get("level") or 0),
+                          tier=name)
+
+    def row_values(self, row) -> tuple:
+        return (row.get("owner_name") or "",
+                _coords(row),
+                self.tab.t("secrettasks.server", srv=row.get("server")),
+                self.tier_text(row),
+                row["timer"].get(),
+                human_number(row.get("cargo")),
+                "%d/%d" % (int(row.get("rob_times") or 0), 4))
+
+    def web_facts(self, row) -> list:
+        return [{"label": "world.col.tier", "value": self.tier_text(row)},
+                {"label": "world.col.cargo",
+                 "value": human_number(row.get("cargo"))},
+                {"label": "world.col.robs",
+                 "value": "%d/%d" % (int(row.get("rob_times") or 0), 4)}]
+
+
+class TrainGrid(_VehicleGrid):
+    """The alliance train — whose it is, how many are aboard, and when it arrives."""
+
+    CONFIG_KEY = "trains"
+    SOURCE = "trains"
+    TITLE_KEY = "world.trains"
+    HINT_KEY = "world.trains.hint"
+    EMPTY_KEY = "world.trains.empty"
+
+    COLUMNS = (
+        ("owner", "world.col.alliance", 170, "w", False),
+        ("coords", "secrettasks.col.coords", 150, "w", False),
+        ("server", "secrettasks.col.server", 90, "w", False),
+        ("kind", "world.col.carriages", 130, "w", False),
+        ("state", "secrettasks.col.state", 200, "w", True),
+        ("cargo", "world.col.fullness", 110, "center", False),
+    )
+    SORT_KEYS = {
+        "owner": lambda r: ((r.get("alliance_abbr") or "").lower(), str(r["uuid"])),
+        "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), str(r["uuid"])),
+        "server": lambda r: (int(r["server"] or 0), str(r["uuid"])),
+        "kind": lambda r: (int(r.get("passengers") or 0), str(r["uuid"])),
+        "state": lambda r: (r.get("expires_at") or 0, str(r["uuid"])),
+        "cargo": lambda r: (float(r.get("completeness") or 0), str(r["uuid"])),
+    }
+    PERSIST_KEYS = _VehicleGrid.PERSIST_KEYS + ("alliance_name", "seats",
+                                                "passengers", "completeness",
+                                                "gift_level", "rob_times")
+
+    def decorate(self, row, record) -> None:
+        super().decorate(row, record)
+        row["alliance_name"] = record.get("alliance_name") or ""
+        row["seats"] = record.get("seats") or 0
+        row["passengers"] = record.get("passengers") or 0
+        row["completeness"] = record.get("completeness")
+        row["gift_level"] = record.get("gift_level")
+        row["rob_times"] = record.get("rob_times") or 0
+
+    def update_row(self, row, record) -> None:
+        super().update_row(row, record)
+        row["completeness"] = record.get("completeness")
+        row["rob_times"] = record.get("rob_times") or 0
+
+    def fullness_text(self, row) -> str:
+        """How much of it is still aboard — the game's own `completeness`, as a percent."""
+        share = row.get("completeness")
+        if share is None:
+            return ""
+        return "%d%%" % int(round(float(share) * 100))
+
+    def row_values(self, row) -> tuple:
+        return (row.get("alliance_abbr") or row.get("alliance_name") or "",
+                _coords(row),
+                self.tab.t("secrettasks.server", srv=row.get("server")),
+                self.tab.t("world.train.carriages",
+                           seats=int(row.get("seats") or 0),
+                           people=int(row.get("passengers") or 0)),
+                row["timer"].get(),
+                self.fullness_text(row))
+
+    def web_facts(self, row) -> list:
+        return [{"label": "world.col.alliance",
+                 "value": row.get("alliance_name") or row.get("alliance_abbr") or ""},
+                {"label": "world.col.carriages",
+                 "value": self.tab.t("world.train.carriages",
+                                     seats=int(row.get("seats") or 0),
+                                     people=int(row.get("passengers") or 0))},
+                {"label": "world.col.fullness", "value": self.fullness_text(row)}]
+
+
+# ---------------------------------------------------------------------------
+# Turning what the sources say into what a row is made of
+# ---------------------------------------------------------------------------
+def mine_records(raw) -> list:
+    """The world checkpoint's mines, in the shape a row is built from."""
+    out = []
+    for item in raw or ():
+        if not isinstance(item, dict):
+            continue
+        out.append({"uuid": item.get("uuid"), "server": item.get("server_id"),
+                    "x": item.get("x"), "y": item.get("y"),
+                    "level": item.get("level"), "resource": item.get("resource"),
+                    "family": item.get("family"), "free": bool(item.get("free")),
+                    "owner_uid": item.get("owner_uid"),
+                    "alliance_id": item.get("alliance_id"),
+                    "seen_at": item.get("seen_at")})
+    return out
+
+
+def truck_records(raw) -> list:
+    """…and its trucks. `arrive_at` becomes the row's own deadline (`expires_at`)."""
+    out = []
+    for item in raw or ():
+        if not isinstance(item, dict):
+            continue
+        out.append({"uuid": item.get("uuid"), "server": item.get("server_id"),
+                    "x": item.get("x"), "y": item.get("y"),
+                    "level": item.get("level"), "tier": item.get("tier"),
+                    "tier_name": item.get("tier_name"),
+                    "owner_name": item.get("owner_name"),
+                    "alliance_abbr": item.get("alliance_abbr"),
+                    "cargo": item.get("cargo"),
+                    "rob_times": item.get("rob_times"),
+                    "free_robs": item.get("free_robs"),
+                    "expires_at": item.get("arrive_at"),
+                    "seen_at": item.get("seen_at")})
+    return out
+
+
+def train_records(raw) -> list:
+    """…and its alliance trains."""
+    out = []
+    for item in raw or ():
+        if not isinstance(item, dict):
+            continue
+        out.append({"uuid": item.get("uuid"), "server": item.get("server_id"),
+                    "x": item.get("x"), "y": item.get("y"),
+                    "owner_name": item.get("owner_name"),
+                    "alliance_abbr": item.get("alliance_abbr"),
+                    "alliance_name": item.get("alliance_name"),
+                    "seats": item.get("seats"),
+                    "passengers": item.get("passengers"),
+                    "completeness": item.get("completeness"),
+                    "gift_level": item.get("gift_level"),
+                    "rob_times": item.get("rob_times"),
+                    "expires_at": item.get("arrive_at"),
+                    "seen_at": item.get("seen_at")})
+    return out
+
+
+def parse_monsters(text, server=None, now=None) -> list:
+    """`actions/read_world_monsters.md`'s one variable, as records.
+
+    The scenario answers with records separated by « | », each a run of `key=value`
+    pairs (its own docstring has the shape). Parsed here rather than in the tab for the
+    reason every parser on this tab is a plain function: it is testable without a Tk
+    root, and it is where a change in the scenario's wording is noticed.
+
+    A row is keyed by its TILE and its server, because a drawn monster carries no uuid
+    until it is selected — the same identity a mine has, and for the same reason.
+    """
+    now = time.time() if now is None else now
+    out = []
+    for chunk in str(text or "").split("|"):
+        fields = {}
+        for token in chunk.split():
+            name, _, value = token.partition("=")
+            if _:
+                fields[name] = value
+        pid = fields.get("pid")
+        if not pid or not pid.isdigit():
+            continue
+        def number(name):
+            raw = fields.get(name) or ""
+            return int(raw) if raw.lstrip("-").isdigit() else 0
+        out.append({
+            "uuid": "%s:%s" % (server or 0, pid),
+            "point_id": int(pid),
+            "server": server,
+            "x": number("x"), "y": number("y"),
+            "level": number("level"),
+            "monster_type": number("type"),
+            "cfg_id": number("cfg") or None,
+            "kind_name": fields.get("kind") or "",
+            "source": fields.get("src") or "scene",
+            "seen_at": int(now),
+        })
+    return out
