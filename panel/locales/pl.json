@@ -262,6 +262,7 @@
   "log.rally.listening": "słucham rajdów — tylko powiadomienie i dołączanie, bez archiwum",
   "log.rally.started": "monitor rajdów uruchomiony → {path}",
   "log.rally.stopped": "monitor zatrzymany",
+  "log.secret.cfg_reranked": "konfiguracja gry poprawiła poziom lub gwiazdkę na {n} polu/polach, które przechwytywanie zgadywało",
   "log.secret.ended": "strumień monitora się zakończył",
   "log.secret.seed_server": "serwer wzięty z gry: {srv}",
   "log.secret.started": "przechwytywanie działa (pid {pid}); jego wyjście idzie do dziennika",

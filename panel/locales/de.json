@@ -262,6 +262,7 @@
   "log.rally.listening": "höre auf Versammlungen — nur Hinweis und Selbstbeitritt, kein Archiv",
   "log.rally.started": "Versammlungs-Überwachung gestartet → {path}",
   "log.rally.stopped": "Überwachung gestoppt",
+  "log.secret.cfg_reranked": "die Spielkonfiguration hat Stufe oder Stern bei {n} Feld(ern) korrigiert, die der Mitschnitt geraten hatte",
   "log.secret.ended": "der Strom der Überwachung ist zu Ende",
   "log.secret.seed_server": "Server aus dem Spiel übernommen: {srv}",
   "log.secret.started": "die Aufzeichnung läuft (pid {pid}); ihre Ausgabe geht ins Protokoll",

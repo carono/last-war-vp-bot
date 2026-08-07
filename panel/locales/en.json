@@ -262,6 +262,7 @@
   "log.rally.listening": "listening for rallies — alert and auto-join only, no archive written",
   "log.rally.started": "rally monitor started → {path}",
   "log.rally.stopped": "monitor stopped",
+  "log.secret.cfg_reranked": "the game's own config corrected {n} tile(s) the capture had guessed the level or the star of",
   "log.secret.ended": "the monitor's stream has ended",
   "log.secret.seed_server": "server taken from the game: {srv}",
   "log.secret.started": "the capture is running (pid {pid}); its output goes to the log",

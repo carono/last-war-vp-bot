@@ -432,7 +432,19 @@ local is_special = tonumber(row:getValue("is_special"))
 raises «attempt to index a function value». The path was read out of the bytecode of
 `ActDispatchTaskDataManager:UpdateOneAllianceTask` (`string.dump`, then its string
 constants in order), which is the method that attaches `cfg` to a task in the first
-place.
+place. It is `lua_actions.dispatch_task_cfg_rank` now, and a template the client has no
+row for answers `lvl=0 spec=0` — which `proto.task_rank` already reads as «the config
+said nothing», so an unknown id degrades to the digits rather than to «not starred».
+
+**That closes the hole this file used to describe as unclosable.** Up to #1188 the
+capture's star was final for every tile that reached the list off the wire, because «a
+pcap has no client in it to ask» — true of the capture CHILD, and not true of the two
+places that CHOOSE a raid, both of which have a live client. `steal_secret_task.apply_cfg_rank`
+re-asks every distinct template on a checkpoint in one round trip, and both callers use
+it: `targets_from_scan` before it selects, and the panel's `_fetch_scan` before the
+findings reach the list (off the Tk thread, so the window pays nothing). Live, on a
+list of three: `60009903` came back level 7 / not special, where the checkpoint had it
+at level 99 and starred.
 
 Read live while accepting #1188, and it settles the #1267 example from the other side:
 

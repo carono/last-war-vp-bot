@@ -180,9 +180,60 @@ def _label(task) -> str:
                task.level, task.loot_count))
 
 
+def apply_cfg_rank(ev, tasks, say=print) -> int:
+    """Re-rank checkpoint tasks against the CLIENT'S OWN config row. Returns how many.
+
+    A capture decodes a pcap in a child process with no game in it, so the `starred` and
+    `level` it writes into the checkpoint are the cfgId's digits — the documented
+    fallback (`proto.starred_by_digits`). That is the right answer for a decoder and the
+    WRONG one for the thing that spends one of five raids a day: the digits call a
+    `60009903` template «level 99, starred» where the game calls it «level 7, not
+    starred» (#1267), and a raid spent on a tile that is not a star does not fail, it
+    just goes (#1099).
+
+    We are not that child. Anything selecting a target here has a live client one round
+    trip away, so it asks: one chunk for every DISTINCT template on the list — a handful,
+    not one per tile — and `proto.task_rank` then applies the same precedence it applies
+    to the VM feed. A template the client cannot answer for comes back `0/0`, which that
+    function already reads as «the config said nothing» and answers from the digits, so
+    an unknown id is exactly as good (and as bad) as it was before.
+    """
+    sys.path.insert(0, os.path.join(_HERE, "lib"))
+    import lastwar_proto as proto
+    import lua_actions
+
+    ids = sorted({int(t.cfg_id) for t in tasks if t.cfg_id})
+    if not ids or ev is None:
+        return 0
+    ranks: dict[int, tuple[int, int]] = {}
+    for line in ev.run(lua_actions.dispatch_task_cfg_rank(ids), MARKER, 1.0):
+        if " CFG cfg=" not in line:
+            continue
+        cfg, lvl, spec = _num(line, "cfg"), _num(line, "lvl"), _num(line, "spec")
+        if cfg:
+            ranks[cfg] = (lvl, spec)
+    changed = 0
+    for task in tasks:
+        got = ranks.get(int(task.cfg_id or 0))
+        if not got:
+            continue
+        lvl, spec = got
+        if not lvl:                       # the client has no row — leave the digits be
+            continue
+        was = (task.level, task.starred)
+        _family, task.level, _starred = proto.task_rank(task.cfg_id, lvl, spec)
+        task.starred_cfg = bool(spec)
+        if was != (task.level, task.starred):
+            changed += 1
+    if changed:
+        say("the game's own config re-ranked %d of %d tile(s) the capture had guessed"
+            % (changed, len(tasks)))
+    return changed
+
+
 def targets_from_scan(path: str, limit: int, star_max: bool = False,
                       level_min: int | None = None, level_max: int | None = None,
-                      skip_server: int | None = None,
+                      skip_server: int | None = None, ev=None,
                       say=print) -> list[tuple[int, int, str]]:
     """Raidable tasks from a capture checkpoint, as (uuid, server, label).
 
@@ -210,15 +261,17 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
     No star at the target level means no target at all — the caller does nothing
     rather than settling for a lower one, which is the whole point of the rule.
 
-    `starred` is `cfgId` family 6000 minus the `99` class — the rule and the evidence
-    behind it live in `STAR_TASK_FAMILIES` (docs/research/protocol.md §7). It is the one
-    property the game does not state outright, so a star here is the decoder's reading,
-    not the game's word.
+    `starred` and `level` come out of the checkpoint as the DIGITS' reading, because the
+    capture that wrote it had no client to ask. Pass `ev` and they are re-asked of the
+    game's own `lw_dispatch_tasks` row before anything is chosen — see
+    :func:`apply_cfg_rank`, and never select without it when a client is available
+    (#1188).
     """
     sys.path.insert(0, os.path.join(_HERE, "lib"))
     import lastwar_proto as proto
 
     tasks = proto.load_fresh_tasks(path)
+    apply_cfg_rank(ev, tasks, say=say)
     return _select_targets(tasks, limit, star_max=star_max,
                            level_min=level_min, level_max=level_max,
                            skip_server=skip_server, say=say)
@@ -539,7 +592,7 @@ def main() -> int:
             if os.path.exists(args.from_scan):
                 _add(targets_from_scan(args.from_scan, args.limit, star_max=args.star_max,
                                        level_min=args.level_min, level_max=args.level_max,
-                                       skip_server=skip or None))
+                                       skip_server=skip or None, ev=ev))
             elif not args.from_vm:
                 print("no scan checkpoint at %s — run the capture (panel: «Мониторинг "
                       "секреток») while the map moves" % args.from_scan)

@@ -155,6 +155,80 @@ def test_the_rule_has_exactly_one_home():
             f"{path.relative_to(_REPO)} decides a star from the 99 class by hand")
 
 
+class _Ev:
+    """A client that answers `dispatch_task_cfg_rank` out of a table, and counts asks."""
+
+    def __init__(self, rows):
+        self.rows, self.asked = rows, []
+
+    def run(self, chunk, marker, settle):        # noqa: ARG002 — the shape ev.run has
+        self.asked.append(chunk)
+        out = []
+        for cfg, (lvl, spec) in self.rows.items():
+            if str(cfg) in chunk:
+                out.append(f"ACT CFG cfg={cfg} lvl={lvl} spec={spec}")
+        return out
+
+
+def _task(uuid: int, cfg: int):
+    """A checkpoint tile as the CAPTURE writes it — level and star from the digits."""
+    family, level, _v = proto.split_cfg_id(cfg)
+    return proto.SecretTask.from_dict({
+        "uuid": uuid, "server_id": 999, "x": 1, "y": 2, "level": level,
+        "cfg_id": cfg, "family": family, "looted_by": [],
+        "expires_at": 0, "completed_at": 0, "starred_cfg": None})
+
+
+def test_a_capture_tile_is_re_ranked_against_the_clients_own_config():
+    """The digits get the last word only when there is no client to ask (#1188/#1267).
+
+    `60009903` is the template the fallback is wrong about in BOTH directions: the digits
+    read `99` as the level and family 6000 as a star, and the game's row says level 7 and
+    `is_special = 0`. A checkpoint carries the digits' answer by construction — the
+    capture has no client in its process — so anything CHOOSING a raid out of one has to
+    re-ask, or it spends one of the day's five on a tile that is not a star at all.
+    """
+    tasks = [_task(1, 60009903), _task(2, 60000701), _task(3, 300704)]
+    assert [(t.level, t.starred) for t in tasks] == [(99, False), (7, True), (7, False)]
+
+    ev = _Ev({60009903: (7, 0), 60000701: (7, 1), 300704: (7, 0)})
+    changed = steal.apply_cfg_rank(ev, tasks, say=lambda _m: None)
+    assert [(t.level, t.starred) for t in tasks] == [(7, False), (7, True), (7, False)]
+    assert changed == 1, changed
+    # One round trip for the whole list, not one per tile: three tiles, one chunk, and
+    # every DISTINCT template in it.
+    assert len(ev.asked) == 1, ev.asked
+    for cfg in (60009903, 60000701, 300704):
+        assert str(cfg) in ev.asked[0], cfg
+
+
+def test_a_template_the_client_cannot_answer_for_keeps_the_digits():
+    """`lvl=0` is «the game had no row», not «level zero» — degrade, never invent."""
+    tasks = [_task(1, 60000701)]
+    steal.apply_cfg_rank(_Ev({60000701: (0, 0)}), tasks, say=lambda _m: None)
+    assert (tasks[0].level, tasks[0].starred) == (7, True), tasks[0]
+
+    # …and no client at all is the same answer, not a crash and not an empty list.
+    tasks = [_task(1, 60009903)]
+    assert steal.apply_cfg_rank(None, tasks, say=lambda _m: None) == 0
+    assert (tasks[0].level, tasks[0].starred) == (99, False), tasks[0]
+
+
+def test_the_panel_re_asks_the_star_on_the_wire_feed_and_not_only_the_tool():
+    """Both places that CHOOSE a raid out of a checkpoint go through the same call.
+
+    Asked of the source rather than of a running tab: the wire feed is read off the Tk
+    thread inside `_fetch_scan`, and a test that stood a whole tab up to prove one call
+    site would break for a dozen reasons that are not this rule.
+    """
+    body = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text("utf-8")
+    scan = body.split("def _fetch_scan")[1].split("\n    def ")[0]
+    assert "apply_cfg_rank" in scan, "the panel still merges the capture's guess"
+    tool = (_REPO / "tools" / "steal_secret_task.py").read_text("utf-8")
+    from_scan = tool.split("def targets_from_scan")[1].split("\ndef ")[0]
+    assert "apply_cfg_rank" in from_scan, "--from-scan still selects on the digits"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

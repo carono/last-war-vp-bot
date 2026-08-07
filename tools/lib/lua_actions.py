@@ -1383,6 +1383,43 @@ def game_server_time() -> str:
             + 'CS.UnityEngine.Debug.LogError("ACT NOWMS="..tostring(nowms))')
 
 
+def dispatch_task_cfg_rank(cfg_ids) -> str:
+    """Emit `ACT CFG cfg=<id> lvl=<n> spec=<0|1>` for each secret-task TEMPLATE id.
+
+    The game's own `lw_dispatch_tasks` row, asked for a bare cfgId — with no live task
+    record to hang it off. Every other reader in this repo reaches `level` /
+    `is_special` through `v.cfg`, the row already attached to an entry in `allianceTask`
+    / `singleTask`, so a tile that came off a PCAP had nothing to ask and fell back to
+    the digits — which call a `60009903` template «level 99, starred» where the game
+    calls it «level 7, not starred» (#1267). That fallback is fine for a decoder with no
+    client in the room; it is not fine for the thing that spends one of five raids a day
+    (#1188), and the panel and the tool both have a client.
+
+    `LocalController.instance` is a FUNCTION and not a field — `instance:getLine(…)`
+    raises «attempt to index a function value». The path was read out of the bytecode of
+    `ActDispatchTaskDataManager:UpdateOneAllianceTask` (`string.dump`, then its string
+    constants in order), which is the method that attaches `cfg` to a task in the first
+    place; it is written up in docs/research/secret-task-steal.md §6c.
+
+    A template the client has no row for emits `lvl=0 spec=0`, which `proto.task_rank`
+    already reads as «the config said nothing» and answers from the digits — so an
+    unknown id degrades to exactly the behaviour there was before, never to a silent
+    «not starred».
+    """
+    ids = ",".join(str(int(c)) for c in cfg_ids)
+    return (
+        'pcall(function() '
+        'for _, cfg in ipairs({%s}) do '
+        'local lvl, spec = 0, 0 '
+        'pcall(function() '
+        'local row = LocalController.instance():getLine(TableName.LwDispatchTask, cfg) '
+        'lvl = tonumber(row:getValue("level")) or 0 '
+        'spec = tonumber(row:getValue("is_special")) or 0 end) '
+        'CS.UnityEngine.Debug.LogError("ACT CFG cfg="..tostring(cfg)'
+        '.." lvl="..tostring(lvl).." spec="..tostring(spec)) '
+        'end end)' % ids)
+
+
 def secret_task_raidable_alliance() -> str:
     """Emit every alliance secret task that is raidable *right now*, straight from the VM.
 

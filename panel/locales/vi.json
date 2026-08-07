@@ -262,6 +262,7 @@
   "log.rally.listening": "đang nghe tập kết — chỉ báo và tự tham gia, không ghi kho lưu",
   "log.rally.started": "đã khởi động trình theo dõi tập kết → {path}",
   "log.rally.stopped": "đã dừng trình theo dõi",
+  "log.secret.cfg_reranked": "cấu hình của trò chơi đã sửa cấp độ hoặc sao của {n} ô mà bản ghi đã đoán",
   "log.secret.ended": "luồng của trình theo dõi đã kết thúc",
   "log.secret.seed_server": "máy chủ lấy từ trò chơi: {srv}",
   "log.secret.started": "bản bắt đang chạy (pid {pid}); đầu ra của nó đi vào nhật ký",

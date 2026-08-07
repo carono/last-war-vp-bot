@@ -262,6 +262,7 @@
   "log.rally.listening": "à l'écoute des ralliements — alerte et adhésion seules, sans archive",
   "log.rally.started": "moniteur de ralliements démarré → {path}",
   "log.rally.stopped": "moniteur arrêté",
+  "log.secret.cfg_reranked": "la configuration du jeu a corrigé le niveau ou l'étoile de {n} case(s) que la capture avait devinées",
   "log.secret.ended": "le flux du moniteur s'est terminé",
   "log.secret.seed_server": "serveur pris dans le jeu : {srv}",
   "log.secret.started": "la capture tourne (pid {pid}) ; sa sortie va au journal",

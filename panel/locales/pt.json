@@ -262,6 +262,7 @@
   "log.rally.listening": "ouvindo mobilizações — só aviso e entrada automática, sem arquivo",
   "log.rally.started": "monitor de mobilizações iniciado → {path}",
   "log.rally.stopped": "monitor parado",
+  "log.secret.cfg_reranked": "a configuração do jogo corrigiu o nível ou a estrela de {n} quadrado(s) que a captura tinha adivinhado",
   "log.secret.ended": "o fluxo do monitor terminou",
   "log.secret.seed_server": "servidor pego do jogo: {srv}",
   "log.secret.started": "a captura está rodando (pid {pid}); a saída dela vai para o registro",

@@ -262,6 +262,7 @@
   "log.rally.listening": "ralli dinleniyor — yalnızca uyarı ve kendiliğinden katılma, arşiv yok",
   "log.rally.started": "ralli gözcüsü başladı → {path}",
   "log.rally.stopped": "gözcü durduruldu",
+  "log.secret.cfg_reranked": "oyunun kendi yapılandırması, yakalamanın tahmin ettiği {n} karenin seviyesini veya yıldızını düzeltti",
   "log.secret.ended": "gözcünün akışı sona erdi",
   "log.secret.seed_server": "sunucu oyundan alındı: {srv}",
   "log.secret.started": "yakalama çalışıyor (pid {pid}); çıktısı günlüğe gidiyor",

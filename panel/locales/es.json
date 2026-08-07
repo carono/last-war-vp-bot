@@ -262,6 +262,7 @@
   "log.rally.listening": "escuchando reuniones — solo aviso y unión automática, sin archivo",
   "log.rally.started": "monitor de reuniones arrancado → {path}",
   "log.rally.stopped": "monitor detenido",
+  "log.secret.cfg_reranked": "la configuración del juego corrigió el nivel o la estrella de {n} casilla(s) que la captura había adivinado",
   "log.secret.ended": "el flujo del monitor ha terminado",
   "log.secret.seed_server": "servidor tomado del juego: {srv}",
   "log.secret.started": "la captura está en marcha (pid {pid}); su salida va al registro",

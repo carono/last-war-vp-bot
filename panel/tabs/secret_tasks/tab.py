@@ -1667,12 +1667,35 @@ class SecretTasksTab(PanelTab):
         The window still governs a ROBBERY, which is a different question with a
         different cost — that gate lives in the auto-loot watcher, not here.
 
+        THE STAR AND THE LEVEL ARE RE-ASKED OF THE GAME HERE (#1188). The capture wrote
+        them from the cfgId's digits, because it decodes a pcap in a child process with
+        no client in it — and the digits call a `60009903` template «level 99, starred»
+        where the game's own config row calls it «level 7, not starred» (#1267). This
+        list is what the standing order spends the day's five raids out of, so it may
+        not carry a guessed star: `apply_cfg_rank` asks `lw_dispatch_tasks` for every
+        DISTINCT template on the checkpoint — a handful of ids, one round trip — and the
+        filter below then means the game's word rather than the decoder's.
+
+        Off the Tk thread, like everything else this method does (`_scan_work` runs it),
+        so the round trip costs the window nothing. A client that cannot answer leaves
+        the digits in place, which is exactly where they were before.
+
         A missing checkpoint (the capture never ran) or a malformed one raises and is
         caught upstream as "no new tiles".
         """
         import lastwar_proto as proto
+        import steal_secret_task
         tasks = proto.load_fresh_tasks(self.rt.profiles.tasks_json(),
                                        max_age_seconds=None)
+        try:
+            fixed = steal_secret_task.apply_cfg_rank(self.rt.game.evaluator(), tasks,
+                                                     say=lambda _m: None)
+        except Exception:            # noqa: BLE001 — no daemon, no game: keep the digits
+            fixed = 0
+        if fixed:
+            # Said in the panel's own words, not the tool's: the child's line is English
+            # by construction and this one is read by whoever is watching the tab.
+            self.say("secret", "log.secret.cfg_reranked", n=fixed)
         return [t for t in tasks if t.starred]
 
     def _fetch_vm(self) -> list:

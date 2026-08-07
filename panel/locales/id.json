@@ -262,6 +262,7 @@
   "log.rally.listening": "mendengarkan reli — hanya peringatan dan ikut sendiri, tanpa arsip",
   "log.rally.started": "pemantau reli dimulai → {path}",
   "log.rally.stopped": "pemantau dihentikan",
+  "log.secret.cfg_reranked": "konfigurasi gim memperbaiki level atau bintang pada {n} petak yang ditebak oleh tangkapan",
   "log.secret.ended": "aliran pemantau berakhir",
   "log.secret.seed_server": "server diambil dari permainan: {srv}",
   "log.secret.started": "penangkapan berjalan (pid {pid}); keluarannya masuk ke catatan",

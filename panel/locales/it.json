@@ -262,6 +262,7 @@
   "log.rally.listening": "in ascolto dei rally — solo avviso e adesione, nessun archivio",
   "log.rally.started": "monitor dei rally avviato → {path}",
   "log.rally.stopped": "monitor fermato",
+  "log.secret.cfg_reranked": "la configurazione del gioco ha corretto livello o stella di {n} casella/e che la cattura aveva indovinato",
   "log.secret.ended": "il flusso del monitor è terminato",
   "log.secret.seed_server": "server preso dal gioco: {srv}",
   "log.secret.started": "la cattura è in funzione (pid {pid}); la sua uscita va nel registro",
