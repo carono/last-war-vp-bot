@@ -38,34 +38,45 @@
 
 ARGS squad = 1
 
-# --- 1. Park which squad, then read the screen ------------------------------------
-# `TAP` carries no arguments, so the squad travels as a parked value the presses read
+# --- 1. Park which squad, then send ------------------------------------------------
+# `TAP` carries no arguments, so the squad travels as a parked value the press reads
 # back — the same trick create_rally.md and join_rally.md use. The target does NOT
 # travel this way: it is read off the screen the person's own click opened.
+#
+# TWO CALLS INTO THE GAME AND NOT FOUR (#1290). The reading, the check and the press
+# used to be three statements with a 0.2 s pause in the middle, and a call costs ~90 ms
+# — a fifth of a second of a key press spent going back and forth over a screen that a
+# person's own click had put up and could close at any moment. `macro_send` does all
+# three inside one chunk, on the game's own thread, in one frame.
 LUA DataCenter.__lw_macro = {squad = {squad}}
 
-TAP macro_arm
+TAP macro_send
 
-READ_LUA (function() local p = DataCenter.__lw_macro or {} if tonumber(p.screen) ~= 1 then return 0 end if p.target == nil or p.type == nil then return -2 end if p.formation == nil then return -1 end return 1 end)() INTO armed
+# --- 2. What it decided, in its own words ------------------------------------------
+# Read back AFTER the press rather than asked before it: the answer costs a round trip
+# either way, and this way the round trip is not standing between the key and the march.
+READ_LUA (tonumber((DataCenter.__lw_macro or {}).result) or 0) INTO sent_ok
 
-IF armed == 0
+IF sent_ok == 0
     FAIL "no target is chosen — the squad-selection screen is not open"
-IF armed == -1
+IF sent_ok == -1
     FAIL "there is no such squad"
-IF armed == -2
+IF sent_ok == -2
     FAIL "the squad screen is open but its target could not be read"
-
-# --- 2. Press «Марш» with that squad ----------------------------------------------
-# The pick and the launch, exactly as a finger makes them. The screen closes itself.
-TAP macro_launch
+IF sent_ok == -3
+    FAIL "the squad screen refused the launch"
 
 # --- 3. Let the GAME say whether a march went out ---------------------------------
 # The proof is a march of ours appearing, not the press returning cleanly: the server
 # owns that list, and a squad the game refuses to send leaves it where it was.
+#
+# The poll is short and repeated rather than long and patient: the claim on the client
+# is held until this loop ends, so every tenth of a second spent here is a tenth in
+# which the NEXT key press answers «занят».
 READ_LUA ((function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)()) - ((DataCenter.__lw_macro or {}).before or 0) INTO sent
 
-WHILE sent < 1 LIMIT 8
-    WAIT 0.5
+WHILE sent < 1 LIMIT 12
+    WAIT 0.2
     READ_LUA ((function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)()) - ((DataCenter.__lw_macro or {}).before or 0) INTO sent
 
 IF sent < 1

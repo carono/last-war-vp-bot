@@ -5104,101 +5104,89 @@ def own_march_count() -> str:
     )
 
 
-def macro_arm() -> str:
-    """Read the open squad screen and pin the parked squad to what it is asking for.
+def macro_send() -> str:
+    """Read the open squad screen AND press its «Марш», in ONE call into the VM (#1290).
 
-    Everything, before anything is pressed: the target off the screen, the formation of
-    the squad the person's key named, and the march count to measure against. A run that
-    finds out at the launch that there was no such squad has already told the game it
-    was coming.
+    What `macro_arm` + `macro_armed` + `macro_launch` used to be, and the reason they are
+    not three things any more is a measurement. A key press is a whole run that ought to
+    last as long as a mouse click, and a call into the game VM costs ~90 ms: three of
+    them plus the 0.2 s the arm sat out afterwards was 0.5 s of the two seconds #1290 was
+    sent to find, and the three had to be crossed by a person's own click on the screen
+    they were all reading.
 
-    The uuid is kept AS IT CAME, and everything else is put through `tonumber`. The
-    client's Lua holds 64-bit integers (a 19-digit uuid reads back as a `number` with
-    every digit intact, measured), so the conversion would in fact be safe — but a
-    target is the one value here that must arrive at the send unchanged, and «it is
-    already the right type» is not a reason to touch it.
+    That last part is the correctness half, and it is worth more than the milliseconds.
+    Reading the target, resolving the squad and pressing the launch on one thread inside
+    one frame means nothing can close the screen between the check and the press — the
+    old shape checked, went back to Python, and pressed a screen it had last seen 200 ms
+    earlier.
 
-    NOTHING ASKS THE SCREEN WHETHER THE MARCH NEEDS SOLDIERS. `NeedTakeArmy` is one of
-    the screen's own methods and it takes arguments the caller cannot see: called bare
-    it answers `true`, the send then goes out with `needSoldier = true`, the server
-    accepts the call and creates no march — an afternoon of #1283 went into that, and it
-    is the same rake as `CheckCanBattle` in #1259. `false` is what every proven send in
-    this file passes, and it is what both macros pass.
+    WHAT IT DECIDED lands in `DataCenter.__lw_macro.result`, which the recipe reads back
+    (`macro_result`) to say WHICH refusal it was:
+
+    ``1`` the launch was pressed · ``0`` no squad screen is open — nothing was chosen ·
+    ``-1`` the game has no squad with that number · ``-2`` the screen is open and its
+    target could not be read · ``-3`` the screen's own launch raised.
+
+    Everything else is exactly as it was, deliberately: the target is read off the
+    screen's own controller and nothing about it is guessed, the launch is the game's own
+    `Ctrl:OnCheckTime` (so every pre-check the game makes for that target type still
+    runs), the last march is written down BEFORE the press because the screen is gone by
+    the time the server answers, and the uuid is kept AS IT CAME while everything else
+    goes through `tonumber`.
+
+    NOTHING ASKS THE SCREEN WHETHER THE MARCH NEEDS SOLDIERS. `NeedTakeArmy` called bare
+    answers `true`, the send then goes out with `needSoldier = true`, and the server
+    accepts the call and creates no march — an afternoon of #1283 went into that.
     """
     return (
         _MACRO + _MACRO_FIND +
         "p.type, p.point, p.target, p.server = nil, nil, nil, nil "
-        "p.timeIndex, p.back, p.formation = nil, nil, nil "
+        "p.timeIndex, p.back, p.formation, p.err = nil, nil, nil, nil "
+        "p.result = 0 "
+        "(function() "
         "local w = _findscreen() "
         "p.screen = (w ~= nil) and 1 or 0 "
-        "if w ~= nil then local c = w.Ctrl "
+        "if w == nil then return end "
+        "local c = w.Ctrl "
         "pcall(function() p.type = tonumber(c.targetType) end) "
         "pcall(function() p.point = tonumber(c.targetPoint) end) "
         "pcall(function() p.target = c.targetUuid end) "
         "pcall(function() p.server = tonumber(c.targetServerId) end) "
         "pcall(function() p.timeIndex = tonumber(c.timeIndex) end) "
         "pcall(function() p.back = tonumber(c.autoBackHome) end) "
-        "end "
         "pcall(function() "
         "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
         "if tonumber(v.index) == tonumber(p.squad) then p.formation = v.uuid end end end) "
+        "if p.target == nil or p.type == nil then p.result = -2 return end "
+        "if p.formation == nil then p.result = -1 return end "
         "p.before = %(count)s "
+        "DataCenter.__lw_macro_last = {squad = p.squad, formation = p.formation, "
+        "type = p.type, point = p.point, target = p.target, server = p.server, "
+        "timeIndex = p.timeIndex, back = p.back, before = p.before} "
+        "pcall(function() w.View:OnSelectClick(p.formation) end) "
+        "pcall(function() w.Ctrl:SetSelectFormationUuid(p.formation) end) "
+        "local ok, err = pcall(function() w.Ctrl:OnCheckTime(p.formation, nil) end) "
+        "if not ok then p.result = -3 p.err = tostring(err) return end "
+        "p.result = 1 "
+        "end)() "
         "DataCenter.__lw_macro = p "
-        'CS.UnityEngine.Debug.LogError("ACT macro_arm squad="..tostring(p.squad)'
-        '.." screen="..tostring(p.screen).." type="..tostring(p.type)'
-        '.." point="..tostring(p.point).." target="..tostring(p.target)'
-        '.." server="..tostring(p.server).." formation="..tostring(p.formation)'
-        '.." marches="..tostring(p.before))'
+        'CS.UnityEngine.Debug.LogError("ACT macro_send squad="..tostring(p.squad)'
+        '.." result="..tostring(p.result).." screen="..tostring(p.screen)'
+        '.." type="..tostring(p.type).." point="..tostring(p.point)'
+        '.." target="..tostring(p.target).." server="..tostring(p.server)'
+        '.." formation="..tostring(p.formation).." marches="..tostring(p.before)'
+        '.." err="..tostring(p.err))'
         % {"count": own_march_count()}
     )
 
 
-def macro_armed() -> str:
-    """Lua *expression* -> what the arm found.
-
-    ``1`` all set · ``0`` no squad screen is open — nothing was chosen · ``-1`` the
-    screen is open but the game has no squad with that number · ``-2`` the screen is
-    open and its target could not be read.
-    """
-    return (
-        "(function() " + _MACRO +
-        "if tonumber(p.screen) ~= 1 then return 0 end "
-        "if p.target == nil or p.type == nil then return -2 end "
-        "if p.formation == nil then return -1 end return 1 end)()"
-    )
-
-
-def macro_launch() -> str:
-    """Press the open screen's own «Марш» with the parked squad — the mouse, replaced.
-
-    `View:OnSelectClick` is the tap on the squad's cell (it repaints the screen and its
-    cost), `Ctrl:SetSelectFormationUuid` is what the tap records, and
-    `Ctrl:OnCheckTime(formation, nil)` is the launch button: the game's own pre-checks
-    and then `OnCreateClick` -> `SendCreateMarchMessage`. The screen closes itself.
-
-    The last march is written down BEFORE the press, not after: the screen is gone by
-    the time the server answers, and CapsLock repeats what was SENT, not what is still
-    on screen.
-    """
-    return (
-        _MACRO + _MACRO_FIND +
-        "if p.formation == nil then error('no squad parked for this macro') end "
-        "local w = _findscreen() "
-        "if w == nil then error('the squad screen is not open any more') end "
-        "pcall(function() w.View:OnSelectClick(p.formation) end) "
-        "pcall(function() w.Ctrl:SetSelectFormationUuid(p.formation) end) "
-        "DataCenter.__lw_macro_last = {squad = p.squad, formation = p.formation, "
-        "type = p.type, point = p.point, target = p.target, server = p.server, "
-        "timeIndex = p.timeIndex, back = p.back, before = p.before} "
-        "w.Ctrl:OnCheckTime(p.formation, nil) "
-        'CS.UnityEngine.Debug.LogError("ACT macro_launch squad="..tostring(p.squad)'
-        '.." formation="..tostring(p.formation).." type="..tostring(p.type)'
-        '.." target="..tostring(p.target))'
-    )
+def macro_result() -> str:
+    """Lua *expression* -> what :func:`macro_send` decided. See it for the five values."""
+    return "(tonumber((DataCenter.__lw_macro or {}).result) or 0)"
 
 
 def macro_sent() -> str:
-    """Lua *expression* -> marches gained since `macro_arm()` ran. 1 once one is out."""
+    """Lua *expression* -> marches gained since `macro_send()` ran. 1 once one is out."""
     return "((%s) - ((DataCenter.__lw_macro or {}).before or 0))" % own_march_count()
 
 
@@ -5207,6 +5195,12 @@ def macro_repeat_ready() -> str:
 
     ``1`` yes · ``0`` nothing has been sent by a macro yet · ``-1`` the last one was a
     RALLY, and a rally is not repeatable this way.
+
+    The same three answers :func:`macro_repeat` now parks in `result` — this is the
+    reading with nothing sent, kept for a caller that wants to ASK (a tab showing what
+    CapsLock would do). CapsLock itself does not ask first any more (#1290): asking cost
+    a whole round trip in front of a key press, and the refusal has to be made inside the
+    send's own chunk regardless.
 
     The rally case is not squeamishness. A banner is raised through the squad screen's
     own launch, which fills in a wait slot and a disband time the screen owns; the plain
@@ -5233,35 +5227,56 @@ def macro_repeat() -> str:
     """Send the last macro march again — same squad, same target, and no window at all.
 
     The whole point of the key: the screen is not opened, the camera is not moved and
-    the target is not clicked. It is the send `macro_launch` ended at, made directly
-    with the arguments that went out last time — the shape `codename_send` proved: the
-    target is addressed by uuid, so the server works the path out for itself.
+    the target is not clicked. It is the send `macro_send` ends at, made directly with
+    the arguments that went out last time — the shape `codename_send` proved: the target
+    is addressed by uuid, so the server works the path out for itself.
 
     Scheduled through `TimerManager:DelayInvoke` for the reason every launch in this
     file is: a cold send is created and dropped.
+
+    IT DECIDES FOR ITSELF, AND PARKS THE ANSWER (#1290). The recipe used to ask
+    `macro_repeat_ready` first and only then press — a round trip in front of a key
+    press, for a question this chunk has to answer again anyway. So the gate is here,
+    and `result` says which of the three happened:
+
+    ``1`` the send is scheduled · ``0`` nothing has been sent by a macro yet ·
+    ``-1`` the last one was a RALLY.
+
+    The rally refusal is not squeamishness. A banner is raised through the squad screen's
+    own launch, which fills in a wait slot and a disband time the screen owns; the plain
+    `SendCreateMarchMessage` this key makes has never been proven for a rally type, and
+    the one time #1283 tried it live the client went down mid-run. `MarchUtil.IsRallyMarch`
+    is the GAME's own answer, so a rally type added next season is covered without
+    anybody copying an enum.
     """
     return (
         _MACRO_LAST +
-        "if m.formation == nil or m.target == nil then error('no march to repeat yet') end "
-        # The same refusal the recipe already made, made again here: a press is reachable
-        # from a scenario nobody has read, and this is the one target type that must not
-        # go out through a plain send (see `macro_repeat_ready`).
+        "m.result = 0 "
+        "(function() "
+        "if m.formation == nil or m.target == nil or m.type == nil then return end "
         "local rally = false "
         "pcall(function() rally = MarchUtil.IsRallyMarch(m.type) and true or false end) "
-        "if rally then error('a rally cannot be repeated without its own screen') end "
+        "if rally then m.result = -1 return end "
         "m.before = %(count)s "
-        "DataCenter.__lw_macro_last = m "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(m.formation, m.type, m.point, m.target, "
         "m.timeIndex or 1, m.back or 1, false, m.server, nil) end) "
         'CS.UnityEngine.Debug.LogError("ACT macro_repeat ok="..tostring(ok).." err="..tostring(err)) '
         "end, 0.3) "
+        "m.result = 1 "
+        "end)() "
+        "DataCenter.__lw_macro_last = m "
         'CS.UnityEngine.Debug.LogError("ACT macro_repeat scheduled squad="..tostring(m.squad)'
-        '.." type="..tostring(m.type).." target="..tostring(m.target)'
-        '.." marches="..tostring(m.before))'
+        '.." result="..tostring(m.result).." type="..tostring(m.type)'
+        '.." target="..tostring(m.target).." marches="..tostring(m.before))'
         % {"count": own_march_count()}
     )
+
+
+def macro_repeat_result() -> str:
+    """Lua *expression* -> what :func:`macro_repeat` decided. See it for the three values."""
+    return "(tonumber((DataCenter.__lw_macro_last or {}).result) or 0)"
 
 
 def macro_repeat_sent() -> str:

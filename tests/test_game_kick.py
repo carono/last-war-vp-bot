@@ -53,7 +53,9 @@ class _Ev:
     def __init__(self, text=None, boom=False, lines=None):
         self.text, self.boom, self.lines, self.calls = text, boom, lines, 0
 
-    def run(self, chunk, marker="", settle=0.0):
+    def run(self, chunk, marker="", settle=0.0, **_kw):
+        # `**_kw` because the reading's WAITING is the caller's business, not the fake's:
+        # `early` arrived in #1290 and the next deadline knob will arrive the same way.
         self.calls += 1
         if self.boom:
             raise RuntimeError("the daemon is not there")

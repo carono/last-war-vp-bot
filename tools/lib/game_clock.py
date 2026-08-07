@@ -151,12 +151,23 @@ def read(ev) -> "int | None":
     None means the read brought nothing back (no daemon, no client, a busy VM) —
     the previous offset stays in force, because a stale measurement of a drift
     that moves by seconds a day beats no measurement at all.
+
+    THE SETTLE IS A DEADLINE, NOT A PAUSE (`early`, #1290). The chunk reads a field the
+    client already holds and logs it as it goes, so the answer is in the file before the
+    injection returns; sitting out the whole second was pure waiting. Measured live:
+    1055 ms patient against 90 ms early, for the same line. It matters far past this
+    module — `session_ready` is the second half of the link gate every scenario passes
+    through, so every recipe in the tree started a second sooner.
+
+    The round trip is also what `note()` halves into a latency, and `early` only ends
+    the WAIT sooner: `sent`/`back` still bracket the same injection, so the offset is if
+    anything measured more tightly than before.
     """
     import lua_actions                       # lazy: keeps a plain import cheap
 
     try:
         sent = time.time()
-        lines = ev.run(lua_actions.game_server_time(), MARKER, 1.0)
+        lines = ev.run(lua_actions.game_server_time(), MARKER, 1.0, early=True)
         back = time.time()
     except Exception:                        # noqa: BLE001 — an unread clock is not fatal
         return None

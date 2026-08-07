@@ -748,35 +748,33 @@ BUTTONS: dict[str, Button] = {
         wait=0.4, label="close window",
     ),
     # --- the keyboard macros: send the squad the game is already asking for ---
-    # Three presses behind two recipes (#1283):
+    # ONE press behind each recipe (#1283, made one call each in #1290):
     #
-    #     macro_arm -> macro_launch      keys 1..4, with the squad screen open
+    #     macro_send                     keys 1..4, with the squad screen open
     #     macro_repeat                   CapsLock, with no screen at all
     #
     # WHICH squad is parked in `DataCenter.__lw_macro` by the recipe, because `TAP`
     # carries no arguments; the target is not parked by anybody — it is READ off the
     # screen the person's own click opened. docs/research/march-hotkeys.md.
-    "macro_arm": Button(
-        # Not a press in the game: the run's setup. It reads the open squad screen's
-        # target and resolves the parked squad's formation, both before anything is
-        # sent, and notes the march count so the launch can be measured.
-        lua=_lua_actions.macro_arm(),
-        wait=0.2, label="arm the macro (target off the screen + the squad)",
-    ),
-    "macro_launch": Button(
-        # The screen's own «Марш», with the squad the key named — the mouse replaced
-        # and nothing else, so the game still runs every pre-check it makes for that
-        # target type and still closes its own screen.
-        lua=_lua_actions.macro_launch(),
-        # The march shows up as ours once the server answers, which the recipe then
-        # measures — so the pause is part of the proof rather than politeness.
-        wait=2.0, label="press the squad screen's launch",
+    #
+    # NEITHER OF THEM PAUSES AFTERWARDS, and that is the point of #1290. A `wait` is a
+    # plain sleep with the game claim held, and both recipes then measure the march
+    # count themselves — which is a wait for the thing rather than a wait for a number
+    # somebody guessed. The two seconds each of these used to sit out were two seconds
+    # of «занят» for the next key press.
+    "macro_send": Button(
+        # Read the open screen's target, resolve the parked squad, press the screen's
+        # own «Марш» — one chunk, one frame, so nothing can close the screen between
+        # the reading and the press. What it decided is parked in `result`.
+        lua=_lua_actions.macro_send(),
+        wait=0.0, label="send the chosen squad at the screen's target",
     ),
     "macro_repeat": Button(
         # CapsLock: the same send the last launch made, made directly. No window is
-        # opened, no camera moved, no target clicked — the uuid is the address.
+        # opened, no camera moved, no target clicked — the uuid is the address. It
+        # refuses a rally itself and parks that in `result`.
         lua=_lua_actions.macro_repeat(),
-        wait=2.0, label="repeat the last macro march",
+        wait=0.0, label="repeat the last macro march",
     ),
 }
 

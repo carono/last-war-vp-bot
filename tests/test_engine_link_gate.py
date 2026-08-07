@@ -219,12 +219,62 @@ def test_the_gate_stands_on_the_driving_primitives_and_not_on_the_run():
 
 
 def test_the_link_is_read_once_per_run_not_once_per_press():
+    script_engine.forget_link_verdict()
     interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
     calls = []
     interp._link_lost = lambda: calls.append(1) or None
     for _ in range(5):
         interp._require_link(type("S", (), {"line_no": 1})())
     assert len(calls) == 1, f"the socket table was walked {len(calls)} times"
+
+
+def test_the_verdict_is_shared_between_runs_for_a_moment():
+    """#1290: a keyboard macro is a whole RUN, so «once per run» was still per press.
+
+    The verdict is about the CLIENT, so the next run inside
+    `LINK_VERDICT_TTL` reads the one the last one paid for — two seconds of asking in
+    front of a key press, gone. Both answers are cached, the refusal as well as the pass.
+    """
+    for verdict in (None, "the client is no longer talking to the game server"):
+        script_engine.forget_link_verdict()
+        calls = []
+        for run in range(3):
+            interp = script_engine.Interpreter(
+                script_engine.new_context(0, lambda _e: None))
+            interp._game_port = lambda: 47654
+            interp._link_lost = lambda: calls.append(1) or verdict
+            interp._fail = lambda reason: None      # a refusal must not end the test
+            interp._require_link(type("S", (), {"line_no": 1})())
+        assert len(calls) == 1, f"asked {len(calls)} times for {verdict!r}"
+
+
+def test_two_profiles_never_read_each_others_verdict():
+    """The cache is keyed by the CLIENT — port and Windows session — and nothing else."""
+    script_engine.forget_link_verdict()
+    asked = []
+
+    def _ask(port, user):
+        ctx = script_engine.new_context(0, lambda _e: None)
+        ctx.game_user = user
+        interp = script_engine.Interpreter(ctx)
+        interp._game_port = lambda: port
+        interp._link_lost = lambda: asked.append((port, user)) or None
+        interp._require_link(type("S", (), {"line_no": 1})())
+
+    _ask(47654, "")
+    _ask(47655, "")
+    _ask(47655, "second")
+    _ask(47654, "")                       # …and this one is the cached answer
+    assert asked == [(47654, ""), (47655, ""), (47655, "second")], asked
+
+
+def test_a_new_client_is_never_judged_by_the_old_ones_link():
+    """A restart is exactly when the cached answer is about a process that is gone."""
+    src = (ROOT / "src" / "lastwar_bot" / "script_engine.py").read_text(encoding="utf-8")
+    for stmt in ("def _do_quit_game", "def _do_attach_game"):
+        at = src.index(stmt)
+        body = src[at:src.index("\n    def ", at + 10)]
+        assert "forget_link_verdict()" in body, f"{stmt} keeps the old client's verdict"
 
 
 def test_a_lost_link_stops_the_run_and_says_why():

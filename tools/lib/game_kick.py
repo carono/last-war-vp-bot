@@ -187,15 +187,21 @@ def judge(text) -> "bool | None":
 def tip(ev) -> "str | None":
     """The text of the open message dialog — `''` when none is open, ``None`` on error.
 
-    One round trip, ~0.7 s against a warm daemon with the settle this uses. Never
-    raises: a read that fails is ``None``, «could not tell».
+    One round trip, ~90 ms against a warm daemon. Never raises: a read that fails is
+    ``None``, «could not tell».
+
+    THE SETTLE IS A DEADLINE, NOT A PAUSE (`early`, #1290). The dialog is on the
+    client's own screen — nothing is asked of the server — so the line is in the answer
+    file before the injection returns and the rest of the 0.4 s was pure waiting
+    (measured live: 450 ms patient against 90 ms early). This read stands in the link
+    gate of every scenario, and #1290 found it being made TWICE per run there.
     """
     import lua_actions                        # lazy: keeps a plain import cheap
 
     try:
         lines = ev.run(
             'CS.UnityEngine.Debug.LogError("%s tip=" .. tostring(%s))'
-            % (MARKER, lua_actions.kick_tip()), marker=MARKER, settle=0.4)
+            % (MARKER, lua_actions.kick_tip()), marker=MARKER, settle=0.4, early=True)
     except Exception:                         # noqa: BLE001 — a reading, never the fault
         return None
     for line in lines or ():

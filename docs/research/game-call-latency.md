@@ -393,3 +393,67 @@ lock for the whole of their settle — the dashboard strip poll (`panel/__main__
 the trigger check (`panel/runtime/schedule.py`). Both are pure reads whose chunk logs its
 own answer, and both ask for `early=True` now, so a press arriving while one of them is
 waiting no longer sits behind it.
+
+---
+
+## A key press is a whole RUN (#1290)
+
+The complaint the second time was the same sentence about a different thing: «нажимаю
+кнопку, а реакция лишь через пару секунд» — the keyboard macros of
+[`march-hotkeys.md`](march-hotkeys.md). Two seconds, and the guess offered with it was
+that the pseudo-language and the scenarios were the cost.
+
+They are not. **Parsing the recipe is 1.0 ms** — file, `prepare_source`, `parse_text`,
+eleven statements. Everything else was two things this file already knows about: a wait
+that was not needed, and round trips that did not have to be separate.
+
+Measured live against a warm daemon, from `run_action` to the press landing in the game:
+
+| stage | before | after |
+|---|---|---|
+| the hook, the queue, the worker thread | ~0 | ~0 |
+| `claim` at `HUMAN` (#1288) | 3 ms | 3 ms |
+| resolve + `prepare_source` + `parse_text` | 1.0 ms | 1.0 ms |
+| **the link gate, `_require_link`** | **1990 ms** | **215 ms, then 0** |
+| ├─ `target_pid` + `sockets_of` + `classify` | 20 ms | 20 ms |
+| ├─ `game_kick.tip` (settle 0.4, no `early`) | 450 ms | 90 ms |
+| └─ the clock (settle 1.0, no `early`) | 1055 ms | 90 ms |
+| `LUA` — park which squad | 90 ms | 90 ms |
+| `TAP macro_arm` | 90 ms | — |
+| …and the 0.2 s it sat out afterwards | 200 ms | — |
+| `READ_LUA armed` | 90 ms | — |
+| `TAP macro_launch` / `TAP macro_send` ← **the march goes out here** | 90 ms | 60 ms |
+| **from the key to the march** | **~2000 ms** | **370 ms cold · 125 ms warm** |
+
+Three findings, in the order they are worth reading:
+
+**1. A settle that is not a deadline is pure waiting, and two of them were in the gate
+every scenario passes through.** `game_clock.read` and `game_kick.tip` both ask the
+client about something it already holds — the time it thinks it is, the dialog on its own
+screen — so the answer is in the file before the injection returns. `early=True` turned
+1055 ms into 90 and 450 into 90. This is the same lesson as #1230 and #1287, found in a
+third place; the way to look for the fourth is to grep for `ev.run(` without `early`.
+
+**2. «Once per run» stops meaning anything when a run is a keypress.** The gate was
+written for a recipe that then presses for a minute. A macro is a whole run that lasts a
+fifth of a second, so the gate WAS the latency. The verdict is a property of the client
+rather than of the run, so it is now cached per client for `LINK_VERDICT_TTL` (10 s) —
+which is well inside the staleness the gate already lived with, since a run that passed
+it a moment before a kick goes on pressing for its whole length regardless. A restart
+(`QUIT_GAME`, `ATTACH_GAME`) drops it: that is exactly when the cached answer is about a
+process that is gone.
+
+**3. Three calls that read and press the same screen should be one.** `macro_arm` →
+`macro_armed` → `macro_launch` was 270 ms of round trips plus a 200 ms pause, and the
+correctness half is worth more than the milliseconds: the check and the press were 200 ms
+apart, over a screen the person's own click had put up and could close in between.
+`macro_send` reads the target, resolves the squad and presses the game's own launch in
+one chunk, in one frame, and parks what it decided for the recipe to read back afterwards.
+
+**What did NOT need changing.** The DSL, the scenarios, the player, the hook. #1290 was
+allowed to take the macros out of the scenario system if the measurement asked for it;
+the measurement asked for a `wait` to become a deadline and three calls to become one,
+and both are ordinary work inside the rule. The abilities are still one file each.
+
+Re-run it with `results/_t1290/measure.py` (not committed — a page of `perf_counter`
+around the same public calls).

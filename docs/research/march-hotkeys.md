@@ -105,9 +105,40 @@ one has to outlive the scenario that filled it:
 
 ```
 DataCenter.__lw_macro      = {squad, formation, type, point, target, server,
-                              timeIndex, back, need, before}
+                              timeIndex, back, need, before, result}
 DataCenter.__lw_macro_last = the same, as the last launch actually sent it
 ```
+
+### Reading and pressing are ONE call (#1290)
+
+The first version was three: read the screen, ask what the reading said, press. Each is
+a round trip of ~90 ms, and the middle one is a question standing between the key and
+the march — so a person's press spent a fifth of a second going back and forth over a
+screen their own click had put up and could close at any moment.
+
+`macro_send` is all three inside one chunk, on the game's own thread, in one frame:
+nothing can close the screen between the reading and the press, and what it decided is
+parked for the recipe to read back AFTERWARDS:
+
+```
+ACT macro_send squad=2 result=1 screen=1 type=33 point=… target=… formation=… marches=0
+```
+
+| `result` | what happened |
+|---|---|
+| `1` | the screen's own launch was pressed |
+| `0` | no squad screen is open — nothing was chosen |
+| `-1` | the game has no squad with that number |
+| `-2` | the screen is open and its target could not be read |
+| `-3` | the screen's own launch raised |
+
+`macro_repeat` does the same with its own three answers (`1` scheduled, `0` nothing to
+repeat, `-1` the last one was a rally). Both buttons declare `wait=0.0`: a `wait` is a
+plain sleep with the game claim held, and both recipes then count the marches, which is
+a wait for the thing rather than for a number somebody guessed.
+
+The whole budget, before and after, is in
+[`game-call-latency.md`](game-call-latency.md#a-key-press-is-a-whole-run-1290).
 
 ### The rake that cost the most: `NeedTakeArmy`
 
@@ -181,7 +212,7 @@ desktop, so the press always belongs to the profile whose page is showing.
 |---|---|
 | keys 1..4 | `src/lastwar_bot/actions/march_selected_squad.md` |
 | CapsLock | `src/lastwar_bot/actions/march_repeat_last.md` |
-| the presses | `tools/lib/game_buttons.py`, `macro_arm` / `macro_launch` / `macro_repeat` |
+| the presses | `tools/lib/game_buttons.py`, `macro_send` / `macro_repeat` |
 | the Lua | `tools/lib/lua_actions.py`, `macro_*` |
 | the listener | `panel/runtime/hotkeys.py`, started by the shell |
 | the tests | `tests/test_march_macros.py` |

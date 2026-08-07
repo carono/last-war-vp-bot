@@ -94,10 +94,29 @@ def test_the_send_recipe_never_builds_a_target_of_its_own():
 
 def test_the_send_recipe_refuses_every_way_the_screen_can_fail():
     text = SEND.read_text(encoding="utf-8")
-    assert "IF armed == 0" in text          # no screen open — nothing was chosen
-    assert "IF armed == -1" in text         # no squad with that number
-    assert "IF armed == -2" in text         # screen open, target unreadable
+    assert "IF sent_ok == 0" in text        # no screen open — nothing was chosen
+    assert "IF sent_ok == -1" in text       # no squad with that number
+    assert "IF sent_ok == -2" in text       # screen open, target unreadable
+    assert "IF sent_ok == -3" in text       # the screen's own launch raised
     assert "IF sent < 1" in text            # pressed and nothing went out
+
+
+def test_neither_recipe_asks_the_game_anything_before_it_presses():
+    """#1290: a round trip in front of a key press is the latency the person feels.
+
+    Both recipes park what they need, press ONCE, and read the answer back afterwards.
+    A `READ_LUA` that lands before the `TAP` is a question standing between the key and
+    the march — which is exactly the shape this task was sent to remove.
+    """
+    for path in (SEND, REPEAT):
+        lines = [l.strip() for l in path.read_text(encoding="utf-8").splitlines()
+                 if l.strip() and not l.lstrip().startswith("#")]
+        kinds = [l.split()[0].upper() for l in lines]
+        assert "TAP" in kinds, path.name
+        first_tap = kinds.index("TAP")
+        assert "READ_LUA" not in kinds[:first_tap], (
+            f"{path.name} asks the game something before it presses")
+        assert kinds.count("TAP") == 1, f"{path.name} presses more than once"
 
 
 def test_the_repeat_recipe_takes_no_arguments():
@@ -120,17 +139,27 @@ def test_both_recipes_prove_themselves_by_the_march_count():
 # ---------------------------------------------------------------------------
 # the presses
 # ---------------------------------------------------------------------------
-def test_the_three_buttons_are_in_the_catalogue():
-    for name in ("macro_arm", "macro_launch", "macro_repeat"):
+def test_the_two_buttons_are_in_the_catalogue():
+    for name in ("macro_send", "macro_repeat"):
         assert game_buttons.get(name) is not None, name
         assert name in game_buttons.names()
 
 
-def test_the_arm_reads_the_screen_and_resolves_the_squad():
-    lua = lua_actions.macro_arm()
+def test_neither_button_sits_out_a_pause_after_pressing():
+    """#1290: a `wait` is a sleep with the game claim held, and both recipes measure.
+
+    Two seconds each was two seconds in which the NEXT key press answered «занят» —
+    and the march they were waiting for is counted by the recipe anyway.
+    """
+    for name in ("macro_send", "macro_repeat"):
+        assert game_buttons.get(name).wait == 0.0, name
+
+
+def test_the_send_reads_the_screen_and_resolves_the_squad():
+    lua = lua_actions.macro_send()
     for field in ("targetType", "targetPoint", "targetUuid", "targetServerId",
                   "timeIndex", "autoBackHome"):
-        assert field in lua, f"the arm does not read {field}"
+        assert field in lua, f"the send does not read {field}"
     assert "UIFormationSelectListV2" in lua and "UIFormationSelectListNew" in lua
     assert "ArmyFormationList" in lua        # squad number -> formation uuid
     assert "tonumber(c.targetUuid)" not in lua, (
@@ -140,13 +169,24 @@ def test_the_arm_reads_the_screen_and_resolves_the_squad():
         "march — #1283 lost an afternoon to it")
 
 
-def test_the_launch_presses_the_games_own_button():
-    lua = lua_actions.macro_launch()
+def test_the_send_presses_the_games_own_button_in_the_same_chunk_it_read():
+    lua = lua_actions.macro_send()
     assert "OnCheckTime" in lua, "keys 1..4 replace the mouse, not the game's checks"
     assert "SetSelectFormationUuid" in lua
     assert "SendCreateMarchMessage" not in lua
     # …and it writes the march down BEFORE pressing: the screen closes itself.
     assert lua.index("__lw_macro_last") < lua.index("OnCheckTime")
+    # …and the reading of the screen is in the SAME chunk as the press (#1290), so
+    # nothing can close it in between.
+    assert lua.index("targetUuid") < lua.index("OnCheckTime")
+
+
+def test_the_send_tells_its_four_refusals_apart():
+    lua = lua_actions.macro_send()
+    for verdict in ("p.result = 0", "p.result = -1", "p.result = -2",
+                    "p.result = -3", "p.result = 1"):
+        assert verdict in lua, verdict
+    assert "result" in lua_actions.macro_result()
 
 
 def test_a_rally_is_never_repeated_by_a_plain_send():
@@ -174,10 +214,14 @@ def test_the_repeat_sends_directly_and_opens_nothing():
     assert "__lw_macro_last" in lua
 
 
-def test_the_armed_reading_tells_the_three_refusals_apart():
-    expr = lua_actions.macro_armed()
-    for verdict in ("return 0", "return -2", "return -1", "return 1"):
-        assert verdict in expr
+def test_the_repeat_parks_which_of_the_three_it_did():
+    lua = lua_actions.macro_repeat()
+    for verdict in ("m.result = 0", "m.result = -1", "m.result = 1"):
+        assert verdict in lua, verdict
+    assert "result" in lua_actions.macro_repeat_result()
+    # …and the reading with nothing sent is still there for a caller that wants to ASK.
+    for verdict in ("return 0", "return -1", "return 1"):
+        assert verdict in lua_actions.macro_repeat_ready()
 
 
 # ---------------------------------------------------------------------------

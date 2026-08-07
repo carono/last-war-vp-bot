@@ -101,6 +101,30 @@ def gated_chunk(btn, cap: int) -> str:
             % (btn.count_lua, body))
 
 
+#: How long the link gate's verdict about one client stays good for
+#: (:meth:`Interpreter._link_verdict`, #1290). Ten seconds is chosen from the other
+#: side: the gate has always been asked once per RUN, and a run lasts anything from a
+#: fifth of a second (a keyboard macro) to minutes (a recipe with a `WAIT` in it), so a
+#: verdict was already allowed to be minutes old by the time a recipe finished acting on
+#: it. Ten seconds of sharing it between runs is well inside that, and it is what turns
+#: a macro's press from «two seconds of asking, 90 ms of pressing» into a press.
+LINK_VERDICT_TTL = 10.0
+
+#: `{(port, windows user): (expires_at, verdict)}` — see :meth:`Interpreter._link_verdict`.
+#: Process-wide because the panel runs every profile's scenarios in one process, and
+#: keyed by the client so that two profiles never read each other's answer.
+_LINK_VERDICT: dict = {}
+
+
+def forget_link_verdict() -> None:
+    """Drop every cached link verdict — the next run asks the client again.
+
+    For a caller that has just changed the thing the gate reads: a client restarted, a
+    daemon re-attached, a test that must not inherit the previous one's answer.
+    """
+    _LINK_VERDICT.clear()
+
+
 def resolve_action(name: str) -> Path | None:
     """Locate an action script by name: blessed `actions/` first, then `actions/dev/`."""
     for base in (ACTIONS_DIR, DEV_ACTIONS_DIR):
@@ -1691,14 +1715,44 @@ class Interpreter:
         Once per run, not once per press: a recipe that taps thirty times must not walk
         the socket table thirty times, and a link that dies mid-recipe is caught by the
         next run rather than mid-press.
+
+        …AND NOT ONCE PER RUN EITHER, WHEN A RUN IS A KEYPRESS (#1290). «Once per run»
+        was written for a recipe that then presses for a minute; a keyboard macro is a
+        whole run that lasts a fifth of a second, and there the gate WAS the latency —
+        two seconds of it against 90 ms of actual pressing. The verdict is a property of
+        the CLIENT and not of the run, so it is cached per client for
+        :data:`LINK_VERDICT_TTL` (:func:`_link_verdict`) — which is strictly inside the
+        staleness the gate already lives with, since a run that passed it a moment
+        before a kick goes on pressing for its whole length regardless.
         """
         if self.ctx.link_checked:
             return
         self.ctx.link_checked = True
-        lost = self._link_lost()
+        lost = self._link_verdict()
         if lost:
             self._log(f"line {getattr(stmt, 'line_no', '?')}: {lost}")
             self._fail(lost)
+
+    def _link_verdict(self) -> "str | None":
+        """:meth:`_link_lost`, remembered per client for :data:`LINK_VERDICT_TTL` (#1290).
+
+        The cache is keyed by the CLIENT — the daemon port and the Windows session the
+        run drives — because that is what the verdict is about; two profiles never share
+        one. Both answers are kept, the refusal as well as the pass: a client that has
+        lost the server is asked about again at the same rate as one that has not, and a
+        panel full of timers hammering a dead link does not turn into a probe storm.
+
+        A press made while a background errand is running usually finds the answer
+        already there, which is the whole point: the errand paid for it a second ago.
+        """
+        key = (self._game_port(), (self.ctx.game_user or "").strip())
+        now = time.monotonic()
+        cached = _LINK_VERDICT.get(key)
+        if cached is not None and now < cached[0]:
+            return cached[1]
+        verdict = self._link_lost()
+        _LINK_VERDICT[key] = (now + LINK_VERDICT_TTL, verdict)
+        return verdict
 
     def _link_lost(self) -> "str | None":
         """A sentence when this client has demonstrably lost the server, else ``None``.
@@ -1854,6 +1908,10 @@ class Interpreter:
         as «could not tell», while an answer that carries no plausible clock is the
         client itself saying it is not in a session. The chunk and both checks are
         `game_clock`'s own — no second copy of the question.
+
+        THE SETTLE IS A DEADLINE (`early`, #1290), for the reason `game_clock.read` now
+        gives: the client answers out of a field it already holds, so sitting out the
+        whole second bought nothing. 1055 ms became 90.
         """
         try:
             import game_clock
@@ -1867,7 +1925,8 @@ class Interpreter:
                 if not lua_client.is_running(port=port, timeout=0.3):
                     return True
                 ev = self._evaluator()
-            lines = ev.run(lua_actions.game_server_time(), game_clock.MARKER, 1.0)
+            lines = ev.run(lua_actions.game_server_time(), game_clock.MARKER, 1.0,
+                           early=True)
             server_ms = game_clock.parse_ms(lines)
             return server_ms is not None and game_clock.plausible(server_ms)
         except Exception:                    # noqa: BLE001 — «could not tell» is a pass
@@ -2075,6 +2134,7 @@ class Interpreter:
         pid = game_client.target_pid(port=self._game_port(), user=user,
                                      log=lambda msg: self._log(f"  {msg}"))
         self._detach()                        # nothing may hold the old process
+        forget_link_verdict()                 # …and nothing may quote the old client's link
         if pid is None:
             self._log("QUIT_GAME -> no client is running")
             return
@@ -2153,6 +2213,7 @@ class Interpreter:
         import lua_client
 
         self._detach()
+        forget_link_verdict()                 # the client is a new one; so is its link
         port = self._game_port()
         deadline = time.time() + float(stmt.timeout)
         seen = None
