@@ -114,6 +114,12 @@ class _Var:
         self._v = value
 
 
+#: The fixture's home server. Every `_row` sits on server 1, i.e. ABROAD — which is the
+#: only place the standing order may rob since #1188, so an ordinary fixture row is a
+#: legal target and the tests that are ABOUT the home rule move a row onto this number.
+_HOME_SERVER = 534
+
+
 class _FakeAutoLoot:
     """What the tab asks the standing order: its one bound, and the own-server rule.
 
@@ -124,7 +130,11 @@ class _FakeAutoLoot:
     def __init__(self, tab):
         self.tab = tab
         self._seen = set()
-        self.skip = None
+        # The home server, and it is never None in a working client (#1188): the
+        # exclusion is unconditional now, so `rob_candidates` reads this as «which one
+        # is home» rather than «is the prohibition on». `0`/`None` means the client
+        # could not say, and then nothing is a target at all.
+        self.skip = _HOME_SERVER
 
     def level_min(self):
         raw = str(self.tab.level_min_var.get()).strip()
@@ -427,50 +437,25 @@ def test_the_coordinate_cell_jumps_and_the_action_cell_collects():
         assert tab._tree.cursor == want, (column, ready, tab._tree.cursor)
 
 
-class _FakeBox:
-    """A ttk.Checkbutton reduced to what greying it out touches."""
+def test_toggling_auto_loot_starts_the_order_and_greys_nothing_beside_it():
+    """«Автолут ★» has no companion control any more (#1188).
 
-    def __init__(self):
-        self.states = []
-
-    def state(self, spec):
-        self.states.append(tuple(spec))
-
-
-def test_the_prohibition_is_lit_only_while_auto_loot_can_rob():
-    """«Не грабить на своём сервере» greys out with «Автолут ★», and keeps its value.
-
-    With nothing robbing by itself the prohibition has nothing to forbid, and a live
-    box that changes nothing is how a person concludes the panel ignored them.
+    It used to grey «Не грабить на своём сервере» — the one box that hung off it — and
+    that whole apparatus (`_sync_autoloot_controls`, `_on_skip_own_change`) went with the
+    box when the prohibition became unconditional. What is left is the toggle itself, and
+    a tab whose widgets are not built yet must still survive it: «Стоп всё» and
+    `apply_config` both reach this before there is anything on screen.
     """
     tab = object.__new__(st.SecretTasksTab)
     tab.autoloot_var = _Var(False)
-    tab.skip_own_var = _Var(True)
-    tab._skip_own_box = _FakeBox()
-
-    st.SecretTasksTab._sync_autoloot_controls(tab)
-    assert tab._skip_own_box.states[-1] == ("disabled",), tab._skip_own_box.states
-    tab.autoloot_var.set(True)
-    st.SecretTasksTab._sync_autoloot_controls(tab)
-    assert tab._skip_own_box.states[-1] == ("!disabled",), tab._skip_own_box.states
-    # Greying it never changes what it says — ticking auto-loot back on brings the
-    # prohibition back exactly as it was left.
-    assert tab.skip_own_var.get() is True
-
-    # Toggling auto-loot itself does both things: the standing order, then the box.
     toggled = []
     tab.autoloot = __import__("types").SimpleNamespace(
         toggle=lambda: toggled.append(1))
-    tab.autoloot_var.set(False)
     st.SecretTasksTab._on_autoloot_toggle(tab)
     assert toggled == [1], toggled
-    assert tab._skip_own_box.states[-1] == ("disabled",), tab._skip_own_box.states
 
-    # A tab whose widgets are not built yet must survive the same call — «Стоп всё» and
-    # `apply_config` both reach it before there is a checkbox to grey.
-    bare = object.__new__(st.SecretTasksTab)
-    bare.autoloot_var = _Var(False)
-    st.SecretTasksTab._sync_autoloot_controls(bare)
+    for gone in ("_sync_autoloot_controls", "_on_skip_own_change"):
+        assert not hasattr(st.SecretTasksTab, gone), gone
 
 
 def test_the_own_server_is_read_once_and_an_unreadable_one_is_zero():
@@ -1605,19 +1590,27 @@ def test_an_unread_own_server_hides_nothing():
     assert [r["uuid"] for r in tab._visible_rows()] == [1]
 
 
-def test_the_display_rule_is_not_the_robbery_rule():
-    """Two settings, two names, two effects — never one box wearing both (#1099/#1251)."""
+def test_the_display_rule_survived_the_robbery_rule_becoming_unconditional():
+    """One box left, and it is the one about the EYES (#1099/#1251/#1188).
+
+    There used to be two, and telling them apart was the whole point: «Скрывать со
+    своего сервера» decides what the TABLE shows, «Не грабить на своём сервере» decided
+    what was ROBBED. The second is gone — the home server is never a target and there is
+    no setting for it — and this test now guards the thing that could go wrong next:
+    somebody tidying up the first one along with it.
+    """
     keys = st.SecretTasksTab.config(_config_stub())
-    assert keys["hide_own_server"] is True          # what is SHOWN
-    assert keys["autoloot_skip_own_server"] is False  # what is ROBBED
+    assert keys["hide_own_server"] is True          # what is SHOWN — still a choice
+    assert "autoloot_skip_own_server" not in keys, keys
     # …and each page's own filters live under its own key, so one page's box can never
     # land in another's slot (#1251).
     assert set(keys["grids"]) == {"alliance", "ghost", "ghost_allies", "ghost_map"}
     src = (Path(__file__).resolve().parents[1] /
            "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
-    assert "hide_own_var" in src and "skip_own_var" in src
-    # …and the robbery rule is not what the table asks about.
-    assert "_visible_rows" in src and "self.skip_own_var" not in \
+    assert "hide_own_var" in src, "the display rule went with it"
+    assert "self.skip_own_var" not in src, "the robbery's box came back"
+    # …and the table's rule still does not consult the robbery's home server.
+    assert "_visible_rows" in src and "skip_server" not in \
         src.split("def _visible_rows")[1].split("def ")[0]
 
 
@@ -1630,7 +1623,7 @@ def _config_stub():
     stub.monitor_var, stub.show_spent_var = _Var(False), _Var(False)
     stub.hide_own_var = _Var(True)
     stub.filter_from_var = stub.filter_to_var = _Var("")
-    stub.autoloot_var, stub.skip_own_var = _Var(False), _Var(False)
+    stub.autoloot_var = _Var(False)
     stub.level_min_var = _Var("")
     stub.sweep_var = _Var(False)
     stub.sweep_cx_var = stub.sweep_cy_var = _Var("")

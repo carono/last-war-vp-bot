@@ -35,7 +35,7 @@ docs/research/secret-task-steal.md.
                 --level-max M      levels outside it are not targets at all, and
                                    with --star-max the target level IS --level-max
                                    («от 1 до 7» robs 7s and leaves a 6 alone)
-    --skip-own-server              never rob a tile standing on the player's OWN
+    (always, no flag)              never rob a tile standing on the player's OWN
                                    server — the neighbours you share a map (and an
                                    alliance politics) with. The own server is read
                                    live from the client; when it cannot be read
@@ -454,9 +454,9 @@ def main() -> int:
                     help="with --from-scan: never rob above level N («уровень до») — "
                          "and with --star-max this IS the level robbed, nothing lower")
     ap.add_argument("--skip-own-server", action="store_true",
-                    help="never rob a tile on the player's own server (the panel's "
-                         "«не грабить на своём сервере»); the own server is read live "
-                         "and an unreadable one robs nothing")
+                    help="accepted and ignored: skipping the player's own server is "
+                         "what --from-vm / --from-scan always do now (#1188). Kept so "
+                         "that older call sites keep working")
     ap.add_argument("--queue-only", action="store_true",
                     help="park the targets in the game VM and stop (no robbery)")
     ap.add_argument("--status", action="store_true",
@@ -487,15 +487,19 @@ def main() -> int:
         print("robberies left today: %d   targets queued: %d" % (left, queued))
         return 0
 
-    # «Не грабить на своём сервере», resolved once and up front. A prohibition that
-    # cannot be checked must stop the run rather than lapse quietly: an unreadable own
-    # server would otherwise mean every neighbour is fair game again.
+    # «На своём сервере не грабим вообще», resolved once and up front — and no longer
+    # optional (#1188). It gates the SELECTION sources only (`--from-vm` / `--from-scan`);
+    # `--targets`, `--uuid` and `--coords` name one tile by hand and are still obeyed
+    # literally, because somebody typing a uuid has already made the decision.
+    #
+    # A prohibition that cannot be checked must stop the run rather than lapse quietly:
+    # an unreadable own server would otherwise mean every neighbour is fair game again.
     skip = 0
-    if args.skip_own_server:
+    if args.from_vm or args.from_scan:
         skip = own_server(ev)
         if not skip:
-            print("--skip-own-server: the player's own server could not be read — "
-                  "nothing robbed (is the game running and logged in?)")
+            print("the player's own server could not be read — nothing robbed "
+                  "(is the game running and logged in?)")
             return 1
         print("own server: %d — its tiles are not targets" % skip)
 

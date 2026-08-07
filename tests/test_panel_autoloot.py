@@ -55,7 +55,7 @@ except Exception:       # noqa: BLE001 — no display is fine, no module is not
     _HAS_TK = False
 
 
-def _row(uuid: int, level: int, server: int = 534, starred: bool = True,
+def _row(uuid: int, level: int, server: int = 999, starred: bool = True,
          ready: bool = True, loot_count: int = 0) -> dict:
     """One row of the tab's list, in the shape `rob_candidates` reads."""
     now_ms = int(time.time() * 1000)
@@ -73,11 +73,10 @@ class _Tab:
     plain dicts, which is what they are in the tab too.
     """
 
-    def __init__(self, rows, level_min="", skip_own=False, own_server=0, t=None,
+    def __init__(self, rows, level_min="", own_server=534, t=None,
                  say=None):
         self.rows = {str(r["uuid"]): r for r in rows}
         self.level_min_var = types.SimpleNamespace(get=lambda: level_min)
-        self.skip_own_var = types.SimpleNamespace(get=lambda: skip_own)
         self.autoloot_var = types.SimpleNamespace(get=lambda: True)
         self.capture = types.SimpleNamespace(running=False)
         self._own = own_server
@@ -94,17 +93,19 @@ class _Tab:
     def rob_candidates(self) -> list:
         low = self.autoloot.level_min()
         skip = self.autoloot.skip_server()
+        if not skip:                      # home unknown -> nothing is a target (#1188)
+            return []
         rows = [r for r in self.rows.values()
                 if r.get("ready") and r.get("starred")
                 and int(r.get("loot_count") or 0) < 3
                 and (low is None or int(r.get("level") or 0) >= low)
-                and not (skip and int(r.get("server") or 0) == skip)]
+                and int(r.get("server") or 0) not in (0, skip)]
         rows.sort(key=lambda r: (-int(r.get("level") or 0),
                                  int(r.get("loot_count") or 0)))
         return rows
 
 
-def _Watcher(rows=(), level_min="", skip_own=False, own_server=0, logged_in=True):
+def _Watcher(rows=(), level_min="", own_server=534, logged_in=True):
     """The «Автолут ★» standing order over a stub list, wired to nothing else.
 
     No Tk root, no daemon, no child ever spawned — `run` records the targets the tick
@@ -132,7 +133,7 @@ def _Watcher(rows=(), level_min="", skip_own=False, own_server=0, logged_in=True
         settings=settings, log=bus, put=bus.put,
         children=types.SimpleNamespace(python=lambda: "python", spawn_raw=None),
         tick=types.SimpleNamespace(arm=lambda *a, **k: None))
-    tab = _Tab(rows, level_min=level_min, skip_own=skip_own, own_server=own_server,
+    tab = _Tab(rows, level_min=level_min, own_server=own_server,
                t=i18n.t, say=bus.say)
     w = AutoLoot(rt, tab)
     tab.autoloot = w
@@ -224,8 +225,14 @@ def test_the_minimum_level_takes_everything_above_it_and_nothing_below():
     assert w.runs == [[3], [2]], w.runs
 
 
-def test_a_star_on_the_own_server_is_not_a_target_while_the_box_is_ticked():
-    """«Не грабить на своём сервере» (#1209): the neighbour's tile is robbed, home is not.
+def test_the_own_server_is_never_a_target_and_there_is_no_box_that_can_allow_it():
+    """«Грабить исключительно на чужих серверах» (#1188) — the rule, not a preference.
+
+    It used to hang off «Не грабить на своём сервере», shipped OFF, so an untouched
+    profile robbed the neighbours. The cost of that is not an error anybody sees: it is
+    one of the day's five spent where it was not wanted (#1099), which is exactly the
+    shape of mistake a checkbox is the wrong guard for. So the box is gone and the
+    exclusion is unconditional.
 
     The prohibition is applied where the targets are CHOSEN, not after — so the rule
     still picks the best allowed star instead of picking a forbidden one and coming
@@ -235,16 +242,39 @@ def test_a_star_on_the_own_server_is_not_a_target_while_the_box_is_ticked():
         print("  SKIP tkinter not importable — run under the Windows Python")
         return
     w = _Watcher(rows=[_row(3, 7, server=534), _row(4, 7, server=999)],
-                 level_min="1", skip_own=True, own_server=534)
+                 level_min="1", own_server=534)
     w.tick()
     assert w.runs == [[4]], w.runs
     assert w._seen == {4}, "the tile on the own server was taken as a target: %r" % (
         w._seen,)
 
-    # Untick the box and the same home tile is a target again — nothing else changed.
-    off = _Watcher(rows=[_row(3, 7, server=534)], level_min="1", skip_own=False)
-    off.tick()
-    assert off.runs == [[3]], off.runs
+    # A home tile ALONE is not a fallback: the watcher does nothing rather than rob it.
+    home_only = _Watcher(rows=[_row(3, 7, server=534)], level_min="1", own_server=534)
+    home_only.tick()
+    assert home_only.runs == [], "robbed at home with nothing else on the list: %r" % (
+        home_only.runs,)
+
+    # And there is no switch left that could bring the old behaviour back.
+    from panel.tabs.secret_tasks.tab import SecretTasksTab
+    assert not hasattr(SecretTasksTab, "skip_own_var"), "the box came back"
+    src = (_REPO_ROOT / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text("utf-8")
+    assert "self.skip_own_var" not in src, "the tab still carries the prohibition's box"
+    cmd_src = (_REPO_ROOT / "panel" / "tabs" / "command_post" / "tab.py").read_text("utf-8")
+    assert "self._skip_own_var" not in cmd_src, "«Общие» still carries it"
+
+
+def test_a_row_that_cannot_say_which_server_it_is_on_is_not_robbed_either():
+    """`server = 0` is «the row never carried one», not «somewhere that is not home».
+
+    Same reasoning as the unreadable own server below: a tile that cannot place itself
+    must not be robbed on the strength of failing to say «here».
+    """
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    w = _Watcher(rows=[_row(5, 7, server=0)], level_min="1", own_server=534)
+    w.tick()
+    assert w.runs == [], "robbed a tile with no server on it: %r" % (w.runs,)
 
 
 def test_an_unreadable_own_server_stops_the_robbery_instead_of_letting_it_through():
@@ -252,7 +282,7 @@ def test_an_unreadable_own_server_stops_the_robbery_instead_of_letting_it_throug
     if not _HAS_TK:
         print("  SKIP tkinter not importable — run under the Windows Python")
         return
-    w = _Watcher(rows=[_row(4, 7, server=999)], level_min="1", skip_own=True,
+    w = _Watcher(rows=[_row(4, 7, server=999)], level_min="1",
                  own_server=0)
     w.tick()
     w.tick()
@@ -271,8 +301,7 @@ def test_the_rule_travels_to_the_listener_and_the_targets_to_the_child():
     if not _HAS_TK:
         print("  SKIP tkinter not importable — run under the Windows Python")
         return
-    w = _Watcher(rows=[_row(3, 7, server=999)], level_min="6", skip_own=True,
-                 own_server=534)
+    w = _Watcher(rows=[_row(3, 7, server=999)], level_min="6", own_server=534)
     spawned: list = []
     w.rt.children.spawn_raw = lambda cmd, tag: spawned.append(cmd)
 
@@ -293,11 +322,14 @@ def test_the_rule_travels_to_the_listener_and_the_targets_to_the_child():
     for flag in ("--level-min", "--level-max", "--star-max", "--from-vm", "--from-scan"):
         assert flag not in child, (flag, child)
 
-    off = _Watcher(rows=[_row(3, 7)], level_min="", skip_own=False)
+    # The listener ALWAYS carries the prohibition now (#1188) — with no minimum typed
+    # and no box to read, it is still the one flag that travels unasked.
+    bare = _Watcher(rows=[_row(3, 7)], level_min="")
     quiet: list = []
-    off.rt.children.spawn_raw = lambda cmd, tag: quiet.append(cmd)
-    off.start_push()
-    assert quiet and "--skip-own-server" not in quiet[0], quiet
+    bare.rt.children.spawn_raw = lambda cmd, tag: quiet.append(cmd)
+    bare.start_push()
+    assert quiet and "--skip-own-server" in quiet[0], quiet
+    assert "--level-min" not in quiet[0], quiet
     assert "--level-min" not in quiet[0], "an empty box became a bound"
 
 
@@ -341,7 +373,7 @@ def test_the_watcher_says_what_it_is_doing_even_when_it_does_nothing():
     w._pause_until = 0.0
 
     # …and the own-server prohibition with nothing to compare against.
-    blocked = _Watcher(rows=[_row(3, 7)], skip_own=True, own_server=0)
+    blocked = _Watcher(rows=[_row(3, 7)], own_server=0)
     blocked.tick()
     assert blocked.state()[0] == al.STATE_NO_OWN, blocked.state()
 

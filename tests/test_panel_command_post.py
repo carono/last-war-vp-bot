@@ -260,18 +260,14 @@ def test_tab_builds_and_drives_its_controls():
         # a junk block cannot smuggle in a bound or a squad the page would not offer.
         shared._rob_var.set(True)
         shared._star_var.set(False)
-        shared._skip_own_var.set(True)
         saved = tab.config()
+        # No `skip_own_server` in the block any more (#1188): the home server is never
+        # robbed and there is nothing left to remember about it.
         assert saved["pages"]["shared"] == {"rob": True, "stars_only": False,
-                                            "skip_own_server": True,
                                             "level_from": "3", "level_to": "7"}
         assert saved["pages"]["treasure"] == {"squad": 3}
         tab.apply_config({})
-        # «Не грабить на своём сервере» comes back OFF from an empty block: the page has
-        # always robbed whatever was shared, and a prohibition nobody asked for would be
-        # a silent change of what the listener does.
         assert tab.config()["pages"]["shared"] == {"rob": False, "stars_only": True,
-                                                   "skip_own_server": False,
                                                    "level_from": "", "level_to": ""}
         assert tab.config()["pages"]["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
         tab.apply_config(saved)
@@ -505,13 +501,10 @@ def test_the_wire_listener_is_told_about_the_own_server_prohibition():
 
         rt.children.spawn = lambda tag, cmd, **kw: _Child(cmd)
 
+        # The prohibition travels ALWAYS (#1188) — there is no box that could hold it
+        # back, so the very first listener carries it.
         shared._start_listener()
-        assert spawned and "--skip-own-server" not in spawned[0], spawned
-        shared._stop_listener()
-        shared._child = None
-        shared._skip_own_var.set(True)
-        shared._start_listener()
-        assert "--skip-own-server" in spawned[-1], spawned[-1]
+        assert spawned and "--skip-own-server" in spawned[0], spawned
         shared._stop_listener()
     finally:
         app.destroy()

@@ -237,9 +237,12 @@ class SecretTasksTab(PanelTab):
         # anything. Deliberately NOT the same setting as the ★ page's display filter
         # below: narrowing what is on screen still re-aims no robbery (#1099).
         self.level_min_var = tk_stringvar(master)
-        # «Не грабить на своём сервере»: the robberies are the only thing it gates —
-        # a tile at home is still listed, still shareable and still collectable by hand.
-        self.skip_own_var = tk.BooleanVar(master=master, value=False)
+        # There is no «Не грабить на своём сервере» box any more (#1188). The home
+        # server is never a target, full stop — see `rob_candidates`. A tile at home is
+        # still listed, still shareable and still collectable by hand; what went away is
+        # the ability to spend one of the day's five on a neighbour by leaving a box
+        # unticked. «Скрывать со своего сервера» (`hide_own_var`) is a different thing
+        # and is untouched: that one decides what the TABLE shows.
         # «Показывать исчерпанные»: off by default, because a 3/3 tile cannot pay
         # anybody and a list is read with the eyes (#1227). It is a box rather than a
         # silent rule so that a tile vanishing has somewhere to be looked for — the
@@ -474,7 +477,6 @@ class SecretTasksTab(PanelTab):
             self._was[name] = bool(var.get())
             var.set(False)
             order.stop()
-        self._sync_autoloot_controls()
 
     def resume(self) -> None:
         """«Включить обратно»: put back exactly the standing orders that were standing.
@@ -491,7 +493,6 @@ class SecretTasksTab(PanelTab):
                           ("sweep", self.sweep_var)):
             if was.get(name):
                 var.set(True)
-        self._sync_autoloot_controls()
 
     def shutdown(self) -> None:
         self.capture.stop()
@@ -525,7 +526,6 @@ class SecretTasksTab(PanelTab):
             "autoloot": bool(self.autoloot_var.get()),
             # One number now (#1256) — the lowest level worth one of the day's five.
             "autoloot_level_min": self.level_min_var.get(),
-            "autoloot_skip_own_server": bool(self.skip_own_var.get()),
             "map_sweep": bool(self.sweep_var.get()),
             "sweep_centre_x": self.sweep_cx_var.get(),
             "sweep_centre_y": self.sweep_cy_var.get(),
@@ -583,9 +583,10 @@ class SecretTasksTab(PanelTab):
             or raw.get("filter_level_from")
             or ""))
         self.autoloot_var.set(bool(raw.get("autoloot", False)))
-        # Off by default: robbing the whole map is what the tab has always done, and a
-        # prohibition nobody asked for would be a silent behaviour change.
-        self.skip_own_var.set(bool(raw.get("autoloot_skip_own_server", False)))
+        # `autoloot_skip_own_server` is READ from no profile and written to none (#1188).
+        # A profile that still carries it keeps it as dead weight rather than being
+        # rewritten behind the person's back, and it decides nothing: the home server is
+        # excluded whatever it says.
         self.sweep_var.set(bool(raw.get("map_sweep", False)))
         self.sweep_cx_var.set(raw.get("sweep_centre_x", ""))
         self.sweep_cy_var.set(raw.get("sweep_centre_y", ""))
@@ -596,7 +597,6 @@ class SecretTasksTab(PanelTab):
         self._zoom_level = str(raw.get("coord_zoom") or self._zoom_level)
         self._sync_zoom_combo()
         self._refresh_rule_hints()
-        self._sync_autoloot_controls()
 
     def _grid_pages(self) -> tuple:
         """The pages that keep settings of their own — every table but the ★ one.
@@ -612,7 +612,7 @@ class SecretTasksTab(PanelTab):
                 self.hide_own_var,
                 self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_min_var,
-                self.skip_own_var, self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
+                self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
                 self.coord_x_var, self.coord_y_var, self.coord_srv_var]
 
     # -- UI -------------------------------------------------------------------
@@ -757,12 +757,6 @@ class SecretTasksTab(PanelTab):
         self.tr(ttk.Label(bar), "secret.autoloot.level_min").pack(
             side="left", padx=(12, 2))
         NumericEntry(bar, textvariable=self.level_min_var, width=4).pack(side="left")
-        self._skip_own_box = self.tr(
-            ttk.Checkbutton(bar, variable=self.skip_own_var,
-                            command=self._on_skip_own_change),
-            "secret.autoloot.skip_own")
-        self._skip_own_box.pack(side="left", padx=(16, 0))
-        self._sync_autoloot_controls()
         self._rule_lbl = ttk.Label(frame, foreground="#888", wraplength=760,
                                    justify="left")
         self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
@@ -1185,35 +1179,13 @@ class SecretTasksTab(PanelTab):
         self._update_status()
 
     def _on_autoloot_toggle(self) -> None:
-        """«Автолут ★» was ticked or cleared: start/stop it, and grey what it owns."""
+        """«Автолут ★» was ticked or cleared: start/stop it.
+
+        Nothing is greyed alongside it any more: the one control that used to hang off
+        this box was «Не грабить на своём сервере», and the prohibition it carried is
+        unconditional now (#1188).
+        """
         self.autoloot.toggle()
-        self._sync_autoloot_controls()
-
-    def _sync_autoloot_controls(self) -> None:
-        """«Не грабить на своём сервере» is lit only while there are robberies to gate.
-
-        With auto-loot off nothing robs by itself, so the prohibition has nothing to
-        forbid — a live-looking box that changes nothing is how a person concludes the
-        panel ignored them. The VALUE is kept: ticking auto-loot back on brings the
-        prohibition back exactly as it was left.
-        """
-        box = getattr(self, "_skip_own_box", None)
-        if box is None:
-            return
-        try:
-            box.state(("!disabled",) if self.autoloot_var.get() else ("disabled",))
-        except tk.TclError:
-            pass
-
-    def _on_skip_own_change(self) -> None:
-        """«Не грабить на своём сервере» was ticked or cleared.
-
-        The poll re-reads the box every tick, but the push listener is a subprocess
-        started with a fixed rule — without the bounce a box ticked while auto-loot is
-        running would go on robbing the neighbours it was ticked to protect.
-        """
-        self._refresh_rule_hints()
-        self.autoloot.range_changed()
 
     # -- jumping ---------------------------------------------------------------
     # -- how far back the camera sits (#1265) ----------------------------------
@@ -2204,21 +2176,35 @@ class SecretTasksTab(PanelTab):
 
         The rule, in order: the tile is raidable (ready, and not looted out —
         :meth:`_collectable`), it wears a star (every row of this list does, by
-        construction), its level is at or above «минимальный уровень», and it is not at
-        home while «не грабить на своём сервере» is ticked. Robbed by hand this session
-        (`_collected`) is excluded for the obvious reason.
+        construction), its level is at or above «минимальный уровень», and **it is on
+        somebody else's server**. Robbed by hand this session (`_collected`) is excluded
+        for the obvious reason.
+
+        THE HOME SERVER IS NEVER A TARGET, and that is not a setting (#1188). It used to
+        be one, shipped OFF, so the standing order robbed the neighbours unless somebody
+        had thought to forbid it — and the price of that is not an error anybody sees but
+        one of the day's five quietly spent in the wrong place (#1099). An own server
+        that cannot be READ (0) makes this list EMPTY rather than unfiltered: «I don't
+        know which one is home» must never come out as «none of them is».
 
         NOT filtered by what the table happens to be showing: the display boxes are a
         pair of eyes, and somebody narrowing them to read something must not thereby
-        change which tiles the day's five are spent on.
+        change which tiles the day's five are spent on. «Скрывать со своего сервера» is
+        one of those eyes and is unrelated to the prohibition above.
         """
         skip = self.autoloot.skip_server()
+        if not skip:
+            return []
         rows = [row for key, row in self._rows.items()
                 if key not in self._collected
                 and self._collectable(row)
                 and row.get("starred")
                 and self._in_rob_range(row.get("level"))
-                and not (skip and int(row.get("server") or 0) == skip)]
+                # A KNOWN server that is not home. `0` is «the row never carried one»,
+                # and a row that cannot say where it is must not be robbed on the
+                # strength of not saying «here» — the same reason an unreadable own
+                # server empties the list above.
+                and int(row.get("server") or 0) not in (0, skip)]
         # Best first, and among equals the tile with the most slots left: it is the one
         # most likely to still be there when the send lands.
         rows.sort(key=lambda r: (-int(r.get("level") or 0),

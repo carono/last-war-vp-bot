@@ -164,9 +164,10 @@ class AutoLoot:
         if low is not None:
             cmd += ["--level-min", str(low)]
         # The listener resolves the own server itself (it is spawned at boot, when the
-        # client may not be logged in yet), so the box travels as a flag, not a number.
-        if self.tab.skip_own_var.get():
-            cmd.append("--skip-own-server")
+        # client may not be logged in yet), so the prohibition travels as a flag rather
+        # than as a number. It is unconditional now (#1188): the home server is never a
+        # target, so there is no box left to read here.
+        cmd.append("--skip-own-server")
         proc = self.rt.children.spawn_raw(cmd, "autoloot")
         if proc is None:
             return
@@ -254,10 +255,12 @@ class AutoLoot:
         if time.time() < self._pause_until:           # the day's budget is spent
             self._state = (STATE_PAUSED, _hhmm(self._pause_until))
             return
-        # «Не грабить на своём сервере» is a prohibition, so an unknown own server stops
-        # the tick rather than letting it through: robbing a neighbour the operator asked
-        # to be left alone cannot be taken back, and a paused watcher says so in the log.
-        if self.tab.skip_own_var.get() and not self.tab.own_server():
+        # «На своём сервере не грабим вообще» is a prohibition, so an unknown own server
+        # stops the tick rather than letting it through: robbing a neighbour cannot be
+        # taken back, and a paused watcher says so in the log. Unconditional since #1188
+        # — there is no longer a box that can turn this off, so «I could not read which
+        # server is home» is now the only way the rule can fail to apply, and it refuses.
+        if not self.tab.own_server():
             self._state = (STATE_NO_OWN, "")
             if not self._warned_own:
                 self._warned_own = True
@@ -445,15 +448,17 @@ class AutoLoot:
         return int(raw) if raw.isdigit() else None
 
     def skip_server(self) -> "int | None":
-        """The server the standing order must not rob on — the player's own, or None.
+        """The server the standing order must not rob on — always the player's own.
 
-        None means "no prohibition": either the box is clear, or the own server could not
-        be read. The unreadable case is NOT silently permissive — `tick` refuses to fire
-        at all while the box is ticked and the answer is unknown; this only reports what
-        the filter can be given.
+        UNCONDITIONAL SINCE #1188. It used to hang off a checkbox that shipped OFF, so
+        the standing order robbed at home unless somebody had thought to forbid it — and
+        the cost of that is not an error but one of the day's five spent on a neighbour.
+        The rule is «rob abroad only», so there is nothing left to switch.
+
+        `None` therefore means one thing now: the own server could not be READ. That case
+        is not silently permissive — `tick` refuses to fire at all while the answer is
+        unknown; this only reports what the filter can be given.
         """
-        if not self.tab.skip_own_var.get():
-            return None
         return self.tab.own_server()
 
     def rule_text(self) -> str:
@@ -466,9 +471,10 @@ class AutoLoot:
         low = self.level_min()
         text = (self.tab.t("secret.autoloot.rule_min", lvl=low) if low is not None
                 else self.tab.t("secret.autoloot.rule_any"))
-        if self.tab.skip_own_var.get():
-            text += " " + self.tab.t("secret.autoloot.rule_skip_own")
-        return text
+        # Said on every line, not only when a box happens to be ticked: the prohibition
+        # is part of what the order IS now (#1188), and a rule the log stops mentioning
+        # is a rule the next person has to read the source to find.
+        return text + " " + self.tab.t("secret.autoloot.rule_skip_own")
 
     # -- what it is doing right now --------------------------------------------
     def state(self) -> tuple:
