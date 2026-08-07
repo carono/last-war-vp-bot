@@ -142,6 +142,31 @@ start cannot put stale files back over fresher ones. **Nothing is ever deleted**
 existing file in the new place is never overwritten. If both exist, the new one wins and
 the old one stays on disk for you to look at.
 
+## A list whose removals name a reason — `panel/kept.py`
+
+Three of these files lost data in one day, in the same way each time: a read came back
+EMPTY or FAILED, was treated as authority, and rows a person had paid for with laps of the
+map were deleted. #1272 answered it for the ★ tile list as a prose rule; #1282 put the
+same invariant in a type, so the other stores can have it without anybody re-deriving it.
+
+A `Kept` list has **no `clear()` and no way to assign its contents** — a wipe fails where
+it is written. It removes rows through one door, and that door takes a reason:
+
+| reason | what it means |
+|---|---|
+| `EXPIRED` | the row's own countdown ran out |
+| `GAME_SAID_GONE` | the game answered ABOUT this row and said it is not there |
+| `PERSON_ASKED` | somebody pressed «очистить» — the only clause that may empty a list |
+
+Each store declares which of the three it accepts, so a list that may only shed expired
+rows refuses the others by construction. **«The read came back empty» is deliberately not
+a reason**: `merge()` only ever adds and updates, so an empty read removes nothing and a
+partial one keeps the fields it did not mention. Writes are atomic — a panel killed
+mid-save reads back the previous whole list, never half of one.
+
+`tests/test_panel_kept.py` pins all of it, including the absence of every name a wipe
+might plausibly be written under.
+
 ## Why there were two directories called `profiles`
 
 Worth writing down, because it cost somebody three attempts to get an answer.
