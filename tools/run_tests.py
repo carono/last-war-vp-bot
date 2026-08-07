@@ -197,7 +197,11 @@ def main(argv: list[str] | None = None) -> int:
     if not wanted:
         print(f"nothing to run: no file in tier {args.tier!r}"
               + (f" matching {args.only!r}" if args.only else ""))
-        return 1
+        # A `--only` that matches nothing is a typo and stays an error. A TIER that is
+        # empty is not: `live` holds only whatever declares itself so, and after #1284
+        # moved the last one out (it needed no client and never had) there is none. An
+        # empty tier has no failures in it, which is what the exit code is about.
+        return 1 if args.only else 0
 
     print(f"{len(wanted)} file(s), tier {args.tier}, {sys.executable}")
     started = time.monotonic()
