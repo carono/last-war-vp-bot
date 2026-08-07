@@ -453,6 +453,34 @@ def test_the_alert_fires_once_per_banner():
         root.destroy()
 
 
+def test_every_pass_reports_what_it_went_for():
+    """The budget is told about the pass that SENT, not only about the first one (#1281).
+
+    `kinds` used to be read once, straight after the first pass. Two branches send after
+    that — the empty-squad fetch and the write-off of a shut banner — and on the live
+    event seven runs each sent one, joined one, and reported `kinds = \'\'`, so the
+    per-kind tally recorded nothing at all for them.
+    """
+    from lastwar_bot import script_engine as se
+
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    stmts = se.parse_text(se.prepare_source(src, {})[0])
+
+    def _reads(block):
+        found = 0
+        for st in block:
+            if isinstance(st, se.ReadLuaStmt) and st.var == "kinds":
+                found += 1
+            for name in ("then_block", "block", "body"):
+                found += _reads(getattr(st, name, None) or [])
+        return found
+
+    presses = sum(1 for st in stmts if isinstance(st, se.TapStmt))
+    assert _reads(stmts) >= presses, (
+        "%d presses, %d readings of what they went for" % (presses, _reads(stmts)))
+
+
 def test_the_two_boxes_are_one_state():
     """«Какая из них настоящая?» must stop being a question a person can ask (#1281).
 

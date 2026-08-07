@@ -119,6 +119,11 @@ IF todo < 0
     READ_LUA (DataCenter.__lw_rally_report or "the second join left no report — the press did not run") INTO report
     LOG "the line above is what the press did, banner by banner"
     READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
+    # AND WHAT THIS PASS WENT FOR. Read again because the FIRST pass sent nothing —
+    # that is why this branch was reached — so the kinds read up there are empty, and a
+    # budget told «this run went for nothing» writes nothing down for a run that did
+    # join. Live: `kinds = ''` on seven runs that each sent one and joined one (#1281).
+    READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
 
 # THE ONE ENDING THAT IS A SKIP AND NOT A FAILURE. The squads were asked about and the
 # game had no army to put in them: nothing the bot can press changes that, and the answer
@@ -178,6 +183,10 @@ TAP rally_join_all
 READ_LUA (DataCenter.__lw_rally_report or "the second pass left no report — the press did not run") INTO report
 
 LOG "the line above is the second pass, with the shut banners taken out"
+
+# …and what THIS pass went for: the first pass's squads never arrived, so its kinds
+# stand for nothing and the run must be counted by what actually went out.
+READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
 
 READ_LUA (DataCenter.__lw_rally_sent or 0) INTO resent
 
