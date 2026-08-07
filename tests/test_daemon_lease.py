@@ -149,7 +149,12 @@ class _FakeEval:
     def __init__(self):
         self.chunks = []
 
-    def run(self, chunk, marker=None, settle=1.2, early=False):
+    def run(self, chunk, marker=None, settle=1.2, early=False, sentinel=None):
+        # `sentinel` (#1272) has to be here even though nothing in this file passes
+        # one: `Daemon.run` forwards every keyword it was given, a stand-in that will
+        # not take it raises TypeError, and the daemon's «stale handle?» recovery reads
+        # that as a dead evaluator and builds a REAL one — so an offline test goes
+        # looking for a game client and reports the link as gone (#1282).
         self.chunks.append(chunk)
         return [f"{marker or 'X'} ok"]
 

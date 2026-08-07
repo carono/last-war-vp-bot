@@ -70,6 +70,12 @@ class FakeEval:
 def _run(script: str, evaluator) -> tuple:
     log: list[str] = []
     ctx = se.Context(hwnd=0, on_event=log.append, evaluator=evaluator)
+    # The link gate walks the machine's socket table once per run and fails the whole
+    # thing when no client is talking to a server. That is right for a recipe and wrong
+    # for a test: on Windows it finds no client and nothing below ever presses, while on
+    # a box where the probe cannot run at all it quietly passes — the same file green on
+    # one interpreter and red on the other, which is how #1282 found it.
+    ctx.link_checked = True
     se.Interpreter(ctx)._run_block(se.parse_text(script))
     return log, ctx
 

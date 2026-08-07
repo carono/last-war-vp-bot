@@ -118,6 +118,14 @@ def _run(script: str, evaluator) -> tuple[list[str], se.Context]:
     """Parse+run a script with a fake evaluator; return (log lines, context)."""
     log: list[str] = []
     ctx = se.Context(hwnd=0, on_event=log.append, evaluator=evaluator)
+    # The link gate (`_gate_link`) walks the MACHINE's socket table once per run and
+    # fails the whole run when no client is talking to a server. Right for a recipe,
+    # wrong for a test with a fake evaluator — and it does not fail the same way
+    # everywhere: on Windows it finds no client and nothing below ever presses, while
+    # where the probe cannot run at all it quietly passes. That is why this file read
+    # 62/63 under one interpreter and 46/63 under the other, on the same commit (#1282).
+    # The file that tests the gate itself is `tests/test_engine_link_gate.py`.
+    ctx.link_checked = True
     se.Interpreter(ctx)._run_block(se.parse_text(script))
     return log, ctx
 
