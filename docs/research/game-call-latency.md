@@ -455,5 +455,12 @@ allowed to take the macros out of the scenario system if the measurement asked f
 the measurement asked for a `wait` to become a deadline and three calls to become one,
 and both are ordinary work inside the rule. The abilities are still one file each.
 
+**What is left on the table here.** The warm 125 ms is two calls: parking which squad,
+then pressing. They are two only because `TAP` carries no arguments — the squad has to
+be put somewhere the press can read it. A primitive that handed a button one value would
+make it one call of ~60 ms, which is the floor of the channel itself. Not done because
+60 ms is below what a person can feel and a new DSL primitive is a bigger change than the
+thing it would buy.
+
 Re-run it with `results/_t1290/measure.py` (not committed — a page of `perf_counter`
 around the same public calls).
