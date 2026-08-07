@@ -131,7 +131,9 @@ Nothing to do. The first time the panel starts it brings across, into `profiles/
 * `panel/profiles/<name>/` — the profiles themselves;
 * `panel/settings.json` — the panel-wide file;
 * `panel/timers.json`, `panel/triggers.json` — the two templates;
-* `~/.last_war_panel.json` — the language.
+* `~/.last_war_panel.json` — the language;
+* and any loose `profiles/<id>.json` left lying beside the profile folders goes down
+  into `_bot/` where it belongs.
 
 A directory is **moved** where the filesystem allows it. Where it does not — Windows
 will not move a tree it has a file open in, and a running panel has several — it is
