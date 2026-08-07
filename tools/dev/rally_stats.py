@@ -51,8 +51,12 @@ FIRE = "fire rally_auto_join on"
 #: them rallies turned 24 banners into «136 pushes», which is what the person looking at
 #: the map rightly called nonsense. The honest count is the DISTINCT `teamUuid` the
 #: client itself listed, which is what `rally_monitor` logs on every one of those pushes.
-#: A march carrying a non-zero teamUuid is an `ASSEMBLY_MARCH` — checked live, twice,
-#: every march on the map both times — so a distinct team IS a distinct banner.
+#: WHAT A NON-ZERO teamUuid ACTUALLY MEANS, corrected after a third sample refuted
+#: the first two: it marks membership in a rally, not the rally itself. The LEADER's
+#: march is the `ASSEMBLY_MARCH`; a member's march to the gathering point is a plain
+#: `NORMAL` march carrying the same teamUuid. Seen live: `with_team=3 assembly=2`.
+#: Grouping by teamUuid is right either way — leader and joiners share one — so a
+#: distinct team is still a distinct banner. Two samples agreeing was not evidence.
 MONITOR = ("rally_monitor:", "READ_LUA rallies = ")
 RUN = "rally_auto_join: > action: join_rally"
 #: THE INDENT IS NOT PART OF THE LINE (#1281). The interpreter indents a step by how
