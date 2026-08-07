@@ -521,3 +521,41 @@ has an army first, and only a run that sent nothing at all calls
 `join_rally_via_screen.md`. On the account this was measured against, all three
 formations read `totalSoldierNum = 0` with `state = 0` and `IsFree() = true`, so that
 path is not hypothetical — dropping it would have dropped the ability.
+
+### The live run, with the numbers (#1281)
+
+Panel restarted onto the new recipe, the auto-join trigger on, squads 1–3 allowed.
+Observed on real alliance banners:
+
+```
+16:09:52  push.alliance.march lands, the trigger fires
+16:09:54  LUA  __lw_rally_squads = { 1, 2, 3 }
+16:09:54  TAP  join every rally that can be joined
+16:09:54  report = 'sent=1 rallies=1 free=3'
+16:09:54  joined = 1                      <- a squad of ours standing in the rally
+```
+
+**Two seconds from the push to a squad in the rally, with no window opened.** The
+re-arm can be seen working in the same minute: «пришло push.alliance.march на ходу —
+сценарий будет запущен ещё раз» at 16:09:54, and the extra run went out at once and
+reported, correctly, that there was nothing left to join.
+
+Every run that sent nothing said why, in the chunk's own words — `left=[1:out 2:empty
+3:empty]`, `-- no rally of this alliance is out that we are not already in`, `-- not one
+of the chosen squads can be sent`. There is no longer an ending that is silent.
+
+**The screen fallback is NOT proven and failed the once it was reached.** At 16:10:29 a
+banner was out with one squad marching and two standing empty, `todo = -1` sent the run
+into `join_rally_via_screen.md`, and the game's own launch threw from inside its own
+code:
+
+```
+TAP launch the join error: ERR: …/Util/SceneUtils.lua:258: attempt to compare nil with number
+```
+
+The four presses before it all confirmed their state (`armed=1`, `screen=1`, `picked=1`,
+`alive=1`), so the screen path reached the launch and the launch is what broke. It is
+unchanged code — the same presses the old recipe made — so this is not a regression from
+this task, but it does mean the empty-squad case has no working route at all right now.
+Whoever picks that up: the error is in the CLIENT's Lua, so the argument it compares is
+one the screen expects and the press is not giving it.
