@@ -1308,6 +1308,56 @@ def secret_task_queue_set(targets) -> str:
               '..tostring(#M.__lw_steal_queue))')
 
 
+# WHAT THE SERVER SAYS WHEN THE TILE IS GONE, and why the spam has to hear it (#1272).
+#
+# `DispatchStealMessage:HandleMessage` is `errorCode -> UIUtil.ShowTipsId(errCode)`, and
+# the errorCode IS the message key — the same shape the assist's refusal came back as.
+# Read out of the live client's own `dispatch_des*` family:
+#
+#   dispatch_des040  «Это задание выполнено, украсть его невозможно.»
+#   dispatch_des041  «Невозможно выполнить: срок задачи истек.»
+#   dispatch_des042  «Задание уже взято»
+#   dispatch_des043  «Это задание больше не доступно»
+#
+# All four mean the same thing to us: THERE IS NOTHING THERE ANY MORE. And the family
+# holds no «ещё не готово» at all, which is the other half of the finding — an early
+# press is answered by silence rather than by a refusal, so «any tip at all» would have
+# been a workable rule too. These four are named anyway: a tip we have not met should
+# leave the loop pressing, not stop it.
+#
+# Without this the loop had exactly two stop conditions — the counter moving, and the
+# button's cap. Live, that read as `TAP Rob a secret task xall -> 60 press(es)` on one
+# tile: sixty questions to a server that had already answered the first one.
+STEAL_GONE_TIPS = ("dispatch_des040", "dispatch_des041",
+                   "dispatch_des042", "dispatch_des043")
+
+#: Lua that records the tip a refusal raises, so the loop can read the server's answer.
+#: Installed once, idempotent, and a pass-through — it takes nothing away from the game.
+_STEAL_TIP_HOOK = (
+    "if not M.__lw_tip_hooked then M.__lw_tip_hooked = true "
+    "local orig = UIUtil.ShowTipsId "
+    "UIUtil.ShowTipsId = function(id, ...) "
+    "pcall(function() DataCenter.ActDispatchTaskDataManager.__lw_steal_tip = tostring(id) end) "
+    "return orig(id, ...) end end ")
+
+#: …and the expression that reads it back: 1 when the server has said the tile is gone.
+_STEAL_GONE = ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+               "local t=tostring(M.__lw_steal_tip or '') "
+               + " ".join("if t=='%s' then return 1 end" % k for k in STEAL_GONE_TIPS)
+               + " return 0 end)()")
+
+
+def secret_task_gone() -> str:
+    """Lua *expression* -> 1 when the server has answered «there is nothing there».
+
+    The third outcome, beside «taken» and «not yet». It is terminal: pressing again is
+    asking a question already answered, and the row it belongs to is not a target any
+    more — which is why the panel takes it off the list rather than leaving it to say
+    «готово к сбору» about a tile somebody else has emptied.
+    """
+    return _STEAL_GONE
+
+
 # THE ONLY HONEST «IT WORKED» THERE IS (#1272). A robbery is confirmed by the SERVER
 # and by nothing else: `DispatchStealMessage:HandleMessage` takes the error branch on a
 # refusal and, on success, hands `UpdateTodayNum` the server's own `todayStealNum` out
@@ -1318,7 +1368,8 @@ def secret_task_queue_set(targets) -> str:
 # when the head of the queue was armed; while it has not moved, the head has not been
 # taken and pressing again is worth doing. It is stamped when the queue is set and
 # re-stamped when the head is dropped, so it always belongs to the target being pressed.
-_STEAL_MARK = ("M.__lw_steal_mark=tonumber(M:GetTodayStealNum()) or 0 ")
+_STEAL_MARK = ("M.__lw_steal_mark=tonumber(M:GetTodayStealNum()) or 0 "
+               "M.__lw_steal_tip=nil " + _STEAL_TIP_HOOK)
 
 
 def secret_task_taken() -> str:
@@ -1342,9 +1393,22 @@ def secret_task_queue_pop() -> str:
     the press can be REPEATED until the server answers. A head that was never taken is
     dropped here too — after the spam has spent its cap on it, that tile is gone, taken
     by somebody else, or out of reach, and every one of those means «the next one».
+
+    IT SAYS WHAT HAPPENED, PER TARGET (#1272). `ACT steal_done uuid=<u> how=<…>` — one of
+    `taken` (the counter moved: ours), `gone` (the server said there is nothing there:
+    the row is not a target any anymore and the panel takes it off the list) or
+    `unanswered` (the spam ran out its cap without either: the row stays, because nothing
+    said it should not). The verdict is read BEFORE the mark is re-armed, or it would be
+    the next target's.
     """
     return ("local M=DataCenter.ActDispatchTaskDataManager "
             "local q=M.__lw_steal_queue or {} local t=table.remove(q,1) "
+            "local how='unanswered' "
+            "if %s == 1 then how='gone' elseif %s == 1 then how='taken' end "
+            "local tip=tostring(M.__lw_steal_tip or '') "
+            'CS.UnityEngine.Debug.LogError("ACT steal_done uuid="..tostring(t and t.uuid or 0)'
+            '.." how="..how.." tip="..tip) '
+            % (secret_task_gone(), secret_task_taken())
             + _STEAL_MARK +
             'CS.UnityEngine.Debug.LogError("ACT steal_queue_pop left="..tostring(#q))')
 
@@ -1370,7 +1434,11 @@ def secret_task_steals_pending() -> str:
 
       * there is a head to press,
       * the day's budget is not spent,
-      * and the server has not confirmed this one yet (`secret_task_taken`).
+      * the server has not confirmed this one yet (`secret_task_taken`),
+      * and it has not said the tile is GONE either (`secret_task_gone`) — «задание уже
+        взято», «больше не доступно», «срок истёк». That answer is terminal: pressing
+        again is asking a question the server has already answered, and it is what turned
+        one live press into `xall -> 60 press(es)` against a tile that no longer existed.
 
     **A tile is pressed BEFORE it matures on purpose.** There is no penalty for it — the
     server answers «ещё не готово», the counter does not move and nothing is spent
@@ -1379,9 +1447,10 @@ def secret_task_steals_pending() -> str:
     is deliberately NOT part of this gate: the recipe is played inside the window, and
     what stops the loop is the server saying yes, not our own idea of when it should.
     """
-    return ("(function() local q=%s local b=%s local t=%s "
-            "if q>0 and b>0 and t==0 then return 1 end return 0 end)()"
-            % (secret_task_queue_len(), secret_task_steals_left(), secret_task_taken()))
+    return ("(function() local q=%s local b=%s local t=%s local g=%s "
+            "if q>0 and b>0 and t==0 and g==0 then return 1 end return 0 end)()"
+            % (secret_task_queue_len(), secret_task_steals_left(),
+               secret_task_taken(), secret_task_gone()))
 
 
 def steal_next_secret_task() -> str:

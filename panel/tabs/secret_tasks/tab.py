@@ -89,6 +89,7 @@ the list empty and never crashes the tab.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import tkinter as tk
@@ -118,10 +119,17 @@ LINK_COLUMN, ACTION_COLUMN = grid.LINK_COLUMN, grid.ACTION_COLUMN
 # so it belongs to the profile like every other setting here.
 JUMP_HISTORY_MAX = 20
 
-# How often the ready-row poll re-reads the game once a tile is raidable. Slow on
-# purpose — a raidable tile lives for minutes, and this is the list's own safety net,
-# not the auto-loot watcher.
-POLL_MS = 30_000
+# How often a RAIDABLE row is re-read from the game. «Проверять их очень часто ПОСЛЕ
+# того, как они готовы» (#1272) — and it used to be thirty seconds, on the theory that a
+# raidable tile lives for minutes. It does not: it lives until the first person reaches
+# it, and half a minute of «готово к сбору» about a tile somebody else emptied is the
+# list lying to whoever is looking at it.
+#
+# Three seconds, and it costs nothing when there is nothing ready: the chain is armed
+# only while some row is (`_maybe_start_poll`), and one round is one chunk through the
+# warm daemon. What it can and cannot testify about is `_answerable`'s business — this is
+# only how often it asks.
+POLL_MS = 3_000
 
 # How often the countdowns are REDRAWN, as opposed to recomputed (#1272). «Те, что уже
 # можно грабить, должны обновляться несколько раз в секунду»: a cell rewritten once a
@@ -176,6 +184,14 @@ AUTO_EARLY_MS = 2_500
 # client proves none of that. Said by `actions/steal_secret_task.md`; reword it there and
 # here in the same breath.
 TAKEN_MARK = "steal_taken"
+
+#: …and the per-target verdict the recipe emits as it drops each one: `ACT steal_done
+#: uuid=<u> how=<taken|gone|unanswered>`. `gone` is the server saying there is nothing
+#: there any more — «задание уже взято», «больше не доступно», «срок истёк» — which is
+#: the one absence that IS evidence about a particular tile, whoever found it. It is the
+#: exception `_answerable` is deliberately not: that rule is about a tile missing from a
+#: LIST, this is the server answering about the tile itself.
+DONE_LINE = re.compile(r"steal_done uuid=(\d+) how=(\w+)")
 
 # How often the game's own clock is re-measured (#1227). It is not this machine's
 # clock, which was measured eleven seconds slow against it — and the operator had been
@@ -2955,6 +2971,12 @@ class SecretTasksTab(PanelTab):
                     self.rt.put(f"[secret] {line}")
                     if TAKEN_MARK in line:
                         taken = True
+                    # …and the tile the server says is gone comes off the list, whoever
+                    # found it (#1272). Pressed by hand or by the standing order, one
+                    # answer, one place that acts on it.
+                    for uuid, how in DONE_LINE.findall(line):
+                        if how == "gone":
+                            self.after(lambda u=uuid: self._drop_gone(u))
 
                 self.rt.actions.play("steal_secret_task", {"queue": queue},
                                      on_event=put)
@@ -2963,6 +2985,28 @@ class SecretTasksTab(PanelTab):
             self.after(lambda: self._collect_done(key, taken))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _drop_gone(self, key: str) -> None:
+        """The server said this tile is not there: take the row off the list (#1272).
+
+        THE ONE ABSENCE THAT IS EVIDENCE. `_answerable` refuses to delete a row for
+        missing from a read that could not see it, and that rule stands — it is what
+        stopped the list being wiped every start-up. This is the other case entirely: not
+        «it was not in the answer» but «the answer was about this tile, and it said there
+        is nothing there». «Задание уже взято», «больше не доступно», «срок истёк».
+
+        A row we robbed OURSELVES is kept, marked, exactly as before: it is on the list
+        so that it can still be shared, and our own robbery is the likeliest reason the
+        server would now call it taken.
+        """
+        row = self._rows.get(str(key))
+        if row is None or row.get("robbed"):
+            return
+        self._rows.pop(str(key), None)
+        self.say("secret", "log.secret.gone")
+        self._render()
+        self._update_status()
+        self._persist_rows()
 
     def _collect_done(self, key: str, ok: bool) -> None:
         """A robbery came back: MARK the row, never remove it (#1272).

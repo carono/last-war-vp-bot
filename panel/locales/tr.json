@@ -292,6 +292,7 @@
   "log.secret.cfg_reranked": "oyunun kendi yapılandırması, yakalamanın tahmin ettiği {n} karenin seviyesini veya yıldızını düzeltti",
   "log.secret.collect_armed": "«Topla» kuruldu: gönderim, kare olgunlaştığı anda gidecek, {secs} sn içinde",
   "log.secret.ended": "gözcünün akışı sona erdi",
+  "log.secret.gone": "sunucu o karenin gittiğini söylüyor — «zaten alınmış» / «artık yok»; listeden çıkarıldı",
   "log.secret.no_own_server_feed": "hesabın kendi sunucusu okunamadı — evde soygun riskine girmek yerine akın listesi boş kalıyor",
   "log.secret.seed_server": "sunucu oyundan alındı: {srv}",
   "log.secret.started_move_map": "yakalama çalışıyor (pid {pid}); çıktısı günlüğe gidiyor — haritayı oynat ya da «Haritayı tara» tuşuna bas, yoksa trafik olmaz",

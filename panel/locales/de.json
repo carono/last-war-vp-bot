@@ -292,6 +292,7 @@
   "log.secret.cfg_reranked": "die Spielkonfiguration hat Stufe oder Stern bei {n} Feld(ern) korrigiert, die der Mitschnitt geraten hatte",
   "log.secret.collect_armed": "«Einsammeln» ist scharf: gesendet wird genau dann, wenn das Feld reif ist, in {secs} s",
   "log.secret.ended": "der Strom der Überwachung ist zu Ende",
+  "log.secret.gone": "der Server sagt, dieses Feld ist weg — «bereits genommen» / «nicht mehr verfügbar»; von der Liste",
   "log.secret.no_own_server_feed": "der eigene Server war nicht lesbar — die Raid-Liste bleibt leer, statt zu Hause zu rauben",
   "log.secret.seed_server": "Server aus dem Spiel übernommen: {srv}",
   "log.secret.started_move_map": "die Aufzeichnung läuft (pid {pid}); ihre Ausgabe geht ins Protokoll — bewege die Karte oder drücke «Karte abfahren», sonst kommt kein Verkehr",

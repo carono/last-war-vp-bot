@@ -591,3 +591,45 @@ The panel's own path shrank with it. «Автолут ★» used to spawn
 queue travels as an argument now (`ARGS queue`) and the recipe parks it. The tool keeps
 `--from-scan` and `--coords`, which genuinely need a map scan and a round trip to resolve
 a coordinate — neither of them in anybody's hot path.
+
+## The three answers a robbery can get, and the one that was being ignored
+
+Live report: «автолут пытается собрать то, чего уже нет… сервер отвечает, что забирать
+уже нечего». The panel's own log showed it exactly — `TAP Rob a secret task xall -> 60
+press(es)` on a single tile, the gate answering «1 available» every round, because the
+loop had only two stop conditions: the counter moving, and the button's cap.
+
+`DispatchStealMessage:HandleMessage` is `errorCode -> UIUtil.ShowTipsId(errCode)`, and
+**the errorCode IS the message key**. Enumerating the client's own `dispatch_des*` family
+gives the four that mean the tile is gone:
+
+| key | text |
+|---|---|
+| `dispatch_des040` | Это задание выполнено, украсть его невозможно. |
+| `dispatch_des041` | Невозможно выполнить: срок задачи истек. |
+| `dispatch_des042` | Задание уже взято |
+| `dispatch_des043` | Это задание больше не доступно |
+
+**And the family holds no «ещё не готово» at all.** An early press is answered by silence
+rather than by a refusal — which is why «any tip» would also have worked as a rule, and
+why the four are named anyway: a message nobody has met should leave the loop pressing
+rather than stop it.
+
+So a robbery has three outcomes and the recipe now reports which, per target, as
+`ACT steal_done uuid=<u> how=<taken|gone|unanswered>`:
+
+* **taken** — `todayStealNum` moved. Ours; the row is marked and kept for sharing.
+* **gone** — one of the four above. Terminal: the spam stops on the spot and the panel
+  takes the row OFF the list (`SecretTasksTab._drop_gone`).
+* **unanswered** — the spam ran out its cap with neither. The row stays: nothing said it
+  should not.
+
+`gone` is the one absence that IS evidence about a particular tile, and it is deliberately
+not the rule #1272 added a few hours earlier (`_answerable`: a read may only testify about
+its own source). That rule is about a tile missing from a LIST; this is the server
+answering about the tile itself.
+
+The tip is captured by a pass-through wrapper on `UIUtil.ShowTipsId`, installed once when
+the queue is armed and cleared on every arm, so only a tip raised during our own press
+window is read. Verified live: arming installs the hook, a real `dispatch_des042` raised
+through the client's own function is recorded, and the gate falls to 0.

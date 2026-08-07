@@ -52,6 +52,9 @@ DataCenter = { ActDispatchTaskDataManager = {
   GetTodayStealNum = function(self) return self._today end,
   GetDispatchSetting = function(self, key) return self._cap end,
 } }
+-- The arming chunk hooks this to record what a refusal said, so the stand-in VM needs
+-- one exactly as the client has one.
+UIUtil = { ShowTipsId = function() end }
 """
 
 
@@ -151,6 +154,53 @@ def test_the_head_survives_its_own_press_and_the_pop_re_arms():
     lua.execute(lua_actions.secret_task_queue_pop())
     assert int(lua.eval(lua_actions.secret_task_queue_len())) == 1
     assert _gate(lua) == 1, "the next target was judged by the last one's mark"
+
+
+def test_the_server_saying_the_tile_is_gone_stops_the_spam_at_once():
+    """«Сервер отвечает, что забирать уже нечего — при таком сообщении спам-клик нужно
+    прекращать» (#1272).
+
+    Live, without this, one press read `TAP Rob a secret task xall -> 60 press(es)`: the
+    counter never moved, so the loop ran to the button's cap asking a server that had
+    answered the first question sixty times.
+    """
+    if not _needs_lua("«gone» stops the spam"):
+        return
+    for tip in lua_actions.STEAL_GONE_TIPS:
+        lua, m = _vm(queued=1, today=0)
+        assert _gate(lua) == 1
+        m.__lw_steal_tip = tip                   # the refusal the server sent back
+        assert _gate(lua) == 0, f"{tip} did not stop the loop"
+
+
+def test_a_tip_nobody_has_met_leaves_the_loop_pressing():
+    """The four are NAMED rather than «any tip at all»: the dispatch family holds no
+    «ещё не готово», so an early press is answered by silence — and a message we have
+    not met before must not be read as «give up» (#1272)."""
+    if not _needs_lua("an unknown tip keeps pressing"):
+        return
+    lua, m = _vm(queued=1, today=0)
+    m.__lw_steal_tip = "dispatch_des999"
+    assert _gate(lua) == 1
+
+
+def test_the_pop_says_which_of_the_three_happened():
+    """taken / gone / unanswered, per target and by uuid — what the panel steers by: a
+    tile the server calls gone comes off the list, one merely unanswered stays."""
+    if not _needs_lua("the pop names the outcome"):
+        return
+    for tip, today, expected in ((None, 0, "unanswered"),
+                                 ("dispatch_des042", 0, "gone"),
+                                 (None, 1, "taken")):
+        lua, m = _vm(queued=1, today=0)
+        lua.execute("CS = {UnityEngine = {Debug = {LogError = function(s) "
+                    "SAID = (SAID or '') .. tostring(s) .. '|' end}}}")
+        m.__lw_steal_tip = tip
+        m._today = today
+        lua.execute(lua_actions.secret_task_queue_pop())
+        said = lua.eval("SAID") or ""
+        assert ("how=" + expected) in said, (expected, said)
+        assert "uuid=1 " in said, said
 
 
 def _main() -> int:

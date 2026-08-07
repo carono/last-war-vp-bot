@@ -1587,6 +1587,62 @@ def test_the_early_window_is_the_hands_and_the_standing_order_keeps_the_strict_g
     assert [r["uuid"] for r in tab.rob_candidates()] == [1]
 
 
+def test_a_tile_the_server_calls_gone_comes_off_the_list():
+    """«В списке всё ещё видно, что есть» (#1272).
+
+    THE ONE ABSENCE THAT IS EVIDENCE. `_answerable` refuses to delete a row for missing
+    from a read that could not see it — that rule stands, it is what stopped the list
+    being wiped every start-up. This is the other case: the answer was ABOUT this tile,
+    and it said there is nothing there.
+    """
+    rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000)}
+    tab = _make_tab(rows)
+    tab.rt = _fake_rt(_state_path())
+    tab.say = lambda *_a, **_k: None
+
+    tab._drop_gone("1")
+
+    assert sorted(tab._rows) == ["2"], tab._rows
+
+
+def test_a_tile_we_robbed_ourselves_is_kept_even_when_called_gone():
+    """Our own robbery is the likeliest reason the server would now call a tile taken,
+    and the row is on the list precisely so it can still be shared (#1272)."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["robbed"] = True
+    tab = _make_tab({"1": row})
+    tab.rt = _fake_rt(_state_path())
+    tab.say = lambda *_a, **_k: None
+
+    tab._drop_gone("1")
+
+    assert "1" in tab._rows, "the row we kept for sharing was deleted"
+
+
+def test_the_verdict_travels_from_the_recipe_to_the_list():
+    """The recipe says `steal_done uuid=… how=gone` as it drops each target; both the
+    hand press and the standing order act on it, in one place (#1272)."""
+    import types
+    row = _row(7, 7, -5_000, 600_000)
+    row["ready"] = True
+    tab = _make_tab({"7": row})
+    tab.after = lambda fn: fn()
+    tab.alliance = _FakeAllianceGrid()
+    tab.rt.put = lambda _line: None
+    tab._persist_rows = lambda: None
+    tab.say = lambda *_a, **_k: None
+    tab.rt.actions = _Actions(lines=["ACT steal_done uuid=7 how=gone tip=dispatch_des042"])
+
+    tab._collect(row)
+    import time as _time
+    for _ in range(250):
+        if "7" not in tab._pressing:
+            break
+        _time.sleep(0.02)
+
+    assert "7" not in tab._rows, "the tile the server called gone stayed on the list"
+
+
 def _robbed_tab():
     """A tab whose one ready row has just been robbed, through the real `_collect_done`."""
     import types

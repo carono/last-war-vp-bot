@@ -51,6 +51,7 @@ an oversight (docs/research/panel-tabs-refactor.md §8).
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 
@@ -66,6 +67,12 @@ TAKEN_MARK = "steal_taken"
 #: …and the day's five gone, which is what this watcher pauses on. Said by the recipe
 #: now that there is no parking child to say it (#1272).
 SPENT_MARK = "steals_spent"
+
+#: The per-target verdict, matched here as well as in the tab: the standing order has to
+#: take a tile the server calls gone OFF the list, or its next tick chooses the very same
+#: one again — `_seen` stops it re-firing this session, but the row would go on saying
+#: «готово к сбору» to whoever is looking at it (#1272).
+DONE_LINE = re.compile(r"steal_done uuid=(\d+) how=(\w+)")
 
 #: How long after the last keystroke the listener is re-spawned with the new rule.
 #: Debounced so typing "1" then "7" restarts once, not per keystroke — spawning a
@@ -395,6 +402,9 @@ class AutoLoot:
                 taken = True
             if SPENT_MARK in line:
                 spent = True
+            for uuid, how in DONE_LINE.findall(line):
+                if how == "gone":
+                    self.tab.after(lambda u=uuid: self.tab._drop_gone(u))
 
         try:
             outcome = self.rt.actions.play("steal_secret_task", {"queue": queue},

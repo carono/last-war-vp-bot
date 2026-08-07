@@ -292,6 +292,7 @@
   "log.secret.cfg_reranked": "cấu hình của trò chơi đã sửa cấp độ hoặc sao của {n} ô mà bản ghi đã đoán",
   "log.secret.collect_armed": "«Thu thập» đã lên cò: lệnh sẽ gửi đúng lúc ô chín, sau {secs} giây",
   "log.secret.ended": "luồng của trình theo dõi đã kết thúc",
+  "log.secret.gone": "máy chủ nói ô đó không còn — «đã bị lấy» / «không còn khả dụng»; gỡ khỏi danh sách",
   "log.secret.no_own_server_feed": "không đọc được máy chủ của tài khoản — danh sách đột kích để trống thay vì cướp ngay tại nhà",
   "log.secret.seed_server": "máy chủ lấy từ trò chơi: {srv}",
   "log.secret.started_move_map": "bản bắt đang chạy (pid {pid}); đầu ra của nó đi vào nhật ký — hãy kéo bản đồ hoặc bấm «Quét bản đồ», nếu không sẽ chẳng có lưu lượng",

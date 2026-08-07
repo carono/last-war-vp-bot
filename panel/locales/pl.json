@@ -292,6 +292,7 @@
   "log.secret.cfg_reranked": "konfiguracja gry poprawiła poziom lub gwiazdkę na {n} polu/polach, które przechwytywanie zgadywało",
   "log.secret.collect_armed": "«Zbierz» jest uzbrojone: wyślę dokładnie wtedy, gdy pole dojrzeje, za {secs} s",
   "log.secret.ended": "strumień monitora się zakończył",
+  "log.secret.gone": "serwer mówi, że tego pola już nie ma — «już zajęte» / «niedostępne»; zdejmuję z listy",
   "log.secret.no_own_server_feed": "nie udało się odczytać własnego serwera — lista rajdów zostaje pusta, zamiast ryzykować rabunek u siebie",
   "log.secret.seed_server": "serwer wzięty z gry: {srv}",
   "log.secret.started_move_map": "przechwytywanie działa (pid {pid}); jego wyjście idzie do dziennika — porusz mapą albo naciśnij «Objedź mapę», bo inaczej nie będzie ruchu",

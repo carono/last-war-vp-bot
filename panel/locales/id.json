@@ -292,6 +292,7 @@
   "log.secret.cfg_reranked": "konfigurasi gim memperbaiki level atau bintang pada {n} petak yang ditebak oleh tangkapan",
   "log.secret.collect_armed": "«Ambil» sudah siap: kirimannya berangkat tepat saat petak matang, {secs} dtk lagi",
   "log.secret.ended": "aliran pemantau berakhir",
+  "log.secret.gone": "server bilang petak itu sudah tidak ada — «sudah diambil» / «tidak tersedia»; dihapus dari daftar",
   "log.secret.no_own_server_feed": "server milik akun tidak terbaca — daftar serbuan dibiarkan kosong daripada merampok di rumah",
   "log.secret.seed_server": "server diambil dari permainan: {srv}",
   "log.secret.started_move_map": "penangkapan berjalan (pid {pid}); keluarannya masuk ke catatan — geser peta atau tekan «Telusuri peta», kalau tidak takkan ada lalu lintas",
