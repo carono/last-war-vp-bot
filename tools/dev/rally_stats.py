@@ -46,9 +46,15 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 #: showing, so a tally does not break when somebody switches locale.
 FIRE = "fire rally_auto_join on"
 RUN = "rally_auto_join: > action: join_rally"
-SEND = "rally_auto_join:   TAP join every rally"
-REPORT = "rally_auto_join:   READ_LUA report = "
-JOINED = "rally_auto_join:   READ_LUA joined = "
+#: THE INDENT IS NOT PART OF THE LINE (#1281). The interpreter indents a step by how
+#: deeply it is nested, so the same reading is «\u00a0\u00a0\u00a0READ_LUA joined» at the top
+#: level and «\u00a0\u00a0\u00a0\u00a0\u00a0READ_LUA joined» inside an `IF` — and a needle carrying three
+#: spaces silently stopped seeing it the day the recipe grew a branch. Four confirmed
+#: joins went uncounted that way before the numbers were checked against the log by
+#: hand. Matched on the two ends instead, with the indent between them ignored.
+SEND = ("rally_auto_join:", "TAP join every rally")
+REPORT = ("rally_auto_join:", "READ_LUA report = ")
+JOINED = ("rally_auto_join:", "READ_LUA joined = ")
 SCREEN = "CALL join_rally_via_screen"
 FAILED = "run of rally_auto_join failed"
 #: The schedule turned the errand down for good, naming a reason (`note_skip`) — the
@@ -95,6 +101,25 @@ FAIL_WORDS = (
 def _sub_action(text: str) -> str:
     tail = text.split("sub-action ", 1)[1]
     return "the sub-action %s failed" % tail.split()[0]
+
+
+def _has(line: str, needle) -> bool:
+    """Does ``line`` carry this step, whatever it is indented by?
+
+    A plain substring for the simple needles, and a pair for the ones the interpreter
+    indents — see :data:`SEND`.
+    """
+    if isinstance(needle, tuple):
+        head, tail = needle
+        at = line.find(head)
+        return at >= 0 and line.find(tail, at + len(head)) >= 0
+    return needle in line
+
+
+def _after(line: str, needle) -> str:
+    """What follows ``needle`` on ``line`` — the value of the reading it names."""
+    tail = needle[1] if isinstance(needle, tuple) else needle
+    return line.split(tail, 1)[1]
 
 
 def _fail_bucket(text: str) -> str:
@@ -175,18 +200,18 @@ def tally(lines: list) -> dict:
             continue
         if cur is None:
             continue
-        if SEND in line:
+        if _has(line, SEND):
             if pending_fire is not None and at is not None and at >= pending_fire:
                 latencies.append(at - pending_fire)
                 pending_fire = None
-        elif REPORT in line:
-            cur["report"] = line.split(REPORT, 1)[1].strip().strip("'")
+        elif _has(line, REPORT):
+            cur["report"] = _after(line, REPORT).strip().strip("'")
             m = re.search(r"sent=(\d+)", cur["report"] or "")
             cur["sent"] = int(m.group(1)) if m else 0
-        elif JOINED in line:
+        elif _has(line, JOINED):
             try:
                 cur["joined"] = max(cur["joined"],
-                                    int(line.split(JOINED, 1)[1].split()[0]))
+                                    int(_after(line, JOINED).split()[0]))
             except (ValueError, IndexError):
                 pass
         elif SCREEN in line:
