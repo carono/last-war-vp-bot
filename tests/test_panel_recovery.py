@@ -413,6 +413,121 @@ def test_every_thing_that_can_put_a_client_back_asks_the_wait():
     assert "timers.log.skip_kick" in gate, "…and would be dropped without a word"
 
 
+class _Watchdog:
+    """The shell's `_watchdog_check`, run against a stub — no Tk, no game, no clock.
+
+    The method is compiled out of `panel/__main__.py` rather than copied, so a change
+    to the real one is what this exercises.
+    """
+
+    STRIKES = 2
+
+    def __init__(self, hold_left=lambda now: 0, cooldown=300.0):
+        self._game_gone = 0
+        self._game_was_up = True
+        self._watchdog_last = 0.0
+        self._wd_held = ""
+        self.said: list[tuple[str, dict]] = []
+        self.launched: list[float] = []
+        self.now = 1000.0
+        self._hold_left = hold_left
+        env = {"WATCHDOG_STRIKES": self.STRIKES,
+               "WATCHDOG_COOLDOWN_SEC": cooldown,
+               "time": self}
+        exec(compile("class _S:\n    " + _shell_method("_watchdog_check"),
+                     "<watchdog>", "exec"), env)
+        self.check = env["_S"]._watchdog_check.__get__(self)
+
+    # the stub's own surface, standing in for the panel's
+    def time(self) -> float:                       # `time.time()` inside the method
+        return self.now
+
+    def _say(self, _tag, key, **fmt) -> None:
+        self.said.append((key, fmt))
+
+    def _opt_bool(self, _name) -> bool:
+        return True
+
+    def play_async(self, name) -> None:
+        assert name == "launch_game", name
+        self.launched.append(self.now)
+
+    def kick_hold_left(self, now) -> int:
+        return self._hold_left(now)
+
+    @property
+    def _rt(self):                                 # `self._rt.recovery` / `_rt.play_async`
+        return self
+
+    @property
+    def recovery(self):
+        return self
+
+    def poll(self, running: bool = False, step: float = 8.0) -> None:
+        self.check(running)
+        self.now += step
+
+
+def test_the_watchdog_comes_back_after_the_wait_it_honoured():
+    """A hold must suppress the ACT while it lasts, and nothing after it (#1291).
+
+    Live on 2026-08-08 it suppressed the watchdog for good. The method acted on the
+    EXACT strike (`self._game_gone != WATCHDOG_STRIKES`), so the poll on which a hold
+    spoke was the only poll that ever looked: the wait was armed at 07:55:06, the
+    process went away at 08:07:42 and said «жду 3 мин», the wait ran out at 08:10:06 —
+    and nothing put the client back until a person pressed «Запустить» at 08:38:25.
+
+    Half an hour of a farming account sitting closed, out of a fix whose entire subject
+    is a client that must come back BY ITSELF once the other device is done with it.
+    """
+    until = 1000.0 + 900.0
+    w = _Watchdog(hold_left=lambda now: max(0, int(until - now)))
+    for _ in range(4):                             # the process goes, the wait holds
+        w.poll()
+    assert not w.launched, "the wait was walked straight through"
+    assert [k for k, _ in w.said] == ["log.game.gone", "log.game.kick_hold"], w.said
+
+    while w.now < until:                           # …quietly, for the whole quarter hour
+        w.poll()
+    assert not w.launched, "the wait was walked through later on"
+    assert len(w.said) == 2, "a wait said once a poll is a log nobody can read"
+
+    w.poll()                                       # and the poll after it is over
+    assert w.launched, "the wait spent the watchdog's only attempt"
+    assert w.said[-1][0] == "log.game.watchdog_relaunch", w.said
+
+
+def test_the_watchdog_retries_on_its_cooldown_rather_than_once():
+    """«перезапуск был N мин назад — жду» has to be a promise, not a farewell.
+
+    The same `!=` made the cooldown branch unreachable inside one death: it could only
+    be reached on the exact strike, and a relaunch had already been spent by then. So a
+    client that died while starting up was told it would be retried and never was.
+    """
+    w = _Watchdog(cooldown=300.0)
+    w.poll(); w.poll()
+    assert len(w.launched) == 1, w.launched
+    for _ in range(20):                            # 160 s of it — inside the cooldown
+        w.poll()
+    assert len(w.launched) == 1, "the cooldown between relaunches is not kept"
+    assert [k for k, _ in w.said].count("log.game.watchdog_hold") == 1, w.said
+
+    while len(w.launched) < 2 and w.now < 1000.0 + 900.0:
+        w.poll()
+    assert len(w.launched) == 2, "the retry the cooldown promises never comes"
+    assert w.launched[1] - w.launched[0] >= 300.0, w.launched
+
+
+def test_a_client_that_comes_back_forgets_what_was_being_waited_for():
+    """Otherwise the next death inherits the last one's silence."""
+    w = _Watchdog(hold_left=lambda now: 900)
+    w.poll(); w.poll()
+    assert w._wd_held == "kick", w._wd_held
+    w.poll(running=True)
+    assert w._wd_held == "" and w._game_gone == 0, (w._wd_held, w._game_gone)
+    assert w.said[-1][0] == "log.game.back", w.said
+
+
 def test_the_wait_is_drawn_on_both_front_ends():
     """`CLAUDE.md`: an edit travels between the window and the web, in both directions.
 

@@ -481,7 +481,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the map sweep
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
-        "_game_gone", "_game_was_up", "_watchdog_last", "_link_gone",
+        "_game_gone", "_game_was_up", "_watchdog_last", "_wd_held", "_link_gone",
         "_kick_at", "_kick_was",
         # the three lifecycle buttons, greyed off this profile's own client
         "_game_buttons",
@@ -1066,6 +1066,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._game_gone = 0
         self._game_was_up = False
         self._watchdog_last = 0.0
+        # Which hold the watchdog last said out loud, so a wait it re-asks every poll
+        # is not also announced every poll — the act and the sentence are separate.
+        self._wd_held = ""
         self._status_busy = False     # one status reading in flight at a time
         # How many consecutive polls have found the server connection gone, so only
         # the edges reach the log rather than every eight seconds of it
@@ -3771,14 +3774,29 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._say("game", "log.game.back")
             self._game_gone = 0
             self._game_was_up = True
+            self._wd_held = ""
             return
         self._game_gone += 1
-        if self._game_gone != WATCHDOG_STRIKES:
-            return                        # counting, or already reported
-        if self._game_was_up:
+        if self._game_gone < WATCHDOG_STRIKES:
+            return                        # still counting
+        if self._game_gone == WATCHDOG_STRIKES and self._game_was_up:
             self._say("game", "log.game.gone")
         if not self._opt_bool("watchdog"):
             return
+        # SAID ONCE, ASKED EVERY POLL — and the two used to be the same `return`. This
+        # method acted on the EXACT strike (`!= WATCHDOG_STRIKES`), so a client that
+        # was still gone on the next poll was never looked at again: the watchdog had
+        # one attempt per death, and any hold below spent it. The cooldown branch could
+        # therefore never fire inside an episode, which is why «перезапуск был N мин
+        # назад — жду» promised a retry that did not exist.
+        #
+        # Live on 2026-08-08 that cost half an hour: the kick's wait was armed at
+        # 07:55:06, the process went away at 08:07:42 (the wait said «жду 3 мин» and
+        # returned, spending the attempt), the wait ran out at 08:10:06 — and nothing
+        # put the client back until a person pressed «Запустить» at 08:38:25. A hold
+        # must suppress the act while it lasts and NOTHING after it (#1291), exactly as
+        # `Recovery.note` was taught for the restart cooldown.
+        #
         # A CLIENT THAT WAS KICKED IS NOT A CLIENT THAT CRASHED (#1291). The account is
         # on another device; the process going away here is what happens when the person
         # holding it closes this one, or when the kicked client finally gives up. Putting
@@ -3786,7 +3804,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # is that this machine stops taking the account off whoever is playing it.
         left = self._rt.recovery.kick_hold_left(time.time())
         if left > 0:
-            self._say("game", "log.game.kick_hold", mins=-(-left // 60))
+            if self._wd_held != "kick":
+                self._wd_held = "kick"
+                self._say("game", "log.game.kick_hold", mins=-(-left // 60))
             return
         # A client of another session is put back too, and by the same recipe: it
         # starts the launcher inside the session the profile names (#1218). It used to
@@ -3794,9 +3814,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # desktop — a third client nobody asked for, while the account that had died
         # stayed dead all night, which is the one case an overnight watchdog exists for.
         since = time.time() - self._watchdog_last
-        if since < WATCHDOG_COOLDOWN_SEC:
-            self._say("game", "log.game.watchdog_hold", mins=int(since // 60))
+        if self._watchdog_last and since < WATCHDOG_COOLDOWN_SEC:
+            if self._wd_held != "cooldown":
+                self._wd_held = "cooldown"
+                self._say("game", "log.game.watchdog_hold", mins=int(since // 60))
             return
+        self._wd_held = ""
         self._watchdog_last = time.time()
         self._say("game", "log.game.watchdog_relaunch")
         self._rt.play_async("launch_game")

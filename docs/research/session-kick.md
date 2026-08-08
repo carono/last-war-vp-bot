@@ -243,3 +243,67 @@ alternation). Two things make it work rather than look like it works:
 The player gate stays exactly where it was and is asked FIRST: it is about somebody at
 THIS machine and has no end, while the kick's wait is about another device and runs out.
 Neither replaces the other.
+
+### The first real kick, minute by minute (2026-08-08)
+
+The whole of it is in one profile's `panel.log`, and it is worth keeping because it
+proved three of the four claims above and killed the fourth.
+
+```
+07:55:06  выкинуло: вход с другого устройства — жду 15 мин, клиент не трогаю
+07:55:59  … donate_alliance_tech FAILED — logged in on another device
+07:59:59  … collect_base_resources FAILED — logged in on another device
+08:01:19  … donate_alliance_tech FAILED — logged in on another device
+08:05:19  … collect_base_resources FAILED — logged in on another device
+08:06:39  … donate_alliance_tech FAILED — logged in on another device
+08:07:34  клиент не слышен, но за машиной кто-то есть — не трогаю ещё 5 мин
+08:07:42  клиент пропал — процесса игры больше нет
+08:07:42  выкинуло: вход с другого устройства — жду 3 мин, клиент не трогаю
+          … thirty-one minutes of nothing …
+08:38:25  запускаю игру рецептом launch_game…        ← a PERSON pressed «Запустить»
+08:38:31  клиент снова на связи
+```
+
+**What held.** The wait was armed on the run of kick readings and nothing relaunched the
+client for the twelve and a half minutes it was deaf — under the old code the second
+reading, at about 07:55:30, was a restart. The deadline survived the sockets and then the
+process: `08:10:06 − 08:07:42 = 144 s`, and `-(-144 // 60) = 3`, which is the number in
+the log. That second line is also the whole of the follow-up fix (`8ce8d57`) doing its
+job — the client had gone `offline`, which takes the early return in `note`, and the
+sentence would otherwise have stopped there.
+
+**What broke.** Nothing put the client back afterwards. The wait ran out at 08:10:06 and
+the account sat closed until a person pressed the button at 08:38:25 — the log has no
+`вотчдог:` line anywhere in the episode, and `log.game.launching` is the lifecycle
+control, i.e. a hand.
+
+The cause was in `panel/__main__.py::_watchdog_check` and had nothing to do with the
+deadline: it acted on the EXACT strike,
+
+```python
+self._game_gone += 1
+if self._game_gone != WATCHDOG_STRIKES:
+    return                        # counting, or already reported
+```
+
+so the watchdog looked at a dead client on exactly ONE poll per death. The hold spoke on
+that poll and returned — and that was the last time anything asked. The same `!=` had
+already made the relaunch cooldown below it unreachable inside an episode, so
+«вотчдог: перезапуск был N мин назад — жду» promised a retry that never existed.
+
+The cure is the one `Recovery.note` was given for its own cooldown: **the hold suppresses
+the ACT, never the next LOOK.** Counting and reporting stay once (`< STRIKES`,
+`== STRIKES`); the two holds are re-asked every poll and say themselves once each, latched
+on `_wd_held`, which the client coming back clears. `tests/test_panel_recovery.py`
+compiles the real method out of the shell and runs it against a stub, so the retry, the
+cooldown and the silence are pinned by behaviour rather than by grep.
+
+**What was NOT a kick.** An hour later the same client lost the server again —
+`08:41:44 связь с сервером пропала`, the player gate at `08:41:52`, a restart at
+`08:44:02` after 24 s deaf. No kick reading anywhere near it, `kick_hold_left` long back
+at 0 (the wait had been cleared at `08:38:31`, `клиент снова на связи`). Three minutes
+from loss to restart is the ordinary hang-up path behaving exactly as it should, and it
+is worth writing down because from outside the two look identical: the person reporting
+it saw «связь с сервером пропала» and «панель перезапустила клиент» and read the wait as
+broken. The two messages are the tell — `log.game.link_lost` is a hang-up, and only
+`log.game.kick_hold` / `log.game.kick_restart` mean the account was taken.
