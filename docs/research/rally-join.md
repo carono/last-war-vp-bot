@@ -1263,6 +1263,13 @@ in `web_view` like every other reading (CLAUDE.md).
 
 **What each choice costs, in the numbers this task measured:**
 
+Both sides of the hard threshold have now been seen live, which is what makes the table
+below a measurement rather than a projection. With the barracks at 1256 against ceilings
+of 3123 / 2631 / 2565: four runs reached `todo = -3`, twenty-four squad verdicts of
+`short-of-troops`, and **not one send**. With the barracks at 8583 and all three squads
+full: three runs sent, **three joins confirmed, 3 of 3**, and neither `not-full` nor
+`ceiling-unknown` appeared at all.
+
 | threshold | what goes out | what it costs |
 |---|---|---|
 | `= ceiling` (now) | nothing at all while the barracks is short — 0 joins over the window that had 158 banners | strongest squad in every banner; the auto-join can be silent for days, and says so |
@@ -1292,12 +1299,22 @@ confirmed — `joined` is a DIFFERENCE, so a squad the OTHER driver sent that la
 mid-run falls inside both runs' differences and both would record it without the cap. A
 run that sent nothing records nothing.
 
-**There are no live numbers confirming this yet, and there is a reason.** The full-squad
-gate landed in the same session and held every send, so no joins happened afterwards to
-count. **Do not go looking for that comparison in the logs of 2026-08-08 — it is not
-there.** It needs an event played with the barracks above the ceilings, and then the
-check is: joins the log confirmed, against `rally_counts.json`, against the trophy list
-(`tools/dev/rally_trophies.py --check FROM TO`).
+**Confirmed live, and by the driver that used to be invisible.** The barracks grew past
+the ceilings the same morning and the joins started again; over the first hour:
+
+```
+07:36:46  the tab's own reader   to=[…/s1]  kinds=['monster']  confirmed
+07:45:25  the schedule's trigger to=[…/s1]  kinds=['monster']  confirmed
+07:50:09  the tab's own reader   to=[…/s1]  kinds=['monster']  confirmed
+
+rally_counts.json   monster 88 -> 91        three joins, three entries
+```
+
+**Two of the three came from the tab's driver** — precisely the one whose joins used to
+be dropped. Before the fix this window would have recorded 1 of 3, which is the shape the
+original complaint had (11 against 13). The other two ways of checking the same thing,
+when a bigger window is available: the log's own confirmations, and the game's trophy
+list (`tools/dev/rally_trophies.py --check FROM TO`, horizon about an hour).
 
 
 ## Everything this task believed and then disproved (#1281)
