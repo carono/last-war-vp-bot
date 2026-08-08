@@ -1807,21 +1807,27 @@ def secret_task_assist_scan() -> str:
     """
     return ("pcall(function() " + _ASSIST_SCAN +
             "local etamin=-1 if seta>=0 then etamin=math.ceil(seta/60000) end "
+            # What is actually being HELD, which is not the same as how many stars are
+            # coming: three ripening stars hold nothing at all out of a spent budget,
+            # and a recipe that says «придерживаю 3 из 0» is reporting arithmetic
+            # rather than the day (#1292, seen live).
+            "local hold=spend if hold>left then hold=left end "
             "M.__lw_star_ready=sready M.__lw_star_ur=uready M.__lw_star_pending=spend "
             "M.__lw_star_eta=etamin M.__lw_star_level=slvl M.__lw_star_late=slate "
-            "M.__lw_star_left=left "
+            "M.__lw_star_left=left M.__lw_star_hold=hold "
             'CS.UnityEngine.Debug.LogError("ACT assist_scan star_ready="..tostring(sready)'
             '.." ur_ready="..tostring(uready).." star_pending="..tostring(spend)'
             '.." star_eta_min="..tostring(etamin).." star_lvl="..tostring(slvl)'
-            '.." star_late="..tostring(slate).." left="..tostring(left)) end)')
+            '.." star_late="..tostring(slate).." left="..tostring(left)'
+            '.." hold="..tostring(hold)) end)')
 
 
 def secret_task_star_field(name: str) -> str:
     """Lua *expression* -> one number :func:`secret_task_assist_scan` parked.
 
-    `ready` / `ur` / `pending` / `eta` / `level` / `late` / `left`. Zero when nothing has
-    been scanned yet, which is the honest answer for a recipe that has not looked: no
-    star ready, no star coming, nothing to hold back.
+    `ready` / `ur` / `pending` / `eta` / `level` / `late` / `left` / `hold`. Zero when
+    nothing has been scanned yet, which is the honest answer for a recipe that has not
+    looked: no star ready, no star coming, nothing to hold back.
     """
     return ("(tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_%s) or 0)" % name)
 

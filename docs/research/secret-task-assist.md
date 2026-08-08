@@ -127,7 +127,7 @@ behind everything the three consumers need — the count `xall` re-reads between
 the task a press takes, and the numbers the recipe says out loud:
 
 ```
-ACT assist_scan star_ready=0 ur_ready=34 star_pending=1 star_eta_min=90 star_lvl=7 star_late=0 left=5
+ACT assist_scan star_ready=0 ur_ready=34 star_pending=1 star_eta_min=90 star_lvl=7 star_late=0 left=5 hold=1
   LOG "waiting for star 7 (ready in 90 min) — holding 1 of 5 help(s) back"
   TAP Help a secret task (alliance) xall -> 4 press(es)
 ```
@@ -136,6 +136,11 @@ Four URs, one help kept, and a line saying which. The panel repeats the same rea
 «придерживаю помощь под звезду до 14:35 (★7)» on the tab and on the phone — because a
 budget deliberately held back and an order that has died look identical from outside,
 which is what #1227 was.
+
+`hold` is `min(pending, left)` rather than the star count, and the whole priority block
+sits inside the `ELSE` of the budget test. Both of those came out of the live run: a
+spent day with two stars still running said «no assists left today» and then, three
+lines later, «holding 2 of 0 help(s) back» — a choice described that was not being made.
 
 `tests/test_assist_star_priority.py` runs the whole decision in a real Lua VM against a
 stand-in dispatch manager: the priority, the reserve, and each of the three bounds on the

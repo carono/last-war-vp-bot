@@ -133,7 +133,8 @@ def _scan(lua) -> dict:
     """The recipe's own reading: the numbers the scan parks for its `READ_LUA`s."""
     lua.execute(lua_actions.secret_task_assist_scan())
     return {name: int(lua.eval(lua_actions.secret_task_star_field(name)))
-            for name in ("ready", "ur", "pending", "eta", "level", "late", "left")}
+            for name in ("ready", "ur", "pending", "eta", "level", "late", "left",
+                         "hold")}
 
 
 def _needs_lua(name: str) -> bool:
@@ -310,13 +311,37 @@ def test_the_scan_says_how_long_the_star_is_and_how_far_off():
     assert scan["level"] == 5, "the countdown named a star other than the nearest"
 
 
+def test_what_is_held_is_never_more_than_what_is_left():
+    """Seen live (#1292): a spent day with two stars still running reported «holding 2
+    of 0 help(s) back». Stars on their way hold nothing out of a budget that is gone,
+    and a count that ignores the budget is arithmetic dressed up as a decision.
+
+    The recipe stops speaking of the priority at all once the day is spent — that guard
+    is in `actions/assist_secret_task.md` — and this is the other half: the number
+    itself is capped, so «придерживаю N из M» can never read N > M.
+    """
+    if not _needs_lua("the hold is capped by the budget"):
+        return
+    lua, _m = _vm(today=5, cap=5)                        # the day's five are gone
+    for uuid in (9601, 9602):
+        _task(lua, uuid, level=7, star=True, done=NOW_MS + HOUR)
+    scan = _scan(lua)
+    assert (scan["left"], scan["pending"], scan["hold"]) == (0, 2, 0), scan
+    # …and with a budget it is the smaller of the two, not the star count.
+    lua2, _m2 = _vm(today=4, cap=5)                      # one help left
+    for uuid in (9611, 9612, 9613):
+        _task(lua2, uuid, level=7, star=True, done=NOW_MS + HOUR)
+    scan2 = _scan(lua2)
+    assert (scan2["left"], scan2["pending"], scan2["hold"]) == (1, 3, 1), scan2
+
+
 def test_the_scan_reads_as_empty_before_it_has_run():
     """A recipe whose scan never happened must read «nothing ready, nothing coming»
     rather than fail on a nil index — the `READ_LUA`s are what the branches test."""
     if not _needs_lua("an unscanned manager reads as zero"):
         return
     lua, _m = _vm()
-    for name in ("ready", "ur", "pending", "level", "late", "left"):
+    for name in ("ready", "ur", "pending", "level", "late", "left", "hold"):
         assert int(lua.eval(lua_actions.secret_task_star_field(name))) == 0
 
 
@@ -355,6 +380,43 @@ def test_a_rewarded_or_expired_task_is_invisible_to_all_of_it():
     scan = _scan(lua)
     assert (scan["ready"], scan["pending"], scan["late"]) == (0, 0, 0), scan
     assert _press(lua) is None
+
+
+def test_a_spent_day_says_that_and_nothing_about_the_priority():
+    """The recipe's own shape, checked where it is decided rather than at run time.
+
+    Live (#1292) a spent budget printed «no assists left today» AND, three lines later,
+    «waiting for star 7 (ready in 96 min) — holding 2 of 0 help(s) back»: the priority
+    block ran anyway and described a choice that was not being made. Every line of it
+    now lives in the `ELSE` of the budget test, so a day with nothing left says one
+    thing once.
+    """
+    sys.path.insert(0, str(ROOT / "src"))
+    from lastwar_bot.script_engine import parse_text, prepare_source, resolve_action
+
+    source, _args = prepare_source(
+        resolve_action("assist_secret_task").read_text(encoding="utf-8"), {})
+    body = parse_text(source)
+    budget = [s for s in body
+              if getattr(s, "condition", "") == "helps_left == 0"]
+    assert len(budget) == 1, "the budget is no longer tested where the log branches"
+    spent, rest = budget[0].then_block, budget[0].else_block
+    said = [getattr(s, "message", "") for s in spent]
+    assert said == ["no assists left today"], said
+    # …and every word about the priority is on the other side of it.
+    def messages(block) -> list:
+        out = []
+        for stmt in block or ():
+            if hasattr(stmt, "message"):
+                out.append(stmt.message)
+            for half in ("then_block", "else_block"):
+                out += messages(getattr(stmt, half, None))
+        return out
+    other = messages(rest)
+    for phrase in ("star first", "waiting for star", "no star ripening today",
+                   "cannot ripen before the day resets"):
+        assert any(phrase in m for m in other), (phrase, other)
+    assert not any(phrase in m for m in said for phrase in ("star",))
 
 
 def _main() -> int:

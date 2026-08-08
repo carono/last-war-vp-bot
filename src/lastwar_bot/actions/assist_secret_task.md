@@ -69,26 +69,33 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_late) or 0) I
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_level) or 0) INTO star_level
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_ur) or 0) INTO ur_ready
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_eta) or -1) INTO star_eta_min
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_hold) or 0) INTO star_hold
 
 # 4. Say why nothing happened, when nothing does. A silent standing order is
 #    indistinguishable from a broken one.
+#
+#    THE PRIORITY IS ONLY SPOKEN OF WHILE THERE IS A BUDGET TO SPEND (#1292, seen live).
+#    A spent day has nothing to hold and nothing to choose between: «придерживаю 2 из 0»
+#    is arithmetic reported as if it were a decision, and the person reading it has to
+#    work out for themselves that the real answer is the line above.
 IF helps_left == 0
     LOG "no assists left today"
-
-# 5. …and say which way the priority fell, every time. Every one of these lines is a
-#    decision about the day's five, and a budget spent without a reason given is the
-#    thing #1227 was.
-IF star_ready > 0
-    LOG "star first: {star_ready} starred task(s) ready, {ur_ready} UR waiting its turn"
 ELSE
-    IF star_pending > 0
-        LOG "waiting for star {star_level} (ready in {star_eta_min} min) — holding {star_pending} of {helps_left} help(s) back"
+    # 5. …and say which way the priority fell, every time. Every one of these lines is a
+    #    decision about the day's five, and a budget spent without a reason given is the
+    #    thing #1227 was. `star_hold` rather than `star_pending`: what is HELD is capped
+    #    by what is left, however many stars are on their way.
+    IF star_ready > 0
+        LOG "star first: {star_ready} starred task(s) ready, {ur_ready} UR waiting its turn"
     ELSE
-        LOG "no star ripening today — taking UR ({ur_ready} ready)"
+        IF star_pending > 0
+            LOG "waiting for star {star_level} (ready in {star_eta_min} min) — holding {star_hold} of {helps_left} help(s) back"
+        ELSE
+            LOG "no star ripening today — taking UR ({ur_ready} ready)"
 
-# 6. …and never wait in silence for one that cannot make it.
-IF star_late > 0
-    LOG "{star_late} star(s) cannot ripen before the day resets — not waiting for those"
+    # 6. …and never wait in silence for one that cannot make it.
+    IF star_late > 0
+        LOG "{star_late} star(s) cannot ripen before the day resets — not waiting for those"
 
 # 7. Spend what the rule allows. `xall` re-reads between presses: ready stars first, then
 #    URs into whatever is left AFTER one help per ripening star. It stops when the list
