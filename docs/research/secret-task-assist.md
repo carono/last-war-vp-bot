@@ -87,6 +87,41 @@ Two halves, and both are readable client-side:
   completionTime | rewarded`) say the same thing, and `DispatchTask:RefreshAlncRedPoint`
   draws the red point as `min(that count, aid_count - todayAssistNum)`.
 
+### The five cap the HELP itself, not just its bonus — measured, because it was doubted
+
+It was put to this repository that `aid_count` is a threshold on the REWARD and not on the
+action: help as much as you like, only the first five pay. That is exactly true of «Помочь
+всем» next door, so it is a reasonable thing to believe — and it is not true here. Tested
+on a live client with `todayAssistNum` already at 5 of 5:
+
+```
+control: 4 s of ordinary play, no send      -> no tip at all
+send #1  best finished UR in the alliance   -> tip E000000, used 5, task still in the list
+send #2  another finished UR                -> tip E000000, used 5, task still in the list
+send #3  a third finished UR                -> tip E000000, used 5, task still in the list
+```
+
+`E000000` is the game's own «Извините, произошла неизвестная ошибка» — the server's generic
+refusal, not `dispatch_des028` («уже решена с помощью других лиц») and not a reward that
+merely failed to arrive. The task is not removed, which the reply's success branch would
+have done, and the counter does not move.
+
+There is also **only one number**: `GetDispatchSetting` answers `aid_count = 5` and returns
+nothing at all for `aid_reward_count`, `assist_count`, `aid_extra_reward` or
+`aid_extra_reward_show`. And the game's own button agrees with the server —
+`DispatchTaskItem:OnGoClick` sends only while `GetTodayAssistNum() < toInt(aid_count)` and
+raises a tip otherwise, so the UI will not let a person help a sixth time either.
+
+**So the budget gate stays**, and so does everything that follows from it: the reserve a
+ripening star holds (#1292) is real, because the quota it protects is real. What IS
+unlimited is the other feature — `al.help.all`, «Помочь всем», where only the help POINTS
+are capped (`help_ally.md`). The two are easy to swap in conversation; the table at the top
+of this file is there for exactly that reason.
+
+The one control this could not run is the positive half: with a budget in hand the same
+send succeeds and the counter moves, which #1272 recorded on a different day. Re-running
+the probe above just after the 02:00 UTC reset would put both halves side by side.
+
 The RANK is not part of the client's gate at all — any finished task may be helped. It is
 part of what is WORTH helping, because the daily plan pays for «UR или Звезда». The
 config row answers both (`v.cfg:getValue("color")` reaches 5 at UR, `is_special` draws the

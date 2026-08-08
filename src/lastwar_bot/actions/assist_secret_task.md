@@ -8,6 +8,14 @@
 # выполнить 5 секретных заданий ранга UR или Звезда», and the counter resets daily, so
 # an unspent help is income thrown away — the same reason occupation_skills.md exists.
 #
+# AND THE FIVE CAP THE HELP, NOT ONLY ITS REWARD. This was doubted and then measured
+# (#1294): with the counter at 5 of 5, three sends at three different finished UR tasks
+# each came back with `E000000` — the server's generic refusal — `todayAssistNum` did not
+# move and not one task left the list. `GetDispatchSetting` knows one number and no
+# separate reward cap, and the game's own button refuses a sixth press too. The feature
+# where helping IS unlimited and only the POINTS are capped is «Помочь всем» — a different
+# command, next door in help_ally.md.
+#
 # Nor is it the robbery (steal_secret_task.md): that spends a different budget on
 # strangers' tiles. Helping pays the helper AND the owner, and it is the alliance's own
 # list it works over, so there is no home-server prohibition here to speak of.
