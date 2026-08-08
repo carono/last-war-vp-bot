@@ -64,7 +64,7 @@ TAP treasure_auto_step
 # already away.
 READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the step left no report — the press did not run") INTO report
 
-LOG "the line above is what the run did: sent= marches that went out, claimed= gifts taken, digging= squads still on their way, and one note per chest"
+LOG "the line above is what the run did: sent= marches that went out, claimed= claims sent, paid= gifts actually received (the reward window came up), waiting= chests whose squad is still out or whose claim has not answered, and one note per chest"
 
 # One number: how many sends this run actually made. `0` is an ordinary quiet minute —
 # nothing was announced, or the squads are all out — and not a failure.
