@@ -721,6 +721,8 @@
   "triggers.log.heard": "tai: {count} sự kiện trên đường truyền — {detail}",
   "triggers.log.leaderboard": "bảng xếp hạng: {boards} bảng, {rows} dòng, +{saved} ảnh chụp trong lịch sử",
   "triggers.log.backoff": "{name}: lại bị văng — chờ {minutes} phút trước khi khởi động lại",
+  "triggers.log.stale": "{name}: hết thời gian chờ thì điều kiện đã mất — không chạy",
+  "triggers.log.observed": "{name}: thấy {event} — chỉ quan sát, việc xử lý thuộc bên khác",
   "triggers.log.off": "{name}: đã thôi canh",
   "triggers.log.ear": "một tai cho {count} người nghe: {patterns}",
   "triggers.log.on": "{name}: đang canh {event}",

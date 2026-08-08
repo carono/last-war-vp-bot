@@ -721,6 +721,8 @@
   "triggers.log.heard": "telinga: {count} peristiwa di kabel — {detail}",
   "triggers.log.leaderboard": "papan peringkat: {boards} papan, {rows} baris, +{saved} cuplikan di riwayat",
   "triggers.log.backoff": "{name}: terlempar lagi — menunggu {minutes} mnt sebelum menyalakan ulang",
+  "triggers.log.stale": "{name}: kondisinya sudah hilang saat tunggu berakhir — tidak dijalankan",
+  "triggers.log.observed": "{name}: melihat {event} — hanya mengamati, penanganannya milik yang lain",
   "triggers.log.off": "{name}: berhenti mengawasi",
   "triggers.log.ear": "satu telinga untuk {count} pendengar: {patterns}",
   "triggers.log.on": "{name}: mengawasi {event}",

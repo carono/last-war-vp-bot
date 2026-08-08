@@ -721,6 +721,8 @@
   "triggers.log.heard": "ухо: {count} событий на проводе — {detail}",
   "triggers.log.leaderboard": "лидерборды: досок {boards}, строк {rows}, +{saved} снимков в историю",
   "triggers.log.backoff": "{name}: снова кик — жду {minutes} мин перед перезапуском",
+  "triggers.log.stale": "{name}: за время ожидания условие ушло — не запускаю",
+  "triggers.log.observed": "{name}: вижу {event} — только наблюдаю, лечит другой",
   "triggers.log.off": "{name}: перестал слушать",
   "triggers.log.ear": "одно ухо на {count} слушателей: {patterns}",
   "triggers.log.on": "{name}: слушаю {event}",

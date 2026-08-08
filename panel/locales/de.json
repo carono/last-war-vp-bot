@@ -721,6 +721,8 @@
   "triggers.log.heard": "Ohr: {count} Ereignis(se) auf der Leitung — {detail}",
   "triggers.log.leaderboard": "Bestenlisten: {boards} Liste(n), {rows} Zeile(n), +{saved} Momentaufnahme(n) im Verlauf",
   "triggers.log.backoff": "{name}: erneut hinausgeworfen — warte {minutes} min vor dem Neustart",
+  "triggers.log.stale": "{name}: die Bedingung war nach der Wartezeit weg — nicht gestartet",
+  "triggers.log.observed": "{name}: {event} gesehen — nur beobachten, die Behebung liegt anderswo",
   "triggers.log.off": "{name}: beobachtet nicht mehr",
   "triggers.log.ear": "ein Ohr für {count} Zuhörer: {patterns}",
   "triggers.log.on": "{name}: beobachtet {event}",

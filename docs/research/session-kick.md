@@ -443,11 +443,48 @@ Decided by the person, on a live account that had been kicked six times that mor
      executors again;
    * the lock already covers it, so that step cannot reintroduce a double relaunch.
 
-Until that is done, `session_kick` may be left ON as a poll that **observes and carries
-the escalation** while `recovery.py` acts — which is what the profile it was tested on has
-now.
+Since 2026-08-08 that is enforced rather than agreed: `session_kick` carries
+`observe=True`, so the watcher notes what it sees and **never hands its scenario to the
+queue**, and it carries **no backoff of its own** — the escalation lives here, beside the
+act it delays. The flag is taken from the built-in entry and never read out of
+`triggers.json`, so no hand edit can grant the event a second executor.
+`tests/test_panel_triggers.py` pins all three.
 
-### The clock trap, paid for in the same hour
+**Leave the row switched ON.** It means «наблюдаю»: with it on, the disagreement below
+stays visible in the log. Unticking it would hide the disagreement rather than resolve it.
+
+### THE BLIND SHOT, which was not about the kick at all
+
+Found while answering «who actually acts». A poll trigger carrying a backoff did this:
+
+```python
+delay = state.plan(now())
+log("backoff", minutes=…)
+stop.wait(delay)      # …fifteen minutes…
+on_fire()             # …and act on what the check said BEFORE the wait
+```
+
+Nothing was asked in between. So **one truthy reading bought an action a quarter of an
+hour later, whatever the state of the world by then** — for the kick, a modal that merely
+flickered relaunches a perfectly healthy client. Any trigger with a backoff had it; the
+kick was only the first user.
+
+The condition is re-asked after the wait now, and a condition that has gone means no fire
+— plus a line saying so (`triggers.log.stale`), because a wait that ended in nothing must
+not look like a wait that never happened. A re-read that cannot be taken (daemon gone,
+game closed) counts as «do not act»: not acting costs a later fire, acting on nothing
+costs a live client.
+
+### Open questions, deliberately not pursued
+
+**Not worked on, listed so they are choices rather than accidents:** `recovery.py`
+recognises a kick on TWO consecutive readings and the observing poll on one (two is
+steadier against a flickering modal, one is a poll interval faster on a real kick — only
+`recovery.py` acts, so nothing is at risk from the difference today); and making
+`recover_from_kick` the act instead of `restart_game` still needs a live proof first. The
+observing poll is the instrument that would measure the first, if anybody ever wants to.
+
+## The clock trap, paid for in the same hour
 
 `Recovery` is handed `time.time()` by the poll, and the first version of
 `note_kick_restart` was called with `time.monotonic()`. Subtracting one from the other

@@ -721,6 +721,8 @@
   "triggers.log.heard": "ear: {count} event(s) on the wire — {detail}",
   "triggers.log.leaderboard": "leaderboards: {boards} board(s), {rows} row(s), +{saved} snapshot(s) in the history",
   "triggers.log.backoff": "{name}: kicked again — waiting {minutes} min before relaunching",
+  "triggers.log.stale": "{name}: the condition was gone by the end of the wait — not run",
+  "triggers.log.observed": "{name}: seen {event} — watching only, the cure belongs elsewhere",
   "triggers.log.off": "{name}: stopped watching",
   "triggers.log.ear": "one ear for {count} listener(s): {patterns}",
   "triggers.log.on": "{name}: watching for {event}",

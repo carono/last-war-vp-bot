@@ -721,6 +721,8 @@
   "triggers.log.heard": "oído: {count} evento(s) en el cable — {detail}",
   "triggers.log.leaderboard": "clasificaciones: {boards} tabla(s), {rows} fila(s), +{saved} instantánea(s) en el historial",
   "triggers.log.backoff": "{name}: expulsado otra vez — espero {minutes} min antes de relanzar",
+  "triggers.log.stale": "{name}: la condición ya no estaba al terminar la espera — no se lanza",
+  "triggers.log.observed": "{name}: visto {event} — solo observo, la cura es de otro",
   "triggers.log.off": "{name}: ha dejado de vigilar",
   "triggers.log.ear": "un solo oído para {count} escuchas: {patterns}",
   "triggers.log.on": "{name}: vigilando {event}",

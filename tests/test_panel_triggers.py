@@ -501,13 +501,73 @@ def test_backoff_policy_reads_partial_and_junk():
     assert triggersmod.BackoffPolicy.from_raw(None) is None
 
 
-def test_the_session_kick_trigger_carries_a_backoff_policy():
+def test_the_session_kick_trigger_watches_and_does_not_act():
+    """WHAT IT BECAME, and why (#1296). Two mechanisms were aimed at one event — this poll
+    and `panel/runtime/recovery.py` — with different criteria and, for a while, an
+    escalating wait each. Only `recovery.py` had ever recovered a kick (fourteen times
+    live against zero fires here, because no poll trigger could fire at all), so the act
+    stays there and this side keeps the eyes.
+
+    Its own backoff is GONE with the same stroke: 15 → 30 → 45 min lives beside the act
+    now (`recovery.KICK_HOLD_STEP_SEC` …). Two identical escalations in two modules is two
+    executors deferred, not one policy.
+    """
     sk = triggersmod.default_catalogue().by_name("session_kick")
-    assert sk.backoff is not None
-    assert sk.backoff.initial_sec == 900        # 15 min
-    assert sk.backoff.step_sec == 900           # +15 min a step
-    assert sk.backoff.max_sec == 2700           # cap at 45 min
-    assert sk.backoff.stability_sec == 600 and sk.backoff.refire_window_sec == 600
+    assert sk.observe is True, "the kick poll must not be able to act"
+    assert sk.backoff is None, "the wait belongs to the module that acts"
+    #: the scenario stays: it is what it would play the day `recover_from_kick` is proven
+    #: live and becomes the act (docs/research/session-kick.md)
+    assert sk.scenario == ("recover_from_kick",)
+
+
+def test_an_observer_never_submits_its_scenario():
+    """The whole point of the flag, driven through the watcher: the fire is noted and the
+    scenario is not handed to the queue."""
+    submitted = []
+    said = []
+    trigger = triggersmod.Trigger(name="watcher_only", kind=triggersmod.KIND_POLL,
+                                  check="1 == 1", scenario=("recover_from_kick",),
+                                  observe=True, enabled=True)
+    w = triggersmod.TriggerWatcher(
+        catalogue=lambda: triggersmod.TriggerCatalogue([trigger], []),
+        config=lambda: {"watcher_only": {"enabled": True}},
+        spawn=lambda *a, **k: None,
+        submit=lambda errand: submitted.append(errand.name) or "queued",
+        poll=lambda t: True,
+        log=lambda key, **fmt: said.append(key))
+    w._fire(trigger)
+    assert submitted == [], "an observer submitted its scenario"
+    assert "triggers.log.observed" in said, said
+
+
+def test_an_observer_gets_no_backoff_state_however_the_file_is_edited():
+    """A hand-edited `triggers.json` must not be able to give the observer a wait of its
+    own back — that is the second escalation returning through the side door."""
+    trigger = triggersmod.Trigger(
+        name="watcher_only", kind=triggersmod.KIND_POLL, check="1 == 1",
+        scenario=("x",), observe=True, enabled=True,
+        backoff=triggersmod.BackoffPolicy(initial_sec=60))
+    w = triggersmod.TriggerWatcher(
+        catalogue=lambda: triggersmod.TriggerCatalogue([trigger], []),
+        config=lambda: {}, spawn=lambda *a, **k: None,
+        submit=lambda errand: "queued", poll=lambda t: True, log=lambda key, **fmt: None)
+    assert w._backoff_state(trigger) is None
+
+
+def test_the_file_cannot_grant_a_second_executor():
+    """`observe` is the code's answer, not a setting: it comes from the built-in entry of
+    that name and is never read out of the catalogue file, so no edit can hand an event a
+    second executor — nor is it written back when the file is saved."""
+    entries = [{"name": "session_kick", "kind": "poll", "check": "x",
+                "scenario": "recover_from_kick", "enabled": True, "observe": False}]
+    sk = triggersmod.parse_catalogue(entries).by_name("session_kick")
+    assert sk.observe is True, "the file overrode who is allowed to act"
+    assert "observe" not in sk.as_dict()
+    #: …and a name the code has never heard of is an ordinary trigger
+    mine = triggersmod.parse_catalogue(
+        [{"name": "mine", "kind": "wire", "event_pattern": "p", "scenario": "s"}]
+    ).by_name("mine")
+    assert mine.observe is False
 
 
 def test_a_backoff_policy_round_trips_through_the_file():
@@ -521,6 +581,127 @@ def test_a_backoff_policy_round_trips_through_the_file():
     # …and back in again unchanged.
     k2 = triggersmod.parse_catalogue([d]).by_name("k")
     assert k2.backoff == k.backoff
+
+
+def test_a_backoff_poll_asks_again_before_firing():
+    """THE BLIND SHOT (#1296), and it is not about the kick.
+
+    Any poll trigger carrying a backoff used to act on a reading taken a quarter of an
+    hour earlier: `wait(delay)` and then fire, with nothing asked in between. For the kick
+    that means a modal which merely FLICKERED — one truthy reading — buys a relaunch of a
+    perfectly healthy client fifteen minutes later. The condition is re-asked now, and a
+    condition that has gone means no fire.
+
+    And the non-fire is SAID, because a wait that ended in nothing must not look like a
+    wait that never happened — the whole failure mode this task has been chasing.
+    """
+    import threading
+
+    submitted = []
+    said = []
+    seen = threading.Event()
+    answers = [True, False]          # true when armed, gone by the time it would fire
+
+    def poll(_t):
+        if answers:
+            return answers.pop(0)
+        return False
+
+    cat = triggersmod.TriggerCatalogue([
+        triggersmod.Trigger(
+            name="kick", kind=triggersmod.KIND_POLL, check="x",
+            scenario=("recover",), interval_sec=5, cooldown_sec=5,
+            backoff=triggersmod.BackoffPolicy(
+                initial_sec=0, step_sec=900, max_sec=2700,
+                stability_sec=600, refire_window_sec=600)),
+    ])
+
+    def log(key, **fmt):
+        said.append(key)
+        if key == "triggers.log.stale":
+            seen.set()
+
+    watcher = triggersmod.TriggerWatcher(
+        catalogue=lambda: cat, config=lambda: {"kick": True},
+        spawn=lambda t, f: None,
+        submit=lambda t: submitted.append(t.name),
+        log=log, poll=poll)
+    watcher.start()
+    try:
+        assert seen.wait(3.0), f"the stale wait was never reported: {said}"
+        assert submitted == [], "it fired on a condition that had gone"
+    finally:
+        watcher.stop()
+
+
+def test_a_condition_that_is_still_true_after_the_wait_does_fire():
+    """The other half: the re-read must not make the backoff useless. A fault that is
+    still there when the wait ends is acted on, exactly as before."""
+    import threading
+
+    fired = threading.Event()
+    submitted = []
+    cat = triggersmod.TriggerCatalogue([
+        triggersmod.Trigger(
+            name="kick", kind=triggersmod.KIND_POLL, check="x",
+            scenario=("recover",), interval_sec=5, cooldown_sec=5,
+            backoff=triggersmod.BackoffPolicy(
+                initial_sec=0, step_sec=900, max_sec=2700,
+                stability_sec=600, refire_window_sec=600)),
+    ])
+    watcher = triggersmod.TriggerWatcher(
+        catalogue=lambda: cat, config=lambda: {"kick": True},
+        spawn=lambda t, f: None,
+        submit=lambda t: (submitted.append(t.name), fired.set()),
+        log=lambda *a, **k: None,
+        poll=lambda t: True)                 # still true when the wait ends
+    watcher.start()
+    try:
+        assert fired.wait(3.0), "a condition that held was not acted on"
+        assert submitted[:1] == ["kick"]
+    finally:
+        watcher.stop()
+
+
+def test_a_re_read_that_cannot_be_taken_does_not_fire():
+    """A daemon that went away answers by raising. «Cannot tell» must read as «do not
+    act»: not acting costs a later fire, acting on nothing costs a live client."""
+    import threading
+
+    submitted = []
+    said = []
+    seen = threading.Event()
+    calls = []
+
+    def poll(_t):
+        calls.append(1)
+        if len(calls) == 1:
+            return True
+        raise RuntimeError("daemon went away")
+
+    def log(key, **fmt):
+        said.append(key)
+        if key in ("triggers.log.stale", "triggers.log.poll_error"):
+            seen.set()
+
+    cat = triggersmod.TriggerCatalogue([
+        triggersmod.Trigger(
+            name="kick", kind=triggersmod.KIND_POLL, check="x",
+            scenario=("recover",), interval_sec=5, cooldown_sec=5,
+            backoff=triggersmod.BackoffPolicy(initial_sec=0)),
+    ])
+    watcher = triggersmod.TriggerWatcher(
+        catalogue=lambda: cat, config=lambda: {"kick": True},
+        spawn=lambda t, f: None,
+        submit=lambda t: submitted.append(t.name),
+        log=log, poll=poll)
+    watcher.start()
+    try:
+        assert seen.wait(3.0), f"nothing was said about the failed re-read: {said}"
+        assert submitted == [], "it fired although the re-read had failed"
+    finally:
+        watcher.stop()
+
 
 
 def test_a_backoff_poll_waits_then_fires_and_remembers_the_run():

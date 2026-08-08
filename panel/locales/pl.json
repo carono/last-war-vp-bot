@@ -721,6 +721,8 @@
   "triggers.log.heard": "ucho: {count} zdarzeń na łączu — {detail}",
   "triggers.log.leaderboard": "rankingi: {boards} tabel, {rows} wierszy, +{saved} migawek w historii",
   "triggers.log.backoff": "{name}: znowu wyrzucony — czekam {minutes} min przed ponownym startem",
+  "triggers.log.stale": "{name}: po zakończeniu oczekiwania warunek zniknął — nie uruchamiam",
+  "triggers.log.observed": "{name}: widzę {event} — tylko obserwuję, naprawia inny",
   "triggers.log.off": "{name}: przestał pilnować",
   "triggers.log.ear": "jedno ucho na {count} słuchaczy: {patterns}",
   "triggers.log.on": "{name}: pilnuje {event}",

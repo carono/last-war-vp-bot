@@ -303,6 +303,21 @@ class Trigger:
     # something the game is counting down. `alliance_help` is the one shipped with it
     # on — measured p90 8–10 s of waiting, maximum 1276 s, for a press that takes two.
     immediate: bool = False
+    # WATCHES AND DOES NOT ACT. A trigger whose condition is real but whose CURE belongs
+    # to somebody else: it polls, it says what it sees, and it never runs its scenario.
+    #
+    # `session_kick` is the first (#1296). Two mechanisms were aimed at one event — this
+    # poll and `panel/runtime/recovery.py` — with different criteria (one truthy reading
+    # here, two consecutive ones there) and, for a while, an escalating wait each. Only
+    # one of them had ever actually recovered a kick, so the act stays with that one and
+    # this side keeps the eyes. The switch on the row therefore means «наблюдаю»: leaving
+    # it on is how the disagreement stays VISIBLE instead of being hidden by turning it
+    # off.
+    #
+    # NOT read from the catalogue file on purpose (see `load_catalogue`): who is allowed
+    # to act is a property of the code, not a per-profile setting — a hand-edited
+    # `triggers.json` must not be able to grant a second executor.
+    observe: bool = False
     args: dict = field(default_factory=dict)
     title: str | None = None        # row label straight from the config
     label_key: str | None = None    # …or a locale key, for the built-in entries
@@ -334,6 +349,8 @@ class Trigger:
             out["event_pattern"] = self.event_pattern
         if self.immediate:
             out["immediate"] = True
+        # `observe` is deliberately NOT written: it belongs to the built-in entry, and a
+        # profile file that carried it could be edited into granting a second executor.
         if self.args:
             out["args"] = dict(self.args)
         if self.title:
@@ -464,16 +481,23 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         check=_KICK_CHECK,
         interval_sec=DEFAULT_POLL_INTERVAL_SEC,
         cooldown_sec=DEFAULT_POLL_COOLDOWN_SEC,
-        # A repeating kick (someone logging in on the same account over and over) must
-        # not draw an instant relaunch each time — that is a relaunch war. The backoff
-        # waits longer and longer before each relaunch (15 → 30 → 45 min) while the
-        # kicks keep coming within 10 min of a restart, and forgets that escalation
-        # (back to 15 min) once a session finally holds for 10 min. cooldown_sec above
-        # stays a short settle AFTER a relaunch so the fading modal is not read as a
-        # fresh kick; the backoff is the adaptive wait BEFORE it.
-        backoff=BackoffPolicy(
-            initial_sec=900, step_sec=900, max_sec=2700,
-            stability_sec=600, refire_window_sec=600),
+        # WATCHES, DOES NOT ACT (#1296). Two mechanisms were aimed at this one event —
+        # this poll and `panel/runtime/recovery.py` — and only the second had ever
+        # actually recovered a kick (fourteen times live against zero fires here, because
+        # no poll trigger could fire at all). So the act stays with the module that has
+        # done it and this side keeps the eyes: the row's switch means «наблюдаю», and
+        # leaving it ON is what keeps the two criteria disagreeing IN VIEW rather than
+        # hidden by an unticked box.
+        #
+        # ITS OWN BACKOFF IS GONE for the same reason. 15 → 30 → 45 min now lives in
+        # `recovery.py` (`KICK_HOLD_STEP_SEC`, `KICK_HOLD_MAX_SEC`, `KICK_STABILITY_SEC`)
+        # beside the act it delays. Two independent escalations with identical numbers is
+        # two executors deferred, not one policy.
+        #
+        # The scenario is kept although nothing plays it: it is what this trigger would
+        # run on the day `recover_from_kick` is PROVEN live and becomes the act — the
+        # order of work is written down in `docs/research/session-kick.md`.
+        observe=True,
         scenario=("recover_from_kick",),
         enabled=False,
         label_key="triggers.item.session_kick",
@@ -711,6 +735,12 @@ def parse_catalogue(data, path: str | None = None,
             name=name,
             scenario=scenario,
             kind=kind,
+            # WHO MAY ACT IS THE CODE'S ANSWER, not the file's (#1296). Taken from the
+            # built-in entry of the same name and never read out of `triggers.json`: a
+            # hand-edited catalogue must not be able to hand a second executor to an event
+            # that already has one. A name the code has never heard of is an ordinary
+            # trigger, which is what an entry somebody wrote themselves should be.
+            observe=bool(base.observe) if base is not None else False,
             event_pattern=pattern,
             check=check,
             interval_sec=_as_interval(
@@ -950,7 +980,12 @@ class TriggerWatcher:
         once, the way it always did. A stored state is reused across respawns; if the
         policy has since changed (a hand-edited catalogue re-read), it is rebuilt.
         """
-        if trigger.backoff is None:
+        # AN OBSERVER HAS NO WAIT OF ITS OWN (#1296). Two independent escalations with
+        # the same numbers — one here, one in `recovery.py` — is the same duplication as
+        # two executors, merely deferred: whichever fired first would look like the
+        # policy while the other quietly counted too. The owner of the wait is the module
+        # that acts.
+        if trigger.observe or trigger.backoff is None:
             self._backoff.pop(trigger.name, None)
             return None
         state = self._backoff.get(trigger.name)
@@ -999,6 +1034,13 @@ class TriggerWatcher:
         test's stub returning a plain bool — is said the way it always was. A fire is
         never silent.
         """
+        if trigger.observe:
+            # Says what it sees and stops there. The cure is somebody else's — for
+            # `session_kick` it is `recovery.py` — and a second executor on one event is
+            # the thing this flag exists to prevent (`docs/research/session-kick.md`).
+            self._dbg.info("observe %s on %s", trigger.name, trigger.signal())
+            self._note_fire(trigger, "triggers.log.observed")
+            return
         self._dbg.info("fire %s on %s", trigger.name, trigger.signal())
         outcome = self._submit(trigger)
         key = self._FIRE_WORDS.get(outcome, "triggers.log.fire")
@@ -1096,6 +1138,31 @@ class _PollHandle:
                           minutes=max(1, int(round(delay / 60.0))))
                 if self._stop.wait(delay):        # stopped while waiting → clean exit
                     break
+                # …AND THE CONDITION IS ASKED AGAIN BEFORE FIRING (#1296). The wait used
+                # to be blind: whatever the check said a quarter of an hour ago was acted
+                # on now, however things stood by then. For the kick that means a modal
+                # that merely flickered — one truthy reading — buys a relaunch of a
+                # perfectly healthy client fifteen minutes later, and nothing in between
+                # is ever asked. The fault is not the kick's: ANY poll trigger carrying a
+                # backoff fires on a reading that may be long gone.
+                #
+                # A re-read that cannot be taken (the daemon went away, the game closed)
+                # answers False, and False here means «do not act» — which is the safe
+                # direction for a cure: not acting costs a later fire, acting on nothing
+                # costs a live client.
+                try:
+                    still = self._poll is not None and bool(self._poll(t))
+                except Exception as exc:          # noqa: BLE001 — same rule as above
+                    self._log("triggers.log.poll_error", name=t.name, error=exc)
+                    still = False
+                if not still:
+                    # A fire that did NOT happen is an event too, and this whole area is
+                    # about events that cannot be told apart: a wait that ended in
+                    # nothing must not look like a wait that never happened.
+                    self._log("triggers.log.stale", name=t.name)
+                    self._state.mark_run(self._now())
+                    self._stop.wait(t.cooldown_sec)
+                    continue
                 self._on_fire()
                 self._state.mark_run(self._now())
                 fired = True

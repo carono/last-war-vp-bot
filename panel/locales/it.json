@@ -721,6 +721,8 @@
   "triggers.log.heard": "orecchio: {count} evento/i sul filo — {detail}",
   "triggers.log.leaderboard": "classifiche: {boards} tabella/e, {rows} riga/he, +{saved} istantanea/e nello storico",
   "triggers.log.backoff": "{name}: espulso di nuovo — aspetto {minutes} min prima di rilanciare",
+  "triggers.log.stale": "{name}: la condizione non c'era più alla fine dell'attesa — non avviato",
+  "triggers.log.observed": "{name}: visto {event} — solo osservo, il rimedio è di un altro",
   "triggers.log.off": "{name}: ha smesso di sorvegliare",
   "triggers.log.ear": "un solo orecchio per {count} ascoltatori: {patterns}",
   "triggers.log.on": "{name}: sorveglia {event}",

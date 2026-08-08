@@ -721,6 +721,8 @@
   "triggers.log.heard": "kulak: hatta {count} olay — {detail}",
   "triggers.log.leaderboard": "sıralamalar: {boards} tablo, {rows} satır, geçmişe +{saved} anlık görüntü",
   "triggers.log.backoff": "{name}: yine atıldı — yeniden başlatmadan önce {minutes} dk bekliyorum",
+  "triggers.log.stale": "{name}: bekleme sonunda koşul kalmamıştı — çalıştırılmadı",
+  "triggers.log.observed": "{name}: {event} görüldü — yalnızca izliyorum, çözüm başkasında",
   "triggers.log.off": "{name}: gözlemeyi bıraktı",
   "triggers.log.ear": "{count} dinleyici için tek kulak: {patterns}",
   "triggers.log.on": "{name}: {event} gözleniyor",

@@ -721,6 +721,8 @@
   "triggers.log.heard": "oreille : {count} événement(s) sur le fil — {detail}",
   "triggers.log.leaderboard": "classements : {boards} tableau(x), {rows} ligne(s), +{saved} instantané(s) dans l'historique",
   "triggers.log.backoff": "{name} : encore éjecté — j'attends {minutes} min avant de relancer",
+  "triggers.log.stale": "{name} : la condition avait disparu à la fin de l'attente — non lancé",
+  "triggers.log.observed": "{name} : {event} vu — observation seule, la correction est ailleurs",
   "triggers.log.off": "{name} : ne surveille plus",
   "triggers.log.ear": "une seule oreille pour {count} écouteurs : {patterns}",
   "triggers.log.on": "{name} : surveille {event}",
