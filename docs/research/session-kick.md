@@ -356,3 +356,31 @@ and the whole round trip through a real Lua.
 **If a poll trigger of yours has never visibly done anything, check this first**, and
 check it by forcing the condition rather than by reading logs — the logs of a broken poll
 and an idle one are the same.
+
+### Everything that was affected, by name
+
+Poll triggers are the only users of `Schedule.poll`, and there have only ever been two.
+Grepped across `DEFAULT_TRIGGERS` and every profile's `triggers.json`; nothing else in the
+panel calls it.
+
+| trigger | since | what it was supposed to do | what actually happened |
+|---|---|---|---|
+| **`session_kick`** | 2026-07-30 (#1128) | poll the client for the «logged in on another device» modal; when it is up, run `recover_from_kick` — acknowledge the modal and relaunch — with an adaptive backoff of 15 → 30 → 45 min so a repeating kick is not answered by a relaunch war | never fired once. `grep "fire session_kick"` across every profile's logs, the whole history: **0** |
+| **`treasure_auto`** | 2026-08-08 (#1296) | hear a chest announced in alliance chat and work it | born into the same fault; found and fixed before it was ever relied on |
+
+**The damage from the first is smaller than it sounds, and saying so precisely matters
+more than sounding alarming.** Kicks WERE recovered from — by the other half of the
+machinery, not by the trigger. `panel/runtime/recovery.py` reads `kicked`
+(`tools/lib/game_kick.py`, key `E100083`) on every dashboard poll and acts on it through
+`ACT_KICK`; the same logs that hold zero `fire session_kick` hold fourteen «выкинуло: вход
+с другого устройства», each followed by either «перезапускаю» or «жду N мин, клиент не
+трогаю». So the recovery ran, on recovery.py's own hold of 15 minutes.
+
+What was genuinely lost is the trigger's own **backoff policy** — the 15 → 30 → 45 min
+escalation with a reset after 10 quiet minutes — which never applied to anything, and the
+`recover_from_kick` scenario, which has never been played by the panel at all.
+
+The practical consequence for whoever picks this up: **two mechanisms are aimed at the
+same event**, and only one of them was ever working. Now that the poll runs, they will
+both act on the next kick. That wants deciding — not by an agent in passing — and until it
+is decided, `session_kick` stays off by default, which is how it ships.

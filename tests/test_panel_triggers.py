@@ -555,6 +555,157 @@ def test_a_backoff_poll_waits_then_fires_and_remembers_the_run():
         watcher.stop()
 
 
+# ---------------------------------------------------------------------------
+# the poll's answer, and the trace it leaves — #1296
+# ---------------------------------------------------------------------------
+class _Say:
+    """A debug logger that remembers what it was told."""
+
+    def __init__(self) -> None:
+        self.lines = []
+
+    def _put(self, fmt, args):
+        self.lines.append(fmt % args if args else fmt)
+
+    def info(self, fmt, *args):
+        self._put(fmt, args)
+
+    def debug(self, fmt, *args):
+        self._put(fmt, args)
+
+
+class _Evaluator:
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.asked = []
+
+    def run(self, chunk, marker=None, settle=None, early=None):
+        self.asked.append(chunk)
+        nxt = self.answers.pop(0) if self.answers else []
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt
+
+
+class _Link:
+    def __init__(self, evaluator, ready=True):
+        self._ev = evaluator
+        self._ready = ready
+
+    def ready(self):
+        return self._ready
+
+    def evaluator(self):
+        return self._ev
+
+
+class _Rt:
+    def __init__(self, link):
+        self.game = link
+
+
+class _PollHost:
+    """The real `Schedule.poll` / `_poll_note`, bound to the least state they touch.
+
+    The method is used as it ships rather than re-implemented, the way
+    `test_panel_recovery` drives the watchdog: a re-implementation would have agreed
+    with the bug it is here to catch.
+    """
+
+    def __init__(self, answers, ready=True):
+        from panel.runtime.schedule import Schedule    # noqa: PLC0415 — Tk at import
+
+        self.ev = _Evaluator(answers)
+        self.rt = _Rt(_Link(self.ev, ready=ready))
+        self._poll_seen = {}
+        self._dbg = _Say()
+        self._poll = Schedule.poll.__get__(self)
+        # …and the note it calls: the real one, bound here too, so the roll-up and the
+        # pulse are the shipped behaviour rather than a stand-in that agrees with itself.
+        self._poll_note = Schedule._poll_note.__get__(self)
+
+    def poll(self, trigger):
+        return self._poll(trigger)
+
+
+def _poll_trigger(name="probe"):
+    return triggersmod.Trigger(name=name, kind=triggersmod.KIND_POLL,
+                               check="1 == 1", scenario=("noop",))
+
+
+def test_a_poll_reads_the_games_own_yes():
+    """The whole point, and the thing that was broken: the game answers `TRIGCHK=true`
+    in the marker's own capitals, and the verdict has to be True. It was False for every
+    reading there can be — the needle was capitalised against a lowered haystack — so no
+    poll trigger had ever fired, `session_kick` included (#1296)."""
+    host = _PollHost([["TRIGCHK=true"]])
+    assert host.poll(_poll_trigger()) is True
+
+
+def test_a_poll_reads_a_no_as_a_no():
+    host = _PollHost([["TRIGCHK=false"]])
+    assert host.poll(_poll_trigger()) is False
+
+
+def test_every_poll_leaves_a_trace_of_what_it_saw():
+    """THE ACTUAL FIX. A poll answering «no», a poll skipped because the game is down and
+    a poll that never ran used to write byte-identical logs — nothing — so a dead poll
+    could only be caught by forcing its condition true by hand. Each ending now names
+    itself, and quotes the game's own line rather than only the verdict: those two
+    disagreeing is precisely the fault."""
+    host = _PollHost([["TRIGCHK=false"]])
+    host.poll(_poll_trigger("kick"))
+    said = " | ".join(host._dbg.lines)
+    assert "poll kick" in said and "no" in said, said
+    assert "TRIGCHK=false" in said, "the game's own answer must be in the trace"
+
+
+def test_the_two_silent_endings_name_themselves():
+    """A game that is not ready and a read that threw both used to `return False` without
+    a word — two more ways for a poll to look exactly like a quiet minute."""
+    down = _PollHost([], ready=False)
+    assert down.poll(_poll_trigger("kick")) is False
+    assert any("not ready" in ln for ln in down._dbg.lines), down._dbg.lines
+
+    broke = _PollHost([RuntimeError("daemon went away")])
+    assert broke.poll(_poll_trigger("kick")) is False
+    assert any("unreadable" in ln and "daemon went away" in ln
+               for ln in broke._dbg.lines), broke._dbg.lines
+
+
+def test_a_repeated_answer_is_rolled_up_and_a_changed_one_is_said_at_once():
+    """A check runs every ten seconds; a line each would bury the log it exists to make
+    readable. So the same answer is rolled up and a DIFFERENT one is news."""
+    host = _PollHost([["TRIGCHK=false"]] * 4 + [["TRIGCHK=true"]])
+    trigger = _poll_trigger("kick")
+    for _ in range(4):
+        host.poll(trigger)
+    assert len(host._dbg.lines) == 1, host._dbg.lines      # first look only
+    assert host.poll(trigger) is True
+    assert len(host._dbg.lines) == 2, host._dbg.lines
+    assert "was no" in host._dbg.lines[-1], host._dbg.lines[-1]
+
+
+def test_the_pulse_says_a_quiet_poll_is_still_alive():
+    """The line whose ABSENCE now means something: while the answer does not change, the
+    poll still says «still looking, N more looks» every few minutes. Without it «alive
+    and seeing no» and «dead» are the same log again."""
+    import panel.runtime.schedule as schedmod                # noqa: PLC0415
+
+    host = _PollHost([["TRIGCHK=false"]] * 3)
+    trigger = _poll_trigger("kick")
+    host.poll(trigger)
+    host.poll(trigger)
+    assert len(host._dbg.lines) == 1
+    # …the pulse is due: age the last note past the interval
+    verdict, _said_at, since = host._poll_seen["kick"]
+    host._poll_seen["kick"] = (verdict, -schedmod.POLL_PULSE_SEC, since)
+    host.poll(trigger)
+    assert len(host._dbg.lines) == 2, host._dbg.lines
+    assert "still no" in host._dbg.lines[-1], host._dbg.lines[-1]
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

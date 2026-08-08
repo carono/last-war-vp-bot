@@ -57,6 +57,15 @@ LEADERBOARD_NOTE_SEC = 600.0
 #: string and nothing else.
 LEADERBOARD_STAT = "##LBSTAT##"
 
+#: How often a poll trigger says «still looking, still the same answer» while nothing
+#: about it changes (:meth:`Schedule._poll_note`). The first look and every CHANGE of
+#: answer are said at once; this is only the pulse in between, and its whole job is to
+#: make «this poll is alive and seeing no» distinguishable from «this poll is dead» —
+#: two states that were byte-identical in the log, which is how #1296 survived weeks of
+#: a feature everyone believed worked. Five minutes: a poll runs every ten seconds, so
+#: this is one line per thirty looks.
+POLL_PULSE_SEC = 300.0
+
 
 class _Subscription:
     """A wire subscription wearing the shape the trigger watcher expects.
@@ -109,6 +118,14 @@ class Schedule:
         # many history snapshots have been written since (:meth:`_leaderboard_line`).
         self._lb_said = 0.0
         self._lb_snapshots = 0
+        # WHAT EACH POLL HAS BEEN SEEING — the cure for the fault that hid #1296 for
+        # weeks, and the reason this state exists at all. Per trigger name:
+        # `[last verdict said, when it was said, looks since then]`. See :meth:`poll`.
+        self._poll_seen: dict = {}
+        # …and where it is written. Through the runtime rather than the module function,
+        # because that one writes into the SHARED file — right for one open profile and
+        # wrong for two, which this panel routinely has (`PanelRuntime.dbg`).
+        self._dbg = rt.dbg("schedule")
 
         self.load_timers()
         self.load_triggers()
@@ -603,11 +620,32 @@ class Schedule:
         Runs on the watcher's own poll thread, every ``interval_sec``. A closed game /
         no daemon reads as ``False`` — there is no kick to recover from if the client
         is not even up, and firing then would relaunch a game nobody started.
+
+        EVERY PATH OUT OF HERE LEAVES A TRACE, and that is the actual fix for #1296 —
+        the case-flipped comparison was the bug, but what let it live for weeks was that
+        this method was silent in all three of its endings. A poll answering «no», a
+        poll skipped because the game was down, and a poll that had never run at all
+        wrote byte-identical logs: none. So the only way the fault could be caught was
+        by forcing the condition true and watching, which is not something anybody does
+        to a feature they believe works.
+
+        What it says now (`debug.log`, component `schedule`, never the person's log —
+        this runs several times a minute):
+
+          * the FIRST look of each trigger, always, so «is this poll alive» is a
+            question the log answers;
+          * every CHANGE of answer, with the game's own line quoted;
+          * a pulse every :data:`POLL_PULSE_SEC` while the answer stays the same —
+            «still looking, N times, still no» — which is the line whose ABSENCE now
+            means something;
+          * the two silent endings by name: the game not being ready, and a read that
+            threw.
         """
         # `ready`, not `up`: this runs a CHUNK, and a port that answers is not a link
         # that carries one (#1287). A daemon holding a client that has gone would let
         # every poll through and every check would fail as «the game said nothing».
         if not self.rt.game.ready():
+            self._poll_note(trigger, "skipped", "the game is not ready")
             return False
         # The chunk and the reading of its answer are ONE contract and live together in
         # `panel/triggers.py`. They used to be two strings in this method, and the needle
@@ -615,8 +653,7 @@ class Schedule:
         # `"TRIGCHK=true" in "trigchk=true"` is False for every reading there can be — so
         # `session_kick` and the treasure errand both polled a game answering `TRIGCHK=
         # true` and both read it as «nothing to do», for as long as they had existed
-        # (#1296). Nothing in the logs said so: a poll that does not fire writes nothing,
-        # which is exactly what a quiet minute looks like.
+        # (#1296).
         try:
             # `early`: the check answers itself in one line, and this runs on a timer in
             # the background — the settle it used to sit out was held with the daemon's
@@ -624,9 +661,40 @@ class Schedule:
             lines = self.rt.game.evaluator().run(
                 triggersmod.poll_chunk(trigger.check),
                 marker=triggersmod.POLL_MARKER, settle=0.6, early=True)
-        except Exception:                       # noqa: BLE001 — a bad read is not a kick
+        except Exception as exc:                # noqa: BLE001 — a bad read is not a kick
+            self._poll_note(trigger, "unreadable", str(exc)[:160])
             return False
-        return triggersmod.poll_said_yes(lines)
+        hit = triggersmod.poll_said_yes(lines)
+        # The game's OWN line, not our verdict on it, because those two disagreeing is
+        # precisely the fault this exists to make visible.
+        said = next((str(ln).strip() for ln in (lines or ())
+                     if triggersmod.POLL_MARKER.lower() in str(ln).lower()), "")
+        self._poll_note(trigger, "yes" if hit else "no",
+                        said or "the game answered nothing")
+        return hit
+
+    def _poll_note(self, trigger, verdict: str, detail: str) -> None:
+        """Record one poll's outcome — the first, every change, and a pulse in between.
+
+        Rate-limited on purpose and in only one direction: a repeat of the SAME answer
+        is rolled up, a DIFFERENT answer is said at once. Same shape as the trigger
+        watcher's own fire roll-up (`triggers.FIRE_NOTE_SEC`) and for the same reason —
+        a check that runs every ten seconds would otherwise bury the log it is meant to
+        make readable.
+        """
+        name = getattr(trigger, "name", "?")
+        now = time.monotonic()
+        was, said_at, since = self._poll_seen.get(name, (None, 0.0, 0))
+        if verdict == was and (now - said_at) < POLL_PULSE_SEC:
+            self._poll_seen[name] = (was, said_at, since + 1)
+            return
+        if verdict == was:
+            self._dbg.debug("poll %s: still %s after %d more look(s) — %s",
+                            name, verdict, since + 1, detail)
+        else:
+            self._dbg.info("poll %s: %s%s — %s", name, verdict,
+                           "" if was is None else " (was %s)" % was, detail)
+        self._poll_seen[name] = (verdict, now, 0)
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> None:
