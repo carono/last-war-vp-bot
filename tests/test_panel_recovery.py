@@ -517,6 +517,15 @@ def test_the_watchdog_retries_on_its_cooldown_rather_than_once():
     assert len(w.launched) == 2, "the retry the cooldown promises never comes"
     assert w.launched[1] - w.launched[0] >= 300.0, w.launched
 
+    # …and the retry does not make the wait new. Live on 2026-08-08 the relaunch
+    # cleared the latch on its way out, so a profile whose Windows session was simply
+    # not up said «поднимаю игру заново» AND «перезапуск был 0 мин назад — жду» every
+    # five minutes all night. One attempt is worth a line; the wait behind it is not
+    # worth repeating until something about it has changed.
+    for _ in range(10):
+        w.poll()
+    assert [k for k, _ in w.said].count("log.game.watchdog_hold") == 1, w.said
+
 
 def test_a_client_that_comes_back_forgets_what_was_being_waited_for():
     """Otherwise the next death inherits the last one's silence."""

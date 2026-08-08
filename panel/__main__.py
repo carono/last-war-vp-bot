@@ -3819,7 +3819,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._wd_held = "cooldown"
                 self._say("game", "log.game.watchdog_hold", mins=int(since // 60))
             return
-        self._wd_held = ""
+        # …and the latch is NOT cleared here. An attempt that fails puts the cooldown
+        # straight back, and re-announcing it after every retry says «жду» twice per
+        # five minutes for as long as the client stays down — a night of it for a
+        # profile whose Windows session is simply not up. The client coming back is
+        # what clears it, which is the only event that makes the sentence new again.
         self._watchdog_last = time.time()
         self._say("game", "log.game.watchdog_relaunch")
         self._rt.play_async("launch_game")
