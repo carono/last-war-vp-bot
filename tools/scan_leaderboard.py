@@ -122,6 +122,11 @@ from map_capture import (  # noqa: E402
 #: leaderboard trigger) writes what it hears into a log people send each other.
 STAT_MARKER = "##LBSTAT##"
 
+#: How often the same (command, verdict, reason) may be written down again. A screen
+#: left open re-sends its reply every few seconds, and a note per arrival would bury
+#: the interesting rejections under thousands of copies of the dull one.
+SIGHTING_NOTE_SEC = 300.0
+
 
 class LeaderboardIndex(MapIndex):
     """MapIndex that keeps ranking rows instead of map tiles.
@@ -137,10 +142,15 @@ class LeaderboardIndex(MapIndex):
     dropped it the moment you navigated away would collect one screen.
     """
 
-    def __init__(self, boards=None, known_only=False) -> None:
+    def __init__(self, boards=None, known_only=False, sightings=None) -> None:
         super().__init__()
         self.boards = boards
         self.known_only = known_only
+        # The store to write sightings into, or None for a run keeping no history.
+        # The same connection the snapshots go to — one file is the whole record of a
+        # run, and a note in another place is a note nobody reads beside the rows.
+        self.sightings = sightings
+        self._noted: dict[tuple, float] = {}
         self._rows: dict[tuple, proto.LeaderboardEntry] = {}
         self._seen_at: dict[tuple, float] = {}
         # The printable line last announced per row — see take_new().
@@ -156,25 +166,72 @@ class LeaderboardIndex(MapIndex):
         """Every server reply that is not a map block — a board may be in it.
 
         Callers hold `_index_lock`.
+
+        EVERY WAY OUT OF HERE LEAVES A TRACE (#1304). A reply the shape test turns away
+        used to leave none at all, so a message carrying the very numbers somebody was
+        after read exactly like a message that never arrived. Each ending now writes a
+        sighting — what was seen, how many rows, and which test refused them — and the
+        rows themselves are still only stored when they are a board.
         """
         if self.known_only and command not in proto.LEADERBOARDS:
+            self._note(command, leaderboard_store.VERDICT_REJECTED,
+                       "--known-only, and this command is not described")
             return
         now = time.time()
         rows = list(proto.leaderboard_entries(command, payload))
         if not rows:
+            self._note(command, leaderboard_store.VERDICT_REJECTED,
+                       "no ranking-shaped list in the reply",
+                       shape=leaderboard_store.describe_shape(payload))
             return
         kept = 0
         for row in rows:
             if self.boards is not None and not self._wanted(row.board):
                 self.rejected += 1
                 continue
-            key = (row.uid, row.board)
+            # The DAY is part of a row's identity, not a property of the snapshot: one
+            # `al.battle.rank.info` reply of type 0 brings every day of the duel at
+            # once, the same players in each. Keyed on uid alone, day 6 would overwrite
+            # days 1..5 and the week would come out as one day, in no order.
+            key = (row.uid, row.board, row.day)
             self._rows[key] = row
             self._seen_at[key] = now
             kept += 1
         if kept:
             self.boards_seen[rows[0].board] = self.boards_seen.get(
                 rows[0].board, 0) + 1
+            self._note(rows[0].board, leaderboard_store.VERDICT_KEPT, None,
+                       rows_seen=len(rows), rows_kept=kept,
+                       shape=leaderboard_store.describe_shape(rows[0].raw))
+        else:
+            self._note(rows[0].board, leaderboard_store.VERDICT_REJECTED,
+                       "a board, but not one --board asked for",
+                       rows_seen=len(rows))
+
+    def _note(self, command, verdict, reason, rows_seen: int = 0, rows_kept: int = 0,
+              shape=None) -> None:
+        """Record one decision about one reply, if a history is being kept.
+
+        Deliberately cheap and deliberately never fatal: a collector that dies because
+        its own bookkeeping failed would lose the boards as well as the note. Rate-kept
+        by command+verdict — the same reply arrives every few seconds while a screen is
+        open, and a row per arrival would make the table the biggest thing in the file
+        while saying nothing the first one did not.
+        """
+        store = self.sightings
+        if store is None:
+            return
+        mark = (command, verdict, reason)
+        now = time.time()
+        if now - self._noted.get(mark, 0.0) < SIGHTING_NOTE_SEC:
+            return
+        self._noted[mark] = now
+        try:
+            leaderboard_store.save_sighting(
+                store, int(now), str(command), verdict, reason,
+                rows_seen=rows_seen, rows_kept=rows_kept, shape=shape)
+        except Exception:                        # noqa: BLE001 — a note is never a fault
+            pass
 
     def _wanted(self, board: str) -> bool:
         """Whether `--board` asked for this board.
@@ -292,10 +349,10 @@ def main() -> int:
     except Exception:
         pass
 
-    index = LeaderboardIndex(boards=args.board, known_only=args.known_only)
     # The history store, if asked for — opened once and written on every tick and at
     # the end (a snapshot per board, unchanged repeats skipped). Opened up front so a
-    # bad path fails now, not after a long run.
+    # bad path fails now, not after a long run, and BEFORE the index, because the index
+    # writes its sightings into the same file the moment a reply arrives.
     store = None
     if args.sqlite:
         try:
@@ -304,6 +361,8 @@ def main() -> int:
             print(f"{C_ERR}cannot open the SQLite history {args.sqlite}: {exc}{C_RESET}",
                   file=sys.stderr)
             return 1
+    index = LeaderboardIndex(boards=args.board, known_only=args.known_only,
+                             sightings=store)
     stop, bpf = start_capture(index, args)
 
     print("Last War leaderboard scan — scapy/npcap, no dumpcap")
@@ -452,6 +511,18 @@ def main() -> int:
                               "FROM entries").fetchone()[0]
         note = f" (+{len(saved)} on the final flush)" if saved else ""
         print(f"{C_OK}history: {total} snapshot(s) in {args.sqlite}{note}{C_RESET}")
+        # What came past and was NOT stored, said out loud rather than left in the
+        # table for somebody who thinks to look: a run that collected nothing and a
+        # run that turned away nine different replies are not the same run.
+        turned = store.execute(
+            "SELECT command, reason, COUNT(*) FROM sightings WHERE verdict = ? "
+            "GROUP BY command, reason ORDER BY 3 DESC LIMIT 8",
+            (leaderboard_store.VERDICT_REJECTED,)).fetchall()
+        if turned:
+            print(f"{C_DIM}not stored, and why — the whole list is the `sightings` "
+                  f"table:{C_RESET}")
+            for command, reason, times in turned:
+                print(f"{C_DIM}  {command}: {reason} (×{times}){C_RESET}")
         store.close()
 
     if index.transcript is not None:

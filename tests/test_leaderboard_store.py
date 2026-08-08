@@ -95,6 +95,121 @@ def test_save_records_groups_by_board_and_stamps_by_seen_at():
     assert stamp == 5000                          # took the board's own seen_at
 
 
+def _vs_rows(day, *scores):
+    """A VS board's rows: both sides in one list, the way the duel really sends them.
+
+    Every value is invented and looks it — the repository holds no real uid, name,
+    alliance id or server (CLAUDE.md).
+    """
+    out = []
+    for i, score in enumerate(scores):
+        side = "own" if i % 2 == 0 else "enemy"
+        out.append({
+            "leaderboard": "al.battle.rank.info/type=0", "entity": "player",
+            "scope": "player", "uid": 1000000000000001 + i, "name": f"Player{i}",
+            "position": i + 1, "list_index": i, "score": score, "day": day,
+            "side": side, "alliance": "AL1" if side == "own" else "AL2",
+            "alliance_id": "a" * 32 if side == "own" else "b" * 32,
+            "server_id": 900 + i % 2, "source": "game", "seen_at": 7000,
+            "raw": {"uid": 1000000000000001 + i, "name": f"Player{i}",
+                    "score": score, "day": day, "headSkinId": 20000 + i},
+        })
+    return out
+
+
+def test_the_day_and_the_side_land_in_their_own_columns():
+    tmp = Path(tempfile.mkdtemp())
+    conn = ls.connect(str(tmp / "lb.db"))
+    ls.save_records(conn, _vs_rows(3, 50, 40) + _vs_rows(4, 60, 30), ts=1)
+    got = conn.execute("SELECT day, side, scope, alliance, alliance_id, server_id, "
+                       "source FROM entries ORDER BY day, rank").fetchall()
+    assert [(r[0], r[1]) for r in got] == [(3, "own"), (3, "enemy"),
+                                           (4, "own"), (4, "enemy")]
+    assert got[0][2] == "player" and got[0][3] == "AL1" and got[0][6] == "game"
+    assert got[0][4] == "a" * 32 and got[0][5] == 900
+
+
+def test_two_days_of_the_same_players_are_two_snapshots_not_one():
+    """The alliance duel sends the whole week at once — day 4 must not read as day 3."""
+    tmp = Path(tempfile.mkdtemp())
+    conn = ls.connect(str(tmp / "lb.db"))
+    # The SAME players and the SAME scores, on two different days: without the day in
+    # the change hash the second board is «unchanged» and is silently thrown away.
+    ls.save_snapshot(conn, 1, "al.battle.rank.info/type=0", _vs_rows(3, 50, 40))
+    assert ls.save_snapshot(conn, 2, "al.battle.rank.info/type=0",
+                            _vs_rows(4, 50, 40)) == 2
+    assert conn.execute("SELECT COUNT(DISTINCT day) FROM entries").fetchone()[0] == 2
+
+
+def test_the_row_the_server_sent_is_kept_beside_the_decoded_one():
+    tmp = Path(tempfile.mkdtemp())
+    conn = ls.connect(str(tmp / "lb.db"))
+    ls.save_snapshot(conn, 1, "al.battle.rank.info/type=0", _vs_rows(3, 50))
+    raw, payload = conn.execute(
+        "SELECT raw_json, payload_json FROM entries").fetchone()
+    # A field no column knows about survives in the payload and only there — the point
+    # of keeping it at all.
+    assert json.loads(payload)["headSkinId"] == 20000
+    assert "headSkinId" not in json.loads(raw)
+    assert "raw" not in json.loads(raw)           # not stored twice
+
+
+def test_a_board_that_is_hex_identified_still_dedups_against_itself():
+    """An alliance id does not fit the integer uid column, and used to break the hash.
+
+    The column keeps NULL, the offered row keeps the hex string, and comparing one
+    against the other made every alliance board differ from itself — six days of
+    finished history rewritten on every single run.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    conn = ls.connect(str(tmp / "lb.db"))
+    rows = [{"leaderboard": "al.battle.vs.alliances/day=2", "entity": "alliance",
+             "scope": "alliance", "uid": "a" * 32, "alliance_id": "a" * 32,
+             "name": "Alliance One", "score": 1234, "day": 2, "list_index": 0,
+             "seen_at": 10}]
+    assert ls.save_snapshot(conn, 1, "al.battle.vs.alliances/day=2", rows) == 1
+    assert ls.save_snapshot(conn, 2, "al.battle.vs.alliances/day=2", rows) == 0
+
+
+def test_what_was_turned_away_is_written_down_with_its_reason():
+    tmp = Path(tempfile.mkdtemp())
+    conn = ls.connect(str(tmp / "lb.db"))
+    ls.save_sighting(conn, 99, "some.reply", ls.VERDICT_REJECTED,
+                     "no ranking-shaped list in the reply", rows_seen=0,
+                     shape=ls.describe_shape({"total": 5, "list": [1, 2],
+                                              "who": "Player1"}))
+    got = conn.execute("SELECT ts, command, verdict, reason, shape_json "
+                       "FROM sightings").fetchone()
+    assert got[:4] == (99, "some.reply", "rejected",
+                       "no ranking-shaped list in the reply")
+    shape = json.loads(got[4])
+    # The SHAPE, never the values: a reader learns the reply had a `who` string and a
+    # two-element list, and learns nothing about whose name was in it.
+    assert shape == {"total": "int", "list": "list[2]", "who": "str"}
+    assert "Player1" not in got[4]
+
+
+def test_a_store_written_by_the_older_code_is_brought_forward():
+    """The seven-column table of #1134 gains the new columns and keeps its rows."""
+    import sqlite3
+    tmp = Path(tempfile.mkdtemp())
+    path = str(tmp / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE entries (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER "
+        "NOT NULL, board_type TEXT NOT NULL, rank INTEGER, uid INTEGER, name TEXT, "
+        "score INTEGER, raw_json TEXT);")
+    old.execute("INSERT INTO entries (ts, board_type, rank, uid, name, score) "
+                "VALUES (1, 'al.rank', 1, 42, 'Player1', 7)")
+    old.commit()
+    old.close()
+
+    conn = ls.connect(path)
+    kept = conn.execute("SELECT ts, name, score, day, side FROM entries").fetchone()
+    assert kept == (1, "Player1", 7, None, None)   # the old row, one column poorer
+    assert ls.save_snapshot(conn, 2, "al.rank", _vs_rows(1, 5)) == 1
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

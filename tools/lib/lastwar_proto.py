@@ -2780,6 +2780,39 @@ LEADERBOARDS = {
             server="srcServer",
             variant="type",
         ),
+        # The alliance duel's own ranking — «VS» (#1304). One command, three rankings,
+        # told apart by `type` in both the request and the reply: 0 a day, 1 the week,
+        # 2 the month (`AllyDuelRankType` in the client). Hence the variant: without it
+        # a day's list and the week's dedup into each other on uid, and the mixture
+        # comes out in no order at all, which is exactly what the stored history shows
+        # for two of its fifteen snapshots.
+        #
+        # BOTH SIDES ARE IN THE ONE LIST. A duel is two alliances on two servers, and
+        # the reply carries the players of both — 100 and 82 in the week measured —
+        # with `aid`/`abbr`/`serverId` on every row saying which side it is. Nothing
+        # else has to be opened to see the enemy; it was always there and the store
+        # simply had no column to put it in.
+        #
+        # A `type = 0` reply carries every day at once, each row stamped with its own
+        # `day`, so one request brings the whole week back broken down. That is why the
+        # day is part of a row's identity here and not a property of the snapshot.
+        #
+        # No position field: the list arrives sorted by score, and `ordered` is left
+        # False all the same, because what proves an order is a capture of ONE variant
+        # and the two unsorted snapshots above are the only ones there are.
+        Leaderboard(
+            command="al.battle.rank.info",
+            list_key="rankInfo",
+            label="alliance duel ranking",
+            position=None,
+            score="score",
+            score_label="duel points",
+            name="name",
+            entity="player",
+            alliance="abbr",
+            server="serverId",
+            variant="type",
+        ),
     )
 }
 
@@ -2832,6 +2865,17 @@ class LeaderboardEntry:
     # LEADERBOARDS, so a reader can tell a column this file vouches for from
     # one a heuristic picked.
     discovered: bool = False
+    # The alliance's own id where the board carries one (`aid` on the duel boards).
+    # The tag in `alliance` is what a person reads; this is what two rows can be
+    # grouped on, and it does not change when an alliance renames itself.
+    alliance_id: str | None = None
+    # Which day of a multi-day event the row belongs to, when the board says. None
+    # for a board that is one standing.
+    day: int | None = None
+    # THE ROW AS IT ARRIVED. Every field above is this dict read through a column;
+    # a board always carries more than the columns know about, and until #1304 the
+    # rest was seen once and dropped. Kept whole so the store can write it down.
+    raw: dict | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -2848,7 +2892,11 @@ class LeaderboardEntry:
             "score_field": self.score_field,
             "power": self.power,
             "alliance": self.alliance,
+            "alliance_id": self.alliance_id,
+            "day": self.day,
             "discovered": self.discovered,
+            "source": "wire",
+            "raw": self.raw,
         }
 
 
@@ -2962,9 +3010,26 @@ def _read_board(command, label, entries, board, discovered):
             power=as_number(entry.get("power")),
             alliance=(entry.get(alliance_key) if alliance_key else None)
                      or entry.get("allianceName") or entry.get("abbr"),
+            alliance_id=_alliance_id(entry),
+            day=as_number(entry.get("day")),
             entity=entity,
             discovered=discovered,
+            raw=dict(entry),
         )
+
+
+def _alliance_id(entry: dict):
+    """The alliance's own id on a row that carries one, as a string.
+
+    `aid` is what the duel boards call it; `allianceId` is the long form other replies
+    use. Both are opaque hex, and neither is the tag — an alliance may rename itself
+    and keep this.
+    """
+    for key in ("aid", "allianceId", "alliance_id", "allianceUuid"):
+        value = entry.get(key)
+        if value not in (None, "", 0):
+            return str(value)
+    return None
 
 
 def _entry_entity(entry: dict) -> str:
