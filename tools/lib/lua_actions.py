@@ -2967,20 +2967,44 @@ local function keep(dir, cmd, a1, a2)
     end
   end
   return false end
+-- READ A MESSAGE BODY WHICHEVER SHAPE IT IS. An outgoing message is an SFSObject and
+-- answers `SFSObject.GetKeys`; an INCOMING one, by the time `HandleMessage` gets it, is
+-- a plain Lua table and answers nothing at all — `GetKeys` returns empty, so every push
+-- the ring recorded came out with `f=""` and the harvest below could never read a uuid.
+-- Found live on 2026-08-08 with a probe on a real `push.detect.treasure.claim`:
+-- `KEYS[] PAIRS[operator=table uuid=…]` (#1296). So both are tried, SFSObject first.
+local function getdata(obj, k)
+  local v
+  local ok = pcall(function() v = SFSObject.GetData(obj, k) end)
+  if ok and v ~= nil then return v end
+  ok = pcall(function() v = obj[k] end)
+  if ok then return v end
+  return nil end
 local function fields(obj)
   local out = {}
+  local keys = nil
   pcall(function()
-    local keys = SFSObject.GetKeys(obj)
-    local seen = 0
-    for _, k in ipairs(keys) do
-      seen = seen + 1
-      if seen > 24 then break end
-      local v
-      pcall(function() v = SFSObject.GetData(obj, k) end)
+    local ks = SFSObject.GetKeys(obj)
+    if ks ~= nil and #ks > 0 then keys = ks end
+  end)
+  if keys ~= nil then
+    for i, k in ipairs(keys) do
+      if i > 24 then break end
+      local v = getdata(obj, k)
       if type(v) == "table" then v = "{...}" end
       out[#out+1] = tostring(k) .. "=" .. short(v)
     end
-  end)
+  else
+    pcall(function()
+      local seen = 0
+      for k, v in pairs(obj) do
+        seen = seen + 1
+        if seen > 24 then break end
+        if type(v) == "table" then v = "{...}" end
+        out[#out+1] = tostring(k) .. "=" .. short(v)
+      end
+    end)
+  end
   return table.concat(out, " ") end
 local function args(...)
   local out = {}
@@ -3010,8 +3034,7 @@ local function harvest(cmd, obj)
     -- The alliance's own feed of the dig: one of these per member who has finished
     -- their part. It is NOT «somebody else took it» — every digger claims their own
     -- gift — so it is read as «this chest is dug and payable», never as a loss.
-    local u
-    pcall(function() u = SFSObject.GetData(obj, "uuid") end)
+    local u = getdata(obj, "uuid")
     if u == nil then return end
     for _, t in ipairs(A.targets or {}) do
       if tostring(t.uuid) == tostring(u) and not t.dug then t.dug = nowms() end
@@ -3023,13 +3046,18 @@ local function harvest(cmd, obj)
   -- guaranteed, so every string field is looked at and the one that carries a
   -- `shareType` with a `uuid` wins. Nothing else in the message is read.
   local blob
+  local function look(v)
+    if type(v) == "string" and v:find("shareType", 1, true)
+       and v:find("uuid", 1, true) then blob = v end end
+  local keys = nil
   pcall(function()
-    for _, k in ipairs(SFSObject.GetKeys(obj)) do
-      local v = SFSObject.GetData(obj, k)
-      if type(v) == "string" and v:find("shareType", 1, true)
-         and v:find("uuid", 1, true) then blob = v end
-    end
-  end)
+    local ks = SFSObject.GetKeys(obj)
+    if ks ~= nil and #ks > 0 then keys = ks end end)
+  if keys ~= nil then
+    for _, k in ipairs(keys) do look(getdata(obj, k)) end
+  else
+    pcall(function() for _, v in pairs(obj) do look(v) end end)
+  end
   if blob == nil then return end
   local uuid, x, y = jint(blob, "uuid"), jint(blob, "x"), jint(blob, "y")
   if uuid == nil or x == nil or y == nil then return end

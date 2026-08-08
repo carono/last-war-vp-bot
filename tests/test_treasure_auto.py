@@ -148,7 +148,8 @@ def _vm(squads=((1, 3000, False), (2, 3000, False), (3, 3000, False)),
     return lua
 
 
-def _announce(lua, uuid=_UUID, xy=_NEAR, server=_SERVER, key="attachmentId") -> None:
+def _announce(lua, uuid=_UUID, xy=_NEAR, server=_SERVER, key="attachmentId",
+              plain: bool = False) -> None:
     """The chat post that announces a chest, with the blob under `key`.
 
     Field order and spacing are the client's own (`shareType` first, `x`/`y` in the
@@ -157,19 +158,26 @@ def _announce(lua, uuid=_UUID, xy=_NEAR, server=_SERVER, key="attachmentId") -> 
     blob = ('{"shareType":27,"y":%d,"x":%d,"uuid":%d,"worldType":0,"worldId":0,'
             '"sid":%d,"treasureId":"25195","oname":"1000000000000001"}'
             % (xy[1], xy[0], uuid, server))
-    lua.execute('SFSNetwork.HandleMessage("world.treasure.share.chat", '
-                '{__keys={"msg","%s"}, msg="?", %s=%s})'
-                % (key, key, _lua_str(blob)))
+    body = ('{msg="?", %s=%s}' % (key, _lua_str(blob)) if plain
+            else '{__keys={"msg","%s"}, msg="?", %s=%s}' % (key, key, _lua_str(blob)))
+    lua.execute('SFSNetwork.HandleMessage("world.treasure.share.chat", %s)' % body)
 
 
 def _lua_str(s: str) -> str:
     return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def _dug(lua, uuid=_UUID) -> None:
-    """The alliance's own feed: one of these per member who has finished digging."""
-    lua.execute('SFSNetwork.HandleMessage("push.detect.treasure.claim", '
-                '{__keys={"uuid","operator"}, uuid=%d, operator={}})' % uuid)
+def _dug(lua, uuid=_UUID, plain: bool = True) -> None:
+    """The alliance's own feed: one of these per member who has finished digging.
+
+    `plain` is the shape an INCOMING message really has — a bare Lua table, with no
+    `__keys` for `SFSObject.GetKeys` to find. Proven live on 2026-08-08 by probing a real
+    `push.detect.treasure.claim`: `KEYS[] PAIRS[operator=table uuid=…]`. The default is
+    the real one; `plain=False` is the SFSObject shape an outgoing message has.
+    """
+    body = ('{uuid=%d, operator={}}' % uuid if plain
+            else '{__keys={"uuid","operator"}, uuid=%d, operator={}}' % uuid)
+    lua.execute('SFSNetwork.HandleMessage("push.detect.treasure.claim", %s)' % body)
 
 
 def _reward(lua, up: bool = True) -> None:
@@ -598,6 +606,46 @@ def test_a_run_with_a_squad_does_not_ask_for_an_army():
     _announce(lua)
     report = _step(lua)
     assert "asked-for-army" not in report, report
+
+
+def test_a_push_is_read_although_it_carries_no_sfsobject_keys():
+    """THE SHAPE A REAL PUSH HAS, and the bug it hid until a live chest (#1296).
+
+    An OUTGOING message is an SFSObject and answers `SFSObject.GetKeys`. An incoming one,
+    by the time `HandleMessage` sees it, is a plain Lua table that answers nothing —
+    probed live against a real `push.detect.treasure.claim`: `KEYS[] PAIRS[operator=table
+    uuid=…]`. So every push the ring recorded came out with empty fields, and the
+    harvest — which read the dig gate with `SFSObject.GetData(obj, "uuid")` — could never
+    see a uuid at all. The gate that opens the claim was dead and nothing said so.
+    """
+    if not _needs_lua("a plain-table push"):
+        return
+    lua = _vm()
+    _announce(lua, plain=True)                    # the announcement, plain-table shape
+    assert _queued(lua) == 1, "a plain-table share must still become a target"
+    _step(lua)
+    _dug(lua, plain=True)                         # …and the dig gate off a plain table
+    t = lua.eval("DataCenter.__lw_treasure_auto.targets[1]")
+    assert t["dug"] is not None, "the dig broadcast was not read off a plain table"
+    report = _step(lua)
+    assert "claim1" in report, report
+
+
+def test_both_message_shapes_reach_the_ring():
+    """The ring is the debug page's, and it had the same blind spot: `f=""` on every push
+    it ever recorded. Both shapes now come through with their fields."""
+    if not _needs_lua("both shapes in the ring"):
+        return
+    import json as _json
+
+    lua = _vm()
+    _dug(lua, plain=True)
+    _dug(lua, uuid=_OTHER_UUID, plain=False)
+    feed = _json.loads(str(lua.eval(lua_actions.treasure_watch_drain())))
+    fields = [item["f"] for item in feed["items"]]
+    assert len(fields) == 2, feed
+    assert all("uuid=" in f for f in fields), fields
+
 
 
 def test_the_poll_marker_is_read_back_the_way_the_game_writes_it():
