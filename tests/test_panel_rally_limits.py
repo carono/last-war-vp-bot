@@ -377,6 +377,64 @@ def test_doom_elite_is_a_key_of_its_own_with_its_own_budget():
         assert counts.count_for("monster") == 1, counts
 
 
+class _Ctx:
+    """A finished run, wearing only what the accounting reads off it."""
+
+    def __init__(self, **vars_) -> None:
+        self.vars = dict(vars_)
+
+
+def test_one_rule_counts_a_run_whichever_driver_played_it():
+    """`record_run` is the ONE writer, and it reads the run rather than being told (#1281).
+
+    Two things play `join_rally`: the schedule's «rally_auto_join» trigger and the «Ралли»
+    tab's own reader. The arithmetic used to live in the schedule, so every join the
+    tab's driver made went unrecorded — over one live window `rally_counts` read 11
+    against 13 confirmed joins.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"])
+        # …one entry per squad the run sent, in the order it sent them
+        assert gate.record_run(rt, _Ctx(kinds="doom_elite,monster", joined=2)) == 2
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("doom_elite") == 1, counts
+        assert counts.count_for("monster") == 1, counts
+
+        # NEVER MORE THAN THIS RUN SENT. `joined` is a difference, so a squad the OTHER
+        # driver sent that lands mid-run falls inside both runs' differences.
+        assert gate.record_run(rt, _Ctx(kinds="monster", joined=3)) == 1
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 2, counts
+
+        # …and a run that sent nothing writes nothing, whatever it saw.
+        assert gate.record_run(rt, _Ctx(kinds="", joined=1)) == 0
+        assert gate.record_run(rt, _Ctx(kinds="monster", joined=0)) == 0
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 2, counts
+
+        # A run whose variables never arrived is a run that did nothing, not a crash.
+        assert gate.record_run(rt, _Ctx()) == 0
+        assert gate.record_run(rt, _Ctx(kinds="monster", joined="—")) == 0
+
+
+def test_both_drivers_reach_the_same_writer():
+    """The schedule's hook and the tab's own play call one function, not two copies."""
+    import inspect
+
+    main_src = Path("panel/__main__.py").read_text(encoding="utf-8")
+    assert "rallygate.record_run(rt, ctx)" in main_src, \
+        "the schedule's record hook no longer goes through the one writer"
+    tab_src = Path("panel/tabs/rally/tab.py").read_text(encoding="utf-8")
+    assert "rallygate.record_run(self.rt, out.ctx)" in tab_src, \
+        "the tab's own driver plays the join without counting it"
+    # …and the schedule keeps no opinion of its own about what a join is worth.
+    sched_src = Path("panel/runtime/schedule.py").read_text(encoding="utf-8")
+    assert "def _kinds" not in sched_src and "def _did" not in sched_src, \
+        "the counting rule grew back in the schedule, where only one driver reaches it"
+    assert "record(ctx)" in sched_src, sched_src[:0]
+    assert len(inspect.signature(gate.record_run).parameters) == 2
+
+
 def test_a_profile_written_before_the_doom_key_grows_it():
     """The vocabulary grew; an old profile's file must not stay one bucket short."""
     with tempfile.TemporaryDirectory() as td:

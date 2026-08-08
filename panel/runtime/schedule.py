@@ -140,11 +140,16 @@ class Schedule:
         The rally auto-join's daily cap is the one user; the rule lives with the rally
         code and only the wiring is here.
 
-        ``record(spent, did)`` is told how many times the errand actually DID the thing
-        it is budgeted for — the run's own `joined` variable — and not merely that it
-        ran. The two used to be the same because the gate could only answer for a run it
-        had already read the game for; now that it answers from a file, a quiet push
-        would spend a day's budget on a run that joined nothing (#1281).
+        ``record(ctx)`` is handed the FINISHED RUN and decides for itself what the run
+        achieved and how much of it to write down — the run's own variables are all in
+        there. It is not told «it ran»: a quiet push would otherwise spend a day's budget
+        on a run that joined nothing (#1281).
+
+        The context rather than a pair of numbers, and that is the whole point: the
+        schedule is not the only thing that plays an errand's recipe. The rally join is
+        also raised by the «Ралли» tab's own reader, and for as long as the arithmetic
+        lived in this file those joins were never counted. One rule, in the errand's own
+        module, called from every driver.
         """
         self._gates[name] = (gate, record)
 
@@ -419,53 +424,19 @@ class Schedule:
                     raise RuntimeError(
                         reason or self.rt.t("timers.log.step_failed", step=step))
             if spent and record is not None:
-                kinds = self._kinds(ctx)
-                # NEVER MORE THAN THIS RUN ACTUALLY SENT (#1281). `joined` is a
-                # DIFFERENCE — our squads standing in a rally now, less the number
-                # standing when this run began — and two drivers play this recipe
-                # (the schedule's trigger and the capture's own reader). A squad that
-                # landed from the OTHER driver's send between one run's snapshot and
-                # its check lands in both runs' difference, so both record it: over one
-                # live event the tally read 53 against 34 confirmed joins and 35
-                # trophies. One entry per banner this run sent is the ceiling.
-                # …and a run that sent NOTHING records nothing, whatever it saw. That
-                # was the actual leak: the second driver's run reported `joined=1` for a
-                # squad the FIRST one had sent, carried no kinds of its own, and fell
-                # back to the gate's list — so it counted somebody else's join under
-                # whichever kind happened to be first.
-                record(kinds or spent, min(self._did(ctx), len(kinds)))
+                # THE FINISHED RUN, NOT A PAIR OF NUMBERS READ OFF IT (#1281). What to
+                # count and how much of it is the errand's own rule, and it has to be
+                # the SAME rule wherever the recipe was played from — the schedule's
+                # trigger is not the only driver, and for as long as this arithmetic
+                # lived here the other driver's joins went unrecorded. So the hook is
+                # handed the context and the errand's own module decides; the schedule
+                # keeps no opinion about what a join is worth.
+                record(ctx)
             return True
         finally:
             self._note_presses(ctx)
             self.rt.game.release()
             self.rt.game.on_settled()
-
-    @staticmethod
-    def _did(ctx) -> int:
-        """How many times the run did the thing its budget is counted in.
-
-        The recipe's own `joined` — the number of our squads standing in a rally that
-        were not before it, which is the only honest count of a join (#1237). Absent on
-        every path that sent nothing, and that is exactly the answer wanted there: a
-        push over a quiet map must not spend a day's rallies.
-        """
-        try:
-            return max(0, int(float(getattr(ctx, "vars", {}).get("joined", 0) or 0)))
-        except (TypeError, ValueError):
-            return 0
-
-    @staticmethod
-    def _kinds(ctx) -> list:
-        """What KIND each thing the run spent was, in the order it spent them.
-
-        The rally auto-join is the one user: the chunk classifies every banner it sends
-        to and hands the list back as `kinds` (`zombie_invasion`, `monster`, …). Empty
-        when the run did not report any, and then the caller falls back to whatever the
-        gate allowed — which is what every run did before there was a classifier, and
-        what made an uncapped kind spend a capped one's budget (#1281).
-        """
-        raw = getattr(ctx, "vars", {}).get("kinds", "")
-        return [part for part in str(raw or "").split(",") if part.strip()]
 
     def _note_presses(self, ctx) -> None:
         """Tell the recovery whether this errand pressed anything at all.

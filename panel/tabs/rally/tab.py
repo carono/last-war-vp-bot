@@ -1090,6 +1090,14 @@ class RallyTab(PanelTab):
         try:
             out = self.rt.actions.play("join_rally", {"squads": squads},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
+            # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
+            # itself, off the capture's own reader and past the schedule entirely, so its
+            # joins used to be missing from the per-kind tally: over one live window
+            # `rally_counts` read 11 against 13 confirmed joins, and only the one the
+            # trigger happened to play was counted under its own kind. The rule is
+            # `limits.record_run` and nothing about it is repeated here.
+            from . import limits as rallygate
+            rallygate.record_run(self.rt, out.ctx)
             if not out.ok and out.reason:
                 self.say("rally", "rally_tab.refused", reason=out.reason)
         except Exception as exc:                   # noqa: BLE001 — never crash the panel

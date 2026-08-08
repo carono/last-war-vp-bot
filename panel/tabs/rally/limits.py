@@ -208,6 +208,52 @@ def join_gate(rt) -> list:
     return list(limits.types()) or [rallylimitsmod.UNKNOWN_TYPE]
 
 
+def kinds_of(ctx) -> list:
+    """What KIND each thing the run spent was, in the order it spent them.
+
+    The chunk classifies every banner it sends to and hands the list back as `kinds`
+    (`zombie_invasion`, `monster`, …). Empty when the run reported none, and an empty
+    list writes nothing: a run records only what it sent (#1281).
+    """
+    raw = getattr(ctx, "vars", {}).get("kinds", "")
+    return [part for part in str(raw or "").split(",") if part.strip()]
+
+
+def joined_of(ctx) -> int:
+    """How many of our squads are standing in a rally that were not before the run.
+
+    The recipe's own `joined`, which is the only honest count of a join (#1237). Absent
+    on every path that sent nothing, and that is the right answer there: a push over a
+    quiet map must not spend a day's rallies.
+    """
+    try:
+        return max(0, int(float(getattr(ctx, "vars", {}).get("joined", 0) or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def record_run(rt, ctx) -> int:
+    """THE ONE PLACE A JOIN IS WRITTEN DOWN, whichever driver played the recipe (#1281).
+
+    Two things play `join_rally`: the schedule's «rally_auto_join» trigger and the «Ралли»
+    tab's own reader, which raises a join for every banner the capture hears. Only the
+    first went through the schedule's record hook, so every join the tab's driver made
+    was missing from the per-kind tally — measured over one live window, 1 join of 13 was
+    recorded through the trigger and `rally_counts` read 11 against 13 confirmed.
+
+    So the counting rule lives HERE, in one function, and both drivers call it. It is one
+    entry per squad this run actually sent, capped by what the run confirmed: `joined` is
+    a DIFFERENCE, and a squad the OTHER driver sent that lands mid-run falls inside both
+    runs' differences, so without the cap both would record it.
+
+    Returns how many entries were written, so a caller can say so.
+    """
+    kinds = kinds_of(ctx)
+    did = min(joined_of(ctx), len(kinds))
+    record_joins(rt, kinds, did)
+    return did
+
+
 def record_joins(rt, kinds, did: int = 1) -> None:
     """Count what the run actually joined, EACH UNDER ITS OWN KIND, persisted for today.
 

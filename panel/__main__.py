@@ -1106,8 +1106,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._schedule.register_gate(
             "rally_auto_join",
             self._bound(lambda rt=self._rt: rallygate.join_gate(rt)),
-            self._bound(lambda kinds, did, rt=self._rt:
-                        rallygate.record_joins(rt, kinds, did)))
+            self._bound(lambda ctx, rt=self._rt: rallygate.record_run(rt, ctx)))
         self._schedule.register_args("rally_auto_join",
                                      self._bound(self._rally_join_args))
         # …and it does not START at all when every squad it may spend is out (#1281).
