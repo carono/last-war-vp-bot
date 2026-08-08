@@ -691,7 +691,7 @@ def test_the_recipe_names_the_presses_it_needs():
     src = (ROOT / "src" / "lastwar_bot" / "actions" / "auto_treasure.md").read_text(
         encoding="utf-8")
     defaults, rest = se.extract_defaults(src)
-    assert set(defaults) == {"squads", "grace", "ttl", "scan_every"}, defaults
+    assert set(defaults) == {"squads", "grace", "ttl", "look"}, defaults
     for name, value in defaults.items():
         rest = rest.replace("{%s}" % name, se.render_value(value))
     program = se.parse_text(rest)
@@ -709,18 +709,19 @@ def test_the_recipe_names_the_presses_it_needs():
                     yield from _taps(inner)
 
     pressed = list(_taps(program))
-    #: arm, the question the map lap is gated on, the step, the retry after an army was
-    #: fetched, and the pass that looks for the reward window a claim's payment shows up
-    #: as. The lap itself is a `CALL` and its presses are checked below.
-    assert pressed == ["treasure_auto_arm", "treasure_scan_due", "treasure_auto_step",
-                       "treasure_auto_step", "treasure_auto_step",
+    #: arm, the look around and the harvest of what it saw, the step, the retry after an
+    #: army was fetched, and the pass that looks for the reward window a claim's payment
+    #: shows up as. There is no lap here any more (#1296): the whole-server walk is a
+    #: recipe somebody presses by hand, and nothing in this one calls it.
+    assert pressed == ["treasure_auto_arm", "treasure_look", "treasure_scan_harvest",
+                       "treasure_auto_step", "treasure_auto_step", "treasure_auto_step",
                        "dismiss_treasure_reward"], pressed
     for name in pressed:
         assert name in game_buttons.BUTTONS, name
 
-    #: …and the third door is a recipe of its own, so its presses are checked the same
-    #: way. A `CALL` to a name that does not exist, or a press inside it that does not,
-    #: is a run that dies at the map lap and never marches.
+    #: …and the errand CALLS nothing: the lap used to be a `CALL` on a period, and that
+    #: period is what was deleted. The manual lap is still a recipe and its presses are
+    #: checked the same way, because the button it presses must still exist.
     def _calls(steps):
         for step in steps:
             if isinstance(step, se.CallStmt):
@@ -731,7 +732,7 @@ def test_the_recipe_names_the_presses_it_needs():
                     yield from _calls(inner)
 
     called = list(_calls(program))
-    assert called == ["scan_treasures"], called
+    assert called == [], called
     scan_src = (ROOT / "src" / "lastwar_bot" / "actions"
                 / "scan_treasures.md").read_text(encoding="utf-8")
     scan_defaults, scan_rest = se.extract_defaults(scan_src)
@@ -1001,6 +1002,17 @@ end}}
     return lua
 
 
+def _park_camera(lua, x: int, y: int) -> None:
+    """Put the camera on a tile WITHOUT a jump — where an ordinary player left it.
+
+    The look around reads `WorldScene.CurTilePos` and the box around it; the stand-in
+    point manager answers near `CAMERA`. Both are set here, so a test can say «we happen
+    to be standing here» without the errand having moved anything.
+    """
+    lua.execute("CAMERA = {x = %d, y = %d} _G.WS.CurTilePos = {x = %d, y = %d}"
+                % (x, y, x, y))
+
+
 def _walk(lua) -> None:
     """Run the lap the game's timer was handed, in the order it would run it."""
     lua.execute(lua_actions.treasure_scan_sweep())
@@ -1024,6 +1036,58 @@ def _park_scan(lua, **cfg) -> None:
 def _targets(lua) -> list:
     return [dict(t.items())
             for t in lua.eval("DataCenter.__lw_treasure_auto.targets").values()]
+
+
+def test_the_look_around_finds_a_chest_without_moving_anything():
+    """WHAT REPLACED THE LAP (#1296), and the two halves of why it is allowed to run on
+    every tick.
+
+    «Убирай обход, он не нужен, нужно просто слушать всегда окружение, т.к. 99% кладов
+    находятся в улье, а не на карте.» The whole-server walk was measured twice — 19 chests
+    and then 21, **ours zero both times** — at 48 s of camera every five minutes. What is
+    kept is the reading: when the client is out on the map anyway, whatever is in the box
+    around it comes home for free.
+
+    So: it finds the chest under the camera, and it JUMPS NOWHERE. The second half is the
+    one that stops this quietly becoming the lap again under a new name.
+    """
+    if not _needs_lua("the look around"):
+        return
+    lua = _scan_vm()
+    _park_camera(lua, *_CHEST_AT)
+    lua.execute(lua_actions.treasure_look_around())
+    lua.execute(lua_actions.treasure_scan_harvest())
+
+    assert list(lua.eval("JUMPS").values()) == [], "the look moved the camera"
+    assert list(lua.eval("SCHEDULED").values()) == [], "the look scheduled a walk"
+    targets = _targets(lua)
+    assert len(targets) == 1, targets
+    found = targets[0]
+    assert int(found["uuid"]) == _OTHER_UUID, found
+    assert (int(found["x"]), int(found["y"])) == _CHEST_AT, found
+    assert found["src"] == "scan", found
+    assert int(lua.eval("DataCenter.__lw_treasure_scan.tiles")) > 100
+
+    #: …and standing somewhere else, it sees nothing — the point manager only holds what
+    #: the client has been answered about, which is the whole limit this design accepts.
+    lua2 = _scan_vm()
+    _park_camera(lua2, _CHEST_AT[0] + 400, _CHEST_AT[1] + 400)
+    lua2.execute(lua_actions.treasure_look_around())
+    lua2.execute(lua_actions.treasure_scan_harvest())
+    assert _targets(lua2) == [], "a chest was seen from the other side of the server"
+
+
+def test_the_look_around_is_silent_in_the_city():
+    """The point manager belongs to the world scene, so in the city there is nothing to
+    read — and the run says which of «nothing there» and «not looking» it was."""
+    if not _needs_lua("the look around in the city"):
+        return
+    lua = _scan_vm(world=False)
+    _park_camera(lua, *_CHEST_AT)
+    lua.execute(lua_actions.treasure_look_around())
+    assert str(lua.eval("DataCenter.__lw_treasure_scan.why")) == "not-in-world"
+    assert int(lua.eval("DataCenter.__lw_treasure_scan.tiles")) == 0
+    assert list(lua.eval("JUMPS").values()) == []
 
 
 def test_a_lap_of_the_map_finds_a_chest_nobody_announced():
@@ -1232,23 +1296,25 @@ def test_the_lap_is_refused_in_the_city_and_between_periods():
     assert int(lua.eval("DataCenter.__lw_treasure_scan_due")) == 0, "zero is off"
 
 
-def test_the_poll_is_true_when_the_map_is_due_a_lap():
-    """The lap is not an ear: nothing announces a chest that is merely lying there, so the
-    errand has to be RUN every few minutes or the third door never opens. An empty queue
-    with the hook armed must therefore still answer «there is work»."""
-    if not _needs_lua("the poll asks about the lap"):
+def test_the_poll_is_true_whenever_the_client_is_out_in_the_world():
+    """Being on the map IS the work now (#1296).
+
+    Nothing announces a chest that is merely lying there, so somebody has to look — and
+    since the whole-server lap was deleted, looking is one box of the client's own point
+    manager, a hundredth of a second, moving nothing. There is no period left to compare
+    against: an armed errand with an empty queue answers «yes» while the client is out in
+    the world, and «no» in the city, where there is no point manager to read.
+    """
+    if not _needs_lua("the poll asks whether we are on the map"):
         return
     lua = _scan_vm()
-    _park_scan(lua, every_sec=300)
-    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "never swept"
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "in the world"
 
-    lua.execute(lua_actions.treasure_scan_ask())            # …which stamps the clock
-    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, "just swept"
+    #: looking does not stamp anything the poll consults — there is no period to keep
+    lua.execute(lua_actions.treasure_look_around())
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "still in the world"
 
-    lua.execute("NOW = NOW + 301000")
-    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "the period passed"
-
-    #: and in the city there is no lap to walk, so an empty queue is genuinely idle.
+    #: …and in the city an empty queue is genuinely idle
     lua.execute("WORLD = false")
     assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, "not in the world"
 

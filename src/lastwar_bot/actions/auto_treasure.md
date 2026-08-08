@@ -3,10 +3,9 @@
 #
 #   run auto_treasure                        -- any squad may go
 #   run auto_treasure {"squads": [3, 4]}     -- only squads 3 and 4
-#   run auto_treasure {"scan_every": 0}      -- …and never walk the map
 #
-# THREE DOORS, ONE QUEUE. A chest reaches this errand in three ways, and it needs all
-# three because each one is blind where the others see:
+# THREE DOORS, ONE QUEUE, AND NONE OF THEM MOVES ANYTHING. A chest reaches this errand
+# three ways, and every one of them is a thing the client was going to hear or see anyway:
 #
 #   1. **the alliance chat share** — one message naming the uuid, the server AND the
 #      tile. The cheapest of the three and the least reliable: sharing is a thing a
@@ -15,13 +14,22 @@
 #   2. **the dig broadcast** (`push.detect.treasure.claim`) — arrives once per member who
 #      finishes their part, and carries a uuid with no tile in it. Enough to claim, never
 #      enough to march;
-#   3. **a lap of the map** (`scan_treasures`) — the camera walks the whole server and the
-#      client's own point manager is read at every stop, which is the only door that finds
-#      a chest NOBODY announced. It gives both halves at once, uuid and tile.
+#   3. **what the client can already see** (`treasure_look`) — the chests in the box the
+#      camera happens to be sitting in, read out of `WorldScene.PointManager`. It gives
+#      both halves at once, uuid and tile, and it is the only door that finds a chest
+#      nobody announced.
 #
-# A chest that comes through two of them stays ONE target and keeps the best half of
-# each: a uuid heard from the dig feed and a tile found by the lap are the same chest,
-# and the lap upgrades it rather than queuing it twice.
+# THE THIRD ONE USED TO WALK THE WHOLE SERVER, AND THAT WAS DELETED (#1296). The lap cost
+# 48 s of camera every five minutes and was measured twice: 19 chests and then 21 — with
+# **ours zero both times**. A chest of one's own alliance is placed in the HIVE, not out on
+# the open map, so the census was a census of other people's treasure. What is kept is the
+# reading, which was never the expensive half: when we are on the map anyway, whatever is
+# in the box comes home for free. Somebody who genuinely wants a whole-server census still
+# has `scan_treasures` to press by hand; nothing presses it on a schedule.
+#
+# A chest that comes through two doors stays ONE target and keeps the best half of each: a
+# uuid heard from the dig feed and a tile seen on screen are the same chest, and the look
+# upgrades it rather than queuing it twice.
 #
 # THE FIRST TWO CANNOT BE A WIRE TRIGGER, and that is a measurement rather than a
 # preference. The announcement is a chat post, and the chat broadcast rides a TLS
@@ -32,10 +40,11 @@
 # daemon free, no request to the server and nothing the game can notice — so the «poll»
 # in the catalogue is a poll of the panel's own ear, never of the world.
 #
-# AND THE THIRD ONE IS THE SLOWEST ON PURPOSE. The two ears cost nothing and hear a chest
-# in the second the client hears it, so they run on every tick; the lap moves the camera
-# across the whole server and is therefore walked every few minutes (`scan_every`), never
-# every tick, and never at all while the client is in the city.
+# AND THE THIRD ONE IS NOW AS CHEAP AS THE OTHER TWO, which is why it rides the same tick.
+# It reads one box of the point manager — 0.03–0.04 s inside the VM — and moves nothing:
+# no jump, no zoom, nothing sent to the server. A person playing on the map notices
+# nothing. In the city it does nothing at all and says so, because the point manager
+# belongs to the world scene.
 #
 # EVERY STEP IS WRITTEN DOWN IN THE GAME VM, not here. A chest walks
 # announced → squad sent → dug → claimed, and each stage is stamped on the target
@@ -59,12 +68,11 @@ ARGS squads = [1, 2, 3, 4]
 ARGS grace = 240
 ARGS ttl = 1800
 
-# How often the map itself is walked, in seconds — the third door. Five minutes because a
-# chest is out for minutes rather than seconds, and because the lap costs a camera that
-# crosses the whole server: often enough to catch one that nobody shared, rare enough not
-# to be doing it while the other two doors are already working. `0` switches the lap off
-# entirely and leaves the two ears.
-ARGS scan_every = 300
+# Whether the surroundings are read at all. 1 — the default — reads the box the camera is
+# already in on every run; 0 leaves only the two ears. There is no period any more: the
+# look costs a hundredth of a second and moves nothing, so «how often» stopped being a
+# question worth a setting (#1296).
+ARGS look = 1
 
 # What this run may spend, parked where the press can read it — a `TAP` takes no
 # arguments of its own. `grace` is how long after the march a claim may be tried without
@@ -78,17 +86,15 @@ LUA DataCenter.__lw_treasure_squads = { {squads} } DataCenter.__lw_treasure_grac
 # trigger's poll treats as work in its own right.
 TAP treasure_auto_arm
 
-# THE MAP, every few minutes. The question is asked in the game — «is the client in the
-# world, and has the period passed?» — because the answer belongs beside the lap and not
-# copied into a recipe where it would drift; deciding it is due also stamps the clock, so
-# a tick that asks twice walks one lap.
-LUA DataCenter.__lw_treasure_scan_cfg = DataCenter.__lw_treasure_scan_cfg or {} DataCenter.__lw_treasure_scan_cfg.every_sec = {scan_every}
-TAP treasure_scan_due
-READ_LUA (tonumber(DataCenter.__lw_treasure_scan_due) or 0) INTO scan_due
-
-IF scan_due == 1
-    LOG "walking the map — a chest nobody shared is only found by looking"
-    CALL scan_treasures
+# WHAT IS ALREADY ON SCREEN, every run. Reading the box the camera sits in costs a
+# hundredth of a second and moves nothing — in the city it does nothing and says so — so
+# there is no «is it due» to ask any more. Whatever it saw becomes targets exactly as a
+# lap's findings did.
+IF look == 1
+    TAP treasure_look
+    TAP treasure_scan_harvest
+    READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.scan_report or 'nothing has been looked at yet') INTO seen
+    LOG "the line above is what the client could see from where it stands: found= every chest in the box, ours= the ones this alliance's own event placed, foreign= another alliance's, which the game refuses outright and which are never queued. A chest of one's own alliance is placed in the HIVE rather than out on the map, so this door is the rare one — and the reason the whole-server lap was deleted: two full laps found 19 and 21 chests with ours zero both times."
 
 # The whole queue, one step each, in ONE press: the nearest free squad marches onto the
 # nearest chest, and a chest the alliance has already dug is claimed. Nothing is opened

@@ -1024,10 +1024,45 @@ every run looks like an errand that is working. What made the difference legible
 CLOCK in the note — `claim1` at three seconds after a march is impossible, and nothing else
 in the line said so.
 
+## The lap was deleted, and the measurement that deleted it
+
+**«Убирай обход, он не нужен, нужно просто слушать всегда окружение, т.к. 99% кладов
+находятся в улье, а не на карте.»** The whole-server walk worked exactly as designed and
+was still not worth its camera. Three laps, live, on 2026-08-08:
+
+```
+found=19 ours=1  foreign=18     the first one, and the only chest of ours there ever was
+found=19 ours=0  foreign=19     …
+found=21 ours=0  foreign=21     48 s of camera each, every five minutes
+```
+
+A detect-event chest belongs to the alliance whose event placed it, and **an alliance
+places them in the hive rather than out on the open map** — so a census of the server is a
+census of other people's treasure, which the game refuses outright (801354). The one chest
+of our own that ever turned up came in the same lap as the chat share, and would have been
+seen from where the client was standing anyway.
+
+So the lap stopped being scheduled, and what stayed is the READING, which was never the
+expensive half. `treasure_look` (`lua_actions.treasure_look_around`) reads one box —
+`TREASURE_LOOK_BOX`, 121 × 121 tiles — around `WorldScene.CurTilePos`, out of the same
+`PointManager`, in 0.03–0.04 s, and moves nothing at all: no jump, no zoom change, nothing
+sent. It rides the errand's ordinary tick, and its findings go through
+`treasure_scan_harvest` unchanged, so everything above about the alliance gate and the
+three-number split holds exactly as written.
+
+The poll's gate moved with it: `treasure_auto_check` used to ask «has the lap's period
+passed?» and now asks «are we in the world?», because there is no period left to keep. In
+the city the point manager is not there to read and the errand stays quiet.
+
+`actions/scan_treasures.md` is still a recipe and still walks the whole server — for
+somebody who WANTS a census. It is pressed by hand («Обойти карту» on the Command Post,
+the scenario list, the phone) and by nothing on a schedule.
+
 ## Status after this session
 
-* the map lap: **confirmed live** — 121/121 waypoints, 120 611 tiles known, 19 chests found
-  with nothing announced;
+* the map lap: **confirmed live, and then taken off the schedule** — 121/121 waypoints,
+  120 611 tiles known, 19 chests found with nothing announced, and ours=0 on two laps out
+  of three (above). It survives as a manual census; the errand reads what is in view;
 * the alliance gate: **confirmed live** by the server's own refusal (801354);
 * the claim: **confirmed** — and its refusals now name themselves (801348, 801354);
 * the dig march **reaches the wire from the bot** — `world.march.formation.new` with the

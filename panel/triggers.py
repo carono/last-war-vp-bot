@@ -531,9 +531,13 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         # cost is the same read the session-kick poll pays, and the chest is heard in the
         # same second the client hears it.
         #
-        # The check is true while a chest is unfinished AND whenever nothing is listening,
-        # so a client restart — which wipes the VM and the hook with it — is picked up on
-        # the next tick instead of leaving the errand silently deaf.
+        # The check is true while a chest is unfinished, whenever nothing is listening —
+        # so a client restart, which wipes the VM and the hook with it, is picked up on
+        # the next tick instead of leaving the errand silently deaf — and whenever the
+        # client is out in the WORLD, because that is when there is something to look at.
+        # The look is one box of the client's own point manager, a hundredth of a second,
+        # and it moves nothing: the whole-server lap this used to schedule was deleted
+        # (#1296) after two laps found 19 and 21 chests with ours zero both times.
         kind=KIND_POLL,
         check=lua_actions.treasure_auto_check(),
         # Ten seconds, because the whole point is to be early: the chest is out for

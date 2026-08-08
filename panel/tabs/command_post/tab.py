@@ -1044,19 +1044,23 @@ class TreasuresPane(_Pane):
         # — the ear, the nearest free squad, the claim — is `actions/auto_treasure.md`.
         self.rt.tr(ttk.Button(box, width=18, command=self._work_now),
                    "cmdpost.treasure.auto").pack(side="right", padx=(0, 4))
-        # «Обойти карту» — the THIRD door (#1296). The refresh above asks the server for
-        # THIS alliance's own detect-event list, and the «Скан» beside it only starts a
-        # listener; neither reads the map, and a chest nobody shared is on the map and
-        # nowhere else. This walks it: `actions/scan_treasures.md`, the camera and the
+        # «Обойти карту» — a whole-server census, BY HAND and by nothing else (#1296).
+        # It used to run on a schedule and was deleted from one: two laps found 19 and 21
+        # chests with ours zero both times, because a chest of one's own alliance is
+        # placed in the hive rather than out on the map, and each lap cost 48 s of camera.
+        # The errand reads what is already in view instead. This stays because it is cheap
+        # to offer and wakes nobody: `actions/scan_treasures.md`, the camera and the
         # client's own point manager, no capture and no child process.
         self.rt.tr(ttk.Button(box, width=16, command=self._sweep_now),
                    "cmdpost.treasure.sweep").pack(side="right", padx=(0, 4))
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
             anchor="w", pady=(6, 4))
-        # WHAT THE LAST LAP OF THE MAP SAW, in three numbers rather than one (#1296). The
+        # WHAT THE LAST LOOK AROUND SAW, in three numbers rather than one (#1296). The
         # first live lap found nineteen chests and eighteen of them belonged to other
         # alliances — the game refuses those outright — so «найдено 19» on its own reads
         # as nineteen gifts and is worth one. Found, ours and foreign are drawn apart.
+        # The reading is now the errand's own look at the box the camera is already in;
+        # the whole-server lap it used to come from is a button, not a schedule.
         self._lap_var = tk_stringvar(self.rt.root)
         ttk.Label(body, textvariable=self._lap_var, foreground=DIM).pack(
             anchor="w", pady=(0, 4))
@@ -1069,7 +1073,8 @@ class TreasuresPane(_Pane):
         it changes is in the game, and the list below still comes from the readings.
         """
         squad = _int(self._squad_var.get(), TREASURE_SQUADS[0])
-        self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="action")
+        self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="action",
+                           on_result=self.lap_from_run)
 
     def _sweep_now(self) -> None:
         """Walk the whole map once and queue every chest lying on it.
@@ -1081,16 +1086,17 @@ class TreasuresPane(_Pane):
                            on_result=self.lap_from_run)
 
     def lap_from_run(self, outcome) -> None:
-        """Put the lap's own three numbers on the label — the scenario already read them.
+        """Put the run's own three numbers on the label — the scenario already read them.
 
-        `READ_LUA … INTO queued` leaves the harvest's sentence in the run's variables, so
-        the split reaches the screen without the panel asking the game a second time or
+        `READ_LUA … INTO seen` (the errand's look around) and `INTO queued` (the manual
+        whole-server lap) both leave the harvest's sentence in the run's variables, so the
+        split reaches the screen without the panel asking the game a second time or
         assembling a line of Lua of its own (`CLAUDE.md`). It is also the only way the
         label moves for somebody who pressed from the PHONE: nothing else re-reads it
         until the window's own «Обновить».
         """
-        line = str(((getattr(outcome, "ctx", None) and outcome.ctx.vars) or {})
-                   .get("queued") or "")
+        got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+        line = str(got.get("seen") or got.get("queued") or "")
         if "found=" not in line:
             return
         lap = {}
@@ -1239,7 +1245,14 @@ class TreasuresPane(_Pane):
             self._row(target).pack(fill="x", pady=1)
 
     def _lap_line(self, lap: dict) -> None:
-        """Draw the lap's three numbers, or say plainly that no lap has been walked."""
+        """Draw the three numbers of the last look, or say plainly there has not been one.
+
+        «Last look», not «last lap» (#1296): the periodic walk of the whole server was
+        deleted — it cost 48 s of camera every five minutes and found ours=0 twice over —
+        and what the errand does now is read the box the camera is already in. A label
+        still saying «последний обход» would be describing something that no longer
+        happens.
+        """
         if not lap or _int(lap.get("ago"), -1) < 0:
             text = self.rt.t("cmdpost.treasure.lap.never")
         else:
@@ -1487,16 +1500,19 @@ class CommandPostTab(PanelTab):
     def _web_treasures(self, coords) -> dict:
         """«Сокровища» — the chests the last scan found, with their deadlines.
 
-        …and above them, the last map lap in THREE numbers (#1296): found, ours, foreign.
-        A chest belongs to the alliance whose event placed it and the game refuses
-        everybody else's — nineteen found and one takeable, on the first live lap — so a
-        phone showing a single total would be reading a promise the game will not keep.
-        The row comes off the tab's own label, which is the reading the window draws.
+        …and above them, the last LOOK AROUND in THREE numbers (#1296): found, ours,
+        foreign. A chest belongs to the alliance whose event placed it and the game
+        refuses everybody else's — nineteen found and one takeable, on the first live lap
+        — so a phone showing a single total would be reading a promise the game will not
+        keep. The row comes off the tab's own label, which is the reading the window
+        draws, and it is labelled «окружение» rather than «обойти карту» because the
+        periodic walk of the server is gone: the number is what the client could see from
+        where it already was.
         """
         pane = self._by_key.get("treasure")
         lap = (pane._lap_var.get() if pane is not None
                and getattr(pane, "_lap_var", None) is not None else "")
-        rows = [{"label": "cmdpost.treasure.sweep", "value": lap}] if lap else []
+        rows = [{"label": "cmdpost.treasure.look", "value": lap}] if lap else []
         items = []
         try:
             import lastwar_proto as proto
@@ -1526,8 +1542,9 @@ class CommandPostTab(PanelTab):
             squad = (_int(page._squad_var.get(), TREASURE_SQUADS[0])
                      if page is not None and getattr(page, "_squad_var", None) is not None
                      else TREASURE_SQUADS[0])
-            return {"ok": self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]},
-                                             tag="web")}
+            return {"ok": self.rt.play_async(
+                TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="web",
+                on_result=(page.lap_from_run if page is not None else None))}
         if action == "treasure_sweep":
             # The map lap, and it travels for the same reason the errand does: it is ONE
             # recipe and the phone plays it whole. Nothing is parked by a tool first.

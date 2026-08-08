@@ -5,18 +5,27 @@
 #   run scan_treasures {"server": 300}              -- that server, whatever the client thinks
 #   run scan_treasures {"zoom": 600, "step": 90}    -- the lap's shape
 #
-# THE THIRD DOOR, AND WHY THE OTHER TWO ARE NOT ENOUGH. `auto_treasure.md` hears a chest
-# in two ways, and neither of them looks at the map:
+# A CENSUS SOMEBODY ASKS FOR, AND NOTHING ELSE (#1296). This used to run on a schedule as
+# the errand's third door, and it was taken off one: two full laps found 19 and 21 chests
+# and **ours was zero both times**. A chest of one's own alliance is placed in the HIVE
+# rather than out on the open map, so the lap was a census of other people's treasure at
+# 48 s of camera every five minutes.
+#
+# What the errand does instead is `treasure_look` — the same reading, of the box the camera
+# is already in, on every tick and moving nothing (`auto_treasure.md`). This file is kept
+# for the times somebody genuinely wants the WHOLE server counted: it is pressed by hand
+# («Обойти карту» on the Command Post, or from the scenario list) and by nothing on a
+# schedule.
+#
+# It is still the only thing that finds a chest lying somewhere the client has never
+# looked, and it gives both halves at once — the uuid AND the tile — which the two ears
+# cannot:
 #
 #   * the alliance chat share — a thing a PERSON does, and often nobody does it. Measured
 #     live: twenty minutes of the alliance digging a chest and not one share crossed the
 #     wire;
 #   * the dig broadcast (`push.detect.treasure.claim`) — arrives once per member who
 #     finishes, and carries a uuid with NO tile. Enough to claim, never enough to march.
-#
-# So a chest that is simply LYING on the map, announced by nobody, reaches neither. This
-# is the door for it: the camera walks the whole server and the client's own point
-# manager is read at every stop, which gives both halves at once — the uuid AND the tile.
 #
 # WHAT «ОБНОВИТЬ» ON «КОМАНДНОМ ПУНКТЕ» ASKS IS NOT THIS. That refresh sends
 # `activity.detect.list` and reads the account's own detect-event list: the chests THIS

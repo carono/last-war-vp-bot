@@ -553,19 +553,24 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.treasure_auto_step(),
         wait=0.6, label="March on / claim every queued treasure",
     ),
-    # --- world -> the THIRD door: reading the map itself (#1296) ---------------
-    # «Должно сканироваться карта на предмет сокровищ, а не только слушаться пуш шаринга.»
-    # The two doors above are both somebody telling the client about a chest; neither
-    # looks at the map, so a chest merely LYING there reaches neither. These three walk
-    # the map and read it — the whole reasoning, and the two measurements it rests on,
-    # are in lua_actions («The third door»).
+    # --- world -> the SECOND door: reading what is already on screen (#1296) ---
+    # «Убирай обход, он не нужен, нужно просто слушать всегда окружение, т.к. 99% кладов
+    # находятся в улье, а не на карте.» The lap that used to live here was measured and
+    # was not worth its camera: two full laps found 19 and 21 chests and OURS WAS ZERO
+    # both times — a chest of one's own alliance is placed in the hive, not out on the
+    # open map. What was worth keeping is the reading, which was never the expensive half.
     #
-    #   treasure_scan_due     — is a lap worth walking now? parks 1/0 for the recipe
-    #   treasure_scan_start   — one lap of the server, reading `PointType 21` as it goes
-    #   treasure_scan_harvest — what it found becomes targets of the errand above
+    #   treasure_look        — the chests in the box the camera is ALREADY sitting in.
+    #                          No jump, no zoom change, nothing sent. Rides an ordinary
+    #                          tick of the errand and is silent in the city.
+    #   treasure_scan_harvest — what was seen becomes targets of the errand above
     #
-    # Every number they use is parked first (`DataCenter.__lw_treasure_scan_cfg`), the
-    # same hand-off the arm's squads use, because a `TAP` takes no arguments.
+    # The three below it are the LAP, kept for a census somebody asks for by hand
+    # (`actions/scan_treasures.md`) and pressed by nothing on a schedule.
+    "treasure_look": Button(
+        lua=_lua_actions.treasure_look_around(),
+        wait=0.3, label="Read the treasures already in view",
+    ),
     "treasure_scan_due": Button(
         lua=_lua_actions.treasure_scan_ask(),
         wait=0.2, label="Is a treasure lap of the map due?",

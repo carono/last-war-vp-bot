@@ -3431,11 +3431,12 @@ def treasure_auto_check() -> str:
         poll that only ever asked about targets would then wait for ever for a chest it
         could not hear. So «nobody is listening» is itself work, and the errand's first
         step is to arm;
-      * **the map is due a lap** (#1296). The third door is not an ear: nothing tells the
-        client about a chest that is merely lying there, so unless the errand is run on
-        its own account every few minutes the lap never happens and an empty queue stays
-        empty for ever. This asks the SAME question the lap's own gate asks and does not
-        stamp anything — the run that follows is what decides and stamps.
+      * **the client is in the WORLD** (#1296). The third door is not an ear: nothing
+        tells the client about a chest that is merely lying there, so somebody has to
+        look — and since the whole-server lap was deleted, looking means reading the box
+        the camera is already in, which costs a hundredth of a second and moves nothing.
+        So «we are on the map» is reason enough to run, every tick, and in the city this
+        clause is false and the errand stays quiet.
     """
     return (
         "(function() "
@@ -3445,17 +3446,13 @@ def treasure_auto_check() -> str:
         "if A == nil or not A.on then return true end "
         "if W == nil or not W.hooked then return true end "
         "for _, t in ipairs(A.targets or {}) do if not t.done then return true end end "
-        "local cfg = D.__lw_treasure_scan_cfg or {} "
-        "local every = math.max(0, tonumber(cfg.every_sec) or "
-        + str(int(TREASURE_SCAN_EVERY_SEC)) + ") "
-        "if every > 0 then "
+        # ON THE MAP IS REASON ENOUGH. There is no period to compare against any more:
+        # the look reads one box of the point manager and moves nothing, so the only
+        # question left is whether there is anything to look AT — and in the city the
+        # point manager is not there to read.
         "local world = false "
         "pcall(function() world = SceneUtils.GetIsInWorld() and true or false end) "
-        "local now = 0 pcall(function() "
-        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
-        "local last = tonumber(A.scan_at) or 0 "
-        "if world and now > 0 and (last <= 0 or now - last >= every * 1000) then "
-        "return true end end "
+        "if world then return true end "
         "return false end)()"
     )
 
@@ -4030,6 +4027,113 @@ CS.UnityEngine.Debug.LogError("ACT treasure_scan n="..n.." zoom="..height.." ste
   .." box="..box.." span="..string.format("%%.1f", S.span).." size="..tostring(size)
   .." srv="..tostring(srv))
 ''' % (where, height, stride, gap, float(lag), TREASURE_POINT_TYPE))
+
+
+#: How far around the camera a look reads, in tiles. Not a view rect — the point manager
+#: holds what the client has been ANSWERED about, which is a good deal more than the glass
+#: shows and costs nothing extra to walk. A 121 × 121 box is the same size as one waypoint
+#: of the old lap, measured at 0.03–0.04 s inside the VM.
+TREASURE_LOOK_BOX = 60
+
+
+def treasure_look_around() -> str:
+    """Read the chests in what the client is ALREADY looking at. Moves nothing.
+
+    THE LAP IS GONE AND THIS IS WHAT REPLACED IT (#1296). Walking the whole server every
+    few minutes was measured and was not worth its camera: two full laps found 19 and 21
+    chests, and **ours was zero both times** — a chest of one's own alliance is placed in
+    the hive, not out on the open map, so 48 s of camera every five minutes bought a
+    census of other people's treasure. What is worth keeping is the READING, which was
+    never the expensive half: the client's own `WorldScene.PointManager` holds every tile
+    it has been answered about, so a chest we drive past is a chest we can see for free.
+
+    So this is the same scrape as the lap's, with the jumps taken out: one box around
+    where the camera happens to be, whenever the errand ticks and the client is in the
+    world. It never jumps, never changes the zoom and never touches the server — a person
+    playing on the map notices nothing at all, which is the whole point of hanging it on
+    an ordinary tick.
+
+    Its findings land in `DataCenter.__lw_treasure_scan.found` exactly as the lap's did, so
+    :func:`treasure_scan_harvest` reads it unchanged — and a chest seen twice stays one.
+    `n`/`done` are 1: one box, read once.
+
+    The manual lap (`actions/scan_treasures.md`) is still there for somebody who WANTS a
+    census, and is off unless pressed.
+    """
+    return (FIND_WORLD_SCENE + '''
+local S = {found = {}, n = 1, done = 0, tiles = 0, known = 0, chests = 0,
+           errs = 0, blind = 0, span = 0, look = true}
+DataCenter.__lw_treasure_scan = S
+local world = false
+pcall(function() world = SceneUtils.GetIsInWorld() and true or false end)
+if not world then
+  S.why = "not-in-world"
+  CS.UnityEngine.Debug.LogError("ACT treasure_look not-in-world")
+  return
+end
+local scene = _G.WS
+local pm = scene and scene.PointManager
+if pm == nil then
+  S.blind, S.why = 1, "no-point-manager"
+  CS.UnityEngine.Debug.LogError("ACT treasure_look no-point-manager")
+  return
+end
+local size = 1000
+pcall(function() size = scene.TileCount.x end)
+-- WHERE THE CAMERA ALREADY IS. Not chosen, not moved to — read.
+local cx, cy = -1, -1
+pcall(function() cx, cy = scene.CurTilePos.x, scene.CurTilePos.y end)
+cx, cy = math.floor(tonumber(cx) or -1), math.floor(tonumber(cy) or -1)
+if cx < 0 or cy < 0 then
+  S.why = "no-camera-tile"
+  CS.UnityEngine.Debug.LogError("ACT treasure_look no-camera-tile")
+  return
+end
+S.at_x, S.at_y = cx, cy
+local srv = 0
+pcall(function() srv = tonumber(LuaEntry.Player.serverId) or 0 end)
+S.server = srv
+local box = %d
+local function get(o, k)
+  local ok, v = pcall(function() return o[k] end)
+  if ok then return v end
+  return nil
+end
+local x0, x1 = math.max(0, cx - box), math.min(size - 1, cx + box)
+local y0, y1 = math.max(0, cy - box), math.min(size - 1, cy + box)
+for ty = y0, y1 do
+  local base = ty * size + 1
+  for tx = x0, x1 do
+    local ok, info = pcall(function() return pm:GetPointInfo(base + tx) end)
+    if ok then
+      S.tiles = S.tiles + 1
+      if info ~= nil then S.known = S.known + 1 end
+      if info ~= nil and (tonumber(get(info, "PointType")) or -1) == %d then
+        local uuid = get(info, "uuid")
+        if uuid ~= nil and tostring(uuid) ~= "0" then
+          local key = tostring(uuid)
+          if S.found[key] == nil then
+            S.chests = S.chests + 1
+            local who = tostring(get(info, "ownerUid") or "")
+            S.found[key] = {uuid = uuid, pid = base + tx, x = tx, y = ty,
+                            server = tonumber(get(info, "serverId")) or srv,
+                            expire = tonumber(get(info, "expireTime")) or 0,
+                            owner = who,
+                            alliance = tostring(get(info, "allianceId") or ""),
+                            dug = (who ~= "" and who ~= "0")}
+          end
+        end
+      end
+    else
+      S.errs = S.errs + 1
+    end
+  end
+end
+S.done, S.why = 1, "looked"
+CS.UnityEngine.Debug.LogError("ACT treasure_look at=" .. tostring(cx) .. "," .. tostring(cy)
+  .. " tiles=" .. tostring(S.tiles) .. " known=" .. tostring(S.known)
+  .. " chests=" .. tostring(S.chests))
+''' % (int(TREASURE_LOOK_BOX), TREASURE_POINT_TYPE))
 
 
 def treasure_scan_state() -> str:
