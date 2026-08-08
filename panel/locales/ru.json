@@ -1435,5 +1435,9 @@
   "world.monster.src.scene": "на экране",
   "world.truck.tier": "ур. {level} · {tier}",
   "world.train.carriages": "{seats} вагонов · {people} в них",
-  "world.vehicle.arrives": "прибудет через {t}"
+  "world.vehicle.arrives": "прибудет через {t}",
+  "world.col.next_stop": "Следующая точка",
+  "world.vehicle.leg_moving": "→ {where}, в движении",
+  "world.vehicle.leg_parked": "стоит в {where}",
+  "world.vehicle.leg_unknown": "маршрут неизвестен — точка последняя известная"
 }

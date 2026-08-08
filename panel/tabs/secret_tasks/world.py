@@ -119,26 +119,48 @@ def _coords(row) -> str:
     return coords_fmt.fmt(row.get("x"), row.get("y"))
 
 
-def vehicle_position(row, now_ms=None):
-    """`(x, y)` for a row that is MOVING, or None when it carries no leg (#1298).
+#: The three things a vehicle row can say about its own coordinate. THE POINT OF THE
+#: SPLIT is that a live number and a frozen one must not look the same on screen: a
+#: person reading a coordinate has no way to tell «this is being walked right now» from
+#: «this is where we last heard it» unless the row says which, and the second one used to
+#: masquerade as the first for the whole of #1289's life.
+LEG_MOVING = "moving"      # inside the hop's window — the coordinate moves every tick
+LEG_PARKED = "parked"      # the hop is over and no new one has been pushed: it is still
+LEG_NONE = "unknown"       # no hop at all — the coordinate is the last one we were told
+
+
+def vehicle_leg(row, now_ms=None):
+    """`(state, (x, y))` — where a vehicle is, and whether that number is LIVE (#1298).
 
     One line of arithmetic, and it deliberately is not written here:
     `lastwar_proto.march_position` is what the decoder and the two tables both walk, so
     the panel cannot drift into drawing a truck on a different tile from the one the
     tools report. The panel is only deciding WHEN to ask (every tick), never how.
 
-    None rather than a guess when the leg is missing: a checkpoint written before the
-    leg was kept has an `x`/`y` and nothing to walk, and overwriting that with `(0, 0)`
-    would move every old row to the corner of the map.
+    `LEG_NONE` with no position rather than a guess when the hop is missing: a checkpoint
+    written before the leg was kept has an `x`/`y` and nothing to walk, and overwriting
+    that with `(0, 0)` would move every old row to the corner of the map. It is also the
+    honest thing to SAY — see `_VehicleGrid.next_stop_text`.
+
+    The clock is the GAME's, never this machine's (`tools/lib/game_clock.py`): over a
+    two-minute hop the difference between the two is tiles, which is the whole quantity.
     """
+    import game_clock
     import lastwar_proto as proto
 
     start, end = row.get("leg_start_ms"), row.get("leg_end_ms")
     src, dst = row.get("leg_from") or (), row.get("leg_to") or ()
     if len(src) < 2 or len(dst) < 2:
-        return None
-    return proto.march_position(tuple(src[:2]), tuple(dst[:2]), start, end,
-                                now_ms=now_ms)
+        return LEG_NONE, None
+    now = game_clock.now_ms() if now_ms is None else now_ms
+    where = proto.march_position(tuple(src[:2]), tuple(dst[:2]), start, end, now_ms=now)
+    running = (start is not None and end is not None and start < end and now < end)
+    return (LEG_MOVING if running else LEG_PARKED), where
+
+
+def vehicle_position(row, now_ms=None):
+    """Just the tile of :func:`vehicle_leg` — None when there is no hop to walk."""
+    return vehicle_leg(row, now_ms)[1]
 
 
 class WorldGrid(grid.TaskGrid):
@@ -501,6 +523,21 @@ class MonsterGrid(WorldGrid):
 # ---------------------------------------------------------------------------
 # Trucks and trains — the two that ride the march stream
 # ---------------------------------------------------------------------------
+def _next_stop_key(row) -> tuple:
+    """How the «Следующая точка» heading orders: the rows still moving first.
+
+    A row with no hop sorts last whatever its coordinate says — it is the one row on the
+    page whose point is not an answer to «where is it», so it does not belong among the
+    ones that are.
+    """
+    dst = row.get("leg_to") or ()
+    ranks = {LEG_MOVING: 0, LEG_PARKED: 1}
+    return (ranks.get(row.get("leg_state"), 2),
+            int(dst[0]) if len(dst) > 1 else 0,
+            int(dst[1]) if len(dst) > 1 else 0,
+            str(row.get("uuid") or ""))
+
+
 class _VehicleGrid(WorldGrid):
     """What a truck and a train share: a leg, an arrival, and an owner.
 
@@ -553,9 +590,33 @@ class _VehicleGrid(WorldGrid):
         row["leg_to"] = list(record.get("leg_to") or ())
         row["leg_start_ms"] = record.get("leg_start_ms")
         row["leg_end_ms"] = record.get("leg_end_ms")
-        moved = vehicle_position(row)
-        if moved is not None:
-            row["x"], row["y"] = moved
+        row["leg_state"], where = vehicle_leg(row)
+        if where is not None:
+            row["x"], row["y"] = where
+
+    def next_stop_text(self, row) -> str:
+        """The hop's far end, beside the tile it is on now — «где» and «успею ли» (#1298).
+
+        **IT IS THE NEXT STOP AND NOT THE DESTINATION, and the wording says so.** The
+        server describes one hop at a time: a truck watched across two re-sends went
+        `A → B` and then `B → C`, so `leg_to` is a waypoint. Where the whole run ENDS is
+        not on the wire at all — only `arriveTime` is, which the state cell already counts
+        down. Calling this column «Куда» would be inventing a fact the game never sent.
+
+        And it is where the row says whether its coordinate is alive: a hop still running
+        reads «→ …», a hop that is over reads «стоит …» — the vehicle really is standing
+        there until the next hop is pushed, which is what the client draws too — and a row
+        with no hop says outright that its point is the last one we were told, rather than
+        letting a frozen number pass for a live one.
+        """
+        state, _where = vehicle_leg(row)
+        dst = row.get("leg_to") or ()
+        if state == LEG_NONE or len(dst) < 2:
+            return self.tab.t("world.vehicle.leg_unknown")
+        import coords as coords_fmt
+        where = coords_fmt.fmt(dst[0], dst[1])
+        return self.tab.t("world.vehicle.leg_moving" if state == LEG_MOVING
+                          else "world.vehicle.leg_parked", where=where)
 
     def advance(self) -> bool:
         """Walk every row along its leg — the per-second half of «where is it NOW».
@@ -567,11 +628,15 @@ class _VehicleGrid(WorldGrid):
         """
         moved = False
         for row in self._rows.values():
-            where = vehicle_position(row)
-            if where is None:
-                continue
-            if (where[0], where[1]) != (row.get("x"), row.get("y")):
+            state, where = vehicle_leg(row)
+            if where is not None and (where[0], where[1]) != (row.get("x"), row.get("y")):
                 row["x"], row["y"] = where
+                moved = True
+            # …and the moment a hop ENDS the coordinate stops changing, which is exactly
+            # when the row has to stop claiming to be moving. Without this the cell would
+            # freeze still reading «→ …» — the very confusion the split is for.
+            if state != row.get("leg_state"):
+                row["leg_state"] = state
                 moved = True
         return moved
 
@@ -591,6 +656,10 @@ class TruckGrid(_VehicleGrid):
     COLUMNS = (
         ("owner", "secrettasks.col.owner", 150, "w", False),
         ("coords", "secrettasks.col.coords", 150, "w", False),
+        # …and the far end of the hop it is on, beside the tile it is on NOW (#1298):
+        # one answers «где», the other «успею ли», and asking for the second separately
+        # is a round trip for something already in the row.
+        ("next", "world.col.next_stop", 170, "w", False),
         ("server", "secrettasks.col.server", 90, "w", False),
         ("kind", "world.col.tier", 120, "w", False),
         ("state", "secrettasks.col.state", 200, "w", True),
@@ -600,6 +669,7 @@ class TruckGrid(_VehicleGrid):
     SORT_KEYS = {
         "owner": lambda r: ((r.get("owner_name") or "").lower(), str(r["uuid"])),
         "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), str(r["uuid"])),
+        "next": _next_stop_key,
         "server": lambda r: (int(r["server"] or 0), str(r["uuid"])),
         "kind": lambda r: (str(r.get("tier") or ""), int(r["level"] or 0),
                            str(r["uuid"])),
@@ -643,6 +713,7 @@ class TruckGrid(_VehicleGrid):
     def row_values(self, row) -> tuple:
         return (row.get("owner_name") or "",
                 _coords(row),
+                self.next_stop_text(row),
                 self.tab.t("secrettasks.server", srv=row.get("server")),
                 self.tier_text(row),
                 row["timer"].get(),
@@ -650,7 +721,8 @@ class TruckGrid(_VehicleGrid):
                 "%d/%d" % (int(row.get("rob_times") or 0), 4))
 
     def web_facts(self, row) -> list:
-        return [{"label": "world.col.tier", "value": self.tier_text(row)},
+        return [{"label": "world.col.next_stop", "value": self.next_stop_text(row)},
+                {"label": "world.col.tier", "value": self.tier_text(row)},
                 {"label": "world.col.cargo",
                  "value": human_number(row.get("cargo"))},
                 {"label": "world.col.robs",
@@ -669,6 +741,7 @@ class TrainGrid(_VehicleGrid):
     COLUMNS = (
         ("owner", "world.col.alliance", 170, "w", False),
         ("coords", "secrettasks.col.coords", 150, "w", False),
+        ("next", "world.col.next_stop", 170, "w", False),
         ("server", "secrettasks.col.server", 90, "w", False),
         ("kind", "world.col.carriages", 130, "w", False),
         ("state", "secrettasks.col.state", 200, "w", True),
@@ -677,6 +750,7 @@ class TrainGrid(_VehicleGrid):
     SORT_KEYS = {
         "owner": lambda r: ((r.get("alliance_abbr") or "").lower(), str(r["uuid"])),
         "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0), str(r["uuid"])),
+        "next": _next_stop_key,
         "server": lambda r: (int(r["server"] or 0), str(r["uuid"])),
         "kind": lambda r: (int(r.get("passengers") or 0), str(r["uuid"])),
         "state": lambda r: (r.get("expires_at") or 0, str(r["uuid"])),
@@ -710,6 +784,7 @@ class TrainGrid(_VehicleGrid):
     def row_values(self, row) -> tuple:
         return (row.get("alliance_abbr") or row.get("alliance_name") or "",
                 _coords(row),
+                self.next_stop_text(row),
                 self.tab.t("secrettasks.server", srv=row.get("server")),
                 self.tab.t("world.train.carriages",
                            seats=int(row.get("seats") or 0),
@@ -718,7 +793,8 @@ class TrainGrid(_VehicleGrid):
                 self.fullness_text(row))
 
     def web_facts(self, row) -> list:
-        return [{"label": "world.col.alliance",
+        return [{"label": "world.col.next_stop", "value": self.next_stop_text(row)},
+                {"label": "world.col.alliance",
                  "value": row.get("alliance_name") or row.get("alliance_abbr") or ""},
                 {"label": "world.col.carriages",
                  "value": self.tab.t("world.train.carriages",

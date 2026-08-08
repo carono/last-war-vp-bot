@@ -1435,5 +1435,9 @@
   "world.monster.src.scene": "à l'écran",
   "world.truck.tier": "niv. {level} · {tier}",
   "world.train.carriages": "{seats} wagons · {people} à bord",
-  "world.vehicle.arrives": "arrive dans {t}"
+  "world.vehicle.arrives": "arrive dans {t}",
+  "world.col.next_stop": "Prochain arrêt",
+  "world.vehicle.leg_moving": "→ {where}, en route",
+  "world.vehicle.leg_parked": "à l'arrêt en {where}",
+  "world.vehicle.leg_unknown": "itinéraire inconnu — le point est le dernier signalé"
 }

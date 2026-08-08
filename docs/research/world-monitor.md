@@ -305,14 +305,45 @@ Measured against a live checkpoint while writing this: four trucks, stored `(x, 
 against the position walked off their own legs at that instant — the smallest gap was
 16 tiles and the largest 60. The rows had been on screen for minutes.
 
-**Open, and NOT done here: the camera does not follow.** The person using the panel
-reported that the game's own way of going to a moving target «переносится к ней и следует
-за ней» — the camera tracks the vehicle rather than landing on the tile it was on when the
-link was tapped. The panel's coordinate click is `rt.game.jump` → `GotoWorldPos(x, y, srv)`,
-which lands and stops. With the position now live, a click lands on the right tile and the
-vehicle then walks out of frame. Following it is a different ability (the object handle,
-not a coordinate — `GoToUtil.OnClickWorldPoint(pid, type, uuid)` is where that would start)
-and belongs to whoever takes it, as a scenario.
+### 9e. «Следующая точка» — and why it is not called «Куда»
+
+The live tile answers «где», and on its own that is half the question: the other half is
+«успею ли», and asking for it separately is a round trip for something already in the row.
+So both vehicle pages grew a column beside the coordinate.
+
+**What the wire has is the far end of the CURRENT HOP, and nothing about the destination.**
+A truck watched across two re-sends went `A → B` and then `B → C`: `leg_to` is a waypoint.
+Where the whole run ends is not a field — only `arriveTime` is, which the state cell has
+counted down all along. A column called «Куда» would be inventing a fact the server never
+sent, so it is «Следующая точка».
+
+**And that column is where a live number is told apart from a frozen one**, which is the
+other half of the same lesson as 9b — a reading that cannot say what it is is a reading
+that gets believed wrongly:
+
+| leg state | the cell says | what the coordinate to its left IS |
+|---|---|---|
+| hop running | `→ @[x,y], в движении` | walked, and it changes as you watch |
+| hop over, no new one pushed | `стоит в @[x,y]` | correct and still — the client draws it parked too |
+| no hop at all | `маршрут неизвестен — точка последняя известная` | whatever we were last told |
+
+`TaskGrid.advance()` reports the state flip as well as the movement, because the moment a
+hop ends the coordinate stops changing — which is exactly when the row must stop claiming
+to be moving, and the one tick where nothing moved is the one that would have left it
+saying «в движении» for ever.
+
+### 9f. The camera does not follow, and that turned out to be fine
+
+The person using the panel first reported that the game's own way of going to a moving
+target «переносится к ней и следует за ней». With the position live, the panel's jump
+(`rt.game.jump` → `GotoWorldPos(x, y, srv)`) lands on the vehicle and stops; checked live,
+that is enough — «при переходе находится объект в движении». Their own reading of the
+difference is that the game opens the attack window on the object, and it is the WINDOW
+that glues the camera, not the jump.
+
+So following is not a missing piece of this: it would be an object handle rather than a
+coordinate (`GoToUtil.OnClickWorldPoint(pid, type, uuid)` is where it would start), it
+belongs to the robbery that does not exist yet, and it would be a scenario when it does.
 
 ### 9d. And the button that emptied a list nobody was looking at
 

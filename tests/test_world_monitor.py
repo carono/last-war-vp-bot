@@ -411,6 +411,54 @@ def test_a_vehicle_row_carries_its_leg_and_moves_between_reads():
         assert field in world.TrainGrid.PERSIST_KEYS, field
 
 
+def test_a_live_coordinate_and_a_frozen_one_do_not_look_the_same():
+    """The row says whether its own number is alive — «где» beside «успею ли» (#1298).
+
+    A coordinate walked along a running hop and one left over from the last thing the
+    server said are the same six characters on screen, and only one of them is an answer
+    to «where is it». So the leg's far end is drawn beside the tile, and it is the leg's
+    STATE that is said there: moving, standing, or «we were never told the route».
+
+    It is the NEXT STOP and not the destination, and the wording has to keep that
+    straight: the server describes one hop at a time (a truck went `A → B` then `B → C`
+    across two re-sends), and where the whole run ends is not on the wire at all.
+    """
+    from panel.tabs.secret_tasks import world
+
+    row = {"uuid": 5, "leg_from": [10, 20], "leg_to": [30, 20],
+           "leg_start_ms": 1000, "leg_end_ms": 2000}
+    assert world.vehicle_leg(row, now_ms=1500)[0] == world.LEG_MOVING
+    # The hop is over and no new one has been pushed: the vehicle really is standing at
+    # the far end — that is what the client draws too — so «стоит», not «→».
+    assert world.vehicle_leg(row, now_ms=5000)[0] == world.LEG_PARKED
+    assert world.vehicle_leg({"x": 1, "y": 2})[0] == world.LEG_NONE
+
+    page = object.__new__(world.TruckGrid)
+    page.tab = type("t", (), {"t": staticmethod(lambda key, **fmt: key)})()
+    assert page.next_stop_text({"x": 1, "y": 2}) == "world.vehicle.leg_unknown"
+
+    # …and the flip from «moving» to «standing» is a CELL CHANGE with no movement behind
+    # it, so `advance` has to report it or the row would freeze still claiming to move.
+    parked = dict(row, x=30, y=20, leg_state=world.LEG_MOVING)
+    page._rows = {"5": parked}
+    assert page.advance() is True
+    assert parked["leg_state"] == world.LEG_PARKED
+    assert page.advance() is False, "a settled row must not ask for a redraw every tick"
+
+    # Both vehicle pages draw it, and the heading sorts — a column that does nothing when
+    # it is clicked is a column that lies about being one.
+    for grid_cls in (world.TruckGrid, world.TrainGrid):
+        ids = [c[0] for c in grid_cls.COLUMNS]
+        assert "next" in ids and "next" in grid_cls.SORT_KEYS, grid_cls.CONFIG_KEY
+        labels = {c[0]: c[1] for c in grid_cls.COLUMNS}
+        assert labels["next"] == "world.col.next_stop"
+    # A row with no route sorts last whatever its coordinate says: it is the one row whose
+    # point is not an answer to «where is it».
+    assert world._next_stop_key({"uuid": 1, "leg_state": world.LEG_MOVING,
+                                 "leg_to": [9, 9]}) < world._next_stop_key(
+        {"uuid": 2, "leg_state": world.LEG_NONE, "leg_to": []})
+
+
 def test_a_page_that_stands_still_never_claims_to_have_moved():
     """`advance` costs a redraw, so only the two pages that move may ask for one."""
     from panel.tabs.secret_tasks import grid, world

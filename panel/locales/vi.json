@@ -1435,5 +1435,9 @@
   "world.monster.src.scene": "trên màn hình",
   "world.truck.tier": "cấp {level} · {tier}",
   "world.train.carriages": "{seats} toa · {people} người",
-  "world.vehicle.arrives": "tới sau {t}"
+  "world.vehicle.arrives": "tới sau {t}",
+  "world.col.next_stop": "Điểm dừng kế tiếp",
+  "world.vehicle.leg_moving": "→ {where}, đang di chuyển",
+  "world.vehicle.leg_parked": "đang đứng tại {where}",
+  "world.vehicle.leg_unknown": "không rõ lộ trình — điểm này là điểm cuối được báo"
 }

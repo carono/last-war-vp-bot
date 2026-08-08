@@ -1435,5 +1435,9 @@
   "world.monster.src.scene": "ekranda",
   "world.truck.tier": "sv. {level} · {tier}",
   "world.train.carriages": "{seats} vagon · {people} kişi",
-  "world.vehicle.arrives": "{t} içinde varır"
+  "world.vehicle.arrives": "{t} içinde varır",
+  "world.col.next_stop": "Sonraki durak",
+  "world.vehicle.leg_moving": "→ {where}, yolda",
+  "world.vehicle.leg_parked": "{where} konumunda duruyor",
+  "world.vehicle.leg_unknown": "güzergâh bilinmiyor — nokta bize son bildirilen nokta"
 }

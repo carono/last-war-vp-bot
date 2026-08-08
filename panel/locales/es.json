@@ -1435,5 +1435,9 @@
   "world.monster.src.scene": "en pantalla",
   "world.truck.tier": "nv. {level} · {tier}",
   "world.train.carriages": "{seats} vagones · {people} a bordo",
-  "world.vehicle.arrives": "llega en {t}"
+  "world.vehicle.arrives": "llega en {t}",
+  "world.col.next_stop": "Próxima parada",
+  "world.vehicle.leg_moving": "→ {where}, en marcha",
+  "world.vehicle.leg_parked": "parado en {where}",
+  "world.vehicle.leg_unknown": "ruta desconocida — el punto es el último que nos dijeron"
 }

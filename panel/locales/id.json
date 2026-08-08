@@ -1435,5 +1435,9 @@
   "world.monster.src.scene": "di layar",
   "world.truck.tier": "lv. {level} · {tier}",
   "world.train.carriages": "{seats} gerbong · {people} penumpang",
-  "world.vehicle.arrives": "tiba dalam {t}"
+  "world.vehicle.arrives": "tiba dalam {t}",
+  "world.col.next_stop": "Perhentian berikutnya",
+  "world.vehicle.leg_moving": "→ {where}, sedang bergerak",
+  "world.vehicle.leg_parked": "berhenti di {where}",
+  "world.vehicle.leg_unknown": "rute tidak diketahui — titiknya adalah yang terakhir diberitahukan"
 }
