@@ -21,6 +21,10 @@ broken.
                                                           flush it every 3s, not 15
     python tools/scan_leaderboard.py --board al.rank      only that board
     python tools/scan_leaderboard.py --known-only         skip boards found by shape
+    python tools/scan_leaderboard.py --sqlite hist.db --quiet
+                                                          collect silently: counts on a
+                                                          marker line, no player rows
+                                                          (what the panel's trigger runs)
     python tools/scan_leaderboard.py --dump results/traffic.jsonl
                                                           also record every frame
     python tools/scan_leaderboard.py --list-ifaces        interfaces, then exit
@@ -111,6 +115,12 @@ from map_capture import (  # noqa: E402
     MapIndex, add_capture_arguments, check_platform, dump_records, human_size,
     start_capture,
 )
+
+#: The one line `--quiet` prints on a tick, for a parent to read instead of the
+#: human ones: `##LBSTAT##\tboards=2\trows=100\tsnapshots=3`. It carries COUNTS and
+#: nothing else — no name, no uid — because the parent that reads it (the panel's
+#: leaderboard trigger) writes what it hears into a log people send each other.
+STAT_MARKER = "##LBSTAT##"
 
 
 class LeaderboardIndex(MapIndex):
@@ -263,6 +273,13 @@ def main() -> int:
     ap.add_argument("--known-only", action="store_true",
                     help="collect only the boards lastwar_proto.py describes, "
                          "skipping any found by shape")
+    ap.add_argument("--quiet", action="store_true",
+                    help="print no rows and no human tick line — one machine-readable "
+                         f"'{STAT_MARKER} boards=… rows=… snapshots=…' per tick "
+                         "instead. For a parent that logs what this child says: the "
+                         "row lines carry player names and uids, and a long run "
+                         "prints a tick every --interval seconds, so an unattended "
+                         "collector would fill somebody's log with both")
     args = ap.parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter
     # rather than refused by a check about capturing packets.
@@ -312,26 +329,43 @@ def main() -> int:
                 last_tick = time.time()
                 left = (f"…{int(deadline - time.time())}s left"
                         if deadline is not None else "…running")
-                print(f"{C_DIM}  {left} — {len(index.boards_seen)} board(s) "
-                      f"opened, {len(index.rows)} row(s) collected{C_RESET}")
+                if not args.quiet:
+                    print(f"{C_DIM}  {left} — {len(index.boards_seen)} board(s) "
+                          f"opened, {len(index.rows)} row(s) collected{C_RESET}")
                 if args.json and not dump_records(index.records(), args.json):
-                    print(f"{C_DIM}  (checkpoint locked, skipped this "
-                          f"flush){C_RESET}")
+                    if not args.quiet:
+                        print(f"{C_DIM}  (checkpoint locked, skipped this "
+                              f"flush){C_RESET}")
                 if index.transcript is not None:
                     # Flushed here rather than per frame, so a reader tailing
                     # the transcript is one tick behind at worst and the
                     # sniffer thread is never blocked on the disk.
                     index.transcript.flush()
-                    print(f"{C_DIM}  transcript: "
-                          f"{index.transcript.frames} frame(s), "
-                          f"{human_size(index.transcript.size())}{C_RESET}")
+                    if not args.quiet:
+                        print(f"{C_DIM}  transcript: "
+                              f"{index.transcript.frames} frame(s), "
+                              f"{human_size(index.transcript.size())}{C_RESET}")
+                saved = ()
                 if store is not None:
                     saved = leaderboard_store.save_records(
                         store, index.records(), int(time.time()))
-                    if saved:
+                    if saved and not args.quiet:
                         print(f"{C_DIM}  history: +{len(saved)} snapshot(s) "
                               f"({', '.join(sorted(saved))}){C_RESET}")
+                if args.quiet:
+                    # Counts only, one line, for the parent to roll up. The board
+                    # names are left out too: they are safe, but the parent has no
+                    # use for them and a shorter line is a cheaper pipe.
+                    print(f"{STAT_MARKER}\tboards={len(index.boards_seen)}"
+                          f"\trows={len(index.rows)}\tsnapshots={len(saved)}",
+                          flush=True)
             for row in index.take_new():
+                if args.quiet:
+                    # THE ROWS ARE THE PII: a name and a uid on every one. Still
+                    # drained — `take_new` is what marks a row as reported, so
+                    # skipping the call would make the next tick print the whole
+                    # board again — but never printed.
+                    continue
                 if row.board not in announced:
                     announced.add(row.board)
                     tag = (f" {C_DIM}(found by shape — position and score are "

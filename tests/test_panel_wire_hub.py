@@ -215,6 +215,40 @@ def test_a_human_line_is_left_for_the_log():
     assert hub._on_line(f"{FIRE_MARKER}\tal.help.new") is False
 
 
+def test_the_child_is_asked_for_markers_only():
+    """No human line from the child, because that line carries the push's PAYLOAD.
+
+    `uid`, `senderName`, `allianceId` — a live panel.log had 6 307 of them for one push
+    (#1293), and a log is a file people send each other when something goes wrong.
+    """
+    rt, hub = _hub()
+    hub.subscribe("al.help.new", lambda c: None)
+    assert "--quiet" in rt.children.spawned[-1].cmd, rt.children.spawned[-1].cmd
+
+
+def test_what_the_ear_heard_is_rolled_up_and_names_nobody():
+    """The first is said at once; the rest are counted and said once a window."""
+    import panel.runtime.wire as wiremod
+
+    rt, hub = _hub()
+    hub.subscribe("push.alliance.march", lambda c: None)
+    rt.said.clear()
+    for _ in range(500):
+        _fire(hub, "push.alliance.march.refresh")
+    assert len(rt.said) == 1, [s[1] for s in rt.said]
+    tag, key, fmt = rt.said[0]
+    assert key == "triggers.log.heard", key
+    assert fmt["count"] == 1, fmt          # the first one, said on its own
+
+    # …and the window's worth, in one line carrying the count and the command name.
+    hub._heard_said -= wiremod.HEARD_NOTE_SEC + 1
+    _fire(hub, "push.alliance.march.refresh")
+    assert len(rt.said) == 2, [s[1] for s in rt.said]
+    fmt = rt.said[1][2]
+    assert fmt["count"] == 500, fmt        # the 499 counted plus this one
+    assert "push.alliance.march.refresh×500" == fmt["detail"], fmt
+
+
 def test_widening_the_patterns_relaunches_the_ear_and_narrowing_it_back_too():
     """The child carries the union, so a new pattern is a new command line."""
     rt, hub = _hub()

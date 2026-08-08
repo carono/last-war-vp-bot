@@ -71,10 +71,16 @@ class EventMonitor(LiveDecoder):
     subclass, since the scapy sniffer calls ``feed_packet`` regardless.
     """
 
-    def __init__(self, patterns, cooldown: float = COOLDOWN):
+    def __init__(self, patterns, cooldown: float = COOLDOWN, quiet: bool = False):
         super().__init__()
         self.patterns = tuple(patterns)
         self.cooldown = cooldown
+        # `quiet`: print the marker and NOT the human line. The summary beside a
+        # command is the push's own payload — `uid`, `senderName`, `allianceId` — and
+        # a parent that logs this child's lines writes all of it into a file people
+        # send each other when something goes wrong (#1293). The panel runs quiet and
+        # says what it heard in its own words, by counts.
+        self.quiet = quiet
         self.matches = 0            # matching commands seen
         self.fired = 0              # markers actually printed (after the cooldown)
         # PER COMMAND, not one clock for the whole ear. With a single `--match` the two
@@ -100,11 +106,13 @@ class EventMonitor(LiveDecoder):
         # callback (an un-encodable name, a closed pipe) would take the capture
         # socket down with it, and losing the line is far cheaper than that.
         try:
-            payload = proto.envelope_payload(env)
-            # Two lines: the marker the panel acts on, then the human line for the log.
+            # Two lines: the marker the panel acts on, then the human line for the log
+            # — the second one only when somebody is reading this in a terminal.
             print(f"{FIRE}\t{command}", flush=True)
-            print(f"{_stamp()} {C_FIRE}<-- {command}{C_RESET}  {summarise(payload)}",
-                  flush=True)
+            if not self.quiet:
+                payload = proto.envelope_payload(env)
+                print(f"{_stamp()} {C_FIRE}<-- {command}{C_RESET}  {summarise(payload)}",
+                      flush=True)
         except Exception:            # noqa: BLE001 — never let the log kill the ear
             pass
 
@@ -133,6 +141,11 @@ def main() -> int:
                     help="fire when a down command name contains this (repeatable)")
     ap.add_argument("--cooldown", type=float, default=COOLDOWN, metavar="SEC",
                     help=f"quiet time between two markers (default {COOLDOWN})")
+    ap.add_argument("--quiet", action="store_true",
+                    help="print the markers only — no human line per match. That line "
+                         "carries the push's payload (uid, sender name, alliance id), "
+                         "so a parent logging this child's output would write player "
+                         "identifiers into its log; the panel runs with this on")
     args = ap.parse_args()
     # After parsing, so `--help` reads from the WSL interpreter rather than being
     # refused by the capture-only platform check.
@@ -149,7 +162,7 @@ def main() -> int:
     except Exception:
         pass
 
-    monitor = EventMonitor(args.match, cooldown=args.cooldown)
+    monitor = EventMonitor(args.match, cooldown=args.cooldown, quiet=args.quiet)
     stop, bpf = start_capture(monitor, args)
 
     print("Wire-event listener — scapy/npcap, no dumpcap")

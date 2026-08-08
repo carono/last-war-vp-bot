@@ -88,6 +88,15 @@ DEFAULT_POLL_INTERVAL_SEC = 15
 DEFAULT_POLL_COOLDOWN_SEC = 90
 MIN_POLL_INTERVAL_SEC = 5
 
+# How often ONE trigger may say the same thing about its fires. A push that arrives all
+# day arrives thousands of times — one live log carried 6 675 «пришло
+# push.alliance.march — запускаю сценарий» lines for a single trigger (#1293) — and a
+# line each buries everything else in the log. Same answer as a repeated skip
+# (`timers.SKIP_NOTE_SEC`, #1281) and the same shape: the first is said at once, and
+# while nothing about it changes the rest are rolled up into one line carrying the
+# count. A DIFFERENT outcome (queued → already running) is news and is said at once.
+FIRE_NOTE_SEC = 60.0
+
 
 @dataclass(frozen=True)
 class BackoffPolicy:
@@ -785,6 +794,9 @@ class TriggerWatcher:
         # profile switch runs `sync`, which stops and re-starts the handle, but a kick
         # war in progress must not have its count reset by that.
         self._backoff: dict[str, BackoffState] = {}
+        # The fire roll-up, per trigger: [locale key last said, fires counted since,
+        # monotonic of that line]. See :data:`FIRE_NOTE_SEC`.
+        self._fires: dict[str, list] = {}
         self._started = False
 
     # -- lifecycle ----------------------------------------------------------
@@ -913,7 +925,34 @@ class TriggerWatcher:
         self._dbg.info("fire %s on %s", trigger.name, trigger.signal())
         outcome = self._submit(trigger)
         key = self._FIRE_WORDS.get(outcome, "triggers.log.fire")
-        self._log(key, name=trigger.name, event=trigger.signal())
+        self._note_fire(trigger, key)
+
+    def _note_fire(self, trigger, key: str) -> bool:
+        """Say what became of this fire — rolled up while it keeps saying the same.
+
+        The first fire, and any fire whose outcome differs from the last one said, is
+        said at once in its own words. While the SAME outcome keeps coming back for the
+        same trigger it is said again at most every :data:`FIRE_NOTE_SEC`, carrying how
+        many fires have piled up since. Returns whether a line was written, which is
+        what the tests read.
+        """
+        now = time.monotonic()
+        with self._lock:
+            note = self._fires.get(trigger.name)
+            if note is not None and note[0] == key:
+                note[1] += 1
+                if now - note[2] < FIRE_NOTE_SEC:
+                    return False
+                count, note[1], note[2] = note[1], 0, now
+            else:
+                self._fires[trigger.name] = [key, 0, now]
+                count = 1
+        if count > 1:
+            self._log("triggers.log.fire_more", name=trigger.name,
+                      event=trigger.signal(), count=count)
+        else:
+            self._log(key, name=trigger.name, event=trigger.signal())
+        return True
 
     def on_listener_exit(self, name: str) -> None:
         """A listener died on its own — forget the handle so :meth:`sync` respawns."""

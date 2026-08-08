@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 from . import game_process
 from .paths import TOOLS
@@ -53,6 +54,18 @@ from .paths import TOOLS
 #: The marker line the child prints for every match. Kept in `panel/triggers.py` because
 #: that is where the trigger vocabulary lives; imported rather than re-spelled.
 from ..triggers import FIRE_MARKER
+
+#: How often the ear may say what it has been hearing. Every match used to print a line
+#: of its own — the command plus a summary of its payload — and a live day carried 6 307
+#: of them for one push alone, each one naming a `uid` and an `allianceId` (#1293). The
+#: child prints no such line any more (`--quiet`); what the log gets instead is this:
+#: the first thing heard said at once, and after that a roll-up no oftener than this,
+#: carrying the COUNTS per command and no field of any payload.
+HEARD_NOTE_SEC = 600.0
+
+#: How many distinct commands a roll-up names before it says «and N more». A profile
+#: with every trigger on subscribes to a handful of patterns, so this is generous.
+HEARD_TOP = 3
 
 
 class WireHub:
@@ -75,6 +88,10 @@ class WireHub:
         self._next = 0
         self._proc = None              # the capture child, while anybody wants it
         self._running: tuple = ()      # the pattern set it was actually launched with
+        # What has been heard since the last roll-up line: command -> how many. Under
+        # `_lock`, because the markers arrive on the child's reader thread.
+        self._heard: dict = {}
+        self._heard_said = 0.0         # monotonic of the last roll-up line
 
     # -- subscribing ---------------------------------------------------------
     def subscribe(self, pattern: str, on_fire):
@@ -141,6 +158,12 @@ class WireHub:
         # on it must not sit out a throttle meant for tidiness (#1237). The panel's queue
         # coalesces the PRESSES anyway, so nothing is run twice by this.
         cmd += ["--cooldown", "0.3"]
+        # MARKERS ONLY. The child's human line per match carries the push's payload, and
+        # everything this child prints lands in the profile's panel.log — a file people
+        # send each other when something goes wrong, so a mate's uid and an alliance id
+        # have no business in it (#1293). What the ear heard is said here instead, by
+        # counts, in `_note_heard`.
+        cmd += ["--quiet"]
         # WHOSE traffic this ear is for. Two accounts of the same game dial the same
         # server port, so the capture filter cannot separate them and every profile's
         # ear has been hearing both — a trigger firing in one account off the other's
@@ -190,6 +213,7 @@ class WireHub:
         if not line.startswith(FIRE_MARKER):
             return None
         command = line[len(FIRE_MARKER):].strip()
+        self._note_heard(command)
         with self._lock:
             wanted = [(pattern, cb) for pattern, cb in self._subs.values()]
         for pattern, callback in wanted:
@@ -200,3 +224,27 @@ class WireHub:
                     self._rt.dbg("triggers").error(
                         "wire subscriber for %r raised", pattern, exc_info=True)
         return False
+
+    def _note_heard(self, command: str) -> bool:
+        """Tally one heard command; say what has piled up, at most every
+        :data:`HEARD_NOTE_SEC`. Returns whether a line was written (the tests read it).
+
+        The first command after a quiet stretch is said at once — «ухо живо» is worth
+        one line — and everything after it is counted until the window is up. Only
+        command NAMES and counts are ever said: the payload never reaches this side of
+        the pipe any more, which is the whole point (#1293).
+        """
+        now = time.monotonic()
+        with self._lock:
+            self._heard[command] = self._heard.get(command, 0) + 1
+            if now - self._heard_said < HEARD_NOTE_SEC:
+                return False
+            self._heard_said = now
+            heard, self._heard = self._heard, {}
+        total = sum(heard.values())
+        top = sorted(heard.items(), key=lambda kv: (-kv[1], kv[0]))
+        detail = ", ".join(f"{name}×{n}" for name, n in top[:HEARD_TOP])
+        if len(top) > HEARD_TOP:
+            detail += f", +{len(top) - HEARD_TOP}"
+        self._rt.say("trigger", "triggers.log.heard", count=total, detail=detail)
+        return True

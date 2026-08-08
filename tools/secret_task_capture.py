@@ -439,9 +439,14 @@ def main() -> int:
                     continue
                 reported.add(key)
                 star = " *" if task.starred else "  "
-                # Owner uid matters most on starred tasks (whose base you are
-                # about to raid), so show it there.
-                owner = f"  owner {task.owner_uid}" if task.starred else ""
+                # NO OWNER UID ON THE LINE (#1293). It used to be printed for a
+                # starred tile — «whose base you are about to raid» — and the panel
+                # logs every line this child prints, so somebody else's account id
+                # ended up in a file people send each other when something goes
+                # wrong. It is still decoded and still written to the checkpoint,
+                # which is what the tab and the robbery read; only the printed line
+                # loses it, and the coordinate on that line is what a person acts on
+                # anyway.
                 if task.pending:
                     tag = f"  {C_OK}PENDING{C_RESET}"
                 elif task.can_loot:
@@ -450,7 +455,7 @@ def main() -> int:
                     tag = ""
                 print(f"{star} lvl {task.level:>2}  {coords.fmt(task.x, task.y, task.server_id)}"
                       f"  steal {task.loot_count}/3"
-                      f"  family {task.family}  cfg {task.cfg_id}{owner}{tag}")
+                      f"  family {task.family}  cfg {task.cfg_id}{tag}")
     except KeyboardInterrupt:
         pass
     finally:

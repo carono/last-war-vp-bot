@@ -585,6 +585,26 @@ purpose: losing the separation is a fair price for an unanswerable question, whi
 capture that went deaf would make a profile farming nothing look like one with nothing
 to do.
 
+**Everything a child prints lands in `panel.log`, so two things never go on its
+lines: an identifier, and a heartbeat.** A capture writes for a person watching a
+terminal; the panel logs it for months into a file people attach to a bug report. The
+leaderboard collector was both at once — a progress line every 15 s and a line per
+collected row carrying a player's name and uid: 5 115 ticks and 2 943 named players in
+one live profile's log (#1293). The answer is the same on both counts and it is the
+PARENT's job:
+
+* **ask the child to be quiet** (`--quiet` on `scan_leaderboard.py` and on
+  `wire_event_monitor.py`) so the identifiers never cross the pipe, and let it print
+  one machine-readable line of COUNTS per tick instead;
+* **roll the counts up in an `on_line` filter**: return `False` to swallow the marker,
+  say the first one at once so the person can see the child is alive, and after that a
+  line no oftener than a window (`LEADERBOARD_NOTE_SEC`, `HEARD_NOTE_SEC` — ten
+  minutes), carrying what piled up inside it.
+
+The data itself is not the problem and does not move: the boards go on being written to
+the profile's own `leaderboard_history.db`, the tiles to its checkpoint. It is the LOG
+that has no business holding somebody else's account id.
+
 ---
 
 ## Errands a tab brings with it

@@ -327,6 +327,42 @@ def test_a_fired_push_submits_the_scenario():
     assert h.submitted == ["ah"]
 
 
+def test_a_push_that_keeps_arriving_is_said_once_and_then_rolled_up():
+    """One trigger's log line per push buried a live log: 6 675 of them in a day
+    for a single trigger (#1293). The first is said, the rest are counted."""
+    h = _Harness(_catalogue())
+    h.config = {"ah": True}
+    h.watcher.start()
+    h.log.clear()
+    for _ in range(200):
+        h.fires["ah"]()
+    assert len(h.log) == 1, [k for k, _f in h.log]
+    assert h.log[0][0] == "triggers.log.fire", h.log[0]
+
+    # The window is up: one line, carrying everything that piled up inside it.
+    h.watcher._fires["ah"][2] -= triggersmod.FIRE_NOTE_SEC + 1
+    h.fires["ah"]()
+    assert len(h.log) == 2, [k for k, _f in h.log]
+    key, fmt = h.log[1]
+    assert key == "triggers.log.fire_more", key
+    assert fmt["count"] == 200, fmt         # the 199 counted, plus this one
+
+
+def test_a_different_outcome_is_said_at_once_however_recent_the_last_line():
+    """«уже в очереди» after «запускаю» is news, not a repeat — the roll-up must
+    not swallow it, or a change of behaviour would go unrecorded for a minute."""
+    h = _Harness(_catalogue())
+    h.config = {"ah": True}
+    h.watcher.start()
+    trigger = next(iter(h.catalogue))
+    h.log.clear()
+    assert h.watcher._note_fire(trigger, "triggers.log.fire") is True
+    assert h.watcher._note_fire(trigger, "triggers.log.fire") is False
+    assert h.watcher._note_fire(trigger, "triggers.log.fire_waiting") is True
+    assert [k for k, _f in h.log] == ["triggers.log.fire",
+                                      "triggers.log.fire_waiting"], h.log
+
+
 def test_unticking_takes_the_listener_down():
     h = _Harness(_catalogue())
     h.config = {"ah": True}

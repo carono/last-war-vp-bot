@@ -44,6 +44,19 @@ from . import game_process
 #: parked behind a window that is busy.
 ASK_TIMEOUT_SEC = 3.0
 
+#: How often the leaderboard collector may say how it is getting on. Its child prints a
+#: progress line every 15 s and a line per collected row, and the panel logged all of
+#: it: 5 115 tick lines and 2 943 lines carrying a player's name and uid in one live
+#: log (#1293). The child now prints counts on one marker line instead (`--quiet`), and
+#: this is how often those counts become a sentence: the first tick at once, so the
+#: person knows the collector is up, then a roll-up no oftener than this.
+LEADERBOARD_NOTE_SEC = 600.0
+
+#: The marker the quiet collector prints per tick, `##LBSTAT##\tboards=…\trows=…`.
+#: Spelled here to match `tools/scan_leaderboard.py` — the two processes agree on this
+#: string and nothing else.
+LEADERBOARD_STAT = "##LBSTAT##"
+
 
 class _Subscription:
     """A wire subscription wearing the shape the trigger watcher expects.
@@ -92,6 +105,10 @@ class Schedule:
         # there are not — which is the case for a profile that does not show the tab.
         self.timer_config_source = None
         self.trigger_config_source = None
+        # The leaderboard collector's roll-up: when its counts were last said, and how
+        # many history snapshots have been written since (:meth:`_leaderboard_line`).
+        self._lb_said = 0.0
+        self._lb_snapshots = 0
 
         self.load_timers()
         self.load_triggers()
@@ -523,13 +540,53 @@ class Schedule:
         return _Subscription(self.rt.wire.subscribe(trigger.event_pattern, on_event))
 
     def _spawn_leaderboard(self, trigger):
+        """The collector child — quiet, and rolled up on this side.
+
+        `--quiet` is not tidiness. Left to itself the child prints a progress line every
+        15 s and a line per row it collects, each row a player's NAME and UID, and every
+        one of those lines landed in the profile's panel.log: 5 115 ticks and 2 943
+        named players in one live log (#1293). The history itself is unchanged — the
+        names go into the profile's own leaderboard_history.db, which is what it is for
+        and which never leaves the machine.
+        """
         mon = self.rt.children.spawn(
             "trigger",
             [self.rt.children.python(), "-u",
              os.path.join(TOOLS, "scan_leaderboard.py"),
-             "--sqlite", self.rt.profiles.leaderboard_db()],
+             "--sqlite", self.rt.profiles.leaderboard_db(), "--quiet"],
+            on_line=self._leaderboard_line,
             on_exit=lambda n=trigger.name: self.on_listener_exit(n))
         return mon if mon.start() else None
+
+    def _leaderboard_line(self, line: str):
+        """One line off the collector: swallow its tick marker, roll the counts up.
+
+        ``False`` swallows the line (machinery, like the wire ear's marker); ``None``
+        lets anything else — the child's own start-up and errors — reach the log as it
+        always did. The first tick is said at once so the person can see the collector
+        is up; after that a line no oftener than :data:`LEADERBOARD_NOTE_SEC`, carrying
+        the boards and rows the child holds and how many snapshots it has written since
+        the last one.
+        """
+        if not line.startswith(LEADERBOARD_STAT):
+            return None
+        stats: dict = {}
+        for part in line[len(LEADERBOARD_STAT):].split():
+            key, _, value = part.partition("=")
+            try:
+                stats[key.strip()] = int(value)
+            except ValueError:                   # noqa: PERF203 — a garbled tick is not
+                continue                         # worth losing the rest of the line for
+        self._lb_snapshots += stats.get("snapshots", 0)
+        now = time.monotonic()
+        if self._lb_said and now - self._lb_said < LEADERBOARD_NOTE_SEC:
+            return False
+        self._lb_said = now
+        saved, self._lb_snapshots = self._lb_snapshots, 0
+        self.rt.say("trigger", "triggers.log.leaderboard",
+                    boards=stats.get("boards", 0), rows=stats.get("rows", 0),
+                    saved=saved)
+        return False
 
     def on_listener_exit(self, name: str) -> None:
         """A trigger's listener died on its own — forget it and say so.
