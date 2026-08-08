@@ -991,8 +991,31 @@ Finished targets are now kept until their ttl runs out: skipped by the step (`li
 only what is not `done`), recognised by the harvest as `already-queued`, and counted apart
 in the report as `spent=` so `queued=` still means work left to do.
 
+### …and then the gate itself turned out to be lying for the first few seconds
+
+The first fix was deployed and the very next lap showed the same failure with a new
+timestamp:
+
+```
+21:01:50  sent=1  … [x12/scan/0s:squad1]     the march goes out
+21:01:55  claimed=1 … [x12/scan/5s:claim1]   five seconds later, and free=3 busy=0
+```
+
+`not marching` had been added, and `marching` was FALSE — five seconds after the send, on
+a march that was on its way. **A squad whose march the server has not confirmed yet still
+reads free in `GetOwnerFormationMarch`** — the same trap noted further up for a second
+march in a row, met here from the other side. Gating on a reading is only worth anything
+when the reading is trustworthy, and for the first seconds after a send it is not.
+
+So the ABSENCE of a march is believed only once one of two things is true: a march has
+actually been seen on that squad (`t.march_seen`, which settles it outright), or
+`TREASURE_MARCH_SETTLE_SEC` — 20 s, comfortably longer than the server ever took to answer
+here and shorter than the claim's own retry — has passed since the send. Until then the
+note says `march-unanswered`, which is the truth: nobody knows yet.
+
 Both are pinned offline — `tests/test_treasure_auto.py`,
-`test_the_dig_feed_does_not_claim_over_a_march_still_in_flight` and
+`test_the_dig_feed_does_not_claim_over_a_march_still_in_flight`,
+`test_a_march_the_server_has_not_answered_yet_is_not_a_march_that_is_over` and
 `test_a_spent_chest_is_not_queued_again_by_the_next_lap`. Each one fails against the code as
 it was.
 

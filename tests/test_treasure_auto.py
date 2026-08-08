@@ -192,6 +192,18 @@ def _came_home(lua, slot: int = 1) -> None:
                 "do if f.index == %d then f.__out = false end end" % slot)
 
 
+def _march_answered(lua) -> None:
+    """Let the server's answer to the march arrive — or its absence become believable.
+
+    A squad whose march the server has not confirmed yet still reads FREE (#1296, measured
+    live: the send at 21:01:50 and `free=3 busy=0` five seconds later, on a march that was
+    on its way). So the errand does not believe «no march» until either one has been seen
+    or the settle has passed, and a test whose squad never goes out has to let that clock
+    run — which is exactly what a march the client dropped in silence looks like.
+    """
+    lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_MARCH_SETTLE_SEC + 1) * 1000))
+
+
 def _still_marching(lua, slot: int = 1) -> None:
     """The squad this target was sent with is still in the air."""
     lua.execute("for _, f in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) "
@@ -335,6 +347,7 @@ def test_no_claim_before_the_dig_is_heard():
     lua = _vm()
     _announce(lua)
     _step(lua)
+    _march_answered(lua)
     report = _step(lua)
     assert _claims(lua) == []
     assert "waiting=1" in report and ":digging" in report, report
@@ -349,6 +362,7 @@ def test_the_alliance_feed_opens_the_claim_rather_than_closing_it():
     lua = _vm()
     _announce(lua)
     _step(lua)
+    _march_answered(lua)
     _dug(lua)
     report = _step(lua)
     claims = _claims(lua)
@@ -414,6 +428,41 @@ def test_the_dig_feed_does_not_claim_over_a_march_still_in_flight():
     assert len(_claims(lua)) == 1, _claims(lua)
 
 
+def test_a_march_the_server_has_not_answered_yet_is_not_a_march_that_is_over():
+    """AND THE SAME GATE HAS TO SURVIVE THE CLIENT'S OWN LAG (#1296).
+
+    Gating the claim on «is our squad marching?» is only worth anything if the answer is
+    trustworthy, and for the first seconds after a send it is not: a squad whose march the
+    server has not confirmed yet still reads FREE. Measured live — the send at 21:01:50,
+    and the report five seconds later saying `free=3 busy=0` on a march that was on its
+    way. The first version of the fix read that as «the march is over», claimed, and was
+    refused exactly as before.
+
+    So the absence of a march is believed only once one has been SEEN, or once the settle
+    has passed — and until then the note says `march-unanswered` rather than pretending to
+    know.
+    """
+    if not _needs_lua("an unanswered march is not a finished one"):
+        return
+    lua = _vm()
+    _announce(lua)
+    _step(lua)                                   # the send goes out…
+    _dug(lua)                                    # …and the alliance finishes at once
+    #: the client has not answered the march yet — the squad still reads free
+    report = _step(lua)
+    assert _claims(lua) == [], "claimed into a march the server had not answered yet"
+    assert "march-unanswered" in report, report
+    #: the answer arrives: the squad is out, so the claim keeps waiting for it
+    _still_marching(lua, slot=1)
+    report = _step(lua)
+    assert _claims(lua) == [], report
+    assert "dug-still-marching" in report, report
+    #: …and once it is home, the claim goes
+    _came_home(lua, slot=1)
+    _step(lua)
+    assert len(_claims(lua)) == 1, _claims(lua)
+
+
 def test_a_spent_chest_is_not_queued_again_by_the_next_lap():
     """A FINISHED CHEST IS REMEMBERED, NOT FORGOTTEN — the second half of the same live
     failure (#1296).
@@ -432,9 +481,11 @@ def test_a_spent_chest_is_not_queued_again_by_the_next_lap():
     _walk(lua)
     assert _queued(lua) == 1
 
-    #: worked to the end and paid for
+    #: worked to the end and paid for — the squad goes out, is seen out, and comes home
     _step(lua)
     assert len(_marched(lua)) == 1, _marched(lua)
+    _still_marching(lua, slot=1)
+    _step(lua)
     _came_home(lua, slot=1)
     _dug(lua, uuid=_OTHER_UUID)
     _step(lua)
@@ -464,6 +515,7 @@ def test_a_claim_is_proven_by_the_reward_window_and_not_by_the_send():
     lua = _vm()
     _announce(lua)
     _step(lua)
+    _march_answered(lua)
     _dug(lua)
     report = _step(lua)
     assert "claim1" in report, report
@@ -500,6 +552,7 @@ def test_a_sent_claim_waits_its_retry_out_rather_than_going_every_tick():
     lua = _vm()
     _announce(lua)
     _step(lua)
+    _march_answered(lua)
     _dug(lua)
     _step(lua)
     assert len(_claims(lua)) == 1
@@ -583,6 +636,7 @@ def test_the_poll_is_true_when_nothing_is_listening():
     _announce(lua)
     assert lua.eval(lua_actions.treasure_auto_check()) is True
     _step(lua)
+    _march_answered(lua)
     _dug(lua)
     _step(lua)                      # the claim goes out — and is not yet proof
     assert lua.eval(lua_actions.treasure_auto_check()) is True
@@ -781,6 +835,7 @@ def test_a_push_is_read_although_it_carries_no_sfsobject_keys():
     _announce(lua, plain=True)                    # the announcement, plain-table shape
     assert _queued(lua) == 1, "a plain-table share must still become a target"
     _step(lua)
+    _march_answered(lua)
     _dug(lua, plain=True)                         # …and the dig gate off a plain table
     t = lua.eval("DataCenter.__lw_treasure_auto.targets[1]")
     assert t["dug"] is not None, "the dig broadcast was not read off a plain table"

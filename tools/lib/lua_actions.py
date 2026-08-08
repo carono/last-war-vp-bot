@@ -3328,6 +3328,16 @@ TREASURE_CLAIM_RETRY_SEC = 25
 #: as ours while it is this fresh — any window later than that could be any other reward.
 TREASURE_PAID_WINDOW_SEC = 20
 
+#: How long a march is given to APPEAR before its absence is believed. A squad whose
+#: march the server has not confirmed yet still reads free — measured live on 2026-08-08:
+#: the send went out at 21:01:50, the report five seconds later said `free=3 busy=0`, and
+#: `GetOwnerFormationMarch` answered nil for a march that was on its way. So «no march» in
+#: the first seconds after a send means «not answered yet», never «over», and a claim let
+#: through by that reading is refused in the silence a refusal comes in. Twenty seconds is
+#: comfortably longer than a server ever took to answer here, and shorter than the retry —
+#: so it costs a chest nothing.
+TREASURE_MARCH_SETTLE_SEC = 20
+
 
 def treasure_auto_arm(squads=(1, 2, 3, 4),
                       grace_sec: int = TREASURE_ARRIVE_GRACE_SEC,
@@ -3651,6 +3661,15 @@ def treasure_auto_step() -> str:
         "if t.squad_uuid ~= nil then pcall(function() "
         "marching = (wm:GetOwnerFormationMarch(P.uid, t.squad_uuid, P.allianceId) "
         "~= nil) end) end "
+        # AN UNANSWERED MARCH READS EXACTLY LIKE A FINISHED ONE, so the absence of a march
+        # is only believed once it has been given time to appear — or once a march has
+        # actually been SEEN on this squad, which settles the question outright. Measured
+        # live: the send at 21:01:50 and `free=3 busy=0` five seconds later, on a march
+        # that was on its way. Without this, «not marching» is true for the first seconds
+        # of every send and the claim goes out into an empty road.
+        "if marching then t.march_seen = true end "
+        "local settled = (t.march_seen == true) or (now > 0 and now - (tonumber(t.sent) "
+        "or 0) >= " + str(int(TREASURE_MARCH_SETTLE_SEC)) + " * 1000) "
         "local waited = (now > 0 and now - (tonumber(t.sent) or 0) >= grace) "
         # OUR OWN SQUAD GATES BOTH ROADS TO A CLAIM, and this is what the first live chest
         # cost to learn (#1296). The dig feed used to overrule the march: `t.dug` came in
@@ -3661,7 +3680,7 @@ def treasure_auto_step() -> str:
         # as `claim-unconfirmed` before it had ever been dug by us. The alliance digging a
         # chest is not this account having dug it; only our own march can make the claim
         # payable, so `not marching` gates the feed exactly as it gates the clock.
-        "local ready = (not marching) and ((t.dug ~= nil) or waited) "
+        "local ready = (not marching) and settled and ((t.dug ~= nil) or waited) "
         # A claim already sent waits its retry out rather than going again every tick: a
         # refusal says nothing, so the retry is on a clock, and four tries inside a minute
         # would be four tries spent while the alliance is still digging.
@@ -3683,8 +3702,9 @@ def treasure_auto_step() -> str:
         # having finished while our squad is still on the road: the chest is ready and the
         # claim is not, and a log that called that `digging` is what hid the burnt tries.
         "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':' "
-        ".. ((marching and t.dug ~= nil) and 'dug-still-marching' "
-        "or ((waited and marching) and 'still-marching' or 'digging')) end "
+        ".. ((not settled) and 'march-unanswered' "
+        "or ((marching and t.dug ~= nil) and 'dug-still-marching' "
+        "or ((waited and marching) and 'still-marching' or 'digging'))) end "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
