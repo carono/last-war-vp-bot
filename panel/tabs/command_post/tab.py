@@ -93,6 +93,11 @@ TREASURE_SCAN_SCRIPT = os.path.join("dev", "treasure_capture.py")
 # Squads a treasure dig may be sent with, and the one preselected.
 TREASURE_SQUADS = (1, 2, 3)
 
+# The whole treasure routine as ONE recipe (#1296): hear the chest the alliance shared,
+# march the nearest free squad onto it, take the gift once it is dug. The trigger
+# `treasure_auto` plays it on its own; the page's «Отработать сейчас» plays it once.
+TREASURE_AUTO_ACTION = "auto_treasure"
+
 
 def _int(value, default: int = 0) -> int:
     try:
@@ -1026,9 +1031,26 @@ class TreasuresPane(_Pane):
         self._scan_btn = self.rt.tr(ttk.Button(box, width=16, command=self._scan),
                                       "cmdpost.scan")
         self._scan_btn.pack(side="right")
+        # «Отработать сейчас» — the standing errand, played once, by hand (#1296). The
+        # trigger `treasure_auto` runs the same recipe on its own every few seconds; this
+        # is the press for somebody who is at the machine and does not want to wait for a
+        # tick, and it is what keeps the ability reachable without «Разработка»
+        # (`tests/test_scenario_homes.py`). It presses nothing itself: the whole routine
+        # — the ear, the nearest free squad, the claim — is `actions/auto_treasure.md`.
+        self.rt.tr(ttk.Button(box, width=18, command=self._work_now),
+                   "cmdpost.treasure.auto").pack(side="right", padx=(0, 4))
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
             anchor="w", pady=(6, 4))
         self._scroll = self._list(body)
+
+    def _work_now(self) -> None:
+        """Play `auto_treasure` once, with the squad this page is set to.
+
+        A button that STARTS something, never one that MARKS anything (CLAUDE.md): what
+        it changes is in the game, and the list below still comes from the readings.
+        """
+        squad = _int(self._squad_var.get(), TREASURE_SQUADS[0])
+        self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="action")
 
     # -- what is remembered between sessions --------------------------------
     def config(self) -> dict:
@@ -1311,8 +1333,14 @@ class CommandPostTab(PanelTab):
         now = game_clock.now_ms() / 1000.0
         cards = [self._web_ghost(coords, now), self._web_shared(coords),
                  self._web_treasures(coords)]
+        # «Отработать сейчас» travels because it is a press and the ability behind it is
+        # ONE recipe (#1296, CLAUDE.md «A press travels only when the ability is a
+        # scenario»). The ghost robbery beside it still parks its targets with a tool
+        # first, which is why that card has a reading and no button.
         return {"cards": [c for c in cards if c], "now": now,
-                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+                "actions": [{"id": "refresh", "label": "tabx.refresh"},
+                            {"id": "treasure_auto",
+                             "label": "cmdpost.treasure.auto"}]}
 
     def _web_ghost(self, coords, now) -> dict:
         """«Операция Призрак» — what the last scan wrote down, and what will be taken.
@@ -1391,10 +1419,22 @@ class CommandPostTab(PanelTab):
                 "empty": "cmdpost.treasure.empty"}
 
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить» re-reads the stores by repainting; no game, no press."""
-        if action != "refresh":
-            return {"error": "unknown"}
-        return {"ok": True}
+        """«Обновить» re-reads the stores by repainting; no game, no press.
+
+        «Отработать сейчас» is the one press on this screen, and it runs what the window's
+        button runs — the recipe, with the squad the treasure page is set to. Nothing here
+        assembles a step of it.
+        """
+        if action == "refresh":
+            return {"ok": True}
+        if action == "treasure_auto":
+            page = self._by_key.get("treasure")
+            squad = (_int(page._squad_var.get(), TREASURE_SQUADS[0])
+                     if page is not None and getattr(page, "_squad_var", None) is not None
+                     else TREASURE_SQUADS[0])
+            return {"ok": self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]},
+                                             tag="web")}
+        return {"error": "unknown"}
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:

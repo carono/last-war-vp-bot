@@ -529,6 +529,30 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.treasure_watch_stop(),
         wait=0.3, label="Stop watching treasure messages",
     ),
+    # --- world -> the treasure errand that runs itself (#1296) ----------------
+    # The same hook, used to ACT rather than to record. `treasure_auto_arm` switches the
+    # harvest on — every chest announced in alliance chat becomes a target in a queue that
+    # lives in the game VM — and `treasure_auto_step` works the whole queue one step: the
+    # nearest free squad marches onto the nearest chest, and a chest the alliance has
+    # already dug is claimed. One press, because a chest is a race (the reasoning is in
+    # lua_actions, «The auto errand»).
+    #
+    # The squads the arm is allowed to spend are parked by the recipe first —
+    # `DataCenter.__lw_treasure_auto.squads`, the same hand-off the rally's join uses,
+    # because a `TAP` takes no arguments.
+    "treasure_auto_arm": Button(
+        lua=(_lua_actions.treasure_watch_install() + " "
+             + _lua_actions.treasure_auto_arm_parked()),
+        wait=0.3, label="Listen for treasures and work them",
+    ),
+    "treasure_auto_off": Button(
+        lua=_lua_actions.treasure_auto_disarm(),
+        wait=0.3, label="Stop working treasures by itself",
+    ),
+    "treasure_auto_step": Button(
+        lua=_lua_actions.treasure_auto_step(),
+        wait=0.6, label="March on / claim every queued treasure",
+    ),
     # --- Hospital: heal wounded soldiers ("Лечение юнитов") ------------------
     # Two presses, the two halves of the in-game routine (docs/research/hospital-heal.md):
     #   heal_all       — send every wounded soldier type for treatment in one

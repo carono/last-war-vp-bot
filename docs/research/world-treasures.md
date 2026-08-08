@@ -438,3 +438,145 @@ lives in the game VM.
 Recipes: `actions/dev/watch_treasures.md`, `read_treasure_watch.md`,
 `unwatch_treasures.md`. The page that plays them is `panel/tabs/treasure_debug/`, behind
 «Разработка». `tests/test_treasure_watch.py` runs the hook in a real Lua.
+
+---
+
+# The 2026-08-08 session, and the errand that runs itself (#1296)
+
+«Мне нужен триггер, реагирующий на уведомления о сокровищах с автоматической отправкой
+ближайшего отряда и сбор подарка.» The recording that answered it:
+
+* trace : `results/traces/20260808_125345_Сокровище_trace.log`
+* wire  : `results/traffic/20260808_125346_Сокровище_traffic.jsonl`
+* what the player did: «Собрал 2 сокровища, одно из них сам отправил в чат, чтобы пришло
+  уведомление»
+
+Every id quoted below is INVENTED, of the same shape as the real one — a uuid is 19
+digits, a server is small, a tile index is `y * 1000 + x + 1`. The session's own values
+are in the git-ignored trace and stay there (`CLAUDE.md`).
+
+## The announcement, and where it does NOT travel
+
+The badge the player sees is the chat share of §1 above, and this session confirms its
+shape from the SENDING side, field for field:
+
+```
+SFSObject.PutUtfString attachmentId =
+  {"shareType":27,"y":<y>,"x":<x>,"uuid":<treasure uuid>,"worldType":0,"worldId":0,
+   "sid":<server>,"treasureId":"<cfgId>","oname":"<uid>"}
+```
+
+…and the reply arriving under `world.treasure.share.chat`, handled by
+`ChatManager2.OnHandleMessage`. One message names everything the ability needs: the
+chest's uuid, its server and its tile.
+
+**And it is NOT on the wire.** The capture taken beside this trace holds
+`push.world.march.new`, `push.lw.alliance.alert.info.remove`, `push.all.notice` and
+keepalives — and not one `world.treasure.share.chat`. That is the chat channel doing what
+`docs/research/chat.md` says it does: control on the game socket, broadcast on a TLS
+websocket this repository cannot decode. **So a `panel/triggers.py` WIRE trigger on the
+announcement is impossible, not merely slower** — the listener is deaf to it by
+construction, and any design that starts «listen for the push» is finished before it
+begins.
+
+The measurement that pins it: the same message is in the Lua trace (line 10494 of the
+run above) and absent from the JSONL recorded at the same second on the same interface.
+
+## What else the session showed
+
+* **The chest gets onto the map by hand.** `get.detect.info` fills the client's list of
+  found chests (each record parsed by `DetectEventInfo.ParseData`, broadcast as event
+  `91014`, positions read through `SceneUtils.IndexToTilePos`), and the player presses
+  *Detect_Event_Info_Goto_Btn*, which sends **`detect.event.put.point.in.world {uuid}`**.
+  That is a separate ability — «put my own found chest out» — and it is NOT what this
+  task automates: the errand answers a chest that is already out.
+* **`push.detect.treasure.claim` is not «somebody took it».** Fourteen of them arrived,
+  in bursts, before and after our own claim: one per member who has finished their part,
+  and every digger claims their own gift. Read as a loss it would hand the reward away;
+  read as «this chest is dug and payable», it is the gate the claim waits for. The errand
+  uses it as exactly that.
+* **`UIUtil.GetDetectTreasureReward(pid)`** exists and answers `nil` on a tile with
+  nothing on it (checked live on 2026-08-08, on tile 1 — no error, no window). It is
+  logged as evidence but deliberately NOT used as the gate: there is no recording of it
+  answering for a chest that IS dug, and a gate without a success recording is a guess
+  (`CLAUDE.md`).
+
+## «The nearest squad» — the negative finding, and it is the load-bearing one
+
+**A squad has no position.** Read live off `ArmyFormationDataManager`, a formation
+carries `index`, `uuid`, `totalSoldierNum`, its heroes, its capacity and its building —
+and no tile, no coordinate, nothing that says where it is. The only positional read there
+is is `WorldMarchDataManager:GetOwnerFormationMarch`, and a squad that HAS a march is by
+definition not free.
+
+So a free squad is standing in the base, every free squad is the same distance from the
+chest, and **«send the nearest squad» cannot be resolved on the squad**. What can be
+resolved is the CHEST: the errand orders its targets by Chebyshev distance from the
+base's own tile (`LuaEntry.Player.world_main_pos` → `IndexToTilePos`) and works the
+nearest first, spending the lowest free slot. The report names the distance it went by,
+so the ordering is visible rather than claimed.
+
+Anyone tempted to improve this: the thing to add is not a better search over squads, it
+is **march speed** — squads differ by hero skill, and «nearest in time» is a different
+question from «nearest in tiles». That needs a reading nobody has found yet.
+
+## An empty squad is a squad nobody has asked about — measured again here
+
+Live on 2026-08-08, twenty minutes apart, with nothing sent in between and the army
+untouched in the game:
+
+```
+i1:n=3123  i2:n=2631  i3:n=2565      → later →      i1:n=0  i2:n=0  i3:n=0
+```
+
+The client's `totalSoldierNum` is a reply cache (#1285). A run that refused on it would
+report «no squad to send» on a base with three full ones. So the errand ASKS —
+`SFSNetwork.SendMessage(MsgDefines.GetFormationSoldier, <formation uuid>)` per empty
+squad — marks that it asked (`asked-for-army` in the report), and the recipe presses
+again after a short wait. Confirmed live: first press `free=0 empty=3 asked-for-army`,
+second press `free=3`.
+
+## The shape of the ability
+
+The ear is the hook of #1277 — the same pair of wrappers on `SFSNetwork.SendMessage` /
+`HandleMessage`, because a SECOND pair on the same two functions is how one unwrap
+destroys the other. It now has two consumers: the debug page's ring buffer (`W.on`) and
+the errand's harvest (`__lw_treasure_auto.on`), independent switches, and
+`treasure_watch_stop` only puts the doors back when neither is listening.
+
+The harvest turns an announcement into a target:
+
+```
+DataCenter.__lw_treasure_auto = {
+  on, seen = {["<uuid>"] = <ms>}, news = <n>,
+  targets = { {uuid, pid, x, y, server, at,   -- announced
+               sent, squad,                   -- the march that went out
+               dug,                           -- push.detect.treasure.claim seen
+               claimed, done, why} },
+}
+```
+
+…and `treasure_auto_step` walks the whole queue one step per press: the nearest free
+squad marches onto the nearest chest (`MarchUtil.SendCreateMarchMessage(formation, 50|182,
+pid, uuid, 1, 1, false, server, nil)` — **the target type is the SECOND argument**), and
+a chest whose dig has been heard, or whose grace has run out, is claimed
+(`SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, uuid, targetServer)`). One
+press, because a chest is a race — the same reasoning the rally join was rebuilt on
+(#1281).
+
+What plays it: `src/lastwar_bot/actions/auto_treasure.md`, and the poll trigger
+`treasure_auto` in `panel/triggers.py` (10 s, `immediate`). **The poll reads the LOCAL
+table above** — one daemon round trip, no request to the server, nothing asked of the
+map — so «poll» here means polling the panel's own ear, and the chest is heard in the
+same second the client hears it. The check is also true whenever nothing is listening, so
+a client restart (which wipes the VM and the hook with it) re-arms on the next tick
+instead of leaving the errand silently deaf.
+
+Confirmed live on 2026-08-08 with no chest on the map: the arm, the poll, the step, the
+army fallback, the disarm, and the blob parser with the tile arithmetic inside the game's
+own Lua (`pid = y * 1000 + x + 1`, 19-digit uuid intact — Lua 5.3 integers).
+`tests/test_treasure_auto.py` runs the whole errand in a real Lua, 20 tests.
+
+**Still unproven: a live chest.** No detect event was running during the work, so the
+march and the claim have never gone out at a real target from this path — the farming
+list stays 🟡 until one has.

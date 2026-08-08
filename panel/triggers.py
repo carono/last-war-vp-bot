@@ -49,9 +49,21 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
+
+# tools/lib is already on sys.path when the panel imports us; a bare import keeps this
+# module usable from a test that only put the repo root there. A poll trigger's `check`
+# is a Lua expression, and a Lua expression belongs where every other one lives — the
+# catalogue names the chunk, it does not spell it out (`panel/dashboard.py` does the
+# same). `_KICK_CHECK` below predates that and is debt, not precedent.
+_TOOLS_LIB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "tools", "lib")
+if _TOOLS_LIB not in sys.path:
+    sys.path.insert(0, _TOOLS_LIB)
+import lua_actions      # noqa: E402
 
 from . import debug_log, paths
 from .i18n import Message
@@ -449,6 +461,41 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         scenario=("__secret_task_share__",),
         enabled=False,
         label_key="triggers.item.secret_task_share",
+    ),
+    Trigger(
+        name="treasure_auto",
+        # A world-map chest announced in alliance chat: send the nearest free squad to
+        # dig it and take the gift when it is dug (#1296, `actions/auto_treasure.md`).
+        #
+        # A POLL, AND NOT BECAUSE A WIRE LISTENER WOULD BE SLOWER — because it would be
+        # DEAF. The announcement is a chat post and the chat broadcast rides a TLS
+        # websocket this repository cannot decode (`docs/research/chat-system.md`): the
+        # 2026-08-08 recording has the message in the Lua trace and not in the capture
+        # taken beside it. So the ear is a hook inside the client (#1277) and what this
+        # poll asks is the panel's OWN table in the game VM — a local read, one daemon
+        # round trip, no request to the server and nothing the map is asked about. The
+        # cost is the same read the session-kick poll pays, and the chest is heard in the
+        # same second the client hears it.
+        #
+        # The check is true while a chest is unfinished AND whenever nothing is listening,
+        # so a client restart — which wipes the VM and the hook with it — is picked up on
+        # the next tick instead of leaving the errand silently deaf.
+        kind=KIND_POLL,
+        check=lua_actions.treasure_auto_check(),
+        # Ten seconds, because the whole point is to be early: the chest is out for
+        # minutes and the alliance is already digging. The cooldown is short for the same
+        # reason — a chest is worked over several ticks (march, wait for the dig, claim),
+        # so sitting quiet for a minute and a half after each fire would be sitting out
+        # the claim.
+        interval_sec=10,
+        cooldown_sec=20,
+        scenario=("auto_treasure",),
+        enabled=False,
+        # «Сразу, без очереди» (#1288), for the reason that flag exists: the chest is
+        # being dug by the alliance while the fire waits its turn, and a march that
+        # leaves after the chest is gone pays nothing at all.
+        immediate=True,
+        label_key="triggers.item.treasure_auto",
     ),
     Trigger(
         name="ghost_recon_alliance",

@@ -2999,6 +2999,53 @@ local function push(dir, cmd, info)
     table.remove(W.items, 1)
     W.drop = (W.drop or 0) + 1
   end end
+local function jint(s, k)
+  return tonumber(s:match('"' .. k .. '"%s*:%s*(%-?%d+)')) end
+local function harvest(cmd, obj)
+  local A = DataCenter.__lw_treasure_auto
+  if not A or not A.on then return end
+  if type(cmd) ~= "string" then return end
+  if not cmd:find("treasure", 1, true) then return end
+  if cmd:find("claim", 1, true) then
+    -- The alliance's own feed of the dig: one of these per member who has finished
+    -- their part. It is NOT «somebody else took it» — every digger claims their own
+    -- gift — so it is read as «this chest is dug and payable», never as a loss.
+    local u
+    pcall(function() u = SFSObject.GetData(obj, "uuid") end)
+    if u == nil then return end
+    for _, t in ipairs(A.targets or {}) do
+      if tostring(t.uuid) == tostring(u) and not t.dug then t.dug = nowms() end
+    end
+    return
+  end
+  -- The announcement. A chest shared into alliance chat travels as an ordinary chat
+  -- post whose `attachmentId` is a JSON blob; which key it arrives under is not
+  -- guaranteed, so every string field is looked at and the one that carries a
+  -- `shareType` with a `uuid` wins. Nothing else in the message is read.
+  local blob
+  pcall(function()
+    for _, k in ipairs(SFSObject.GetKeys(obj)) do
+      local v = SFSObject.GetData(obj, k)
+      if type(v) == "string" and v:find("shareType", 1, true)
+         and v:find("uuid", 1, true) then blob = v end
+    end
+  end)
+  if blob == nil then return end
+  local uuid, x, y = jint(blob, "uuid"), jint(blob, "x"), jint(blob, "y")
+  if uuid == nil or x == nil or y == nil then return end
+  local key = tostring(uuid)
+  A.seen = A.seen or {}
+  if A.seen[key] then return end
+  A.seen[key] = nowms()
+  local pid = 0
+  pcall(function()
+    pid = SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(x, y)) end)
+  local sid = jint(blob, "sid")
+  A.targets = A.targets or {}
+  A.targets[#A.targets+1] = {uuid=uuid, pid=pid, x=x, y=y,
+                             server=sid or 0, at=nowms()}
+  A.news = (A.news or 0) + 1
+end
 """
 
 
@@ -3013,6 +3060,13 @@ def treasure_watch_install(cap: int = TREASURE_WATCH_CAP) -> str:
     The whole hook body is inside `pcall`, and a hook that throws must never break the
     client's networking: the original is called outside the guard, so a bug here costs
     a missing log line and not a dropped message.
+
+    TWO CONSUMERS SHARE THE ONE HOOK (#1296). The ring buffer above is the debug page's;
+    the auto-treasure errand needs the same two doors to hear a chest being announced,
+    and a SECOND pair of wrappers on the same functions is how an unwrap loses a hook.
+    So `harvest` runs from the same wrapper, gated on its own switch
+    (`DataCenter.__lw_treasure_auto.on`) rather than on `W.on` — the auto errand listens
+    with the ring off, and the ring records with the auto errand off.
     """
     return (
         "local D = DataCenter "
@@ -3035,6 +3089,7 @@ def treasure_watch_install(cap: int = TREASURE_WATCH_CAP) -> str:
         "local okk, want = pcall(keep, 'in', cmd, nil) "
         "if okk and want then local okf, info = pcall(fields, obj) "
         "if okf then pcall(push, 'in', cmd, info) end end "
+        "pcall(harvest, cmd, obj) "
         "return W.origRecv(cmd, obj, ...) end "
         "W.hooked = true end "
         "W.on = true "
@@ -3052,16 +3107,26 @@ def treasure_watch_stop() -> str:
     would then wrap a wrapper. What is already in the ring survives — stopping is not
     the same as throwing away, and the last thing recorded is usually the interesting
     one.
+
+    THE DOORS ARE ONLY PUT BACK WHEN NOBODY ELSE IS LISTENING (#1296). The auto-treasure
+    errand hears a chest through this same pair of wrappers, so unhooking while its
+    switch is on would leave it deaf with nothing on screen to say so. Then the ring is
+    merely muted (`on = false`) and the reply says `hooked=1`, which is the honest
+    answer: the recording stopped, the hook did not.
     """
     return (
         "local W = DataCenter.__lw_treasure_watch "
+        "local A = DataCenter.__lw_treasure_auto "
+        "local auto = (A ~= nil and A.on) and true or false "
         "if W then W.on = false "
-        "if W.hooked then "
+        "if W.hooked and not auto then "
         "if W.origSend then SFSNetwork.SendMessage = W.origSend end "
         "if W.origRecv then SFSNetwork.HandleMessage = W.origRecv end "
         "W.hooked = false end end "
-        'CS.UnityEngine.Debug.LogError("ACT treasure_watch on=0 buf="'
-        "..tostring(#((W or {}).items or {})))"
+        'CS.UnityEngine.Debug.LogError("ACT treasure_watch on=0 hooked="'
+        "..tostring(((W or {}).hooked) and 1 or 0)"
+        '.." auto="..tostring(auto and 1 or 0)'
+        '.." buf="..tostring(#((W or {}).items or {})))'
     )
 
 
@@ -3125,6 +3190,352 @@ def treasure_watch_state() -> str:
         ".. ' seq=' .. tostring(W.seq or 0) "
         ".. ' drop=' .. tostring(W.drop or 0) "
         ".. ' cap=' .. tostring(W.cap or 0) end)()"
+    )
+
+
+# --- The auto errand: a chest announced -> a squad out -> the gift taken ------
+# The three moments of the ability, driven by the client's own announcement instead of
+# by a sweep of the map (#1296, docs/research/world-treasures.md).
+#
+# WHY IT IS NOT A MAP SWEEP. A chest is out for minutes and the alliance digs it
+# together; a poll of the world would have to re-ask the map every few seconds to catch
+# one, which costs a `world.get.block` round trip per look and still arrives late. The
+# client is already told the moment a chest is shared into alliance chat — the trace of
+# 2026-08-08 has the whole exchange in four messages — so the ear goes where the news
+# already lands: the hook above, and a Lua table the errand reads. The «poll» this ships
+# with reads that LOCAL table, one expression through the daemon, and never touches the
+# network.
+#
+# WHY IT CANNOT BE A WIRE TRIGGER. The announcement is a chat post, and the chat
+# broadcast rides a TLS websocket this repository cannot sniff
+# (`docs/research/chat-system.md`): the 2026-08-08 capture has the message in the Lua
+# trace and NOT on the wire beside it. So `panel/triggers.py`'s ordinary wire listener
+# is deaf to it by construction, and the poll is not a shortcut — it is the only door.
+#
+# THE STATE, all of it in the game VM so a panel restart loses nothing:
+#
+#     DataCenter.__lw_treasure_auto = {
+#       on      = true,                 -- the harvest switch (see treasure_watch_install)
+#       seen    = { ["<uuid>"] = <ms> },-- announcements already turned into a target
+#       news    = <n>,                  -- how many the hook has added, ever
+#       targets = { { uuid, pid, x, y, server, at,   -- the announcement
+#                     sent, squad,                  -- the march that went out
+#                     dug,                          -- push.detect.treasure.claim seen
+#                     claimed, done, why } },
+#     }
+#
+# Each target walks new -> sent -> (dug) -> claimed -> done, and every step is written
+# down where the next run can read it, because a run may be interrupted at any point:
+# the errand is idempotent by state, not by luck.
+
+#: How long after the march goes out the claim may be tried even though no
+#: `push.detect.treasure.claim` was heard for that chest. The push is the honest gate
+#: and this is the fallback: the alliance's feed may have arrived while the client was
+#: reconnecting, and a chest that is dug and never claimed is the whole reward lost.
+TREASURE_ARRIVE_GRACE_SEC = 240
+
+#: How long a target is worked before it is written off. A chest that is neither claimed
+#: nor dug by then is gone from the map — the point expires — and keeping it would mean
+#: sending squads at an empty tile for ever.
+TREASURE_TARGET_TTL_SEC = 1800
+
+#: How many claims one target is allowed before it is written off. The send is not
+#: punished for being repeated (proven live — the 2026-08-07 session claimed twice and
+#: the server answered both), but a claim the server keeps refusing is a claim that will
+#: keep being refused.
+TREASURE_CLAIM_TRIES = 4
+
+
+def treasure_auto_arm(squads=(1, 2, 3, 4),
+                      grace_sec: int = TREASURE_ARRIVE_GRACE_SEC,
+                      ttl_sec: int = TREASURE_TARGET_TTL_SEC) -> str:
+    """Switch the harvest on and park what the errand is allowed to spend.
+
+    `squads` is which squad slots may be sent, in the order they may be spent — the
+    1/2/3/4 the player sees in the dispatch panel, same meaning as the rally's.
+
+    Idempotent, and deliberately does NOT clear the targets: an arm is what a restarted
+    panel does on its first tick, and throwing the queue away there would lose a chest
+    that was announced while nothing was watching.
+    """
+    slots = ",".join(str(int(s)) for s in squads) or "1,2,3,4"
+    return (
+        "local D = DataCenter "
+        "if not D.__lw_treasure_auto then D.__lw_treasure_auto = "
+        "{seen={}, targets={}, news=0} end "
+        "local A = D.__lw_treasure_auto "
+        "A.on = true "
+        "A.squads = {" + slots + "} "
+        "A.grace = " + str(int(grace_sec)) + " "
+        "A.ttl = " + str(int(ttl_sec)) + " "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_auto on=1 squads="'
+        '..tostring(#A.squads).." queued="..tostring(#(A.targets or {}))'
+        '.." news="..tostring(A.news or 0))'
+    )
+
+
+def treasure_auto_arm_parked() -> str:
+    """The same arm, reading its settings out of what the recipe parked first.
+
+    A `TAP` carries no arguments (`docs/dsl.md`), so the values a recipe was given travel
+    the way the rally's squads travel: parked on the VM ahead of the press and read here.
+
+      * `DataCenter.__lw_treasure_squads` — the slots that may be spent, a Lua list;
+      * `DataCenter.__lw_treasure_grace`  — seconds after the march before a claim may be
+                                            tried without having heard the dig;
+      * `DataCenter.__lw_treasure_ttl`    — seconds a chest is worked before it is written
+                                            off as gone from the map.
+
+    Each falls back to the built-in default when nothing was parked, so the button is
+    pressable on its own from the Scenarios page.
+    """
+    return (
+        "local D = DataCenter "
+        "if not D.__lw_treasure_auto then D.__lw_treasure_auto = "
+        "{seen={}, targets={}, news=0} end "
+        "local A = D.__lw_treasure_auto "
+        "A.on = true "
+        "local s = D.__lw_treasure_squads "
+        "if type(s) ~= 'table' or #s == 0 then s = {1,2,3,4} end "
+        "A.squads = s "
+        "A.grace = tonumber(D.__lw_treasure_grace) or "
+        + str(int(TREASURE_ARRIVE_GRACE_SEC)) + " "
+        "A.ttl = tonumber(D.__lw_treasure_ttl) or "
+        + str(int(TREASURE_TARGET_TTL_SEC)) + " "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_auto on=1 squads="'
+        '..tostring(#A.squads).." grace="..tostring(A.grace)'
+        '.." queued="..tostring(#(A.targets or {}))'
+        '.." news="..tostring(A.news or 0))'
+    )
+
+
+def treasure_auto_disarm() -> str:
+    """Switch the harvest off; the queue and the hook are left as they are.
+
+    Off means «stop turning announcements into targets», not «forget what you know»: a
+    target already halfway through — a squad out, the gift not taken — is still worth
+    finishing by hand, and the debug page can still read the queue.
+    """
+    return (
+        "local A = DataCenter.__lw_treasure_auto "
+        "if A then A.on = false end "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_auto on=0 queued="'
+        "..tostring(#((A or {}).targets or {})))"
+    )
+
+
+def treasure_auto_check() -> str:
+    """Lua *expression* -> true when the auto errand has something to do right now.
+
+    What the poll trigger asks every few seconds. It reads LOCAL state only — no send,
+    no map, no window — so the cost is one daemon round trip (~0.15 s with the daemon
+    free) and nothing the game can notice.
+
+    True in two cases, and the second is the one that keeps it alive: an unfinished
+    target, or **no ear at all**. A client restart wipes the VM and with it the hook, and
+    a poll that only ever asked about targets would then wait for ever for a chest it
+    could not hear. So «nobody is listening» is itself work, and the errand's first step
+    is to arm.
+    """
+    return (
+        "(function() "
+        "local W = DataCenter.__lw_treasure_watch "
+        "local A = DataCenter.__lw_treasure_auto "
+        "if A == nil or not A.on then return true end "
+        "if W == nil or not W.hooked then return true end "
+        "for _, t in ipairs(A.targets or {}) do if not t.done then return true end end "
+        "return false end)()"
+    )
+
+
+def treasure_auto_step() -> str:
+    """Work every queued chest one step, in ONE chunk — and say what it did.
+
+    A CHEST IS A RACE, so this is one call and not eight. The rally join was measured at
+    5.48 s across its readings and 0.19 s once they became local variables inside a
+    single chunk (#1281); a treasure has the same shape — it is out for minutes and the
+    alliance is digging it — so the sieve, the pairing, the send and the claim all happen
+    here, and the recipe only reads the sentence back.
+
+    What one step is, per target:
+
+      * **new** — pick the nearest free squad and march it onto the tile. Same
+        `MarchUtil.SendCreateMarchMessage` the game's own dig ends at, type 50 for a
+        chest on this server and 182 for one on another (`docs/research/
+        world-treasures.md`), called STRAIGHT rather than behind
+        `TimerManager:DelayInvoke` — the rally join proved the direct send works from the
+        daemon's thread, and a send behind a timer cannot say whether it threw.
+      * **sent** — nothing, until either the alliance's own feed says the chest is dug
+        (`push.detect.treasure.claim`, caught by the hook) or the grace has run out.
+      * **dug** — claim it: `SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure,
+        uuid, targetServer)`, the exact call the in-game finish fires.
+      * **claimed** — done. The reward window the client raises is closed by the recipe,
+        not here: this chunk opens nothing and closes nothing.
+
+    «NEAREST» IS HONEST ABOUT ITS OWN LIMIT, and this is worth reading before trusting
+    the word. A squad has no position of its own — read live off
+    `ArmyFormationDataManager`, a formation carries its army, its slot and its heroes and
+    NO tile — and a squad that is free is by definition standing in the base. So every
+    free squad is the same distance from the chest, and «the nearest squad» can only be
+    honestly resolved as «the nearest CHEST first, with the lowest free slot», which is
+    what this does: targets are ordered by their distance from the base, and the report
+    names the distance it went by. A squad already marching is never counted as nearer,
+    because it is not free.
+
+    THE PER-DAY LIMIT IS THE SERVER'S. `CheckTreasureReachDailyLimit` gates both the dig
+    and the claim, and a refusal comes back as the server's own answer rather than as a
+    thrown error — so a send that goes out and pays nothing is reported as sent, and the
+    day's allowance is not something this chunk pretends to know.
+    """
+    return (
+        "local A = DataCenter.__lw_treasure_auto "
+        "if A == nil then A = {seen={}, targets={}, news=0} "
+        "DataCenter.__lw_treasure_auto = A end "
+        "local P = LuaEntry.Player "
+        "local now = 0 pcall(function() "
+        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
+        "if now <= 0 then pcall(function() "
+        "now = math.floor((tonumber(ChatInterface.getServerTime()) or 0) * 1000) end) end "
+        "local grace = (tonumber(A.grace) or " + str(int(TREASURE_ARRIVE_GRACE_SEC))
+        + ") * 1000 "
+        "local ttl = (tonumber(A.ttl) or " + str(int(TREASURE_TARGET_TTL_SEC))
+        + ") * 1000 "
+        "local home_srv = tonumber(P.serverId) or 0 "
+        # The base's own tile — where a free squad stands, and what the ordering of the
+        # chests is measured from.
+        "local hx, hy = 0, 0 "
+        "pcall(function() local tp = SceneUtils.IndexToTilePos(tonumber(P.world_main_pos)) "
+        "hx, hy = tonumber(tp.x) or 0, tonumber(tp.y) or 0 end) "
+        # The squads that could go: in the allowed slots, with an army, not marching.
+        "local allow = {} "
+        "for _, s in ipairs(A.squads or {1,2,3,4}) do allow[tonumber(s) or -1] = true end "
+        "local afd = DataCenter.ArmyFormationDataManager "
+        "local wm = DataCenter.WorldMarchDataManager "
+        "local free, empties, busy, dry = {}, {}, 0, 0 "
+        "for _, f in pairs(afd.ArmyFormationList) do "
+        "local idx = -1 pcall(function() idx = tonumber(f.index) or -1 end) "
+        "if allow[idx] then "
+        "local n = 0 pcall(function() n = tonumber(f.totalSoldierNum) or 0 end) "
+        "local out = false "
+        "pcall(function() out = (wm:GetOwnerFormationMarch("
+        "P.uid, f.uuid, P.allianceId) ~= nil) end) "
+        "if out then busy = busy + 1 elseif n <= 0 then dry = dry + 1 "
+        "empties[#empties+1] = f.uuid "
+        "else free[#free+1] = {slot=idx, uuid=f.uuid, n=n} end end end "
+        "table.sort(free, function(a, b) return a.slot < b.slot end) "
+        # A SQUAD THAT READS EMPTY IS USUALLY A SQUAD NOBODY HAS ASKED ABOUT (#1285, and
+        # measured again here: the same three squads read 3123/2631/2565 and then 0/0/0
+        # twenty minutes later, with the army untouched in the game). The client's
+        # counter is a reply cache; one request puts the real number back in ~0.4 s with
+        # nothing on screen. So a run that has a chest and no squad to send ASKS, marks
+        # that it asked, and lets the recipe come round again — refusing on a number
+        # nobody has fetched is refusing on nothing.
+        "A.asked = false "
+        "if #free == 0 and #empties > 0 then "
+        "for _, u in ipairs(empties) do pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.GetFormationSoldier, u) end) end "
+        "A.asked = true end "
+        # The chests, nearest first — the only place the word «nearest» can be earned
+        # (see the docstring).
+        "local live = {} "
+        "for _, t in ipairs(A.targets or {}) do if not t.done then "
+        "t.d = math.max(math.abs((tonumber(t.x) or 0) - hx), "
+        "math.abs((tonumber(t.y) or 0) - hy)) "
+        "live[#live+1] = t end end "
+        "table.sort(live, function(a, b) return (a.d or 0) < (b.d or 0) end) "
+        "local sent, claimed, waiting, expired, notes = 0, 0, 0, 0, {} "
+        "local fi = 1 "
+        "for _, t in ipairs(live) do "
+        # Written off: the chest's minutes on the map are long over.
+        "if now > 0 and (tonumber(t.at) or 0) > 0 and now - (tonumber(t.at) or 0) > ttl then "
+        "t.done, t.why = true, 'expired' expired = expired + 1 "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':expired' "
+        "elseif t.claimed then t.done, t.why = true, 'claimed' "
+        "elseif t.sent then "
+        "local ready = (t.dug ~= nil) "
+        "or (now > 0 and now - (tonumber(t.sent) or 0) >= grace) "
+        "if ready then "
+        "t.tries = (tonumber(t.tries) or 0) + 1 "
+        "local srv = tonumber(t.server) or home_srv "
+        "local ok, err = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end) "
+        # Spent in the SAME step it was paid in: leaving `done` to the next tick keeps a
+        # finished chest in the queue, and a queue that is never empty is a poll that
+        # never goes quiet.
+        "if ok then t.claimed = now t.done, t.why = true, 'claimed' "
+        "claimed = claimed + 1 "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claimed' "
+        "else notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-threw:' .. tostring(err) end "
+        "if (tonumber(t.tries) or 0) >= " + str(int(TREASURE_CLAIM_TRIES)) + " "
+        "and not t.claimed then t.done, t.why = true, 'claim-refused' end "
+        "else waiting = waiting + 1 "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':digging' end "
+        "else "
+        # New: the nearest free squad goes out. `fi` walks the free list so two chests
+        # in the same minute never get the same squad.
+        "local f = free[fi] "
+        "if f == nil then notes[#notes+1] = 'x' .. tostring(t.d) .. ':no-free-squad' "
+        "else fi = fi + 1 "
+        "local srv = tonumber(t.server) or home_srv "
+        "local target = (srv ~= 0 and srv ~= home_srv) and "
+        + str(int(MARCH_CROSS_DETECT_TREASURE)) + " or "
+        + str(int(MARCH_DETECT_TREASURE)) + " "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(f.uuid, target, t.pid, t.uuid, 1, 1, false, "
+        "srv, nil) end) "
+        "if ok then t.sent, t.squad = now, f.slot sent = sent + 1 "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':squad' .. tostring(f.slot) "
+        "else notes[#notes+1] = 'x' .. tostring(t.d) .. ':march-threw:' .. tostring(err) end "
+        "end end end "
+        # Prune what is finished, so the queue does not grow for the life of the client.
+        "local keep = {} "
+        "for _, t in ipairs(A.targets or {}) do if not t.done then keep[#keep+1] = t end end "
+        "A.targets = keep "
+        "A.report = 'sent=' .. tostring(sent) .. ' claimed=' .. tostring(claimed) "
+        ".. ' digging=' .. tostring(waiting) .. ' expired=' .. tostring(expired) "
+        ".. ' queued=' .. tostring(#keep) "
+        ".. ' free=' .. tostring(#free) .. ' busy=' .. tostring(busy) "
+        ".. ' empty=' .. tostring(dry) "
+        ".. (A.asked and ' asked-for-army' or '') "
+        ".. ' news=' .. tostring(A.news or 0) "
+        ".. ' [' .. table.concat(notes, ' ') .. ']' "
+        "A.did = sent + claimed "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_auto_step " .. A.report)'
+    )
+
+
+def treasure_auto_report() -> str:
+    """Lua *expression* -> the sentence the last step wrote, or a word saying it never ran."""
+    return ("(DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report "
+            "or 'the step left no report — the press did not run')")
+
+
+def treasure_auto_did() -> str:
+    """Lua *expression* -> how many sends the last step made (a march or a claim)."""
+    return ("(function() local A = DataCenter.__lw_treasure_auto "
+            "if A == nil then return 0 end return tonumber(A.did) or 0 end)()")
+
+
+def treasure_auto_dump() -> str:
+    """Lua *expression* -> one line per queued chest: where it is and what stage it is at.
+
+    A reading, for the log and for the debug page. Positions and uuids are the account's
+    own and belong on screen, never in this repository (CLAUDE.md).
+    """
+    return (
+        "(function() local A = DataCenter.__lw_treasure_auto "
+        "if A == nil then return 'the auto errand has never been armed' end "
+        "local out = {} "
+        "for i, t in ipairs(A.targets or {}) do "
+        "local st = 'new' "
+        "if t.claimed then st = 'claimed' elseif t.dug then st = 'dug' "
+        "elseif t.sent then st = 'digging' end "
+        "out[#out+1] = tostring(i) .. ') @[' .. tostring(t.x) .. ',' .. tostring(t.y) "
+        ".. '|' .. tostring(t.server) .. '] ' .. st "
+        ".. (t.squad and (' squad' .. tostring(t.squad)) or '') end "
+        "if #out == 0 then return 'no chest is queued (on=' "
+        ".. tostring(A.on and 1 or 0) .. ', heard=' .. tostring(A.news or 0) .. ')' end "
+        "return table.concat(out, ' ; ') end)()"
     )
 
 
