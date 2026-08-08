@@ -225,3 +225,102 @@ the honest halfway house.
   no-click pieces exist (`tools/dev/gather_direct.py`, `world-monsters.md` Finding 17) but
   are not scenarios. When one becomes one, the button appears in the window and on the
   phone in the same commit.
+
+## 9. Three things the pages got wrong, and what each of them looked like (#1298)
+
+All three were reported as one sentence apiece by the person using the panel, and all
+three are worth writing down because none of them looks like what it is.
+
+### 9a. «Поезда: 2+6» over a page with no trains on it
+
+The notebook label was true and about the wrong list. `SecretTasksTab._page_label`
+turned a page index into a grid through a literal written when there were five pages:
+
+```python
+page = {1: self.alliance, 2: self.ghost, 3: self.ghost_allies, 4: self.ghost_map}.get(index)
+shown, hidden = page.counts() if page is not None else self.counts()
+```
+
+The four world pages are indexes 5..8. They fell through `.get()` to `None`, and `None`
+means «this is the ★ page» — so **every world page wore the ★ list's counter**. On a
+client holding two visible raids and six filtered ones, all four of them read `· 2+6`.
+
+The counter is the one place a person looks to tell «нашлось пусто» from «всё скрыто
+фильтром», so a true count of the wrong list is worse than no count at all: it is a
+confident answer to the question the counter exists for. The fix is not a longer literal
+— it is registering the grid beside its label (`_add_page(frame, key, page)`), which a
+tenth page cannot fall through.
+
+**The train list itself was empty and honest.** A recorded checkpoint from that session
+held `mines 42 · trucks 6 · trains 0`, which is exactly what the alliance train being an
+event rather than an all-day thing looks like (§2: 3 trains in *every* recording on disk).
+
+### 9b. «Пусто» and «не смог прочитать» were the same silence
+
+`refresh_world` returned without a word on a missing file, on a torn one, and on a file
+holding nothing. Three situations, one blank page:
+
+* the map monitor has never run under this profile — a switch to flip;
+* the checkpoint cannot be parsed — a bug;
+* the map genuinely has no train on it — the answer.
+
+It now says which, and says the per-kind counts when it parses (`log.world.*`). Once per
+ANSWER, not once per nudge: `refresh` is called by the capture on every finding, so an
+unconditional line would be a log nobody can read past — the memo is `_world_said`.
+
+### 9c. A truck was drawn where it had been, not where it is
+
+**The wire never carries a position.** §2 already said the leg is what a position is
+computed from, and `Truck.position` / `Train.position` have always walked it. What was
+missed is that `as_dict()` freezes the answer: it calls `position` ONCE, when the frame is
+decoded, and writes the resulting `x`/`y` into the checkpoint beside the leg it came from.
+
+The panel's two record builders then took the pair and dropped the leg:
+
+```python
+{"uuid": …, "x": item.get("x"), "y": item.get("y"), …}   # and no leg_* at all
+```
+
+So a row stood on the tile the capture had first heard about it on and did not move again
+until the server happened to re-send that march. A leg runs about two minutes; a run lasts
+hours. A truck was routinely drawn eight or ten tiles from where the client was drawing it,
+which for a list whose whole purpose is «where do I send a squad» is the wrong answer given
+confidently.
+
+Fixed in three places, and the shape of the fix is the point:
+
+* `lastwar_proto.march_position(leg_from, leg_to, start_ms, end_ms, now_ms=None)` — the
+  arithmetic, extracted from the two properties that had a copy each;
+* `world.truck_records` / `train_records` carry the four leg fields, and they are in
+  `PERSIST_KEYS`, so a checkpointed vehicle goes on moving after it is read back;
+* `TaskGrid.advance()` — a hook the per-second tick calls before the timers. It returns
+  «did a cell change», and only `_VehicleGrid` overrides it: the other pages hold tiles,
+  which do not move, and a redraw they do not need is a redraw on the one event loop every
+  open profile shares (#1226).
+
+**The clock is the GAME's** (`tools/lib/game_clock.py`), never the PC's. On a two-minute
+leg the offset between them is tiles, which is the whole quantity being computed.
+
+Measured against a live checkpoint while writing this: four trucks, stored `(x, y)`
+against the position walked off their own legs at that instant — the smallest gap was
+16 tiles and the largest 60. The rows had been on screen for minutes.
+
+**Open, and NOT done here: the camera does not follow.** The person using the panel
+reported that the game's own way of going to a moving target «переносится к ней и следует
+за ней» — the camera tracks the vehicle rather than landing on the tile it was on when the
+link was tapped. The panel's coordinate click is `rt.game.jump` → `GotoWorldPos(x, y, srv)`,
+which lands and stops. With the position now live, a click lands on the right tile and the
+vehicle then walks out of frame. Following it is a different ability (the object handle,
+not a coordinate — `GoToUtil.OnClickWorldPoint(pid, type, uuid)` is where that would start)
+and belongs to whoever takes it, as a scenario.
+
+### 9d. And the button that emptied a list nobody was looking at
+
+«Очистить список» stood on the tab header, over a notebook of nine tables, and emptied the
+★ one. Pressed while reading «Поезда» it did nothing visible — indistinguishable from a
+button that does not work. Every page carries its own now (`TaskGrid.clear_pressed`), and
+each card on the phone carries its own `clear_<page>`.
+
+This is the THIRD door into a list and the only other legal one: `THE_LIST_RULE` lets a row
+go for its own expiry or for the game saying the tile is gone, and a person asking out loud
+for one table is not a fourth reason to touch the other eight.

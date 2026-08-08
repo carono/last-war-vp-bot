@@ -1944,6 +1944,33 @@ def truck_type_set(text: str) -> set:
     return wanted
 
 
+def march_position(leg_from, leg_to, start_ms, end_ms, now_ms=None) -> tuple:
+    """Where a march is RIGHT NOW, walked along the hop the server last described.
+
+    **The server never sends a position.** It sends the hop's two endpoints and
+    the two times it runs between, and the client draws the vehicle by walking
+    one towards the other on the game's own clock — so a stored `(x, y)` is not
+    «where it is», it is «where it was when that frame was decoded». Anything
+    drawing a truck or a train has to walk the leg itself, which is why this is
+    a function and not two copies of the same five lines.
+
+    Outside the leg's window it clamps to the endpoints: before it starts the
+    vehicle is still at `leg_from`, and after `end_ms` it is parked at `leg_to`
+    until the next hop is pushed — which is what the client draws in the gap too.
+
+    `now_ms` is for a caller that already has the game's clock (or a test);
+    left out, the game clock is asked. **Never the PC's** — the two differ, and
+    on a leg that runs a couple of minutes the difference is tiles.
+    """
+    x0, y0 = leg_from
+    x1, y1 = leg_to
+    if start_ms is None or end_ms is None or end_ms <= start_ms:
+        return x1, y1
+    now = game_clock.now_ms() if now_ms is None else now_ms
+    share = min(1.0, max(0.0, (now - start_ms) / float(end_ms - start_ms)))
+    return (int(round(x0 + (x1 - x0) * share)), int(round(y0 + (y1 - y0) * share)))
+
+
 @dataclass(slots=True)
 class Truck:
     uuid: int
@@ -1988,21 +2015,11 @@ class Truck:
     def position(self) -> tuple:
         """`(x, y)` right now, interpolated along the current leg.
 
-        The server sends the hop's endpoints and its start/end times, not a
-        live position, so this is where the truck *should* be on the game's own
-        clock. Outside the leg's window it clamps to the endpoints: before it
-        starts the truck is still at `leg_from`, and after `leg_end_ms` it is
-        parked at `leg_to` until the next hop is pushed — which is also what
-        the client draws in the gap.
+        See :func:`march_position` — the one place the arithmetic lives, so a
+        truck, a train and the panel's own tables all say the same tile.
         """
-        (x0, y0), (x1, y1) = self.leg_from, self.leg_to
-        start, end = self.leg_start_ms, self.leg_end_ms
-        if start is None or end is None or end <= start:
-            return x1, y1
-        now = game_clock.now_ms()
-        share = (now - start) / (end - start)
-        share = min(1.0, max(0.0, share))
-        return (round(x0 + (x1 - x0) * share), round(y0 + (y1 - y0) * share))
+        return march_position(self.leg_from, self.leg_to,
+                              self.leg_start_ms, self.leg_end_ms)
 
     @property
     def arrived(self) -> bool:
@@ -2291,18 +2308,11 @@ class Train:
     def position(self) -> tuple:
         """Where it is right now, interpolated along the leg it is on.
 
-        The same arithmetic `Truck.position` does, and for the same reason: the
-        server describes one hop at a time, so the tile it is standing on is
-        never a field — it is `leg_from` walked towards `leg_to` by however
-        much of the leg has elapsed.
+        The very same :func:`march_position` a truck walks: the server describes
+        one hop at a time, so the tile it is standing on is never a field.
         """
-        start, end = self.leg_start_ms, self.leg_end_ms
-        if not start or not end or end <= start:
-            return self.leg_to
-        share = (game_clock.now_ms() - start) / float(end - start)
-        share = min(1.0, max(0.0, share))
-        return (int(round(self.leg_from[0] + (self.leg_to[0] - self.leg_from[0]) * share)),
-                int(round(self.leg_from[1] + (self.leg_to[1] - self.leg_from[1]) * share)))
+        return march_position(self.leg_from, self.leg_to,
+                              self.leg_start_ms, self.leg_end_ms)
 
     def as_dict(self) -> dict:
         x, y = self.position

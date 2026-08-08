@@ -354,6 +354,74 @@ def test_only_the_page_with_no_file_behind_it_keeps_one():
     assert monsters.state_path().endswith("monsters")
 
 
+def test_a_march_is_walked_along_its_leg_and_clamped_at_both_ends():
+    """The server sends a hop, never a position — so the tile is arithmetic (#1298).
+
+    One function for the truck, the train and the panel's own tables: three copies of
+    five lines is three places for them to disagree about where a truck is.
+    """
+    walk = proto.march_position
+    # Before the leg starts it is still standing where the leg starts…
+    assert walk((10, 20), (30, 20), 1000, 2000, now_ms=500) == (10, 20)
+    assert walk((10, 20), (30, 20), 1000, 2000, now_ms=1500) == (20, 20)
+    # …and after it ends it is parked at the far end until the next hop is pushed,
+    # which is what the client draws in the gap too.
+    assert walk((10, 20), (30, 20), 1000, 2000, now_ms=9999) == (30, 20)
+    # A leg with no times at all is not a guess: the destination is the honest answer.
+    assert walk((10, 20), (30, 40), None, None, now_ms=1500) == (30, 40)
+    assert walk((10, 20), (30, 40), 2000, 1000, now_ms=1500) == (30, 40)
+
+
+def test_a_vehicle_row_carries_its_leg_and_moves_between_reads():
+    """THE BUG #1298 IS ABOUT: the row was frozen where the capture first heard it.
+
+    `Truck.as_dict()` computes an `x`/`y` once, at decode time, and the two record
+    builders took that pair and dropped the leg it was computed from — so a truck ten
+    minutes into a run was drawn on the tile it had left nine minutes earlier and never
+    moved again until the server happened to re-send it.
+    """
+    from panel.tabs.secret_tasks import world
+
+    raw = {"uuid": 5, "server_id": 100, "x": 10, "y": 20, "arrive_at": 9000,
+           "leg_from": [10, 20], "leg_to": [30, 20],
+           "leg_start_ms": 1000, "leg_end_ms": 2000, "seen_at": 10}
+    record = world.truck_records([raw])[0]
+    assert record["leg_from"] == [10, 20] and record["leg_end_ms"] == 2000
+    # …and the same for a train, which rides the very same march shape.
+    train = world.train_records([dict(raw, uuid=6)])[0]
+    assert train["leg_to"] == [30, 20] and train["leg_start_ms"] == 1000
+
+    row = dict(record, leg_from=[10, 20], leg_to=[30, 20])
+    assert world.vehicle_position(row, now_ms=1500) == (20, 20)
+    assert world.vehicle_position(row, now_ms=9999) == (30, 20)
+    # A row with no leg is left where it is rather than moved to the corner of the map:
+    # a checkpoint written before the leg was kept has an `x`/`y` and nothing to walk.
+    assert world.vehicle_position({"x": 1, "y": 2}) is None
+
+    # …and `advance` is what the second's tick calls: it moves the row and says so, so
+    # the table redraws instead of only repainting its clocks.
+    page = object.__new__(world.TruckGrid)
+    page._rows = {"5": row}
+    moved = page.advance()
+    assert moved is True and (row["x"], row["y"]) == world.vehicle_position(row)
+    # The leg survives a restart — a checkpointed vehicle goes on moving after it is
+    # read back, which it cannot do without the four fields.
+    for field in ("leg_from", "leg_to", "leg_start_ms", "leg_end_ms"):
+        assert field in world.TruckGrid.PERSIST_KEYS, field
+        assert field in world.TrainGrid.PERSIST_KEYS, field
+
+
+def test_a_page_that_stands_still_never_claims_to_have_moved():
+    """`advance` costs a redraw, so only the two pages that move may ask for one."""
+    from panel.tabs.secret_tasks import grid, world
+
+    for page in (world.MineGrid, world.MonsterGrid):
+        still = object.__new__(page)
+        still._rows = {"1": {"x": 1, "y": 2}}
+        assert still.advance() is False, page.CONFIG_KEY
+    assert grid.TaskGrid.advance(object.__new__(grid.TaskGrid)) is False
+
+
 def test_a_cargo_is_written_the_way_a_person_reads_one():
     from panel.tabs.secret_tasks import world
 

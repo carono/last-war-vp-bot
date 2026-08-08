@@ -964,6 +964,35 @@ def test_web_press_clear_runs_the_wipe_on_the_tk_thread():
     assert posted == [tab._clear]
 
 
+def test_the_phone_clears_one_list_at_a_time_and_only_the_ones_that_exist():
+    """A card's own «Очистить», through the very handler the window's button uses (#1298).
+
+    The phone is where this matters most: a thumb scrolls past the card titles, so one
+    «Очистить» somewhere on a screen of nine lists is a press whose meaning depends on
+    where the scroll happened to stop.
+    """
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    posted = []
+    tab.post = lambda fn: posted.append(fn)
+    tab.trains = types.SimpleNamespace(clear_pressed=lambda: None)
+    tab.mines = types.SimpleNamespace(clear_pressed=lambda: None)
+
+    assert tab.web_press("clear_trains", {}) == {"ok": True}
+    assert posted == [tab.trains.clear_pressed], posted
+    assert tab.web_press("clear_mines", {}) == {"ok": True}
+    assert posted[-1] == tab.mines.clear_pressed
+    # …and a page id nobody offers is refused rather than reached for by name: the id
+    # comes off the wire, and `getattr(self, …)` on an arbitrary string is not a door
+    # this screen may open.
+    assert tab.web_press("clear_rows", {}) == {"error": "unknown"}
+    assert tab.web_press("clear_capture", {}) == {"error": "unknown"}
+    assert len(posted) == 2, posted
+    # Every id the cards offer is one the press knows — the two halves cannot drift.
+    for page in st.SecretTasksTab.CLEAR_PAGES:
+        assert tab._clear_action(page)["id"] == "clear_%s" % page
+
+
 def test_on_profile_switch_drops_the_old_profiles_rows():
     """Every row's coordinate and server belongs to the OLD account — left in place it
     would be checkpointed straight back out under the NEW profile's own file (#1242)."""
@@ -989,6 +1018,12 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab.ghost_allies = _FakeAllianceGrid()
     tab.ghost_map = _FakeAllianceGrid()
     tab.ghost_map.monitor_var = _Var(False)
+    # …and the four world pages (#1289), which are the old account's MAP: its mines, its
+    # monsters and the vehicles crossing its server. Left in place they would be drawn
+    # under the new profile and, for the monster page, checkpointed into its file (#1298).
+    tab.mines, tab.monsters = _FakeAllianceGrid(), _FakeAllianceGrid()
+    tab.trains, tab.trucks = _FakeAllianceGrid(), _FakeAllianceGrid()
+    tab._world_said = ("ok", 1, 2, 3)
 
     tab.on_profile_switch()
 
@@ -999,6 +1034,12 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     assert tab.ghost.cleared == 1, "the ghost grid kept the old account's squads"
     assert tab.ghost_allies.cleared == 1, "the allies' ghost grid kept the old alliance"
     assert tab.ghost_map.cleared == 1, "the map page kept the old profile's tiles"
+    for name in ("mines", "monsters", "trains", "trucks"):
+        assert getattr(tab, name).cleared == 1, (
+            "the «%s» page kept the old account's map" % name)
+    # …and the memo of what the world checkpoint last said, so the new profile's own
+    # file can say «поездов 0» out loud even if the old one had just said it (#1298).
+    assert tab._world_said is None
     # …and what the standing order had already fired at is the other account's map too
     # (#1256 — the book moved onto the watcher when the choosing did).
     assert tab._collected == set() and tab.autoloot._seen == set()
@@ -1998,6 +2039,142 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
     assert "1" in expired, expired
 
 
+def test_a_page_is_emptied_by_its_own_button_and_by_nothing_of_its_neighbours():
+    """«Очистить список» is the THIRD door into a list, and it opens onto one (#1298).
+
+    `THE_LIST_RULE` lets a row go for two reasons — its own clock, or the game saying
+    the tile is gone. A person asking, out loud, for one table is the only other one, so
+    the press has to be answerable by looking at the table the button sits on: nine
+    tables, nine buttons, and pressing one of them leaves the other eight alone.
+    """
+    one, two = _alliance_grid(), _alliance_grid()
+    one.apply([_member_task(1), _member_task(2)])
+    two.apply([_member_task(3)])
+    assert len(one._rows) == 2 and len(two._rows) == 1
+
+    one.clear_pressed()
+
+    assert one._rows == {}, "the page kept its rows after its own button"
+    assert len(two._rows) == 1, "one page's «Очистить» emptied its neighbour"
+
+    # …and the checkpoint goes with the rows, where the page keeps one. A table that
+    # emptied on screen and came back whole on the next start makes the press a lie.
+    from panel.tabs.secret_tasks import world
+
+    wrote = []
+    page = object.__new__(world.MonsterGrid)
+    page._rows = {"1": {"uuid": "1"}}
+    page.render = lambda: None
+    page.persist = lambda: wrote.append(dict(page._rows))
+    page.clear_pressed()
+    assert page._rows == {} and wrote == [{}], wrote
+
+
+def test_an_unread_world_checkpoint_and_an_empty_one_say_different_things():
+    """«Пусто» and «не смог прочитать» are two answers, and were one silence (#1298).
+
+    The world feed used to `return` without a word on a missing file, on a torn one and
+    on a file holding nothing — three situations, one blank page, and no way to tell the
+    sniffer being off from the checkpoint being unparsable from the map genuinely having
+    no train on it. #1296 was the same class of hole one day earlier.
+    """
+    import json
+    import os
+    import tempfile
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    tab.loaded = True
+    tab._world_said = None
+    said = []
+    tab.say = lambda tag, key, **fmt: said.append((key, fmt))
+    tab.after = lambda fn: fn()
+    for name in ("mines", "trains", "trucks"):
+        setattr(tab, name, _FakeAllianceGrid())
+    path = os.path.join(tempfile.mkdtemp(), "world_map.json")
+    tab.rt = types.SimpleNamespace(profiles=types.SimpleNamespace(
+        world_json=lambda name=None: path))
+    # The read runs on a thread of its own; here it runs where the assertions are.
+    tab.rt.profiles.world_json = lambda name=None: path
+    inline = types.SimpleNamespace(
+        Thread=lambda target, daemon=None: types.SimpleNamespace(start=target))
+    was, st.threading = st.threading, inline
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+        tab.refresh_world()
+        assert said[-1][0] == "log.world.no_file", said
+
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        tab.refresh_world()
+        assert said[-1][0] == "log.world.unreadable", said
+
+        # …and a checkpoint that parses says WHAT IT HELD, per kind. «поездов 0» beside
+        # «грузовиков 1» is the sniffer working and the event being off — a sentence the
+        # empty table cannot say by itself.
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"mines": [], "trains": [],
+                       "trucks": [{"uuid": 5, "server_id": 1, "x": 1, "y": 2,
+                                   "arrive_at": 9, "seen_at": 1}]}, fh)
+        tab.refresh_world()
+        assert said[-1] == ("log.world.merged",
+                            {"mines": 0, "trains": 0, "trucks": 1}), said
+
+        # …and it is said once per ANSWER, not once per nudge: `refresh` is called by
+        # the capture on every finding, and a line each would be a log nobody can read.
+        before = len(said)
+        tab.refresh_world()
+        tab.refresh_world()
+        assert len(said) == before, said[before:]
+    finally:
+        st.threading = was
+
+
+def test_a_notebook_label_counts_its_own_page_and_never_a_neighbours():
+    """«Поезда · 2+6» over a page with no trains on it — the bug this fixes (#1298).
+
+    The label used to map an index onto a grid through a literal `{1: …, 2: …}` that
+    stopped at four, so the four world pages added later fell through it to the ★ list's
+    own counter and every one of them wore the ★ list's numbers. A true count of the
+    wrong list is worse than none: the counter is the one place a person looks to tell
+    «нашлось пусто» from «всё скрыто фильтром».
+    """
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    tab.t = lambda key, **fmt: key
+    tab.counts = lambda: (2, 6)                       # the ★ list, holding 2 and hiding 6
+    trains = types.SimpleNamespace(counts=lambda: (0, 0))
+    trucks = types.SimpleNamespace(counts=lambda: (6, 0))
+    tab._page_keys = ["secrettasks.page.stars", "world.page.trains", "world.page.trucks"]
+    tab._page_grids = [None, trains, trucks]
+
+    assert tab._page_label(0, "secrettasks.page.stars") == "secrettasks.page.stars · 2+6"
+    # An empty page says its own name and NOTHING ELSE — never a neighbour's tally.
+    assert tab._page_label(1, "world.page.trains") == "world.page.trains"
+    assert tab._page_label(2, "world.page.trucks") == "world.page.trucks · 6"
+
+    # …and a page added tomorrow cannot fall through: the grid is registered beside its
+    # label rather than looked up by index in a table somebody has to remember to grow.
+    tab._pages = _FakeNotebook()
+    tab._add_page(object(), "world.page.mines", types.SimpleNamespace(
+        counts=lambda: (1, 2)))
+    assert tab._page_grids[-1] is not None
+    assert tab._page_label(3, "world.page.mines") == "world.page.mines · 1+2"
+
+
+class _FakeNotebook:
+    """Enough of a `ttk.Notebook` for `_add_page` — it only ever adds and re-labels."""
+
+    def __init__(self) -> None:
+        self.pages: list = []
+
+    def add(self, frame, text="") -> None:
+        self.pages.append(text)
+
+    def tab(self, index, text=None) -> None:
+        self.pages[index] = text
+
+
 def _robbed_tab():
     """A tab whose one ready row has just been robbed, through the real `_collect_done`."""
     import types
@@ -2109,9 +2286,15 @@ def test_the_phone_is_shown_every_page_the_window_has():
                          ("world.trucks", "#1 X:8 Y:9")):
         assert title in cards, cards
         assert cards[title]["items"][0]["text"] == where
-    assert [a["id"] for a in cards["world.mines"]["actions"]] == ["mines_free"]
-    assert [a["id"] for a in cards["world.monsters"]["actions"]] == ["read_monsters"]
-    assert "actions" not in cards["world.trains"], cards["world.trains"]
+    # …and each of them carries its OWN «Очистить список» (#1298). One button over nine
+    # tables could only mean one of them, and on a phone — where the thumb scrolls past
+    # the titles — it could not even mean that.
+    assert [a["id"] for a in cards["world.mines"]["actions"]] == ["mines_free",
+                                                                 "clear_mines"]
+    assert [a["id"] for a in cards["world.monsters"]["actions"]] == ["read_monsters",
+                                                                    "clear_monsters"]
+    assert [a["id"] for a in cards["world.trains"]["actions"]] == ["clear_trains"]
+    assert [a["id"] for a in cards["world.trucks"]["actions"]] == ["clear_trucks"]
     # EVERY BOX IS A BUTTON ON ITS OWN CARD (#1251) — a press has to say which list it
     # is about, exactly as the window's switches sit on their own pages.
     stars = {a["id"]: a["label"] for a in cards["secrettasks.page.stars"]["actions"]}
@@ -2121,7 +2304,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # screen has two of them and a thumb scrolls past the card titles.
     assert stars["monitor"] == "secret.monitoring.stars.on"         # not running yet
     ally = {a["id"]: a["label"] for a in cards["secrettasks.alliance"]["actions"]}
-    assert {"ur_only", "star_only"} == set(ally), ally
+    assert {"ur_only", "star_only", "clear_alliance"} == set(ally), ally
     assert ally["ur_only"] == "secrettasks.filter.ur_on"            # it is not on yet
     # «Автопомощь» is a card of its own directly above the list it helps (#1272): the
     # rule, the state, and the one press the phone may make — the whole ability is a
@@ -2140,9 +2323,14 @@ def test_the_phone_is_shown_every_page_the_window_has():
     assert assist["actions"][0]["label"] == "autoassist.on"         # it is not on yet
     # THE GHOST SWITCH IS ON BOTH GHOST CARDS (#1264): on the one its findings land on,
     # and on the one named «Операция Призрак», which is where a person looks for it.
-    for title in ("secrettasks.ghost", "secrettasks.ghost.map"):
+    for title, clear in (("secrettasks.ghost", "clear_ghost"),
+                         ("secrettasks.ghost.map", "clear_ghost_map")):
         actions = {a["id"]: a["label"] for a in cards[title]["actions"]}
-        assert actions == {"ghost_monitor": "secret.monitoring.ghost.on"}, (title, actions)
+        assert actions == {"ghost_monitor": "secret.monitoring.ghost.on",
+                           clear: "secrettasks.clear"}, (title, actions)
+    # …and the allies' card, which has nothing to switch and still has its own clear.
+    assert [a["id"] for a in cards["secrettasks.ghost.allies"]["actions"]] == [
+        "clear_ghost_allies"]
     # What is left at the bottom belongs to the whole tab — «Обновить», and the camera
     # bar the window put on this tab too (#1265): which height it is set to, and the lap
     # that spends it.

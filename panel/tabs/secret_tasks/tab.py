@@ -413,6 +413,12 @@ class SecretTasksTab(PanelTab):
         # the one piece of text a `ttk.Notebook` will not take a variable for (#1251).
         self._pages = None
         self._page_keys: list = []
+        # …and the grid each page draws, in the same order, so a label asks ITS OWN list
+        # how many rows it is holding (#1298). See `_add_page`.
+        self._page_grids: list = []
+        # What the world checkpoint last said, so `refresh_world` writes a line when the
+        # answer CHANGES rather than on every one of the capture's nudges (#1298).
+        self._world_said = None
 
         # -- the controls the three orders read ------------------------------
         self.monitor_var = tk.BooleanVar(master=master, value=False)
@@ -644,8 +650,19 @@ class SecretTasksTab(PanelTab):
         self.ghost.clear()
         self.ghost_allies.clear()
         self.ghost_map.clear()
+        # …and the world pages, which are another account's map exactly as the ★ list
+        # above is. The memo of what the checkpoint last said goes with them (#1298):
+        # the new profile's own file has to be able to say «поезда: 0» out loud even if
+        # the old one had just said it.
+        for page in (self.mines, self.monsters, self.trains, self.trucks):
+            page.clear()
+        self._world_said = None
         if self.loaded:
             self.ghost_map.restore()
+            # …and the monster page's own file, which is the new profile's memory of
+            # what its client could see. The other three world pages come back from the
+            # capture's checkpoint on the next `refresh`, so they are not read here.
+            self.monsters.restore()
         # …and so do the shares: «уже поделились» is about an alliance chat this account
         # is not in (#1245). Dropped rather than re-read, because the new profile's own
         # file is read by the next countdown pass anyway.
@@ -856,8 +873,12 @@ class SecretTasksTab(PanelTab):
                 "tab.secret_tasks").pack(side="left")
         self.tr(ttk.Button(bar, width=12, command=self.refresh_both),
                 "tabx.refresh").pack(side="right")
-        self.tr(ttk.Button(bar, width=12, command=self._clear),
-                "secrettasks.clear").pack(side="right", padx=(0, 6))
+        # «Очистить список» IS NOT HERE ANY MORE (#1298). Standing over nine tables it
+        # read as «очистить вкладку» and emptied exactly one of them — the ★ list — so a
+        # person pressing it while looking at «Поезда» watched nothing happen and had no
+        # way to tell that from a button that did not work. Every page carries its own
+        # now, beside the table it empties (`TaskGrid.clear_pressed`), and the ★ page's
+        # is on the ★ page's own filter bar with the rest of that list's switches.
         ttk.Label(bar, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
 
@@ -1003,6 +1024,7 @@ class SecretTasksTab(PanelTab):
         book.pack(fill="both", expand=True, padx=10, pady=(0, 0))
         self._pages = book
         self._page_keys = []
+        self._page_grids = []
 
         stars = ttk.Frame(book, padding=6)
         self._add_page(stars, "secrettasks.page.stars")
@@ -1022,16 +1044,19 @@ class SecretTasksTab(PanelTab):
         tree.bind("<<TreeviewSelect>>", lambda _e: self._sync_actions())
         self._tree = tree
         self._retranslate_headings()
-        self._add_page(self.alliance.build(book), "secrettasks.page.alliance")
-        self._add_page(self.ghost.build(book), "secrettasks.page.ghost")
-        self._add_page(self.ghost_allies.build(book), "secrettasks.page.ghost_allies")
-        self._add_page(self.ghost_map.build(book), "secrettasks.page.ghost_map")
+        self._add_page(self.alliance.build(book), "secrettasks.page.alliance",
+                       self.alliance)
+        self._add_page(self.ghost.build(book), "secrettasks.page.ghost", self.ghost)
+        self._add_page(self.ghost_allies.build(book), "secrettasks.page.ghost_allies",
+                       self.ghost_allies)
+        self._add_page(self.ghost_map.build(book), "secrettasks.page.ghost_map",
+                       self.ghost_map)
         # …and the rest of the map, in the order a person reads it: the ground first,
         # then what walks on it, then what drives over it (#1289).
-        self._add_page(self.mines.build(book), "world.page.mines")
-        self._add_page(self.monsters.build(book), "world.page.monsters")
-        self._add_page(self.trains.build(book), "world.page.trains")
-        self._add_page(self.trucks.build(book), "world.page.trucks")
+        self._add_page(self.mines.build(book), "world.page.mines", self.mines)
+        self._add_page(self.monsters.build(book), "world.page.monsters", self.monsters)
+        self._add_page(self.trains.build(book), "world.page.trains", self.trains)
+        self._add_page(self.trucks.build(book), "world.page.trucks", self.trucks)
         # Switching pages re-aims the strip below at whatever the new page has selected.
         book.bind("<<NotebookTabChanged>>", lambda _e: self.sync_actions())
 
@@ -1057,10 +1082,23 @@ class SecretTasksTab(PanelTab):
         self._collect_btn.pack(side="right")
         self._sync_actions()
 
-    def _add_page(self, frame, key: str) -> None:
-        """Add one page to the notebook and remember the key its label is said from."""
+    def _add_page(self, frame, key: str, page=None) -> None:
+        """Add one page to the notebook, with the key it is named by and the list it draws.
+
+        **The grid is remembered HERE, not derived from the index** (#1298). `_page_label`
+        used to carry a `{1: alliance, 2: ghost, …}` map that stopped at four, so the four
+        world pages added in #1289 fell through it to `self.counts()` — and every one of
+        them wore the ★ list's numbers. «Поезда · 2+6» on a page with no trains on it was
+        that: a true count, of the wrong list, in the one place a person looks to find out
+        whether a list is empty or merely filtered.
+
+        A page registered beside its own label cannot drift like that: adding a tenth
+        table is one more argument here rather than one more entry in a map somebody has
+        to remember to grow. `None` is the ★ page, whose list is the tab itself.
+        """
         self._pages.add(frame, text=self.t(key))
         self._page_keys.append(key)
+        self._page_grids.append(page)
         # …the count lands on it as soon as the page has rows (`sync_page_counts`); at
         # build time every list is still empty, so the bare name is the honest label.
 
@@ -1082,6 +1120,10 @@ class SecretTasksTab(PanelTab):
         self.tr(ttk.Checkbutton(bar, variable=self.hide_own_var,
                                 command=self._on_hide_own_change),
                 "secrettasks.filter.hide_own").pack(side="left", padx=(16, 0))
+        # …and the ★ list's own «Очистить список», in the same place every other page
+        # keeps its own (#1298) — right of its own filter bar, over its own table.
+        self.tr(ttk.Button(bar, width=12, command=self._clear),
+                "secrettasks.clear").pack(side="right")
 
         # …and the SECRET-TASK sniffer's own switch, on the page it feeds — AND NOWHERE
         # ELSE NOW (#1272). It was drawn twice for a while (#1264, the same variable in
@@ -2155,27 +2197,60 @@ class SecretTasksTab(PanelTab):
 
         The MONSTERS are not here. Nothing on the wire names one (#1289), so their page
         is filled by :meth:`_read_monsters`, which plays a scenario against the client.
+
+        **«Пусто» and «не смог прочитать» say different things** (#1296, #1298). This
+        used to return in silence on a missing file, a torn one and a file holding
+        nothing — three different situations, one blank page and no way to tell which.
+        A page that stays empty because the sniffer is off is a switch to flip; one that
+        stays empty because its checkpoint cannot be parsed is a bug; one that is empty
+        because the map really has no train on it is the answer.
         """
         if not self.loaded:
             return
 
         def work() -> None:
+            path = self.rt.profiles.world_json()
             try:
-                with open(self.rt.profiles.world_json(), encoding="utf-8") as fh:
+                with open(path, encoding="utf-8") as fh:
                     data = json.load(fh)
-            except (OSError, ValueError):      # no capture has run yet, or a torn file
+            except OSError as exc:             # no capture has ever written it
+                self._say_world(("nofile",), "log.world.no_file", error=exc)
+                return
+            except ValueError as exc:          # …or it was read mid-write
+                self._say_world(("torn",), "log.world.unreadable", error=exc)
                 return
             if not isinstance(data, dict):
+                self._say_world(("shape",), "log.world.unreadable",
+                                error=type(data).__name__)
                 return
             rows = {
                 self.mines: world.mine_records(data.get("mines")),
                 self.trains: world.train_records(data.get("trains")),
                 self.trucks: world.truck_records(data.get("trucks")),
             }
+            counts = tuple(len(records) for records in rows.values())
+            # …and what it actually held, per kind. The counts are the whole point:
+            # «поезда: 0» beside «грузовики: 6» is the sniffer working and the event
+            # being off, which is a sentence the empty table cannot say by itself.
+            self._say_world(("ok",) + counts, "log.world.merged",
+                            mines=counts[0], trains=counts[1], trucks=counts[2])
             self.after(lambda: [page.apply(records)
                                 for page, records in rows.items()])
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _say_world(self, state, key: str, **fmt) -> None:
+        """Say what the world checkpoint held — ONCE per answer, not once per nudge.
+
+        `refresh` is called by the capture on every finding, so an unconditional line
+        here would be a log nobody could read past. `state` is what the answer WAS: the
+        line is written when it changes and swallowed while it repeats, which is what
+        makes «поезда: 0» worth reading when it appears.
+        """
+        if self._world_said == state:
+            return
+        self._world_said = state
+        self.say("secret", key, **fmt)
 
     def _read_monsters(self) -> None:
         """Play the monster read and merge what it found (#1289).
@@ -2869,6 +2944,12 @@ class SecretTasksTab(PanelTab):
                                         "label": ("secrettasks.filter.show_own"
                                                   if self.hide_own_var.get()
                                                   else "secrettasks.filter.hide_own")},
+                                       # …and the ★ list's own «Очистить список». One
+                                       # per card now (#1298), exactly as the window has
+                                       # one per page: a phone is scrolled past the
+                                       # titles, so a lone «Очистить» somewhere on the
+                                       # screen is a press whose meaning depends on
+                                       # where the thumb happened to stop.
                                        {"id": "clear", "label": "secrettasks.clear"}]},
                           # …and «Автопомощь» directly above the list it helps, the way
                           # «Автолут ★» sits above the ★ one (#1272). A card of its own
@@ -2915,7 +2996,8 @@ class SecretTasksTab(PanelTab):
                                        {"id": "star_only",
                                         "label": ("secrettasks.filter.star_off"
                                                   if self.alliance.star_var.get()
-                                                  else "secrettasks.filter.star_on")}]},
+                                                  else "secrettasks.filter.star_on")},
+                                       self._clear_action("alliance")]},
                           # The two ghost cards carry the event's own facts as well as
                           # their squads: six days a week «событие закрыто» IS the
                           # reading, and an empty list without it is a mystery.
@@ -2928,17 +3010,20 @@ class SecretTasksTab(PanelTab):
                            "rows": self.ghost.web_rows() + self._count_rows(self.ghost),
                            "items": self.ghost.web_items(),
                            "empty": "secrettasks.ghost.empty",
-                           "actions": [self._ghost_monitor_action()]},
+                           "actions": [self._ghost_monitor_action(),
+                                       self._clear_action("ghost")]},
                           {"title": "secrettasks.ghost.allies",
                            "items": self.ghost_allies.web_items(),
                            "rows": self._count_rows(self.ghost_allies),
-                           "empty": "secrettasks.ghost.allies.empty"},
+                           "empty": "secrettasks.ghost.allies.empty",
+                           "actions": [self._clear_action("ghost_allies")]},
                           # …and the sniffer's own card, where its tiles land (#1251).
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
                            "rows": self._count_rows(self.ghost_map),
                            "empty": "secrettasks.ghost.map.empty",
-                           "actions": [self._ghost_monitor_action()]},
+                           "actions": [self._ghost_monitor_action(),
+                                       self._clear_action("ghost_map")]},
                           # …and the rest of the map, one card per page, in the order
                           # the window's notebook holds them (#1289). Readings only:
                           # gathering a mine, attacking a monster and robbing a truck
@@ -2952,7 +3037,8 @@ class SecretTasksTab(PanelTab):
                            "actions": [{"id": "mines_free",
                                         "label": ("world.mines.show_taken"
                                                   if self.mines.free_var.get()
-                                                  else "world.mines.free_only")}]},
+                                                  else "world.mines.free_only")},
+                                       self._clear_action("mines")]},
                           {"title": "world.monsters",
                            "items": self.monsters.web_items(),
                            "rows": self._count_rows(self.monsters),
@@ -2960,15 +3046,18 @@ class SecretTasksTab(PanelTab):
                            # The one card whose feed is a game read rather than the
                            # sniffer, so it says so and offers the read itself.
                            "actions": [{"id": "read_monsters",
-                                        "label": "world.monsters.read"}]},
+                                        "label": "world.monsters.read"},
+                                       self._clear_action("monsters")]},
                           {"title": "world.trains",
                            "items": self.trains.web_items(),
                            "rows": self._count_rows(self.trains),
-                           "empty": "world.trains.empty"},
+                           "empty": "world.trains.empty",
+                           "actions": [self._clear_action("trains")]},
                           {"title": "world.trucks",
                            "items": self.trucks.web_items(),
                            "rows": self._count_rows(self.trucks),
-                           "empty": "world.trucks.empty"}],
+                           "empty": "world.trucks.empty",
+                           "actions": [self._clear_action("trucks")]}],
                 "now": now,
                 # What is left at the bottom is what belongs to the WHOLE tab.
                 #
@@ -3003,6 +3092,16 @@ class SecretTasksTab(PanelTab):
         if hidden:
             rows.append({"label": "secrettasks.hidden_label", "value": str(hidden)})
         return rows
+
+    #: The phone's «Очистить список», per card — the id says WHICH list (#1298). Built
+    #: from one table so a card and its press cannot drift apart, and so a tenth page is
+    #: one entry rather than an entry plus a branch in `web_press`.
+    CLEAR_PAGES = ("alliance", "ghost", "ghost_allies", "ghost_map",
+                   "mines", "monsters", "trains", "trucks")
+
+    def _clear_action(self, page: str) -> dict:
+        """One card's own clear button. The ★ card's is `clear`, for the list here."""
+        return {"id": "clear_%s" % page, "label": "secrettasks.clear"}
 
     def _ghost_monitor_action(self) -> dict:
         """The ghost sniffer's button, built once and drawn on both ghost cards (#1264).
@@ -3054,6 +3153,15 @@ class SecretTasksTab(PanelTab):
             return {"ok": True}
         if action == "clear":
             self.post(self._clear)
+            return {"ok": True}
+        if action.startswith("clear_"):
+            # One card, one list (#1298). The window's press and the phone's go through
+            # the very same `clear_pressed`, so neither front-end can empty a table the
+            # other would have left alone.
+            page = action[len("clear_"):]
+            if page not in self.CLEAR_PAGES:
+                return {"error": "unknown"}
+            self.post(getattr(self, page).clear_pressed)
             return {"ok": True}
         if action == "zoom":
             # The window's own field, moved on by one — so the two front-ends cannot
@@ -3429,8 +3537,7 @@ class SecretTasksTab(PanelTab):
 
     def _page_label(self, index: int, key: str) -> str:
         """One notebook tab's words: its name, and what it is holding right now."""
-        page = {1: self.alliance, 2: self.ghost, 3: self.ghost_allies,
-                4: self.ghost_map}.get(index)
+        page = self._page_grids[index] if index < len(self._page_grids) else None
         try:
             shown, hidden = page.counts() if page is not None else self.counts()
         except Exception:                     # noqa: BLE001 — a label is never a failure

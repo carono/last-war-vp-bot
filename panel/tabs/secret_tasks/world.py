@@ -119,6 +119,28 @@ def _coords(row) -> str:
     return coords_fmt.fmt(row.get("x"), row.get("y"))
 
 
+def vehicle_position(row, now_ms=None):
+    """`(x, y)` for a row that is MOVING, or None when it carries no leg (#1298).
+
+    One line of arithmetic, and it deliberately is not written here:
+    `lastwar_proto.march_position` is what the decoder and the two tables both walk, so
+    the panel cannot drift into drawing a truck on a different tile from the one the
+    tools report. The panel is only deciding WHEN to ask (every tick), never how.
+
+    None rather than a guess when the leg is missing: a checkpoint written before the
+    leg was kept has an `x`/`y` and nothing to walk, and overwriting that with `(0, 0)`
+    would move every old row to the corner of the map.
+    """
+    import lastwar_proto as proto
+
+    start, end = row.get("leg_start_ms"), row.get("leg_end_ms")
+    src, dst = row.get("leg_from") or (), row.get("leg_to") or ()
+    if len(src) < 2 or len(dst) < 2:
+        return None
+    return proto.march_position(tuple(src[:2]), tuple(dst[:2]), start, end,
+                                now_ms=now_ms)
+
+
 class WorldGrid(grid.TaskGrid):
     """One world page: a merged, capped, self-ageing list of one kind of thing."""
 
@@ -480,10 +502,27 @@ class MonsterGrid(WorldGrid):
 # Trucks and trains — the two that ride the march stream
 # ---------------------------------------------------------------------------
 class _VehicleGrid(WorldGrid):
-    """What a truck and a train share: a leg, an arrival, and an owner."""
+    """What a truck and a train share: a leg, an arrival, and an owner.
+
+    **AND THE FACT THAT THEY ARE MOVING** (#1298). Every other row on this tab is a tile
+    and stays where it is until the game says otherwise; these two are marches. The
+    server never sends a position for one — it sends the hop's two endpoints and the two
+    times it runs between, and the client draws the vehicle by walking one towards the
+    other on the game's own clock (`lastwar_proto.march_position`).
+
+    So the coordinate on these pages is COMPUTED, on every tick, from the leg the row is
+    carrying. It used to be the `x`/`y` the capture wrote down at the moment it decoded
+    the frame, which is «where it was when we heard about it» — a truck that had been out
+    for ten minutes was drawn on a tile it had left nine minutes earlier, and the row
+    never moved again until the server happened to re-send it.
+    """
 
     HAS_CLOCK = True
-    PERSIST_KEYS = WorldGrid.PERSIST_KEYS + ("owner_name", "alliance_abbr")
+    #: The leg is what a position is computed FROM, so it survives a restart with the
+    #: rest of the row — a checkpointed vehicle goes on moving after it is read back.
+    PERSIST_KEYS = WorldGrid.PERSIST_KEYS + ("owner_name", "alliance_abbr",
+                                             "leg_from", "leg_to",
+                                             "leg_start_ms", "leg_end_ms")
 
     #: What these two count down TO. Not «готово через …» — there is nothing here to
     #: press when the clock runs out; the vehicle simply reaches its stop and leaves the
@@ -495,10 +534,46 @@ class _VehicleGrid(WorldGrid):
         row["until_key"] = self.UNTIL_KEY
         row["owner_name"] = record.get("owner_name") or ""
         row["alliance_abbr"] = record.get("alliance_abbr") or ""
+        self.set_leg(row, record)
 
     def update_row(self, row, record) -> None:
         super().update_row(row, record)
         row["owner_name"] = record.get("owner_name") or ""
+        self.set_leg(row, record)
+
+    def set_leg(self, row, record) -> None:
+        """Take the hop the server last described, and stand the row on it now.
+
+        The `x`/`y` in the record are only a fallback — they are the position the
+        capture computed once, when it decoded the frame. A record that carries a leg
+        gets its coordinate re-derived immediately, so a row is right the moment it
+        lands rather than at the next tick.
+        """
+        row["leg_from"] = list(record.get("leg_from") or ())
+        row["leg_to"] = list(record.get("leg_to") or ())
+        row["leg_start_ms"] = record.get("leg_start_ms")
+        row["leg_end_ms"] = record.get("leg_end_ms")
+        moved = vehicle_position(row)
+        if moved is not None:
+            row["x"], row["y"] = moved
+
+    def advance(self) -> bool:
+        """Walk every row along its leg — the per-second half of «where is it NOW».
+
+        Cheap by construction: no game, no server and no file, just the game clock and
+        two endpoints per row. What it costs is the redraw it asks for, and only when a
+        row has actually changed tile — a truck crossing thirty tiles in two minutes
+        moves a cell about every four seconds, not four times a second.
+        """
+        moved = False
+        for row in self._rows.values():
+            where = vehicle_position(row)
+            if where is None:
+                continue
+            if (where[0], where[1]) != (row.get("x"), row.get("y")):
+                row["x"], row["y"] = where
+                moved = True
+        return moved
 
     def rank(self, row) -> tuple:
         return (row.get("expires_at") or float("inf"), str(row.get("uuid") or ""))
@@ -671,23 +746,37 @@ def mine_records(raw) -> list:
     return out
 
 
+def _leg(item) -> dict:
+    """The hop a vehicle is on, carried through to the row (#1298).
+
+    THE FIELDS THAT WERE BEING DROPPED. The checkpoint has always had them — the
+    decoder writes `leg_from` / `leg_to` / `leg_start_ms` / `leg_end_ms` beside the
+    `x`/`y` it computed off them — and these two builders took the computed pair and
+    left the leg behind, which is exactly why the tables froze a truck on the tile it
+    was standing on when the frame arrived.
+    """
+    return {"leg_from": item.get("leg_from"), "leg_to": item.get("leg_to"),
+            "leg_start_ms": item.get("leg_start_ms"),
+            "leg_end_ms": item.get("leg_end_ms")}
+
+
 def truck_records(raw) -> list:
     """…and its trucks. `arrive_at` becomes the row's own deadline (`expires_at`)."""
     out = []
     for item in raw or ():
         if not isinstance(item, dict):
             continue
-        out.append({"uuid": item.get("uuid"), "server": item.get("server_id"),
-                    "x": item.get("x"), "y": item.get("y"),
-                    "level": item.get("level"), "tier": item.get("tier"),
-                    "tier_name": item.get("tier_name"),
-                    "owner_name": item.get("owner_name"),
-                    "alliance_abbr": item.get("alliance_abbr"),
-                    "cargo": item.get("cargo"),
-                    "rob_times": item.get("rob_times"),
-                    "free_robs": item.get("free_robs"),
-                    "expires_at": item.get("arrive_at"),
-                    "seen_at": item.get("seen_at")})
+        out.append(dict({"uuid": item.get("uuid"), "server": item.get("server_id"),
+                         "x": item.get("x"), "y": item.get("y"),
+                         "level": item.get("level"), "tier": item.get("tier"),
+                         "tier_name": item.get("tier_name"),
+                         "owner_name": item.get("owner_name"),
+                         "alliance_abbr": item.get("alliance_abbr"),
+                         "cargo": item.get("cargo"),
+                         "rob_times": item.get("rob_times"),
+                         "free_robs": item.get("free_robs"),
+                         "expires_at": item.get("arrive_at"),
+                         "seen_at": item.get("seen_at")}, **_leg(item)))
     return out
 
 
@@ -697,18 +786,18 @@ def train_records(raw) -> list:
     for item in raw or ():
         if not isinstance(item, dict):
             continue
-        out.append({"uuid": item.get("uuid"), "server": item.get("server_id"),
-                    "x": item.get("x"), "y": item.get("y"),
-                    "owner_name": item.get("owner_name"),
-                    "alliance_abbr": item.get("alliance_abbr"),
-                    "alliance_name": item.get("alliance_name"),
-                    "seats": item.get("seats"),
-                    "passengers": item.get("passengers"),
-                    "completeness": item.get("completeness"),
-                    "gift_level": item.get("gift_level"),
-                    "rob_times": item.get("rob_times"),
-                    "expires_at": item.get("arrive_at"),
-                    "seen_at": item.get("seen_at")})
+        out.append(dict({"uuid": item.get("uuid"), "server": item.get("server_id"),
+                         "x": item.get("x"), "y": item.get("y"),
+                         "owner_name": item.get("owner_name"),
+                         "alliance_abbr": item.get("alliance_abbr"),
+                         "alliance_name": item.get("alliance_name"),
+                         "seats": item.get("seats"),
+                         "passengers": item.get("passengers"),
+                         "completeness": item.get("completeness"),
+                         "gift_level": item.get("gift_level"),
+                         "rob_times": item.get("rob_times"),
+                         "expires_at": item.get("arrive_at"),
+                         "seen_at": item.get("seen_at")}, **_leg(item)))
     return out
 
 

@@ -609,6 +609,11 @@ class TaskGrid:
         self.tab.tr(ttk.Label(bar), "secret.level_to").pack(side="left", padx=(6, 2))
         NumericEntry(bar, textvariable=self.level_to, width=4).pack(side="left")
         self.extra_filters(bar)
+        # …and THIS page's own «Очистить список», on THIS page (#1298). One button over
+        # nine tables could only ever mean one of them, and it meant the ★ list — so a
+        # person looking at «Поезда» pressed «Очистить» and watched nothing happen.
+        self.tab.tr(ttk.Button(bar, width=12, command=self.clear_pressed),
+                    "secrettasks.clear").pack(side="right")
         for var in (self.level_from, self.level_to):
             var.trace_add("write", lambda *_a: self.refilter())
 
@@ -686,6 +691,27 @@ class TaskGrid:
         self._rows = {}
         self.render()
 
+    def clear_pressed(self) -> None:
+        """«Очистить список» ON THIS PAGE, and nowhere near its neighbours (#1298).
+
+        THE THIRD WAY A ROW LEAVES, and the only other legal one: `THE_LIST_RULE`
+        says a row goes when its own clock runs out or when the game says the tile is
+        not there — this is a person asking, out loud, for this one table. It is not a
+        reason to touch any other, so it does not: nine tables, nine buttons, and a
+        press on one of them is answerable by looking at the table it sits on.
+
+        Nothing is lost for good. Every list here is refilled by its own feed — the
+        capture's checkpoint, a VM read, a push — so the press empties what is drawn
+        and the next read brings back whatever is still true.
+        """
+        self.clear()
+        # …and the checkpoint too, where this page keeps one. A page that emptied on
+        # screen and came back whole on the next start would make the press a lie.
+        self.persist()
+
+    def persist(self) -> None:
+        """Checkpoint this page's own list. Nothing for a page that is re-read whole."""
+
     def mark_robbed(self, key: str) -> None:
         """Stamp one tile as robbed by us, wherever it is drawn.
 
@@ -722,13 +748,25 @@ class TaskGrid:
         """
         if self._tree is None:
             return
+        moved = self.advance()
         expired, changed = self._refresh_timers()
         for key in expired:
             self._rows.pop(key, None)
-        if expired or changed:
+        if expired or changed or moved:
             self.render()
         else:
             paint_timers(self._tree, self._rows)
+
+    def advance(self) -> bool:
+        """Whatever moves under a row between two reads — `True` if a cell changed.
+
+        `paint_timers` rewrites the state column and nothing else, which is right for a
+        list whose rows stand still: a tile is where it is until the game says otherwise.
+        A truck and a train do NOT stand still (#1298), so their page walks each row
+        along its leg here and says so, and the second's tick redraws the table instead
+        of only its clocks. Nothing to move on the other pages, so nothing moves.
+        """
+        return False
 
     def _refresh_timers(self) -> tuple:
         """The countdowns, with the «уже поделились» mark stamped on first (#1245).
