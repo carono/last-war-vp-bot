@@ -1057,3 +1057,94 @@ The express path had to learn the gate too. «Сразу» skips the queue — a
 `_run_queued`, which was the only place a refusal was read; the errand most likely to
 carry that flag is this one. The reason is rolled up like any other skip, so it is said
 once with a count rather than once per push.
+
+## A squad below its own ceiling is not sent, and the ceiling had to be found (#1281)
+
+Asked for as «нужно проверять, есть ли МАКСИМУМ СОЛДАТ для отряда — если не хватает,
+автостяг пропускаем», with the threshold named explicitly: **full means the squad's own
+capacity, not whatever happens to be standing in it.**
+
+### Where the ceiling lives, and why it reads nil
+
+`ArmyFormation:GetAllHeroSoldierCapacity()` is a one-line getter: its dump names exactly
+one field, `heroTotalSoldierCapacity`. On a headless client that field is **nil**, and
+stays nil through `formation.get.soldier`, through `FetchFormationSoldier` and through
+`RefreshFormationSoldier` (which throws). Read live on three squads it answered `0`,
+while the same three had answered `3123 / 2631 / 2565` an hour earlier.
+
+The way to find out what fills it is not to guess a message — it is to ask which methods
+of the class MENTION the field. Dump every function on the metatable's `__index` and grep
+the bytecode:
+
+```lua
+for k, fn in pairs(getmetatable(f).__index) do
+  local ok, d = pcall(string.dump, fn)
+  if ok and string.find(d, 'heroTotalSoldierCapacity', 1, true) then … end
+end
+-- answers: GetAllHeroSoldierCapacity (reads) · ConscriptSoldier (writes)
+```
+
+**`ConscriptSoldier` is both halves of the player's instruction.** Its constants are the
+whole recipe: `SoldierDataManager.GetInsideSoldiers`, `HeroDataManager.GetHeroByUuid`,
+`GetSoldierCapacity`, `DominatorManager`, then `soldiers`, `totalSoldierNum`,
+`totalSoldierBurden`, `heroTotalSoldierCapacity`. It draws from the base's pool up to
+what the squad's heroes can carry and writes the ceiling on the way. **There is no
+`SFSNetwork` and no `MsgDefines` anywhere in it** — it is local, and it costs nothing a
+banner cares about.
+
+Measured back to back on the same three squads, one call apart:
+
+```
+before  cap = nil      after  cap = 3123.0
+before  cap = nil      after  cap = 2631
+before  cap = nil      after  cap = 2565
+```
+
+3123 is the number the game's own dispatch screen had shown as **«3,123/3,123 units»**
+([world-monsters.md](world-monsters.md), finding 10) — so the field is right, it is
+merely absent until something computes it. Before this was found the gate could only see
+a ceiling on a client whose dispatch screen had been rendered by hand, and it said so on
+every run under `ceiling-unknown=[…]` rather than passing the squads in silence.
+
+So the sieve's order is the game's own: **ask for the army → fill → count → compare →
+below the ceiling, do not send.** The fill works from the POOL rather than from the
+squad, so it does not stand in for `formation.get.soldier` (#1285) and does not replace
+the recipe's `todo = -1` path.
+
+### Two ways of being under strength, and why they are not one word
+
+The instruction came with its own warning: an account that cannot fill a squad at all
+would have the auto-join go quiet **for ever**, and a permanent silence must not read as
+an evening with no rallies in it. The data says the warning is today, not hypothetical —
+this account owns fewer soldiers than its smallest squad can carry:
+
+```
+squad 1   1254 / 3123        base has 1256 soldiers in total
+squad 2   1255 / 2631
+squad 3   1255 / 2565
+```
+
+The fill is working — the squad took 1254 of the 1256 there are. There simply are not
+2565 of them. So the report names the two cases apart and the recipe ends on two
+different sentences:
+
+| word in `left=[…]` | `todo` | what it means |
+|---|---|---|
+| `not-full(n/cap)` | `-2` | the base could top this squad up — a chore |
+| `short-of-troops(n/cap, base has N)` | `-3` | the base has not got the soldiers to fill ONE squad — a wall |
+
+Both rank BELOW `-1`, so a run holding one squad nobody has asked about still tries the
+fetch first; under-strength is only reported when there is nothing left to try. Live, end
+to end, from both drivers:
+
+```
+report … sent=0 rallies=1 free=0 … left=[1:short-of-troops(1254/3123, base has 1256) …]
+READ_LUA todo = -3
+IF todo == -3 -> True
+  LOG "not sent — there are not enough soldiers in the base to fill a single squad to
+       its ceiling … the auto-join will stay quiet until the barracks catches up"
+```
+
+**The threshold is the player's to move, not an agent's.** «Полный = вместимость» was
+said explicitly, so that is what is in the code; a fraction of the ceiling would be one
+line and is a decision, not a fix.
