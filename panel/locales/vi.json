@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Điểm dừng kế tiếp",
   "world.vehicle.leg_moving": "→ {where}, đang di chuyển",
   "world.vehicle.leg_parked": "đang đứng tại {where}",
-  "world.vehicle.leg_unknown": "không rõ lộ trình — điểm này là điểm cuối được báo"
+  "world.vehicle.leg_unknown": "không rõ lộ trình — điểm này là điểm cuối được báo",
+  "vsduel.collect": "Ghi lại cuộc đấu",
+  "vsduel.collect.last": "Lần đọc gần nhất",
+  "vsduel.collect.never": "chưa ghi lại",
+  "vsduel.collect.reading": "đang đọc cuộc đấu…",
+  "vsduel.collect.done": "{sides} phe, {days} ngày, {rows} dòng",
+  "vsduel.collect.nothing": "không có gì trả về — máy khách chưa nạp cuộc đấu nào",
+  "vsduel.collect.busy": "thứ khác đang điều khiển trò chơi — thử lại sau giây lát"
 }

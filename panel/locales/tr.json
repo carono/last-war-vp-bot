@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Sonraki durak",
   "world.vehicle.leg_moving": "→ {where}, yolda",
   "world.vehicle.leg_parked": "{where} konumunda duruyor",
-  "world.vehicle.leg_unknown": "güzergâh bilinmiyor — nokta bize son bildirilen nokta"
+  "world.vehicle.leg_unknown": "güzergâh bilinmiyor — nokta bize son bildirilen nokta",
+  "vsduel.collect": "Düelloyu kaydet",
+  "vsduel.collect.last": "Son okuma",
+  "vsduel.collect.never": "henüz kaydedilmedi",
+  "vsduel.collect.reading": "düello okunuyor…",
+  "vsduel.collect.done": "{sides} taraf, {days} gün, {rows} satır",
+  "vsduel.collect.nothing": "hiçbir şey gelmedi — istemcide yüklü bir düello yok",
+  "vsduel.collect.busy": "oyunu şu anda başka bir şey sürüyor — birazdan tekrar dene"
 }

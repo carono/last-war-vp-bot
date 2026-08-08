@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Próxima parada",
   "world.vehicle.leg_moving": "→ {where}, en marcha",
   "world.vehicle.leg_parked": "parado en {where}",
-  "world.vehicle.leg_unknown": "ruta desconocida — el punto es el último que nos dijeron"
+  "world.vehicle.leg_unknown": "ruta desconocida — el punto es el último que nos dijeron",
+  "vsduel.collect": "Registrar el duelo",
+  "vsduel.collect.last": "Última lectura",
+  "vsduel.collect.never": "aún no registrado",
+  "vsduel.collect.reading": "leyendo el duelo…",
+  "vsduel.collect.done": "{sides} bando(s), {days} día(s), {rows} fila(s)",
+  "vsduel.collect.nothing": "no llegó nada — el cliente no tiene ningún duelo cargado",
+  "vsduel.collect.busy": "otra cosa está manejando el juego — inténtalo en un momento"
 }

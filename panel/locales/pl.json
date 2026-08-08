@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Następny przystanek",
   "world.vehicle.leg_moving": "→ {where}, w drodze",
   "world.vehicle.leg_parked": "stoi w {where}",
-  "world.vehicle.leg_unknown": "trasa nieznana — punkt jest ostatnim, o którym nam powiedziano"
+  "world.vehicle.leg_unknown": "trasa nieznana — punkt jest ostatnim, o którym nam powiedziano",
+  "vsduel.collect": "Zapisz pojedynek",
+  "vsduel.collect.last": "Ostatni odczyt",
+  "vsduel.collect.never": "jeszcze nie zapisany",
+  "vsduel.collect.reading": "czytam pojedynek…",
+  "vsduel.collect.done": "stron: {sides}, dni: {days}, wierszy: {rows}",
+  "vsduel.collect.nothing": "nic nie wróciło — klient nie ma wczytanego pojedynku",
+  "vsduel.collect.busy": "grą steruje teraz coś innego — spróbuj za chwilę"
 }

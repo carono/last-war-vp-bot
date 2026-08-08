@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Prossima fermata",
   "world.vehicle.leg_moving": "→ {where}, in movimento",
   "world.vehicle.leg_parked": "fermo a {where}",
-  "world.vehicle.leg_unknown": "percorso sconosciuto — il punto è l'ultimo che ci è stato detto"
+  "world.vehicle.leg_unknown": "percorso sconosciuto — il punto è l'ultimo che ci è stato detto",
+  "vsduel.collect": "Registra il duello",
+  "vsduel.collect.last": "Ultima lettura",
+  "vsduel.collect.never": "non ancora registrato",
+  "vsduel.collect.reading": "sto leggendo il duello…",
+  "vsduel.collect.done": "{sides} schieramento/i, {days} giorno/i, {rows} riga/righe",
+  "vsduel.collect.nothing": "non è tornato nulla — nel client non c'è nessun duello caricato",
+  "vsduel.collect.busy": "qualcos'altro sta guidando il gioco — riprova tra un momento"
 }

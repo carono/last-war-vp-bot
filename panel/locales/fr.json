@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Prochain arrêt",
   "world.vehicle.leg_moving": "→ {where}, en route",
   "world.vehicle.leg_parked": "à l'arrêt en {where}",
-  "world.vehicle.leg_unknown": "itinéraire inconnu — le point est le dernier signalé"
+  "world.vehicle.leg_unknown": "itinéraire inconnu — le point est le dernier signalé",
+  "vsduel.collect": "Enregistrer le duel",
+  "vsduel.collect.last": "Dernière lecture",
+  "vsduel.collect.never": "pas encore enregistré",
+  "vsduel.collect.reading": "lecture du duel…",
+  "vsduel.collect.done": "{sides} camp(s), {days} jour(s), {rows} ligne(s)",
+  "vsduel.collect.nothing": "rien n'est revenu — aucun duel chargé dans le client",
+  "vsduel.collect.busy": "autre chose pilote le jeu — réessaie dans un instant"
 }

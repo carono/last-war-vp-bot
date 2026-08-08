@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Perhentian berikutnya",
   "world.vehicle.leg_moving": "→ {where}, sedang bergerak",
   "world.vehicle.leg_parked": "berhenti di {where}",
-  "world.vehicle.leg_unknown": "rute tidak diketahui — titiknya adalah yang terakhir diberitahukan"
+  "world.vehicle.leg_unknown": "rute tidak diketahui — titiknya adalah yang terakhir diberitahukan",
+  "vsduel.collect": "Catat duel",
+  "vsduel.collect.last": "Pembacaan terakhir",
+  "vsduel.collect.never": "belum dicatat",
+  "vsduel.collect.reading": "membaca duel…",
+  "vsduel.collect.done": "{sides} pihak, {days} hari, {rows} baris",
+  "vsduel.collect.nothing": "tidak ada yang kembali — klien tidak memuat duel",
+  "vsduel.collect.busy": "sesuatu yang lain sedang mengendalikan gim — coba lagi sebentar"
 }

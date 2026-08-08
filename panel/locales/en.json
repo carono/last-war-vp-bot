@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Next stop",
   "world.vehicle.leg_moving": "→ {where}, on the move",
   "world.vehicle.leg_parked": "standing at {where}",
-  "world.vehicle.leg_unknown": "route unknown — the point is the last one we were told"
+  "world.vehicle.leg_unknown": "route unknown — the point is the last one we were told",
+  "vsduel.collect": "Write the duel down",
+  "vsduel.collect.last": "Last read",
+  "vsduel.collect.never": "not written down yet",
+  "vsduel.collect.reading": "reading the duel…",
+  "vsduel.collect.done": "{sides} side(s), {days} day(s), {rows} row(s)",
+  "vsduel.collect.nothing": "nothing came back — the client has no duel loaded",
+  "vsduel.collect.busy": "something else is driving the game — try again in a moment"
 }

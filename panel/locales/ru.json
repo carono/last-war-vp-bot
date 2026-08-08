@@ -1470,5 +1470,12 @@
   "world.col.next_stop": "Следующая точка",
   "world.vehicle.leg_moving": "→ {where}, в движении",
   "world.vehicle.leg_parked": "стоит в {where}",
-  "world.vehicle.leg_unknown": "маршрут неизвестен — точка последняя известная"
+  "world.vehicle.leg_unknown": "маршрут неизвестен — точка последняя известная",
+  "vsduel.collect": "Записать дуэль",
+  "vsduel.collect.last": "Последнее чтение",
+  "vsduel.collect.never": "ещё не записана",
+  "vsduel.collect.reading": "читаю дуэль…",
+  "vsduel.collect.done": "сторон: {sides}, дней: {days}, строк: {rows}",
+  "vsduel.collect.nothing": "ничего не пришло — в клиенте не загружена дуэль",
+  "vsduel.collect.busy": "игрой сейчас управляет что-то другое — повтори через мгновение"
 }

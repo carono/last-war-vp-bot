@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥  **32%** — 41 of 129
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥  **32%** — 42 of 130
 
-🟩 41 done · 🟨 46 partly · 🟥 42 not automated
+🟩 42 done · 🟨 46 partly · 🟥 42 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -258,6 +258,7 @@ the bot understanding what is actually going on in the game.
 - ✅ Reading chat — world, national, alliance and private messages — with the chat window closed, including emoji, stickers and photos. The page that shows it is still being worked on, so it is **only in development mode** for now — switch «Разработка» on in the tab list to read chat in the panel
 - ✅ Writing to chat — text, emoji, stickers, map pins and shared secret tasks. The chat page itself is **only in development mode** for now, but sending a raid's pin from the secret-task lists works as it always did
 - ✅ Surveying the map: collecting a roster of players with their level, alliance and power; collecting rankings; indexing the trucks in motion
+- ✅ Writing down the alliance duel (VS): the whole week broken down by day, both sides at once. One press and the panel has every day's ranking — every player of your alliance AND of the one you are fighting, with what each of them scored on each day — plus the two alliances' own daily totals, who won which day, and each side's best player. It reads the game rather than waiting for you: nothing has to be opened, no screen has to be walked, and the enemy's numbers arrive with your own because the game sends both in the same list. It keeps everything the game says about a player, not just the columns the panel happens to show, so a number that turns out to matter later is already recorded. The one thing it cannot do is go back: a day that ended before the panel was ever asked about it stays missing, so press it once a day — or leave the collector on, which now also files what it catches by day and by side
 - 🟡 Attacking a monster on the map without clicking
 - 🟡 Seeing the monsters on the map as a list — where each one stands, what kind it is and what level. This is the one thing on the map the game never tells anybody over the network: it decides where the monsters are inside the client itself, so the list is read out of the client's own memory rather than caught in flight. That has a price and the page is honest about it — it shows what the client can currently SEE, not the whole server, so it fills up as you move the camera around and press «Обновить». Not yet read beside a live map with monsters on it
 

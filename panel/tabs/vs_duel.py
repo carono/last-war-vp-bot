@@ -60,8 +60,13 @@ import itertools
 import tkinter as tk
 from tkinter import ttk
 
-from ..widgets import NumericEntry, ScrollableFrame, font as ui_font
+from ..widgets import NumericEntry, ScrollableFrame, font as ui_font, tk_stringvar
 from .base import PanelTab
+
+#: The scenario that writes the duel down — both sides, every day, into the profile's
+#: own ranking history. The tab does not know what it does; it plays it and reports what
+#: came back (CLAUDE.md: every ability is a scenario, the panel only plays them).
+COLLECT_ACTION = "collect_vs_duel"
 
 #: One per tab EVER BUILT, and the reason is the freeze of #1211. A ttk style belongs to
 #: the interpreter, not to the widget that made it — so two open profiles showing this
@@ -491,8 +496,9 @@ class VsDuelTab(PanelTab):
     #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
     IN_DEVELOPMENT = True
     LOCALE_NS = ("vsduel",)
-    # Nothing is played from here yet, so the tab costs a profile nothing to switch on.
-    NEEDS = frozenset()
+    #: The client, to read the duel out of, and the scenarios, to read WITH. The plan
+    #: itself still costs nothing — this is what «Записать дуэль» needs (#1304).
+    NEEDS = frozenset({"daemon", "actions"})
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
@@ -551,6 +557,13 @@ class VsDuelTab(PanelTab):
         self._day_set: dict = {day: tk.StringVar(master=master,
                                                  value=self._store.first())
                                for day, _items in DAYS}
+        #: What the last «Записать дуэль» came back with, and whether one is running.
+        #: In `__init__` rather than `build()` because a saved block, a phone's screen
+        #: and the button itself all reach a tab nobody has opened (docs/panel-tabs.md).
+        self._collected = tk_stringvar(master)
+        self._collecting = False
+        #: The counts of the last read — sides, days, rows — or None before the first.
+        self._collect_counts = None
         #: The set the buttons at the top act on, its picker, and the day pickers — all
         #: re-filled when a set is added, renamed, dropped, or the language changes.
         self._managed = self._store.first()
@@ -613,6 +626,14 @@ class VsDuelTab(PanelTab):
         self.tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
                 "tab.vs_duel").pack(side="left")
 
+        # «Записать дуэль» — a press that STARTS the reading and then says what came
+        # back. It marks nothing: the line beside it is the answer the game gave, so a
+        # week with a missing day goes on saying so until the game says otherwise.
+        self.tr(ttk.Button(bar, command=self.collect), "vsduel.collect").pack(
+            side="right")
+        ttk.Label(bar, textvariable=self._collected, foreground="#888").pack(
+            side="right", padx=(0, 10))
+
         self.tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                           justify="left"), "vsduel.hint").pack(
             anchor="w", padx=10, pady=(0, 6))
@@ -625,6 +646,7 @@ class VsDuelTab(PanelTab):
         self._load_all_days()
         self._retranslate_choices()
         self._sync_dependents()
+        self._paint_collected()
 
     def _build_week(self) -> None:
         """The six day frames, drawn once — the first time somebody looks at the tab."""
@@ -1157,6 +1179,59 @@ class VsDuelTab(PanelTab):
             return None
         return value if value > 0 else None
 
+    # -- writing the duel down --------------------------------------------------
+    def collect(self) -> bool:
+        """Play the scenario that writes the duel down. ``False`` if it could not start.
+
+        The tab holds no opinion about what the duel IS — which message asks for it,
+        which days come back, how a side is told from the other. All of that is
+        `actions/collect_vs_duel.md`; this passes the profile's own ranking history as
+        the place to write it and reports the counts the scenario left behind.
+        """
+        if self._collecting:
+            return False
+        self._collecting = True
+        self._paint_collected()
+        started = self.rt.play_async(
+            COLLECT_ACTION, args={"store": self.rt.profiles.leaderboard_db()},
+            tag="vsduel", on_result=self._collect_back, on_done=self._collect_done)
+        if not started:
+            self._collecting = False
+            self._paint_collected()
+            self.say("vsduel", "vsduel.collect.busy")
+        return started
+
+    def _collect_back(self, outcome) -> None:
+        """What the scenario left in its own variables — never a guess of ours."""
+        variables = (getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        if outcome is None or not getattr(outcome, "ok", False):
+            self._collect_counts = None
+            return
+        self._collect_counts = {
+            "sides": int(variables.get("VS_SIDES") or 0),
+            "days": int(variables.get("VS_DAYS") or 0),
+            "rows": int(variables.get("VS_ROWS") or 0),
+        }
+
+    def _collect_done(self) -> None:
+        self._collecting = False
+        self._paint_collected()
+        counts = self._collect_counts
+        if counts:
+            self.say("vsduel", "vsduel.collect.done", **counts)
+        else:
+            self.say("vsduel", "vsduel.collect.nothing")
+
+    def _paint_collected(self) -> None:
+        """The line beside the button: reading, what came back, or never asked."""
+        if self._collecting:
+            self._collected.set(self.t("vsduel.collect.reading"))
+        elif self._collect_counts:
+            self._collected.set(self.t("vsduel.collect.done",
+                                       **self._collect_counts))
+        else:
+            self._collected.set(self.t("vsduel.collect.never"))
+
     # -- persistence -----------------------------------------------------------
     # -- the phone ------------------------------------------------------------
     #
@@ -1194,11 +1269,26 @@ class VsDuelTab(PanelTab):
             # The line is one of the panel's own words, so it travels as a KEY.
             items.append({"label": item.label_key, "facts": facts})
         enabled = self._flags.get(f"{day}.{DAY_ENABLED}")
+        # A phone can reach a tab whose window half was never drawn, so the line is
+        # composed here rather than read out of whatever `build()` happened to leave.
+        self._paint_collected()
+        # The same press and the same reading the window has (#1304). It is a READ —
+        # nothing is spent and nothing is marked — so it is exactly the kind of thing
+        # worth having on a phone: the duel is written down from wherever you are, and
+        # the line says what the game answered, not what anybody ticked.
         return {"cards": [{"title": f"vsduel.day.{day}", "items": items,
                            "empty": "vsduel.day.off"
                            if enabled is not None and not enabled.get()
-                           else "vsduel.empty"}],
-                "actions": []}
+                           else "vsduel.empty"},
+                          {"title": "vsduel.collect",
+                           "rows": [{"label": "vsduel.collect.last",
+                                     "value": self._collected.get()}]}],
+                "actions": [{"id": "collect", "label": "vsduel.collect"}]}
+
+    def web_press(self, action, args) -> dict:
+        if action != "collect":
+            return {"error": "unknown"}
+        return {"ok": self.collect()}
 
     def config(self) -> dict:
         """The sets, and which one each day is played from.
