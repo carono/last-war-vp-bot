@@ -89,6 +89,28 @@ is deaf ON ITS OWN. The reading had to get narrower to bear that weight — it i
 game's own sentence out of the client's own language tables, not «some dialog is open» —
 and everything that makes a restart safe is unchanged around it.
 
+…AND THE CURE FOR A KICK IS NOT THE CURE FOR A HANG-UP (#1291): **wait first.**
+
+Naming the state was only half of it. The act stayed the same one — restart, at once —
+and that act is wrong here, because a kick has an author. Somebody is holding the
+account, on a phone or on another machine, and the panel taking it back a few seconds
+later throws THEM out of the game; then their client takes it back and kicks this one,
+and the two go round. Live on 2026-08-08 that was three restarts in a row, `launch_game`
+timing out on each, and a daemon dying with every client — while the person was simply
+trying to play.
+
+So a kick earns :data:`KICK_HOLD_SEC` of being left completely alone — fifteen minutes by
+default, a profile setting rather than a constant, because how long to give the other
+device back is a decision about a person and not about a client. After the wait, the
+ordinary scheme resumes exactly as it was: the strikes, the player gate, the cooldown, the
+alternation. Nothing is skipped and nothing is added — the only change is WHEN.
+
+**And the wait belongs to the client, not to this module.** Three things put a client
+back: this decision, the process watchdog (`panel/__main__.py::_watchdog_check`) and the
+`restart_game` errand, which `Schedule.gate` lets through precisely when the game looks
+down. A hold only one of them respects is not a hold, so the deadline is a READING —
+:meth:`Recovery.kick_hold_left` — and all three ask it.
+
 …AND THE SIXTH, which is a reading rather than a cure: :meth:`Recovery.note_run`, the
 count of errands that tried to press and pressed nothing. It is the only thing in that
 morning's log that was ever true, and nothing was counting it.
@@ -164,6 +186,21 @@ FRUITLESS = 2
 #: single unlucky poll.
 KICK_STRIKES = 2
 
+#: How long a kicked client is left completely alone, in seconds. Fifteen minutes.
+#:
+#: THIS IS A WAIT FOR A PERSON, NOT FOR A MACHINE, and that is why it is minutes rather
+#: than the seconds every other patience in this file is measured in. A kick means the
+#: account is being played somewhere else; restarting takes it off whoever is playing,
+#: and their client takes it straight back — the loop that ran three times over on
+#: 2026-08-08 with `launch_game` timing out on each pass. Long enough that a person who
+#: sat down to play gets a session rather than a fight, short enough that an account
+#: taken by a device nobody is at is farming again within the quarter hour.
+#:
+#: A DEFAULT, not a rule: the panel reads `kick_hold_min` off the profile and writes it
+#: into :attr:`Recovery.kick_hold_sec`, so a person who wants an hour (or nothing at all)
+#: types it instead of editing this.
+KICK_HOLD_SEC = 900.0
+
 #: Errands that tried a counted press and fired NOTHING, before the panel says so.
 #:
 #: «Успешно ничего» is what the fifth form of this failure looks like from the log
@@ -190,7 +227,8 @@ class Recovery:
 
     __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_daemon_last", "_daemon_restarts", "_daemon_held",
-                 "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said")
+                 "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said",
+                 "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held")
 
     def __init__(self) -> None:
         #: Consecutive `lost` readings so far.
@@ -231,6 +269,22 @@ class Recovery:
         #: Whether the current barren streak has already been said, so it is one line and
         #: not one a minute.
         self._barren_said = False
+        #: How long a kick buys the client. Public and writable: the panel sets it from
+        #: the profile's `kick_hold_min` on every poll, so an edit on the Settings page
+        #: applies without a restart, exactly as every other knob there does.
+        self.kick_hold_sec = KICK_HOLD_SEC
+        #: When the current kick's wait runs out, or 0.0 for «no kick is being waited
+        #: out». An ABSOLUTE deadline rather than a countdown, so it survives a client
+        #: that goes offline mid-wait — which is precisely when the watchdog would
+        #: otherwise put it back and undo the whole thing.
+        self._kick_until = 0.0
+        #: Whether THIS kick episode has already been given its wait. Without it an
+        #: expired deadline would re-arm on the next reading — the modal is still on
+        #: screen — and the client would be waited out for ever instead of restarted.
+        self._kick_armed = False
+        #: Whether the current wait has already been said, so it is one line and a
+        #: counter on the strip rather than a line every eight seconds.
+        self._kick_held = False
 
     # -- reading -------------------------------------------------------------
     @property
@@ -242,6 +296,23 @@ class Recovery:
     def deaf_for(self) -> int:
         """Consecutive `lost` readings right now — 0 when the link is fine."""
         return self._run
+
+    def kick_hold_left(self, now: float) -> int:
+        """Seconds this client is still owed after a kick — 0 when nothing is owed.
+
+        **The reading every restarter asks, and the whole reason the wait works.** Three
+        different things put a client back: the decision in :meth:`note`, the process
+        watchdog, and the `restart_game` errand that `Schedule.gate` deliberately lets
+        through while the game looks down. A wait honoured by one of them is not a wait —
+        the other two would relaunch the client inside the same minute and the person
+        holding the account would be thrown out anyway, which is the bug (#1291).
+
+        So it is a fact with a clock, not a branch: whoever is about to touch the client
+        asks it first, and anything above zero means «not this one, not yet».
+        """
+        if not self._kick_until:
+            return 0
+        return max(0, int(self._kick_until - now))
 
     def state(self, now: float) -> dict:
         """What both front-ends draw: the run, the count, and the cooldown left.
@@ -272,6 +343,12 @@ class Recovery:
                 "daemon_strikes": DAEMON_STRIKES,
                 "daemon_restarts": self._daemon_restarts,
                 "daemon_cooldown_left": daemon_left,
+                # …and how long the account is being left to whoever took it. Drawn on
+                # both front-ends with a countdown, because «панель ничего не делает» and
+                # «панель ждёт четырнадцать минут» look identical otherwise — and the
+                # person waiting is usually the one who took the account (#1291).
+                "kick_hold_left": self.kick_hold_left(now),
+                "kick_hold_of": int(self.kick_hold_sec),
                 # How many client restarts have been spent without the link ever coming
                 # back. Shown because it is the evidence, not the verdict: a person
                 # seeing «2 подряд впустую» can tell that the panel is about to change
@@ -318,6 +395,11 @@ class Recovery:
             # never move.
             self._fruitless = 0
             self._blame = ""
+            # …and the kick's wait is over the moment the account is demonstrably ours
+            # again. ONLINE **and** no modal is the only reading that says so; a client
+            # that has merely gone offline mid-wait proves nothing and must keep its
+            # wait, or the watchdog puts it straight back (#1291).
+            self._kick_clear()
 
         if kicked:
             self._kick_run += 1
@@ -344,11 +426,49 @@ class Recovery:
 
         # SOMEBODY IS AT THE MACHINE. Not a reason to restart — a reason not to: the
         # restart would close the window they are playing in, which is what it did once.
+        #
+        # STILL FIRST, in front of the kick's own wait (#1291), because the two hold for
+        # different lengths of time and this is the one that has no end: the wait runs
+        # out after fifteen minutes and this lasts exactly as long as somebody keeps
+        # touching the keyboard. Reaching the wait first would start its clock under a
+        # person who is still playing and act the moment they paused. The two are about
+        # different people anyway — this one is at THIS machine, the kick is on another
+        # device (#1268) — and neither replaces the other.
         if idle_sec is not None and idle_sec < PLAYER_QUIET_SEC:
             if self._why == "player":
                 return None
             self._why = "player"
             return (BUSY, {"mins": int((PLAYER_QUIET_SEC - idle_sec) // 60) + 1})
+
+        # A KICK IS SOMEBODY ELSE'S SESSION, AND IT GETS ITS TIME (#1291). Everything
+        # below this — the cooldown, the alternation — is about a client that has lost
+        # the server on its own. A kick has an author, and taking the account back off
+        # them in half a minute starts a fight neither side can win: their client kicks
+        # this one back, this one restarts again, and the log fills with `launch_game`
+        # timeouts while a person tries to play.
+        #
+        # Armed once per episode and only on a run of readings, exactly like the act it
+        # replaces: a single unlucky poll must not cost a quarter of an hour of farming
+        # any more than it may cost a restart. Zero minutes disarms the whole thing for
+        # whoever wants the old behaviour back — that is what a setting is for.
+        if kicked and not self._kick_armed:
+            self._kick_armed = True
+            self._kick_until = now + max(0.0, self.kick_hold_sec)
+            self._kick_held = False
+        left = self.kick_hold_left(now)
+        if left > 0:
+            # Said ONCE per wait and re-checked every poll — the shape the cooldown
+            # already has, and for the reason written there: a hold that suppresses the
+            # act along with the sentence is a client nobody ever comes back to.
+            self._why = "kick"
+            if self._kick_held:
+                return None
+            self._kick_held = True
+            # Rounded UP, not «floor plus one» like the cooldowns above: those count
+            # down from a number nobody was told, while this one is announced the
+            # instant it is armed, and «жду 16 минут» out of a fifteen-minute setting
+            # is the panel disagreeing with the field the person typed it in.
+            return (HOLD_KICK, {"mins": -(-left // 60)})
 
         since = now - self._last if self._last else None
         if since is not None and since < COOLDOWN_SEC:
@@ -414,6 +534,10 @@ class Recovery:
         self._blame = "client"
         self._run = 0                        # the next reading starts a fresh run
         self._kick_run = 0
+        # …and the wait is spent. A kick that survives this restart is a NEW episode and
+        # buys its own fifteen minutes: the account is still on the other device, and the
+        # answer to that is the same answer as the first time.
+        self._kick_clear()
         self._held = False
         self._why = ""
         # The two are the same act and NOT the same event, so they are not the same
@@ -424,6 +548,14 @@ class Recovery:
             self._kicks += 1
             return (ACT_KICK, {})
         return (ACT, {"secs": STRIKES * 8})
+
+    def _kick_clear(self) -> None:
+        """Forget the current kick episode — its wait, and that it had one."""
+        self._kick_until = 0.0
+        self._kick_armed = False
+        self._kick_held = False
+        if self._why == "kick":
+            self._why = ""
 
     def note_run(self, tried: int, fired: int) -> "tuple | None":
         """Feed the outcome of one errand: counted presses ATTEMPTED, and presses MADE.
@@ -522,6 +654,12 @@ BUSY = "log.game.deaf_busy"
 #: (`tools/lib/game_kick.py`, the game's key `E100083`). Worth its own sentence,
 #: because «связь пропала» and «у вас забрали аккаунт» want different things done.
 ACT_KICK = "log.game.kick_restart"
+#: …and the wait in front of it: the account is on another device, and it is being left
+#: there for :data:`KICK_HOLD_SEC` before anything is done about it (#1291). Said once
+#: per kick with the minutes left, and drawn as a countdown by both front-ends — a panel
+#: that has decided to do nothing for a quarter of an hour and says nothing about it is
+#: indistinguishable from one that has not noticed.
+HOLD_KICK = "log.game.kick_hold"
 
 #: The daemon is attached to a client that is not there — the positive reading, two pids
 #: that do not match. Restarting the CLIENT here is the six-times mistake (#1268).

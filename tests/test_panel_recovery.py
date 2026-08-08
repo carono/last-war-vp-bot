@@ -196,8 +196,13 @@ def test_a_kick_is_the_same_act_but_not_the_same_sentence():
     r = rec.Recovery()
     said = [x for i in range(rec.STRIKES)
             if (x := r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
-    assert [k for k, _ in said] == [rec.ACT_KICK], said
-    assert r.restarts == 1 and r.state(1000.0)["kicks"] == 1
+    assert [k for k, _ in said] == [rec.HOLD_KICK], said
+    # …and the same distinction on the far side of the kick's own wait (#1291): a
+    # hang-up and a stolen account are one act and two events, and the log has to say
+    # which it was.
+    later = 1000.0 + rec.KICK_HOLD_SEC + 8
+    assert r.note(LOST, later, idle_sec=9999.0, kicked=True) == (rec.ACT_KICK, {})
+    assert r.restarts == 1 and r.state(later)["kicks"] == 1
 
 
 def test_a_kick_does_not_override_the_person_at_the_machine():
@@ -236,12 +241,17 @@ def test_a_kick_is_deaf_even_while_the_sockets_read_online():
     A live socket and the kick modal together mean the client cannot be played. The
     patience is the kick's own and shorter than the link's: this is the game's own
     sentence, not an inference off a socket table.
+
+    The ACT is now on the far side of the wait (#1291) — what is pinned here is that the
+    state is REACHED at all through a link that reads perfectly online.
     """
     r = rec.Recovery()
     said = [x for i in range(rec.KICK_STRIKES)
             if (x := r.note(ONLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
-    assert [k for k, _ in said] == [rec.ACT_KICK], said
-    assert r.restarts == 1 and r.state(1000.0)["kicks"] == 1
+    assert [k for k, _ in said] == [rec.HOLD_KICK], said
+    later = 1000.0 + rec.KICK_HOLD_SEC + 8
+    assert r.note(ONLINE, later, idle_sec=9999.0, kicked=True) == (rec.ACT_KICK, {})
+    assert r.restarts == 1 and r.state(later)["kicks"] == 1
     assert rec.ACT_KICK in rec.RESTARTS, "announced and never performed — the #1259 bug"
 
 
@@ -261,6 +271,159 @@ def test_a_kick_that_clears_takes_its_run_with_it():
     assert r.restarts == 0
 
 
+def test_a_kick_is_left_alone_for_a_quarter_of_an_hour():
+    """THE CURE FOR A KICK IS NOT THE CURE FOR A HANG-UP (#1291): wait first.
+
+    Naming the state was only half of it. A kick has an AUTHOR — somebody logged the
+    account in on a phone or another machine — and taking it back thirty seconds later
+    throws them out, whereupon their client throws this one out again. Live on
+    2026-08-08 that was three restarts in a row, `launch_game` timing out on each, and
+    the daemon dying with every client, while the person was simply trying to play.
+
+    So the kick is SAID at once (with the minutes left) and ACTED ON at the far end of
+    the wait, whereupon the ordinary scheme resumes untouched.
+    """
+    r = rec.Recovery()
+    t0 = 1000.0
+    # The status poll's own eight seconds, right through the wait and out the far side:
+    # the hold is armed on the second of them, so the run has to outlast t0 + 8 + hold.
+    said = [x for i in range(8 + int(rec.KICK_HOLD_SEC // 8))
+            if (x := r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True))]
+    keys = [k for k, _ in said]
+    at = keys.index(rec.ACT_KICK)
+    # One sentence when the wait starts, nothing at all for a quarter of an hour, and
+    # then the restart. (Past it the modal is still up, so a second episode arms — which
+    # is the next test's business.)
+    assert keys[:at + 1] == [rec.HOLD_KICK, rec.ACT_KICK], said
+    assert said[0][1]["mins"] == int(rec.KICK_HOLD_SEC // 60), said[0]
+    assert r.restarts == 1, "the client was touched inside its own wait"
+    # …and while it lasts the strip has a countdown to draw rather than silence.
+    r2 = rec.Recovery()
+    for i in range(rec.KICK_STRIKES):
+        r2.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
+    st = r2.state(t0 + 60)
+    assert st["held_by"] == "kick" and 0 < st["kick_hold_left"] <= rec.KICK_HOLD_SEC, st
+
+
+def test_the_wait_holds_even_when_the_link_goes_with_it():
+    """A kick usually takes the sockets too, and then it looks like an ordinary loss.
+
+    The wait is a DEADLINE, not a streak of readings: once a kick has been seen, three
+    `lost` readings behind it must not be the thing that restarts the client anyway.
+    That is the hole a hold hung off `kicked` would have left, and it is the ordinary
+    shape of a kick rather than an exotic one.
+    """
+    r = rec.Recovery()
+    t0 = 1000.0
+    for i in range(rec.KICK_STRIKES):
+        r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
+    said = [x for i in range(20)
+            if (x := r.note(LOST, t0 + 100 + i * 8, idle_sec=9999.0, kicked=False))]
+    assert [k for k, _ in said if k in rec.RESTARTS] == [], said
+    assert r.restarts == 0
+
+
+def test_the_account_coming_back_ends_the_wait():
+    """ONLINE **and** no modal is the account being ours again — nothing is owed then.
+
+    Deliberately not «the modal went away»: a client that merely went offline mid-wait
+    proves nothing, and clearing on that would hand it straight to the watchdog.
+    """
+    r = rec.Recovery()
+    t0 = 1000.0
+    for i in range(rec.KICK_STRIKES):
+        r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
+    assert r.kick_hold_left(t0 + 60) > 0
+    r.note(OFFLINE, t0 + 68, idle_sec=9999.0, kicked=False)
+    assert r.kick_hold_left(t0 + 68) > 0, "a client that went away lost its own wait"
+    r.note(ONLINE, t0 + 76, idle_sec=9999.0, kicked=False)
+    assert r.kick_hold_left(t0 + 76) == 0
+
+
+def test_a_second_kick_buys_its_own_wait_and_a_spent_one_does_not_repeat():
+    """The wait is per EPISODE: armed once, honoured once, and re-armed for the next.
+
+    Both halves are the bug: an expired deadline that re-arms on the next reading (the
+    modal is still on screen) waits for ever and never restarts, and one that never
+    re-arms lets the second kick be answered in thirty seconds — which is the fight
+    this whole thing exists to stay out of.
+    """
+    r = rec.Recovery()
+    t0 = 1000.0
+    for i in range(rec.KICK_STRIKES):
+        r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
+    first = t0 + rec.KICK_HOLD_SEC + 8
+    assert r.note(ONLINE, first, idle_sec=9999.0, kicked=True)[0] == rec.ACT_KICK
+    # Still taken: a fresh episode, which earns a fresh run of readings and then a
+    # fresh wait — never a second restart on the strength of the first one's.
+    said = [x for i in range(1, rec.KICK_STRIKES + 1)
+            if (x := r.note(ONLINE, first + i * 8, idle_sec=9999.0, kicked=True))]
+    assert [k for k, _ in said] == [rec.HOLD_KICK], said
+    at = first + rec.KICK_STRIKES * 8
+    assert r.kick_hold_left(at) > 0, "the second kick was not given its own wait"
+    assert r.restarts == 1
+
+
+def test_how_long_to_wait_is_a_setting_and_zero_is_the_old_behaviour():
+    """The threshold is a person's decision about another person, not a constant.
+
+    Fifteen minutes is only the default: the panel writes `kick_hold_min` into it on
+    every status poll, and 0 restores «restart at once» for whoever wants it back.
+    """
+    assert rec.KICK_HOLD_SEC == 900.0, "the default is fifteen minutes"
+    import json
+
+    defaults = (ROOT / "panel" / "runtime" / "settings.py").read_text(encoding="utf-8")
+    assert '"kick_hold_min": 15' in defaults, "the wait is not a profile setting"
+    shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert "kick_hold_sec" in shell and "kick_hold_min" in shell, \
+        "the setting never reaches the decision"
+    page = (ROOT / "panel" / "tabs" / "settings.py").read_text(encoding="utf-8")
+    assert '"kick_hold_min"' in page, "there is no field to type it in"
+    for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
+        locale = json.loads(path.read_text(encoding="utf-8"))
+        missing = [k for k in ("opt.kick_hold_min", "opt.kick_hold_min.hint")
+                   if k not in locale]
+        assert not missing, f"{path.name}: {missing}"
+
+    r = rec.Recovery()
+    r.kick_hold_sec = 0.0
+    said = [x for i in range(rec.KICK_STRIKES)
+            if (x := r.note(ONLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
+    assert [k for k, _ in said] == [rec.ACT_KICK], said
+
+
+def test_every_thing_that_can_put_a_client_back_asks_the_wait():
+    """A wait one of the three honours is not a wait at all (#1291).
+
+    Three of them can relaunch: this decision, the process watchdog, and the
+    `restart_game` errand — which `Schedule.gate` deliberately lets through precisely
+    when the game looks down, i.e. exactly the state a kicked client ends up in. The
+    user's report was the watchdog and the recovery each doing their own thing a minute
+    apart.
+    """
+    watchdog = _shell_method("_watchdog_check")
+    assert "kick_hold_left" in watchdog, "the watchdog relaunches inside the wait"
+    assert "log.game.kick_hold" in watchdog, "…and would do it silently"
+    gate = (ROOT / "panel" / "runtime" / "schedule.py").read_text(encoding="utf-8")
+    assert "kick_hold_left" in gate, "the restart_game errand ignores the wait"
+    assert "timers.log.skip_kick" in gate, "…and would be dropped without a word"
+
+
+def test_the_wait_is_drawn_on_both_front_ends():
+    """`CLAUDE.md`: an edit travels between the window and the web, in both directions.
+
+    And this one has to: the person reading the phone is very often the person who took
+    the account. «Жду 14 мин» is the answer to both «why did my client stop» and «when
+    does the bot come back».
+    """
+    paint = _shell_method("_paint_recovery")
+    assert '"status.recovery.kick"' in paint, "the window draws no countdown"
+    page = (ROOT / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "web.ui.recovery.kick" in page and "kick_hold_left" in page, \
+        "the phone shows the old panel"
+
+
 def test_a_kick_never_blames_the_daemon():
     """The alternation of #1268 exists for a diagnosis nobody has. Here there is one.
 
@@ -271,10 +434,15 @@ def test_a_kick_never_blames_the_daemon():
     """
     r = rec.Recovery()
     now = 1000.0
-    for _ in range(rec.FRUITLESS + 2):
+    # Far enough apart that neither wait is what is being measured: the cooldown
+    # between two restarts, and the fifteen minutes a kick is left alone (#1291).
+    step = max(rec.COOLDOWN_SEC, rec.KICK_HOLD_SEC) + 60
+    # Twice as many rounds as restarts wanted: a restart clears the kick's run, so the
+    # next episode spends one round earning its readings and the round after that acts.
+    for _ in range((rec.FRUITLESS + 2) * 2):
         for i in range(rec.KICK_STRIKES):
             r.note(ONLINE, now + i * 8, idle_sec=9999.0, kicked=True)
-        now += rec.COOLDOWN_SEC + 60
+        now += step
     assert r.state(now)["daemon_restarts"] == 0, "a kick was blamed on the daemon"
     assert r.restarts >= rec.FRUITLESS + 1, r.restarts
 
@@ -334,7 +502,7 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
     assert set(st) == {"deaf_for", "strikes", "restarts", "kicks", "cooldown_left",
                        "held_by", "blame", "daemon_stale", "daemon_strikes",
                        "daemon_restarts", "daemon_cooldown_left", "fruitless",
-                       "barren", "barren_of"}, st
+                       "barren", "barren_of", "kick_hold_left", "kick_hold_of"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
     assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC
     words = ("held_by", "blame")
@@ -343,7 +511,7 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
         # being withheld and `blame` names WHAT is thought to be broken, so each
         # front-end can word both itself; each is a key and not a language.
         assert isinstance(value, int if key not in words else str), (key, value)
-    assert st["held_by"] in ("", "cooldown", "player", "daemon_cooldown"), st
+    assert st["held_by"] in ("", "cooldown", "player", "daemon_cooldown", "kick"), st
     assert st["blame"] in ("", "client", "daemon"), st
 
 
@@ -463,6 +631,11 @@ class _Press:
 
     def _opt_bool(self, _key):            # noqa: D102 — the profile's «watchdog»
         return self._watchdog
+
+    def _opt_int(self, _key, low=None, high=None):
+        """…and «выдержка после кика», in minutes (#1291). Zero: these cases are about
+        the decision, and the wait has its own tests above."""
+        return 0
 
     def _say(self, tag, key, **fmt):      # noqa: D102
         self.said.append(key)
@@ -760,8 +933,9 @@ def test_the_pids_are_compared_and_nothing_else_is():
 def test_both_its_sentences_are_in_every_shipped_locale():
     import json
 
-    keys = (rec.ACT, rec.HOLD, rec.BUSY, rec.ACT_KICK,
-            rec.ACT_DAEMON, rec.ACT_DAEMON_STUCK, rec.HOLD_DAEMON, rec.SAY_BARREN)
+    keys = (rec.ACT, rec.HOLD, rec.BUSY, rec.ACT_KICK, rec.HOLD_KICK,
+            rec.ACT_DAEMON, rec.ACT_DAEMON_STUCK, rec.HOLD_DAEMON, rec.SAY_BARREN,
+            "status.recovery.kick", "web.ui.recovery.kick", "timers.log.skip_kick")
     for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
         locale = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in keys if k not in locale]

@@ -454,6 +454,10 @@ class SettingsTab(PanelTab):
         row = self._machine_row(grid, 0, "launcher")
         row = self._machine_row(grid, row, "game_exe")
         self._opt_row(grid, row, "watchdog")
+        # …and the one exception to it, right underneath, because it only means anything
+        # while the watchdog is on: how long an account taken by another device is left
+        # to whoever took it (#1291).
+        self._opt_row(grid, row + 1, "kick_hold_min", spin=(0, 1440), width=10)
 
         self._build_session_settings(parent)
         self._build_graphics_settings(parent)

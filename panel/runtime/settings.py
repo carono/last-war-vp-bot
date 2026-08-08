@@ -119,6 +119,14 @@ DEFAULTS: dict = {
     "launcher": game_paths.launcher(),
     "game_exe": game_paths.game_exe(),
     "watchdog": False,
+    # How long a KICKED client is left completely alone, in minutes (#1291). A kick
+    # means the account is logged in on another device — somebody is playing it — and
+    # taking it back thirty seconds later throws them out, whereupon their client throws
+    # this one out again. Fifteen minutes is the wait for a person rather than for a
+    # machine; 0 turns it off and restores the old «restart at once», which is a choice
+    # and therefore a field. The panel writes it into `recovery.kick_hold_sec` on every
+    # status poll, so an edit here applies to a wait already running.
+    "kick_hold_min": 15,
     # …and `daemon_port`'s other half. The port says WHAT to talk to; these two say
     # WHERE the client is, which is a different question and the one the process probe
     # asks: a second account lives in its own Windows session (tools/rdp_instance.py),

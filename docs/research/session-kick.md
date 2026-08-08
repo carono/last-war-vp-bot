@@ -208,7 +208,38 @@ restart is withheld while somebody has touched the machine in the last five minu
 because being kicked is not a licence to close a window a person is playing in
 (`panel/runtime/recovery.py`).
 
-**The unresolved one, and it is a decision rather than a finding:** a kick means the
-account is in use somewhere else. Restarting takes it back off whoever has it — and if
-that is the owner, on their phone, the panel is fighting its own player. Nothing local
-can see a phone. Left to the person deliberately.
+### 6.1 The unresolved one, resolved: a kick is WAITED OUT (#1291)
+
+What stood here as «left to the person deliberately» was this: a kick means the account
+is in use somewhere else, restarting takes it back off whoever has it, and if that is the
+owner on their phone the panel is fighting its own player. Nothing local can see a phone.
+
+**It is not undecidable, because nothing has to be decided.** The panel does not need to
+know WHO took the account to know that acting within half a minute is wrong either way:
+if it is the owner, they are thrown out of the game they just opened; if it is not, a
+quarter of an hour costs a quarter of an hour of farming and nothing else. The asymmetry
+does the deciding.
+
+Reported live on 2026-08-08 as the panel throwing the player out roughly a minute after
+they logged in — three restarts in a row, `launch_game` timing out on each pass, the
+daemon dying with every client. The minute was the two `KICK_STRIKES` readings of an
+eight-second poll; the loop was the person's own client taking the account back each
+time.
+
+So a kick now earns a WAIT before anything is done about it — fifteen minutes by
+default, `kick_hold_min` in the profile, 0 for the old behaviour — after which the
+ordinary scheme runs unchanged (strikes, player gate, cooldown, client/daemon
+alternation). Two things make it work rather than look like it works:
+
+* **the wait is a deadline, not a streak.** A kick usually takes the sockets with it, so
+  a hold that depended on the modal still being readable would be walked straight through
+  by three ordinary `lost` readings;
+* **every restarter asks it.** Three things put a client back — the recovery decision,
+  the process watchdog, and the `restart_game` errand that `Schedule.gate` lets through
+  precisely when the game looks down — so the deadline is a reading
+  (`Recovery.kick_hold_left`) and all three consult it. A wait honoured by one of them is
+  not a wait.
+
+The player gate stays exactly where it was and is asked FIRST: it is about somebody at
+THIS machine and has no end, while the kick's wait is about another device and runs out.
+Neither replaces the other.

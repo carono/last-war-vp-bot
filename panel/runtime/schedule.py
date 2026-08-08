@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 from .. import i18n as i18nmod
 from .. import timers as timersmod
@@ -298,7 +299,14 @@ class Schedule:
         caller that has no particular errand in mind.
         """
         if name is not None and self._is_recovery(name):
-            return None
+            # …EXCEPT WHILE A KICK IS BEING WAITED OUT (#1291). The exemption above
+            # exists because these errands are the answer to «the client is down»; a
+            # kicked client is not down, it is TAKEN, and playing the six-hourly
+            # `restart_game` into somebody else's session is the same relaunch the
+            # recovery is deliberately holding back. One wait, asked by everything that
+            # can put a client back (`panel/runtime/recovery.py::kick_hold_left`).
+            return None if self.rt.recovery.kick_hold_left(time.time()) <= 0 \
+                else "timers.log.skip_kick"
         running, _text = game_process.profile_status(self.rt.settings)
         if not running:
             return "timers.log.skip_game"

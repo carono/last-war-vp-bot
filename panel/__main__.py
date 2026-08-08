@@ -3612,6 +3612,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         says so, and lifts on its own when the client is back (#1259).
         """
         now = time.time()
+        # HOW LONG A KICK BUYS THE OTHER DEVICE, off the profile rather than out of the
+        # source (#1291). Read on every poll, so an edit on the Settings page applies to
+        # a wait already running instead of at the next start-up.
+        self._rt.recovery.kick_hold_sec = 60.0 * self._opt_int("kick_hold_min",
+                                                               low=0, high=1440)
         self._paint_recovery(self._rt.recovery.state(now))
         # THE DAEMON FIRST. It is asked on every poll, not only on a lost link, because
         # its fault is true while the link is perfectly ONLINE — which is the shape it
@@ -3703,7 +3708,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _paint_recovery(self, st: dict) -> None:
         """Say the restart bookkeeping on the strip — and nothing at all while it is idle."""
         why = st.get("held_by") or ""
-        if why == "player":
+        if why == "kick":
+            # FIRST, because it outranks every other reason to be doing nothing: the
+            # account is being played somewhere else and the panel is deliberately
+            # staying out of it. Without the countdown the strip would say «unheard» or
+            # nothing at all, and a person watching their own client sit there has no
+            # way to tell a decision from a hang (#1291).
+            text = self._t("status.recovery.kick",
+                           mins=-(-int(st.get("kick_hold_left", 0)) // 60))
+        elif why == "player":
             # «Не перезапускается» must never be unexplained: this one is deliberate,
             # and it is the reason a person at the machine keeps their session (#1259).
             text = self._t("status.recovery.player")
@@ -3765,6 +3778,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if self._game_was_up:
             self._say("game", "log.game.gone")
         if not self._opt_bool("watchdog"):
+            return
+        # A CLIENT THAT WAS KICKED IS NOT A CLIENT THAT CRASHED (#1291). The account is
+        # on another device; the process going away here is what happens when the person
+        # holding it closes this one, or when the kicked client finally gives up. Putting
+        # it back inside the wait undoes the wait completely — the whole point of which
+        # is that this machine stops taking the account off whoever is playing it.
+        left = self._rt.recovery.kick_hold_left(time.time())
+        if left > 0:
+            self._say("game", "log.game.kick_hold", mins=-(-left // 60))
             return
         # A client of another session is put back too, and by the same recipe: it
         # starts the launcher inside the session the profile names (#1218). It used to

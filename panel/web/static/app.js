@@ -143,7 +143,14 @@ function paintState(state) {
    * (panel/runtime/recovery.py). Silent while nothing is wrong. */
   const rec = state.game.recovery || {};
   const recEl = $('game-recovery');
-  if (rec.held_by === 'player') {
+  if (rec.held_by === 'kick') {
+    /* The account is logged in on another device and the panel is deliberately keeping
+     * out of it for a quarter of an hour (#1291). First of the lot, because the person
+     * reading this on a phone is very often the one who took the account — «жду 14 мин»
+     * is the answer to «why has my client stopped» and to «when will it come back». */
+    recEl.textContent = T('web.ui.recovery.kick',
+                          { mins: Math.ceil((rec.kick_hold_left || 0) / 60) });
+  } else if (rec.held_by === 'player') {
     recEl.textContent = T('web.ui.recovery.player');
   } else if (rec.held_by === 'daemon_cooldown') {
     recEl.textContent = T('web.ui.recovery.daemon_wait',
