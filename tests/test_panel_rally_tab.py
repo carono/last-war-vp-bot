@@ -639,14 +639,90 @@ def test_the_tab_remembers_how_big_each_banner_is_and_hands_it_to_the_join():
         # A line with no seats at all leaves nothing behind — an unheard size is not a
         # full banner, and inventing one would shut a rally that was open.
         tab._on_line("[rally] push.alliance.march.create  team=99  participants=1 [c]")
-        assert tab._slots == {"77": "5", "88": "5"}, tab._slots
+        # BOTH HALVES, not the cap alone (#1281): the wire's own occupancy is the half
+        # that was being thrown away, and it is the half that was right — of 21 squads
+        # sent at a banner the wire had last announced as 5 of 5, none arrived.
+        assert tab._slots == {"77": "2/5", "88": "5/5"}, tab._slots
 
         from panel.tabs.rally import tab as rallytab
         rt.tabs = {rallytab.RallyTab.ID: tab}
         rendered = dict(pair.split(":") for pair in rallytab.slot_map(rt).split(","))
-        assert rendered == {"77": "5", "88": "5"}, rendered
+        assert rendered == {"77": "2/5", "88": "5/5"}, rendered
     finally:
         root.destroy()
+
+
+def test_the_wire_closes_a_banner_the_clients_own_count_still_calls_open():
+    """`slots=5/5` off the wire shuts a banner the march list has a seat in (#1281).
+
+    The two counts disagree in one direction and it was measured: a march the other side
+    has not told us about is missing from ours, so both are floors and the larger is the
+    honest one. Over three and a half hours 21 squads were sent at a banner the wire had
+    already called full and not one of them reached it, while the client's own count of
+    those banners still showed room.
+    """
+    import lupa
+
+    from tools.lib import lua_actions
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    parse = lua.execute(
+        "return function(text)"
+        "  local max_of, wire_taken = {}, {}"
+        "  for pair in string.gmatch(tostring(text or ''), '[^,]+') do"
+        "    local team, tk, mx = string.match(pair, '(%d+):(%d+)/(%d+)')"
+        "    if team == nil then team, mx = string.match(pair, '(%d+):(%d+)') end"
+        "    if team ~= nil then max_of[team] = tonumber(mx)"
+        "      if tk ~= nil then wire_taken[team] = tonumber(tk) end end end"
+        "  return max_of, wire_taken end"
+    )
+    # The very lines the chunk parses, copied out of it so a change to either is caught.
+    src = lua_actions.rally_join_all()
+    assert "wire_taken" in src, "the sieve no longer reads the wire's occupancy"
+    assert "(%d+):(%d+)/(%d+)" in src, "the sieve no longer reads `team:taken/max`"
+
+    max_of, taken = parse("77:2/5,88:5/5,99:5")
+    assert max_of["77"] == 5 and taken["77"] == 2
+    assert max_of["88"] == 5 and taken["88"] == 5
+    # The old shape still reads: a tab that has heard nothing since the panel started
+    # hands the cap alone, and a cap alone must not invent an occupancy.
+    assert max_of["99"] == 5 and taken["99"] is None
+
+    # …and the decision the sieve makes with them, in the same words.
+    decide = lua.execute(
+        "return function(client, wire, mx)"
+        "  local t, src = client, 'client'"
+        "  if wire ~= nil and wire > t then t = wire src = 'wire' end"
+        "  if mx ~= nil and mx > 0 and t >= mx then return 'shut', src end"
+        "  return 'open', src end"
+    )
+    assert tuple(decide(3, 5, 5)) == ("shut", "wire"), "the wire's full banner stayed open"
+    assert tuple(decide(5, 2, 5)) == ("shut", "client"), "the client's full banner stayed open"
+    assert tuple(decide(2, 2, 5)) == ("open", "client"), "an open banner was shut"
+    assert tuple(decide(2, None, 5)) == ("open", "client"), "an unheard occupancy shut a banner"
+
+
+def test_a_banner_that_swallows_squads_stops_being_asked():
+    """Three failures on one banner is the last one (#1281).
+
+    Retrying is worth having: of the 114 banners joined in a three-and-a-half-hour
+    window, 9 took more than one send and every one of them landed on the second or the
+    third, six to eleven seconds later. Asking forever is not: one banner in that same
+    window took FOURTEEN squads and let none of them in, and eighteen banners between
+    them ate 108 of the 137 sends that reached nothing. The count is per banner, lives
+    only as long as the banner is on the map, and is cleared the moment a march of ours
+    stands in that team.
+    """
+    from tools.lib import lua_actions
+
+    src = lua_actions.rally_join_all()
+    assert "DataCenter.__lw_rally_tries" in src, "the per-banner count is gone"
+    assert "if live[k] and not ours_in[k] then tries[k]" in src, \
+        "the count outlives its banner, or charges a banner we are already in"
+    assert "spent >= 3 then full[#full+1] = ts..':swallowed(" in src, \
+        "the third failure is no longer the last, or it is not named in the report"
+    assert "tries[tostring(r.team)] = (tonumber(tries[tostring(r.team)] or 0) or 0) + 1" in src, \
+        "a send no longer charges the banner it went to"
 
 
 def test_a_refused_banner_is_written_off_and_the_squads_go_to_the_next_one():

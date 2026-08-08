@@ -933,13 +933,59 @@ push.alliance.march.create/refresh
 `WorldMarchDataManager:GetAllMarches()` keeps **neither** — the same 25-of-33 truncation
 that drops `targetContentId`. So the size is wire-only, and the panel learns it exactly
 where it learns the target: `tools/rally_monitor.py` prints `slots=<taken>/<max>` on its
-rally line, the «Ралли» tab remembers `teamUuid -> max`, and the join is handed the map as
-`slots="team:max,…"`.
+rally line, the «Ралли» tab remembers `teamUuid -> taken/max`, and the join is handed the
+map as `slots="team:taken/max,…"`.
 
-**Occupancy is counted in the client, not taken from the push.** Every member march of a
-rally IS in `GetAllMarches()`, so the count is current at the moment of the send rather
-than as of the last push we happened to hear. Measured on three live banners: 2, 3 and 1
-marches, against a size of 5.
+**Occupancy is the LARGER of the two counts, and that is a correction paid for on the
+wire.** This section used to say the opposite — count in the client, ignore the push,
+because every member march of a rally IS in `GetAllMarches()` and so the count is current
+at the moment of the send rather than as of the last push we happened to hear. It sounds
+right and it is not what happens. Over a three-and-a-half-hour window, checked against
+the wire rather than against our own log:
+
+```
+seats the wire last announced      squads sent    squads that arrived
+1                                   1              1
+2                                  55             24
+3                                  20              6
+4                                  16              8
+5                                  21              0      <-- not one
+never heard                       123             92
+```
+
+Twenty-one squads at a banner the wire had already called full, and **not one of them
+reached it** — while the client's own count of those same banners still showed a seat.
+The two disagree in both directions and each is a floor of the truth: a march the other
+side has not told us about is missing from ours, and a member who joined since the last
+push is missing from theirs. So the sieve takes the larger, and only a banner both agree
+is open stays a candidate. The report names which count shut it —
+`banner-full(5/5 by wire)` or `… by client)` — so the next disagreement is visible
+instead of being argued about.
+
+### A banner that swallows squads stops being asked
+
+`__lw_rally_shut` empties every run on purpose: a refusal is terminal only while the
+banner stands, and a squad that came home deserves a second look. What that cannot see is
+a banner asked again and again ACROSS runs. In the same window one banner took
+**fourteen** squads and let none of them in, and eighteen banners between them ate 108 of
+the 137 sends that reached nothing.
+
+Retrying still earns its keep, and the numbers say exactly how much: of the 114 banners
+joined, **97 landed on the first send**, 9 needed a second or a third (six to eleven
+seconds later), and one took eight. So the count is kept per banner
+(`__lw_rally_tries`), lives only as long as the banner is on the map, is cleared the
+moment a march of ours stands in that team, and **the third failure is the last** — which
+keeps 8 of those 9 and saves 51 sends that could not have worked. The price is measured
+rather than assumed: one join in 114, the eight-send outlier.
+
+### What the window actually says about «not one missed»
+
+158 banners announced on the wire, **114 of them joined** — with three squads, against an
+alliance that raises one every eighty seconds. Of the 44 not joined: 37 were sent to and
+never entered (29 of those filled to 5 of 5 without us — a race lost, not a miss), and 7
+were never sent to at all, each with its reason already in the log: every squad out,
+«панель занята другой работой», «занят — дождись завершения». Push to send was **0 s
+median, 4 s worst** over 252 measured sends, and no window was opened on the way.
 
 Nine banners sampled on the wire during the event, every one of them:
 

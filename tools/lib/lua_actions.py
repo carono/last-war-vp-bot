@@ -3378,7 +3378,24 @@ def rally_join_all() -> str:
         "if live[k] then "
         "if ours_in[k] then keep[k] = 0 "
         "else local a = (tonumber(age) or 0) + 1 if a < 2 then keep[k] = a end end end end "
-        "DataCenter.__lw_rally_joined = keep " +
+        "DataCenter.__lw_rally_joined = keep "
+        # HOW MANY SQUADS THIS BANNER HAS ALREADY SWALLOWED (#1281). `__lw_rally_shut`
+        # empties every run on purpose — a refusal is only terminal while the banner
+        # stands, and a squad that came home deserves a second look. What it cannot see
+        # is a banner asked again and again across runs: measured over three and a half
+        # hours, one banner took FOURTEEN squads and let none of them in, and eighteen
+        # banners between them ate 108 of the 137 sends that reached nothing.
+        #
+        # A retry is still worth having — 9 of the 114 banners we got into took more than
+        # one send, all of them landing on the second or third, 6 to 11 seconds later. So
+        # the count is kept per banner for as long as the banner is on the map and the
+        # third failure is the last: it keeps 8 of those 9 and saves 51 sends that could
+        # not have worked. The count is cleared the moment a march of ours stands in that
+        # team, so a banner we are IN is never charged for the tries it took.
+        "local tries = {} "
+        "for k, n in pairs(DataCenter.__lw_rally_tries or {}) do "
+        "if live[k] and not ours_in[k] then tries[k] = tonumber(n) or 0 end end "
+        "DataCenter.__lw_rally_tries = tries " +
         _RALLY_PRELUDE_MINE +
         # What the run will be judged against: our squads standing in a rally right now.
         "local before = 0 "
@@ -3490,11 +3507,23 @@ def rally_join_all() -> str:
         # the occupancy — every member march of a rally is in it, which is how the count
         # stays right without waiting for another push. The panel parks the sizes here
         # as `team:max,…` exactly as it parks the targets (#1281).
-        "local max_of = {} "
+        # AND HOW FULL IT WAS WHEN WE LAST HEARD IT (#1281). The occupancy used to be
+        # counted in the client alone, on the argument that its march list is current at
+        # the moment of the send while a push is as old as the last one we heard. The
+        # wire says otherwise: over three and a half hours, 21 squads were sent at a
+        # banner the wire had last announced as 5 of 5 and NOT ONE of them reached it,
+        # while the client's own count of those same banners still showed a seat. Both
+        # numbers are floors of the truth — a march the other side has not told us about
+        # is missing from ours, and a member who joined since the last push is missing
+        # from theirs — so the sieve believes the LARGER, and only a banner both agree is
+        # open stays a candidate.
+        "local max_of, wire_taken = {}, {} "
         "pcall(function() for pair in string.gmatch(tostring("
         "DataCenter.__lw_rally_slots or ''), '[^,]+') do "
-        "local team, mx = string.match(pair, '(%d+):(%d+)') "
-        "if team ~= nil then max_of[team] = tonumber(mx) end end end) "
+        "local team, tk, mx = string.match(pair, '(%d+):(%d+)/(%d+)') "
+        "if team == nil then team, mx = string.match(pair, '(%d+):(%d+)') end "
+        "if team ~= nil then max_of[team] = tonumber(mx) "
+        "if tk ~= nil then wire_taken[team] = tonumber(tk) end end end end) "
         # Banners this run has already been refused by — the recipe writes them here when
         # a send produced no march, and they are not offered again inside the same run.
         "local blocked = {} "
@@ -3545,9 +3574,14 @@ def rally_join_all() -> str:
         "local still2 = {} "
         "for _, r in ipairs(rallies) do local ts = tostring(r.team) "
         "local mx, taken = max_of[ts], count_of[ts] or 0 "
+        "local wt = wire_taken[ts] "
+        "local src = 'client' "
+        "if wt ~= nil and wt > taken then taken = wt src = 'wire' end "
+        "local spent = tonumber(tries[ts] or 0) or 0 "
         "if blocked[ts] then full[#full+1] = ts..':refused-full' "
+        "elseif spent >= 3 then full[#full+1] = ts..':swallowed('..spent..' squads, none arrived)' "
         "elseif mx ~= nil and mx > 0 and taken >= mx then "
-        "full[#full+1] = ts..':banner-full('..taken..'/'..mx..')' "
+        "full[#full+1] = ts..':banner-full('..taken..'/'..mx..' by '..src..')' "
         "else still2[#still2+1] = r end end "
         "rallies = still2 "
         "local function _n(t) local k = 0 for _ in pairs(t) do k = k + 1 end return k end "
@@ -3588,6 +3622,7 @@ def rally_join_all() -> str:
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
         "if ok then sent = sent + 1 keep[tostring(r.team)] = 0 "        # age 0: freshly sent
+        "tries[tostring(r.team)] = (tonumber(tries[tostring(r.team)] or 0) or 0) + 1 "
         "sent_teams[#sent_teams+1] = tostring(r.team) "
         "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
         "kinds[#kinds+1] = kind "

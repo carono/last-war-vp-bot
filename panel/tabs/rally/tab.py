@@ -969,10 +969,17 @@ class RallyTab(PanelTab):
             if content and content.isdigit():
                 self._targets[team] = content
         if "slots=" in clean:
+            # BOTH HALVES, and the second one is the correction (#1281). This kept the
+            # cap alone and threw the occupancy away, on the argument that the client's
+            # own march list counts the banner more freshly. Measured against the wire
+            # over three and a half hours: of 21 squads sent at a banner the wire had
+            # last announced as 5 of 5, NOT ONE reached it — the client's count was the
+            # one that was behind. Both are floors of the truth, so the join takes the
+            # larger of the two and the seat filter finally sees a shut banner.
             seats = clean.split("slots=")[1].split()[0].strip()
             taken, _, cap = seats.partition("/")
             if cap.isdigit() and int(cap) > 0:
-                self._slots[team] = cap
+                self._slots[team] = f"{taken}/{cap}" if taken.isdigit() else cap
         # THE BELL IS ONE PER BANNER; THE JOIN IS NOT (#1281). `_seen` used to gate both,
         # and it was marked HERE — before the join had been tried — so a join the game
         # was too busy to start, or one every squad was out for, was never tried again
@@ -1133,12 +1140,17 @@ def target_map(rt) -> str:
 
 
 def slot_map(rt) -> str:
-    """`team:seats,…` — how many marches each banner holds, for the banners we heard.
+    """`team:taken/max,…` — how full each banner was when we last heard it (#1281).
 
-    The join uses it with the occupancy it counts itself in the client's march list: a
-    banner whose seats are all taken is not a candidate and is named `banner-full` in the
-    run's report. A banner whose size was never heard is NOT filtered — an unheard size is
-    not a full banner, and the refusal path is what catches those (#1281).
+    The join uses it with the occupancy it counts itself in the client's march list, and
+    believes the LARGER of the two: both are floors of the truth, and the wire's is the
+    one that was ahead every time they disagreed. A banner with no seat left is not a
+    candidate and is named `banner-full` in the run's report. A banner whose size was
+    never heard is NOT filtered — an unheard size is not a full banner, and the refusal
+    path is what catches those.
+
+    `team:max` without a slash is still read, so a profile whose tab has not heard a push
+    since the panel started behaves exactly as it did before.
     """
     tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
     known = dict(getattr(tab, "_slots", {}) or {}) if tab is not None else {}
