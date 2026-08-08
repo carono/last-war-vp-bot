@@ -23,8 +23,16 @@ can go quietly wrong:
   * **`push.detect.treasure.claim` is «this chest is dug», never «somebody took it».**
     Every digger claims their own gift, so the broadcast is the gate that opens the
     claim — reading it as a loss would give the reward away;
-  * **the claim waits.** No claim before the dig is heard or the grace has run out, and
-    no second claim once one was made;
+  * **the claim waits, and its fallback waits for TWO things.** No claim before the dig is
+    heard, or before the grace has run out **and** the squad's march is over — a chest far
+    from the base outlasts any grace worth having, and a claim sent into a march in flight
+    is refused;
+  * **a refused claim is SILENT** — no message tip, no window, no thrown error, and a reply
+    under the same command name with nothing readable in it (measured live on 2026-08-08).
+    So the send is not the proof: a chest is spent when the reward window comes up shortly
+    after, and a chest whose tries all ran out is written off as `claim-unconfirmed` rather
+    than as taken. This is the one that was got wrong first and cost the reward in exactly
+    the case the grace existed for;
   * **the queue is spent, not grown.** A finished chest is pruned, an expired one is
     written off, and a run finds no free squad without throwing;
   * **the poll is true when nothing is listening.** A client restart wipes the VM and the
@@ -87,6 +95,9 @@ SFSObject = {
   GetData = function(o, k) return o[k] end,
 }
 MsgDefines = {DetectEventClaimTreasure = "detect.event.claim.treasure"}
+REWARD_UP = false
+UIWindowNames = {UIGiftPackageRewardGet = "UIGiftPackageRewardGet"}
+UIManager = {Instance = {IsWindowOpen = function(self, name) return REWARD_UP end}}
 MarchUtil = {
   SendCreateMarchMessage = function(formation, target, pid, uuid, a, b, c, server, d)
     MARCHED[#MARCHED+1] = {formation = formation, target = target, pid = pid,
@@ -159,6 +170,24 @@ def _dug(lua, uuid=_UUID) -> None:
     """The alliance's own feed: one of these per member who has finished digging."""
     lua.execute('SFSNetwork.HandleMessage("push.detect.treasure.claim", '
                 '{__keys={"uuid","operator"}, uuid=%d, operator={}})' % uuid)
+
+
+def _reward(lua, up: bool = True) -> None:
+    """The `UIGiftPackageRewardGet` the client raises on a claim the server PAID — the one
+    observable difference between a paid claim and a refused one."""
+    lua.execute("REWARD_UP = %s" % ("true" if up else "false"))
+
+
+def _came_home(lua, slot: int = 1) -> None:
+    """The squad's march is over: it has dug and come back, so the chest can be claimed."""
+    lua.execute("for _, f in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) "
+                "do if f.index == %d then f.__out = false end end" % slot)
+
+
+def _still_marching(lua, slot: int = 1) -> None:
+    """The squad this target was sent with is still in the air."""
+    lua.execute("for _, f in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) "
+                "do if f.index == %d then f.__out = true end end" % slot)
 
 
 def _step(lua) -> str:
@@ -285,7 +314,7 @@ def test_no_claim_before_the_dig_is_heard():
     _step(lua)
     report = _step(lua)
     assert _claims(lua) == []
-    assert "digging=1" in report, report
+    assert "waiting=1" in report and ":digging" in report, report
 
 
 def test_the_alliance_feed_opens_the_claim_rather_than_closing_it():
@@ -306,35 +335,98 @@ def test_the_alliance_feed_opens_the_claim_rather_than_closing_it():
     assert "claimed=1" in report, report
 
 
-def test_the_grace_claims_a_chest_whose_dig_was_never_heard():
-    """The feed can be missed — a reconnect, a message lost — and a chest that is dug and
-    never claimed is the whole reward gone. So the claim is tried once the grace has
-    passed, and that is a fallback rather than the gate."""
-    if not _needs_lua("the grace claims anyway"):
+def test_the_grace_waits_for_the_march_to_be_over_as_well_as_for_the_clock():
+    """THE HOLE THE GRACE HAD. A chest far from the base outlasts any grace worth having,
+    and a claim sent while the squad is still walking is refused in SILENCE — no tip, no
+    window, no error — so the chest used to be written off in exactly the case the grace
+    was added for. The fallback now needs both: the clock, and the march being over."""
+    if not _needs_lua("the grace waits for the march"):
         return
     lua = _vm(grace=60)
     _announce(lua)
     _step(lua)
-    assert _claims(lua) == []
+    _still_marching(lua, slot=1)
     lua.execute("NOW = NOW + 61000")
+    report = _step(lua)
+    assert _claims(lua) == [], "a claim went out while the squad was still in the air"
+    assert "still-marching" in report, report
+    assert _queued(lua) == 1, "the chest must survive to be claimed when the squad lands"
+    #: …and once it lands, the same clock claims it
+    _came_home(lua, slot=1)
     _step(lua)
     assert len(_claims(lua)) == 1, _claims(lua)
 
 
-def test_a_claimed_chest_is_spent_and_never_claimed_twice():
-    """The queue must not grow for the life of the client, and a paid chest must not be
-    asked for again on every tick."""
-    if not _needs_lua("a claimed chest is spent"):
+def test_a_claim_is_proven_by_the_reward_window_and_not_by_the_send():
+    """A refused claim returns exactly like a paid one, so the send cannot be the proof.
+    The chest is spent when the reward window comes up shortly after — and stays queued
+    until it does."""
+    if not _needs_lua("payment is the reward window"):
+        return
+    lua = _vm()
+    _announce(lua)
+    _step(lua)
+    _dug(lua)
+    report = _step(lua)
+    assert "claim1" in report, report
+    assert _queued(lua) == 1, "a sent claim is not a paid claim"
+    _reward(lua)
+    report = _step(lua)
+    assert "paid=1" in report, report
+    assert _queued(lua) == 0
+
+
+def test_a_claim_that_never_pays_is_written_off_as_unconfirmed_not_as_claimed():
+    """Four silent refusals are still four refusals. What must not happen is the chest
+    being recorded as taken: «claimed» would read as a reward that was never had."""
+    if not _needs_lua("an unconfirmed claim"):
+        return
+    lua = _vm()
+    _announce(lua)
+    _step(lua)
+    _dug(lua)
+    for _ in range(6):
+        _step(lua)
+        lua.execute("NOW = NOW + 26000")      # past the retry cooldown
+    assert len(_claims(lua)) == lua_actions.TREASURE_CLAIM_TRIES, _claims(lua)
+    report = _step(lua)
+    assert "claim-unconfirmed" in report or _queued(lua) == 0, report
+    assert _queued(lua) == 0
+
+
+def test_a_sent_claim_waits_its_retry_out_rather_than_going_every_tick():
+    """A refusal says nothing, so the retry is on a clock. Four tries inside one minute
+    would be four tries spent while the alliance is still digging."""
+    if not _needs_lua("the retry is on a clock"):
         return
     lua = _vm()
     _announce(lua)
     _step(lua)
     _dug(lua)
     _step(lua)
-    assert _queued(lua) == 0
+    assert len(_claims(lua)) == 1
     report = _step(lua)
-    assert len(_claims(lua)) == 1, _claims(lua)
-    assert "queued=0" in report, report
+    assert len(_claims(lua)) == 1, "a second claim went out inside the cooldown"
+    assert "claim-sent-waiting" in report, report
+    lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_CLAIM_RETRY_SEC + 1) * 1000))
+    _step(lua)
+    assert len(_claims(lua)) == 2, _claims(lua)
+
+
+def test_a_reward_window_long_after_the_claim_is_not_taken_as_payment():
+    """The window is the client's for every reward there is. Read late it would mark a
+    chest paid because something else was collected."""
+    if not _needs_lua("a stale reward window"):
+        return
+    lua = _vm()
+    _announce(lua)
+    _step(lua)
+    _dug(lua)
+    _step(lua)
+    lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_PAID_WINDOW_SEC + 5) * 1000))
+    _reward(lua)
+    report = _step(lua)
+    assert "paid=1" not in report, report
 
 
 def test_a_chest_older_than_its_ttl_is_written_off():
@@ -394,6 +486,9 @@ def test_the_poll_is_true_when_nothing_is_listening():
     assert lua.eval(lua_actions.treasure_auto_check()) is True
     _step(lua)
     _dug(lua)
+    _step(lua)                      # the claim goes out — and is not yet proof
+    assert lua.eval(lua_actions.treasure_auto_check()) is True
+    _reward(lua)                    # …the reward window is
     _step(lua)
     assert lua.eval(lua_actions.treasure_auto_check()) is False
 
@@ -462,7 +557,9 @@ def test_the_recipe_names_the_presses_it_needs():
                     yield from _taps(inner)
 
     pressed = list(_taps(program))
-    assert pressed == ["treasure_auto_arm", "treasure_auto_step",
+    #: arm, the step, the retry after an army was fetched, and the pass that looks for
+    #: the reward window a claim's payment shows up as.
+    assert pressed == ["treasure_auto_arm", "treasure_auto_step", "treasure_auto_step",
                        "treasure_auto_step", "dismiss_treasure_reward"], pressed
     for name in pressed:
         assert name in game_buttons.BUTTONS, name

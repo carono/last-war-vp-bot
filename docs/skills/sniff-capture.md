@@ -249,6 +249,21 @@ restore it, perform the action in-game, then grep the log.
 > tails it — the trace simply comes out empty
 > (`../research/game-call-latency.md`).
 
+> **A THIN TRACE MAY BE SOMEBODY ELSE'S HOOK, NOT A FAULT.** The treasure harvest
+> (#1277 / #1296) wraps `SFSNetwork.SendMessage` and `SFSNetwork.HandleMessage` —
+> the same two `--filter SFS` lives on — and two wrappers on one function unwrap
+> each other on the way out. It is switched on by a TRIGGER, so a client nobody
+> has touched can be holding it from a checkbox set weeks ago. **Check before you
+> record**, and stop it if it is on:
+> ```
+> lua_actions.treasure_watch_state()          # `on=…`, and `.hooked`
+> (DataCenter.__lw_treasure_auto or {}).on    # the errand's own switch
+> lua_actions.treasure_auto_disarm()          # …disarm FIRST, then
+> lua_actions.treasure_watch_stop()           # this one refuses while auto is on
+> ```
+> Whole story, with the reading that tells them apart:
+> `../research/world-treasures.md`, «READ THIS BEFORE YOU RECORD A TRACE».
+
 **Arm** the trace (one or many functions — add `wrap(...)` lines as needed):
 ```bash
 /mnt/c/Python312/python.exe tools/lua_eval.py --marker MP "

@@ -431,7 +431,12 @@ lives in the game VM.
 * **it does not touch the network interface at all**, so it coexists with the secret-task
   monitor's pcap — which is exactly what made this session's wire file empty;
 * **it must not run beside `lua_trace`**: the tracer wraps the same two functions, and
-  each would unwrap the other on the way out;
+  each would unwrap the other on the way out. **And since #1296 this is no longer only
+  about a page somebody opened on purpose** — the auto-treasure errand's harvest lives in
+  this same hook and is switched on by a TRIGGER, so a client nobody has touched can be
+  holding one half of the pair. A thin or empty trace with a healthy client is explained by
+  that far more often than by a fault; the check and the two calls that undo it are under
+  «READ THIS BEFORE YOU RECORD A TRACE» below;
 * the filter, with `wide` off, keeps anything `treasure`/`detect`, plus a `world.march.*`
   send at target 50/182 — the three moments above and nothing else.
 
@@ -575,7 +580,71 @@ instead of leaving the errand silently deaf.
 Confirmed live on 2026-08-08 with no chest on the map: the arm, the poll, the step, the
 army fallback, the disarm, and the blob parser with the tile arithmetic inside the game's
 own Lua (`pid = y * 1000 + x + 1`, 19-digit uuid intact — Lua 5.3 integers).
-`tests/test_treasure_auto.py` runs the whole errand in a real Lua, 20 tests.
+`tests/test_treasure_auto.py` runs the whole errand in a real Lua.
+
+## READ THIS BEFORE YOU RECORD A TRACE — the harvest and `lua_trace` collide
+
+**While the #1296 harvest is installed, a simultaneous `lua_trace` hooks the same two
+functions.** `SFSNetwork.SendMessage` and `SFSNetwork.HandleMessage` are wrapped by both,
+and each unwraps the other on the way out: whichever restored last wins, and what the
+loser was recording simply stops arriving. The trace comes out short or empty, the client
+is perfectly healthy, and there is no bug to find.
+
+This warning is louder than the #1277 one above it, and for a reason that has nothing to
+do with the mechanism: the debug page's ring is something a person switches on knowing
+they did, in the same sitting. **The harvest is switched on by a TRIGGER** — a checkbox on
+another tab, on another profile, possibly weeks ago — and then it sits there in a client
+nobody has touched, silently holding one half of the pair. Somebody records a session,
+gets a thin trace, and starts looking for a fault in the tracer.
+
+So, before recording: **check whether the auto errand is listening**, and stop it if it is.
+
+```
+# is anything holding the doors?
+READ_LUA  treasure_watch_state()      -> `on=<ring> … `  and the auto switch:
+          (DataCenter.__lw_treasure_auto or {}).on
+# put them back (this also reports `hooked=` and `auto=`, so it says who was left):
+          lua_actions.treasure_auto_disarm() ; lua_actions.treasure_watch_stop()
+```
+
+`treasure_watch_stop` deliberately refuses to unhook while the auto switch is on — it
+mutes the ring and answers `hooked=1 auto=1` — so the disarm has to come first. That is
+the state a thin trace is explained by, and reading it takes one call.
+
+## A refused claim says NOTHING — measured, and it changed the design
+
+Asked and answered live on 2026-08-08, by claiming a chest uuid that cannot exist
+(`detect.event.claim.treasure` with an invented 19-digit id, on the home server):
+
+| what was looked at | what came back |
+|---|---|
+| the send itself | returns cleanly, no error, no exception |
+| `UICommonMessageTip` | **nothing on screen**, checked at 0.3 s, 0.8 s and 1.6 s |
+| `UIGiftPackageRewardGet` | closed |
+| the reply | arrives ~150 ms later **under the same command name**, and the hook reads NO fields off it |
+
+So there is no observable difference between a claim the server paid and one it threw
+away — in the moment of sending. **The consequence is a design constraint, not a
+curiosity:** a step that treats «the send did not throw» as payment writes the chest off
+and stops working it. The first version of the errand did exactly that, and it did it in
+the worst possible case — the grace firing while the squad was still walking, which is the
+case the grace was ADDED for. A chest 300 tiles from the base outlasts any grace worth
+having.
+
+What replaced it, both halves needed:
+
+* **the grace waits for the clock AND for the march to be over.** The target keeps the
+  uuid of the squad it was sent with, and `GetOwnerFormationMarch` on that squad answers
+  «still out» for one call. A claim is never sent into a march in flight.
+* **payment is the reward window.** `UIGiftPackageRewardGet` is what the client raises on
+  a claim the server paid (seen in the 2026-08-07 trace), so the chest is spent when that
+  window is up within seconds of our claim — and a chest whose tries all ran out is
+  written off as `claim-unconfirmed`, never as `claimed`. Retries are on a clock
+  (25 s apart, four of them), because a refusal gives nothing to retry ON.
+
+The window is the client's for every reward there is, so it is only read as ours while it
+is fresh. That is the honest limit of the proof, and it is still the best there is: the
+wire says nothing either way.
 
 **Still unproven: a live chest.** No detect event was running during the work, so the
 march and the claim have never gone out at a real target from this path — the farming

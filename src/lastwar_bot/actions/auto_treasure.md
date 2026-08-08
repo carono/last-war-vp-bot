@@ -87,6 +87,22 @@ IF asked == 1
     LOG "the line above is the second pass, with the army the game had all along"
     READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.did) or 0 end)() INTO did
 
+# A CLAIM IS NOT PROOF OF PAYMENT, and finding that out cost one experiment worth
+# repeating: a claim the server refuses is COMPLETELY silent — no message on screen, no
+# window, no error, and its reply comes back under the same name with nothing readable in
+# it (measured live on 2026-08-08 against a chest uuid that cannot exist). The one
+# observable answer is the reward window the client raises when a claim is PAID, and that
+# window goes up a moment after the send rather than during it. So a run that claimed
+# comes back to look — and only such a run pays for the extra glance.
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.claim_sent) or 0 end)() INTO claim_sent
+
+IF claim_sent > 0
+    LOG "a claim went out — looking again in a moment to see whether the reward window came up, because a refusal says nothing at all"
+    WAIT 1.5
+    TAP treasure_auto_step
+    READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the confirming press left no report") INTO report
+    LOG "the line above is the confirmation pass: paid= is a chest whose reward window came up, and a chest that is still queued will be claimed again on a later run"
+
 IF did == 0
     LOG "nothing was sent this run — the reason is on the report line above"
     STOP

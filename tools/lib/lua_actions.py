@@ -3245,6 +3245,19 @@ TREASURE_TARGET_TTL_SEC = 1800
 #: keep being refused.
 TREASURE_CLAIM_TRIES = 4
 
+#: How long between two claims on the same chest. A refused claim is SILENT (below), so
+#: the retry is on a clock rather than on an answer — and a clock that ticks every step
+#: would spend all four tries inside a minute, while the alliance is still digging.
+TREASURE_CLAIM_RETRY_SEC = 25
+
+#: How long after a claim the reward window still counts as ITS reward. A refused claim
+#: says nothing at all — measured live on 2026-08-08 against a uuid that cannot exist: no
+#: message tip, no window, no error, and the reply comes back under the same command name
+#: with no readable fields. So «did it pay?» has exactly one observable answer, the
+#: `UIGiftPackageRewardGet` the client raises on a successful claim, and it is only read
+#: as ours while it is this fresh — any window later than that could be any other reward.
+TREASURE_PAID_WINDOW_SEC = 20
+
 
 def treasure_auto_arm(squads=(1, 2, 3, 4),
                       grace_sec: int = TREASURE_ARRIVE_GRACE_SEC,
@@ -3366,11 +3379,29 @@ def treasure_auto_step() -> str:
         `TimerManager:DelayInvoke` — the rally join proved the direct send works from the
         daemon's thread, and a send behind a timer cannot say whether it threw.
       * **sent** — nothing, until either the alliance's own feed says the chest is dug
-        (`push.detect.treasure.claim`, caught by the hook) or the grace has run out.
+        (`push.detect.treasure.claim`, caught by the hook) or the grace has run out AND
+        the squad's march is over. Both halves of that fallback matter: see below.
       * **dug** — claim it: `SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure,
-        uuid, targetServer)`, the exact call the in-game finish fires.
-      * **claimed** — done. The reward window the client raises is closed by the recipe,
-        not here: this chunk opens nothing and closes nothing.
+        uuid, targetServer)`, the exact call the in-game finish fires. Then WAIT for the
+        reward window rather than assuming; retry on a clock, up to a few times.
+      * **paid** — the reward window came up within seconds of our claim. Only then is the
+        chest spent. This chunk opens nothing; it closes nothing either.
+
+    A REFUSED CLAIM IS SILENT, and the whole shape above exists because of it. Measured
+    live on 2026-08-08 against a uuid that cannot exist: **no message tip, no window, no
+    thrown error**, and the reply arrives under the same command name carrying no readable
+    fields. So «the send returned cleanly» proves nothing, and the first version of this
+    chunk — which treated it as payment — wrote a chest off while the alliance was still
+    digging it, in exactly the case the grace was added for: a squad still walking when the
+    clock ran out. Two corrections came out of that, and neither is optional:
+
+      * the grace waits for the CLOCK **and** for the march to be over
+        (`GetOwnerFormationMarch` on the squad that was sent — the target keeps that
+        squad's uuid for this reason). A chest 300 tiles out lives longer than any grace
+        worth having;
+      * a claim is proven by the `UIGiftPackageRewardGet` the client raises on a paid one,
+        read only while it is fresh; a chest whose tries all ran out is written off as
+        `claim-unconfirmed`, never as `claimed`.
 
     «NEAREST» IS HONEST ABOUT ITS OWN LIMIT, and this is worth reading before trusting
     the word. A squad has no position of its own — read live off
@@ -3443,33 +3474,67 @@ def treasure_auto_step() -> str:
         "math.abs((tonumber(t.y) or 0) - hy)) "
         "live[#live+1] = t end end "
         "table.sort(live, function(a, b) return (a.d or 0) < (b.d or 0) end) "
-        "local sent, claimed, waiting, expired, notes = 0, 0, 0, 0, {} "
+        # DID THE LAST CLAIM PAY? The only observable answer there is. A refused claim is
+        # SILENT — measured live on 2026-08-08 against a uuid that cannot exist: no message
+        # tip, no window, no thrown error, and the reply arrives under the same command
+        # name carrying no readable fields — so «the send did not throw» proves nothing at
+        # all, and the version that treated it as payment wrote the chest off while the
+        # alliance was still digging it. The client raises `UIGiftPackageRewardGet` on a
+        # claim the server paid; that window, and only while it is fresh, is the proof.
+        "local reward = false "
+        "pcall(function() reward = UIManager.Instance:IsWindowOpen("
+        "UIWindowNames.UIGiftPackageRewardGet) and true or false end) "
+        "local paid_win = " + str(int(TREASURE_PAID_WINDOW_SEC)) + " * 1000 "
+        "local retry = " + str(int(TREASURE_CLAIM_RETRY_SEC)) + " * 1000 "
+        "local sent, claimed, waiting, expired, paid, notes = 0, 0, 0, 0, 0, {} "
         "local fi = 1 "
         "for _, t in ipairs(live) do "
         # Written off: the chest's minutes on the map are long over.
         "if now > 0 and (tonumber(t.at) or 0) > 0 and now - (tonumber(t.at) or 0) > ttl then "
         "t.done, t.why = true, 'expired' expired = expired + 1 "
         "notes[#notes+1] = 'x' .. tostring(t.d) .. ':expired' "
-        "elseif t.claimed then t.done, t.why = true, 'claimed' "
+        # The reward window came up shortly after our claim: THAT is the payment, and the
+        # chest is spent here rather than on the strength of a send that returned cleanly.
+        "elseif t.claimed and reward and now > 0 "
+        "and now - (tonumber(t.claimed) or 0) <= paid_win then "
+        "t.done, t.why, t.paid = true, 'paid', now paid = paid + 1 "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':paid' "
+        "elseif t.claimed and (tonumber(t.tries) or 0) >= "
+        + str(int(TREASURE_CLAIM_TRIES)) + " then "
+        # Every try spent and no reward window after any of them. Written off with a word
+        # that says what actually happened, because «claimed» would read as taken.
+        "t.done, t.why = true, 'claim-unconfirmed' "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-unconfirmed' "
         "elseif t.sent then "
-        "local ready = (t.dug ~= nil) "
-        "or (now > 0 and now - (tonumber(t.sent) or 0) >= grace) "
-        "if ready then "
+        # IS OUR SQUAD STILL OUT? The grace exists for a dig whose broadcast never
+        # arrived — not for a squad still walking. A chest 300 tiles away outlasts any
+        # grace worth having, and a claim sent while the march is in the air is refused in
+        # silence and, before this, wrote the chest off for good. So the fallback waits
+        # for BOTH: the clock, and the march being over.
+        "local marching = false "
+        "if t.squad_uuid ~= nil then pcall(function() "
+        "marching = (wm:GetOwnerFormationMarch(P.uid, t.squad_uuid, P.allianceId) "
+        "~= nil) end) end "
+        "local waited = (now > 0 and now - (tonumber(t.sent) or 0) >= grace) "
+        "local ready = (t.dug ~= nil) or (waited and not marching) "
+        # A claim already sent waits its retry out rather than going again every tick: a
+        # refusal says nothing, so the retry is on a clock, and four tries inside a minute
+        # would be four tries spent while the alliance is still digging.
+        "local cooling = (t.claimed ~= nil and now > 0 "
+        "and now - (tonumber(t.claimed) or 0) < retry) "
+        "if ready and not cooling then "
         "t.tries = (tonumber(t.tries) or 0) + 1 "
         "local srv = tonumber(t.server) or home_srv "
         "local ok, err = pcall(function() "
         "SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end) "
-        # Spent in the SAME step it was paid in: leaving `done` to the next tick keeps a
-        # finished chest in the queue, and a queue that is never empty is a poll that
-        # never goes quiet.
-        "if ok then t.claimed = now t.done, t.why = true, 'claimed' "
-        "claimed = claimed + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claimed' "
+        "if ok then t.claimed = now claimed = claimed + 1 "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim' .. tostring(t.tries) "
         "else notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-threw:' .. tostring(err) end "
-        "if (tonumber(t.tries) or 0) >= " + str(int(TREASURE_CLAIM_TRIES)) + " "
-        "and not t.claimed then t.done, t.why = true, 'claim-refused' end "
+        "elseif cooling then waiting = waiting + 1 "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-sent-waiting' "
         "else waiting = waiting + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':digging' end "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':' "
+        ".. ((waited and marching) and 'still-marching' or 'digging') end "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
@@ -3483,7 +3548,9 @@ def treasure_auto_step() -> str:
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(f.uuid, target, t.pid, t.uuid, 1, 1, false, "
         "srv, nil) end) "
-        "if ok then t.sent, t.squad = now, f.slot sent = sent + 1 "
+        # The squad's UUID rides with the target, not just its slot: the «is it still
+        # walking?» test above asks about THIS squad's march, and a slot number cannot.
+        "if ok then t.sent, t.squad, t.squad_uuid = now, f.slot, f.uuid sent = sent + 1 "
         "notes[#notes+1] = 'x' .. tostring(t.d) .. ':squad' .. tostring(f.slot) "
         "else notes[#notes+1] = 'x' .. tostring(t.d) .. ':march-threw:' .. tostring(err) end "
         "end end end "
@@ -3492,7 +3559,8 @@ def treasure_auto_step() -> str:
         "for _, t in ipairs(A.targets or {}) do if not t.done then keep[#keep+1] = t end end "
         "A.targets = keep "
         "A.report = 'sent=' .. tostring(sent) .. ' claimed=' .. tostring(claimed) "
-        ".. ' digging=' .. tostring(waiting) .. ' expired=' .. tostring(expired) "
+        ".. ' paid=' .. tostring(paid) "
+        ".. ' waiting=' .. tostring(waiting) .. ' expired=' .. tostring(expired) "
         ".. ' queued=' .. tostring(#keep) "
         ".. ' free=' .. tostring(#free) .. ' busy=' .. tostring(busy) "
         ".. ' empty=' .. tostring(dry) "
@@ -3500,6 +3568,10 @@ def treasure_auto_step() -> str:
         ".. ' news=' .. tostring(A.news or 0) "
         ".. ' [' .. table.concat(notes, ' ') .. ']' "
         "A.did = sent + claimed "
+        # How many claims went out THIS step, so the recipe knows whether it is worth
+        # coming back in a second to see the reward window that would confirm one. Without
+        # it, every run would pay for the extra look and none of them would need it.
+        "A.claim_sent = claimed "
         'CS.UnityEngine.Debug.LogError("ACT treasure_auto_step " .. A.report)'
     )
 
