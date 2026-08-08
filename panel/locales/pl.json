@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: nie powiodło się — {error}",
   "timers.log.fire": "{name}: {mins} min od ostatniego razu — uruchamiam",
   "timers.log.manual": "{name}: uruchomione ręcznie",
+  "timers.log.by_trigger": "{name}: uruchomiony przez swój trigger",
   "timers.log.no_daemon": "demon jest niedostępny",
   "timers.log.not_queued": "{name}: nie ma w kolejce — nie ma czego zdejmować",
   "timers.log.reloaded": "konfiguracja odczytana na nowo — zadań: {n}",

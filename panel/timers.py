@@ -979,6 +979,16 @@ class LastRunStore:
             return {}
 
 
+#: WHO asked for a run that is not on the clock. `scheduled` answers «the period came
+#: round»; these two answer the other case, which used to be one word for two very
+#: different events: a person pressing «Запустить», and a TRIGGER firing on its own. The
+#: log said «запуск вручную» for both, so a self-firing trigger was indistinguishable
+#: from somebody's thumb — the same class of fault as a poll that wrote nothing whether
+#: it said no or had never run (#1296).
+BY_HAND = "hand"
+BY_TRIGGER = "trigger"
+
+
 class TimerScheduler:
     """One background thread and a queue: everything ORDINARY runs single-file.
 
@@ -1122,7 +1132,7 @@ class TimerScheduler:
         Called from the UI thread and returns immediately — the errand runs on the
         worker like a scheduled one, so it cannot overlap whatever is running.
         """
-        return self._enqueue(timer.name, scheduled=False)
+        return self._enqueue(timer.name, scheduled=False, by=BY_HAND)
 
     def submit(self, errand) -> bool:
         """Queue an errand that is NOT in the catalogue — a trigger's scenario.
@@ -1165,7 +1175,7 @@ class TimerScheduler:
             # re-checks there, so the gap above cannot let two runs through.
             return "queued" if self._express(errand.name, False,
                                              refire=True) else "waiting"
-        self._queue.put((errand.name, False))
+        self._queue.put((errand.name, False, BY_TRIGGER))
         return "queued"
 
     # -- «сразу, без очереди» (#1288) ---------------------------------------
@@ -1181,7 +1191,8 @@ class TimerScheduler:
         """Has this errand been marked «сразу»?"""
         return bool(getattr(self._errand(name), "immediate", False))
 
-    def _express(self, name: str, scheduled: bool, refire: bool = False) -> bool:
+    def _express(self, name: str, scheduled: bool, refire: bool = False,
+                 by: str = BY_HAND) -> bool:
         """Run ``name`` NOW, on a thread of its own. ``False`` if one is already going.
 
         The queue is what makes an errand wait, and the flag's whole meaning is that
@@ -1228,7 +1239,7 @@ class TimerScheduler:
         def work() -> None:
             busy = False
             try:
-                _ok, busy = self.run_one(errand, scheduled=scheduled)
+                _ok, busy = self.run_one(errand, scheduled=scheduled, by=by)
             except Exception:                             # noqa: BLE001
                 # `run_one` already records and logs a failing errand; this is the
                 # floor under a thread that must never take the panel with it.
@@ -1242,7 +1253,7 @@ class TimerScheduler:
                     # person's own press. Then the flag has nothing left to offer and
                     # the errand takes its turn like any other: onto the queue, claim
                     # kept, so nothing lines it up twice while it waits.
-                    self._queue.put((name, scheduled))
+                    self._queue.put((name, scheduled, by))
                 else:
                     self._release(name)
 
@@ -1253,24 +1264,24 @@ class TimerScheduler:
     def _spawn_thread(work, label: str) -> None:
         threading.Thread(target=work, name=label[:60], daemon=True).start()
 
-    def _enqueue(self, name: str, scheduled: bool) -> bool:
+    def _enqueue(self, name: str, scheduled: bool, by: str = BY_HAND) -> bool:
         if self._is_immediate(name):
-            return self._express(name, scheduled)
+            return self._express(name, scheduled, by=by)
         with self._queue_lock:
             if name in self._queued:
                 return False
             self._queued.add(name)
-        self._queue.put((name, scheduled))
+        self._queue.put((name, scheduled, by))
         return True
 
-    def _requeue(self, name: str, scheduled: bool) -> None:
+    def _requeue(self, name: str, scheduled: bool, by: str = BY_HAND) -> None:
         """Put a turned-down errand back on the queue, still claimed.
 
         At the back, not the front: it was never started, so nothing is half done,
         and whatever is queued behind it came due just as much. Keeping its claim
         is what stops the next tick from lining the same errand up twice.
         """
-        self._queue.put((name, scheduled))
+        self._queue.put((name, scheduled, by))
 
     def _release(self, name: str) -> None:
         with self._queue_lock:
@@ -1297,11 +1308,11 @@ class TimerScheduler:
         if self._is_immediate(name):
             with self._queue_lock:
                 self._queued.discard(name)     # `_express` claims the name itself
-            if not self._express(name, False, refire=True):
+            if not self._express(name, False, refire=True, by=BY_TRIGGER):
                 with self._queue_lock:
                     self._adhoc.pop(name, None)
             return
-        self._queue.put((name, False))
+        self._queue.put((name, False, BY_TRIGGER))
 
     def pending(self) -> set[str]:
         """Names currently queued or being run — for tests and the row painter."""
@@ -1356,10 +1367,10 @@ class TimerScheduler:
                     self._stop.wait(min(wait, self._hold_until - time.time()))
                     continue
                 try:
-                    name, scheduled = self._queue.get(timeout=wait)
+                    name, scheduled, by = self._queue.get(timeout=wait)
                 except queue.Empty:
                     continue
-                self._run_queued(name, scheduled)
+                self._run_queued(name, scheduled, by)
             except Exception as exc:                      # noqa: BLE001
                 # A scheduler that dies takes every timer with it, silently —
                 # so nothing above is allowed to escape this loop.
@@ -1399,7 +1410,7 @@ class TimerScheduler:
         self._gate_said = None
         return [name for name in pending if self._enqueue(name, scheduled=True)]
 
-    def _run_queued(self, name: str, scheduled: bool) -> str:
+    def _run_queued(self, name: str, scheduled: bool, by: str = BY_HAND) -> str:
         """Take one errand off the queue and run it.
 
         Returns ``"ran"`` / ``"skipped"`` / ``"busy"``. ``"busy"`` is the caller's
@@ -1437,7 +1448,7 @@ class TimerScheduler:
         with self._queue_lock:
             self._running = name
         try:
-            ok, busy = self.run_one(timer, scheduled=scheduled)
+            ok, busy = self.run_one(timer, scheduled=scheduled, by=by)
         finally:
             if busy:
                 with self._queue_lock:
@@ -1511,10 +1522,10 @@ class TimerScheduler:
             if self._hold_until > time.time():
                 break                        # the panel is busy — the rest waits
             try:
-                name, scheduled = self._queue.get_nowait()
+                name, scheduled, by = self._queue.get_nowait()
             except queue.Empty:
                 break
-            status = self._run_queued(name, scheduled)
+            status = self._run_queued(name, scheduled, by)
             if status == "busy":
                 # It went back on the queue: stop the pass, or the next lap would
                 # pull the same item off again and ask the busy panel in a spin.
@@ -1523,7 +1534,8 @@ class TimerScheduler:
                 ran.append(name)
         return ran
 
-    def run_one(self, timer: Timer, scheduled: bool = False) -> tuple[bool, bool]:
+    def run_one(self, timer: Timer, scheduled: bool = False,
+                by: str = BY_HAND) -> tuple[bool, bool]:
         """Run one errand and record the outcome. Returns ``(ran, busy)``.
 
         ``busy`` is the one outcome that is not a verdict on the errand: the panel
@@ -1546,8 +1558,14 @@ class TimerScheduler:
                           mins=self._minutes_since(timer.name))
             self._dbg.info("fire %s (scheduled)", timer.name)
         else:
-            self._log("timers.log.manual", name=timer.name)
-            self._dbg.info("fire %s (manual)", timer.name)
+            # WHO asked, in the person's own log. «запуск вручную» over a trigger's
+            # own fire is a log that cannot tell a thumb from an automation, and that is
+            # exactly what somebody reads this line to find out (#1296).
+            if by == BY_TRIGGER:
+                self._log("timers.log.by_trigger", name=timer.name)
+            else:
+                self._log("timers.log.manual", name=timer.name)
+            self._dbg.info("fire %s (%s)", timer.name, by)
         # Stamped BEFORE the run, so a panel that dies mid-errand leaves a record of
         # the attempt rather than of nothing at all (`LastRunStore.sweep_unfinished`).
         self._store.mark_started(timer.name)

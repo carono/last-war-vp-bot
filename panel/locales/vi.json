@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: hỏng — {error}",
   "timers.log.fire": "{name}: {mins} phút kể từ lần chạy trước — đang khởi động",
   "timers.log.manual": "{name}: chạy bằng tay",
+  "timers.log.by_trigger": "{name}: chạy bởi trigger của nó",
   "timers.log.no_daemon": "daemon không dùng được",
   "timers.log.not_queued": "{name}: không có trong hàng đợi — chẳng có gì để lấy ra",
   "timers.log.reloaded": "đã đọc lại cấu hình — {n} tác vụ",

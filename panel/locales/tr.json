@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: başarısız — {error}",
   "timers.log.fire": "{name}: son çalışmadan bu yana {mins} dk — başlatılıyor",
   "timers.log.manual": "{name}: elle başlatıldı",
+  "timers.log.by_trigger": "{name}: tetikleyicisi tarafından başlatıldı",
   "timers.log.no_daemon": "cin kullanılamıyor",
   "timers.log.not_queued": "{name}: sırada değil — alınacak bir şey yok",
   "timers.log.reloaded": "ayarlar yeniden okundu — {n} iş",

@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: falhou — {error}",
   "timers.log.fire": "{name}: {mins} min desde a última vez — iniciando",
   "timers.log.manual": "{name}: iniciada na mão",
+  "timers.log.by_trigger": "{name}: iniciado pelo seu gatilho",
   "timers.log.no_daemon": "o daemon não está disponível",
   "timers.log.not_queued": "{name}: não está na fila — não há o que tirar",
   "timers.log.reloaded": "configuração relida — {n} tarefa(s)",

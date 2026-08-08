@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: fehlgeschlagen — {error}",
   "timers.log.fire": "{name}: {mins} min seit dem letzten Lauf — starte",
   "timers.log.manual": "{name}: von Hand gestartet",
+  "timers.log.by_trigger": "{name}: durch seinen Auslöser gestartet",
   "timers.log.no_daemon": "der Daemon ist nicht verfügbar",
   "timers.log.not_queued": "{name}: steht nicht in der Warteschlange — nichts herauszunehmen",
   "timers.log.reloaded": "Konfiguration neu gelesen — Aufträge: {n}",

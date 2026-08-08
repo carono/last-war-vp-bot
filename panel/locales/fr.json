@@ -673,6 +673,7 @@
   "timers.log.failed": "{name} : échec — {error}",
   "timers.log.fire": "{name} : {mins} min depuis le dernier passage — démarrage",
   "timers.log.manual": "{name} : lancé à la main",
+  "timers.log.by_trigger": "{name} : lancé par son déclencheur",
   "timers.log.no_daemon": "le démon n'est pas disponible",
   "timers.log.not_queued": "{name} : pas en file — rien à retirer",
   "timers.log.reloaded": "configuration relue — {n} tâche(s)",

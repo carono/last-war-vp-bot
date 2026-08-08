@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: gagal — {error}",
   "timers.log.fire": "{name}: {mins} mnt sejak terakhir jalan — memulai",
   "timers.log.manual": "{name}: dijalankan dengan tangan",
+  "timers.log.by_trigger": "{name}: dijalankan oleh pemicunya",
   "timers.log.no_daemon": "daemon tidak tersedia",
   "timers.log.not_queued": "{name}: tidak di antrean — tidak ada yang bisa diambil",
   "timers.log.reloaded": "setelan dibaca ulang — {n} tugas",

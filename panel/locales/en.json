@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: failed — {error}",
   "timers.log.fire": "{name}: {mins} min since the last run — starting",
   "timers.log.manual": "{name}: started by hand",
+  "timers.log.by_trigger": "{name}: started by its trigger",
   "timers.log.no_daemon": "the daemon is unavailable",
   "timers.log.not_queued": "{name}: not queued — nothing to take off",
   "timers.log.reloaded": "config re-read — {n} timer(s)",

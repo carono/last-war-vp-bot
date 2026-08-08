@@ -1301,6 +1301,57 @@ def test_a_skip_says_which_errand_and_why_and_rolls_up_when_it_repeats():
     assert said[2][0] == "timers.log.skipped_once"
 
 
+def test_a_trigger_fire_and_a_thumb_do_not_write_the_same_line():
+    """WHO asked, in the person's own log (#1296).
+
+    A run that is not on the clock has two very different authors: somebody pressing
+    «Запустить», and a TRIGGER firing on its own. Both used to log «запуск вручную», so a
+    self-firing trigger was indistinguishable from a thumb — and «did the trigger fire?»
+    is exactly the question somebody reads this line to answer. Same class as a poll that
+    wrote nothing whether it said no or had never run.
+    """
+    s = _Scheduler(Path(tempfile.mkdtemp()), _cfg(**{BASE: 3600}))
+    timer = s.catalogue.by_name(BASE)
+    assert timer is not None
+
+    s.logs.clear()
+    s.sched.run_one(timer, scheduled=False, by=timersmod.BY_HAND)
+    assert "timers.log.manual" in s.logs, s.logs
+    assert "timers.log.by_trigger" not in s.logs, s.logs
+
+    s.logs.clear()
+    s.sched.run_one(timer, scheduled=False, by=timersmod.BY_TRIGGER)
+    assert "timers.log.by_trigger" in s.logs, s.logs
+    assert "timers.log.manual" not in s.logs, s.logs
+
+    #: …and a scheduled run is neither of the two
+    s.logs.clear()
+    s.sched.run_one(timer, scheduled=True)
+    assert "timers.log.manual" not in s.logs, s.logs
+    assert "timers.log.by_trigger" not in s.logs, s.logs
+
+
+def test_a_submitted_trigger_errand_is_labelled_all_the_way_through_the_queue():
+    """The label has to survive the queue, not just the direct call: a trigger's errand is
+    `submit`ted and taken off by the worker, and that is the path a live fire actually
+    walks."""
+    s = _Scheduler(Path(tempfile.mkdtemp()), _cfg(**{BASE: 3600}))
+
+    class _Errand:
+        name = "probe_errand"
+        scenario = ("collect_base_resources",)
+        immediate = False
+        interval_sec = 0
+        retry_sec = 0
+
+    s.logs.clear()
+    assert s.sched.submit(_Errand())
+    s.sched.drain()
+    assert "timers.log.by_trigger" in s.logs, s.logs
+    assert "timers.log.manual" not in s.logs, s.logs
+
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

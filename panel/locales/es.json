@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: falló — {error}",
   "timers.log.fire": "{name}: {mins} min desde la última vez — arrancando",
   "timers.log.manual": "{name}: lanzada a mano",
+  "timers.log.by_trigger": "{name}: lanzado por su disparador",
   "timers.log.no_daemon": "el demonio no está disponible",
   "timers.log.not_queued": "{name}: no está en cola — no hay nada que sacar",
   "timers.log.reloaded": "configuración releída — {n} tarea(s)",

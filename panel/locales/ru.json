@@ -673,6 +673,7 @@
   "timers.log.failed": "{name}: ошибка — {error}",
   "timers.log.fire": "{name}: прошло {mins} мин с прошлого запуска — стартую",
   "timers.log.manual": "{name}: запуск вручную",
+  "timers.log.by_trigger": "{name}: запуск по триггеру",
   "timers.log.no_daemon": "демон недоступен",
   "timers.log.not_queued": "{name}: не в очереди — снимать нечего",
   "timers.log.reloaded": "конфиг перечитан — таймеров: {n}",
