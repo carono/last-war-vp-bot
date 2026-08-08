@@ -45,6 +45,7 @@ from panel import tabs as tabsreg          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import health as healthmod       # noqa: E402
+from panel.runtime import interrupt as interruptmod  # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
 from panel.runtime import panic as panicmod  # noqa: E402
 from panel.runtime import recovery as recoverymod  # noqa: E402
@@ -201,6 +202,11 @@ class _Runtime:
         # phone's copy of the tab strip out of the LAST verdict the window's status poll
         # made (#1299), and a fake would pin a shape this file invented.
         self.health = healthmod.ProfileHealth()
+        # …and the register of runs in flight, for the same reason again: `/api/state`
+        # draws what is playing and the step it has reached, and `/api/interrupt` presses
+        # its one press (#1300). Pure state, thread-safe, no window and no client — a
+        # fake would only pin a shape this file invented.
+        self.interrupts = interruptmod.Interrupts()
         self.played: list = []
         self.busy_next = False
 
@@ -1117,6 +1123,122 @@ def test_the_restart_is_the_windows_and_the_phones_one_press():
     state_page = html.split('id="view-state"', 1)[1].split("</section>", 1)[0]
     assert 'id="panel-controls"' in state_page, \
         "the restart left the state screen — the «Веб» tab still has no page of its own"
+
+
+# ---------------------------------------------------------------------------
+# «Прервать» — the phone's half of the footer's button (#1300)
+# ---------------------------------------------------------------------------
+def _playing(rt, name: str = "steal_secret_task", tag: str = "timer", step: str = ""):
+    """Put a run on this runtime's register, as the runner does while one is playing."""
+    ctx = types.SimpleNamespace(step=step, cancelled=False)
+    flag = interruptmod.Stop()
+    return rt.interrupts.enter(name, tag, ctx, flag)
+
+
+def test_the_state_page_says_what_is_playing_and_where_it_has_got_to():
+    """The phone has no log scrolling past, so the step has to be ON the card.
+
+    «What am I about to throw away» is answerable before the press, not after it — which
+    is the whole difference between this and a bare Stop button.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        assert api.state()["interrupt"]["running"] == [], "nothing is playing yet"
+        _playing(rt, step="WAIT wounded == 0 (line 7)")
+        info = api.state()["interrupt"]
+        assert [r["name"] for r in info["running"]] == ["steal_secret_task"], info
+        assert info["running"][0]["tag"] == "timer", "who started it reaches the phone"
+        assert "WAIT wounded == 0" in info["running"][0]["step"], info
+        assert info["stopping"] is False, "nobody has pressed anything"
+
+
+def test_the_phone_presses_the_same_stop_the_footer_does():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        run = _playing(rt, step="WAIT 30 (line 3)")
+        answer = api.interrupt()
+        assert answer["ok"] is True, answer
+        assert [r["name"] for r in answer["stopped"]] == ["steal_secret_task"], answer
+        assert run.flag.is_set(), "the run was never asked to stop"
+        # …and it is in the log, with the step, because a press whose only trace is a
+        # toast on a phone is a press nobody can account for a week later.
+        said = "\n".join(rt.log.drain())
+        assert "interrupt.asked" in said, said
+        # A second press does not pretend to be a fresh one.
+        rt.log.drain()
+        api.interrupt()
+        assert "interrupt.again" in "\n".join(rt.log.drain())
+
+
+def test_pressing_it_with_nothing_playing_is_an_answer_and_not_an_error():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        answer = api.interrupt()
+        assert answer["ok"] is True and answer["stopped"] == [], answer
+        assert "interrupt.idle" in "\n".join(rt.log.drain())
+
+
+def test_the_card_counts_the_runs_of_the_other_profiles():
+    """The press reaches every open profile, so the button has to be offered for them.
+
+    A window holds several accounts and the run that has to stop is not reliably the one
+    whose page the phone is showing — a count, not a name: another account's recipe named
+    on this account's card would read as this account's.
+    """
+    with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as away:
+        rt, _api_one = _api(home)
+        other, _api_two = _api(away)
+        api = apimod.WebApi(rt)
+        api.sessions = lambda: [("home", rt), ("other", other)]
+        assert api.state()["interrupt"]["elsewhere"] == 0
+        _playing(other, name="join_rally")
+        info = api.state()["interrupt"]
+        assert info["running"] == [], "the other profile's run is not this one's"
+        assert info["elsewhere"] == 1, info
+
+
+def test_the_interrupt_is_the_windows_and_the_phones_one_press():
+    """The mirror, as a test rather than as a promise (CLAUDE.md).
+
+    The footer's button and the card's are one press over one register: the window's
+    stops every open profile through `panel/runtime/interrupt.py`, and the page posts to
+    a route that calls the very same thing.
+    """
+    harness = _shell_page()
+    if harness is not None:
+        try:
+            app = harness.app
+            assert app._interrupt_btn is not None, "the footer has no «Прервать»"
+            assert app._interrupt_btn.cget("text") == app._t("interrupt.button"), \
+                "the button no longer takes its word from the locale table"
+            # Greyed with nothing playing, live the moment something is — the same
+            # condition the phone's button uses.
+            app._paint_interrupt()
+            assert str(app._interrupt_btn.cget("state")) == "disabled"
+            run = _playing(app._rt, step="WAIT 30 (line 3)")
+            app._paint_interrupt()
+            assert str(app._interrupt_btn.cget("state")) == "normal", \
+                "the button stayed grey while a scenario was playing"
+            app._interrupt()
+            assert run.flag.is_set(), "the footer's press did not reach the run"
+        finally:
+            harness.close()
+            # …and the shell is unregistered with the window, exactly as `_panel_is(None)`
+            # does above: a handler pointing at a destroyed window would answer every
+            # later press in this file for a workspace that no longer exists.
+            interruptmod.set_handler(None)
+
+    # …and the one fact with no runtime form in a harness: the handler is registered as
+    # the strip is built, so a press from the phone reaches every open profile.
+    shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert "interruptmod.set_handler" in shell, \
+        "nothing registers the shell — a press from the phone reaches one profile only"
+    script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "'/api/interrupt'" in script
+    html = (_REPO / "panel" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    state_page = html.split('id="view-state"', 1)[1].split("</section>", 1)[0]
+    assert 'id="interrupt-controls"' in state_page, \
+        "the press left «Состояние» — it is the phone's copy of the window's footer"
 
 
 # ---------------------------------------------------------------------------

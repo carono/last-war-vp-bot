@@ -22,6 +22,7 @@ import re
 
 from . import claims
 from .activity import Activity
+from .interrupt import Interrupts, Stop
 from .paths import SRC
 
 #: Where the blessed (tested) scripts live; the experimental ones sit in `dev/` beside
@@ -74,7 +75,7 @@ class ActionRunner:
     """Runs scenarios, checks them, and reads them back for the editor."""
 
     def __init__(self, log, claim=None, release=None, target=None,
-                 activity=None) -> None:
+                 activity=None, interrupts=None) -> None:
         self._log = log                   # the LogBus
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
@@ -87,6 +88,13 @@ class ActionRunner:
         # does — a recipe with a WAIT in it holds the game for minutes — and its name
         # is the one word that says what the wait is FOR.
         self._activity = activity if activity is not None else Activity()
+        # WHICH RUNS ARE IN FLIGHT, and how to end one (panel/runtime/interrupt.py).
+        # THIS class is where it has to be hooked up, because this is the one door every
+        # scenario goes through however it was started — a press through `play_async`, a
+        # timer's multi-step errand building its own context, an auto-order calling
+        # `play` on its own worker. A register hung on any of those would stop that one
+        # and leave the others unstoppable, which is exactly the state «Стоп всё» was in.
+        self._interrupts = interrupts if interrupts is not None else Interrupts()
 
     def _target_kw(self) -> dict:
         """The client this runner presses into, as keyword arguments for a context.
@@ -115,36 +123,92 @@ class ActionRunner:
 
     # -- running ------------------------------------------------------------
     def context(self, on_event=None, **kw):
-        """A fresh interpreter context whose events land in the log."""
+        """A fresh interpreter context whose events land in the log.
+
+        EVERY context built here carries a stop flag, whether the caller asked for one or
+        not (`panel/runtime/interrupt.py`). Without it a scenario is simply unstoppable:
+        the interpreter checks `ctx.cancel` at every boundary it has, and a `None` there
+        means those checks do nothing — which is why until now only the one tab that
+        remembered to pass an `Event` could end a run. A caller that HAS its own flag
+        keeps it: the two are held together and either of them ends the run.
+        """
         from lastwar_bot import script_engine
         for key, value in self._target_kw().items():
             kw.setdefault(key, value)
+        kw["cancel"] = Stop(kw.get("cancel"))
         return script_engine.new_context(
             on_event=on_event if on_event is not None else self._log.put, **kw)
 
     def run(self, name: str, args: dict | None = None, *, hwnd: int = 0,
-            ctx=None, on_event=None, **kw) -> bool:
+            ctx=None, on_event=None, tag: str = "action", **kw) -> bool:
         """Play the named scenario. ``True`` if it ran to the end.
 
         ``kw`` reaches `script_engine.run_action` untouched — that is where `profile`
         and `cancel` go, and where a new interpreter option arrives without this class
         having to learn about it first.
+
+        THE CONTEXT IS ALWAYS BUILT HERE, even when the caller passed none, because a run
+        that nobody holds a context for is a run nobody can stop or describe: the stop
+        flag and the step the run has reached both live on it (:meth:`context`). And the
+        run is entered in the register for exactly as long as it lasts, so «Прервать»
+        reaches it whoever started it.
+
+        ``False`` without playing anything when the context has ALREADY been interrupted.
+        That is the multi-step errand: the schedule shares one context across an errand's
+        steps, and the steps behind the one that was stopped must not be played into
+        whatever made somebody press the button.
         """
         from lastwar_bot import script_engine
-        if ctx is not None:
-            kw["ctx"] = ctx               # it already names its own client
-        else:
-            if on_event is not None or not kw.get("on_event"):
-                kw.setdefault("on_event", on_event or self._log.put)
-            for key, value in self._target_kw().items():
-                kw.setdefault(key, value)
+        if ctx is None:
+            # `on_event` may arrive either as the named argument or inside `kw` (this
+            # signature has taken both since long before the register) — popped either
+            # way, so the context is never handed two of them.
+            spare = kw.pop("on_event", None)
+            ctx = self.context(on_event=on_event if on_event is not None else spare,
+                               hwnd=hwnd, variables=args or {}, **kw)
+        elif getattr(ctx, "cancelled", False):
+            self._log.say(tag, "interrupt.dropped", name=name)
+            return False
         with self._foreground(name) as held:
             if held is not None:
                 self._refused(name, held, ctx)
                 return False
             with self._activity.step("activity.action", name=name):
-                return bool(script_engine.run_action(name, hwnd=hwnd,
-                                                     variables=args or {}, **kw))
+                with self._registered(name, tag, ctx):
+                    ok = bool(script_engine.run_action(name, hwnd=hwnd,
+                                                       variables=args or {}, ctx=ctx))
+        if getattr(ctx, "cancelled", False):
+            # IT REALLY STOPPED. Said separately from «прерываю», because between the two
+            # there can be seconds — a run inside a call into the game notices only when
+            # the call comes back — and the difference between «asked» and «done» is the
+            # whole reason a person presses a Stop twice.
+            self._log.say(tag, "interrupt.halted", name=name)
+        return ok
+
+    @contextlib.contextmanager
+    def _registered(self, name: str, tag: str, ctx):
+        """Hold this run in the register for as long as it is running.
+
+        In a `finally`, like every lock in this codebase that has ever been left taken:
+        a run that stayed on the register after ending would be «прервать» pressing a
+        flag nobody reads, and the button would say it stopped something for the rest of
+        the session.
+        """
+        flag = getattr(ctx, "cancel", None)
+        if not hasattr(flag, "set"):
+            # A context built straight off `script_engine.new_context` — a test, a caller
+            # older than :meth:`context`. It gets a flag now rather than being left
+            # unstoppable, and whatever it was carrying is kept.
+            flag = Stop(flag)
+            try:
+                ctx.cancel = flag
+            except Exception:                # noqa: BLE001 — a register, never the run
+                pass
+        run = self._interrupts.enter(name, tag, ctx, flag)
+        try:
+            yield run
+        finally:
+            self._interrupts.leave(run)
 
     # -- the desktop's one foreground (#1226) --------------------------------
     @contextlib.contextmanager
@@ -216,16 +280,38 @@ class ActionRunner:
                            cancel=cancel)
         ok = self.run(name, args, hwnd=hwnd, ctx=ctx, **kw)
         reason = str(getattr(ctx, "fail_reason", "") or "").strip()
+        if not reason and getattr(ctx, "cancelled", False):
+            # An interrupted run left no FAIL reason — it never reached one — and «no
+            # reason given» would read as a scenario that broke silently. The halt reason
+            # is the honest one, and it is the same sentence the log carries.
+            reason = str(getattr(ctx, "halt_reason", "") or "").strip()
         return Outcome(ok, reason, ctx)
 
     def run_text(self, text: str, *, ctx=None, label: str = "cmd",
-                 on_event=None) -> bool:
-        """Play DSL source that is not (yet) a file — the typed command line."""
+                 on_event=None, tag: str = "cmd") -> bool:
+        """Play DSL source that is not (yet) a file — the typed command line.
+
+        On the register like a scenario, and for the same reason: a typed `WAIT 300` is
+        every bit as long as one in a file, and a command line nobody can stop is a hung
+        panel with a good explanation.
+        """
         from lastwar_bot import script_engine
         if ctx is None:
             ctx = self.context(on_event=on_event)
+        elif getattr(ctx, "cancelled", False):
+            self._log.say(tag, "interrupt.dropped", name=label)
+            return False
         with self._activity.step("activity.cmd"):
-            return bool(script_engine.run_text(text, ctx=ctx, label=label))
+            with self._registered(label, tag, ctx):
+                ok = bool(script_engine.run_text(text, ctx=ctx, label=label))
+        if getattr(ctx, "cancelled", False):
+            self._log.say(tag, "interrupt.halted", name=label)
+        return ok
+
+    @property
+    def interrupts(self):
+        """The register of runs in flight (panel/runtime/interrupt.py)."""
+        return self._interrupts
 
     # -- reading and checking ------------------------------------------------
     def resolve(self, name: str):

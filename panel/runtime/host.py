@@ -28,6 +28,7 @@ from .children import ChildFactory
 from .daemon import GameLink
 from .health import ProfileHealth
 from .i18n import Translator
+from .interrupt import Interrupts
 from .log import LogBus
 from .paths import LUA_DAEMON, REPO
 from .settings import DEFAULTS, SettingsBinder
@@ -138,6 +139,13 @@ class PanelRuntime:
         # line in the log that used to say it scrolls away, and a profile that
         # is stopped looks exactly like one that is merely idle.
         self.panic = PanicState()
+        # WHICH SCENARIOS ARE RUNNING RIGHT NOW, and the press that ends them
+        # (panel/runtime/interrupt.py). Here rather than on the window because the runner
+        # below has to fill it and both front-ends have to read it: the footer's
+        # «Прервать» and the phone's are one register and one press, not two that have to
+        # agree. Handed to the runner, which is the one door every scenario goes through —
+        # a press, a timer's errand, an auto-order on its own worker.
+        self.interrupts = Interrupts()
         # `token` and `target` are read lazily on purpose: both answer off `self.game`,
         # which is built on the next line. They are what makes this runtime's children
         # and this runtime's scenarios press THIS profile's client rather than whichever
@@ -175,7 +183,8 @@ class PanelRuntime:
             # profile and a refusal names the profile holding the client (#1226).
             name=lambda: self.profiles.active)
         self.actions = ActionRunner(log=self.log, target=self.game_target,
-                                    activity=self.activity)
+                                    activity=self.activity,
+                                    interrupts=self.interrupts)
         self._schedule = None           # built on first ask (see the property below)
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
@@ -465,10 +474,10 @@ class PanelRuntime:
                 on_event = lambda msg: self.log.put(f"[{tag}] {msg}")   # noqa: E731
                 if on_result is None:
                     self.actions.run(name, args, hwnd=0, on_event=on_event,
-                                     profile=None, cancel=cancel)
+                                     profile=None, cancel=cancel, tag=tag)
                 else:
                     outcome = self.actions.play(name, args, hwnd=0, on_event=on_event,
-                                                profile=None, cancel=cancel)
+                                                profile=None, cancel=cancel, tag=tag)
             except Exception as exc:                   # noqa: BLE001 — never the panel
                 raised = str(exc)
                 self.log.put(f"[{tag}] {name}: error: {exc}")

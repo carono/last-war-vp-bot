@@ -11,6 +11,7 @@ this file is what keeps it honest. Every route below is one call onto a
     /api/game       start / close / restart the client       rt.play_async, via
                                                              runtime/game_control.py
     /api/panel      put the PANEL back on the code on disk   runtime/panel_control.py
+    /api/interrupt  end whatever scenario is playing          runtime/interrupt.py
     /api/timers     the errands, their switches, when next   rt.schedule
     /api/actions    the scenarios that exist                 rt.actions
     /api/log        what has been said                       rt.log (tapped)
@@ -51,6 +52,7 @@ from .. import timers as timersmod
 from ..runtime import daemon as daemonmod
 from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
+from ..runtime import interrupt as interruptmod
 from ..runtime import panic as panicmod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
@@ -355,8 +357,33 @@ class WebApi:
             # is something to undo, and only where somebody can carry it out.
             "panic": {**rt.panic.state(time.time()),
                       "can_resume": panicmod.available()},
+            # WHAT IS PLAYING, AND THE PRESS THAT ENDS IT (#1300). The phone's copy of the
+            # button beside the window's status strip, and the same press: it reaches every
+            # open profile, because a window holds several accounts and the run that has to
+            # stop is not reliably the one whose page is being looked at. So the card shows
+            # THIS profile's runs — with the step each has reached, which is what makes the
+            # press worth pressing rather than guessing — and counts the ones running under
+            # the other profiles, so the button is offered exactly when the window offers it.
+            "interrupt": {**rt.interrupts.state(),
+                          "elsewhere": self._runs_elsewhere(rt)},
             "time": time.time(),
         }
+
+    def _runs_elsewhere(self, rt) -> int:
+        """How many scenarios the OTHER open profiles are playing.
+
+        Only a count: the phone needs it to know whether the press applies, and naming
+        another account's recipe on this account's card would read as this account's.
+        """
+        total = 0
+        for _name, other in self.sessions():
+            if other is rt:
+                continue
+            try:
+                total += len(other.interrupts)
+            except Exception:                # noqa: BLE001 — a count, never the server
+                pass
+        return total
 
     def _name_of(self, rt) -> str:
         return str(rt.profiles.active)
@@ -697,6 +724,23 @@ class WebApi:
         self._on_tk(rt, lambda: box.__setitem__("ok", panicmod.run()))
         return {"ok": bool(box.get("ok"))}
 
+    # -- ending what is playing ----------------------------------------------
+    def interrupt(self, profile: str | None = None) -> dict:
+        """«Прервать» from the phone — the same press the window's footer makes (#1300).
+
+        NOT handed to the Tk thread, unlike «Включить обратно» above, and that is the
+        point: the register sets flags under its own lock and the log is written from
+        worker threads all day, so the press lands from this HTTP worker in microseconds.
+        A Stop that first has to queue behind whatever is painting is a Stop that arrives
+        when it is no longer needed.
+
+        `count` is how many runs were asked to stop — zero is a perfectly good answer and
+        not an error: the phone may have been in a pocket since the scenario ended. What
+        the press cannot do is unsend a call already in the game's hands, and the log line
+        each profile writes says so in words.
+        """
+        return interruptmod.request(self._runtime(profile))
+
     # -- the words -----------------------------------------------------------
     def words(self, profile: str | None = None) -> dict:
         """The whole locale table the page draws itself with.
@@ -759,6 +803,8 @@ class WebApi:
                 return _answer(self.panel(str(body.get("action") or ""), who))
             if path == "/api/panic":
                 return _answer(self.resume(who))
+            if path == "/api/interrupt":
+                return _answer(self.interrupt(who))
             if path == "/api/screen/press":
                 return _answer(self.press(str(body.get("id") or ""),
                                           str(body.get("action") or ""),

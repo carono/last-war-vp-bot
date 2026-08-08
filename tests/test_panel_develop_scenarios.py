@@ -231,8 +231,12 @@ def test_a_run_locks_the_list_marks_the_row_and_stops():
                        for i in range(tab._scn_list.size())), "the marker was left behind"
         assert tab.rt.game.busy is False, "the game claim was left held"
 
-        # The halt is reported as a halt, not as a failure.
-        assert any("HALTED" in ln for ln in tab.logs), tab.logs[-6:]
+        # …and it is reported as an INTERRUPTION, which is its own word (#1300): a
+        # scenario's own `STOP` still says HALTED, because that is the scenario deciding
+        # it is done, and a run somebody took the game back from must not read the same
+        # a month later.
+        assert any("INTERRUPTED" in ln for ln in tab.logs), tab.logs[-6:]
+        assert not any("HALTED" in ln for ln in tab.logs), tab.logs[-6:]
 
         # A run left to finish on its own unlocks the same way.
         tab._run_selected_action()

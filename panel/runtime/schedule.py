@@ -453,10 +453,13 @@ class Schedule:
                 yield_to=None if express else self.rt.yield_hook("timer"),
             )
             for step in errand.scenario:
+                # `tag="timer"` so the register — and «Прервать» — can say WHO started
+                # what it is stopping (panel/runtime/interrupt.py). An errand nobody
+                # asked for is exactly the run somebody wants to end.
                 if self.rt.actions.resolve(step) is not None:
-                    ok = self.rt.actions.run(step, hwnd=0, ctx=ctx)
+                    ok = self.rt.actions.run(step, hwnd=0, ctx=ctx, tag="timer")
                 else:
-                    ok = self.rt.actions.run_text(step, ctx=ctx,
+                    ok = self.rt.actions.run_text(step, ctx=ctx, tag="timer",
                                                   label=step.splitlines()[0])
                 if not ok:
                     # The scenario's own FAIL reason when it left one. It is what the

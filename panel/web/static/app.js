@@ -228,6 +228,7 @@ function paintState(state) {
   busy.className = 'pill ' + (working ? 'warn' : 'ok');
   $('activity').textContent = state.activity ? state.activity.text
                                              : T('web.ui.nothing');
+  paintInterrupt(state.interrupt || {});
 
   const on = $('timers-on');
   on.textContent = T('web.ui.timers.count', { count: state.timers.on });
@@ -911,6 +912,57 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+
+/* «Прервать», the phone's half (#1300). The window has the same button beside its status
+ * strip and it makes the same press — every open profile, not just the one on screen —
+ * so the two front-ends cannot come to mean different things by it.
+ *
+ * ALWAYS DRAWN, greyed when nothing is playing, exactly as the footer's is: a button that
+ * appears under a thumb already moving is pressed by accident, and a phone polls every
+ * couple of seconds, so «нечего прерывать» in grey is more honest than an empty card.
+ *
+ * The line above it names each recipe and the step it has reached — the phone has no log
+ * scrolling past, so that line is the only place «what am I about to throw away» is
+ * answerable before the press rather than after it. */
+let INTERRUPT_BTN = null;
+
+function paintInterrupt(info) {
+  const runs = info.running || [];
+  const elsewhere = info.elsewhere || 0;
+  const line = $('interrupt-runs');
+  line.hidden = runs.length === 0 && !elsewhere;
+  const said = runs.map(run => run.step
+    ? T('interrupt.run.step', { name: run.name, step: run.step })
+    : T('interrupt.run', { name: run.name }));
+  if (elsewhere) said.push(T('interrupt.elsewhere', { count: elsewhere }));
+  line.textContent = said.join('; ');
+  if (!INTERRUPT_BTN) {
+    INTERRUPT_BTN = document.createElement('button');
+    INTERRUPT_BTN.addEventListener('click', pressInterrupt);
+    $('interrupt-controls').appendChild(INTERRUPT_BTN);
+  }
+  INTERRUPT_BTN.textContent = T(info.stopping ? 'interrupt.stopping' : 'interrupt.button');
+  INTERRUPT_BTN.disabled = runs.length === 0 && !elsewhere;
+}
+
+async function pressInterrupt() {
+  /* No confirmation: a Stop asked «are you sure?» is a Stop that arrives a second late,
+   * and the worst it can do is end a run that can be started again. */
+  INTERRUPT_BTN.disabled = true;
+  let answer;
+  try {
+    answer = await post('/api/interrupt', {});
+  } catch (err) {
+    $('offline').hidden = false;
+    return;
+  }
+  /* WHAT IT COULD AND COULD NOT DO, in the same breath. The runs were asked to stop; a
+   * call already in the game's hands cannot be recalled, and saying otherwise would have
+   * somebody believing a press never landed. */
+  const count = (answer.stopped || []).length;
+  toast(count ? T('interrupt.toast', { count: count }) : T('interrupt.idle'));
+  tick();
+}
 
 /* «Включить обратно», the phone's half. One button, and only while it means something:
  * the window has the same pair in the same place (panel/__main__.py), out of the same

@@ -103,6 +103,7 @@ from .runtime import autostart as autostartmod
 from .runtime import game_control as gamectl
 from .runtime import hotkeys
 from .runtime import health as healthmod
+from .runtime import interrupt as interruptmod
 from .runtime import panel_control as panelctl
 from .runtime import panic as panicmod
 
@@ -546,6 +547,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._activity_var = None
         self._activity_lbl = None
         self._activity_pending = False
+        # …and the press beside that strip that ends whatever it is describing (#1300).
+        # `None` until the strip is built: a run can be reported before there is a button
+        # to grey, and `_paint_interrupt` answers for a window that has none.
+        self._interrupt_btn = None
 
         # THE WORKSPACE (panel/runtime/workspace.py): which profiles this window holds
         # open. `restore` opens whatever was open when it was last closed — for every
@@ -981,6 +986,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._activity_lbl = ttk.Label(bar, textvariable=self._activity_var,
                                        anchor="w", foreground="#888")
         self._activity_lbl.pack(side="left", fill="x", expand=True)
+        # …AND THE PRESS THAT ENDS WHAT THE STRIP IS DESCRIBING (#1300). Beside the line
+        # rather than on a tab because this is where a person is already looking when they
+        # decide something has gone on long enough: the strip is the only thing in the
+        # window that says a scenario is running at all, and until now the answer to
+        # «останови это» was to wait it out or to kill the panel.
+        #
+        # PRESENT ALWAYS, greyed when there is nothing to stop, rather than appearing and
+        # disappearing: a button that arrives under a thumb already moving is pressed by
+        # accident, and «нечего прерывать» is worth saying in grey.
+        self._interrupt_btn = self._tr(
+            ttk.Button(bar, command=self._interrupt, state="disabled"),
+            "interrupt.button")
+        self._interrupt_btn.pack(side="right", padx=(6, 0))
         # The words follow the language of whatever profile is being looked at, and the
         # strip is a variable rather than a `tr`-registered widget — so it is re-said
         # here instead of by the registry.
@@ -988,6 +1006,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # The window's own steps. Each open profile's are added by `_watch_activity`
         # as its page is built.
         self._activity.listen(self._activity_changed)
+        # …and how «Прервать» is carried out for the front-end that is not this window
+        # (panel/runtime/interrupt.py). The phone presses the SAME press — every open
+        # profile — because only the window knows which profiles there are.
+        interruptmod.set_handler(self._interrupt_all)
 
     def _watch_activity(self, session) -> None:
         """Have one open profile's steps painted on the strip too.
@@ -998,6 +1020,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         try:
             session.rt.activity.listen(self._activity_changed)
+            # …and its RUNS, so the footer's «Прервать» lights up the moment one starts
+            # and goes out when the last one ends — in this profile or in any other, since
+            # the strip and the button are the window's and not a page's.
+            session.rt.interrupts.listen(self._activity_changed)
         except Exception:                      # noqa: BLE001 — a strip, never the boot
             self._dbg.error("activity listener failed", exc_info=True)
 
@@ -1037,6 +1063,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             var.set(said)
         except tk.TclError:                    # the window is going away
             return
+        self._paint_interrupt()
         # While the window is still hidden the strip is behind a splash, and the same
         # sentence is what the splash has room for — so the boot's «интерфейс» phase
         # names the tab it is on. `say`, NEVER `step`: this is reported from INSIDE a
@@ -1071,6 +1098,76 @@ class Panel(runtime.SessionScoped, tk.Tk):
             if activity is not None:
                 out.append((session.name, activity))
         return out
+
+    # -- «Прервать»: end whatever is playing, now (#1300) ---------------------
+    #
+    # EVERY OPEN PROFILE, like «Стоп всё» and for the same reason: the strip this button
+    # sits beside shows the newest step of ANY profile, so a press that reached only the
+    # page on screen would routinely fail to stop the very run the person is reading
+    # about. With one profile open the distinction does not exist.
+    #
+    # WHAT IT DOES NOT DO is switch the schedule off. That is «Стоп всё», which leaves a
+    # mark on screen and an undo beside it (panel/runtime/panic.py) precisely because a
+    # profile silently held still looks exactly like an idle one. A Stop that quietly
+    # stopped the timers too would be an invisible «Стоп всё» — the failure that module
+    # was written about. Two presses, two meanings; both, in that order, when both are
+    # wanted.
+    def _interrupt(self) -> None:
+        """The footer's press. On the Tk thread, and it must not block for a moment."""
+        stopped = self._interrupt_all()
+        # The strip says «прерываю…» straight away rather than after the run has noticed:
+        # a scenario inside a call into the game unwinds only when the call comes back,
+        # and «нажал — ничего не изменилось» is how a person ends up pressing four times.
+        # Whatever the runs are doing repaints over this by itself (`_paint_activity`).
+        if stopped.get("count"):
+            try:
+                self._activity_var.set(self._t("interrupt.stopping"))
+            except tk.TclError:
+                pass
+        self._paint_interrupt()
+
+    def _interrupt_all(self) -> dict:
+        """Ask every run in every open profile to stop. What the phone presses too.
+
+        CALLABLE FROM ANY THREAD, which is why it does not go through `_on(session)` the
+        way «Стоп всё» does: switching the window's current session is Tk state, and this
+        press has to be able to land straight off an HTTP worker without waiting for the
+        event loop. Everything it touches instead is thread-safe by contract — the
+        register sets flags under its own lock, and the log is written from worker threads
+        all day. The only Tk in it is the button's own state, handed over as a hop.
+
+        Returns numbers and names, never words: the answer goes to a browser that says
+        the words itself (`panel/web/api.py`), and each profile writes its own log line in
+        :func:`panel.runtime.interrupt.stop_one`.
+        """
+        stopped: list = []
+        for session in self._workspace.sessions:
+            try:
+                stopped.extend(interruptmod.stop_one(session.rt))
+            except Exception:                  # noqa: BLE001 — a press, never the window
+                self._dbg.error("interrupt failed", exc_info=True)
+        post = tickmod.poster(self)
+        if post is not None:
+            post.post(self._paint_interrupt)
+        return {"ok": True, "count": len(stopped), "stopped": stopped}
+
+    def _paint_interrupt(self) -> None:
+        """Grey the button off when there is nothing running to stop. Tk thread."""
+        button = getattr(self, "_interrupt_btn", None)
+        if button is None:
+            return
+        try:
+            button.configure(state="normal" if self._runs_live() else "disabled")
+        except tk.TclError:                    # the window is going away
+            pass
+
+    def _runs_live(self) -> bool:
+        """Is any open profile playing anything at all?"""
+        for session in self._workspace.sessions:
+            register = getattr(session.rt, "interrupts", None)
+            if register is not None and register.busy():
+                return True
+        return False
 
     def _paint_outer(self) -> None:
         """Show the profile strip only once there is more than one page to pick from."""
@@ -4381,8 +4478,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         seconds later.
 
         A scenario in flight is ASKED to stop (it halts at its next step) rather than
-        killed, so nothing is left half-sent to the game — same as the Scenarios
-        tab's own Stop.
+        killed, so nothing is left half-sent to the game — the same press the footer's
+        «Прервать» makes, over the same register (panel/runtime/interrupt.py).
 
         EVERY open profile, not the one being looked at. It is the emergency button:
         the moment you want it is the moment you do not want to find out that the other
@@ -4408,6 +4505,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
             stopped = self._rt.children.stop_all()
             if stopped:
                 self._say("panel", "log.children.stopped", count=stopped)
+            # …AND THE SCENARIO IN FLIGHT, which this docstring has been promising since
+            # it was written while in fact reaching only the one tab that kept a stop flag
+            # of its own. Every run is on the register now, whoever started it
+            # (panel/runtime/interrupt.py, #1300), so the promise is kept: a recipe playing
+            # for a timer, for the checklist or for the phone halts at its next step.
+            interruptmod.stop_one(self._rt)
             # Nothing is being done any more, so nothing may be left saying it is: a
             # step whose thread was asked to stop mid-way would otherwise sit on the
             # bottom strip for the rest of the session.

@@ -838,6 +838,23 @@ class Context:
     # retries a scenario that bailed on a precondition rather than counting it done.
     failed: bool = False
     fail_reason: str | None = None
+    # THE OPERATOR ENDED THIS RUN (`cancel` below fired). A halt, so it unwinds like
+    # `STOP` — but a `STOP` is the scenario deciding it is done and this is somebody
+    # taking the game back, and the two must not look the same to a caller. A run marked
+    # here has NOT finished: the panel's runner reports it as unsuccessful, and a
+    # multi-step errand sharing one context refuses the steps behind the one that was
+    # stopped rather than playing them into whatever made somebody press the button
+    # (`panel/runtime/interrupt.py`).
+    cancelled: bool = False
+    # WHERE THE RUN HAS GOT TO — the statement about to be executed, as the script wrote
+    # it, with its line number. Written by the interpreter and read by whoever is
+    # watching: the panel's «Прервать» names it, because «прервали heal_units» says
+    # nothing the press did not already say and «прервали heal_units на `WAIT wounded ==
+    # 0` (строка 7)» says which minute of waiting was thrown away.
+    step: str = ""
+    #: The action being played right now — the innermost one, so a `CALL` names the
+    #: sub-recipe the run is actually inside rather than the file it started from.
+    action: str = ""
     profile: Any = None  # `lastwar_bot.profile.Profile` instance, or None
     # Result of the most recent SCAN_SECRET_MISSIONS — a list of
     # `net.missions.SecretMission`, read by the `missions.count` condition.
@@ -972,11 +989,39 @@ class Interpreter:
         cancel = self.ctx.cancel
         if cancel is not None and cancel.is_set():
             self.ctx.halt = True
+            # …AND MARKED AS CANCELLED, not merely halted. `STOP` is the scenario saying
+            # it is done and this is the operator taking the game back; a caller that
+            # cannot tell them apart reports an interrupted run as a success and, worse,
+            # plays the next step of the same errand (`panel/runtime/interrupt.py`).
+            self.ctx.cancelled = True
             self.ctx.halt_reason = self.ctx.halt_reason or "stopped by the operator"
             raise _HaltSignal()
         step_aside = self.ctx.yield_to
         if step_aside is not None:
             step_aside(self.ctx)
+
+    def _nap(self, seconds: float, slice_sec: float = 0.2) -> None:
+        """Sleep, but stay interruptible — a long step must not be «доиграно до конца».
+
+        A fixed `WAIT 60s` used to be one `time.sleep(60)`, which meant a Stop pressed a
+        second into it was noticed a minute later: the flag is checked BETWEEN steps, and
+        a sleep is the one step that spends its whole life inside itself. So the sleep is
+        cut into slices and the ordinary checkpoint runs between them — which also lets a
+        more urgent errand step in during a wait, exactly as it may during a polling one
+        (:attr:`Context.yield_to`, and `WAIT <condition>` has always done this).
+
+        The slice is short enough to feel instant to whoever pressed the button and long
+        enough that a minute of waiting costs a few hundred cheap checks rather than
+        thousands. Nothing else about the wait changes: it still sleeps the whole span
+        unless somebody ends the run.
+        """
+        deadline = time.monotonic() + max(0.0, seconds)
+        while True:
+            self._check_cancel()
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return
+            time.sleep(min(slice_sec, left))
 
     # ---- entry point ----
 
@@ -987,6 +1032,10 @@ class Interpreter:
             return False
         self._log(f"> action: {name}")
         self._depth += 1
+        # WHICH recipe the run is inside, innermost first, put back on the way out: a
+        # `CALL` three levels down is where a Stop actually lands, and «прервали
+        # daily_routine» would point at the wrong file (`Context.action`).
+        outer, self.ctx.action = self.ctx.action, name
         try:
             # Arguments first: the script's own `ARGS` defaults fill in whatever the
             # caller left out, the merged set lands in ctx.vars (so conditions read
@@ -1001,6 +1050,16 @@ class Interpreter:
             return True
         except _HaltSignal:
             self._depth -= 1
+            if self.ctx.cancelled:
+                # A DIFFERENT WORD FROM «HALTED», and a different answer. The operator
+                # ended this run: it did not finish, so the caller hears False (a `STOP`
+                # still hears True), and the log says which of the two happened —
+                # otherwise a month from now nobody can tell a scenario that decided it
+                # was done from one somebody took the game back from (#1296 was the same
+                # class of confusion).
+                self._log(f"< action: {name} INTERRUPTED "
+                          f"({self.ctx.halt_reason or 'no reason given'})")
+                return False
             self._log(f"< action: {name} HALTED ({self.ctx.halt_reason or 'no reason given'})")
             return True
         except _FailSignal:
@@ -1011,12 +1070,19 @@ class Interpreter:
             self._depth -= 1
             self._log(f"< action: {name} FAILED — {exc}")
             return False
+        finally:
+            self.ctx.action = outer
 
     # ---- block / statement dispatch ----
 
     def _run_block(self, statements: list[Any]) -> None:
         for stmt in statements:
             self._check_cancel()
+            # WHERE THE RUN IS, for anybody watching from outside (`Context.step`). The
+            # statement's own source line, which the parser kept for the log, and the
+            # line number that finds it in the file. Two attribute writes per statement,
+            # and they are what lets «Прервать» say what it threw away.
+            self.ctx.step = f"{stmt.text.strip()} (line {stmt.line_no})"
             self._run_stmt(stmt)
 
     def _run_stmt(self, stmt: Any) -> None:
@@ -1481,7 +1547,8 @@ class Interpreter:
         self._log(f"SWEEP_MAP -> zoom {zoom}{where}, one lap, ~{span + 2:.0f}s")
         # …plus a breath for the last waypoint's answer to arrive: the map data lands a
         # beat after the camera stops, and a scan reading it must not be cut off mid-reply.
-        time.sleep(span + 2.0)
+        # Sliced, so a lap of the whole map is not several seconds of a Stop being ignored.
+        self._nap(span + 2.0)
 
     def _do_tap(self, stmt: TapStmt) -> None:
         """Press a named button from the catalogue: a fixed count, or `xall`.
@@ -2260,7 +2327,7 @@ class Interpreter:
             seen = seen or game_client.running_pid()
             if time.time() >= deadline:
                 break
-            time.sleep(2.0)
+            self._nap(2.0)                   # a minute of waiting for a client, stoppable
         self._fail(
             f"the game link did not come back within {stmt.timeout:g}s"
             + (f" — a client (pid {seen}) is up, but the daemon would not attach to it"
@@ -2272,7 +2339,7 @@ class Interpreter:
         if m:
             seconds = float(m.group(1))
             self._log(f"WAIT {seconds}s")
-            time.sleep(seconds)
+            self._nap(seconds)               # …and stoppable while it waits (see _nap)
             return
 
         # Otherwise, poll the condition until True or timeout.
@@ -2391,6 +2458,9 @@ def run_text(
         return True
     except _HaltSignal:
         interp._depth -= 1
+        if ctx.cancelled:                    # the operator, not the script (see run_action)
+            interp._log(f"< {label} INTERRUPTED ({ctx.halt_reason or 'no reason given'})")
+            return False
         interp._log(f"< {label} HALTED ({ctx.halt_reason or 'no reason given'})")
         return True
     except _FailSignal:

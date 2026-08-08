@@ -208,6 +208,11 @@ sleep:
 WAIT 1.5
 ```
 
+Both forms are **interruptible**: the fixed sleep is served in short slices with the
+run's checkpoint between them, so a `WAIT 60` ends the moment somebody presses
+«Прервать» instead of a minute later, and a more urgent errand may step in during it
+exactly as it may during a polling wait (see «Stopping from outside» below).
+
 ### `LOG "message"`
 
 Emit the message to the runtime log. Useful for tracing branches.
@@ -895,9 +900,22 @@ react explicitly.
 
 **Stopping from outside.** A caller can pass `cancel=<threading.Event>` (or set
 `ctx.cancel`); the interpreter checks it between statements, between the presses
-of a `TAP` repeat and between the polls of a `WAIT`. A set flag unwinds through
-the same path `STOP` uses — the run ends **halted, not failed**, and never in the
-middle of a call into the game. That is what the panel's «Стоп» button sets.
+of a `TAP` repeat, and between the polls **and the sleep slices** of a `WAIT`. A set
+flag unwinds through the same path `STOP` uses, and never in the middle of a call into
+the game — a call already sent cannot be recalled, so the run ends at the first moment
+it is between two thoughts.
+
+It is **not** the same outcome as `STOP`, and the difference matters to the caller
+(#1300). `STOP` is the scenario deciding it is done: the run reports success and the log
+says `HALTED`. A run somebody ended reports **failure** — it did not finish — sets
+`ctx.cancelled`, and the log says `INTERRUPTED`. A caller chaining several actions
+through one context (the panel's schedule does) therefore stops chaining instead of
+playing the rest of the errand into whatever made somebody press the button.
+
+Every run the panel plays gets such a flag whether the caller asked for one or not, and
+goes on a register while it lasts. That register is what the footer's «Прервать» and the
+phone's button press (`panel/runtime/interrupt.py`); `ctx.step` carries the statement the
+run is on, so the log line can name what was thrown away.
 
 **Stepping aside from outside.** The same three moments carry a second hook:
 `yield_to=<callable>` (or `ctx.yield_to`). It is handed the run's own context, answers
