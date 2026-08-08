@@ -208,6 +208,13 @@ _SCAN_OPT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# COLLECT_VS_DUEL [STORE "<path>"] [NO_FETCH]
+# The alliance duel, read out of the client and written down: both sides, every day.
+# STORE names the ranking history to append to — a scenario passes the profile's own
+# through an ARGS, so the recipe stays the same wherever it is played from.
+_COLLECT_VS_RE = re.compile(r"^COLLECT_VS_DUEL\b(.*)$", re.IGNORECASE)
+_COLLECT_VS_STORE_RE = re.compile(r"\bSTORE\s+(\"[^\"]*\"|'[^']*'|\S+)", re.IGNORECASE)
+
 # ---- Game-VM primitives (Lua daemon bridge) --------------------------------
 # These drive the game through its own Lua VM (the warm daemon, tools/lua_daemon.py),
 # not through pixels — so they need no hwnd. See docs/dsl.md "Game primitives".
@@ -387,6 +394,19 @@ class ReadLuaStmt(_Stmt):
     """Evaluate a Lua expression and store its value in the script variable `var`."""
     expr: str
     var: str
+
+
+@dataclass(slots=True)
+class CollectVsDuelStmt(_Stmt):
+    """Read the alliance duel out of the client and write it into a ranking history.
+
+    `store` is the SQLite file to append to — empty means «read and report, store
+    nothing», which is what a run from a bare console does. `fetch` sends the duel
+    screen's own ranking request first; without it only what the client already holds
+    is read.
+    """
+    store: str = ""
+    fetch: bool = True
 
 
 @dataclass(slots=True)
@@ -651,6 +671,16 @@ def _parse_one(lines, i, indent):
     m = _SCAN_MISSIONS_RE.match(text)
     if m:
         return _parse_scan_missions(m.group(1), text, ln), i + 1
+
+    m = _COLLECT_VS_RE.match(text)
+    if m:
+        rest = m.group(1)
+        store = _COLLECT_VS_STORE_RE.search(rest)
+        return CollectVsDuelStmt(
+            text=text, line_no=ln,
+            store=(store.group(1).strip("\"'") if store else ""),
+            fetch="NO_FETCH" not in rest.upper(),
+        ), i + 1
 
     m = _GAME_SCENE_RE.match(text)
     if m:
@@ -1150,6 +1180,14 @@ class Interpreter:
             case LuaStmt():
                 self._require_link(stmt)
                 self._do_lua(stmt)
+            # Gated with the SENDS, not with the reads: it asks the server for the
+            # duel's ranking before reading it, so a deaf link makes it read whatever
+            # the client happened to be holding and call it this week. Kept above
+            # `ReadLuaStmt` so that case stays the last one — a read must not be gated,
+            # and `tests/test_engine_link_gate.py` reads the arms in order to say so.
+            case CollectVsDuelStmt():
+                self._require_link(stmt)
+                self._do_collect_vs_duel(stmt)
             case ReadLuaStmt():
                 self._do_read_lua(stmt)
 
@@ -2090,6 +2128,66 @@ class Interpreter:
                     value = _coerce(raw)
         self.ctx.vars[stmt.var] = value
         self._log(f"READ_LUA {stmt.var} = {value!r}")
+
+    def _do_collect_vs_duel(self, stmt: CollectVsDuelStmt) -> None:
+        """Read the alliance duel and, when asked, write it into a ranking history.
+
+        Two registers come back for the recipe to gate on — `VS_DAYS`, how many days of
+        the week have rows, and `VS_ROWS`, how many rows in all. A week that has not
+        started reads as zero of both and is a state, not a failure: `IF VS_DAYS == 0`
+        is how a recipe says so.
+
+        NOTHING IS STORED WHEN NOTHING CAME BACK. An empty read written down would put
+        an empty week on top of a full one, and the store's own «unchanged, skip» rule
+        cannot tell the two apart — it compares a board against its last snapshot, and
+        an empty board is not the same board.
+        """
+        self._tools_lib_on_path()
+        try:
+            import leaderboard_store
+            import vs_duel
+        except ImportError as exc:               # pragma: no cover — a broken checkout
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: COLLECT_VS_DUEL needs tools/lib — {exc}"
+            ) from exc
+
+        if stmt.fetch:
+            # The duel screen's own request, one message per ranking. A `type = 0`
+            # reply carries every day of the week at once.
+            for rank_type in (vs_duel.RANK_DAY, vs_duel.RANK_WEEK):
+                self._run_lua(vs_duel.fetch_chunk(rank_type), marker=vs_duel.MARKER,
+                              settle=2.0)
+        lines = self._run_lua(vs_duel.read_chunk(), marker=vs_duel.MARKER, settle=3.0,
+                              early=False)
+        state = vs_duel.parse(lines)
+        players = state.get("players", [])
+        days = sorted({p.get("day") for p in players if p.get("day") is not None})
+        self.ctx.vars["VS_DAYS"] = len(days)
+        self.ctx.vars["VS_ROWS"] = len(players)
+        self.ctx.vars["VS_SIDES"] = len(state.get("sides", []))
+
+        if not players and not state.get("sides"):
+            self._log("COLLECT_VS_DUEL — no duel in this client; nothing stored")
+            return
+        if not stmt.store:
+            self._log(f"COLLECT_VS_DUEL — {len(state.get('sides', []))} side(s), "
+                      f"{len(days)} day(s), {len(players)} row(s); not stored")
+            return
+        conn = leaderboard_store.connect(stmt.store)
+        try:
+            rows = vs_duel.store_records(state, int(time.time()))
+            saved = leaderboard_store.save_records(conn, rows, int(time.time()))
+            leaderboard_store.save_sighting(
+                conn, int(time.time()), "al.battle.rank.info",
+                leaderboard_store.VERDICT_KEPT if saved
+                else leaderboard_store.VERDICT_EMPTY,
+                None if saved else "every board identical to its last snapshot",
+                rows_seen=len(rows), rows_kept=sum(saved.values()), source="game")
+        finally:
+            conn.close()
+        self._log(f"COLLECT_VS_DUEL — {len(state.get('sides', []))} side(s), "
+                  f"{len(days)} day(s), {len(players)} row(s), "
+                  f"{sum(saved.values())} stored")
 
     def _do_call(self, stmt: CallStmt) -> None:
         self._log(f"CALL {stmt.action_name}")

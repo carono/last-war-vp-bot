@@ -764,6 +764,38 @@ Three things to know:
 - **Above 1199 there is nothing to collect.** The client switches to its coarse big-map
   layer and answers a map request with no tiles at all.
 
+### `COLLECT_VS_DUEL [STORE "<path>"] [NO_FETCH]`
+
+Write the alliance duel («VS») into a ranking history: **both sides, every day**.
+
+One request — the one the duel screen sends — comes back with the whole week: a list per
+day, each row stamped with its day, and the players of BOTH alliances in it (`aid`,
+`abbr` and `serverId` say which side a row is on). The two alliances' own per-day totals
+are read beside it, so the enemy's daily numbers arrive with ours.
+
+```
+ARGS store = ""
+COLLECT_VS_DUEL STORE "{store}"
+IF VS_DAYS == 0
+    STOP "the week has no rows yet"
+```
+
+| Part | Effect |
+|---|---|
+| `STORE "<path>"` | the SQLite ranking history to append to (`tools/lib/leaderboard_store.py`). Left out, the duel is read and reported and nothing is written |
+| `NO_FETCH` | send nothing: read only what the client already holds. After a fresh start that is usually nothing |
+
+Three registers come back to gate on: `VS_SIDES`, `VS_DAYS` (days with rows) and
+`VS_ROWS`. A week that has not started reads as zero of each — a state, not a failure.
+
+- **Nothing is stored when nothing came back.** An empty read written down would put an
+  empty week on top of a full one.
+- **It cannot go back in time.** The server answers for the week it is in, so a day
+  nobody ever asked about cannot be fetched afterwards. Running it once a day is what
+  makes a history whole.
+- Rows land under the game's own board ids with `source = "game"`, beside whatever the
+  passive collector caught off the wire. Details in `docs/research/vs-rankings.md`.
+
 ## Conditions
 
 Allowed in `IF` and `WAIT`:
