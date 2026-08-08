@@ -3425,16 +3425,32 @@ def rally_join_all() -> str:
         "local st = tonumber(f.state) "
         "local ok, idle = pcall(function() return f:IsFree() end) "
         "local free = true if ok and idle ~= nil then free = (idle and true or false) end "
-        "local n = 0 pcall(function() n = tonumber(f.totalSoldierNum) or 0 end) "
+        # FILL IT, THEN MEASURE IT — the order the player asked for, and the game's own
+        # filler is what does both (#1281). `ArmyFormation:ConscriptSoldier()` is the
+        # method the squad screen runs: it draws from `SoldierDataManager:GetInsideSoldiers()`
+        # up to what the squad's heroes can carry, and on the way it WRITES the ceiling
+        # into `heroTotalSoldierCapacity`. Nothing in it sends: read off its own
+        # constants, it touches the soldier pool, the hero table and its own fields and
+        # no message at all.
+        #
+        # That call is why the check works headless. Without it the ceiling is simply
+        # absent — measured live on three squads, `GetAllHeroSoldierCapacity()` answered
+        # 0 before and 3123 / 2631 / 2565 immediately after, and the game's own dispatch
+        # screen had shown «3,123/3,123 units» for the first of them
+        # (docs/research/world-monsters.md, finding 10). Until this line the gate could
+        # only ever see a ceiling on a client whose dispatch screen had been rendered by
+        # hand.
+        "pcall(function() f:ConscriptSoldier() end) "
         # A SQUAD BELOW ITS OWN CEILING IS NOT SENT, and the ceiling is the one the
-        # squad's heroes can carry rather than whatever happens to be standing in it
-        # (#1281). `f:GetAllHeroSoldierCapacity()` is the number the game fills a squad
-        # up TO; `totalSoldierNum` is what is in it now, and it reads 0 until the army
-        # has been asked for, which is why nothing may be decided from it before the
-        # recipe's `formation.get.soldier` has run (#1285).
+        # squad's heroes can carry rather than whatever happens to be standing in it.
+        # `totalSoldierNum` is what is in it now, and it reads 0 until the army has been
+        # asked for, which is why nothing may be decided from it before the recipe's
+        # `formation.get.soldier` has run (#1285) — the fill above works from the pool,
+        # not from the squad, so it does not stand in for that request.
         #
         # A ceiling that cannot be read does not refuse: an unreadable gate must not
         # shut, the same rule the state check above follows.
+        "local n = 0 pcall(function() n = tonumber(f.totalSoldierNum) or 0 end) "
         "local cap = 0 pcall(function() cap = math.floor(tonumber(f:GetAllHeroSoldierCapacity()) or 0) end) "
         "if st ~= nil and not (st == 0 and free) then skipped[#skipped+1] = tostring(s)..':out' "
         "elseif n <= 0 then skipped[#skipped+1] = tostring(s)..':empty' "

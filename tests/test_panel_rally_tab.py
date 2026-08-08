@@ -721,6 +721,14 @@ def test_a_squad_below_its_ceiling_is_not_sent_and_the_wall_is_named():
     from tools.lib import lua_actions
 
     src = lua_actions.rally_join_all()
+    # FILL, THEN MEASURE — and in that order, which is the order the player asked for.
+    # `ConscriptSoldier` is the game's own filler and the only thing that writes
+    # `heroTotalSoldierCapacity`: measured live, the ceiling read 0 before the call and
+    # 3123 / 2631 / 2565 straight after, on the same three squads.
+    assert "f:ConscriptSoldier()" in src, "the squad is measured without being filled"
+    fill = src.index("ConscriptSoldier")
+    assert fill < src.index("totalSoldierNum", fill) < src.index("GetAllHeroSoldierCapacity", fill), \
+        "the squad is measured before it is filled"
     assert "GetAllHeroSoldierCapacity" in src, "the ceiling is no longer read"
     assert "GetPlayerSoldiersTotalNum" in src, "the base's own pool is no longer read"
     assert "':short-of-troops('" in src, "the wall lost its own word"
