@@ -605,6 +605,15 @@ The data itself is not the problem and does not move: the boards go on being wri
 the profile's own `leaderboard_history.db`, the tiles to its checkpoint. It is the LOG
 that has no business holding somebody else's account id.
 
+**The one deliberate exception: the rally feed keeps its nicknames.** `[rally]` lines
+name the alliancemates in a banner, and that was looked at in #1293 and kept, not
+missed. It is a FEED a person reads about their own alliance — who raised the banner and
+who is in it is the useful half of the line, and the same names are on screen in the
+client. The repository's identifier rule is about what LEAVES the machine: code, tests,
+fixtures, docs, examples. A profile's `panel.log` is gitignored and goes nowhere. So do
+not «clean» those names out on the next pass; what must never carry a real nickname or
+uid is anything committed.
+
 ---
 
 ## Errands a tab brings with it

@@ -264,6 +264,14 @@ class RallyMonitor(LiveDecoder):
         if self._out is not None:
             self._out.flush()
 
+        # THE PARTICIPANTS' NAMES ARE PRINTED ON PURPOSE (#1293). Everything else that
+        # named a player on a log line lost the name in #1293 — the leaderboard rows,
+        # the wire ear's payload, the secret tile's owner uid — and this one was looked
+        # at and kept. It is the rally FEED: a person reads it to see who raised the
+        # banner and who is in it, which is what makes the line worth having, and they
+        # see the same names in the client. The rule it looks like it breaks is about
+        # what leaves the machine (code, tests, fixtures, docs, examples); the panel log
+        # this lands in is gitignored and stays put.
         who = ", ".join(str(n) for n in names if n) or "-"
         tag = (f"{C_RALLY}team={team_here}{C_RESET}" if team_here
                else f"{C_DIM}solo{C_RESET}")

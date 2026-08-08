@@ -1030,6 +1030,16 @@ class RallyTab(PanelTab):
     def _on_line(self, line: str) -> bool:
         # The monitor's own line first, then the alert about it — the other way round
         # reads as an alert with no event under it.
+        #
+        # THE NICKNAMES ON THIS LINE STAY, AND THAT IS A DECISION (#1293). #1293 took
+        # the players out of the leaderboard collector's log lines and the payload out
+        # of the wire ear's, and this line looks like the same fault: it names the
+        # alliancemates who joined the banner. It is not. This is a FEED a person reads
+        # about their own alliance — «кто поднял стяг» is the useful half of it, and
+        # they can see the same names in the game anyway. The repository's rule is
+        # about what LEAVES the machine: code, tests, fixtures, docs, examples. A
+        # profile's panel.log is gitignored and goes nowhere. So do not «clean» these
+        # names out; what must never carry them is anything committed.
         if line:
             self.rt.put(f"[rally] {line}")
         clean = logmod.strip_ansi(line)
