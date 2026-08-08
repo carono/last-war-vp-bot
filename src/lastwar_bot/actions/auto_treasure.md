@@ -1,25 +1,41 @@
-# Answer a treasure the alliance announced: send the nearest free squad, take the gift.
-# ru: Отработать сокровище, о котором объявил альянс: отправить ближайший свободный отряд и забрать подарок.
+# Take the treasures on the map: send the nearest free squad, take the gift.
+# ru: Отработать сокровища на карте: отправить ближайший свободный отряд и забрать подарок.
 #
 #   run auto_treasure                        -- any squad may go
 #   run auto_treasure {"squads": [3, 4]}     -- only squads 3 and 4
+#   run auto_treasure {"scan_every": 0}      -- …and never walk the map
 #
-# WHAT THIS ANSWERS, AND WHY IT IS NOT A SWEEP OF THE MAP. A world-map chest is out for
-# minutes and the whole alliance digs it together, so by the time a periodic scan of the
-# map noticed one it would be gone — and each scan costs a request per look. The client
-# is told the moment somebody shares a chest into alliance chat, and that message names
-# everything the ability needs: the chest's uuid, its server and its tile. So the ear goes
-# where the news already lands (a hook on the client's own two network doors, #1277) and
-# this recipe is what happens afterwards.
+# THREE DOORS, ONE QUEUE. A chest reaches this errand in three ways, and it needs all
+# three because each one is blind where the others see:
 #
-# IT CANNOT BE A WIRE TRIGGER, and that is a measurement rather than a preference. The
-# announcement is a chat post, and the chat broadcast rides a TLS websocket this
-# repository cannot decode (`docs/research/chat-system.md`): in the 2026-08-08 recording
-# the message is in the Lua trace and NOT in the capture taken beside it. The panel's
-# ordinary wire listener is deaf to it by construction. What the trigger polls instead is
-# a LOCAL Lua table — one daemon round trip, ~0.15 s with the daemon free, no request to
-# the server and nothing the game can notice — so the «poll» in the catalogue is a poll of
-# the panel's own ear, never of the world.
+#   1. **the alliance chat share** — one message naming the uuid, the server AND the
+#      tile. The cheapest of the three and the least reliable: sharing is a thing a
+#      PERSON does, and measured live, twenty minutes of the alliance digging a chest
+#      produced not one share on the wire;
+#   2. **the dig broadcast** (`push.detect.treasure.claim`) — arrives once per member who
+#      finishes their part, and carries a uuid with no tile in it. Enough to claim, never
+#      enough to march;
+#   3. **a lap of the map** (`scan_treasures`) — the camera walks the whole server and the
+#      client's own point manager is read at every stop, which is the only door that finds
+#      a chest NOBODY announced. It gives both halves at once, uuid and tile.
+#
+# A chest that comes through two of them stays ONE target and keeps the best half of
+# each: a uuid heard from the dig feed and a tile found by the lap are the same chest,
+# and the lap upgrades it rather than queuing it twice.
+#
+# THE FIRST TWO CANNOT BE A WIRE TRIGGER, and that is a measurement rather than a
+# preference. The announcement is a chat post, and the chat broadcast rides a TLS
+# websocket this repository cannot decode (`docs/research/chat-system.md`): in the
+# 2026-08-08 recording the message is in the Lua trace and NOT in the capture taken
+# beside it. The panel's ordinary wire listener is deaf to it by construction. What the
+# trigger polls instead is a LOCAL Lua table — one daemon round trip, ~0.15 s with the
+# daemon free, no request to the server and nothing the game can notice — so the «poll»
+# in the catalogue is a poll of the panel's own ear, never of the world.
+#
+# AND THE THIRD ONE IS THE SLOWEST ON PURPOSE. The two ears cost nothing and hear a chest
+# in the second the client hears it, so they run on every tick; the lap moves the camera
+# across the whole server and is therefore walked every few minutes (`scan_every`), never
+# every tick, and never at all while the client is in the city.
 #
 # EVERY STEP IS WRITTEN DOWN IN THE GAME VM, not here. A chest walks
 # announced → squad sent → dug → claimed, and each stage is stamped on the target
@@ -43,6 +59,13 @@ ARGS squads = [1, 2, 3, 4]
 ARGS grace = 240
 ARGS ttl = 1800
 
+# How often the map itself is walked, in seconds — the third door. Five minutes because a
+# chest is out for minutes rather than seconds, and because the lap costs a camera that
+# crosses the whole server: often enough to catch one that nobody shared, rare enough not
+# to be doing it while the other two doors are already working. `0` switches the lap off
+# entirely and leaves the two ears.
+ARGS scan_every = 300
+
 # What this run may spend, parked where the press can read it — a `TAP` takes no
 # arguments of its own. `grace` is how long after the march a claim may be tried without
 # having heard the alliance's own «this chest is dug»; `ttl` is when a chest is written
@@ -54,6 +77,18 @@ LUA DataCenter.__lw_treasure_squads = { {squads} } DataCenter.__lw_treasure_grac
 # fresh VM and no hook at all, which is exactly the case this covers — and the one the
 # trigger's poll treats as work in its own right.
 TAP treasure_auto_arm
+
+# THE MAP, every few minutes. The question is asked in the game — «is the client in the
+# world, and has the period passed?» — because the answer belongs beside the lap and not
+# copied into a recipe where it would drift; deciding it is due also stamps the clock, so
+# a tick that asks twice walks one lap.
+LUA DataCenter.__lw_treasure_scan_cfg = DataCenter.__lw_treasure_scan_cfg or {} DataCenter.__lw_treasure_scan_cfg.every_sec = {scan_every}
+TAP treasure_scan_due
+READ_LUA (tonumber(DataCenter.__lw_treasure_scan_due) or 0) INTO scan_due
+
+IF scan_due == 1
+    LOG "walking the map — a chest nobody shared is only found by looking"
+    CALL scan_treasures
 
 # The whole queue, one step each, in ONE press: the nearest free squad marches onto the
 # nearest chest, and a chest the alliance has already dug is claimed. Nothing is opened

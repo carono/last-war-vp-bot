@@ -553,6 +553,34 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.treasure_auto_step(),
         wait=0.6, label="March on / claim every queued treasure",
     ),
+    # --- world -> the THIRD door: reading the map itself (#1296) ---------------
+    # «Должно сканироваться карта на предмет сокровищ, а не только слушаться пуш шаринга.»
+    # The two doors above are both somebody telling the client about a chest; neither
+    # looks at the map, so a chest merely LYING there reaches neither. These three walk
+    # the map and read it — the whole reasoning, and the two measurements it rests on,
+    # are in lua_actions («The third door»).
+    #
+    #   treasure_scan_due     — is a lap worth walking now? parks 1/0 for the recipe
+    #   treasure_scan_start   — one lap of the server, reading `PointType 21` as it goes
+    #   treasure_scan_harvest — what it found becomes targets of the errand above
+    #
+    # Every number they use is parked first (`DataCenter.__lw_treasure_scan_cfg`), the
+    # same hand-off the arm's squads use, because a `TAP` takes no arguments.
+    "treasure_scan_due": Button(
+        lua=_lua_actions.treasure_scan_ask(),
+        wait=0.2, label="Is a treasure lap of the map due?",
+    ),
+    "treasure_scan_start": Button(
+        lua=_lua_actions.treasure_scan_sweep(),
+        # The lap is walked by the GAME's own timer, so this press returns as soon as the
+        # waypoints are handed over. What it takes to finish is `span` in the reading —
+        # the recipe waits that out itself.
+        wait=0.4, label="Sweep the map for treasures",
+    ),
+    "treasure_scan_harvest": Button(
+        lua=_lua_actions.treasure_scan_harvest(),
+        wait=0.3, label="Queue the treasures the map sweep found",
+    ),
     # --- Hospital: heal wounded soldiers ("Лечение юнитов") ------------------
     # Two presses, the two halves of the in-game routine (docs/research/hospital-heal.md):
     #   heal_all       — send every wounded soldier type for treatment in one

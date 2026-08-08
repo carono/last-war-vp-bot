@@ -547,7 +547,7 @@ def test_the_recipe_names_the_presses_it_needs():
     src = (ROOT / "src" / "lastwar_bot" / "actions" / "auto_treasure.md").read_text(
         encoding="utf-8")
     defaults, rest = se.extract_defaults(src)
-    assert set(defaults) == {"squads", "grace", "ttl"}, defaults
+    assert set(defaults) == {"squads", "grace", "ttl", "scan_every"}, defaults
     for name, value in defaults.items():
         rest = rest.replace("{%s}" % name, se.render_value(value))
     program = se.parse_text(rest)
@@ -565,11 +565,37 @@ def test_the_recipe_names_the_presses_it_needs():
                     yield from _taps(inner)
 
     pressed = list(_taps(program))
-    #: arm, the step, the retry after an army was fetched, and the pass that looks for
-    #: the reward window a claim's payment shows up as.
-    assert pressed == ["treasure_auto_arm", "treasure_auto_step", "treasure_auto_step",
-                       "treasure_auto_step", "dismiss_treasure_reward"], pressed
+    #: arm, the question the map lap is gated on, the step, the retry after an army was
+    #: fetched, and the pass that looks for the reward window a claim's payment shows up
+    #: as. The lap itself is a `CALL` and its presses are checked below.
+    assert pressed == ["treasure_auto_arm", "treasure_scan_due", "treasure_auto_step",
+                       "treasure_auto_step", "treasure_auto_step",
+                       "dismiss_treasure_reward"], pressed
     for name in pressed:
+        assert name in game_buttons.BUTTONS, name
+
+    #: …and the third door is a recipe of its own, so its presses are checked the same
+    #: way. A `CALL` to a name that does not exist, or a press inside it that does not,
+    #: is a run that dies at the map lap and never marches.
+    def _calls(steps):
+        for step in steps:
+            if isinstance(step, se.CallStmt):
+                yield step.action_name
+            for attr in ("body", "then_block", "else_block", "steps"):
+                inner = getattr(step, attr, None)
+                if inner:
+                    yield from _calls(inner)
+
+    called = list(_calls(program))
+    assert called == ["scan_treasures"], called
+    scan_src = (ROOT / "src" / "lastwar_bot" / "actions"
+                / "scan_treasures.md").read_text(encoding="utf-8")
+    scan_defaults, scan_rest = se.extract_defaults(scan_src)
+    for name, value in scan_defaults.items():
+        scan_rest = scan_rest.replace("{%s}" % name, se.render_value(value))
+    scan_pressed = list(_taps(se.parse_text(scan_rest)))
+    assert scan_pressed == ["treasure_scan_start", "treasure_scan_harvest"], scan_pressed
+    for name in scan_pressed:
         assert name in game_buttons.BUTTONS, name
 
 
@@ -758,6 +784,307 @@ def test_the_trigger_polls_the_errand_and_runs_the_recipe():
     assert trigger.enabled is False, "an errand that acts is opt-in"
     assert trigger.immediate is True, "a chest is a race — it does not wait in the queue"
     assert trigger.label_key == "triggers.item.treasure_auto"
+
+
+# ---------------------------------------------------------------------------
+# The third door: a lap of the map (#1296)
+# ---------------------------------------------------------------------------
+#
+# «Скрытые сокровища не собираются, если они просто на карте … должно сканироваться
+# карта на предмет сокровищ, а не только слушаться пуш шаринга.» The two doors above are
+# both somebody TELLING the client about a chest; neither of them looks at the map, so a
+# chest merely lying there reaches neither. The lap is what looks.
+#
+# What the stand-in below reproduces is the ONE property the design turns on, measured
+# live: `WorldScene.PointManager` only holds what is IN VIEW. So the reading has to ride
+# the lap, one box per waypoint, and a test that let the whole map be readable from a
+# standing camera would pass over exactly the mistake that matters.
+
+#: A small square server, so a lap is four waypoints rather than a hundred and
+#: twenty-one. The arithmetic is the game's own: `pid = y * size + x + 1`, checked
+#: against `SceneUtils.TilePosToIndex` on the live client at four coordinates.
+_MAP = 40
+_CHEST_AT = (31, 27)
+#: …and one on the other side of it, for the case where the chat share got there first.
+_SHARED_AT = (11, 9)
+
+
+def _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, False),), world: bool = True):
+    """A VM with a map under it: a point manager that answers only near the camera.
+
+    Each `chests` entry is `((x, y), uuid, server, dug)`. Everything else on the map is
+    an ordinary tile of another kind, which is what makes «found nothing» and «looked at
+    nothing» different answers.
+    """
+    lua = _vm()
+    lua.execute("""
+WORLD = %s
+JUMPS = {}
+SCHEDULED = {}
+CAMERA = {x = -999, y = -999}
+SceneUtils.GetIsInWorld = function() return WORLD end
+CS.UnityEngine.Vector3 = function(x, y, z) return {x = x, y = y, z = z} end
+CS.UnityEngine.Object = {FindObjectsOfType = function() return {Length = 0} end}
+DataCenter.ActDispatchTaskDataManager = DataCenter.ActDispatchTaskDataManager or {}
+GoToUtil = {GotoWorldPos = function(v, h, a, b, srv)
+  JUMPS[#JUMPS+1] = {x = (v.x - 1) / 2, y = (v.z - 1) / 2, zoom = h, server = srv}
+  CAMERA = {x = (v.x - 1) / 2, y = (v.z - 1) / 2}
+end}
+TimerManager = {GetInstance = function()
+  return {DelayInvoke = function(self, fn, at)
+    SCHEDULED[#SCHEDULED+1] = {fn = fn, at = at, i = #SCHEDULED}
+  end}
+end}
+CHESTS = {}
+-- THE POINT MANAGER ONLY KNOWS WHAT IS IN VIEW. Anything further than the camera's own
+-- reach answers nil, exactly as the live one does once the camera has jumped away.
+_G.WS = {CurTilePos = {x = 0, y = 0}, TileCount = {x = %d, y = %d},
+         PointManager = {GetPointInfo = function(self, pid)
+  local x, y = (pid - 1) %% %d, math.floor((pid - 1) / %d)
+  if math.abs(x - CAMERA.x) > 12 or math.abs(y - CAMERA.y) > 12 then return nil end
+  local chest = CHESTS[pid]
+  if chest ~= nil then return chest end
+  return {PointType = 6}
+end}}
+""" % ("true" if world else "false", _MAP, _MAP, _MAP, _MAP))
+    for (x, y), uuid, server, dug in chests:
+        lua.execute("CHESTS[%d] = {PointType = %d, uuid = %d, serverId = %d, "
+                    "expireTime = NOW_EXPIRE, allianceAbbr = 'AL1', ownerUid = %s}"
+                    .replace("NOW_EXPIRE", "1786199155709")
+                    % (y * _MAP + x + 1, lua_actions.TREASURE_POINT_TYPE, uuid, server,
+                       ("'1000000000000009'" if dug else "nil")))
+    return lua
+
+
+def _walk(lua) -> None:
+    """Run the lap the game's timer was handed, in the order it would run it."""
+    lua.execute(lua_actions.treasure_scan_sweep())
+    lua.execute("""
+local queue = {}
+for _, item in ipairs(SCHEDULED) do queue[#queue+1] = item end
+table.sort(queue, function(a, b)
+  if a.at == b.at then return a.i < b.i end
+  return a.at < b.at end)
+for _, item in ipairs(queue) do item.fn() end
+""")
+    lua.execute(lua_actions.treasure_scan_harvest())
+
+
+def _park_scan(lua, **cfg) -> None:
+    """Park what the recipe parks — a `TAP` takes no arguments of its own."""
+    parts = ", ".join("%s = %s" % (k, v) for k, v in cfg.items())
+    lua.execute("DataCenter.__lw_treasure_scan_cfg = {%s}" % parts)
+
+
+def _targets(lua) -> list:
+    return [dict(t.items())
+            for t in lua.eval("DataCenter.__lw_treasure_auto.targets").values()]
+
+
+def test_a_lap_of_the_map_finds_a_chest_nobody_announced():
+    """The whole point of the third door. Nothing is shared and nothing is dug — the chest
+    is just lying there — and the lap comes home with its uuid AND its tile, which is the
+    pair a march needs and the dig feed can never give."""
+    if not _needs_lua("a lap finds a chest"):
+        return
+    lua = _scan_vm()
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+
+    targets = _targets(lua)
+    assert len(targets) == 1, targets
+    found = targets[0]
+    assert int(found["uuid"]) == _OTHER_UUID, found
+    assert (int(found["x"]), int(found["y"])) == _CHEST_AT, found
+    assert int(found["pid"]) == _CHEST_AT[1] * _MAP + _CHEST_AT[0] + 1, found
+    assert int(found["server"]) == _SERVER, found
+    assert found["src"] == "scan", found
+    assert found.get("dug") is None, "no finisher on it — the lap says nothing else"
+    #: the chest's OWN deadline travels with it: the map knows when it goes away, and
+    #: that beats any age the errand could keep for itself.
+    assert int(found["expire"]) == 1786199155709, found
+    #: …and the run says what it looked at, so «no chest on the map» and «the client knew
+    #: no tiles at all» stay different answers.
+    report = str(lua.eval(lua_actions.treasure_scan_report()))
+    assert "new=1" in report and "tiles=" in report, report
+    assert int(lua.eval("DataCenter.__lw_treasure_scan.tiles")) > 100, report
+
+
+def test_a_dead_world_scene_is_found_again_rather_than_kept():
+    """A destroyed Unity object answers `nil` instead of throwing, so the cache guard has
+    to look at the VALUE. Caught live: a lap reported 121 waypoints scheduled and 0 read,
+    because `_G.WS` was a WorldScene from a session that had ended and every member of it
+    — `PointManager`, `TileCount`, `CurTilePos` — was `nil` with nothing saying why."""
+    if not _needs_lua("a dead scene is re-found"):
+        return
+    lua = _scan_vm()
+    #: the live scene, put aside, and a dead one in its place — dead exactly as Unity
+    #: leaves one: an object that answers, and answers nothing.
+    lua.execute("""
+ALIVE = _G.WS
+FOUND = 0
+_G.WS = {}
+CS.UnityEngine.Object = {FindObjectsOfType = function()
+  FOUND = FOUND + 1
+  return {Length = 1, [0] = setmetatable(ALIVE, {__index = {
+    GetType = function() return {Name = "WorldScene"} end}})}
+end}
+typeof = function(x) return x end
+""")
+    lua.execute(lua_actions.FIND_WORLD_SCENE
+                + 'SCENE_BACK = (WS ~= nil and WS.PointManager ~= nil)')
+    assert bool(lua.eval("SCENE_BACK")) is True, "the dead scene was kept"
+    assert int(lua.eval("FOUND")) == 1, "it was not looked for"
+
+
+def test_a_chest_of_another_alliance_is_not_queued():
+    """The lap's most important gate, and it was learned the expensive way: the first live
+    lap found nineteen chests and the account could take none of them — every claim came
+    back `errorCode 801354 — player not in same alliance`. A detect-event treasure is
+    placed by ONE alliance's event and dug by ITS members, so a foreign chest is a squad
+    spent on a tile the server will not pay for, however plainly it is drawn on the map."""
+    if not _needs_lua("a foreign chest is skipped"):
+        return
+    lua = _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, False),
+                           (_SHARED_AT, _UUID, _SERVER, False)))
+    #: the client's own alliance is a 32-character uuid; one chest is ours, one is not.
+    lua.execute("LuaEntry.Player.allianceId = 'a0000000000000000000000000000001' "
+                "CHESTS[%d].allianceId = 'a0000000000000000000000000000001' "
+                "CHESTS[%d].allianceId = 'b0000000000000000000000000000002'"
+                % (_CHEST_AT[1] * _MAP + _CHEST_AT[0] + 1,
+                   _SHARED_AT[1] * _MAP + _SHARED_AT[0] + 1))
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+
+    targets = _targets(lua)
+    assert len(targets) == 1, targets
+    assert int(targets[0]["uuid"]) == _OTHER_UUID, targets
+    report = str(lua.eval(lua_actions.treasure_scan_report()))
+    assert "new=1" in report and "foreign=1" in report, report
+
+
+def test_an_owner_uid_opens_the_claim_without_closing_the_march():
+    """`TreasurePointInfo.ownerUid` is the wire's finisher field and it is read as a HINT.
+    On the first live lap 19 chests out of 19 carried it, and the one this account could
+    reason about answered `errorCode 801348 — claim repeat` — so it does mean «worked» —
+    but no chest has ever been caught WITHOUT it, and a gate needs a success recording.
+
+    Read as a hint it cannot do harm, and this is the shape of that: a chest marked dug
+    with no squad out is still MARCHED at first. Being wrong costs one claim the server
+    answers with a code; being wrong the other way would cost the chest."""
+    if not _needs_lua("an owner is a hint"):
+        return
+    lua = _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, True),))
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+    assert _targets(lua)[0].get("dug") is not None, _targets(lua)
+    #: …and the march goes out all the same — the claim only follows it.
+    _step(lua)
+    assert len(_marched(lua)) == 1, _marched(lua)
+    assert _claims(lua) == [], _claims(lua)
+
+
+def test_the_lap_reads_each_box_after_its_own_jump():
+    """The point manager only holds what is in view, so a lap that read every box from
+    where it started would find nothing. This is that mistake, made on purpose: the
+    scrapes are run WITHOUT the jumps and the chest must stay unseen."""
+    if not _needs_lua("the box follows the camera"):
+        return
+    lua = _scan_vm()
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    lua.execute(lua_actions.treasure_scan_sweep())
+    #: every other scheduled call is a scrape (jump, scrape, jump, scrape …) — run only
+    #: those, so the camera never moves.
+    lua.execute("for i, item in ipairs(SCHEDULED) do if i % 2 == 0 then item.fn() end end")
+    lua.execute(lua_actions.treasure_scan_harvest())
+    assert _targets(lua) == [], _targets(lua)
+
+
+def test_a_chest_the_dig_feed_named_gets_its_tile_from_the_lap():
+    """The two doors carry different halves of the same chest and must not make two of it.
+    The broadcast gives a uuid and no tile — `claim_only`, nothing to march at — and the
+    lap is what fills the tile in. One target, upgraded, marchable."""
+    if not _needs_lua("the dig feed and the lap agree"):
+        return
+    lua = _scan_vm()
+    _dug(lua, uuid=_OTHER_UUID)
+    before = _targets(lua)
+    assert len(before) == 1 and before[0]["claim_only"] is True, before
+    assert int(before[0]["pid"]) == 0, before
+
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+
+    after = _targets(lua)
+    assert len(after) == 1, after
+    assert int(after[0]["pid"]) == _CHEST_AT[1] * _MAP + _CHEST_AT[0] + 1, after
+    assert after[0]["claim_only"] is False, after
+    assert after[0]["src"] == "dig-feed+scan", after
+    assert "upgraded=1" in str(lua.eval(lua_actions.treasure_scan_report()))
+
+
+def test_a_chest_already_announced_is_not_queued_twice_by_the_lap():
+    """A chest shared into chat carries its tile already. The lap must recognise it and
+    leave it alone — two targets is two squads on one tile."""
+    if not _needs_lua("the lap does not duplicate"):
+        return
+    lua = _scan_vm(chests=((_SHARED_AT, _UUID, _SERVER, False),))
+    _announce(lua, uuid=_UUID, xy=_SHARED_AT)
+    assert _queued(lua) == 1
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+    assert _queued(lua) == 1, _targets(lua)
+    assert "already-queued=1" in str(lua.eval(lua_actions.treasure_scan_report()))
+
+
+def test_the_lap_is_refused_in_the_city_and_between_periods():
+    """Three questions, and each of them is a lap not walked: the point manager belongs to
+    the world scene, the period is minutes because a chest is out for minutes, and a
+    period of zero is «never»."""
+    if not _needs_lua("the lap's gate"):
+        return
+    lua = _scan_vm(world=False)
+    _park_scan(lua, every_sec=300)
+    lua.execute(lua_actions.treasure_scan_ask())
+    assert int(lua.eval("DataCenter.__lw_treasure_scan_due")) == 0, "not in the world"
+
+    lua.execute("WORLD = true")
+    lua.execute(lua_actions.treasure_scan_ask())
+    assert int(lua.eval("DataCenter.__lw_treasure_scan_due")) == 1, "in the world, never run"
+    #: …and asking again in the same minute does not walk a second lap: deciding it was
+    #: due STAMPED the clock.
+    lua.execute(lua_actions.treasure_scan_ask())
+    assert int(lua.eval("DataCenter.__lw_treasure_scan_due")) == 0, "the period holds"
+
+    lua.execute("NOW = NOW + 301000")
+    lua.execute(lua_actions.treasure_scan_ask())
+    assert int(lua.eval("DataCenter.__lw_treasure_scan_due")) == 1, "the period passed"
+
+    _park_scan(lua, every_sec=0)
+    lua.execute("NOW = NOW + 3600000")
+    lua.execute(lua_actions.treasure_scan_ask())
+    assert int(lua.eval("DataCenter.__lw_treasure_scan_due")) == 0, "zero is off"
+
+
+def test_the_poll_is_true_when_the_map_is_due_a_lap():
+    """The lap is not an ear: nothing announces a chest that is merely lying there, so the
+    errand has to be RUN every few minutes or the third door never opens. An empty queue
+    with the hook armed must therefore still answer «there is work»."""
+    if not _needs_lua("the poll asks about the lap"):
+        return
+    lua = _scan_vm()
+    _park_scan(lua, every_sec=300)
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "never swept"
+
+    lua.execute(lua_actions.treasure_scan_ask())            # …which stamps the clock
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, "just swept"
+
+    lua.execute("NOW = NOW + 301000")
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "the period passed"
+
+    #: and in the city there is no lap to walk, so an empty queue is genuinely idle.
+    lua.execute("WORLD = false")
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, "not in the world"
 
 
 def _run() -> int:

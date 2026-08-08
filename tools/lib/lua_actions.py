@@ -180,8 +180,17 @@ def jump_to_coord(x: int, y: int, server: "int | None" = None,
 #: scene is not a Lua global — it is a C# component on the `World` GameObject — and it
 #: is replaced whenever the world is re-entered, so the cache is validated rather than
 #: trusted.
+#:
+#: THE VALUE IS CHECKED, NOT MERELY THE ACCESS (#1296). A destroyed Unity object does not
+#: throw when a member is read off it — it answers `nil` — so a guard that only asked
+#: whether the read succeeded kept a dead scene for ever, and everything hanging off it
+#: (`PointManager`, `TileCount`, `CurTilePos`) was `nil` with nothing saying why. Caught
+#: live: a treasure lap reported 121 waypoints scheduled and 0 read, because `WS` was a
+#: WorldScene from a session that had ended. Reading `CurTilePos` and requiring a VALUE
+#: costs the same one access and re-finds the live one instead.
 FIND_WORLD_SCENE = (
-    'local WS=_G.WS if not WS or not pcall(function() return WS.CurTilePos end) then '
+    'local WS=_G.WS local __ok, __cur = pcall(function() return WS and WS.CurTilePos end) '
+    'if not __ok or __cur == nil then '
     'local arr=CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) '
     'for i=0,arr.Length-1 do if arr[i] and arr[i]:GetType().Name=="WorldScene" then '
     'WS=arr[i] break end end _G.WS=WS end ')
@@ -3030,6 +3039,19 @@ local function harvest(cmd, obj)
   if not A or not A.on then return end
   if type(cmd) ~= "string" then return end
   if not cmd:find("treasure", 1, true) then return end
+  -- A REFUSED CLAIM IS NOT SILENT AFTER ALL (#1296, caught on a live map). The reply to
+  -- `detect.event.claim.treasure` comes back under the same name, and when the server
+  -- says no it carries `errorCode` and `errorMsg` — the first one seen was
+  -- `801354 player not in same alliance`. It names no chest, so it cannot be pinned on a
+  -- target; what it CAN do is turn «nothing happened» into the server's own sentence, so
+  -- the run says why instead of retrying four times into the dark.
+  if cmd == "detect.event.claim.treasure" then
+    local code = getdata(obj, "errorCode")
+    if code ~= nil and tostring(code) ~= "0" then
+      A.last_error = tostring(code) .. " " .. tostring(getdata(obj, "errorMsg") or "")
+      A.last_error_at = nowms()
+    end
+  end
   if cmd:find("claim", 1, true) then
     -- The alliance's own feed of the dig: one of these per member who has finished
     -- their part. It is NOT «somebody else took it» — every digger claims their own
@@ -3055,7 +3077,8 @@ local function harvest(cmd, obj)
       A.seen[key] = nowms()
       A.targets = A.targets or {}
       A.targets[#A.targets+1] = {uuid = u, pid = 0, x = 0, y = 0, server = 0,
-                                 at = nowms(), dug = nowms(), claim_only = true}
+                                 at = nowms(), dug = nowms(), claim_only = true,
+                                 src = "dig-feed"}
       A.news = (A.news or 0) + 1
     end
     return
@@ -3090,7 +3113,7 @@ local function harvest(cmd, obj)
   local sid = jint(blob, "sid")
   A.targets = A.targets or {}
   A.targets[#A.targets+1] = {uuid=uuid, pid=pid, x=x, y=y,
-                             server=sid or 0, at=nowms()}
+                             server=sid or 0, at=nowms(), src="chat"}
   A.news = (A.news or 0) + 1
 end
 """
@@ -3391,19 +3414,38 @@ def treasure_auto_check() -> str:
     no map, no window — so the cost is one daemon round trip (~0.15 s with the daemon
     free) and nothing the game can notice.
 
-    True in two cases, and the second is the one that keeps it alive: an unfinished
-    target, or **no ear at all**. A client restart wipes the VM and with it the hook, and
-    a poll that only ever asked about targets would then wait for ever for a chest it
-    could not hear. So «nobody is listening» is itself work, and the errand's first step
-    is to arm.
+    True in three cases, and only the first is the obvious one:
+
+      * **an unfinished target** — a chest is queued and its next step is owed;
+      * **no ear at all** — a client restart wipes the VM and with it the hook, and a
+        poll that only ever asked about targets would then wait for ever for a chest it
+        could not hear. So «nobody is listening» is itself work, and the errand's first
+        step is to arm;
+      * **the map is due a lap** (#1296). The third door is not an ear: nothing tells the
+        client about a chest that is merely lying there, so unless the errand is run on
+        its own account every few minutes the lap never happens and an empty queue stays
+        empty for ever. This asks the SAME question the lap's own gate asks and does not
+        stamp anything — the run that follows is what decides and stamps.
     """
     return (
         "(function() "
-        "local W = DataCenter.__lw_treasure_watch "
-        "local A = DataCenter.__lw_treasure_auto "
+        "local D = DataCenter "
+        "local W = D.__lw_treasure_watch "
+        "local A = D.__lw_treasure_auto "
         "if A == nil or not A.on then return true end "
         "if W == nil or not W.hooked then return true end "
         "for _, t in ipairs(A.targets or {}) do if not t.done then return true end end "
+        "local cfg = D.__lw_treasure_scan_cfg or {} "
+        "local every = math.max(0, tonumber(cfg.every_sec) or "
+        + str(int(TREASURE_SCAN_EVERY_SEC)) + ") "
+        "if every > 0 then "
+        "local world = false "
+        "pcall(function() world = SceneUtils.GetIsInWorld() and true or false end) "
+        "local now = 0 pcall(function() "
+        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
+        "local last = tonumber(A.scan_at) or 0 "
+        "if world and now > 0 and (last <= 0 or now - last >= every * 1000) then "
+        "return true end end "
         "return false end)()"
     )
 
@@ -3519,6 +3561,14 @@ def treasure_auto_step() -> str:
         "for _, t in ipairs(A.targets or {}) do if not t.done then "
         "t.d = math.max(math.abs((tonumber(t.x) or 0) - hx), "
         "math.abs((tonumber(t.y) or 0) - hy)) "
+        # WHICH DOOR THIS CHEST CAME THROUGH, and how long ago — written into the note
+        # the report ends with, because «a chest was worked» is half an answer: the three
+        # doors fail in different ways (nobody shared it / the dig feed carries no tile /
+        # the lap has not come round yet), and a log that does not say which one let this
+        # chest in cannot tell a working door from a lucky one.
+        "t.tag = tostring(t.src or '?') "
+        "if (tonumber(t.at) or 0) > 0 and now > 0 then "
+        "t.tag = t.tag .. '/' .. tostring(math.floor((now - t.at) / 1000)) .. 's' end "
         "live[#live+1] = t end end "
         "table.sort(live, function(a, b) return (a.d or 0) < (b.d or 0) end) "
         # DID THE LAST CLAIM PAY? The only observable answer there is. A refused claim is
@@ -3536,22 +3586,25 @@ def treasure_auto_step() -> str:
         "local sent, claimed, waiting, expired, paid, notes = 0, 0, 0, 0, 0, {} "
         "local fi = 1 "
         "for _, t in ipairs(live) do "
-        # Written off: the chest's minutes on the map are long over.
-        "if now > 0 and (tonumber(t.at) or 0) > 0 and now - (tonumber(t.at) or 0) > ttl then "
+        # Written off: the chest's minutes on the map are over. `ttl` is the errand's own
+        # guess and `expire` is the MAP's answer — the chest's own deadline, read off
+        # `TreasurePointInfo.expireTime` by the lap — so whichever comes first wins.
+        "if now > 0 and (((tonumber(t.at) or 0) > 0 and now - (tonumber(t.at) or 0) > ttl) "
+        "or ((tonumber(t.expire) or 0) > 0 and now > tonumber(t.expire))) then "
         "t.done, t.why = true, 'expired' expired = expired + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':expired' "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':expired' "
         # The reward window came up shortly after our claim: THAT is the payment, and the
         # chest is spent here rather than on the strength of a send that returned cleanly.
         "elseif t.claimed and reward and now > 0 "
         "and now - (tonumber(t.claimed) or 0) <= paid_win then "
         "t.done, t.why, t.paid = true, 'paid', now paid = paid + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':paid' "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':paid' "
         "elseif t.claimed and (tonumber(t.tries) or 0) >= "
         + str(int(TREASURE_CLAIM_TRIES)) + " then "
         # Every try spent and no reward window after any of them. Written off with a word
         # that says what actually happened, because «claimed» would read as taken.
         "t.done, t.why = true, 'claim-unconfirmed' "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-unconfirmed' "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-unconfirmed' "
         # A CLAIM-ONLY target (see `harvest`): heard through the alliance's dig feed, so
         # there is no tile to march at and nothing to wait for. It goes straight to the
         # claim — which is the case that took the first live chest.
@@ -3559,15 +3612,15 @@ def treasure_auto_step() -> str:
         "local cooling = (t.claimed ~= nil and now > 0 "
         "and now - (tonumber(t.claimed) or 0) < retry) "
         "if cooling then waiting = waiting + 1 "
-        "notes[#notes+1] = 'claim-only:waiting' "
+        "notes[#notes+1] = t.tag .. ':claim-only-waiting' "
         "else "
         "t.tries = (tonumber(t.tries) or 0) + 1 "
         "local srv = (tonumber(t.server) or 0) ~= 0 and tonumber(t.server) or home_srv "
         "local ok, err = pcall(function() "
         "SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end) "
         "if ok then t.claimed = now claimed = claimed + 1 "
-        "notes[#notes+1] = 'claim-only:claim' .. tostring(t.tries) "
-        "else notes[#notes+1] = 'claim-only:threw:' .. tostring(err) end end "
+        "notes[#notes+1] = t.tag .. ':claim-only-claim' .. tostring(t.tries) "
+        "else notes[#notes+1] = t.tag .. ':claim-only-threw:' .. tostring(err) end end "
         "elseif t.sent then "
         # IS OUR SQUAD STILL OUT? The grace exists for a dig whose broadcast never
         # arrived — not for a squad still walking. A chest 300 tiles away outlasts any
@@ -3591,18 +3644,26 @@ def treasure_auto_step() -> str:
         "local ok, err = pcall(function() "
         "SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end) "
         "if ok then t.claimed = now claimed = claimed + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim' .. tostring(t.tries) "
-        "else notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-threw:' .. tostring(err) end "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim' .. tostring(t.tries) "
+        "else notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-threw:' .. tostring(err) end "
         "elseif cooling then waiting = waiting + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-sent-waiting' "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-sent-waiting' "
         "else waiting = waiting + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':' "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':' "
         ".. ((waited and marching) and 'still-marching' or 'digging') end "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
         "local f = free[fi] "
-        "if f == nil then notes[#notes+1] = 'x' .. tostring(t.d) .. ':no-free-squad' "
+        "if f == nil then notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':no-free-squad' "
+        # THE CAMERA DOES NOT HAVE TO BE ON THE CHEST — checked, because for a while it
+        # looked as though it did (#1296). A send with the camera elsewhere once produced
+        # nothing on the wire, and a send with the camera on the tile produced the message
+        # at once; the difference turned out to be the SQUAD, not the view. Measured again
+        # with the camera parked 500 tiles away and every squad genuinely free, the march
+        # went out exactly as before. What the client does drop in silence is a march for a
+        # formation that is already committed — and a squad whose march the server has not
+        # confirmed yet still reads free here, which is what the first reading caught.
         "else fi = fi + 1 "
         "local srv = tonumber(t.server) or home_srv "
         "local target = (srv ~= 0 and srv ~= home_srv) and "
@@ -3614,8 +3675,8 @@ def treasure_auto_step() -> str:
         # The squad's UUID rides with the target, not just its slot: the «is it still
         # walking?» test above asks about THIS squad's march, and a slot number cannot.
         "if ok then t.sent, t.squad, t.squad_uuid = now, f.slot, f.uuid sent = sent + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. ':squad' .. tostring(f.slot) "
-        "else notes[#notes+1] = 'x' .. tostring(t.d) .. ':march-threw:' .. tostring(err) end "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':squad' .. tostring(f.slot) "
+        "else notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':march-threw:' .. tostring(err) end "
         "end end end "
         # Prune what is finished, so the queue does not grow for the life of the client.
         "local keep = {} "
@@ -3629,6 +3690,12 @@ def treasure_auto_step() -> str:
         ".. ' empty=' .. tostring(dry) "
         ".. (A.asked and ' asked-for-army' or '') "
         ".. ' news=' .. tostring(A.news or 0) "
+        # …and what the SERVER last said no to, if it said anything. A claim it refuses
+        # answers with an `errorCode`, and a run that claimed and was refused otherwise
+        # reads as a run that did nothing at all.
+        ".. ((A.last_error and now > 0 and (tonumber(A.last_error_at) or 0) > 0 "
+        "and now - A.last_error_at < 60000) "
+        "and (' server-said=[' .. tostring(A.last_error) .. ']') or '') "
         ".. ' [' .. table.concat(notes, ' ') .. ']' "
         "A.did = sent + claimed "
         # How many claims went out THIS step, so the recipe knows whether it is worth
@@ -3671,6 +3738,387 @@ def treasure_auto_dump() -> str:
         "if #out == 0 then return 'no chest is queued (on=' "
         ".. tostring(A.on and 1 or 0) .. ', heard=' .. tostring(A.news or 0) .. ')' end "
         "return table.concat(out, ' ; ') end)()"
+    )
+
+
+# --- The third door: a sweep of the MAP itself -------------------------------
+# «Скрытые сокровища не собираются, если они просто на карте, даже если карту обновлять,
+# проверяется не то, должно сканироваться карта на предмет сокровищ, а не только
+# слушаться пуш шаринга.» The two doors above are both somebody TELLING the client about
+# a chest — the alliance chat share, which a player may simply never send, and the dig
+# broadcast, which carries a uuid and no tile. Neither of them looks at the map, so a
+# chest that is merely LYING there is invisible to both.
+#
+# WHAT «ОБНОВИТЬ» ASKS, AND WHY IT IS NOT THIS. The refresh on «Командный пункт» sends
+# `activity.detect.list` and reads `ActDetectTreasureDataManager` — the account's own
+# detect-event list, i.e. the chests THIS alliance's event placed. A chest another
+# alliance put out, or one this client was never told about, is not in that reply no
+# matter how often it is asked for. That is the «проверяется не то» exactly.
+#
+# AND THE MAP IS NOT READABLE OFF THE LUA WIRE. Measured live on 2026-08-08: with the
+# watcher in `wide` mode (it keeps every command), three jumps at height 600 produced no
+# `world.get.block` in the ring at all — only ordinary pushes. The map stream is decoded
+# on the C# side and never reaches `SFSNetwork.HandleMessage`, so no hook in Lua can hear
+# it and the pcap scanners (`tools/dev/treasure_capture.py`) exist for that reason.
+#
+# WHAT IS READABLE is the client's OWN point manager, which is what the zoom research
+# measured the map with (docs/research/map-sweep-zoom.md §2):
+#
+#     WS.PointManager:GetPointInfo(pid)   -- nil when the client does not know that tile
+#     info.PointType == 21               -- WorldPointType.TREASURE, the wire's `f2`
+#     info.uuid, info.serverId           -- read live off a neighbouring kind:
+#                                        -- HeroDispatchMissionPointInfo answers
+#                                        -- uuid=<19 digits> serverId=<n> cfgId=<n>
+#
+# …and its one limit is the whole design here: **it only holds what is in view**. Jump
+# away and the old tiles go back to unknown. So the scrape has to ride the sweep, one box
+# per waypoint, which is what this does — the waypoint list goes to the game's own timer
+# exactly as `fast_map_sweep` schedules it, and a second timer a moment behind each jump
+# reads the box that jump loaded.
+#
+# Measured on the live client (1000 × 1000 server, height 600, step 90): a 121 × 121 box
+# is **0.040 s** inside the VM, and the tile index needs no call at all —
+# `pid = y * size + x + 1` was checked against `SceneUtils.TilePosToIndex` at four
+# coordinates and agrees. The whole lap is that box times the waypoint count, spread over
+# the lap rather than spent in one place.
+
+#: How long after a waypoint's jump its box is read, and how long the camera then stands
+#: still — the two numbers that decide what a lap comes home with, and both are measured.
+#:
+#: A jump asks the server for its tiles and the point manager fills in ONE step: read live
+#: at two spots, the box was empty at 0.05 / 0.10 / 0.15 s and complete at 0.20–0.30 s
+#: (1250 and 319 tiles respectively), and no later reading added a single one. So the lag
+#: is a shade past the fill and the pause is a shade past the lag.
+#:
+#: **This is why a treasure lap is not the 6.5 s the plain sweep is.** `fast_map_sweep`
+#: moves the camera every 0.05 s because a pcap listener catches the replies whenever they
+#: land; a lap that READS the client has to be standing where it is looking. Measured: at
+#: 0.05 s a whole lap of 121 waypoints knew 2599 tiles in total — twenty a stop, against
+#: the 500–1250 a stop holds when it is given its quarter of a second.
+TREASURE_SCAN_LAG = 0.30
+
+#: …and the pause between two waypoints. 121 waypoints at this is about 48 s of camera,
+#: which is the honest price of reading the map out of the client rather than off a wire.
+TREASURE_SCAN_STEP_SEC = 0.40
+
+#: `WorldPointType.TREASURE` — the same number the wire calls `f2` and the pcap scanner
+#: filters on (docs/research/world-treasures.md).
+TREASURE_POINT_TYPE = 21
+
+#: How often the map is worth re-reading. A chest is out for MINUTES and the alliance
+#: digs it together, so the useful cadence is minutes — five of them here. The errand's
+#: own tick is ten seconds and hears the two announcement doors in that second; the lap
+#: is the door for a chest nobody announced, and it costs a camera that walks the whole
+#: server, so it is deliberately the slowest of the three.
+TREASURE_SCAN_EVERY_SEC = 300
+
+
+def treasure_scan_sweep(zoom: "int | None" = None, step: "int | None" = None,
+                        interval: "float | None" = None,
+                        server: "int | None" = None,
+                        lag: float = TREASURE_SCAN_LAG) -> str:
+    """One lap of the whole map that READS it — every `PointType 21` tile it passes.
+
+    The lap itself is `fast_map_sweep`'s: the waypoints are handed to the game's own
+    `TimerManager` in one call and walked inside the game, so nothing here is a round trip
+    per stop. What is added is a second timer per waypoint, `lag` behind the jump, which
+    reads the box that jump loaded out of `WorldScene.PointManager` and keeps the chests —
+    and a PAUSE, because a camera that has already left is a box that reads empty
+    (:data:`TREASURE_SCAN_LAG`).
+
+    The findings land in `DataCenter.__lw_treasure_scan.found`, keyed by uuid so a chest
+    seen from two overlapping boxes is one finding. Nothing is sent, nothing is claimed
+    and no window opens: the lap moves the camera and reads memory.
+
+    A lap can be disowned exactly as the plain sweep can — both share
+    `DataCenter.ActDispatchTaskDataManager.__lw_sweep_run`, so `fast_map_sweep_stop()`
+    stops this one too, and the scrapes check the same token before touching anything.
+
+    EVERY NUMBER CAN BE PARKED, because a `TAP` carries no arguments (`docs/dsl.md`) and
+    this is meant to be pressed by a recipe: `DataCenter.__lw_treasure_scan_cfg`
+    (`{zoom, step, every, lag, server}`) is read first and the arguments here are the
+    fallback for each one, so the same button works pressed bare.
+    """
+    height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
+    stride = max(1, int(FAST_STEP if step is None else step))
+    gap = max(0.0, float(TREASURE_SCAN_STEP_SEC if interval is None else interval))
+    where = str(int(server)) if server else current_server_expr()
+    return (FIND_WORLD_SCENE + '''
+local DC = DataCenter.ActDispatchTaskDataManager
+local S = {found = {}, n = 0, done = 0, tiles = 0, known = 0, chests = 0,
+           errs = 0, blind = 0}
+DataCenter.__lw_treasure_scan = S
+DC.__lw_sweep_run = (tonumber(DC.__lw_sweep_run) or 0) + 1
+local run = DC.__lw_sweep_run
+S.run = run
+local cfg = DataCenter.__lw_treasure_scan_cfg or {}
+local srv = tonumber(cfg.server) or 0
+if srv == 0 then srv = %s end
+local size = 1000
+pcall(function() size = WS.TileCount.x end)
+S.server = srv
+local height = tonumber(cfg.zoom) or %d
+local step = math.max(1, math.floor(tonumber(cfg.step) or %d))
+local gap = math.max(0, tonumber(cfg.every) or %f)
+local lag = math.max(0, tonumber(cfg.lag) or %f)
+local half = math.floor(step / 2)
+-- The box each waypoint reads. Half a step covers the strip between two neighbouring
+-- waypoints exactly; the margin is for the map's edge rows, where the axis stops short
+-- of the border.
+local box = half + 8
+local axis = {}
+local v = half
+while v < size do axis[#axis+1] = v v = v + step end
+local V3, tm = CS.UnityEngine.Vector3, TimerManager:GetInstance()
+-- One member at a time and each read guarded: a point info is a C# object whose class
+-- differs per kind, so a field the treasure class does not have would throw where a
+-- missing value is wanted instead.
+local function get(o, k)
+  local ok, v = pcall(function() return o[k] end)
+  if ok then return v end
+  return nil
+end
+local function scrape(cx, cy)
+  if DC.__lw_sweep_run ~= run then return end
+  -- THE SCENE IS LOOKED UP AGAIN, not held. A WorldScene is replaced whenever the world
+  -- is re-entered and a destroyed one answers `nil` to everything without throwing, so a
+  -- lap that captured it at the start would read an empty map in silence — which is
+  -- exactly what happened the first time this ran live (121 waypoints scheduled, 0 read).
+  local scene = _G.WS
+  local pm = scene and scene.PointManager
+  if pm == nil then S.blind = (S.blind or 0) + 1 return end
+  local x0, x1 = math.max(0, cx - box), math.min(size - 1, cx + box)
+  local y0, y1 = math.max(0, cy - box), math.min(size - 1, cy + box)
+  for ty = y0, y1 do
+    local base = ty * size + 1
+    for tx = x0, x1 do
+      local ok, info = pcall(function() return pm:GetPointInfo(base + tx) end)
+      if ok then
+        S.tiles = S.tiles + 1
+        -- HOW MANY OF THOSE THE CLIENT ACTUALLY KNEW, which is the difference between «no
+        -- chest on the map» and «the lap ran over a client nobody was answering». `tiles`
+        -- is only how many ids were asked about — it is the same number on a dead link.
+        if info ~= nil then S.known = S.known + 1 end
+        if info ~= nil and (tonumber(get(info, "PointType")) or -1) == %d then
+          local uuid = get(info, "uuid")
+          if uuid ~= nil and tostring(uuid) ~= "0" then
+            local key = tostring(uuid)
+            if S.found[key] == nil then
+              S.chests = S.chests + 1
+              -- `TreasurePointInfo`, read off the first chests ever scanned live
+              -- (2026-08-08): `uuid`, `serverId`, `allianceId`, `allianceAbbr`,
+              -- `expireTime`, `ownerUid`. Two of those matter here.
+              --
+              -- `ownerUid` is the wire's `f11.7` — the finisher — and it is READ AS A
+              -- HINT rather than as a verdict, which is the difference that matters.
+              -- Measured on the first live lap: 19 chests out of 19 carried it, and the
+              -- one of them this account could reason about (its own alliance's) answered
+              -- a claim with `errorCode 801348 — claim repeat`. So it does look like «this
+              -- chest has been worked», but no chest has ever been caught WITHOUT it, and
+              -- a gate needs a success recording (`CLAUDE.md`).
+              --
+              -- Read as a hint it cannot do harm: `dug` OPENS the claim, it does not close
+              -- the march — a target with no squad out still goes to the «new» branch and
+              -- marches first (see `treasure_auto_step`). Being wrong here costs one claim
+              -- that the server answers with a code the run now prints. Being wrong the
+              -- other way — writing a chest off as unworkable — would cost the chest.
+              --
+              -- `expireTime` is the chest's OWN deadline, in the game's milliseconds. It
+              -- beats any age the errand could keep: a chest is worked until the map
+              -- takes it away, and the map says when that is.
+              local who = tostring(get(info, "ownerUid") or "")
+              S.found[key] = {uuid = uuid, pid = base + tx, x = tx, y = ty,
+                              server = tonumber(get(info, "serverId")) or srv,
+                              expire = tonumber(get(info, "expireTime")) or 0,
+                              owner = who,
+                              alliance = tostring(get(info, "allianceId") or ""),
+                              dug = (who ~= "" and who ~= "0")}
+            end
+          end
+        end
+      else
+        S.errs = S.errs + 1
+      end
+    end
+  end
+  S.done = S.done + 1
+end
+local n = 0
+for row = 1, #axis do
+  local y = axis[row]
+  for col = 1, #axis do
+    local x = axis[(row %% 2 == 1) and col or (#axis - col + 1)]
+    n = n + 1
+    local at = (n - 1) * gap
+    tm:DelayInvoke(function()
+      if DC.__lw_sweep_run ~= run then return end
+      pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), height, 0, nil, srv) end)
+    end, at)
+    tm:DelayInvoke(function() pcall(scrape, x, y) end, at + lag)
+  end
+end
+S.n = n
+S.span = (n - 1) * gap + lag
+CS.UnityEngine.Debug.LogError("ACT treasure_scan n="..n.." zoom="..height.." step="..step
+  .." box="..box.." span="..string.format("%%.1f", S.span).." size="..tostring(size)
+  .." srv="..tostring(srv))
+''' % (where, height, stride, gap, float(lag), TREASURE_POINT_TYPE))
+
+
+def treasure_scan_state() -> str:
+    """Lua *expression* -> how far the lap has got and what it has found so far.
+
+    ``done=<n>/<n> chests=<n> tiles=<n> span=<s> errs=<n>`` — a reading, so a recipe can
+    say whether it waited long enough instead of assuming it did. `done` short of `n`
+    means the lap is still walking (or was stopped); `tiles` is how many point ids were
+    looked at, which is the difference between «no chest on the map» and «the point
+    manager answered nothing at all».
+    """
+    return (
+        "(function() local S = DataCenter.__lw_treasure_scan "
+        "if S == nil then return 'no lap has been run' end "
+        "local c = 0 for _ in pairs(S.found or {}) do c = c + 1 end "
+        "return 'done=' .. tostring(S.done or 0) .. '/' .. tostring(S.n or 0) "
+        ".. ' chests=' .. tostring(c) "
+        ".. ' tiles=' .. tostring(S.tiles or 0) "
+        ".. ' known=' .. tostring(S.known or 0) "
+        ".. ' blind=' .. tostring(S.blind or 0) "
+        ".. ' span=' .. string.format('%.1f', tonumber(S.span) or 0) "
+        ".. ' errs=' .. tostring(S.errs or 0) end)()"
+    )
+
+
+def treasure_scan_harvest() -> str:
+    """Turn what the lap found into targets of the auto errand — the third door.
+
+    THREE DOORS, ONE LIST. A chest that arrives twice is one target and keeps whichever
+    half of the truth each door has: the dig feed brings a uuid and no tile (`claim_only`),
+    and this brings the tile — so a target already queued without one is UPGRADED here
+    rather than duplicated, and stops being claim-only the moment a squad can be sent to
+    it. `A.seen` is not consulted for that: it remembers uuids the hook has already turned
+    into targets, and a chest still on the map is worth marching at whether or not the
+    hook heard of it first.
+
+    A CHEST BELONGS TO AN ALLIANCE, and this is where the lap earns its keep. The first
+    live lap found nineteen chests on the map and the account could take none of them:
+    the claims came back `errorCode 801354 — player not in same alliance`. A detect-event
+    treasure is placed by ONE alliance's event and dug by ITS members, so a chest whose
+    `allianceId` is not this player's is not a chest this player has, however plainly it
+    is drawn on the map. They are counted as `foreign=` and never queued — a march at one
+    spends a squad on a tile the server will not pay for.
+
+    Nothing is sent from here. The step that follows is the one that marches and claims.
+    """
+    return (
+        "local S = DataCenter.__lw_treasure_scan "
+        "local D = DataCenter "
+        "if not D.__lw_treasure_auto then D.__lw_treasure_auto = "
+        "{seen={}, targets={}, news=0} end "
+        "local A = D.__lw_treasure_auto "
+        "local now = 0 pcall(function() "
+        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
+        "if now <= 0 then pcall(function() "
+        "now = math.floor((tonumber(ChatInterface.getServerTime()) or 0) * 1000) end) end "
+        "local mine = '' "
+        "pcall(function() mine = tostring(LuaEntry.Player.allianceId or '') end) "
+        "local fresh, grown, known, foreign = 0, 0, 0, 0 "
+        "for key, f in pairs((S or {}).found or {}) do "
+        "if mine ~= '' and tostring(f.alliance or '') ~= '' "
+        "and tostring(f.alliance) ~= mine then foreign = foreign + 1 "
+        "else "
+        "local seen_here = nil "
+        "for _, t in ipairs(A.targets or {}) do "
+        "if tostring(t.uuid) == key then seen_here = t end end "
+        "if seen_here ~= nil then "
+        # The tile is the thing this door has and the others may not. A target parked by
+        # the dig feed carries a uuid and zeros; filling those in is what turns it from
+        # «claim it and hope» into «march on it».
+        "if (tonumber(seen_here.pid) or 0) == 0 then "
+        "seen_here.pid, seen_here.x, seen_here.y = f.pid, f.x, f.y "
+        "seen_here.server = tonumber(f.server) or seen_here.server "
+        "seen_here.claim_only = false "
+        "seen_here.src = tostring(seen_here.src or '?') .. '+scan' "
+        "grown = grown + 1 "
+        "else known = known + 1 end "
+        "else "
+        "A.seen = A.seen or {} A.seen[key] = A.seen[key] or now "
+        "A.targets = A.targets or {} "
+        "A.targets[#A.targets+1] = {uuid = f.uuid, pid = f.pid, x = f.x, y = f.y, "
+        "server = tonumber(f.server) or 0, at = now, src = 'scan', "
+        "expire = tonumber(f.expire) or 0, "
+        "dug = (f.dug and now or nil)} "
+        "A.news = (A.news or 0) + 1 "
+        "fresh = fresh + 1 end end end "
+        "local looked = tonumber((S or {}).tiles) or 0 "
+        "A.scan_at = now "
+        "A.scan_report = 'new=' .. tostring(fresh) .. ' upgraded=' .. tostring(grown) "
+        ".. ' already-queued=' .. tostring(known) "
+        ".. ' foreign=' .. tostring(foreign) "
+        ".. ' waypoints=' .. tostring((S or {}).done or 0) "
+        ".. '/' .. tostring((S or {}).n or 0) "
+        ".. ' tiles=' .. tostring(looked) "
+        ".. ' known=' .. tostring(tonumber((S or {}).known) or 0) "
+        ".. ' queued=' .. tostring(#(A.targets or {})) "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_scan_harvest " .. A.scan_report)'
+    )
+
+
+def treasure_scan_report() -> str:
+    """Lua *expression* -> the sentence the last harvest wrote."""
+    return ("(DataCenter.__lw_treasure_auto and "
+            "DataCenter.__lw_treasure_auto.scan_report "
+            "or 'no lap has been harvested')")
+
+
+def treasure_scan_ask(every_sec: int = TREASURE_SCAN_EVERY_SEC) -> str:
+    """Decide whether a lap is worth walking right now, and park the answer.
+
+    `DataCenter.__lw_treasure_scan_due` becomes `1` or `0`, which is what the recipe
+    reads: a `TAP` returns nothing, and the rule belongs here rather than copied into a
+    recipe where it would drift from this one.
+
+    Three questions, all local and all cheap, because this is asked on the errand's own
+    tick and a lap that cannot help must not cost one:
+
+      * is the client in the WORLD? The point manager belongs to the world scene, and a
+        lap started from the city would move the camera out from under whoever is
+        looking at their base;
+      * has `every_sec` passed since the last lap? A chest is out for minutes, so the
+        map is worth re-reading in minutes and not in seconds;
+      * is the client answering at all? Without the game's own clock there is no telling
+        one lap from the next, and a lap walked on a client that is loading is a camera
+        thrown across a map nobody is connected to.
+
+    A queue that already has chests in it is NOT a reason to skip: a chest placed a
+    minute ago is exactly what the lap is for, and the errand works several at once.
+
+    The period is `DataCenter.__lw_treasure_scan_cfg.every` when the recipe parked one,
+    and `every_sec` otherwise. **Deciding it is due STAMPS the clock**, so a tick that
+    asks twice does not walk two laps — and a lap that then fails to start still costs
+    the period rather than being retried every ten seconds.
+    """
+    return (
+        "local D = DataCenter "
+        "local cfg = D.__lw_treasure_scan_cfg or {} "
+        "local every = math.max(0, tonumber(cfg.every_sec) or "
+        + str(int(every_sec)) + ") "
+        "local world = false "
+        "pcall(function() world = SceneUtils.GetIsInWorld() and true or false end) "
+        "local now = 0 pcall(function() "
+        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
+        "local A = D.__lw_treasure_auto "
+        "local last = tonumber(A and A.scan_at) or 0 "
+        "local why = 'due' "
+        "local due = 1 "
+        "if not world then due, why = 0, 'not-in-world' "
+        "elseif now <= 0 then due, why = 0, 'no-game-clock' "
+        "elseif every <= 0 then due, why = 0, 'switched-off' "
+        "elseif last > 0 and now - last < every * 1000 then due, why = 0, "
+        "'last-lap-' .. tostring(math.floor((now - last) / 1000)) .. 's-ago' end "
+        "if due == 1 and A ~= nil then A.scan_at = now end "
+        "D.__lw_treasure_scan_due = due "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_scan_due " .. tostring(due) '
+        '.. " " .. why .. " every=" .. tostring(every))'
     )
 
 
