@@ -294,6 +294,8 @@
   "log.game.killing": "снимаю {exe}…",
   "log.game.launching": "запускаю игру рецептом launch_game…",
   "log.game.restarting": "перезапускаю клиент рецептом restart_game…",
+  "log.game.relaunch_busy": "«{name}» не запущен: клиент уже поднимает «{running}»",
+  "log.game.relaunch_settling": "«{name}» не запущен: клиент только что подняли — жду {secs} с, пока встанет",
   "log.game.quitting": "закрываю клиент рецептом quit_game…",
   "log.game.watchdog_hold": "вотчдог: перезапуск был {mins} мин назад — жду",
   "log.game.watchdog_relaunch": "вотчдог: поднимаю игру заново",

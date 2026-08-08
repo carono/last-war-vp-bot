@@ -12,6 +12,7 @@ in the profile's `panel.log` and `debug.log`.
 from __future__ import annotations
 
 import threading
+import time
 
 from .. import debug_log as dbgmod
 from .. import i18n as i18nmod
@@ -30,6 +31,23 @@ from .log import LogBus
 from .paths import LUA_DAEMON, REPO
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
+
+
+#: EVERY scenario that puts the client back. A relaunch may be in flight exactly once,
+#: whoever asked for it (:meth:`PanelRuntime._relaunch_lock`) — the watchdog, the
+#: recovery verdict, the `restart_game` errand and the buttons all come through
+#: `play_async`, which is why the lock can live there and cover all of them.
+#:
+#: A fifth way of putting the client back is one line here. `recover_from_kick` is in the
+#: set although nothing plays it yet (`docs/research/session-kick.md`): the day it is
+#: switched on it must already be inside the lock, not added to it afterwards.
+RELAUNCHES = frozenset({"launch_game", "restart_game", "recover_from_kick"})
+
+#: How long after a relaunch finishes the next one is still refused. A client told to
+#: start is not up yet, and the reading that triggered the first — «no process», «link
+#: down» — is still true for a detector looking a second later. Half a minute is longer
+#: than a launch takes to show a process and far shorter than any of the holds around it.
+RELAUNCH_SETTLE_SEC = 30.0
 
 
 class PanelRuntime:
@@ -102,6 +120,12 @@ class PanelRuntime:
         # object, and a second copy of that bookkeeping is a second answer waiting to
         # disagree with the first.
         self.recovery = RecoveryState()
+        # THE RELAUNCH LOCK (:meth:`_relaunch_lock`). Which relaunch scenario is running
+        # right now, and when the last one finished — the two facts that make «put the
+        # client back» a thing exactly one caller can be doing, whoever asks.
+        self._relaunching = ""
+        self._relaunch_at = 0.0
+        self._relaunch_at_lock = threading.Lock()
         # …and whether «Стоп всё» is holding this profile still, since when
         # (panel/runtime/panic.py). Both front-ends put a MARK on it: the one
         # line in the log that used to say it scrolls away, and a profile that
@@ -289,6 +313,73 @@ class PanelRuntime:
         return step_aside
 
     # -- pressing a scenario in the background ------------------------------
+    def _relaunch_lock(self, name: str, tag: str) -> bool:
+        """May a scenario that puts the client back start? One at a time, whoever asks.
+
+        FOUR THINGS RELAUNCH THIS CLIENT and they do not know about each other: the
+        process watchdog (`panel/__main__.py::_watchdog_check`), the recovery verdict
+        (`RESTARTS`), the `restart_game` errand on its clock, and a person's button in
+        the window or on the phone. Everything that kept them apart until now was
+        TIMING — a hold here, a cooldown there — and timing is exactly what fails on the
+        day it matters: a kicked account had six kicks in one morning, and each of them
+        is a moment when two detectors see the same «down» in the same second.
+
+        The claim below does not cover this. A claim is held for the length of a
+        scenario and released when it ends, so «launch_game finished» and «the client is
+        up» are different moments: the second detector takes the freed claim and
+        launches a client that is already starting. That is the relaunch war, and it is
+        won by arithmetic rather than by luck only if there is a lock.
+
+        So: while a relaunch scenario is running, another one is refused; and for
+        :data:`RELAUNCH_SETTLE_SEC` after one finishes, another is still refused,
+        because a client told to start is not up yet and the reading that started the
+        first is still true.
+
+        Refusals are SAID, never silent — a watchdog that quietly did nothing is the
+        thing this whole area keeps relearning (#1259, #1296). Anything that is not a
+        relaunch passes straight through and pays a dict lookup.
+        """
+        if name not in RELAUNCHES:
+            return True
+        now = time.monotonic()
+        with self._relaunch_at_lock:
+            busy = self._relaunching
+            if not busy:
+                since = now - self._relaunch_at
+                if self._relaunch_at and since < RELAUNCH_SETTLE_SEC:
+                    self.log.say(tag, "log.game.relaunch_settling",
+                                 name=name, secs=int(RELAUNCH_SETTLE_SEC - since))
+                    self.dbg("panel").info(
+                        "relaunch %s refused: %s finished %.1fs ago", name, "one",
+                        since)
+                    return False
+                self._relaunching = name
+                return True
+        # Somebody is already putting the client back. Say WHICH, because «занято» with
+        # no owner is how a person ends up restarting the panel to find out.
+        self.log.say(tag, "log.game.relaunch_busy", name=name, running=busy)
+        self.dbg("panel").info("relaunch %s refused: %s is already running", name, busy)
+        return False
+
+    def _relaunch_done(self, name: str, *, started: bool) -> None:
+        """Give the relaunch lock back.
+
+        Called from the run's `finally` when the scenario really ran, and from every
+        EARLY exit of :meth:`play_async` when it did not — a claim refused, an exception
+        before the thread starts. A lock taken and not given back is worse than no lock:
+        it would refuse every relaunch from then on, and the client would stay down for
+        good the first time something else happened to hold the game. `started` decides
+        whether the settle applies: a scenario that never ran left no client starting to
+        wait for.
+        """
+        if name not in RELAUNCHES:
+            return
+        with self._relaunch_at_lock:
+            if self._relaunching == name:
+                self._relaunching = ""
+            if started:
+                self._relaunch_at = time.monotonic()
+
     def play_async(self, name: str, args: dict | None = None, *, tag: str = "action",
                    cancel=None, on_start=None, on_done=None, on_result=None,
                    priority: int = claims.HUMAN) -> bool:
@@ -318,8 +409,18 @@ class PanelRuntime:
         tab's «Запустить», the shell relaunching the client, and the graphics switch
         reading back what it just set. It is the only place the claim, the thread and the
         log line are spelled out together.
+
+        AND IT IS WHERE THE RELAUNCH LOCK LIVES, for the same reason: it is the one door
+        every caller comes through. Four different things put a client back — the process
+        watchdog, the recovery verdict, the `restart_game` errand and a person's button —
+        and the claim below does NOT stop two of them going at once: a relaunch releases
+        the claim when its scenario ends, so a second detector a second later is a second
+        launch. See :meth:`_relaunch_lock`.
         """
         import threading
+
+        if not self._relaunch_lock(name, tag):
+            return False
 
         held = self.game.claim(tag, priority)
         if not held and not self.game.outranks(priority):
@@ -327,6 +428,9 @@ class PanelRuntime:
             # press, and asking them to step aside for an equal would only shuffle the
             # order of two things that both have to happen.
             self.log.say(tag, "busy")
+            # …and the relaunch lock goes straight back: nothing was started, so nothing
+            # is putting the client back and the next caller must not be refused.
+            self._relaunch_done(name, started=False)
             return False
         if not held:
             self.log.say(tag, "priority.ahead",
@@ -342,6 +446,9 @@ class PanelRuntime:
                 # it is inside a call into the game. Refusing is what the press did
                 # before this existed, and it is still the honest answer.
                 self.log.say(tag, "busy")
+                # Nothing was played, so the lock is given back WITHOUT a settle — there
+                # is no client starting up to wait for.
+                self._relaunch_done(name, started=False)
                 if on_result is not None:
                     self._on_tk(lambda: on_result(Outcome(False, self.t("busy"))))
                 if on_done is not None:
@@ -359,6 +466,10 @@ class PanelRuntime:
                 raised = str(exc)
                 self.log.put(f"[{tag}] {name}: error: {exc}")
             finally:
+                # The lock outlives the run by a settle: a client that has just been
+                # told to start is not up yet, and a detector looking a second later
+                # sees the same «down» that started this one.
+                self._relaunch_done(name, started=True)
                 # RELEASE FIRST, then hand the result over. A callback's whole point is
                 # often to start the NEXT scenario off what this one found — the graphics
                 # switch reads the picture and then changes it — and a result delivered

@@ -294,6 +294,8 @@
   "log.game.killing": "đang giết {exe}…",
   "log.game.launching": "khởi động trò chơi theo công thức launch_game…",
   "log.game.restarting": "khởi động lại ứng dụng khách theo công thức restart_game…",
+  "log.game.relaunch_busy": "«{name}» không chạy: «{running}» đang khởi động lại client rồi",
+  "log.game.relaunch_settling": "«{name}» không chạy: client vừa được khởi động — chờ {secs} giây",
   "log.game.quitting": "đóng ứng dụng khách theo công thức quit_game…",
   "log.game.watchdog_hold": "người gác: lần khởi động lại gần nhất cách đây {mins} phút — tôi chờ",
   "log.game.watchdog_relaunch": "người gác: khởi động trò chơi lần nữa",

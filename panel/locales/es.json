@@ -294,6 +294,8 @@
   "log.game.killing": "matando {exe}…",
   "log.game.launching": "arrancando el juego con la receta launch_game…",
   "log.game.restarting": "reiniciando el cliente con la receta restart_game…",
+  "log.game.relaunch_busy": "«{name}» no se ha lanzado: «{running}» ya está levantando el cliente",
+  "log.game.relaunch_settling": "«{name}» no se ha lanzado: el cliente acaba de levantarse — {secs} s de espera",
   "log.game.quitting": "cerrando el cliente con la receta quit_game…",
   "log.game.watchdog_hold": "vigía: el último reinicio fue hace {mins} min — espero",
   "log.game.watchdog_relaunch": "vigía: arranco el juego otra vez",

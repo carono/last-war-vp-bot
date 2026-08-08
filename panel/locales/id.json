@@ -294,6 +294,8 @@
   "log.game.killing": "mematikan {exe}…",
   "log.game.launching": "memulai permainan lewat resep launch_game…",
   "log.game.restarting": "memulai ulang klien lewat resep restart_game…",
+  "log.game.relaunch_busy": "«{name}» tidak dijalankan: «{running}» sudah menghidupkan klien",
+  "log.game.relaunch_settling": "«{name}» tidak dijalankan: klien baru saja dihidupkan — tunggu {secs} dtk",
   "log.game.quitting": "menutup klien lewat resep quit_game…",
   "log.game.watchdog_hold": "penjaga: mulai ulang terakhir {mins} mnt lalu — menunggu",
   "log.game.watchdog_relaunch": "penjaga: memulai permainan lagi",

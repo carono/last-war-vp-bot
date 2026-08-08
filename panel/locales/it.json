@@ -294,6 +294,8 @@
   "log.game.killing": "termino {exe}…",
   "log.game.launching": "avvio del gioco tramite la ricetta launch_game…",
   "log.game.restarting": "riavvio del client tramite la ricetta restart_game…",
+  "log.game.relaunch_busy": "«{name}» non avviato: «{running}» sta già rimettendo in piedi il client",
+  "log.game.relaunch_settling": "«{name}» non avviato: il client è appena ripartito — {secs} s di attesa",
   "log.game.quitting": "chiusura del client tramite la ricetta quit_game…",
   "log.game.watchdog_hold": "guardiano: l'ultimo riavvio è di {mins} min fa — aspetto",
   "log.game.watchdog_relaunch": "guardiano: riavvio il gioco",

@@ -294,6 +294,8 @@
   "log.game.killing": "{exe} öldürülüyor…",
   "log.game.launching": "oyun launch_game tarifiyle başlatılıyor…",
   "log.game.restarting": "istemci restart_game tarifiyle yeniden başlatılıyor…",
+  "log.game.relaunch_busy": "«{name}» başlatılmadı: «{running}» istemciyi zaten geri getiriyor",
+  "log.game.relaunch_settling": "«{name}» başlatılmadı: istemci az önce açıldı — {secs} sn bekleniyor",
   "log.game.quitting": "istemci quit_game tarifiyle kapatılıyor…",
   "log.game.watchdog_hold": "bekçi: son yeniden başlatma {mins} dk önceydi — bekliyorum",
   "log.game.watchdog_relaunch": "bekçi: oyunu yeniden başlatıyorum",

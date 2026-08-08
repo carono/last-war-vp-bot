@@ -294,6 +294,8 @@
   "log.game.killing": "beende {exe}…",
   "log.game.launching": "starte das Spiel über das Rezept launch_game…",
   "log.game.restarting": "starte den Client über das Rezept restart_game neu…",
+  "log.game.relaunch_busy": "«{name}» nicht gestartet: «{running}» stellt den Client bereits wieder her",
+  "log.game.relaunch_settling": "«{name}» nicht gestartet: der Client wurde gerade hochgefahren — noch {secs} s",
   "log.game.quitting": "schließe den Client über das Rezept quit_game…",
   "log.game.watchdog_hold": "Wächter: der letzte Neustart war vor {mins} min — warte",
   "log.game.watchdog_relaunch": "Wächter: starte das Spiel erneut",

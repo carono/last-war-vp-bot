@@ -294,6 +294,8 @@
   "log.game.killing": "killing {exe}…",
   "log.game.launching": "starting the game through the launch_game recipe…",
   "log.game.restarting": "restarting the client through the restart_game recipe…",
+  "log.game.relaunch_busy": "«{name}» not started: «{running}» is already putting the client back",
+  "log.game.relaunch_settling": "«{name}» not started: the client was put back a moment ago — {secs} s to settle",
   "log.game.quitting": "closing the client through the quit_game recipe…",
   "log.game.watchdog_hold": "watchdog: the last relaunch was {mins} min ago — waiting",
   "log.game.watchdog_relaunch": "watchdog: starting the game again",

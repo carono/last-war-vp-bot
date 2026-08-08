@@ -294,6 +294,8 @@
   "log.game.killing": "zabijam {exe}…",
   "log.game.launching": "uruchamiam grę przepisem launch_game…",
   "log.game.restarting": "restartuję klienta przepisem restart_game…",
+  "log.game.relaunch_busy": "«{name}» nie uruchomiony: «{running}» już podnosi klienta",
+  "log.game.relaunch_settling": "«{name}» nie uruchomiony: klient dopiero wstał — {secs} s oczekiwania",
   "log.game.quitting": "zamykam klienta przepisem quit_game…",
   "log.game.watchdog_hold": "stróż: ostatni restart był {mins} min temu — czekam",
   "log.game.watchdog_relaunch": "stróż: uruchamiam grę ponownie",
