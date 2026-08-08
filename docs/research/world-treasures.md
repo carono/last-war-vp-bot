@@ -649,3 +649,72 @@ wire says nothing either way.
 **Still unproven: a live chest.** No detect event was running during the work, so the
 march and the claim have never gone out at a real target from this path — the farming
 list stays 🟡 until one has.
+
+## An incoming message is a plain Lua table — the blank that was not a blank
+
+Caught on the first live chest, and it belongs beside the dead poll of
+`docs/research/session-kick.md` («a reading that cannot tell nothing from could not
+read») because it is the same class of fault.
+
+An OUTGOING message is an `SFSObject` and answers `SFSObject.GetKeys`. An INCOMING one,
+by the time `SFSNetwork.HandleMessage` sees it, is a **bare Lua table** that answers
+nothing. Probed live on 2026-08-08 against a real `push.detect.treasure.claim`:
+
+```
+KEYS[]                       -- SFSObject.GetKeys + GetData: nothing
+PAIRS[operator=table uuid=…] -- plain pairs(obj): everything
+```
+
+Two consequences, both of which had been true since the day each shipped:
+
+* **the ring buffer wrote `f=""` on every push it ever caught** (#1277). That blank reads
+  as «the message carried no fields», and it is not: it is a trace of a reader that could
+  not read. Anybody analysing the feed would have concluded the pushes were empty;
+* **the dig gate could never fire.** The harvest read the uuid with
+  `SFSObject.GetData(obj, "uuid")` — `nil`, always — so «the alliance says this chest is
+  dug» never arrived and every chest would have waited out the full grace instead. The
+  fallback covered it, which is exactly why nothing would have looked broken.
+
+Both readers now try the accessor first and fall back to walking the table. Confirmed live
+on the same chest, before and after the fix: `f=""` became
+`f="operator={...} uuid=…"` on the very next broadcast.
+
+**The lesson, one sentence:** an empty field is not a fact about the message until the
+reader is above suspicion — read it a second way, or make the value non-empty on purpose
+and see whether it arrives.
+
+## The share is a PLAYER's action, so there may be no announcement at all
+
+The design leaned on «somebody shares the chest into alliance chat», and the first live
+chest showed that door can simply stay shut: **twenty minutes of the alliance digging and
+not one `world.treasure.share.chat` crossed the wire.** A share is a thing a person does,
+and this time nobody did it. An errand listening only for the announcement would have sat
+through the whole event.
+
+What arrived instead, over and over, was `push.detect.treasure.claim` — one per member
+finishing their part — and it carries the uuid. That is:
+
+* **enough to CLAIM** (`detect.event.claim.treasure {uuid, targetServer}`);
+* **not enough to march** — there is no tile in it.
+
+Which is exactly the state the chest was in by the time anybody looked: already dug, only
+the gift left. A claim sent by hand off that uuid raised `UIGiftPackageRewardGet` on the
+first try and the player confirmed the haul.
+
+So the dig feed is the SECOND door into the errand: a uuid nobody has seen before becomes
+a `claim_only` target — dug on arrival, no tile, no squad — and the step claims it without
+pretending a march went out. A chest that came through BOTH doors stays one target and
+keeps its tile, so shared ones are still marched at. Proven live by the bot on 2026-08-08:
+`news=1 … claim-only:claim1` off a broadcast nothing else in the panel had asked for.
+
+## Live acceptance, 2026-08-08 — what is proven and what is not
+
+| step | state |
+|---|---|
+| the gift is CLAIMED and the reward window comes up | **confirmed** — claim at 11:15:06, `reward_window=true`, player: «Сбор успешен!» |
+| the reward window is closed by the panel | **confirmed** — `dismiss_treasure_reward` at 11:15:29, `reward_window_after=false`; nothing left on the stack afterwards |
+| the «payment = reward window within seconds» gate | **confirmed** on a real chest — it was designed blind and held |
+| a chest with no announcement is still heard and claimed | **confirmed**, by the bot |
+| **the BOT sending the dig march** | **NOT confirmed.** The chest was already dug by the time of the test («осталось только собрать»), and the march on it was sent by the player — visible in the ring as `world.march.formation.new a2=50 a3=<uuid> a4=<base>;<tile>`. The CALL SHAPE is confirmed; the bot sending it is not. |
+
+The farming lists stay 🟡 for that reason, until a chest arrives that still needs digging.

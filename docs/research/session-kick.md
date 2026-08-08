@@ -357,6 +357,32 @@ and the whole round trip through a real Lua.
 check it by forcing the condition rather than by reading logs — the logs of a broken poll
 and an idle one are the same.
 
+## THE CLASS BEHIND IT: a reading that cannot tell «nothing» from «could not read»
+
+Both of this task's worst bugs are one shape, and it is worth naming once so the next
+person recognises it in a third place:
+
+* **the poll** wrote nothing when its check said no — and nothing when it had never run.
+  «Quiet» and «dead» were byte-identical, so the fault was invisible for weeks
+  (this note, above);
+* **the treasure ring** (#1277) recorded `f=""` on every push it ever caught, and that
+  blank read as «the message carried no fields». It was not: the reader was wrong. An
+  INCOMING message is a plain Lua table, and `SFSObject.GetKeys` — which the ring used —
+  answers nothing at all for one. So the field list was empty for the same reason a broken
+  poll is quiet: the code could not read, and said «nothing» in exactly the words it uses
+  for a real nothing (`docs/research/world-treasures.md`). It cost the dig gate: the
+  harvest read the uuid with `SFSObject.GetData` and got `nil` for every broadcast there
+  has ever been.
+
+**An empty value is not evidence until the reader is above suspicion.** Both cases had a
+line in the log that LOOKED like a reading and was a trace of a failed read, and in both
+the reasonable-looking conclusion — «the poll is fine, nothing is happening» / «the push
+carried nothing» — was the wrong one for months. So when a field comes back empty, doubt
+the reader before you doubt the game: read the same thing a second way (walk the table as
+well as asking the accessor), or force the value to be non-empty and see whether it
+arrives. A reading that cannot distinguish «no» from «I could not tell» must say which —
+that is what the poll's trace and the ring's two-way field read now do.
+
 ### Everything that was affected, by name
 
 Poll triggers are the only users of `Schedule.poll`, and there have only ever been two.
@@ -384,3 +410,50 @@ The practical consequence for whoever picks this up: **two mechanisms are aimed 
 same event**, and only one of them was ever working. Now that the poll runs, they will
 both act on the next kick. That wants deciding — not by an agent in passing — and until it
 is decided, `session_kick` stays off by default, which is how it ships.
+
+### What was decided (2026-08-08), and what is left
+
+Decided by the person, on a live account that had been kicked six times that morning:
+**one executor for the act, and it is the proven one.**
+
+1. **One relaunch at a time, by construction rather than by timing.** Four things put this
+   client back — the process watchdog, this module's verdict, the `restart_game` errand and
+   a person's button — and everything that kept them apart was a hold or a cooldown. The
+   claim does not help: it is released when a scenario ends, and «`launch_game` finished»
+   is not «the client is up», so the next detector takes the freed claim and launches a
+   client that is already starting. The lock now sits at the one door they all come
+   through, `PanelRuntime.play_async`, over the named set `RELAUNCHES` — which already
+   includes `recover_from_kick`, so the day it is switched on it is inside the lock rather
+   than added to it afterwards. `tests/test_panel_relaunch_lock.py`.
+2. **`recovery.py` stays the executor.** It has done the job fourteen times live; the
+   trigger has never done it once. Swapping them on a hot account, blind, was refused —
+   correctly.
+3. **The backoff moved here** (`KICK_HOLD_STEP_SEC`, `KICK_HOLD_MAX_SEC`,
+   `KICK_STABILITY_SEC`): 15 → 30 → 45 min while the kicks keep coming back within ten
+   minutes of a restart, and back to the profile's own hold once a session finally holds
+   that long. Measured from `note_kick_restart` — the moment the client was PUT BACK —
+   because the question is «did the session hold», not «how long between two readings».
+   That is the one piece of the trigger that carried real value and had never applied to
+   anything.
+4. **Still open: making `recover_from_kick` the act.** The scenario is the right shape — a
+   press, in one file, played by whoever needs it — and it has never been played by the
+   panel at all. The order of work, which is not this task's:
+   * prove it live: it acknowledges the modal and the client comes back;
+   * only then does `recovery.py` stop acting for itself, so there is never a day with two
+     executors again;
+   * the lock already covers it, so that step cannot reintroduce a double relaunch.
+
+Until that is done, `session_kick` may be left ON as a poll that **observes and carries
+the escalation** while `recovery.py` acts — which is what the profile it was tested on has
+now.
+
+### The clock trap, paid for in the same hour
+
+`Recovery` is handed `time.time()` by the poll, and the first version of
+`note_kick_restart` was called with `time.monotonic()`. Subtracting one from the other
+makes every difference look like hours, so **every kick would have read as a fresh
+incident and the escalation would silently never have escalated** — a third instance, in
+one task, of the same class as the two comparisons below: both ends of a comparison have
+to be in the same units, and nothing tells you when they are not.
+`test_the_panel_stamps_the_kick_restart_with_the_clock_recovery_uses` fails on a
+monotonic stamp, verified by putting one back.

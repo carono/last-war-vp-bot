@@ -3655,6 +3655,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
             return
         self._say("game", key, **fmt)
         if key in runtime.recovery.RESTARTS:
+            # A KICK RESTART STARTS THE STABILITY CLOCK (#1296). The escalating wait —
+            # 15 → 30 → 45 min while the account keeps being taken back — is measured
+            # from the moment the client was put back, because the question it answers is
+            # «did the session hold?». `Recovery` decides and says; it never restarts
+            # anything, so the moment has to be handed to it from here.
+            # `time.time()`, because that is the clock every other reading in this module
+            # hands `Recovery` (`now = time.time()` in the poll above). A monotonic stamp
+            # here would be compared against an epoch one and the difference would always
+            # look like hours — every kick a fresh incident, the escalation never
+            # escalating. Same shape as the two case-flipped comparisons this task already
+            # found: both ends of a comparison must be in the same units.
+            if key in runtime.recovery.KICK_ACTS:
+                self._rt.recovery.note_kick_restart(time.time())
             self._rt.play_async("restart_game")
         elif key in runtime.recovery.DAEMON_RESTARTS:
             # THE SAME METHOD THE «⭮» BUTTON PRESSES, deliberately — the cure already

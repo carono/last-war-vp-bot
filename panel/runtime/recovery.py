@@ -201,6 +201,28 @@ KICK_STRIKES = 2
 #: types it instead of editing this.
 KICK_HOLD_SEC = 900.0
 
+#: How much each kick that comes straight back ADDS to the wait, and how far it may grow.
+#:
+#: 15 → 30 → 45 MINUTES, and this is a policy that already existed and was never once
+#: applied. It was written into the `session_kick` poll trigger (`panel/triggers.py`,
+#: `BackoffPolicy`, #1142) — and no poll trigger had ever fired, because the marker was
+#: matched against itself lowered (#1296). So for as long as it has existed, every kick
+#: has drawn the same fifteen minutes, however many of them there were.
+#:
+#: It belongs HERE because this module is the one that acts. The person's own words were
+#: about the fifteen minutes, and the reasoning is unchanged from the trigger's: somebody
+#: is holding the account, and an account that keeps being taken back is an account two
+#: clients are fighting over. Each round of that fight should cost more patience than the
+#: last, and the escalation should be forgotten once a session finally holds.
+KICK_HOLD_STEP_SEC = 900.0
+KICK_HOLD_MAX_SEC = 2700.0
+
+#: A kick this long or longer after the last one is a FRESH incident: the wait goes back
+#: to :data:`KICK_HOLD_SEC`. Ten minutes — long enough that a session which held that
+#: long was genuinely this client's, short enough that an evening of separate kicks is
+#: not treated as one escalating fight.
+KICK_STABILITY_SEC = 600.0
+
 #: Errands that tried a counted press and fired NOTHING, before the panel says so.
 #:
 #: «Успешно ничего» is what the fifth form of this failure looks like from the log
@@ -228,7 +250,8 @@ class Recovery:
     __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_daemon_last", "_daemon_restarts", "_daemon_held",
                  "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said",
-                 "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held")
+                 "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held",
+                 "_kick_wait", "_kick_acted")
 
     def __init__(self) -> None:
         #: Consecutive `lost` readings so far.
@@ -285,6 +308,14 @@ class Recovery:
         #: Whether the current wait has already been said, so it is one line and a
         #: counter on the strip rather than a line every eight seconds.
         self._kick_held = False
+        # THE ADAPTIVE PART OF THE WAIT (#1296). `_kick_wait` is what the NEXT kick will
+        # be given — `kick_hold_sec` for a fresh incident, a step more for each kick that
+        # comes straight back, capped. `_kick_acted` is when this client was last put back
+        # because of a kick, which is what «straight back» is measured from: the question
+        # is whether the session HELD, and that is time after the restart rather than time
+        # between two readings.
+        self._kick_wait = 0.0
+        self._kick_acted = 0.0
 
     # -- reading -------------------------------------------------------------
     @property
@@ -458,7 +489,7 @@ class Recovery:
         # whoever wants the old behaviour back — that is what a setting is for.
         if kicked and not self._kick_armed:
             self._kick_armed = True
-            self._kick_until = now + max(0.0, self.kick_hold_sec)
+            self._kick_until = now + self._kick_next_wait(now)
             self._kick_held = False
         left = self.kick_hold_left(now)
         if left > 0:
@@ -554,8 +585,55 @@ class Recovery:
             return (ACT_KICK, {})
         return (ACT, {"secs": STRIKES * 8})
 
+    def _kick_next_wait(self, now: float) -> float:
+        """How long THIS kick is given — 15 → 30 → 45 min while they keep coming back.
+
+        The policy the `session_kick` trigger carried and never once applied: no poll
+        trigger had ever fired (#1296), so every kick there has ever been drew the same
+        fifteen minutes however many of them there were. It lives here now, in the module
+        that actually acts.
+
+        Measured from the last time this client was PUT BACK because of a kick, not from
+        the last reading — the question is «did the session hold?», and that is time after
+        the restart. A kick sooner than :data:`KICK_STABILITY_SEC` after one is the same
+        fight returning and costs a step more patience, capped at :data:`KICK_HOLD_MAX_SEC`;
+        a kick later than that is a fresh incident and goes back to the profile's own
+        `kick_hold_sec`.
+
+        Zero disarms everything, exactly as before: a person who sets the hold to nothing
+        gets no wait and no escalation either.
+        """
+        base = max(0.0, self.kick_hold_sec)
+        if base <= 0:
+            self._kick_wait = 0.0
+            return 0.0
+        if not self._kick_acted or (now - self._kick_acted) >= KICK_STABILITY_SEC:
+            self._kick_wait = base
+        else:
+            grown = (self._kick_wait or base) + KICK_HOLD_STEP_SEC
+            self._kick_wait = min(grown, max(base, KICK_HOLD_MAX_SEC))
+        return self._kick_wait
+
+    def note_kick_restart(self, now: float) -> None:
+        """The client was just put back BECAUSE of a kick — start the stability clock.
+
+        Called by whoever carries the act out, beside its own bookkeeping: this module
+        decides and says, it never restarts anything itself, so it cannot know the moment
+        on its own. Without this call the escalation never escalates — every kick would
+        look like a fresh incident — which is precisely the shape the unapplied policy
+        had.
+        """
+        self._kick_acted = now
+
     def _kick_clear(self) -> None:
-        """Forget the current kick episode — its wait, and that it had one."""
+        """Forget the current kick episode — its wait, and that it had one.
+
+        The ESCALATION is deliberately not cleared here: this runs when the client comes
+        back online, and «the client is up» is not yet «the session held». What forgets the
+        escalation is time — :data:`KICK_STABILITY_SEC` of it, measured in
+        :meth:`_kick_next_wait` — because that is the only evidence that the other device
+        has actually let go.
+        """
         self._kick_until = 0.0
         self._kick_armed = False
         self._kick_held = False
@@ -688,6 +766,13 @@ SAY_BARREN = "log.game.barren"
 #: deaf from 22:48 to 23:07, when it finally died on its own and the process watchdog —
 #: the other half — picked it up. A third act is one line here and works everywhere.
 RESTARTS = frozenset({ACT, ACT_KICK})
+
+#: …and the subset that means «this restart is because the account was TAKEN». Asked as a
+#: set for the same reason as above: `key == ACT` is what once left a kicked client
+#: announced and never restarted, and a caller comparing against one constant is a caller
+#: that will be wrong the day a second kick act appears. What hangs off it is the
+#: escalating wait — see `Recovery.note_kick_restart`.
+KICK_ACTS = frozenset({ACT_KICK})
 
 #: …and every answer that means «restart the DAEMON now». Kept as its own set for the
 #: same reason the other one exists rather than as an `if key == …`: the two acts arrive

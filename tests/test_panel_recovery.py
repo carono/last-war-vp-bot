@@ -1069,6 +1069,109 @@ def test_both_its_sentences_are_in_every_shipped_locale():
         assert not missing, f"{path.name}: {missing}"
 
 
+# ---------------------------------------------------------------------------
+# the kick wait GROWS while the account keeps being taken back — #1296
+# ---------------------------------------------------------------------------
+def _kicked_wait(r, now: float) -> int:
+    """Arm a kick at `now` and return the wait it was given, in seconds.
+
+    `KICK_STRIKES` readings, not one: a single unlucky poll may not cost a quarter of an
+    hour of farming any more than it may cost a restart.
+    """
+    said = None
+    for i in range(rec.KICK_STRIKES):
+        said = r.note(game_link.LOST, now - (rec.KICK_STRIKES - 1 - i), idle_sec=None,
+                      kicked=True)
+    assert said is not None, "a kick must say something"
+    return r.kick_hold_left(now)
+
+
+def test_the_kick_wait_grows_while_the_kicks_keep_coming_back():
+    """15 -> 30 -> 45 minutes. The policy was written for the `session_kick` trigger and
+    never once applied — no poll trigger had ever fired (#1296) — so every kick there has
+    ever been drew the same fifteen minutes however many of them there were.
+
+    Measured from the RESTART, not from the reading: the question is «did the session
+    hold», and that is time after the client was put back.
+    """
+    r = rec.Recovery()
+    now = 1_000_000.0
+    first = _kicked_wait(r, now)
+    assert first == int(rec.KICK_HOLD_SEC), first
+
+    r.note_kick_restart(now + 60)              # the client was put back…
+    r.note(game_link.ONLINE, now + 90)         # …came up…
+    second_at = now + 120                      # …and was taken again straight away
+    second = _kicked_wait(r, second_at)
+    assert second == int(rec.KICK_HOLD_SEC + rec.KICK_HOLD_STEP_SEC), second
+
+    r.note_kick_restart(second_at + 60)
+    r.note(game_link.ONLINE, second_at + 90)
+    third_at = second_at + 120
+    third = _kicked_wait(r, third_at)
+    assert third == int(rec.KICK_HOLD_MAX_SEC), third
+
+    #: …and it stops there rather than growing all night
+    r.note_kick_restart(third_at + 60)
+    r.note(game_link.ONLINE, third_at + 90)
+    assert _kicked_wait(r, third_at + 120) == int(rec.KICK_HOLD_MAX_SEC)
+
+
+def test_a_session_that_held_forgets_the_escalation():
+    """The escalation is the memory of a FIGHT, and a fight that is over must be
+    forgotten: an evening with two unrelated kicks in it is not one escalating incident."""
+    r = rec.Recovery()
+    now = 1_000_000.0
+    _kicked_wait(r, now)
+    r.note_kick_restart(now + 60)
+    r.note(game_link.ONLINE, now + 90)
+    later = now + 60 + rec.KICK_STABILITY_SEC + 1        # the session held
+    assert _kicked_wait(r, later) == int(rec.KICK_HOLD_SEC)
+
+
+def test_coming_back_online_does_not_by_itself_forget_the_escalation():
+    """«The client is up» is not «the session held». Clearing the escalation on the first
+    online reading would reset it seconds after every relaunch, which is the same as not
+    having one at all."""
+    r = rec.Recovery()
+    now = 1_000_000.0
+    _kicked_wait(r, now)
+    r.note_kick_restart(now + 60)
+    for step in (70, 80, 90, 100):
+        r.note(game_link.ONLINE, now + step)
+    assert _kicked_wait(r, now + 120) == int(rec.KICK_HOLD_SEC + rec.KICK_HOLD_STEP_SEC)
+
+
+def test_a_zero_hold_disarms_the_escalation_too():
+    """A person who sets the hold to nothing wants the old behaviour back — no wait, and
+    therefore no escalating wait either."""
+    r = rec.Recovery()
+    r.kick_hold_sec = 0.0
+    now = 1_000_000.0
+    r.note(game_link.LOST, now, idle_sec=None, kicked=True)
+    assert r.kick_hold_left(now) == 0
+    r.note_kick_restart(now + 5)
+    r.note(game_link.LOST, now + 10, idle_sec=None, kicked=True)
+    assert r.kick_hold_left(now + 10) == 0
+
+
+def test_the_panel_stamps_the_kick_restart_with_the_clock_recovery_uses():
+    """Both ends of that comparison must be in the same units. The poll hands `Recovery`
+    `time.time()`; a `time.monotonic()` stamp here would be subtracted from an epoch one,
+    every difference would look like hours, and every kick would read as a fresh incident
+    — the escalation silently never escalating. Same shape as the two case-flipped
+    comparisons this task already found, which is why it is pinned rather than trusted."""
+    import re
+
+    source = (Path(__file__).resolve().parent.parent
+              / "panel" / "__main__.py").read_text(encoding="utf-8")
+    stamp = re.search(r"note_kick_restart\((.*?)\)\s*$", source, re.M)
+    assert stamp is not None, "the panel no longer stamps a kick restart"
+    assert stamp.group(1).strip() == "time.time()", stamp.group(1)
+    #: …and the act it hangs off is asked as a SET, never compared to one constant
+    assert "runtime.recovery.KICK_ACTS" in source, "the kick act is not asked as a set"
+
+
 def _main() -> int:
     if rec is None:
         print(f"  SKIP the runtime package will not import here: {_WHY}")
