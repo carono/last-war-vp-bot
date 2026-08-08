@@ -84,6 +84,36 @@ TEMPLATE_FILE = paths.TRIGGERS_TEMPLATE
 # the two processes agree on this string and nothing else.
 FIRE_MARKER = "##TRIGGER##"
 
+# The marker a POLL trigger's check answers under, and the two halves of reading it.
+# They live together, in this Tk-free module, because they were apart: the chunk was
+# built in `panel/runtime/schedule.py` and its answer matched there too, with the needle
+# spelled in capitals against a haystack that had been lowered — so `poll` returned False
+# for every reading the game could give and NO poll trigger had ever fired (#1296). A
+# contract that is one string in two places is a contract nothing can test.
+POLL_MARKER = "TRIGCHK"
+
+
+def poll_chunk(check: str) -> str:
+    """The Lua a poll trigger's ``check`` is asked with — one line, one answer.
+
+    The expression is wrapped in a `pcall` so a check that throws reads as «no» rather
+    than taking the watch down, and the answer is logged under :data:`POLL_MARKER`.
+    """
+    return ('local ok, v = pcall(function() return %s end) '
+            'CS.UnityEngine.Debug.LogError("%s=" .. tostring(ok and v and true or false))'
+            % (check, POLL_MARKER))
+
+
+def poll_said_yes(lines) -> bool:
+    """Did the check come back true? The other half of :func:`poll_chunk`.
+
+    Case-insensitive on BOTH sides on purpose: the daemon hands the log line back as the
+    client wrote it, and a comparison that lowers only one of them is false for every
+    input there is — which is exactly the bug this pair was extracted to make testable.
+    """
+    needle = POLL_MARKER.lower() + "=true"
+    return any(needle in str(line).lower() for line in (lines or ()))
+
 
 # The two ways a trigger can watch for its moment. A *wire* trigger listens for a
 # command on the traffic (a listener child); a *poll* trigger asks the game's own Lua

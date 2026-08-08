@@ -609,18 +609,24 @@ class Schedule:
         # every poll through and every check would fail as «the game said nothing».
         if not self.rt.game.ready():
             return False
-        chunk = ('local ok, v = pcall(function() return %s end) '
-                 'CS.UnityEngine.Debug.LogError("TRIGCHK=" .. tostring(ok and v and true or false))'
-                 % trigger.check)
+        # The chunk and the reading of its answer are ONE contract and live together in
+        # `panel/triggers.py`. They used to be two strings in this method, and the needle
+        # was spelled in the marker's capitals against a haystack that had been lowered —
+        # `"TRIGCHK=true" in "trigchk=true"` is False for every reading there can be — so
+        # `session_kick` and the treasure errand both polled a game answering `TRIGCHK=
+        # true` and both read it as «nothing to do», for as long as they had existed
+        # (#1296). Nothing in the logs said so: a poll that does not fire writes nothing,
+        # which is exactly what a quiet minute looks like.
         try:
             # `early`: the check answers itself in one line, and this runs on a timer in
             # the background — the settle it used to sit out was held with the daemon's
             # lock, in front of whatever the person pressed next (#1230, #1232).
-            lines = self.rt.game.evaluator().run(chunk, marker="TRIGCHK", settle=0.6,
-                                                 early=True)
+            lines = self.rt.game.evaluator().run(
+                triggersmod.poll_chunk(trigger.check),
+                marker=triggersmod.POLL_MARKER, settle=0.6, early=True)
         except Exception:                       # noqa: BLE001 — a bad read is not a kick
             return False
-        return any("TRIGCHK=true" in ln.lower() for ln in (lines or []))
+        return triggersmod.poll_said_yes(lines)
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> None:

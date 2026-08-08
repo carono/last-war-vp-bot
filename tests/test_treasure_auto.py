@@ -600,6 +600,58 @@ def test_a_run_with_a_squad_does_not_ask_for_an_army():
     assert "asked-for-army" not in report, report
 
 
+def test_the_poll_marker_is_read_back_the_way_the_game_writes_it():
+    """THE BUG THIS ERRAND WAS BLOCKED BY, and it was not in this errand.
+
+    A poll trigger's check is asked with a chunk that logs `TRIGCHK=true|false`, and the
+    reading of that line lowered the haystack while spelling the needle in the marker's
+    own capitals — `"TRIGCHK=true" in "trigchk=true"` is False for every reading there
+    can be. So `Schedule.poll` answered «nothing to do» to a game that was plainly saying
+    yes, and NO poll trigger had ever fired: not `session_kick`, not this one. Nothing in
+    any log said so, because a poll that does not fire writes nothing — which is exactly
+    what a quiet minute looks like.
+
+    Found live: the same chunk run by hand returned `['TRIGCHK=true']` while the panel's
+    own verdict on those very lines was False. Pinned here on the real shape the daemon
+    hands back — and on the case-flipped ones, since either side may be lowered by
+    whatever carries the line.
+    """
+    from panel import triggers as triggersmod                # noqa: E402
+
+    assert triggersmod.poll_said_yes(["TRIGCHK=true"]) is True
+    assert triggersmod.poll_said_yes(["trigchk=true"]) is True
+    assert triggersmod.poll_said_yes(["noise", "TRIGCHK=true", "noise"]) is True
+    assert triggersmod.poll_said_yes(["TRIGCHK=false"]) is False
+    assert triggersmod.poll_said_yes([]) is False
+    assert triggersmod.poll_said_yes(None) is False
+    #: …and the chunk that produces those lines names the same marker
+    chunk = triggersmod.poll_chunk("1 == 1")
+    assert triggersmod.POLL_MARKER + "=" in chunk, chunk
+    assert "pcall" in chunk, "a check that throws must read as no, not take the watch down"
+
+
+def test_a_poll_check_that_is_true_survives_the_whole_round_trip():
+    """The two halves together, over a real Lua: the chunk the panel sends, the line the
+    client writes, the verdict the panel reads. Either half alone can be right while the
+    pair is broken — which is what happened."""
+    if not _needs_lua("the poll round trip"):
+        return
+    from panel import triggers as triggersmod                # noqa: E402
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(_CLIENT)
+    _squads(lua, ((1, 3000, False),))
+    lua.execute(triggersmod.poll_chunk(lua_actions.treasure_auto_check()))
+    said = list(lua.eval("SAID").values())
+    assert triggersmod.poll_said_yes(said) is True, said       # nothing listening yet
+    lua.execute(lua_actions.treasure_watch_install())
+    lua.execute(lua_actions.treasure_auto_arm_parked())
+    lua.execute("SAID = {}")
+    lua.execute(triggersmod.poll_chunk(lua_actions.treasure_auto_check()))
+    said = list(lua.eval("SAID").values())
+    assert triggersmod.poll_said_yes(said) is False, said      # armed, nothing queued
+
+
 def test_the_trigger_polls_the_errand_and_runs_the_recipe():
     """The catalogue entry is the whole wiring: a poll (the announcement rides a TLS chat
     channel this repository cannot sniff, so a wire listener is deaf by construction),
