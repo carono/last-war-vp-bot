@@ -145,7 +145,7 @@ IF did == 0
 # WHERE EACH CHEST STANDS NOW, for the log and for the person reading it later. The
 # positions and the servers are the account's own; they belong on screen and nowhere
 # else (CLAUDE.md).
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'the auto errand has never been armed' end local out = {} for i, t in ipairs(A.targets or {}) do local st = 'new' if t.claimed then st = 'claimed' elseif t.dug then st = 'dug' elseif t.sent then st = 'digging' end out[#out+1] = tostring(i) .. ') @[' .. tostring(t.x) .. ',' .. tostring(t.y) .. '|' .. tostring(t.server) .. '] ' .. st .. (t.squad and (' squad' .. tostring(t.squad)) or '') end if #out == 0 then return 'no chest is left in the queue' end return table.concat(out, ' ; ') end)() INTO queue
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'the auto errand has never been armed' end local out = {} for i, t in ipairs(A.targets or {}) do local st = 'new' if t.done then st = 'spent:' .. tostring(t.why or '?') elseif t.claimed then st = 'claimed' elseif t.dug then st = 'dug' elseif t.sent then st = 'digging' end out[#out+1] = tostring(i) .. ') @[' .. tostring(t.x) .. ',' .. tostring(t.y) .. '|' .. tostring(t.server) .. '] ' .. st .. (t.squad and (' squad' .. tostring(t.squad)) or '') end if #out == 0 then return 'no chest is left in the queue' end return table.concat(out, ' ; ') end)() INTO queue
 
 # A claim that the server paid raises the reward window. Closing it is the panel's
 # housekeeping, not part of the send: harmless when nothing is up, and left to the very

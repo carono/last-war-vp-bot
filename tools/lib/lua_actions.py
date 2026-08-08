@@ -3467,9 +3467,10 @@ def treasure_auto_step() -> str:
         world-treasures.md`), called STRAIGHT rather than behind
         `TimerManager:DelayInvoke` — the rally join proved the direct send works from the
         daemon's thread, and a send behind a timer cannot say whether it threw.
-      * **sent** — nothing, until either the alliance's own feed says the chest is dug
-        (`push.detect.treasure.claim`, caught by the hook) or the grace has run out AND
-        the squad's march is over. Both halves of that fallback matter: see below.
+      * **sent** — nothing, until OUR OWN squad's march is over, and then either the
+        alliance's feed has said the chest is dug (`push.detect.treasure.claim`, caught by
+        the hook) or the grace has run out. The march gates BOTH roads, and that correction
+        is the one the first live chest paid for: see below.
       * **dug** — claim it: `SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure,
         uuid, targetServer)`, the exact call the in-game finish fires. Then WAIT for the
         reward window rather than assuming; retry on a clock, up to a few times.
@@ -3491,6 +3492,25 @@ def treasure_auto_step() -> str:
       * a claim is proven by the `UIGiftPackageRewardGet` the client raises on a paid one,
         read only while it is fresh; a chest whose tries all ran out is written off as
         `claim-unconfirmed`, never as `claimed`.
+
+    AND THE DIG FEED DOES NOT OVERRULE OUR OWN MARCH — the second correction, measured on
+    the first chest this account ever had of its own (#1296). `t.dug` used to skip the
+    march test entirely, on the reading that a dug chest is claimable. It is not: a chest
+    the ALLIANCE has dug is not a chest THIS account has dug, and the claim is refused
+    until our squad has done its part. Live, on a chest twelve tiles from home: the march
+    went out at 20:55:41 and the first claim at 20:55:43, two seconds later, with the squad
+    barely out of the base — all four tries spent inside 124 s, every one refused in
+    silence, and the chest written off. So `not marching` now gates the feed exactly as it
+    gates the clock, and a chest waiting on our own legs says `dug-still-marching` rather
+    than hiding inside `digging`.
+
+    A SPENT CHEST STAYS IN THE LIST, which is the other half of that bug. The prune used
+    to drop every finished target, and `treasure_scan_harvest` looks for duplicates among
+    the targets it can see — so the lap five minutes later re-queued the chest it had just
+    written off, sent a SECOND squad at it and burned four more claims, round and round for
+    as long as the chest was on the map. Finished targets are now kept until their ttl
+    runs out: skipped by the step (`live` takes only what is not `done`), recognised by the
+    harvest, and counted apart in the report as `spent=` so `queued=` still means work.
 
     «NEAREST» IS HONEST ABOUT ITS OWN LIMIT, and this is worth reading before trusting
     the word. A squad has no position of its own — read live off
@@ -3591,19 +3611,19 @@ def treasure_auto_step() -> str:
         # `TreasurePointInfo.expireTime` by the lap — so whichever comes first wins.
         "if now > 0 and (((tonumber(t.at) or 0) > 0 and now - (tonumber(t.at) or 0) > ttl) "
         "or ((tonumber(t.expire) or 0) > 0 and now > tonumber(t.expire))) then "
-        "t.done, t.why = true, 'expired' expired = expired + 1 "
+        "t.done, t.why, t.done_at = true, 'expired', now expired = expired + 1 "
         "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':expired' "
         # The reward window came up shortly after our claim: THAT is the payment, and the
         # chest is spent here rather than on the strength of a send that returned cleanly.
         "elseif t.claimed and reward and now > 0 "
         "and now - (tonumber(t.claimed) or 0) <= paid_win then "
-        "t.done, t.why, t.paid = true, 'paid', now paid = paid + 1 "
+        "t.done, t.why, t.paid, t.done_at = true, 'paid', now, now paid = paid + 1 "
         "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':paid' "
         "elseif t.claimed and (tonumber(t.tries) or 0) >= "
         + str(int(TREASURE_CLAIM_TRIES)) + " then "
         # Every try spent and no reward window after any of them. Written off with a word
         # that says what actually happened, because «claimed» would read as taken.
-        "t.done, t.why = true, 'claim-unconfirmed' "
+        "t.done, t.why, t.done_at = true, 'claim-unconfirmed', now "
         "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-unconfirmed' "
         # A CLAIM-ONLY target (see `harvest`): heard through the alliance's dig feed, so
         # there is no tile to march at and nothing to wait for. It goes straight to the
@@ -3632,7 +3652,16 @@ def treasure_auto_step() -> str:
         "marching = (wm:GetOwnerFormationMarch(P.uid, t.squad_uuid, P.allianceId) "
         "~= nil) end) end "
         "local waited = (now > 0 and now - (tonumber(t.sent) or 0) >= grace) "
-        "local ready = (t.dug ~= nil) or (waited and not marching) "
+        # OUR OWN SQUAD GATES BOTH ROADS TO A CLAIM, and this is what the first live chest
+        # cost to learn (#1296). The dig feed used to overrule the march: `t.dug` came in
+        # while our squad was two seconds out of the base and the claim went straight away.
+        # Measured on a chest twelve tiles from home: march at 20:55:41, first claim at
+        # 20:55:43, and all four tries burned inside 124 s — every one of them while the
+        # squad was still walking, every one refused in silence, and the chest written off
+        # as `claim-unconfirmed` before it had ever been dug by us. The alliance digging a
+        # chest is not this account having dug it; only our own march can make the claim
+        # payable, so `not marching` gates the feed exactly as it gates the clock.
+        "local ready = (not marching) and ((t.dug ~= nil) or waited) "
         # A claim already sent waits its retry out rather than going again every tick: a
         # refusal says nothing, so the retry is on a clock, and four tries inside a minute
         # would be four tries spent while the alliance is still digging.
@@ -3649,8 +3678,13 @@ def treasure_auto_step() -> str:
         "elseif cooling then waiting = waiting + 1 "
         "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-sent-waiting' "
         "else waiting = waiting + 1 "
+        # Three different waits, said apart — because «waiting» covered all three and the
+        # one that mattered was invisible in it. `dug-still-marching` is the alliance
+        # having finished while our squad is still on the road: the chest is ready and the
+        # claim is not, and a log that called that `digging` is what hid the burnt tries.
         "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':' "
-        ".. ((waited and marching) and 'still-marching' or 'digging') end "
+        ".. ((marching and t.dug ~= nil) and 'dug-still-marching' "
+        "or ((waited and marching) and 'still-marching' or 'digging')) end "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
@@ -3678,14 +3712,27 @@ def treasure_auto_step() -> str:
         "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':squad' .. tostring(f.slot) "
         "else notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':march-threw:' .. tostring(err) end "
         "end end end "
-        # Prune what is finished, so the queue does not grow for the life of the client.
-        "local keep = {} "
-        "for _, t in ipairs(A.targets or {}) do if not t.done then keep[#keep+1] = t end end "
+        # A FINISHED CHEST IS REMEMBERED, NOT FORGOTTEN — and the difference is a second
+        # march (#1296). The prune used to drop every `done` target, and the lap that came
+        # round five minutes later looked for a duplicate among the LIVE targets only: the
+        # chest it had just written off was `new` again, got a fresh squad sent at it and
+        # burned another four claims, for as long as it stayed on the map. So a spent chest
+        # stays in the list until its ttl runs out — the step skips it (`live` takes only
+        # what is not done) and the harvest recognises it (`already-queued`).
+        "local keep, alive = {}, 0 "
+        "for _, t in ipairs(A.targets or {}) do "
+        "if not t.done then keep[#keep+1] = t alive = alive + 1 "
+        "elseif now > 0 and now - (tonumber(t.done_at) or 0) < ttl then "
+        "keep[#keep+1] = t end end "
         "A.targets = keep "
+        "local spent = #keep - alive "
         "A.report = 'sent=' .. tostring(sent) .. ' claimed=' .. tostring(claimed) "
         ".. ' paid=' .. tostring(paid) "
         ".. ' waiting=' .. tostring(waiting) .. ' expired=' .. tostring(expired) "
-        ".. ' queued=' .. tostring(#keep) "
+        ".. ' queued=' .. tostring(alive) "
+        # What is being held only so it is not started over. Said when there is any, so a
+        # queue that reads 0 and a list that is not empty are never the same line.
+        ".. (spent > 0 and (' spent=' .. tostring(spent)) or '') "
         ".. ' free=' .. tostring(#free) .. ' busy=' .. tostring(busy) "
         ".. ' empty=' .. tostring(dry) "
         ".. (A.asked and ' asked-for-army' or '') "
@@ -4071,7 +4118,11 @@ def treasure_scan_harvest() -> str:
         ".. '/' .. tostring((S or {}).n or 0) "
         ".. ' tiles=' .. tostring(looked) "
         ".. ' known=' .. tostring(tonumber((S or {}).known) or 0) "
-        ".. ' queued=' .. tostring(#(A.targets or {})) "
+        # The chests still to be worked — NOT the length of the list, which also holds the
+        # ones already spent and kept only so the next lap does not start them over.
+        ".. ' queued=' .. tostring((function() local n = 0 "
+        "for _, t in ipairs(A.targets or {}) do if not t.done then n = n + 1 end end "
+        "return n end)()) "
         'CS.UnityEngine.Debug.LogError("ACT treasure_scan_harvest " .. A.scan_report)'
     )
 

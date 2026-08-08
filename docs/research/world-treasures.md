@@ -934,6 +934,73 @@ feed, and one simply found. A chest that arrives twice stays ONE target and keep
 half of each — the dig feed's uuid and the lap's tile — and the report says which door it
 came through and how long ago (`x17/scan/33s:squad1`).
 
+## The chest that was ours, and the two bugs it uncovered in one evening
+
+A fresh chest of the account's own alliance finally appeared on 2026-08-08, and the errand
+found it without help: every lap from 20:18 onwards read `found=19 ours=1 foreign=18`, and
+the step marched at it — `sent=1 [x12/scan/1s:squad1]`, with the squad reading busy on the
+next pass (`free=0 busy=1`). The march is not the problem. The gift was still never taken,
+and the reason is written out below because both halves of it look correct in isolation.
+
+### The dig feed overruled our own march
+
+The claim used to open on either of two conditions:
+
+```lua
+local ready = (t.dug ~= nil) or (waited and not marching)
+```
+
+The right-hand side had already learned to wait for the squad (see the grace above). The
+left-hand side had not, and it fires first. The alliance's own feed
+(`push.detect.treasure.claim`) arrives once per member who finishes — so on a chest the
+alliance is actively digging, `t.dug` is set within seconds, whatever our squad is doing.
+
+Live, on a chest twelve tiles from the base:
+
+```
+20:55:41  sent=1  … [x12/scan/1s:squad1]        the march goes out
+20:55:43  claimed=1 … [x12/scan/3s:claim1]      two seconds later, squad barely out of the base
+20:56:22  claimed=1 … [x12/scan/41s:claim2]
+20:57:02  claimed=1 … [x12/scan/82s:claim3]
+20:57:42  claimed=1 … [x12/scan/122s:claim4]
+20:57:44  … [x12/scan/124s:claim-unconfirmed]   all four tries spent, chest written off
+```
+
+Four tries at 25 s apart is 100 s of claiming, all of it while the squad was still walking,
+and every one refused in the silence a refusal comes in (no tip, no window, no error — see
+above). **A chest the ALLIANCE has dug is not a chest THIS account has dug.** The fix is one
+word in the same line — `not marching` gates the feed exactly as it gates the clock — and a
+chest waiting on our own legs now says `dug-still-marching` rather than hiding inside
+`digging`, because the burnt tries were invisible in the old word.
+
+### …and the written-off chest was queued again, for ever
+
+The other half. The prune dropped every finished target:
+
+```lua
+for _, t in ipairs(A.targets or {}) do if not t.done then keep[#keep+1] = t end end
+```
+
+and `treasure_scan_harvest` looks for a duplicate **among the targets it can see**. So the
+lap five minutes later found the same chest still lying on the map, could not recognise it,
+queued it as `new`, sent a second squad at it and burned four more claims. In the live log
+that is 20:49 and 20:55 marching at the same `x12` — and it would have gone round for as
+long as the chest was there.
+
+Finished targets are now kept until their ttl runs out: skipped by the step (`live` takes
+only what is not `done`), recognised by the harvest as `already-queued`, and counted apart
+in the report as `spent=` so `queued=` still means work left to do.
+
+Both are pinned offline — `tests/test_treasure_auto.py`,
+`test_the_dig_feed_does_not_claim_over_a_march_still_in_flight` and
+`test_a_spent_chest_is_not_queued_again_by_the_next_lap`. Each one fails against the code as
+it was.
+
+**The lesson, and it is the same one as the hour further up:** a chest that reads `claimed=1`
+every run looks like an errand that is working. What made the difference legible was the
+CLOCK in the note — `claim1` at three seconds after a march is impossible, and nothing else
+in the line said so.
+
 ## Status after this session
 
 * the map lap: **confirmed live** — 121/121 waypoints, 120 611 tiles known, 19 chests found
@@ -943,8 +1010,10 @@ came through and how long ago (`x17/scan/33s:squad1`).
 * the dig march **reaches the wire from the bot** — `world.march.formation.new` with the
   target type 50 in the second argument, the chest's uuid in the third and the path in the
   fourth, sent with the camera anywhere and a free squad;
-* **the BOT digging a chest that still needs digging: STILL NOT confirmed.** Every chest on
-  the map during this work was already dug, so no march could produce a march: the server
-  answers a dig on a finished chest with nothing at all. The next live test needs a FRESH
-  chest of the account's own alliance — and the gate found here says how rare that is: one
-  chest in nineteen was even ours. The farming lists stay 🟡 until one turns up.
+* **the BOT digging a chest that still needs digging: the march goes out on its own** — a
+  fresh chest of the account's own alliance turned up at 20:18 and the errand found it,
+  ordered it nearest-first and sent squad 1 at it with nobody pressing anything;
+* **the gift on that chest: still NOT taken**, and now for a reason that is understood and
+  fixed rather than unknown — the two bugs above burned every claim while the squad was
+  still walking and then started the chest over each lap. The farming lists stay 🟡 until a
+  chest is dug AND paid end to end.

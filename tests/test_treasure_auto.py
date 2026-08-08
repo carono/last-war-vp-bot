@@ -212,7 +212,22 @@ def _claims(lua) -> list:
 
 
 def _queued(lua) -> int:
-    return int(lua.eval("#(DataCenter.__lw_treasure_auto.targets or {})"))
+    """Chests still to be WORKED — not the length of the list.
+
+    A finished chest is kept in `targets` until its ttl runs out so the next lap of the
+    map recognises it instead of starting it over (#1296), so «how long is the list» and
+    «how much is left to do» stopped being the same number.
+    """
+    return int(lua.eval("(function() local n = 0 "
+                        "for _, t in ipairs(DataCenter.__lw_treasure_auto.targets or {}) "
+                        "do if not t.done then n = n + 1 end end return n end)()"))
+
+
+def _spent(lua) -> int:
+    """Chests already finished and held only so they are not queued a second time."""
+    return int(lua.eval("(function() local n = 0 "
+                        "for _, t in ipairs(DataCenter.__lw_treasure_auto.targets or {}) "
+                        "do if t.done then n = n + 1 end end return n end)()"))
 
 
 def _needs_lua(what: str) -> bool:
@@ -363,6 +378,81 @@ def test_the_grace_waits_for_the_march_to_be_over_as_well_as_for_the_clock():
     _came_home(lua, slot=1)
     _step(lua)
     assert len(_claims(lua)) == 1, _claims(lua)
+
+
+def test_the_dig_feed_does_not_claim_over_a_march_still_in_flight():
+    """THE OTHER HALF OF THAT HOLE, and the one that cost the first chest this account
+    ever had of its own (#1296).
+
+    The grace learned to wait for the march; the DIG FEED did not. `t.dug` skipped the
+    march test entirely, on the reading that a dug chest is a claimable one. It is not — a
+    chest the ALLIANCE has dug is not a chest THIS account has dug, and the server refuses
+    the claim until our own squad has done its part. Live, on a chest twelve tiles from
+    home: march at 20:55:41, first claim at 20:55:43 with the squad barely out of the
+    base, and all four tries spent inside 124 s — every one refused in the silence a
+    refusal comes in — before the chest was written off as `claim-unconfirmed`.
+
+    So the feed is a gate on the chest, never a bypass of our own legs.
+    """
+    if not _needs_lua("the dig feed does not overrule a march"):
+        return
+    lua = _vm()
+    _announce(lua)
+    _step(lua)                                   # the squad goes out
+    _still_marching(lua, slot=1)
+    _dug(lua)                                    # the alliance finishes while it walks
+    report = _step(lua)
+    assert _claims(lua) == [], "the dig feed claimed over a march still in the air"
+    assert "dug-still-marching" in report, report
+    assert int(lua.eval("DataCenter.__lw_treasure_auto.targets[1].tries or 0")) == 0, \
+        "a try was burned on a claim that could not be paid"
+    assert _queued(lua) == 1, report
+    #: …and the moment the squad is home, the feed's chest is claimed at once — no grace
+    #: to sit out, which is what the feed is FOR.
+    _came_home(lua, slot=1)
+    _step(lua)
+    assert len(_claims(lua)) == 1, _claims(lua)
+
+
+def test_a_spent_chest_is_not_queued_again_by_the_next_lap():
+    """A FINISHED CHEST IS REMEMBERED, NOT FORGOTTEN — the second half of the same live
+    failure (#1296).
+
+    The prune dropped every `done` target, and the harvest looks for duplicates among the
+    targets it can see. So the lap five minutes later found the chest it had just written
+    off, queued it as `new`, sent a SECOND squad at it and burned four more claims — round
+    and round for as long as the chest lay on the map. A spent chest now stays in the list
+    until its ttl runs out: the step skips it, the harvest knows it, and the report counts
+    it apart so `queued=` still means work left.
+    """
+    if not _needs_lua("a spent chest is not re-queued"):
+        return
+    lua = _scan_vm()
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+    assert _queued(lua) == 1
+
+    #: worked to the end and paid for
+    _step(lua)
+    assert len(_marched(lua)) == 1, _marched(lua)
+    _came_home(lua, slot=1)
+    _dug(lua, uuid=_OTHER_UUID)
+    _step(lua)
+    _reward(lua)
+    report = _step(lua)
+    assert "paid=1" in report, report
+    assert _queued(lua) == 0 and _spent(lua) == 1, report
+
+    #: the chest is still lying on the map, so the next lap finds it again — and must
+    #: recognise it rather than start it over.
+    _reward(lua, up=False)
+    _walk(lua)
+    assert _queued(lua) == 0, _targets(lua)
+    scan = str(lua.eval(lua_actions.treasure_scan_report()))
+    assert "new=0" in scan and "already-queued=1" in scan, scan
+    report = _step(lua)
+    assert len(_marched(lua)) == 1, "a second squad was sent at a chest already paid for"
+    assert "spent=1" in report, report
 
 
 def test_a_claim_is_proven_by_the_reward_window_and_not_by_the_send():
