@@ -974,6 +974,8 @@
   "cmdpost.treasure.claim": "Holen",
   "cmdpost.treasure.auto": "Jetzt abarbeiten",
   "cmdpost.treasure.sweep": "Karte abgehen",
+  "cmdpost.treasure.lap": "Letzter Kartenlauf: {found} Truhen gesehen — {ours} eigene, {foreign} anderer Allianzen (die gibt das Spiel nicht her). Vor {ago} s",
+  "cmdpost.treasure.lap.never": "Die Karte wurde in diesem Client noch nicht abgegangen",
   "cmdpost.treasure.log_dig": "eine Truppe ist zum Graben unterwegs ({uuid})",
   "cmdpost.treasure.log_claim": "die Anforderung ist raus ({uuid})",
   "cmdpost.treasure.log_failed": "nicht gesendet ({uuid}) — der Schatz ist weg, die Tagesgrenze ist verbraucht oder das Spiel läuft nicht",

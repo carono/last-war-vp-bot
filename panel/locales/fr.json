@@ -974,6 +974,8 @@
   "cmdpost.treasure.claim": "Prendre",
   "cmdpost.treasure.auto": "Traiter maintenant",
   "cmdpost.treasure.sweep": "Parcourir la carte",
+  "cmdpost.treasure.lap": "Dernier parcours de la carte : {found} coffres vus — {ours} à nous, {foreign} d'autres alliances (le jeu ne les donne pas). Il y a {ago} s",
+  "cmdpost.treasure.lap.never": "La carte n'a pas encore été parcourue dans ce client",
   "cmdpost.treasure.log_dig": "une équipe est en route pour creuser ({uuid})",
   "cmdpost.treasure.log_claim": "la demande est partie ({uuid})",
   "cmdpost.treasure.log_failed": "non envoyé ({uuid}) — le trésor a disparu, la limite du jour est épuisée ou le jeu ne tourne pas",

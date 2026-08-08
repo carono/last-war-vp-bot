@@ -974,6 +974,8 @@
   "cmdpost.treasure.claim": "Lấy",
   "cmdpost.treasure.auto": "Xử lý ngay",
   "cmdpost.treasure.sweep": "Đi khắp bản đồ",
+  "cmdpost.treasure.lap": "Lượt đi bản đồ gần nhất: thấy {found} rương — {ours} của ta, {foreign} của liên minh khác (trò chơi không cho lấy). {ago} giây trước",
+  "cmdpost.treasure.lap.never": "Chưa đi khắp bản đồ trong ứng dụng này",
   "cmdpost.treasure.log_dig": "một đội đang trên đường đi đào ({uuid})",
   "cmdpost.treasure.log_claim": "yêu cầu đã được gửi ({uuid})",
   "cmdpost.treasure.log_failed": "chưa gửi được ({uuid}) — kho báu đã biến mất, hết hạn mức ngày hoặc trò chơi không chạy",

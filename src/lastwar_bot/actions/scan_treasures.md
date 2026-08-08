@@ -87,4 +87,4 @@ LOG "the line above is the lap itself: done= waypoints read of the whole list, t
 
 READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.scan_report or 'no lap has been harvested') INTO queued
 
-LOG "and this one is what was queued: new= chests nobody had heard of, upgraded= chests already queued from the dig feed that have just got their tile, already-queued= ones nothing changed for, foreign= chests of other alliances, which this account cannot take at all."
+LOG "and this one is what the map had, said in three numbers rather than one: found= every chest the lap saw, ours= the ones this alliance's own event placed, foreign= the ones another alliance's did — which the game refuses outright, so they are never queued. «found» alone would promise a gift per chest and mean nothing: on the first live lap it was 19 found, 1 ours, 18 foreign. The bracket splits ours further: new= nobody had heard of them, upgraded= already queued from the dig feed and now with a tile, already-queued= nothing changed."

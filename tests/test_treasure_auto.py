@@ -959,8 +959,29 @@ def test_a_chest_of_another_alliance_is_not_queued():
     targets = _targets(lua)
     assert len(targets) == 1, targets
     assert int(targets[0]["uuid"]) == _OTHER_UUID, targets
+
+    #: AND THE THREE NUMBERS ARE SAID APART. «Found 2» on its own promises two gifts and
+    #: is worth one; on the live map it was 19 found and 1 takeable. Both the sentence
+    #: and the reading the panel draws lead with the split.
     report = str(lua.eval(lua_actions.treasure_scan_report()))
-    assert "new=1" in report and "foreign=1" in report, report
+    assert "found=2" in report and "ours=1" in report and "foreign=1" in report, report
+    counts = str(lua.eval(lua_actions.treasure_scan_counts()))
+    assert "found=2" in counts and "ours=1" in counts and "foreign=1" in counts, counts
+    assert "ago=0" in counts, counts
+
+
+def test_a_map_that_has_never_been_walked_is_not_a_map_with_nothing_on_it():
+    """`ago=-1`, and it is the same rule as everywhere else today: «no lap has been walked
+    in this client» and «a lap found nothing» must not share a zero. The panel draws the
+    two as different sentences."""
+    if not _needs_lua("never walked is not empty"):
+        return
+    lua = _scan_vm()
+    counts = str(lua.eval(lua_actions.treasure_scan_counts()))
+    assert "ago=-1" in counts, counts
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+    assert "ago=0" in str(lua.eval(lua_actions.treasure_scan_counts()))
 
 
 def test_an_owner_uid_opens_the_claim_without_closing_the_march():

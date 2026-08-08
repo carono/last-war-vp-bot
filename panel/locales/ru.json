@@ -974,6 +974,8 @@
   "cmdpost.treasure.claim": "Забрать",
   "cmdpost.treasure.auto": "Отработать сейчас",
   "cmdpost.treasure.sweep": "Обойти карту",
+  "cmdpost.treasure.lap": "Последний обход карты: увидено {found} — наших {ours}, чужих альянсов {foreign} (такие игра не отдаёт). {ago} с назад",
+  "cmdpost.treasure.lap.never": "Обход карты в этом клиенте ещё не делался",
   "cmdpost.treasure.log_dig": "отряд отправлен копать ({uuid})",
   "cmdpost.treasure.log_claim": "запрос на награду отправлен ({uuid})",
   "cmdpost.treasure.log_failed": "не отправлено ({uuid}) — сокровище исчезло, лимит на день или игра не запущена",

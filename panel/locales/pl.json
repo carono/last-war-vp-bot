@@ -974,6 +974,8 @@
   "cmdpost.treasure.claim": "Odbierz",
   "cmdpost.treasure.auto": "Obsłuż teraz",
   "cmdpost.treasure.sweep": "Obejdź mapę",
+  "cmdpost.treasure.lap": "Ostatni obchód mapy: widziano {found} skrzyń — {ours} naszych, {foreign} innych sojuszy (takich gra nie odda). {ago} s temu",
+  "cmdpost.treasure.lap.never": "W tym kliencie mapa nie była jeszcze obchodzona",
   "cmdpost.treasure.log_dig": "oddział jest w drodze do kopania ({uuid})",
   "cmdpost.treasure.log_claim": "żądanie zostało wysłane ({uuid})",
   "cmdpost.treasure.log_failed": "niewysłane ({uuid}) — skarb zniknął, dzienny limit wyczerpany albo gra nie działa",

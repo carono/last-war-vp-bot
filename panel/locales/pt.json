@@ -974,6 +974,8 @@
   "cmdpost.treasure.claim": "Pegar",
   "cmdpost.treasure.auto": "Tratar agora",
   "cmdpost.treasure.sweep": "Percorrer o mapa",
+  "cmdpost.treasure.lap": "Última volta ao mapa: {found} baús vistos — {ours} nossos, {foreign} de outras alianças (o jogo não os entrega). Há {ago} s",
+  "cmdpost.treasure.lap.never": "Neste cliente o mapa ainda não foi percorrido",
   "cmdpost.treasure.log_dig": "um esquadrão está a caminho para cavar ({uuid})",
   "cmdpost.treasure.log_claim": "o pedido foi enviado ({uuid})",
   "cmdpost.treasure.log_failed": "não enviado ({uuid}) — o tesouro sumiu, o limite do dia acabou ou o jogo não está rodando",

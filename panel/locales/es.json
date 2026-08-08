@@ -974,6 +974,8 @@
   "cmdpost.treasure.claim": "Coger",
   "cmdpost.treasure.auto": "Atender ahora",
   "cmdpost.treasure.sweep": "Recorrer el mapa",
+  "cmdpost.treasure.lap": "Último recorrido del mapa: {found} cofres vistos — {ours} nuestros, {foreign} de otras alianzas (el juego no los entrega). Hace {ago} s",
+  "cmdpost.treasure.lap.never": "En este cliente aún no se ha recorrido el mapa",
   "cmdpost.treasure.log_dig": "un escuadrón va de camino a cavar ({uuid})",
   "cmdpost.treasure.log_claim": "la petición se ha enviado ({uuid})",
   "cmdpost.treasure.log_failed": "no enviado ({uuid}) — el tesoro ya no está, el límite del día está gastado o el juego no corre",

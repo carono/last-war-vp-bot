@@ -4007,6 +4007,12 @@ def treasure_scan_harvest() -> str:
     is drawn on the map. They are counted as `foreign=` and never queued — a march at one
     spends a squad on a tile the server will not pay for.
 
+    **AND THE THREE NUMBERS ARE SAID SEPARATELY, ALWAYS.** «Found 19» on its own is a
+    promise of nineteen gifts, and eighteen of those nineteen are somebody else's chest
+    that this account cannot touch — so the report leads with `found=` / `ours=` /
+    `foreign=` and never with a single total. A number that does not distinguish two
+    states is worse than no number: it reads as good news and is not.
+
     Nothing is sent from here. The step that follows is the one that marches and claims.
     """
     return (
@@ -4050,10 +4056,17 @@ def treasure_scan_harvest() -> str:
         "A.news = (A.news or 0) + 1 "
         "fresh = fresh + 1 end end end "
         "local looked = tonumber((S or {}).tiles) or 0 "
+        "local ours = fresh + grown + known "
         "A.scan_at = now "
-        "A.scan_report = 'new=' .. tostring(fresh) .. ' upgraded=' .. tostring(grown) "
-        ".. ' already-queued=' .. tostring(known) "
-        ".. ' foreign=' .. tostring(foreign) "
+        # The three numbers, kept as numbers as well as said in a sentence — the panel
+        # draws them apart from each other and must not have to parse a line to do it.
+        "A.scan_found = ours + foreign "
+        "A.scan_ours = ours "
+        "A.scan_foreign = foreign "
+        "A.scan_report = 'found=' .. tostring(ours + foreign) "
+        ".. ' ours=' .. tostring(ours) .. ' foreign=' .. tostring(foreign) "
+        ".. ' (new=' .. tostring(fresh) .. ' upgraded=' .. tostring(grown) "
+        ".. ' already-queued=' .. tostring(known) .. ')' "
         ".. ' waypoints=' .. tostring((S or {}).done or 0) "
         ".. '/' .. tostring((S or {}).n or 0) "
         ".. ' tiles=' .. tostring(looked) "
@@ -4068,6 +4081,34 @@ def treasure_scan_report() -> str:
     return ("(DataCenter.__lw_treasure_auto and "
             "DataCenter.__lw_treasure_auto.scan_report "
             "or 'no lap has been harvested')")
+
+
+def treasure_scan_counts() -> str:
+    """Lua *expression* -> `found=<n> ours=<n> foreign=<n> queued=<n> ago=<s>`.
+
+    THE SPLIT IS THE POINT. A lap of a live map found nineteen chests and eighteen of
+    them belonged to other alliances, which the server refuses outright — so a screen or
+    a log line saying «19 found» promises nineteen gifts and delivers one. This is what
+    the panel draws, and it draws the three numbers apart.
+
+    `ago` is seconds since the last lap on the GAME's clock, or `-1` when none has been
+    walked in this client — the same distinction: «none found» and «never looked» are
+    different answers and must not share a zero.
+    """
+    return (
+        "(function() local A = DataCenter.__lw_treasure_auto "
+        "if A == nil or (tonumber(A.scan_at) or 0) <= 0 then "
+        "return 'found=0 ours=0 foreign=0 queued=0 ago=-1' end "
+        "local now = 0 pcall(function() "
+        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
+        "local ago = -1 "
+        "if now > 0 then ago = math.floor((now - A.scan_at) / 1000) end "
+        "return 'found=' .. tostring(tonumber(A.scan_found) or 0) "
+        ".. ' ours=' .. tostring(tonumber(A.scan_ours) or 0) "
+        ".. ' foreign=' .. tostring(tonumber(A.scan_foreign) or 0) "
+        ".. ' queued=' .. tostring(#(A.targets or {})) "
+        ".. ' ago=' .. tostring(ago) end)()"
+    )
 
 
 def treasure_scan_ask(every_sec: int = TREASURE_SCAN_EVERY_SEC) -> str:

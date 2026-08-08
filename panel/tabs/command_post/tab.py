@@ -1053,6 +1053,13 @@ class TreasuresPane(_Pane):
                    "cmdpost.treasure.sweep").pack(side="right", padx=(0, 4))
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
             anchor="w", pady=(6, 4))
+        # WHAT THE LAST LAP OF THE MAP SAW, in three numbers rather than one (#1296). The
+        # first live lap found nineteen chests and eighteen of them belonged to other
+        # alliances — the game refuses those outright — so «найдено 19» on its own reads
+        # as nineteen gifts and is worth one. Found, ours and foreign are drawn apart.
+        self._lap_var = tk_stringvar(self.rt.root)
+        ttk.Label(body, textvariable=self._lap_var, foreground=DIM).pack(
+            anchor="w", pady=(0, 4))
         self._scroll = self._list(body)
 
     def _work_now(self) -> None:
@@ -1131,7 +1138,27 @@ class TreasuresPane(_Pane):
                 "cross": bool(home) and _int(fields.get("srv")) != home,
             })
         targets += self._scanned_targets({str(t["uuid"]) for t in targets}, home)
-        return num, daily, targets
+        return num, daily, targets, self._lap_counts(ev)
+
+    @staticmethod
+    def _lap_counts(ev) -> dict:
+        """What the last lap of the map saw — `found` / `ours` / `foreign`, and its age.
+
+        THREE NUMBERS AND NOT ONE. A chest belongs to the alliance whose event placed it,
+        and the game refuses everybody else's: the first live lap found nineteen and
+        eighteen of them were somebody else's. A screen saying «found 19» promises
+        nineteen gifts and is worth one, so the split travels all the way to the label.
+
+        `ago=-1` is «no lap has been walked in this client», which is a different answer
+        from «a lap found nothing» and must not share its zero.
+        """
+        import lua_actions
+        for line in ev.run('CS.UnityEngine.Debug.LogError("ACT LAP " .. (%s))'
+                           % lua_actions.treasure_scan_counts(),
+                           marker=MARKER, settle=0.5) or ():
+            if " LAP " in line:
+                return _fields(line, " LAP ")
+        return {}
 
     def _scanned_targets(self, known: set, home: int) -> list:
         """Chests the map scan saw that the server's own list did not carry.
@@ -1176,17 +1203,29 @@ class TreasuresPane(_Pane):
         return num, daily
 
     def render(self, data) -> None:
-        num, daily, targets = data
+        num, daily, targets, lap = data
         self._status("")
         self._info("cmdpost.treasure.info", n=num,
                    daily=", ".join("%d: %d" % kv for kv in sorted(daily.items()))
                    or self.rt.t("cmdpost.treasure.no_daily"))
+        self._lap_line(lap)
         self._clear_list()
         if not targets:
             self._empty("cmdpost.treasure.empty")
             return
         for target in targets:
             self._row(target).pack(fill="x", pady=1)
+
+    def _lap_line(self, lap: dict) -> None:
+        """Draw the lap's three numbers, or say plainly that no lap has been walked."""
+        if not lap or _int(lap.get("ago"), -1) < 0:
+            text = self.rt.t("cmdpost.treasure.lap.never")
+        else:
+            text = self.rt.t("cmdpost.treasure.lap",
+                             found=_int(lap.get("found")), ours=_int(lap.get("ours")),
+                             foreign=_int(lap.get("foreign")),
+                             ago=_int(lap.get("ago")))
+        self.after(lambda: self._lap_var.set(text))
 
     def _row(self, target):
         import coords as coords_fmt
@@ -1424,7 +1463,18 @@ class CommandPostTab(PanelTab):
                 "empty": "cmdpost.shared.empty"}
 
     def _web_treasures(self, coords) -> dict:
-        """«Сокровища» — the chests the last scan found, with their deadlines."""
+        """«Сокровища» — the chests the last scan found, with their deadlines.
+
+        …and above them, the last map lap in THREE numbers (#1296): found, ours, foreign.
+        A chest belongs to the alliance whose event placed it and the game refuses
+        everybody else's — nineteen found and one takeable, on the first live lap — so a
+        phone showing a single total would be reading a promise the game will not keep.
+        The row comes off the tab's own label, which is the reading the window draws.
+        """
+        pane = self._by_key.get("treasure")
+        lap = (pane._lap_var.get() if pane is not None
+               and getattr(pane, "_lap_var", None) is not None else "")
+        rows = [{"label": "cmdpost.treasure.sweep", "value": lap}] if lap else []
         items = []
         try:
             import lastwar_proto as proto
@@ -1437,7 +1487,7 @@ class CommandPostTab(PanelTab):
                 "detail": str(chest.alliance_abbr or ""),
                 "until": float(chest.expires_at) / 1000.0 if chest.expires_at else None,
             })
-        return {"title": "cmdpost.tab.treasure", "items": items,
+        return {"title": "cmdpost.tab.treasure", "rows": rows, "items": items,
                 "empty": "cmdpost.treasure.empty"}
 
     def web_press(self, action: str, args: dict) -> dict:
