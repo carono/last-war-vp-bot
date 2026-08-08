@@ -1077,7 +1077,29 @@ class TreasuresPane(_Pane):
         A press that STARTS something: what it changes is in the game — the errand's own
         queue — and the list below still comes from the readings afterwards.
         """
-        self.rt.play_async(TREASURE_SCAN_ACTION, tag="action")
+        self.rt.play_async(TREASURE_SCAN_ACTION, tag="action",
+                           on_result=self.lap_from_run)
+
+    def lap_from_run(self, outcome) -> None:
+        """Put the lap's own three numbers on the label — the scenario already read them.
+
+        `READ_LUA … INTO queued` leaves the harvest's sentence in the run's variables, so
+        the split reaches the screen without the panel asking the game a second time or
+        assembling a line of Lua of its own (`CLAUDE.md`). It is also the only way the
+        label moves for somebody who pressed from the PHONE: nothing else re-reads it
+        until the window's own «Обновить».
+        """
+        line = str(((getattr(outcome, "ctx", None) and outcome.ctx.vars) or {})
+                   .get("queued") or "")
+        if "found=" not in line:
+            return
+        lap = {}
+        for token in line.split():
+            key, sep, value = token.partition("=")
+            if sep:
+                lap[key] = value
+        lap["ago"] = "0"
+        self._lap_line(lap)
 
     # -- what is remembered between sessions --------------------------------
     def config(self) -> dict:
@@ -1509,7 +1531,14 @@ class CommandPostTab(PanelTab):
         if action == "treasure_sweep":
             # The map lap, and it travels for the same reason the errand does: it is ONE
             # recipe and the phone plays it whole. Nothing is parked by a tool first.
-            return {"ok": self.rt.play_async(TREASURE_SCAN_ACTION, tag="web")}
+            #
+            # …and its three numbers land on the same label the window draws, off the
+            # run's own reading — otherwise a lap started from a phone would leave the
+            # card saying what somebody read at the machine an hour ago.
+            page = self._by_key.get("treasure")
+            return {"ok": self.rt.play_async(
+                TREASURE_SCAN_ACTION, tag="web",
+                on_result=(page.lap_from_run if page is not None else None))}
         return {"error": "unknown"}
 
     # -- lifecycle ----------------------------------------------------------
