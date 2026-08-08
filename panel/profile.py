@@ -327,6 +327,10 @@ def _migrate_profile_dirs() -> list[str]:
         return []                       # already brought across by an earlier start
     import shutil
     moved: list[str] = []
+    #: Profiles the new place already had, and ones that could not be brought across at
+    #: all. Both used to be `continue` and nothing else — see the comments below.
+    skipped: list[str] = []
+    failed: list[str] = []
     copied = False
     for name in sorted(os.listdir(legacy)):
         src = os.path.join(legacy, name)
@@ -334,21 +338,42 @@ def _migrate_profile_dirs() -> list[str]:
             continue
         dst = os.path.join(PROFILES_DIR, name)
         if os.path.isdir(dst):
-            continue                    # the new place already has it: leave both alone
+            # BOTH PLACES HOLD THIS PROFILE, and neither is safe to overwrite. It used
+            # to be a bare `continue` — the quietest line in the file and the most
+            # expensive. On this machine `profiles/default/` existed before the move
+            # (the DSL bot's own directory of the same name), so the panel's `default`
+            # was skipped whole and a run that looked ordinary started a brand-new
+            # empty profile beside a full one. Weeks of a ranking history went that way
+            # and there is no copy of it anywhere: the file was never deleted, it was
+            # simply never read again (#1304).
+            #
+            # The files are still not touched — the right answer for two directories
+            # that may both hold real data is to move neither — but the skip is now
+            # SAID, out loud, in the return value the caller logs and in the marker
+            # left in the old directory. A collision somebody is told about is a thing
+            # they can sort out; a collision nobody is told about is a quiet loss.
+            skipped.append(name)
+            continue
         try:
             shutil.move(src, dst)
-        except OSError:
+        except OSError as exc:
             # Something holds a file open in there. Copy what can be copied — a profile
             # half-brought-across is still better than a profile the panel cannot see —
             # and mark the old directory so the next start does not do it again.
             try:
                 shutil.copytree(src, dst, dirs_exist_ok=True)
-            except OSError:
+            except OSError as copy_exc:
+                # Neither worked. Also never silent: this is a profile the panel is
+                # about to carry on without, and the reason is the only clue there is.
+                failed.append(f"{name} ({copy_exc or exc})")
                 continue
             copied = True
         moved.append(name)
-    if copied:
-        _write_marker(legacy)
+    if copied or skipped or failed:
+        # A marker whenever anything was left behind, not only after a copy: the old
+        # directory is the one place a person looking for the missing profile will
+        # actually open, so it is where the reason has to be written.
+        _write_marker(legacy, skipped, failed)
     elif moved and not [n for n in os.listdir(legacy) if paths.is_profile_name(n)]:
         # Everything moved cleanly and nothing of a profile is left: the empty shell can
         # go, and that is a directory removal, not a data one.
@@ -356,11 +381,16 @@ def _migrate_profile_dirs() -> list[str]:
             os.rmdir(legacy)
         except OSError:
             pass
-    return moved
+    # The skips and the failures travel with the moves, so the caller's log says «two
+    # brought across, one left where it was and here is why» rather than «two».
+    return (moved + [f"{name}: left in {legacy} — a profile of that name was already "
+                     f"in {PROFILES_DIR}, and neither was overwritten"
+                     for name in skipped]
+            + [f"{name}: could not be brought across" for name in failed])
 
 
-def _write_marker(legacy: str) -> None:
-    """Say, in the old directory, where its contents went and that it is now inert."""
+def _write_marker(legacy: str, skipped=(), failed=()) -> None:
+    """Say, in the old directory, where its contents went and what stayed put."""
     try:
         with open(os.path.join(legacy, paths.MIGRATION_MARKER), "w",
                   encoding="utf-8") as fh:
@@ -370,6 +400,17 @@ def _write_marker(legacy: str) -> None:
                 "stops a later start from copying these older files back over newer\n"
                 "ones. Delete this whole directory once you are satisfied the panel\n"
                 "shows what you expect.\n")
+            if skipped:
+                fh.write(
+                    "\nNOT brought across, because the new place already had a profile\n"
+                    "of the same name and overwriting either one would lose data. The\n"
+                    "panel is reading the NEW one; what is here is untouched:\n"
+                    + "".join(f"  - {name}\n" for name in skipped))
+            if failed:
+                fh.write(
+                    "\nCould not be brought across at all — the reason is in brackets.\n"
+                    "These are still only here:\n"
+                    + "".join(f"  - {name}\n" for name in failed))
     except OSError:
         pass
 
