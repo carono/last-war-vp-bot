@@ -718,3 +718,202 @@ keeps its tile, so shared ones are still marched at. Proven live by the bot on 2
 | **the BOT sending the dig march** | **NOT confirmed.** The chest was already dug by the time of the test («осталось только собрать»), and the march on it was sent by the player — visible in the ring as `world.march.formation.new a2=50 a3=<uuid> a4=<base>;<tile>`. The CALL SHAPE is confirmed; the bot sending it is not. |
 
 The farming lists stay 🟡 for that reason, until a chest arrives that still needs digging.
+
+---
+
+# The third door: reading the map itself (#1296, 2026-08-08)
+
+«Скрытые сокровища не собираются, если они просто на карте, даже если карту обновлять,
+проверяется не то, должно сканироваться карта на предмет сокровищ, а не только слушаться
+пуш шаринга.»
+
+Everything above listens: the chat share, and the alliance's dig feed. Neither of them
+LOOKS, and a chest that is merely lying on the map is announced by nobody. This section is
+what looking turned out to be — and what it found, which changed the design twice.
+
+## What «Обновить» was actually asking, and why it could never answer
+
+The refresh on «Командный пункт» sends `activity.detect.list` and reads
+`ActDetectTreasureDataManager`. That is **this account's own detect-event list** — the
+chests THIS alliance's event placed and told this client about. A chest another alliance
+put out is not in that reply however often it is asked for, and on a quiet week the
+account's own list is empty besides. Refreshing it all day is the «проверяется не то» of
+the report, exactly.
+
+The «Скан» button beside it starts `tools/dev/treasure_capture.py`, a pcap listener — and
+**nothing moves the camera**. The client only sends map data while the map is moving, so a
+listener with a still camera is a listener with nothing to hear. Two doors, both shut.
+
+## The map is not on the Lua wire — measured
+
+With the client's own message hook in `wide` mode (it keeps every command), three jumps at
+height 600:
+
+```
+7 push.al.zombieRushPoint.change   6 push.new.news   3 push.lw.alliance.alert.info.remove
+```
+
+Not one `world.get.block`. The map stream is decoded on the C# side and never reaches
+`SFSNetwork.HandleMessage`, so **no hook in Lua can hear the map** — which is why the pcap
+scanners exist. It also rules out the cheap idea of harvesting chests from the same ear
+the other two doors use.
+
+## What IS readable: `WorldScene.PointManager`
+
+The zoom research (`map-sweep-zoom.md` §2) measured the map through the client's own point
+manager, and a treasure is in it like everything else:
+
+```lua
+local info = WS.PointManager:GetPointInfo(pid)   -- nil when the client does not know it
+info.PointType == 21                              -- WorldPointType.TREASURE, the wire's f2
+```
+
+The class is **`TreasurePointInfo`**, and read live off the first chests ever scanned it
+carries exactly six members worth having:
+
+| member | what it is |
+|---|---|
+| `uuid` | the chest — what `detect.event.claim.treasure` takes |
+| `serverId` | its server |
+| `allianceId` | the alliance whose event placed it (a 32-character uuid) |
+| `allianceAbbr` | that alliance's tag |
+| `expireTime` | the chest's own deadline, in the game's milliseconds |
+| `ownerUid` | the finisher — the wire's `f11.7` |
+
+`pid = y * size + x + 1`, checked against `SceneUtils.TilePosToIndex` at four coordinates
+(`size` is `WS.TileCount.x`, 1000 on this server). So the tile needs no call per point,
+which is what makes a box of ten thousand ids cost hundredths of a second.
+
+**Its one limit is the whole design:** the manager only holds what is IN VIEW. Jump away
+and the old tiles go back to unknown. So the reading has to ride the lap — one box per
+waypoint, `TREASURE_SCAN_LAG` behind each jump — rather than being taken once at the end.
+
+## The pacing, and why a reading lap is not a 6.5-second lap
+
+A jump's tiles land in ONE step. Measured at two spots, scheduled inside the game so the
+timing is the game's own and not a round trip's:
+
+| lag after the jump | 0.05 s | 0.10 s | 0.15 s | 0.20 s | 0.30 s | 0.50 s | 0.80 s | 1.2 s | 2.0 s |
+|---|---|---|---|---|---|---|---|---|---|
+| tiles known, spot A | 0 | 0 | 0 | 0 | **1250** | 1250 | 1250 | 1250 | 1250 |
+| tiles known, spot B | 0 | 0 | 0 | **319** | 319 | 319 | 319 | 319 | 319 |
+
+Nothing arrives after that, and nothing at all arrives before it. So the lag is 0.30 s and
+the pause between waypoints has to be a shade longer, or the camera has left before its own
+box is read:
+
+| pause between waypoints | whole-lap tiles known | per stop |
+|---|---|---|
+| 0.05 s (`fast_map_sweep`'s own) | 2 599 | ~20 |
+| **0.40 s** | **120 611** | ~1 000 |
+
+`fast_map_sweep` can move every 0.05 s because a pcap listener catches the replies whenever
+they land. A lap that READS the client has to be standing where it is looking. **One lap of
+a 1000 × 1000 server is 121 waypoints ≈ 48 s of camera plus about four seconds of reading**
+(a 107 × 107 box is 0.03–0.04 s in the VM), against 6.5 s for the sweep that only makes
+traffic. That is the price of the third door, and it is why the errand walks it every few
+minutes rather than on its ten-second tick, and only in the world scene.
+
+## A dead WorldScene answers `nil` instead of throwing
+
+The first live lap reported `n=121` scheduled and `done=0` read. Not a bug in the lap: a
+**destroyed Unity object does not throw when a member is read off it — it answers `nil`**,
+so `FIND_WORLD_SCENE`'s guard (`pcall(function() return WS.CurTilePos end)`) succeeded on a
+WorldScene from a session that had ended, kept it, and every member of it — `PointManager`,
+`TileCount`, `CurTilePos` — was `nil` with nothing saying why.
+
+The guard now requires a VALUE, not merely a successful access, and the scrape looks the
+scene up again on every waypoint instead of holding it. Same one member read; the fix
+belongs to everything that uses `FIND_WORLD_SCENE`, not only to this.
+
+## What the first lap found, and the two things it taught
+
+**Nineteen chests**, on a map where nobody had shared a thing and the account's own
+detect-event list was empty (`treasures_num=0`). The door works.
+
+And then none of them could be taken, which is where the useful part starts.
+
+### 1. A chest belongs to an alliance — `errorCode 801354`
+
+The claims came back, and a refused claim is **not** silent after all:
+
+```
+in  detect.event.claim.treasure   errorCode=801354  errorMsg=player not in same alliance. <alliance uuid>
+```
+
+Eighteen of the nineteen were other alliances' chests. A detect-event treasure is placed by
+ONE alliance's event and dug by ITS members; the rest of the server can see it on the map
+and can do nothing with it. So the harvest now compares `TreasurePointInfo.allianceId` with
+`LuaEntry.Player.allianceId`, counts the rest as `foreign=` and never queues them — a march
+at one spends a squad on a tile the server will not pay for.
+
+**On this map, that is 18 of 19.** Anyone measuring the third door's yield should expect
+most of what a lap sees to be somebody else's.
+
+### 2. The one that was ours: `errorCode 801348 — claim repeat`
+
+The nineteenth was this alliance's own, and its claim answered `claim repeat`: the account
+had already had it. Which also explains the marches — the dig march goes out on the wire
+exactly as the human's does…
+
+```
+out world.march.formation.new  a1=<formation> a2=50 a3=<treasure uuid> a4=<from>;<to> a5=1 a6=true a7={…} a8=<server>
+```
+
+…and the server creates no march and answers nothing, because the chest is already dug.
+
+**And a march that vanishes is a SQUAD that is committed, not a camera in the wrong
+place** — worth writing down because the wrong answer was believed for an hour and built
+on. A send with the camera elsewhere once produced nothing on the wire, and the same send
+with the camera on the tile produced the message at once; the obvious reading was that the
+client checks the view. Checked again properly — camera parked 500 tiles away, every squad
+genuinely free — the march went out exactly as before. What the client really drops in
+silence is a march for a formation that is already committed, and **a squad whose march the
+server has not confirmed yet still reads free** in `GetOwnerFormationMarch`, which is what
+the first reading actually caught: a squad the panel's own previous run had just spent.
+
+The lesson is the ordinary one and it cost an hour: two things changed between the two
+sends (the camera AND which squads were free), and only one of them was looked at.
+
+### 3. `ownerUid` is a hint, not a verdict
+
+It is the wire's `f11.7` — the finisher, which appears once a chest is dug — and all
+nineteen chests carried it, with the one that could be reasoned about answering «claim
+repeat». So it does mean «this chest has been worked». But **no chest has ever been caught
+without it**, so there is no recording of the field flipping, and a gate needs a success
+recording (`CLAUDE.md`).
+
+It is therefore read as a hint that can only help: `dug` OPENS the claim and does not close
+the march — a target with no squad out still goes to the «new» branch and marches first.
+Being wrong costs one claim the server answers with a code the run now prints; being wrong
+the other way would cost the chest.
+
+## What the third door is, in the end
+
+```
+scan_treasures.md          one lap: TAP treasure_scan_start · WAIT · TAP treasure_scan_harvest
+auto_treasure.md           …called from the errand when treasure_scan_due says the period is up
+treasure_scan_sweep()      the lap, with a scrape scheduled behind every jump
+treasure_scan_harvest()    findings -> targets: alliance gate, dedup, and the tile a
+                           claim-only target was missing
+```
+
+Three doors, one queue: a chest heard through the chat share, one heard through the dig
+feed, and one simply found. A chest that arrives twice stays ONE target and keeps the best
+half of each — the dig feed's uuid and the lap's tile — and the report says which door it
+came through and how long ago (`x17/scan/33s:squad1`).
+
+## Status after this session
+
+* the map lap: **confirmed live** — 121/121 waypoints, 120 611 tiles known, 19 chests found
+  with nothing announced;
+* the alliance gate: **confirmed live** by the server's own refusal (801354);
+* the claim: **confirmed** — and its refusals now name themselves (801348, 801354);
+* the dig march **reaches the wire from the bot** — `world.march.formation.new` with the
+  target type 50 in the second argument, the chest's uuid in the third and the path in the
+  fourth, sent with the camera anywhere and a free squad;
+* **the BOT digging a chest that still needs digging: STILL NOT confirmed.** Every chest on
+  the map during this work was already dug, so no march could produce a march: the server
+  answers a dig on a finished chest with nothing at all. The next live test needs a FRESH
+  chest of the account's own alliance — and the gate found here says how rare that is: one
+  chest in nineteen was even ours. The farming lists stay 🟡 until one turns up.
