@@ -608,6 +608,47 @@ def test_a_run_with_a_squad_does_not_ask_for_an_army():
     assert "asked-for-army" not in report, report
 
 
+def test_a_chest_nobody_shared_is_still_claimed():
+    """WHAT THE FIRST LIVE CHEST TAUGHT (#1296). The alliance dug a treasure for twenty
+    minutes and not one `world.treasure.share.chat` crossed the wire — the share is
+    something a PLAYER does, and often nobody does it. The dig broadcast arrives anyway,
+    once per member who finishes, and it carries the uuid: enough to CLAIM, never enough
+    to march (there is no tile in it). So the target is parked claim-only and taken.
+
+    That is the path that actually took the live chest, by hand, before this existed.
+    """
+    if not _needs_lua("a chest nobody shared"):
+        return
+    lua = _vm()
+    _dug(lua, plain=True)                 # no announcement at all, only the dig feed
+    assert _queued(lua) == 1, "the dig broadcast alone must produce a target"
+    report = _step(lua)
+    assert _marched(lua) == [], "there is no tile in a dig broadcast — nothing to march at"
+    claims = _claims(lua)
+    assert len(claims) == 1, claims
+    assert str(claims[0]["uuid"]) == str(_UUID), claims
+    assert "claim-only" in report, report
+    #: and it is spent on the reward window like any other
+    _reward(lua)
+    _step(lua)
+    assert _queued(lua) == 0
+
+
+def test_a_shared_chest_is_not_duplicated_by_its_own_dig_feed():
+    """Both doors lead to one target. A chest announced in chat AND dug by the alliance
+    must not become two — one squad's worth of work claimed twice."""
+    if not _needs_lua("one chest, two doors"):
+        return
+    lua = _vm()
+    _announce(lua)
+    _dug(lua, plain=True)
+    assert _queued(lua) == 1, "the same chest arrived twice and became two targets"
+    t = lua.eval("DataCenter.__lw_treasure_auto.targets[1]")
+    assert t["dug"] is not None
+    assert not t["claim_only"], "a shared chest has a tile — it must still be marched at"
+
+
+
 def test_a_push_is_read_although_it_carries_no_sfsobject_keys():
     """THE SHAPE A REAL PUSH HAS, and the bug it hid until a live chest (#1296).
 

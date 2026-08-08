@@ -3036,8 +3036,27 @@ local function harvest(cmd, obj)
     -- gift — so it is read as «this chest is dug and payable», never as a loss.
     local u = getdata(obj, "uuid")
     if u == nil then return end
+    local key = tostring(u)
+    local known = false
     for _, t in ipairs(A.targets or {}) do
-      if tostring(t.uuid) == tostring(u) and not t.dug then t.dug = nowms() end
+      if tostring(t.uuid) == key then known = true
+        if not t.dug then t.dug = nowms() end end
+    end
+    -- A CHEST NOBODY SHARED IS STILL A CHEST (#1296, learned on the first live one).
+    -- The alliance dug a treasure for twenty minutes and not one `world.treasure.share.
+    -- chat` crossed the wire — the share is a thing a PLAYER does, and often nobody
+    -- does it. This broadcast, on the other hand, arrives once per member who finishes,
+    -- and it carries the two things a CLAIM needs: the uuid and (from us) the server.
+    -- It cannot carry a march — there is no tile in it — so the target is parked
+    -- `claim_only`, and the step claims it without ever pretending a squad was sent.
+    -- That is exactly the path that took a live chest on 2026-08-08 by hand.
+    A.seen = A.seen or {}
+    if not known and not A.seen[key] then
+      A.seen[key] = nowms()
+      A.targets = A.targets or {}
+      A.targets[#A.targets+1] = {uuid = u, pid = 0, x = 0, y = 0, server = 0,
+                                 at = nowms(), dug = nowms(), claim_only = true}
+      A.news = (A.news or 0) + 1
     end
     return
   end
@@ -3533,6 +3552,22 @@ def treasure_auto_step() -> str:
         # that says what actually happened, because «claimed» would read as taken.
         "t.done, t.why = true, 'claim-unconfirmed' "
         "notes[#notes+1] = 'x' .. tostring(t.d) .. ':claim-unconfirmed' "
+        # A CLAIM-ONLY target (see `harvest`): heard through the alliance's dig feed, so
+        # there is no tile to march at and nothing to wait for. It goes straight to the
+        # claim — which is the case that took the first live chest.
+        "elseif t.claim_only and not t.sent then "
+        "local cooling = (t.claimed ~= nil and now > 0 "
+        "and now - (tonumber(t.claimed) or 0) < retry) "
+        "if cooling then waiting = waiting + 1 "
+        "notes[#notes+1] = 'claim-only:waiting' "
+        "else "
+        "t.tries = (tonumber(t.tries) or 0) + 1 "
+        "local srv = (tonumber(t.server) or 0) ~= 0 and tonumber(t.server) or home_srv "
+        "local ok, err = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end) "
+        "if ok then t.claimed = now claimed = claimed + 1 "
+        "notes[#notes+1] = 'claim-only:claim' .. tostring(t.tries) "
+        "else notes[#notes+1] = 'claim-only:threw:' .. tostring(err) end end "
         "elseif t.sent then "
         # IS OUR SQUAD STILL OUT? The grace exists for a dig whose broadcast never
         # arrived — not for a squad still walking. A chest 300 tiles away outlasts any
