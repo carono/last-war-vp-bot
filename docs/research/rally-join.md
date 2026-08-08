@@ -1414,6 +1414,33 @@ Three guards, each of which has a way of failing quietly without it:
 * **the ordinary filters still apply.** Seats (the wire's own count), a march of ours
   already in that team, and the banners this run has been refused by.
 
+### …and the create push was being thrown away, which made all of it dead code
+
+The mechanism above shipped and then never once fired: over 44 MB of one profile's log,
+across dozens of banners, not a single run reported `from_wire=`. The reason is one line
+of the monitor, and it is worth writing down because everything else was right.
+
+A banner announces itself twice — `create` when it goes up, `refresh` every time somebody
+joins it. **`create` is the whole of the head start**, and in a `create` the leader is
+still standing alone, so the game sends his march with `teamUuid = 0`: the seat that
+becomes a team has not been filled yet. `RallyMonitor.emit` read the team off the marches,
+found a zero, and tagged the line `solo` — and `RallyTab._on_line` needs `team=` to key
+anything by, so it dropped the line whole. The address, the seat count and the target of
+the freshest banner on the map all went in the bin, and the wire's advantage was spent
+waiting for a `refresh` — which only arrives once SOMEBODY ELSE has joined. That is the
+same 10 s the client's own table takes, arrived at by a different road.
+
+The uuid was one level up the whole time. Verified over a recorded rally:
+
+| push | `payload.uuid` | `teamUuid` on the marches |
+|---|---|---|
+| `create` | `<banner>` | `0` (leader alone) |
+| `refresh` ×5 | `<banner>` | `<banner>` on every march |
+
+So `_banner_uuid(payload)` takes the marches' team when they have one — that is the value
+the rest of the file keys by — and falls back to `payload.uuid`, which is present from the
+first frame. A push with neither is still tagged `solo`, as before.
+
 ### NOT YET PROVEN LIVE
 
 **Whether the server accepts a join aimed at a banner the client has not registered.**

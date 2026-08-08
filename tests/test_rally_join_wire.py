@@ -211,6 +211,36 @@ def test_half_an_address_is_no_address() -> None:
     assert rally_monitor._join_point(None) is None
 
 
+def test_a_brand_new_banner_still_has_a_team_to_be_keyed_by() -> None:
+    """The `create` push is the head start, and it used to be the one line thrown away.
+
+    Its leader stands alone, so the game sends his march with `teamUuid = 0` and the tag
+    read `solo` — which the panel drops on the floor, because `_on_line` keys everything
+    it keeps (address, seats, target) by `team=`. So the address arrived on the earliest
+    push and was binned, and the wire's whole advantage was spent waiting for a
+    `refresh`, which only comes once somebody ELSE has joined.
+    """
+    assert str(_PUSH["leaderMarch"]["teamUuid"]) == "0"
+    assert rally_monitor._banner_uuid(_PUSH) == str(_TEAM)
+
+
+def test_the_marches_win_when_they_have_a_team() -> None:
+    """A refresh puts the banner on every march; that is the value the rest keys by."""
+    joined = dict(_PUSH)
+    joined["members"] = [{"teamUuid": _TEAM, "armyInfo": "", "ownerUid": "1000000000000009"}]
+    assert rally_monitor._banner_uuid(joined) == str(_TEAM)
+
+    disagree = dict(joined)
+    disagree["uuid"] = _TEAM + 7
+    assert rally_monitor._banner_uuid(disagree) == str(_TEAM)
+
+
+def test_no_uuid_anywhere_is_still_solo() -> None:
+    bare = {k: v for k, v in _PUSH.items() if k != "uuid"}
+    assert rally_monitor._banner_uuid(bare) is None
+    assert rally_monitor._banner_uuid(None) is None
+
+
 # -- what the join does with it -------------------------------------------------
 
 def test_a_banner_only_the_wire_knows_is_joined() -> None:

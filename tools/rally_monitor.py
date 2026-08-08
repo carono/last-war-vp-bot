@@ -227,6 +227,38 @@ def _join_point(payload):
         return None
 
 
+def _banner_uuid(payload):
+    """The teamUuid of the banner this push is about — `payload.uuid`, not a march's.
+
+    THE CREATE PUSH IS THE ONE THAT MATTERS AND IT IS THE ONE THAT USED TO BE THROWN
+    AWAY (#1301). A banner announces itself twice: `create` the moment it goes up, and
+    `refresh` every time somebody joins it. The join wants the first — that is the whole
+    of the head start the wire has over the client's march table (a median of 10 s).
+
+    But in a `create` the leader is still standing alone, and the game sends his march
+    with `teamUuid = 0`: the seat that becomes a team has not been filled yet. Reading
+    the team off the marches — which is what this did — therefore tagged the earliest
+    and most valuable line `solo`, and the panel dropped it: `_on_line` needs `team=` to
+    key anything by, so the address, the seat count and the target of a brand-new banner
+    all went in the bin and the wire's advantage was spent waiting for a refresh, which
+    only arrives once SOMEBODY ELSE has joined.
+
+    The envelope has carried the uuid all along, one level above the marches, and it is
+    the same number every later refresh puts on every march of that banner — verified
+    over a recorded rally: `create` with `teamUuid = 0` on the leader's march and
+    `uuid = <banner>`, then five refreshes whose marches all carry `<banner>`.
+
+    The marches still win when they have one — they are the value the rest of this file
+    keys by, and a payload whose `uuid` disagreed with them would be a different bug.
+    Returns None when neither has one, and the line is tagged `solo` as before.
+    """
+    for march in _iter_marches(payload):
+        if march.get("teamUuid"):
+            return str(march["teamUuid"])
+    top = payload.get("uuid") if isinstance(payload, dict) else None
+    return str(top) if top else None
+
+
 class RallyMonitor(LiveDecoder):
     """LiveDecoder that harvests + archives the armies behind every rally.
 
@@ -265,16 +297,17 @@ class RallyMonitor(LiveDecoder):
             return
         self.frames += 1
         ts = time.time()
-        team_here = None
+        # The banner's own uuid, off the envelope when the marches have none — a `create`
+        # carries `teamUuid = 0` on the leader's lone march (see `_banner_uuid`).
+        team_here = _banner_uuid(payload)
+        if team_here:
+            self.teams.add(team_here)
         names = []
         target = None
         for march in marches:
             army_pb = _decode_b64_proto(march.get("armyInfo"))
-            team = march.get("teamUuid")
+            team = march.get("teamUuid") or team_here
             owner = march.get("ownerUid")
-            if team:
-                self.teams.add(str(team))
-                team_here = str(team)
             if owner is not None:
                 self.participants.add(str(owner))
             mt = _march_target(march)
