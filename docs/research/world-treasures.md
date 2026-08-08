@@ -833,7 +833,7 @@ detect-event list was empty (`treasures_num=0`). The door works.
 
 And then none of them could be taken, which is where the useful part starts.
 
-### 1. A chest belongs to an alliance — `errorCode 801354`
+### 1. A chest belongs to an alliance — `errorCode 801354`, and the count must say so
 
 The claims came back, and a refused claim is **not** silent after all:
 
@@ -849,6 +849,15 @@ at one spends a squad on a tile the server will not pay for.
 
 **On this map, that is 18 of 19.** Anyone measuring the third door's yield should expect
 most of what a lap sees to be somebody else's.
+
+**So the lap never reports one number.** «Found 19» is a promise of nineteen gifts and is
+worth one, and a person reading it has no way to tell which they are looking at — the same
+fault as every «reading that cannot tell two states apart» in this repository. The harvest
+therefore leads with `found=` / `ours=` / `foreign=`, `treasure_scan_counts()` hands the
+three to the panel as numbers rather than as a line to parse, and both front-ends draw them
+apart: a label under the treasure page in the window, a row on the same card on the phone.
+`ago=-1` keeps the other half of the same rule — «no lap has been walked in this client» is
+not «a lap found nothing».
 
 ### 2. The one that was ours: `errorCode 801348 — claim repeat`
 
@@ -872,8 +881,30 @@ silence is a march for a formation that is already committed, and **a squad whos
 server has not confirmed yet still reads free** in `GetOwnerFormationMarch`, which is what
 the first reading actually caught: a squad the panel's own previous run had just spent.
 
-The lesson is the ordinary one and it cost an hour: two things changed between the two
-sends (the camera AND which squads were free), and only one of them was looked at.
+### The hour this cost, and the trap waiting for the next reader
+
+Written out on purpose, because the wrong answer was not a guess — it was a measurement,
+taken carefully, of an experiment that had **two variables in it**.
+
+The first send produced nothing on the wire. Between it and the send that worked, two
+things changed: the camera moved onto the chest, **and** the squads that had been spent by
+the panel's own previous run came free. Only the first was noticed, because only the first
+had been changed on purpose. «The march needs the chest in view» then explained the
+observation perfectly, went into the code as an aim-then-send step, into the recipe as an
+extra press, into the tests as a fixture and into this file as a finding — an hour of work
+on a fact that was not one. It came out again when the same send was tried with the camera
+500 tiles away and every squad genuinely free, and the march went out exactly as before.
+
+**The trap underneath it is worth more than the lesson**: a squad whose march the server
+has not confirmed yet **still reads free** in `GetOwnerFormationMarch`. So a run that has
+just sent a march sees the same squad as available a second later, spends it again, and the
+client drops the second march in silence — no error, no reply, nothing to find. Anything
+that sends more than one march in a burst will meet this, and it will look exactly like the
+send being ignored for a reason on the server.
+
+Two rules come out of it, and neither is specific to treasures: change ONE thing per
+send when a send is what you are measuring, and never read «this squad is free» off a
+client that may still be waiting for its own last answer.
 
 ### 3. `ownerUid` is a hint, not a verdict
 
