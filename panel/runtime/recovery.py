@@ -412,7 +412,12 @@ class Recovery:
             # not both relaunch the same client.
             self._run = 0
             self._held = False
-            self._why = ""
+            # …but a kick's wait outlives the reading that started it, and so must the
+            # word for it: a client that went offline mid-wait (the person closed it, or
+            # it gave up) is still being waited out, and a strip that went blank here
+            # would say «nothing is happening» through the fifteen minutes when
+            # something very deliberately is (#1291).
+            self._why = "kick" if self.kick_hold_left(now) > 0 else ""
             return None
 
         if link == game_link.LOST:

@@ -336,6 +336,9 @@ def test_the_account_coming_back_ends_the_wait():
     assert r.kick_hold_left(t0 + 60) > 0
     r.note(OFFLINE, t0 + 68, idle_sec=9999.0, kicked=False)
     assert r.kick_hold_left(t0 + 68) > 0, "a client that went away lost its own wait"
+    # …and the strip goes on saying so. A blank one here reads as «ничего не
+    # происходит» through the fifteen minutes when something deliberately is.
+    assert r.state(t0 + 68)["held_by"] == "kick", r.state(t0 + 68)
     r.note(ONLINE, t0 + 76, idle_sec=9999.0, kicked=False)
     assert r.kick_hold_left(t0 + 76) == 0
 
