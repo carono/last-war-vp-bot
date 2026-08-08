@@ -347,6 +347,7 @@ async function pressGame(control, button) {
  * every time the poll comes back. */
 function paintProfiles(data) {
   const names = data.profiles || [];
+  paintLights(data.lights || []);
   const pick = $('profile-pick');
   const same = pick.options.length === names.length
     && names.every((n, i) => pick.options[i].value === n);
@@ -368,6 +369,37 @@ function paintProfiles(data) {
   const many = names.length > 1;
   pick.hidden = !many;
   $('profile').hidden = many;
+}
+
+/* One light per account, drawn from the verdict the window's status poll already made
+ * (panel/runtime/health.py). Rebuilt in place on every tick — it is four small nodes and
+ * the colours are the whole point of the strip, so a repaint that lagged a poll behind
+ * would be a light saying something that stopped being true two seconds ago.
+ *
+ * The words are said by the PANEL, in each account's own language, and arrive ready:
+ * nothing here formats a sentence, because a browser wording a reading is the second
+ * copy of it (`_light` in panel/web/api.py). */
+function paintLights(lights) {
+  const strip = $('profile-lights');
+  strip.hidden = lights.length < 2;
+  if (strip.hidden) { strip.textContent = ''; return; }
+  strip.textContent = '';
+  for (const light of lights) {
+    const chip = document.createElement('button');
+    chip.className = 'chip' + (light.name === PROFILE ? ' on' : '');
+    const dot = document.createElement('span');
+    dot.className = 'dot ' + (light.colour || 'warn');
+    chip.appendChild(dot);
+    chip.appendChild(document.createTextNode(light.name));
+    // Tap = look at that account, and say why its light is that colour. Both, because
+    // a chip that only explained would be the one thing on the page that looks like a
+    // switch and is not — the window's own tabs switch when they are clicked.
+    chip.addEventListener('click', () => {
+      toast((light.tip || [light.text || '']).join(' · '));
+      if (light.name !== PROFILE) { $('profile-pick').value = light.name; switchProfile(light.name); }
+    });
+    strip.appendChild(chip);
+  }
 }
 
 async function switchProfile(name) {

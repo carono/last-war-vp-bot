@@ -110,6 +110,67 @@ def font(size=None, weight=None, slant=None):
     return (family, sz, " ".join(styles)) if styles else (family, sz)
 
 
+class Tooltip:
+    """A borderless window with a few lines of text, shown beside the pointer.
+
+    One per thing that explains itself, reused for every hover rather than built and
+    destroyed per motion event: a `Toplevel` is a native window, and making one sixty
+    times a second while a pointer crosses a tab strip is visible as a flicker on
+    Windows and as leaked handles everywhere.
+
+    It exists because a coloured dot is half a tool (#1299). The colour is read in a
+    glance and says «something is wrong»; the words say WHICH READING said so, which is
+    the difference between «fix the client» and «fix the daemon». Whoever shows one is
+    responsible for the text being locale keys already said — this class formats
+    nothing and translates nothing.
+    """
+
+    def __init__(self, master) -> None:
+        self._master = master
+        self._win = None
+        self._label = None
+        #: Whether it is on screen NOW — not whether the window has ever been built.
+        #: The two came apart in the first draft: `hide` withdraws rather than destroys
+        #: (that is the whole point of reusing the window), so «is there a Toplevel» is
+        #: True for the rest of the session and a hover after a hide drew nothing.
+        self._shown = False
+
+    @property
+    def showing(self) -> bool:
+        return self._shown
+
+    def show(self, text: str, x: int, y: int) -> None:
+        """Put ``text`` at screen position ``(x, y)``. Building the window if needed."""
+        if not text:
+            self.hide()
+            return
+        try:
+            if self._win is None:
+                self._win = tk.Toplevel(self._master)
+                self._win.wm_overrideredirect(True)      # no title bar, no border
+                self._win.attributes("-topmost", True)
+                self._label = tk.Label(self._win, justify="left", anchor="w",
+                                       background="#ffffe0", foreground="#222",
+                                       relief="solid", borderwidth=1, padx=6, pady=4)
+                self._label.pack()
+            self._label.configure(text=text)
+            self._win.wm_geometry(f"+{int(x)}+{int(y)}")
+            self._win.deiconify()
+            self._shown = True
+        except tk.TclError:                              # the window is going away
+            self._win = self._label = None
+            self._shown = False
+
+    def hide(self) -> None:
+        self._shown = False
+        if self._win is None:
+            return
+        try:
+            self._win.withdraw()
+        except tk.TclError:
+            self._win = self._label = None
+
+
 class ScrollableFrame(ttk.Frame):
     """A vertically scrollable container. Build children with THIS as their master.
 

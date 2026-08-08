@@ -26,6 +26,7 @@ from .recovery import Recovery as RecoveryState
 from .bus import EventBus
 from .children import ChildFactory
 from .daemon import GameLink
+from .health import ProfileHealth
 from .i18n import Translator
 from .log import LogBus
 from .paths import LUA_DAEMON, REPO
@@ -120,6 +121,12 @@ class PanelRuntime:
         # object, and a second copy of that bookkeeping is a second answer waiting to
         # disagree with the first.
         self.recovery = RecoveryState()
+        # …AND THE ONE LIGHT ON THIS PROFILE'S TAB (panel/runtime/health.py, #1299).
+        # Same arrangement as `recovery` and for the same reason: written by whoever
+        # polls the link, drawn by BOTH front-ends — the window on the notebook tab, the
+        # phone on the profile picker — out of one object. It is born amber: nothing has
+        # read this profile yet, and «нечего сказать» may never be painted green.
+        self.health = ProfileHealth()
         # THE RELAUNCH LOCK (:meth:`_relaunch_lock`). Which relaunch scenario is running
         # right now, and when the last one finished — the two facts that make «put the
         # client back» a thing exactly one caller can be doing, whoever asks.

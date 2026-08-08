@@ -162,6 +162,34 @@ def read(ev) -> "int | None":
     The round trip is also what `note()` halves into a latency, and `early` only ends
     the WAIT sooner: `sent`/`back` still bracket the same injection, so the offset is if
     anything measured more tightly than before.
+
+    One reading with two shapes: :func:`session_state` is the same round trip told apart
+    into three answers, and this is the offset half of it. Neither is a second copy of
+    the question.
+    """
+    return sample(ev)[1]
+
+
+#: What one round trip to the client's own clock can honestly say about it.
+#:
+#: * ``IN_SESSION``  — it answered with a real epoch clock. It HAS logged in. (Never
+#:                     that it still IS in a session — see :func:`session_ready`.)
+#: * ``LOGIN_SCREEN``— it answered, and what came back is not a clock: a client that has
+#:                     not logged in hands out its own uptime, cheerfully (#1227).
+#: * ``CANNOT_TELL`` — nothing came back at all. No daemon, no client, a busy VM, a read
+#:                     that raised. NOT the same as the login screen, and folding the two
+#:                     together is exactly what `session_ready` does — fine for its own
+#:                     callers and fatal for a gate or a light (§5.2's near-miss).
+IN_SESSION = "in_session"
+LOGIN_SCREEN = "login"
+CANNOT_TELL = "unknown"
+
+
+def sample(ev) -> "tuple[str, int | None]":
+    """``(session state, new offset or None)`` from ONE round trip to the client.
+
+    The whole reading in one place, so the two questions asked of it — «what time does
+    the game think it is» and «is this client in a session at all» — cannot drift apart.
     """
     import lua_actions                       # lazy: keeps a plain import cheap
 
@@ -170,14 +198,35 @@ def read(ev) -> "int | None":
         lines = ev.run(lua_actions.game_server_time(), MARKER, 1.0, early=True)
         back = time.time()
     except Exception:                        # noqa: BLE001 — an unread clock is not fatal
-        return None
+        return CANNOT_TELL, None
     server_ms = parse_ms(lines)
-    if server_ms is None or not plausible(server_ms):
-        # Nothing came back, or what came back is not a clock — a client at the
-        # login screen answers with its own uptime. Either way this is not a
-        # measurement, and `session_ready` reads the None as "not logged in".
-        return None
-    return note(server_ms, sent, back)
+    if server_ms is None:
+        # The chunk did not answer — a daemon that could not reach the VM, a line that
+        # never arrived. Nothing at all is known about the session from this.
+        return CANNOT_TELL, None
+    if not plausible(server_ms):
+        # It ANSWERED, and what came back is not a clock: a client at the login screen
+        # hands out its own uptime. That is positive evidence, and the one state a light
+        # may paint red off this reading.
+        return LOGIN_SCREEN, None
+    return IN_SESSION, note(server_ms, sent, back)
+
+
+def session_state(ev) -> str:
+    """Is this client in a session — ``IN_SESSION`` / ``LOGIN_SCREEN`` / ``CANNOT_TELL``.
+
+    :func:`session_ready` with its two failure modes kept apart, which is what every
+    caller that DECIDES something needs. That helper answers ``False`` both for «at the
+    login screen» and for «the read failed», and a reader that acts on the pair treats a
+    daemon it could not reach as proof the account is not playing — the fail-closed
+    direction `docs/research/server-link-status.md` §5.2 records as a near-miss and
+    #1299's light may not repeat: an unread profile is amber, a login screen is red.
+
+    It does NOT ask about the kick, deliberately. A kicked client answers the clock
+    perfectly (§5.3), so the two are separate questions with separate answers, and a
+    caller that needs both asks both — `game_kick.read` is the other one.
+    """
+    return sample(ev)[0]
 
 
 def session_ready(ev) -> bool:

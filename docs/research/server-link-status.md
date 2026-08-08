@@ -897,3 +897,82 @@ thirty-five minutes by other work (each restart is somebody else's legitimate bu
 and each one left the daemon in one of those two states. A babysitter that treated
 «answers the port» as healthy missed the second kind entirely and had to be taught to ask
 for the pid.
+
+---
+
+## 9. One light per profile, and what may be allowed to be green (#1299)
+
+Everything above answers «what is true about this client». This section is about the one
+place where four of those readings are collapsed into a single pixel of colour, which is
+where a wrong answer is cheapest to make and most expensive to notice.
+
+With several accounts open the panel draws one colour on each profile's notebook tab (and
+the same one beside each account on the phone). A person reads it in a glance and does not
+read it twice — so the error budget is entirely one-sided: **an amber light that should
+have been green costs a second glance, and a green light that should have been amber is
+never looked at again.** That is the shape of every incident in §5, seen from the drawing
+end.
+
+### 9.1 The rule
+
+`tools/lib/profile_health.py`, and it is a pure function of ids — no socket, no round
+trip, no clock of its own. Worst first, and the order is «what would the person do about
+it»:
+
+| # | reading | colour | why |
+|---|---|---|---|
+| 1 | nothing read yet, or the read raised | 🟡 | «пусто» and «не смог прочитать» are different answers (#1296) |
+| 2 | the game's own kick modal | 🔴 | outranks everything: every reading below looks healthy under it (§5.3) |
+| 3 | no client process | 🔴 | |
+| 4 | `link == lost` | 🔴 | positive evidence the server hung up (§2.2) |
+| 5 | the client cannot say what time it is | 🔴 | it is at the login screen — running, and not playing (#1227) |
+| 6 | no daemon / a daemon nothing lands through | 🟡 | the account plays on; only the pressing stops (#1286) |
+| 7 | `link == unknown` | 🟡 | no verdict is not a fault, here as everywhere (§3) |
+| 8 | the session could not be asked about | 🟡 | the last step between «looks fine» and «is fine» |
+| 9 | everything above proved | 🟢 | |
+
+Steps 6 and 7 sit in that order because with the daemon down the session cannot be asked
+at all — reporting that as a mystery would blame the reading rather than the cause.
+
+### 9.2 The reading that decides green
+
+Steps 1–4 and 6–7 are free: the status poll already takes all of them every eight seconds.
+Step 5 is a round trip, and it is the one that had to be added, because **a client at the
+login screen passes every cheap test**: process, sockets, an established game conversation,
+a daemon landing chunks. It answers the expensive questions too, plausibly — no alliance
+tasks, own server `-1`, five robberies unspent.
+
+`game_clock.session_state` is that question with its two failure modes kept apart:
+
+* it ANSWERED, and what came back is not a clock (a client hands out its own uptime before
+  it logs in) → `login`, and that is the only thing here allowed to paint red;
+* nothing came back at all → `unknown`, which is amber and never anything else.
+
+That distinction is the same one §5.2's near-miss is about, from the other side.
+`session_ready` folds the two together — right for its own callers, fail-closed for a
+gate, and fail-**open** for a light, which is worse: a machine whose VM cannot be reached
+would sit green.
+
+**Cost, measured rather than assumed.** Three consecutive reads against a warm daemon on
+2026-08-08: **31 / 81 / 54 ms**. It is asked at most every 24 seconds and only of a
+profile that is otherwise healthy — every other state is already amber or red on free
+readings, so there is nothing a round trip could add there.
+
+### 9.3 What it looked like live
+
+One account's client restarted through the panel's own «Перезапустить игру», with the
+light sampled from the web API every three seconds:
+
+```
+14:08:55  🟢 ok            онлайн (pid A) → …:10012
+14:10:33  🟡 daemon_stale  работает (pid B) — связь не подтверждена   <- the daemon still
+14:10:36  🟡 link_unknown  работает (pid B) — связь не подтверждена      held the old pid
+14:11:35  🔴 client_off    в сессии <user> клиента нет
+14:12:36  🟡 daemon_none   работает (pid C) — связь не подтверждена
+14:12:49  🟡 daemon_none   онлайн (pid C) → …:17972
+          🟢 ok            …once the daemon came back up
+```
+
+Every colour, in both directions, with nobody opening the tab — and each of them naming
+the reading that produced it, which is the other half of the feature: a dot that cannot
+say whether to fix the client or the daemon is half a tool.

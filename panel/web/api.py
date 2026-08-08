@@ -157,9 +157,34 @@ class WebApi:
         names = [name for name, _rt in self.sessions()]
         return {"profiles": names,
                 "home": self.rt.profiles.active,
+                # ONE LIGHT PER PROFILE — the phone's copy of the tab strip (#1299).
+                # The window puts a colour on each profile's notebook tab so an account
+                # that has stopped playing is visible without opening its page; the
+                # picker is where the same labels live here, so the same colour goes
+                # beside them, with the same words behind a tap.
+                #
+                # FREE: it is the LAST verdict the window's status poll made
+                # (panel/runtime/health.py), not a reading taken here — a phone polling
+                # every two seconds must not walk four socket tables to draw four dots.
+                # A profile nothing has polled yet answers amber, «нечего сказать»,
+                # which is what a tab launched on its own reports too.
+                "lights": [self._light(rt) for _name, rt in self.sessions()],
                 # Which one the WINDOW is looking at. Shown so a person driving both can
                 # see, from the phone, which account is on screen at the machine.
                 "showing": current or self.rt.profiles.active}
+
+    def _light(self, rt) -> dict:
+        """One profile's light, worded in ITS own language — never the browser's.
+
+        Said here for the same reason the client's status is: the page has no locale
+        table for sentences that carry a pid and an endpoint in them, and one reading
+        worded twice is two readings waiting to disagree.
+        """
+        try:
+            said = rt.health.state(rt.t)
+        except Exception as exc:             # noqa: BLE001 — a light, never the server
+            said = {"colour": "warn", "reason": "unread", "text": str(exc), "tip": []}
+        return {"name": self._name_of(rt), **said}
 
     def _runtime(self, profile: str | None):
         """The runtime for ``profile`` — or the server's own when it names nothing.

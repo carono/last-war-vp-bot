@@ -102,6 +102,7 @@ from .splash import SplashScreen
 from .runtime import autostart as autostartmod
 from .runtime import game_control as gamectl
 from .runtime import hotkeys
+from .runtime import health as healthmod
 from .runtime import panel_control as panelctl
 from .runtime import panic as panicmod
 
@@ -242,6 +243,20 @@ LINK_COLOURS = {
     runtime.game_process.UNKNOWN: "#e8c069",
     runtime.game_process.OFFLINE: "#c33",
 }
+# The three colours of a profile's own light, on its tab (#1299,
+# panel/runtime/health.py). The same green and the same red as the link strip above, on
+# purpose: two shades of «плохо» in one window is a person working out which is worse
+# instead of reading either. Amber is the strip's amber for exactly the same reason —
+# it means «cannot tell», here as there.
+HEALTH_COLOURS = {
+    healthmod.OK: "#3c3",
+    healthmod.WARN: "#e8c069",
+    healthmod.BAD: "#c33",
+}
+# How big the dot on a tab is, in pixels. Eight is the smallest that still reads as a
+# colour rather than as a smudge on a 100 % display, and it fits the tab's own text row
+# without making the strip taller.
+HEALTH_DOT_PX = 8
 # How long the game must read as gone before the watchdog relaunches it. Two
 # polls, so a single scan that raced the process table (or a client restarting
 # itself after the first login — it does that once) is not a crash.
@@ -258,6 +273,17 @@ WATCHDOG_COOLDOWN_SEC = 300.0
 # A lost link, and a kick already seen, are both asked EVERY poll: there the answer is
 # the thing being decided, and the recovery counts consecutive readings.
 KICK_POLL_SEC = 24.0
+# How often «is this client in a session at all» is asked (`_read_session`, #1299). One
+# round trip to the client's own clock, measured live against a warm daemon on
+# 2026-08-08: **31 / 81 / 54 ms** for three consecutive reads. That is a tenth of what
+# the kick read costs, and it is on the same clock as the kick for the same reason —
+# it takes the daemon's run lock, so it may not be made every eight seconds for ever.
+#
+# It is asked ONLY of a client that already looks fine: running, `online`, and a daemon
+# that is warm and not stale. Every other state is amber or red on readings that cost
+# nothing, so the round trip is spent exactly where it is the difference between amber
+# and green — a login screen answers all the cheap questions like a healthy account.
+SESSION_POLL_SEC = 24.0
 
 # How quiet the window size has to go before the window is painted again after a
 # drag (see Panel._install_resize_damper). Long enough that the pauses inside a
@@ -482,7 +508,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
         "_game_gone", "_game_was_up", "_watchdog_last", "_wd_held", "_link_gone",
-        "_kick_at", "_kick_was",
+        "_kick_at", "_kick_was", "_session_at", "_session_was",
         # the three lifecycle buttons, greyed off this profile's own client
         "_game_buttons",
         # the DSL command line
@@ -841,6 +867,99 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._outer = ttk.Notebook(self)
         self._outer.pack(fill="both", expand=True)
         self._outer.bind("<<NotebookTabChanged>>", self._on_session_tab_changed)
+        self._build_tab_lights()
+
+    # -- one light per profile, on its own tab (#1299) ------------------------
+    #
+    # A person with four accounts open cannot read four status strips: three of the four
+    # pages are behind the one on screen, and the profile that has stopped playing is
+    # never the one being looked at. So each tab carries the whole of its profile's
+    # health in one colour — green ONLY when everything a reading can prove is proved,
+    # amber for «works in part» and for every «cannot tell», red for «is not playing».
+    # The rule is `tools/lib/profile_health.py`; the readings are the status poll's, so
+    # a light costs nothing that was not already being spent.
+    #
+    # THE COLOUR IS HALF A TOOL WITHOUT THE WORDS, so the tab has a tooltip that names
+    # WHICH READING decided it — a person seeing red has to know whether to fix the
+    # client or the daemon, and a dot cannot say.
+    def _build_tab_lights(self) -> None:
+        #: One `PhotoImage` per colour, made once and kept: a Tk image that nobody holds
+        #: a reference to is collected out from under the widget showing it.
+        self._lights: dict = {}
+        self._light_tip = widgets.Tooltip(self)
+        #: Which tab the tooltip is currently about, so a pointer moving along the strip
+        #: does not rebuild the same sentence sixty times a second.
+        self._light_tip_at = None
+        self._outer.bind("<Motion>", self._on_tab_hover, add="+")
+        self._outer.bind("<Leave>", lambda _e: self._hide_tab_tip(), add="+")
+
+    def _light_image(self, colour: str):
+        """A round dot in the health colour, cached per colour.
+
+        Drawn pixel by pixel rather than shipped as a file: the panel has no image
+        assets, an eight-pixel circle is four lines of arithmetic, and the corners stay
+        transparent so the dot sits on the tab's own background whatever the theme is.
+        """
+        img = self._lights.get(colour)
+        if img is not None:
+            return img
+        size = HEALTH_DOT_PX
+        fill = HEALTH_COLOURS.get(colour, HEALTH_COLOURS[healthmod.WARN])
+        img = tk.PhotoImage(master=self, width=size, height=size)
+        radius = (size - 1) / 2.0
+        for y in range(size):
+            dy = y - radius
+            span = (radius * radius - dy * dy) ** 0.5 if abs(dy) <= radius else -1
+            if span < 0:
+                continue
+            x0, x1 = int(round(radius - span)), int(round(radius + span))
+            img.put(fill, to=(x0, y, x1 + 1, y + 1))
+        self._lights[colour] = img
+        return img
+
+    def _paint_tab_light(self) -> None:
+        """Put this profile's light on its own tab. Tk thread, bound to the session."""
+        session = self._session()
+        page = getattr(session, "page", None) if session is not None else None
+        if page is None:
+            return
+        try:
+            colour = session.rt.health.colour
+            self._outer.tab(page, text=session.label(), image=self._light_image(colour),
+                            compound="left")
+        except (tk.TclError, KeyError):        # the page is going away with the profile
+            pass
+
+    def _on_tab_hover(self, event) -> None:
+        """Explain the light under the pointer, in words, without a click."""
+        try:
+            index = self._outer.index(f"@{event.x},{event.y}")
+        except tk.TclError:                    # not over a tab at all
+            self._hide_tab_tip()
+            return
+        if index == self._light_tip_at and self._light_tip.showing:
+            return
+        session = next((s for s in self._workspace.sessions
+                        if s.page is not None and self._tab_index(s.page) == index), None)
+        if session is None:
+            self._hide_tab_tip()
+            return
+        self._light_tip_at = index
+        # Said in THAT profile's language, not in the language of the page on screen:
+        # the tooltip is about the profile whose tab is under the pointer, and its
+        # readings are worded by its own translator everywhere else too.
+        said = [session.name, *session.rt.health.lines(session.rt.t)]
+        self._light_tip.show("\n".join(said), event.x_root + 12, event.y_root + 18)
+
+    def _tab_index(self, page):
+        try:
+            return self._outer.index(page)
+        except (tk.TclError, KeyError):
+            return None
+
+    def _hide_tab_tip(self) -> None:
+        self._light_tip_at = None
+        self._light_tip.hide()
 
     # -- the strip along the bottom: what the panel is doing right now --------
     #
@@ -1017,6 +1136,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         page = ttk.Frame(self._outer)
         session.page = page
         self._outer.add(page, text=session.label())
+        # Amber from the first frame it is drawn in: the poll has not run yet, and «I
+        # have not looked» is not a colour a person may read as «everything is fine»
+        # (panel/runtime/health.py).
+        self._paint_tab_light()
         self._paint_outer()
         self._adopt(session)
         self._watch_activity(session)
@@ -1080,6 +1203,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # in the gaps would reset the count it is meant to be feeding.
         self._kick_at = 0.0
         self._kick_was = False
+        # …and the same pair for «is this client in a session at all» (`_read_session`,
+        # #1299). Carried between reads for the same reason: it is asked on a throttle,
+        # and a gap that answered «не знаю» would turn the tab's light amber every other
+        # poll over a perfectly healthy account.
+        self._session_at = 0.0
+        self._session_was = ""
         # Account dashboard: the last readings and the poller's stop flag. The WIDGET is
         # made when «Аккаунты» is first drawn and not before (`_on_tab_realized`,
         # #1215), so the poller has to be able to run with nowhere to paint.
@@ -3512,13 +3641,34 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # (#1270, docs/research/server-link-status.md §5.3). On THIS thread: it
                 # is a round trip into the game VM.
                 kicked = self._read_kicked(found, warm)
+                # …AND IS IT IN A SESSION AT ALL (#1299)? The last thing between «looks
+                # fine» and «is fine»: a client at the login screen has sockets, a pid
+                # and a warm daemon, and answers everything else with a plausible lie.
+                session = self._read_session(found, warm, stale)
+            except Exception as exc:          # noqa: BLE001 — a reading, never the panel
+                # «Не смогли прочитать» is its own answer and it is AMBER — never green,
+                # and never the red of a client that is demonstrably gone (#1296). The
+                # strip keeps whatever it last said; only the light stops claiming.
+                self._rt.health.failed(exc)
+                self._dbg.error("status poll failed", exc_info=True)
+                self._later(0, self._paint_tab_light)
+                return
             finally:
                 self._status_busy = False
             ok = found.running
+            # ONE LIGHT FOR THE TAB, out of readings that were all taken anyway
+            # (panel/runtime/health.py). Made here rather than on the Tk thread because
+            # everything it needs is in this frame, and it is plain data — no widget is
+            # touched until the hand-over below.
+            self._rt.health.update(found, warm=warm, stale=stale,
+                                   session=session, kicked=kicked)
             self._later(0, lambda: (
                 self._set_status_msg(found.message),
                 self._status_lbl.configure(
                     foreground=LINK_COLOURS.get(found.link, "#888")),
+                # …and the tab's own light, which is the only thing about this profile
+                # that is visible while ANOTHER profile's page is on screen (#1299).
+                self._paint_tab_light(),
                 # THE INDICATOR SAYS WHAT `health` FOUND, not what the port did. «Тёплый»
                 # over a daemon holding a client that has gone is the sentence this whole
                 # task is about (#1286): the port answers, so `up()` is True, and the
@@ -3676,6 +3826,47 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # and the first draft of this actually wrote one: a duplicate `def` that
             # silently overrode the button's.
             self._restart_daemon()
+
+    def _read_session(self, found, warm: bool, stale: bool) -> str:
+        """Is this client in a session, or sitting at the login screen? (#1299)
+
+        THE READING THAT DECIDES GREEN. Everything above it is free and none of it can
+        tell a playing account from one at the login screen: the process is there, the
+        sockets are established, the daemon lands its chunks, and every question the
+        panel asks comes back with a plausible number — no alliance tasks, own server
+        `-1`, all five robberies unspent (#1227). The one thing such a client cannot do
+        is say what time it is, and `game_clock.session_state` is that question with its
+        two failure modes kept apart: «answered, and it is not a clock» is the login
+        screen and paints red; «could not ask» is amber and never anything else.
+
+        ASKED ONLY OF A CLIENT THAT ALREADY LOOKS FINE, which is what makes it cheap: a
+        client that is off, lost, unknown, or whose daemon is down or stale, is already
+        amber or red on readings that cost nothing, so there is nothing for a round trip
+        to add. Throttled at :data:`SESSION_POLL_SEC` and measured at 31–81 ms.
+
+        Forgiving in exactly the way `_read_kicked` is: a read that failed leaves the
+        last answer standing, because the alternative is a tab that flickers amber every
+        time the VM is busy. The state is reset the moment the client stops qualifying,
+        so a fresh client is asked afresh rather than inheriting the old one's answer.
+        """
+        import game_clock                     # lazy: tools/lib, and only on this path
+
+        gp = runtime.game_process
+        if not warm or stale or not getattr(found, "running", False) \
+                or found.link != gp.ONLINE:
+            self._session_at, self._session_was = 0.0, ""
+            return game_clock.CANNOT_TELL
+        now = time.time()
+        if (now - self._session_at) < SESSION_POLL_SEC:
+            return self._session_was or game_clock.CANNOT_TELL
+        try:
+            said = game_clock.session_state(self._rt.game.evaluator())
+        except Exception:                     # noqa: BLE001 — a reading, never the fault
+            said = game_clock.CANNOT_TELL
+        self._session_at = now
+        if said != game_clock.CANNOT_TELL:    # «не смог спросить» keeps the last answer
+            self._session_was = said
+        return self._session_was or game_clock.CANNOT_TELL
 
     def _read_kicked(self, found, warm: bool) -> bool:
         """Is the client showing the game's own «вход с другого устройства» modal?

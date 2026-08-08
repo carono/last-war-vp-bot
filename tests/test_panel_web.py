@@ -44,6 +44,7 @@ from panel import i18n as i18nmod          # noqa: E402
 from panel import tabs as tabsreg          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
+from panel.runtime import health as healthmod       # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
 from panel.runtime import panic as panicmod  # noqa: E402
 from panel.runtime import recovery as recoverymod  # noqa: E402
@@ -196,6 +197,10 @@ class _Runtime:
         # …and the same for «Включить обратно»: `/api/state` reads `panic.state(now)`
         # and `/api/panel` gates the resume on `panic.stopped`.
         self.panic = panicmod.Panic()
+        # …and the profile's one light, for the same reason: `/api/profiles` draws the
+        # phone's copy of the tab strip out of the LAST verdict the window's status poll
+        # made (#1299), and a fake would pin a shape this file invented.
+        self.health = healthmod.ProfileHealth()
         self.played: list = []
         self.busy_next = False
 
@@ -628,6 +633,27 @@ def test_the_page_can_ask_which_accounts_are_open():
         answer = api.profiles()
         assert answer["profiles"] == ["main", "second"], answer
         assert answer["home"] == "main" and answer["showing"] == "main"
+
+
+def test_every_open_account_carries_its_own_light():
+    """The phone's copy of the window's tab strip (#1299).
+
+    One entry per open account, with the colour and the words already said — and a
+    profile nothing has polled yet is AMBER, never green: a light that reads «all
+    fine» because nobody looked is the one thing the whole rule exists to prevent.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        first, second, _ws = _two_profiles(home)
+        second.health.update(
+            type("_P", (), {"link": "online", "running": True,
+                            "message": "online (pid 1)"})(),
+            warm=True, stale=False, session="in_session")
+        lights = apimod.WebApi(first).profiles()["lights"]
+        assert [light["name"] for light in lights] == ["main", "second"], lights
+        assert lights[0]["colour"] == "warn" and lights[0]["reason"] == "unread", lights
+        assert lights[1]["colour"] == "ok", lights
+        # …and each of them says WHY, in words, so a tap can explain the colour.
+        assert all(light["text"] and light["tip"] for light in lights), lights
 
 
 def test_every_route_answers_for_the_profile_it_was_asked_about():

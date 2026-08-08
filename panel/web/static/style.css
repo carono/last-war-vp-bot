@@ -145,6 +145,45 @@ nav {
 .bad { color: var(--bad); }
 p { margin: 6px 0 0; }
 
+/* --- one light per account (#1299) ---------------------------------------
+   The phone's copy of the window's tab strip. It scrolls sideways rather than wrapping:
+   with four accounts open the strip must not push the whole page down, and a row that
+   grows a second line moves everything under it every time a name changes length. */
+.lights {
+  display: flex;
+  gap: 6px;
+  padding: 8px var(--gap);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  -webkit-overflow-scrolling: touch;
+}
+.lights .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  /* 44, like every other control: a chip switches accounts when it is tapped, so it is
+     a control and not a label, and a thumb misses anything smaller. */
+  min-height: 44px;
+  padding: 4px 12px;
+  font-size: 13px;
+  border-radius: 999px;
+}
+.lights .chip.on { border-color: var(--ink); }
+/* The dot itself: the same three colours the window paints on a notebook tab, and
+   nothing else on the page uses them as a fill — a green dot means «proved», never
+   «probably». */
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+
 /* A pill with nothing in it is a grey blob nobody can read — it was the first thing
    the eye landed on in the screenshots of the timers screen. Empty means gone. */
 .pill:empty { display: none; }
