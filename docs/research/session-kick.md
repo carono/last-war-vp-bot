@@ -307,3 +307,52 @@ is worth writing down because from outside the two look identical: the person re
 it saw «связь с сервером пропала» and «панель перезапустила клиент» and read the wait as
 broken. The two messages are the tell — `log.game.link_lost` is a hang-up, and only
 `log.game.kick_hold` / `log.game.kick_restart` mean the account was taken.
+
+---
+
+## The kick recovery had never once run — the poll it rides was dead (#1296)
+
+Found sideways, while a different poll trigger (the treasure errand) refused to arm
+itself, and it applies to **every** poll trigger there has ever been — the kick recovery
+above included.
+
+`Schedule.poll` built the check's chunk and read its answer in the same method:
+
+```python
+chunk = '… CS.UnityEngine.Debug.LogError("TRIGCHK=" .. tostring(…))'
+return any("TRIGCHK=true" in ln.lower() for ln in (lines or []))
+```
+
+The needle is spelled in the marker's own capitals; the haystack is lowered.
+`"TRIGCHK=true" in "trigchk=true"` is **False for every reading the game can give**, so
+the verdict was False always. The listener started, the log said `listening on
+session_kick (poll)`, the chunk reached the client, the client answered `TRIGCHK=true`
+when the modal was up — and the panel read «nothing to do».
+
+**Why it survived so long, and this is the lesson rather than the typo.** A poll that
+does not fire writes NOTHING. There is no line for «checked, answer was no», because that
+is the normal case a hundred times an hour. So a recovery that never ran and a recovery
+that was never needed produce byte-identical logs, and the only way to tell them apart is
+to make the condition true on purpose and watch. That is what caught it: the treasure
+errand's check is true whenever its hook is missing, so removing the hook by hand created
+a poll that MUST fire — and nothing happened.
+
+How it was pinned, in order:
+
+1. the panel's own log: `listening on treasure_auto (poll)`, then no `fire` for minutes;
+2. the same chunk run by hand through the daemon: `['TRIGCHK=true']`;
+3. the panel's verdict on those very lines, computed in isolation: `False`.
+
+Step 3 is the one that named it. Steps 1 and 2 are equally consistent with a dozen other
+faults — a dead poll thread, a `ready()` refusing, a claim held elsewhere — and each of
+those was chased first.
+
+The chunk and its reading are now one pair in `panel/triggers.py`
+(`poll_chunk` / `poll_said_yes`, case-insensitive on both sides), because a contract
+duplicated as two strings in one method is a contract no test can reach; `Schedule.poll`
+calls them. `tests/test_treasure_auto.py` drives the real line shape the daemon returns
+and the whole round trip through a real Lua.
+
+**If a poll trigger of yours has never visibly done anything, check this first**, and
+check it by forcing the condition rather than by reading logs — the logs of a broken poll
+and an idle one are the same.
