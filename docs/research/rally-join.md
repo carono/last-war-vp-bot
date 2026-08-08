@@ -978,6 +978,33 @@ moment a march of ours stands in that team, and **the third failure is the last*
 keeps 8 of those 9 and saves 51 sends that could not have worked. The price is measured
 rather than assumed: one join in 114, the eight-send outlier.
 
+### How «did it arrive?» is measured at all
+
+Every number in the sections above and below comes from the WIRE rather than from the
+panel's own log, and that distinction is the whole reason they can be trusted: our log
+says what was SENT, and this ability spent weeks sending cleanly into nothing. The push
+stream says who is standing in each banner, so it is the only thing that can answer
+whether a send arrived.
+
+The landing rule, and it has two halves that both matter:
+
+* our name is **absent** from the last `push.alliance.march.*` for that team BEFORE the
+  send, and
+* **present** in some push at or after it.
+
+Leave the first half out and the count triples: the push our own join causes is
+timestamped in the same second as the send line, so a naive «was our name there?» reads
+111 successes as duplicate sends to banners we were already in. That mistake was made
+once and caught by noticing every «duplicate» had a gap of exactly 0 s.
+
+The player's own name is DERIVED from the data rather than written down — it is the one
+name common to the participant lists of every banner a confirmed run sent to — so the
+tool carries no account identifier. It is `results/rally1281/wire_truth.py`:
+
+```
+python3 results/rally1281/wire_truth.py 02:44 06:19 [profile]
+```
+
 ### What the window actually says about «not one missed»
 
 158 banners announced on the wire, **114 of them joined** — with three squads, against an
@@ -1027,6 +1054,24 @@ The report names both:
 ```
 no_seat=[<team>:banner-full(5/5) <team>:refused-full]
 ```
+
+**THE KEY IS NOT WHAT THE HEADLESS SEND SEES, and that is a negative finding worth the
+space.** `390857` is what the GAME shows when a person taps a full banner. The join does
+not tap anything — it is one `SendCreateMarchMessage` — and the server answers a refused
+join of that shape with **silence**. Measured: the recipe reads the client's own message
+tip on the failing path (`UIWindowNames.UICommonMessageTip`), and across every failure in
+a three-and-a-half-hour window it came back with the same thing:
+
+```
+READ_LUA refusal = 'the server said nothing on screen'
+```
+
+No key, no tip, no error frame — the send goes out, nothing comes back, and no march
+appears. So **the rule cannot be built on the refusal**: what the auto-join actually
+stands on is «a squad of ours did not appear in that team within three seconds», and the
+tip is read only so that a future refusal which DOES speak is not missed. Anybody who
+sets out to match `390857` on this path will find nothing and conclude the code is
+broken; it is not, the server simply does not say it to us.
 
 ### The run that should never have started
 
@@ -1186,6 +1231,166 @@ will start joining again, and naming the roomiest would overstate the work.
 > В отряде 2 — 1255 из 2565: в казарме всего 1256 солдат, полный не собрать.
 > Наберите ещё 1309, и он снова начнёт присоединяться.
 
-**The threshold is the player's to move, not an agent's.** «Полный = вместимость» was
-said explicitly, so that is what is in the code; a fraction of the ceiling would be one
-line and is a decision, not a fix.
+### The threshold, and the one line that would move it
+
+**«Полный = вместимость» is what is in the code, and it is the player's decision rather
+than a technical one.** Asked for once («нужно проверять, есть ли МАКСИМУМ СОЛДАТ для
+отряда»), and confirmed a second time after being shown exactly what it costs
+(«Отправлять в стяг только полные отряды» — with the barracks at 1256 against a smallest
+ceiling of 2565, i.e. knowing the auto-join would go silent). Nobody may soften it
+without being asked to.
+
+This is written down because the alternative WILL come up, and it should take a minute
+rather than an afternoon.
+
+**What a fractional threshold is.** Instead of «send only at the ceiling», send at
+`share × ceiling` — «not below 80% of what the squad can carry». It is one comparison, in
+one place, in `tools/lib/lua_actions.py::rally_join_all`, in the squad sieve:
+
+```lua
+-- now
+elseif cap > 0 and n < cap then …
+-- a fraction instead (0.8 would be the knob, wherever it is read from)
+elseif cap > 0 and n < math.ceil(cap * share) then …
+```
+
+Everything else already works unchanged: `not-full` / `short-of-troops` keep their
+meaning (the second becomes «cannot reach the SHARE», which is the honest wording then),
+`todo = -2 / -3` keep theirs, and both front-ends keep drawing `have / fits` — only the
+sentence would want «нужно {n} для {share}%» instead of «полный не собрать». A knob would
+belong on «Автосбор» beside the squads, saved in the profile's rally block, and mirrored
+in `web_view` like every other reading (CLAUDE.md).
+
+**What each choice costs, in the numbers this task measured:**
+
+| threshold | what goes out | what it costs |
+|---|---|---|
+| `= ceiling` (now) | nothing at all while the barracks is short — 0 joins over the window that had 158 banners | strongest squad in every banner; the auto-join can be silent for days, and says so |
+| `≥ 80%` | with 1256 soldiers and ceilings 3123 / 2631 / 2565, still nothing (80% of the smallest is 2052) | the wall moves but does not disappear on a base this far behind |
+| `≥ 50%` | all three squads would have gone (1254–1255 against 1283 / 1316 / 1562… squad 3 only) | weaker squads in a rally; a half-strength squad still fills a seat somebody else could have used |
+| no threshold (before this task) | everything went | the state the player asked to change |
+
+The middle rows are the point: **a fraction is not a milder version of the same rule, it
+is a different rule with a different failure**. At the ceiling the auto-join is silent and
+honest; at a fraction it joins with squads the player did not want in a rally, and there
+is no reading afterwards that says which banners were fought at half strength. If the
+fraction is ever turned on, the report should name it (`not-full(n/cap, share 80%)`) so
+that stays visible.
+
+### The per-kind tally: one write path, and no numbers to check it against yet
+
+Two things play `join_rally` — the schedule's «rally_auto_join» trigger and the «Ралли»
+tab's own reader, which raises one for every banner the capture hears. The counting rule
+used to live in `panel/runtime/schedule.py`, which exactly ONE of those two passes
+through, so every join the tab's driver made went unrecorded: over one live window the
+tally recorded 1 join of 13 and `rally_counts.json` read 11 against 13 confirmed.
+
+The rule is now `panel/tabs/rally/limits.py::record_run(rt, ctx)` and both drivers call
+it; the schedule's hook is handed the finished context and keeps no opinion of its own
+about what a join is worth. One entry per squad the run sent, capped by what the run
+confirmed — `joined` is a DIFFERENCE, so a squad the OTHER driver sent that lands
+mid-run falls inside both runs' differences and both would record it without the cap. A
+run that sent nothing records nothing.
+
+**There are no live numbers confirming this yet, and there is a reason.** The full-squad
+gate landed in the same session and held every send, so no joins happened afterwards to
+count. **Do not go looking for that comparison in the logs of 2026-08-08 — it is not
+there.** It needs an event played with the barracks above the ceilings, and then the
+check is: joins the log confirmed, against `rally_counts.json`, against the trophy list
+(`tools/dev/rally_trophies.py --check FROM TO`).
+
+
+## Everything this task believed and then disproved (#1281)
+
+A negative result saves the next person a day exactly as often as a positive one, and
+this ability produced an unusual number of them — it spent weeks looking like it worked.
+Each row below was BELIEVED, acted on, and then killed by a specific measurement; the
+measurement is what makes it safe to stop re-deriving.
+
+### «Six joinable banners were held shut by a stale mark»
+
+**Refuted by `endTime`.** The reading was real — `seen=6 ours=6 already_in=0 rallies=0`,
+six banners of the alliance and a march of ours in none of them — and the conclusion
+(«the join marks outlive the squads and shut open banners») was wrong. Ageing the marks
+did not free those banners; it removed an accidental guard. All six had **already
+arrived**: the client keeps a resolved rally in its march table with the same `teamUuid`,
+the same `type=ASSEMBLY_MARCH` and `status` still saying MOVING, and nothing in the shape
+of the entry says it is over. Nine «banners» on the map at one point and every one of
+them had been fought, the oldest thirty-two minutes earlier — 54 sends in fifteen
+minutes, zero marches, the server dropping every one without a word. `endTime` against
+the server clock is the only field that tells them apart.
+
+### «Occupancy is better counted in the client than taken from the push»
+
+**Refuted by the wire, and this doc used to say the opposite in as many words.** The
+argument was sound-sounding: every member march of a rally IS in `GetAllMarches()`, so
+the count is current at the moment of the send rather than as of the last push we heard.
+Measured against the wire over three and a half hours: of **21 squads sent at a banner
+the wire had last announced as 5 of 5, not one arrived** — while the client's own count
+of those same banners still showed a seat. Both numbers are floors of the truth; the
+sieve takes the larger and names which one shut the banner.
+
+### «A trophy lives about an hour»
+
+**Refuted by reading the stamps against the game's own clock.** The figure came from a
+delta of 1:01:03–1:02:48 across eight rows and was an artefact of the arithmetic that
+produced it: the log's time of day had been pasted onto the trophy's expiry DATE, so what
+got measured was two clocks three hours apart rather than an age. Read as absolute stamps
+the same eight rows had **98–100 hours** left. The list is not a TTL at all — what empties
+it is COLLECTING, and nothing in the schedule collects, which is why it can be used as
+evidence.
+
+### «The tally counts joins»
+
+**Refuted twice, by two different miscounts.** First it counted march EVENTS and called
+them banners — 304 events against 49 banners. Then, fixed to count banners, it recorded
+what a run had merely SEEN rather than what it sent: the second driver's run reported
+`joined=1` for a squad the FIRST one had sent, carried no kinds of its own and fell back
+to the gate's list, so it counted somebody else's join under whichever kind happened to
+be first. Over one live event that read 53 against 34 confirmed joins and 35 trophies.
+The rule that survived: one entry per squad THIS run sent, capped by what it confirmed.
+
+### «The ceiling can only be read on a client whose dispatch screen has been rendered»
+
+**Refuted by `ConscriptSoldier`.** It looked settled: `heroTotalSoldierCapacity` was nil
+through `formation.get.soldier`, through `FetchFormationSoldier` and through
+`RefreshFormationSoldier`, and the one time it had answered was right after a cold
+session's first fetch — which lines up neatly with the `canMarch` recompute the real
+dispatch render does ([world-monsters.md](world-monsters.md), finding 10). The conclusion
+was that the gate could only work with a window open. Dumping every method of the class
+and grepping the bytecode for the field name found the writer in one step, and it is
+local, sends nothing, and costs nothing.
+
+### «A filled squad is exactly `min(ceiling, barracks)`»
+
+**Refined by the barracks side.** Exact on the ceiling side — three squads, `diff=0`,
+with 8583 soldiers against ceilings of 3123 / 2631 / 2565 — and one or two short when the
+barracks binds: 1256 soldiers filled three squads to 1254 / 1255 / 1255, because the fill
+is per hero slot and the last few soldiers fit no slot. A check written as `== min(...)`
+would have been wrong on the very day the rule was written.
+
+### «`push.alliance.march.remove` is the gate that was missing»
+
+**Refuted by counting.** Sends to a banner whose first push was more than ten seconds old
+arrived only 8 times in 45, which looked exactly like «the gathering window closes and we
+keep firing into it» — and `remove` (1740 of them in one window, `{teamUuid, isCancel}`,
+deliberately ignored by `rally_monitor` as carrying no army) was the obvious candidate for
+where that window ends. It is not: of 236 checkable sends, **exactly one** went out after
+a `remove` for that team. The banner leaves the client's march table at the same moment,
+so the sieve had already stopped offering it. The age correlation is explained by the
+`arrived` and seat filters instead.
+
+### «`tools/dev/rally_trophies.py --check` can verify any window»
+
+**Bounded by a log that rotates.** It pairs trophies with banners through `debug.log`,
+and `debug.log` holds roughly the last hour while `panel.log` reaches back days. A window
+older than that answers «0 joins the log confirmed» and looks like a mismatch when it is
+simply out of range. Checked 18:00–19:00: trophies 5 / log 5, agreed. 17:00–18:00:
+trophies 3 / log 2 — the log undercounted by one.
+
+### «A `{placeholder}` in `LOG` / `FAIL` carries what a later `READ_LUA` wrote»
+
+**Refuted by the DSL's own documentation** (`docs/dsl.md`): substitution happens ONCE,
+before the run. `{refusal}` / `{report}` / `{joined}` printed literally, as themselves.
+The lines now point at the reading above them, which logs its own value, and a test pins
+the behaviour.
