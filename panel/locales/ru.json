@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "уровень",
   "cmdpost.col.robbed": "ограблено",
   "cmdpost.shared.matched": "готово",
+  "rally_tab.short_of_troops": "В стяг идут только полные отряды, а базе не хватает войск: {have} солдат против {need}, которые вмещает самый ёмкий отряд. Нужно набрать войск — бот тут ни при чём.",
+  "rally_tab.short_of_troops_title": "Ничего не отправляется",
   "rally_tab.soldiers": "солдат",
   "rally_tab.stamina": "Стамина",
   "chat.empty": "сообщений пока нет",

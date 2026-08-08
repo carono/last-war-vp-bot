@@ -278,6 +278,59 @@ def test_no_root_means_no_poll_but_reads_still_work():
     assert reader.read().ok
 
 
+
+# ---------------------------------------------------------------------------
+# «только полные отряды» — what the reading must carry for it (#1281)
+# ---------------------------------------------------------------------------
+FULL_LINE = (
+    "stamina=90 max=120 full=0 pool=6438 | "
+    "squad=1 state=0 free=1 soldiers=3123 fits=3123 status=- march=- team=0 "
+    "point=- arrive=0 | "
+    "squad=2 state=0 free=1 soldiers=2631 fits=2631 status=- march=- team=0 "
+    "point=- arrive=0")
+
+#: The same account an hour earlier, and the reason it sent nothing: it owned fewer
+#: soldiers than its smallest squad can carry. Read live off the client (#1281).
+SHORT_LINE = (
+    "stamina=90 max=120 full=0 pool=1256 | "
+    "squad=1 state=0 free=1 soldiers=1254 fits=3123 status=- march=- team=0 "
+    "point=- arrive=0 | "
+    "squad=2 state=0 free=1 soldiers=1255 fits=2565 status=- march=- team=0 "
+    "point=- arrive=0")
+
+
+def test_a_squad_says_how_full_it_is_not_only_how_many():
+    """«Отправлять в стяг только полные отряды» needs BOTH numbers, so both are read."""
+    state = sq.parse(FULL_LINE)
+    assert state.ok, state.error
+    assert [(s.soldiers, s.fits) for s in state.squads] == [(3123, 3123), (2631, 2631)]
+    assert all(s.full for s in state.squads)
+    assert state.pool == 6438
+    assert not state.short_of_troops
+
+
+def test_the_base_that_cannot_fill_one_squad_says_so():
+    """The one reading behind «почему автостяг молчит» — and it is not a squad's own."""
+    state = sq.parse(SHORT_LINE)
+    assert state.ok, state.error
+    assert [s.full for s in state.squads] == [False, False]
+    assert state.pool == 1256
+    assert state.short_of_troops, "the wall the auto-join goes quiet against is unseen"
+
+
+def test_a_ceiling_the_game_did_not_say_accuses_nobody():
+    """Three answers, not two: unknown is neither full nor short (#1281).
+
+    A reading with no `fits` is what every profile written before this change looks
+    like, and what a client that answered nothing looks like. Neither may turn into
+    «твоя казарма пуста» on the tab.
+    """
+    state = sq.parse(HOME_LINE)                    # no `fits`, no `pool`
+    assert state.ok, state.error
+    assert all(s.fits == 0 and s.full is None for s in state.squads)
+    assert state.pool == 0
+    assert not state.short_of_troops
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

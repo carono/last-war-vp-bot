@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "nivel",
   "cmdpost.col.robbed": "robado",
   "cmdpost.shared.matched": "listo",
+  "rally_tab.short_of_troops": "Solo los escuadrones completos se unen a una concentración, y la base no puede llenar ninguno: {have} soldados frente a los {need} que caben en el escuadrón más grande. Entrena más: el bot no tiene la culpa.",
+  "rally_tab.short_of_troops_title": "No se envía nada",
   "rally_tab.soldiers": "soldados",
   "rally_tab.stamina": "Vigor",
   "chat.empty": "aún no hay mensajes",

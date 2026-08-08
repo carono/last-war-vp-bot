@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "level",
   "cmdpost.col.robbed": "robbed",
   "cmdpost.shared.matched": "ready",
+  "rally_tab.short_of_troops": "Only full squads join a rally, and the base cannot fill one: {have} soldiers against the {need} the roomiest squad holds. Train more — there is nothing wrong with the bot.",
+  "rally_tab.short_of_troops_title": "Nothing is being sent",
   "rally_tab.soldiers": "soldiers",
   "rally_tab.stamina": "Stamina",
   "chat.empty": "no messages yet",

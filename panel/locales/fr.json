@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "niveau",
   "cmdpost.col.robbed": "pillé",
   "cmdpost.shared.matched": "prêt",
+  "rally_tab.short_of_troops": "Seules les escouades complètes rejoignent un ralliement, et la base ne peut en remplir aucune : {have} soldats contre les {need} que contient la plus grande escouade. Formez-en davantage — le bot n'y est pour rien.",
+  "rally_tab.short_of_troops_title": "Rien n'est envoyé",
   "rally_tab.soldiers": "soldats",
   "rally_tab.stamina": "Endurance",
   "chat.empty": "pas encore de messages",

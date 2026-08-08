@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "poziom",
   "cmdpost.col.robbed": "obrabowane",
   "cmdpost.shared.matched": "gotowe",
+  "rally_tab.short_of_troops": "Do zgrupowania dołączają tylko pełne oddziały, a baza nie jest w stanie zapełnić żadnego: {have} żołnierzy wobec {need}, które mieści największy oddział. Wyszkol więcej — bot nie jest niczemu winien.",
+  "rally_tab.short_of_troops_title": "Nic nie jest wysyłane",
   "rally_tab.soldiers": "żołnierzy",
   "rally_tab.stamina": "Wytrzymałość",
   "chat.empty": "jeszcze nie ma wiadomości",

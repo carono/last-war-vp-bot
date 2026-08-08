@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "livello",
   "cmdpost.col.robbed": "derubato",
   "cmdpost.shared.matched": "pronto",
+  "rally_tab.short_of_troops": "Solo le squadre al completo si uniscono a un raduno, e la base non riesce a riempirne nemmeno una: {have} soldati contro i {need} che entrano nella squadra più capiente. Addestrane altri — il bot non c'entra.",
+  "rally_tab.short_of_troops_title": "Non viene inviato nulla",
   "rally_tab.soldiers": "soldati",
   "rally_tab.stamina": "Vigore",
   "chat.empty": "ancora nessun messaggio",

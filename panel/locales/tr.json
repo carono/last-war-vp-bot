@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "seviye",
   "cmdpost.col.robbed": "soyuldu",
   "cmdpost.shared.matched": "hazır",
+  "rally_tab.short_of_troops": "Toplanmaya yalnızca dolu birlikler katılır ve üs bir taneyi bile dolduramıyor: en geniş birliğin aldığı {need} askere karşılık {have} asker. Daha fazla asker yetiştir — sorun botta değil.",
+  "rally_tab.short_of_troops_title": "Hiçbir şey gönderilmiyor",
   "rally_tab.soldiers": "asker",
   "rally_tab.stamina": "Dayanıklılık",
   "chat.empty": "henüz mesaj yok",

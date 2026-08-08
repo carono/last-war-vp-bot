@@ -117,21 +117,38 @@ _RALLY_MARCHES = ("ASSEMBLY_MARCH", "CROSS_ASSEMBLY_MARCH")
 class Squad:
     """One squad slot, as the game last reported it."""
 
-    __slots__ = ("index", "state", "free", "soldiers", "status", "march", "team",
-                 "point", "arrive_ms")
+    __slots__ = ("index", "state", "free", "soldiers", "fits", "status", "march",
+                 "team", "point", "arrive_ms")
 
     def __init__(self, index: int, state: int = -1, free: bool = False,
                  soldiers: int = 0, status: str = "", march: str = "",
-                 team: str = "0", point: str = "", arrive_ms: int = 0) -> None:
+                 team: str = "0", point: str = "", arrive_ms: int = 0,
+                 fits: int = 0) -> None:
         self.index = int(index)
         self.state = int(state)
         self.free = bool(free)
         self.soldiers = int(soldiers)
+        #: How many soldiers FIT — what the auto-join compares against, because the
+        #: player asked for «только полные отряды» (#1281). `0` when the game has not
+        #: said, and then nothing may be concluded from it.
+        self.fits = int(fits)
         self.status = status or ""
         self.march = march or ""
         self.team = team or "0"
         self.point = point or ""
         self.arrive_ms = int(arrive_ms)
+
+    @property
+    def full(self) -> "bool | None":
+        """Is this squad filled to what its heroes can carry? `None` when unknown.
+
+        THREE ANSWERS AND NOT TWO, on purpose: a ceiling the game has not filled in is
+        not a full squad and not a short one either, and the auto-join treats it the
+        third way — it sends, because a gate that cannot see must not refuse (#1281).
+        """
+        if self.fits <= 0:
+            return None
+        return self.soldiers >= self.fits
 
     @property
     def in_rally(self) -> bool:
@@ -176,11 +193,17 @@ class Squad:
 class SquadState:
     """A whole reading: every squad, the stamina pool, and when it was taken."""
 
-    __slots__ = ("squads", "stamina", "stamina_max", "stamina_full_ms", "at", "error")
+    __slots__ = ("squads", "stamina", "stamina_max", "stamina_full_ms", "at", "error",
+                 "pool")
 
     def __init__(self, squads=None, stamina: int = -1, stamina_max: int = 0,
-                 stamina_full_ms: int = 0, error: str = "", at: float | None = None) -> None:
+                 stamina_full_ms: int = 0, error: str = "", at: float | None = None,
+                 pool: int = 0) -> None:
         self.squads = list(squads or ())
+        #: Soldiers the base owns in total. It is what tells «this squad has not been
+        #: topped up» from «there are not enough soldiers to fill one», and the second
+        #: of those is why the auto-join can go quiet for days (#1281).
+        self.pool = int(pool)
         self.stamina = int(stamina)
         self.stamina_max = int(stamina_max)
         self.stamina_full_ms = int(stamina_full_ms)
@@ -198,6 +221,18 @@ class SquadState:
             if squad.index == int(index):
                 return squad
         return None
+
+    @property
+    def short_of_troops(self) -> bool:
+        """Can the base not fill even its roomiest squad? Then nothing will be sent.
+
+        The one reading behind «почему автостяг молчит»: with «только полные отряды»
+        asked for explicitly (#1281), a base below the smallest ceiling sends nothing at
+        all, and the answer is the barracks rather than the bot. False while any ceiling
+        is unknown — an unread gate says nothing, it does not accuse.
+        """
+        fits = [s.fits for s in self.squads if s.fits > 0]
+        return bool(fits) and self.pool > 0 and self.pool < min(fits)
 
     def kind(self, index: int) -> str:
         """What slot ``index`` is doing, `unknown` when this reading does not say."""
@@ -228,7 +263,7 @@ def parse(raw: str) -> SquadState:
     """
     if not isinstance(raw, str) or not raw.strip():
         return SquadState(error="empty")
-    squads, stamina, stamina_max, full = [], -1, 0, 0
+    squads, stamina, stamina_max, full, pool = [], -1, 0, 0, 0
     for record in raw.split("|"):
         fields = {}
         for token in record.split():
@@ -250,16 +285,18 @@ def parse(raw: str) -> SquadState:
                 march=_name(fields.get("march")),
                 team=fields.get("team") or "0",
                 point=_name(fields.get("point")),
-                arrive_ms=_int(fields.get("arrive"), 0)))
+                arrive_ms=_int(fields.get("arrive"), 0),
+                fits=_int(fields.get("fits"), 0)))
         elif "stamina" in fields:
             stamina = _int(fields.get("stamina"), -1)
             stamina_max = _int(fields.get("max"), 0)
             full = _int(fields.get("full"), 0)
+            pool = _int(fields.get("pool"), 0)
     if not squads:
         return SquadState(error="no squads")
     squads.sort(key=lambda s: s.index)
     return SquadState(squads=squads, stamina=stamina, stamina_max=stamina_max,
-                      stamina_full_ms=full)
+                      stamina_full_ms=full, pool=pool)
 
 
 def _int(raw, default: int) -> int:

@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "level",
   "cmdpost.col.robbed": "dirampok",
   "cmdpost.shared.matched": "siap",
+  "rally_tab.short_of_troops": "Hanya pasukan penuh yang ikut rally, dan markas tidak bisa mengisi satu pun: {have} prajurit berbanding {need} yang muat di pasukan terbesar. Latih lebih banyak — bukan botnya yang bermasalah.",
+  "rally_tab.short_of_troops_title": "Tidak ada yang dikirim",
   "rally_tab.soldiers": "prajurit",
   "rally_tab.stamina": "Stamina",
   "chat.empty": "belum ada pesan",

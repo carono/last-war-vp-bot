@@ -1190,6 +1190,8 @@
   "cmdpost.col.level": "Stufe",
   "cmdpost.col.robbed": "ausgeraubt",
   "cmdpost.shared.matched": "bereit",
+  "rally_tab.short_of_troops": "Nur volle Trupps treten einem Sammelangriff bei, und die Basis kann keinen füllen: {have} Soldaten gegenüber den {need}, die der größte Trupp fasst. Bilde mehr aus — am Bot liegt es nicht.",
+  "rally_tab.short_of_troops_title": "Es wird nichts entsandt",
   "rally_tab.soldiers": "Soldaten",
   "rally_tab.stamina": "Ausdauer",
   "chat.empty": "noch keine Nachrichten",

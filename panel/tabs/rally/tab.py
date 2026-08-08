@@ -175,6 +175,13 @@ class RallyTab(PanelTab):
         # the runtime, not by this tab: the same reading gates the run and paints the
         # line, and a tab opened on its own gets it exactly as the shell does.
         self._squads_var = tk_stringvar(master)
+        #: WHY THE AUTO-JOIN IS SILENT, in its own line rather than in the log (#1281).
+        #: «Отправлять в стяг только полные отряды» was asked for explicitly, so a base
+        #: that cannot fill one sends nothing at all — for days, if that is how long the
+        #: barracks takes. Rolled into the ordinary squad strip it reads as an ordinary
+        #: quiet evening; the thing to fix is the barracks and not the bot, and nothing
+        #: says so unless this does. Empty whenever there is nothing to say.
+        self._short_var = tk_stringvar(master)
         self._squads_off = None     # the unsubscribe, while this tab is on screen
         self._monitor_var = tk.BooleanVar(master=master, value=True)
         self._alert_var = tk.BooleanVar(master=master, value=True)
@@ -279,6 +286,12 @@ class RallyTab(PanelTab):
         qrow.pack(fill="x", pady=(8, 0))
         self.tr(ttk.Label(qrow), "squads.title").pack(side="left", padx=(0, 6))
         ttk.Label(qrow, textvariable=self._squads_var, foreground="#888",
+                  wraplength=560, justify="left").pack(side="left")
+        # …and, on its own line and in its own colour, the one reason the auto-join
+        # can be silent for days at a time.
+        srow = ttk.Frame(form)
+        srow.pack(fill="x")
+        ttk.Label(srow, textvariable=self._short_var, foreground="#c0392b",
                   wraplength=560, justify="left").pack(side="left")
         self._render_squads(self.rt.squads.latest())
 
@@ -393,16 +406,31 @@ class RallyTab(PanelTab):
         state = self.rt.squads.latest()
         squads = []
         for squad in getattr(state, "squads", ()) or ():
+            # BOTH NUMBERS WHERE THERE ARE TWO (#1281). «Только полные отряды» is the
+            # rule the auto-join follows now, so «1254» on its own answers nothing —
+            # what the person needs is 1254 OF 3123, and the phone is where they will
+            # be standing when they wonder why nothing went out.
+            fits = getattr(squad, "fits", 0)
+            count = (f"{squad.soldiers}/{fits}" if fits > 0 else str(squad.soldiers))
             squads.append({
                 "text": str(squad.index),
                 "pill": f"squads.kind.{squad.kind}",
                 "facts": ([{"label": "rally_tab.soldiers",
-                            "value": str(squad.soldiers)}] if squad.soldiers else []),
+                            "value": count}] if squad.soldiers else []),
                 # A squad that has somewhere to be says when it gets there.
                 "until": (squad.arrive_ms / 1000.0) if squad.arrive_ms else None,
             })
         cards = [{"title": "squads.title", "items": squads,
                   "empty": "squads.unread"}]
+        # …and WHY NOTHING IS GOING OUT, as its own card rather than a fact inside
+        # another one. A base that cannot fill its roomiest squad sends nothing for as
+        # long as that lasts, and the thing to fix is the barracks; the window says it
+        # in red under the squad line and this is the same sentence for the phone.
+        if getattr(state, "short_of_troops", False):
+            need = min(s.fits for s in state.squads if s.fits > 0)
+            cards.append({"title": "rally_tab.short_of_troops_title", "rows": [
+                {"label": "rally_tab.short_of_troops",
+                 "value": f"{state.pool}/{need}"}]})
         if getattr(state, "stamina", -1) >= 0:
             cards.append({"title": None, "rows": [
                 {"label": "rally_tab.stamina",
@@ -527,8 +555,21 @@ class RallyTab(PanelTab):
 
         try:
             self._squads_var.set(self._squads_text(state))
+            self._short_var.set(self._short_text(state))
         except tk.TclError:                        # the window is going away
             pass
+
+    def _short_text(self, state) -> str:
+        """«Автостяг молчит, и вот почему» — or nothing at all (#1281).
+
+        Said only when the base genuinely cannot fill its roomiest squad, and never on a
+        reading that failed: «nothing could be read» must not turn into an accusation
+        about the barracks.
+        """
+        if state is None or not state.ok or not state.short_of_troops:
+            return ""
+        need = min(s.fits for s in state.squads if s.fits > 0)
+        return self.t("rally_tab.short_of_troops", have=state.pool, need=need)
 
     def _squads_text(self, state) -> str:
         """One line: what each squad is doing, and the stamina pool.

@@ -702,6 +702,76 @@ def test_the_wire_closes_a_banner_the_clients_own_count_still_calls_open():
     assert tuple(decide(2, None, 5)) == ("open", "client"), "an unheard occupancy shut a banner"
 
 
+def test_the_silent_auto_join_says_why_in_the_window_and_on_the_phone():
+    """«Только полные отряды» can mean silence for days — both front-ends say so (#1281).
+
+    The player chose the hard rule knowing what it costs: a base that cannot fill its
+    roomiest squad joins nothing at all. Left in the run's roll-up of skips it reads as
+    an ordinary quiet evening, and the thing to fix is the barracks rather than the bot.
+    So it is a line of its own in the window and a card of its own on the phone — and
+    the numbers below are the ones read off the live client.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.runtime import squads as sq
+
+        short = sq.parse(
+            "stamina=90 max=120 full=0 pool=1256 | "
+            "squad=1 state=0 free=1 soldiers=1254 fits=3123 status=- march=- "
+            "team=0 point=- arrive=0 | "
+            "squad=2 state=0 free=1 soldiers=1255 fits=2565 status=- march=- "
+            "team=0 point=- arrive=0")
+        rt.squads._state = short
+
+        # the window: its own line, carrying both numbers
+        said = tab._short_text(short)
+        assert said, "the window is silent about why the auto-join is silent"
+        assert "1256" in said and "2565" in said, said
+        assert "{" not in said, "the sentence was never translated: " + said
+
+        # the phone: its own card, not a fact buried in another one
+        view = tab.web_view()
+        cards = view["cards"]
+        wall = [c for c in cards
+                if c.get("title") == "rally_tab.short_of_troops_title"]
+        assert len(wall) == 1, [c.get("title") for c in cards]
+        assert wall[0]["rows"][0]["value"] == "1256/2565", wall[0]
+        # …and every squad shows what it holds OF what it takes, not a bare count
+        items = cards[0]["items"]
+        assert [f["value"] for it in items for f in it["facts"]] == \
+            ["1254/3123", "1255/2565"], items
+
+        # a base that CAN fill one says nothing at all, in either front-end
+        full = sq.parse(
+            "stamina=90 max=120 full=0 pool=6438 | "
+            "squad=1 state=0 free=1 soldiers=3123 fits=3123 status=- march=- "
+            "team=0 point=- arrive=0")
+        rt.squads._state = full
+        assert tab._short_text(full) == ""
+        assert not [c for c in tab.web_view()["cards"]
+                    if c.get("title") == "rally_tab.short_of_troops_title"]
+
+        # …and neither does a reading that never carried a ceiling: an unread gate
+        # must not turn into an accusation about somebody's barracks.
+        blind = sq.parse("stamina=90 max=120 full=0 | squad=1 state=0 free=1 "
+                         "soldiers=100 status=- march=- team=0 point=- arrive=0")
+        rt.squads._state = blind
+        assert tab._short_text(blind) == ""
+        assert [f["value"] for it in tab.web_view()["cards"][0]["items"]
+                for f in it["facts"]] == ["100"]
+    finally:
+        root.destroy()
+
+
 def test_a_squad_below_its_ceiling_is_not_sent_and_the_wall_is_named():
     """Full means the squad's own capacity, and «cannot be filled» is its own news (#1281).
 
