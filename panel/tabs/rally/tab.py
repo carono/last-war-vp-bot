@@ -96,6 +96,31 @@ def _kind_key(base: str, kind: str) -> str:
     return "rally_tab." + base + ("" if kind == RALLY_KIND_ELITE else "_" + kind)
 
 
+def _short_facts(state) -> dict:
+    """The four numbers «почему автостяг молчит» is made of (#1281).
+
+    Named once and used by both front-ends, because the window's sentence and the
+    phone's card must not drift into meaning different things by «нужно».
+
+    * `have` / `fits` — the squad the person is looking at in the game: what the fill put
+      in it, out of what its heroes can carry. Measured: a fill takes
+      `min(ceiling, the barracks)`, exactly on the ceiling side (three squads, `diff=0`)
+      and all-but-a-soldier-or-two on the barracks side (1254 / 1255 / 1255 out of 1256).
+    * `pool` — everything the base owns, which is why the squad stopped where it did.
+    * `short` — how many more soldiers make THIS squad fillable. The thing to train.
+
+    The squad named is the one with the SMALLEST ceiling: it is the first that will start
+    joining again, and naming the roomiest would overstate the work.
+    """
+    squad = state.easiest_squad()
+    fits = squad.fits if squad is not None else 0
+    return {"slot": squad.index if squad is not None else 0,
+            "have": squad.soldiers if squad is not None else 0,
+            "fits": fits,
+            "pool": state.pool,
+            "short": max(0, fits - state.pool)}
+
+
 def _switch(on) -> str:
     """The locale key for a switch's state, for a pill on the phone's copy of the tab."""
     return "rally.state.on" if on else "rally.state.off"
@@ -427,10 +452,19 @@ class RallyTab(PanelTab):
         # long as that lasts, and the thing to fix is the barracks; the window says it
         # in red under the squad line and this is the same sentence for the phone.
         if getattr(state, "short_of_troops", False):
-            need = min(s.fits for s in state.squads if s.fits > 0)
+            facts = _short_facts(state)
             cards.append({"title": "rally_tab.short_of_troops_title", "rows": [
-                {"label": "rally_tab.short_of_troops",
-                 "value": f"{state.pool}/{need}"}]})
+                # The squad's own two numbers first — they are what the person is
+                # looking at in the game — then the barracks and what is missing from
+                # it, which is the thing they can act on.
+                {"label": "rally_tab.short_squad",
+                 "value": "%(have)s/%(fits)s" % facts},
+                {"label": "rally_tab.short_barracks",
+                 "value": "%(pool)s" % facts},
+                {"label": "rally_tab.short_missing",
+                 "value": "%(short)s" % facts},
+                {"label": "rally_tab.short_of_troops", "value": ""},
+            ]})
         if getattr(state, "stamina", -1) >= 0:
             cards.append({"title": None, "rows": [
                 {"label": "rally_tab.stamina",
@@ -568,8 +602,7 @@ class RallyTab(PanelTab):
         """
         if state is None or not state.ok or not state.short_of_troops:
             return ""
-        need = min(s.fits for s in state.squads if s.fits > 0)
-        return self.t("rally_tab.short_of_troops", have=state.pool, need=need)
+        return self.t("rally_tab.short_of_troops", **_short_facts(state))
 
     def _squads_text(self, state) -> str:
         """One line: what each squad is doing, and the stamina pool.

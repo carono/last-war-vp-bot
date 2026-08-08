@@ -1111,6 +1111,36 @@ below the ceiling, do not send.** The fill works from the POOL rather than from 
 squad, so it does not stand in for `formation.get.soldier` (#1285) and does not replace
 the recipe's `todo = -1` path.
 
+### What the fill actually puts in — measured, not assumed
+
+The player said it before the numbers did: «помещается или максимум, или сколько есть в
+казармах», and «в интерфейсе я вижу, что отряд НЕ полный». Both halves check out.
+
+**On the ceiling side the identity is exact.** With the barracks holding more than any
+squad can carry (8583 against ceilings of 3123 / 2631 / 2565), every squad came out at
+`min(ceiling, barracks)` to the soldier:
+
+```
+pool=8583
+sq=1 filled=3123  ceiling=3123  min(ceiling,pool)=3123  diff=0
+sq=2 filled=2631  ceiling=2631  min(ceiling,pool)=2631  diff=0
+sq=3 filled=2565  ceiling=2565  min(ceiling,pool)=2565  diff=0
+```
+
+**On the barracks side it is `min` less a remainder of one or two.** The same account
+earlier, with 1256 soldiers in all, filled its three squads to 1254 / 1255 / 1255 — the
+whole pool bar a soldier or two, because the fill is per hero slot and the last few fit
+no slot. So the honest statement is «as much as the barracks allows, up to the ceiling»,
+and a check written as an exact `==` against `min()` would fail on a full barracks day
+out of three. What the person SEES on the squad screen is that number, which is what made
+the reading trustworthy: 1254 of 3123 is «отряд НЕ полный», in the game and in the panel.
+
+The panel reads both sides of that `min` for its own reasons — the ceiling to gate on,
+the barracks to tell «this squad has not been topped up» from «there are not enough
+soldiers to fill one» — and `read_squad_state.md` answers `fits=` per squad and `pool=`
+for the base, filling with the SAME `ConscriptSoldier()` call the join uses so the two
+can never disagree about what a squad holds.
+
 ### Two ways of being under strength, and why they are not one word
 
 The instruction came with its own warning: an account that cannot fill a squad at all
@@ -1144,6 +1174,17 @@ IF todo == -3 -> True
   LOG "not sent — there are not enough soldiers in the base to fill a single squad to
        its ceiling … the auto-join will stay quiet until the barracks catches up"
 ```
+
+**What the person is shown, and where.** The reason is not left in the run's roll-up of
+skipped squads: rolled in there a silence lasting days reads as an evening with no
+rallies in it. It is a line of its own under the squad strip in the window and a card of
+its own on the phone, and it carries every number that can be acted on — the squad, what
+it holds, what it takes, what the barracks has, and how many more soldiers make it
+fillable. The squad it names is the one with the SMALLEST ceiling: that is the first that
+will start joining again, and naming the roomiest would overstate the work.
+
+> В отряде 2 — 1255 из 2565: в казарме всего 1256 солдат, полный не собрать.
+> Наберите ещё 1309, и он снова начнёт присоединяться.
 
 **The threshold is the player's to move, not an agent's.** «Полный = вместимость» was
 said explicitly, so that is what is in the code; a fraction of the ceiling would be one

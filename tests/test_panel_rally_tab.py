@@ -732,19 +732,26 @@ def test_the_silent_auto_join_says_why_in_the_window_and_on_the_phone():
             "team=0 point=- arrive=0")
         rt.squads._state = short
 
-        # the window: its own line, carrying both numbers
+        # EVERY NUMBER A PERSON CAN ACT ON, and the squad named is the one closest to
+        # being fillable — squad 2 here, not the roomier squad 1, because naming the
+        # roomiest overstates how much has to be trained.
         said = tab._short_text(short)
         assert said, "the window is silent about why the auto-join is silent"
-        assert "1256" in said and "2565" in said, said
+        for number in ("1255", "2565", "1256", "1309"):   # have, fits, barracks, missing
+            assert number in said, (number, said)
+        assert "3123" not in said, "the roomiest squad was named, not the nearest: " + said
         assert "{" not in said, "the sentence was never translated: " + said
 
-        # the phone: its own card, not a fact buried in another one
+        # the phone: its own card, not a fact buried in another one, and the same numbers
         view = tab.web_view()
         cards = view["cards"]
         wall = [c for c in cards
                 if c.get("title") == "rally_tab.short_of_troops_title"]
         assert len(wall) == 1, [c.get("title") for c in cards]
-        assert wall[0]["rows"][0]["value"] == "1256/2565", wall[0]
+        rows = {r["label"]: r["value"] for r in wall[0]["rows"]}
+        assert rows["rally_tab.short_squad"] == "1255/2565", rows
+        assert rows["rally_tab.short_barracks"] == "1256", rows
+        assert rows["rally_tab.short_missing"] == "1309", rows
         # …and every squad shows what it holds OF what it takes, not a bare count
         items = cards[0]["items"]
         assert [f["value"] for it in items for f in it["facts"]] == \

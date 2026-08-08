@@ -222,6 +222,17 @@ class SquadState:
                 return squad
         return None
 
+    def easiest_squad(self):
+        """The squad closest to being fillable — the one with the smallest ceiling.
+
+        Which one the message names matters: telling somebody they are short for their
+        ROOMIEST squad overstates what they have to train. The smallest ceiling is the
+        first one that will start joining again, so it is the number worth working
+        towards. ``None`` when no ceiling was read.
+        """
+        known = [s for s in self.squads if s.fits > 0]
+        return min(known, key=lambda s: s.fits) if known else None
+
     @property
     def short_of_troops(self) -> bool:
         """Can the base not fill even its roomiest squad? Then nothing will be sent.
