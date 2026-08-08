@@ -702,6 +702,76 @@ def test_the_wire_closes_a_banner_the_clients_own_count_still_calls_open():
     assert tuple(decide(2, None, 5)) == ("open", "client"), "an unheard occupancy shut a banner"
 
 
+def test_a_squad_below_its_ceiling_is_not_sent_and_the_wall_is_named():
+    """Full means the squad's own capacity, and «cannot be filled» is its own news (#1281).
+
+    The ceiling is what the squad's heroes can carry
+    (`ArmyFormation:GetAllHeroSoldierCapacity`), not what happens to be standing in it.
+    The player asked for the gate and named the danger with it: an account that cannot
+    fill one squad would have the auto-join go quiet FOR EVER, and a permanent silence
+    must not look like an evening with no rallies in it.
+
+    Measured on the live account the day this was written, after the army was asked for:
+    squads holding 1725 / 1724 / 1725 against ceilings of 3123 / 2631 / 2565, out of 1727
+    soldiers owned in total. So the danger is not hypothetical — it is today — and the
+    two cases are two different words with two different endings.
+    """
+    import lupa
+
+    from tools.lib import lua_actions
+
+    src = lua_actions.rally_join_all()
+    assert "GetAllHeroSoldierCapacity" in src, "the ceiling is no longer read"
+    assert "GetPlayerSoldiersTotalNum" in src, "the base's own pool is no longer read"
+    assert "':short-of-troops('" in src, "the wall lost its own word"
+    assert "':not-full('" in src, "a squad that can be topped up lost its own word"
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    # The sieve's decision, in the chunk's own words, with the pool the chunk reads.
+    sieve = lua.execute(
+        "return function(n, cap, pool)"
+        "  if n <= 0 then return 'empty' end"
+        "  if cap > 0 and n < cap then"
+        "    if pool > 0 and pool < cap then return 'short-of-troops' end"
+        "    return 'not-full' end"
+        "  return 'home' end"
+    )
+    # The live reading, squad by squad: nothing goes, and every one of them is a wall.
+    assert sieve(1725, 3123, 1727) == "short-of-troops"
+    assert sieve(1724, 2631, 1727) == "short-of-troops"
+    assert sieve(1725, 2565, 1727) == "short-of-troops"
+    # …the same shortfall on a base that COULD close it is the milder word.
+    assert sieve(1725, 2565, 9000) == "not-full"
+    # A full squad goes, and so does one whose ceiling could not be read at all —
+    # a gate that cannot see must not refuse.
+    assert sieve(2565, 2565, 1727) == "home"
+    assert sieve(1725, 0, 1727) == "home"
+    # Zero is still «nobody asked about this squad», which the recipe answers by asking.
+    assert sieve(0, 2565, 1727) == "empty"
+
+    # …and the run says which of the two it was, in a number the recipe branches on.
+    verdict = lua.execute(
+        "return function(sent, empty, under, walled, rallies)"
+        "  local todo = sent"
+        "  if sent == 0 and empty > 0 and rallies > 0 then todo = -1 end"
+        "  if sent == 0 and empty == 0 and (walled > 0 or under > 0) and rallies > 0 then"
+        "    todo = (walled > 0) and -3 or -2 end"
+        "  return todo end"
+    )
+    assert verdict(0, 0, 0, 3, 1) == -3, "the wall is not told apart from an ordinary skip"
+    assert verdict(0, 0, 3, 0, 1) == -2, "a squad that can be topped up reads as a wall"
+    assert verdict(0, 1, 0, 1, 1) == -1, "an unasked squad stopped being asked about first"
+    assert verdict(0, 0, 0, 3, 0) == 0, "a quiet map was reported as a wall"
+    assert verdict(2, 0, 1, 1, 3) == 2, "a run that sent something reported a skip"
+
+    recipe = Path("src/lastwar_bot/actions/join_rally.md").read_text(encoding="utf-8")
+    assert recipe.count("IF todo == -3") == 2, \
+        "the wall is not named on both endings (before and after the army is asked for)"
+    assert recipe.count("IF todo == -2") == 2, \
+        "the top-up-able squad is not named on both endings"
+    assert "not enough soldiers in the base" in recipe, "the wall does not say what it is"
+
+
 def test_a_banner_that_swallows_squads_stops_being_asked():
     """Three failures on one banner is the last one (#1281).
 

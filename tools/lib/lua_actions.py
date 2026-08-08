@@ -3404,6 +3404,14 @@ def rally_join_all() -> str:
         "local m = wm:GetOwnerFormationMarch(P.uid, f.uuid, P.allianceId) "
         "if m ~= nil and tostring(m.teamUuid) ~= '0' then before = before + 1 end end) end "
         "DataCenter.__lw_rally_before = before "
+        # HOW MANY SOLDIERS THE PLAYER OWNS AT ALL — the difference between «this squad
+        # has not been topped up» and «there are not enough troops in the base to fill
+        # any squad» (#1281). One reading, ahead of the sieve, so both words below cost
+        # nothing extra. `0` when it cannot be read, and then the sieve says the milder
+        # of the two rather than inventing a wall.
+        "local pool = 0 "
+        "pcall(function() pool = tonumber("
+        "DataCenter.SoldierDataManager:GetPlayerSoldiersTotalNum()) or 0 end) "
         # The sieve, with a word for every squad it drops. A squad whose state cannot be
         # read at all is KEPT: a gate that cannot see must not refuse (#1237).
         "local home, skipped = {}, {} "
@@ -3418,8 +3426,30 @@ def rally_join_all() -> str:
         "local ok, idle = pcall(function() return f:IsFree() end) "
         "local free = true if ok and idle ~= nil then free = (idle and true or false) end "
         "local n = 0 pcall(function() n = tonumber(f.totalSoldierNum) or 0 end) "
+        # A SQUAD BELOW ITS OWN CEILING IS NOT SENT, and the ceiling is the one the
+        # squad's heroes can carry rather than whatever happens to be standing in it
+        # (#1281). `f:GetAllHeroSoldierCapacity()` is the number the game fills a squad
+        # up TO; `totalSoldierNum` is what is in it now, and it reads 0 until the army
+        # has been asked for, which is why nothing may be decided from it before the
+        # recipe's `formation.get.soldier` has run (#1285).
+        #
+        # A ceiling that cannot be read does not refuse: an unreadable gate must not
+        # shut, the same rule the state check above follows.
+        "local cap = 0 pcall(function() cap = math.floor(tonumber(f:GetAllHeroSoldierCapacity()) or 0) end) "
         "if st ~= nil and not (st == 0 and free) then skipped[#skipped+1] = tostring(s)..':out' "
         "elseif n <= 0 then skipped[#skipped+1] = tostring(s)..':empty' "
+        # THE TWO REASONS ARE NOT THE SAME REASON, and that is the whole point of
+        # splitting them. «Not topped up» is a minute's work for the player; «there are
+        # not enough soldiers in the base to fill one squad» is a wall, and an auto-join
+        # that goes quiet against a wall must SAY which wall. Measured on the live
+        # account the day this was written: three squads holding 1725/1724/1725 against
+        # ceilings of 3123/2631/2565, out of 1727 soldiers owned in total — so not one
+        # squad could be filled, and a single unnamed «passed over» would have read as an
+        # ordinary quiet evening for as long as the barracks stayed that size.
+        "elseif cap > 0 and n < cap then "
+        "if pool > 0 and pool < cap then "
+        "skipped[#skipped+1] = tostring(s)..':short-of-troops('..n..'/'..cap..', base has '..pool..')' "
+        "else skipped[#skipped+1] = tostring(s)..':not-full('..n..'/'..cap..')' end "
         "else home[#home+1] = {slot = s, uuid = f.uuid} end end end "
         # THE DENOMINATOR, counted rather than guessed (#1281). «Six banners» is not six
         # chances: the list the client keeps holds every team on the map — other
@@ -3644,10 +3674,22 @@ def rally_join_all() -> str:
         # headless send cannot cover, because the client refuses a squad with no soldiers
         # before a byte leaves and only the game's own screen fills one from the base's
         # pool; `0` when there is nothing to be done at all.
-        "local empty = 0 "
-        "for _, s in ipairs(skipped) do if string.find(s, ':empty', 1, true) then empty = empty + 1 end end "
+        "local empty, under, walled = 0, 0, 0 "
+        "for _, s in ipairs(skipped) do "
+        "if string.find(s, ':empty', 1, true) then empty = empty + 1 end "
+        "if string.find(s, ':not-full(', 1, true) then under = under + 1 end "
+        "if string.find(s, ':short-of-troops(', 1, true) then walled = walled + 1 end end "
         "DataCenter.__lw_rally_todo = sent "
         "if sent == 0 and empty > 0 and #rallies > 0 then DataCenter.__lw_rally_todo = -1 end "
+        # `-2` and `-3` — «a banner is standing and every squad that could go is under
+        # strength» (#1281), told apart because the answer is different. `-2` is a squad
+        # the player can top up; `-3` is a base that has not got the soldiers to fill one
+        # squad, which is a wall rather than a chore and must never read as an ordinary
+        # quiet minute. Both rank BELOW `-1`: `-1` is answered by ASKING the game for the
+        # army and trying again, and a run with one unasked squad should try that first —
+        # under-strength is only reported when there is nothing left to try.
+        "if sent == 0 and empty == 0 and (walled > 0 or under > 0) and #rallies > 0 then "
+        "DataCenter.__lw_rally_todo = (walled > 0) and -3 or -2 end "
         "local report = 'sent='..sent..' rallies='..#rallies..' free='..#home "
         # The split that makes «rallies=1» readable: of every team on the map, how many
         # are this alliance's and how many we are already standing in. `joinable` is the

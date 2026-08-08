@@ -84,6 +84,21 @@ IF todo == 0
     LOG "nothing was sent — the reason is on the line above"
     STOP
 
+# UNDER STRENGTH, AND THE TWO WAYS OF BEING SO ARE NOT THE SAME NEWS (#1281). A squad
+# is sent only when it is filled to what its heroes can carry
+# (`GetAllHeroSoldierCapacity`), and the report names every squad it passed over with
+# both numbers. `-2` is a squad the player can top up in the base; `-3` is a base that
+# has not got the soldiers to fill ONE squad, and that one is a wall: the auto-join goes
+# quiet and stays quiet until the barracks grows, so it says which wall it hit rather
+# than letting a permanent silence look like an evening with no rallies in it.
+IF todo == -3
+    LOG "not sent — there are not enough soldiers in the base to fill a single squad to its ceiling; the numbers are on the report line above, and the auto-join will stay quiet until the barracks catches up"
+    STOP
+
+IF todo == -2
+    LOG "not sent — every squad that could go is below the ceiling its heroes can carry; top them up in the base and the next banner will be taken"
+    STOP
+
 # OFF THE BANNER'S PATH ON PURPOSE, and in its own file so that a reader of this one can
 # see at a glance that none of it is on the way to a send. Reached only when every squad
 # that could go had already gone and one is standing empty.
@@ -125,10 +140,19 @@ IF todo < 0
     # join. Live: `kinds = ''` on seven runs that each sent one and joined one (#1281).
     READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
 
-# THE ONE ENDING THAT IS A SKIP AND NOT A FAILURE. The squads were asked about and the
-# game had no army to put in them: nothing the bot can press changes that, and the answer
-# is the barracks or the hospital rather than this ability. Said in its own words so it
-# does not read as the join being broken.
+# THE ENDINGS THAT ARE A SKIP AND NOT A FAILURE. The squads were asked about and what
+# came back is not enough to send: nothing the bot can press changes that, and the answer
+# is the barracks rather than this ability. Each is said in its own words so that none of
+# them reads as the join being broken — and, more to the point, so that a silence lasting
+# weeks can be told from an evening with no rallies in it (#1281).
+IF todo == -3
+    LOG "not sent — the squads were asked about and the base has not got the soldiers to fill a single one to its ceiling; the auto-join will stay quiet until the barracks catches up"
+    STOP
+
+IF todo == -2
+    LOG "not sent — the squads were asked about and every one of them is below the ceiling its heroes can carry; top them up in the base"
+    STOP
+
 IF todo < 0
     LOG "the squad is empty and the game has no army to fill it — nothing was sent"
     STOP
