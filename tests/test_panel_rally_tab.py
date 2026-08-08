@@ -764,6 +764,15 @@ def test_a_squad_below_its_ceiling_is_not_sent_and_the_wall_is_named():
     assert verdict(0, 0, 0, 3, 0) == 0, "a quiet map was reported as a wall"
     assert verdict(2, 0, 1, 1, 3) == 2, "a run that sent something reported a skip"
 
+    # AND A SQUAD THAT WENT UNCHECKED SAYS SO. `heroTotalSoldierCapacity` is nil on a
+    # headless client until the game's own dispatch screen has been rendered once — the
+    # same recompute that flips `canMarch` (docs/research/world-monsters.md, finding 10).
+    # The squad still goes, because a gate that cannot see must not refuse; what it must
+    # not do is go silently, or «the check does nothing» reads as «every squad was full».
+    assert "ceiling-unknown=[" in src, "a squad sent without the check is not named"
+    assert "if not (cap > 0) then unchecked[#unchecked+1]" in src, \
+        "the unreadable ceiling is no longer counted"
+
     recipe = Path("src/lastwar_bot/actions/join_rally.md").read_text(encoding="utf-8")
     assert recipe.count("IF todo == -3") == 2, \
         "the wall is not named on both endings (before and after the army is asked for)"

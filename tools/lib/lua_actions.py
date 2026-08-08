@@ -3414,7 +3414,7 @@ def rally_join_all() -> str:
         "DataCenter.SoldierDataManager:GetPlayerSoldiersTotalNum()) or 0 end) "
         # The sieve, with a word for every squad it drops. A squad whose state cannot be
         # read at all is KEPT: a gate that cannot see must not refuse (#1237).
-        "local home, skipped = {}, {} "
+        "local home, skipped, unchecked = {}, {}, {} "
         "for _, s in ipairs(squads) do "
         "local f = nil "
         "for _, v in pairs(afd.ArmyFormationList) do "
@@ -3450,7 +3450,15 @@ def rally_join_all() -> str:
         "if pool > 0 and pool < cap then "
         "skipped[#skipped+1] = tostring(s)..':short-of-troops('..n..'/'..cap..', base has '..pool..')' "
         "else skipped[#skipped+1] = tostring(s)..':not-full('..n..'/'..cap..')' end "
-        "else home[#home+1] = {slot = s, uuid = f.uuid} end end end "
+        "else home[#home+1] = {slot = s, uuid = f.uuid} "
+        # A SQUAD THAT WENT WITHOUT THE CEILING BEING CHECKED SAYS SO (#1281). The
+        # ceiling is `heroTotalSoldierCapacity`, and a headless client leaves it nil
+        # until the game's own dispatch screen has been rendered once — the same
+        # recompute that flips `canMarch` (docs/research/world-monsters.md, finding 10).
+        # An unreadable gate must not refuse, so the squad goes; what it must not do is
+        # go SILENTLY, or «the full-squad check does nothing» looks exactly like «every
+        # squad was full».
+        "if not (cap > 0) then unchecked[#unchecked+1] = tostring(s) end end end end "
         # THE DENOMINATOR, counted rather than guessed (#1281). «Six banners» is not six
         # chances: the list the client keeps holds every team on the map — other
         # alliances', and the ones we are already standing in. Without the split, «two
@@ -3715,6 +3723,8 @@ def rally_join_all() -> str:
         "if #full > 0 then report = report..' no_seat=['..table.concat(full, ' ')..']' end "
         "if #left_over > 0 then report = report..' passed=['..table.concat(left_over, ' ')..']' end "
         "if #skipped > 0 then report = report..' left=['..table.concat(skipped, ' ')..']' end "
+        "if #unchecked > 0 then report = report..' ceiling-unknown=['..table.concat(unchecked, ' ')"
+        "..'] (the game has not filled in how many soldiers fit — sent without the full-squad check)' end "
         "if #errs > 0 then report = report..' refused=['..table.concat(errs, ' ')..']' end "
         "if #rallies == 0 then report = report..' -- no rally of this alliance is out that we are not already in' "
         "elseif #home == 0 then report = report..' -- not one of the chosen squads can be sent' "
