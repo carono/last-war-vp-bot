@@ -652,6 +652,57 @@ def test_the_tab_remembers_how_big_each_banner_is_and_hands_it_to_the_join():
         root.destroy()
 
 
+def test_the_tab_remembers_where_a_joiner_is_sent_and_forgets_it_after_a_minute():
+    """`join=<tile>/<server>` off the capture line becomes the join's `points` (#1301).
+
+    This is the one thing the client is SLOW about, and it is the whole of the 8–11 s a
+    person sees between a banner going up and our squad leaving: `GetAllMarches()` — every
+    reading the sieve makes — learns about a banner a median of 10 s after the push, and
+    in 23 of 26 late cases only once somebody else had joined it. The push has the address
+    from the first byte.
+
+    IT EXPIRES, and that is not tidiness. The leader's tile is right for as long as the
+    banner STANDS, and the wire carries no `endTime` to say when it stopped — a banner
+    gathers for 60 s (`waitTime` on every push measured) and after that the client's own
+    table is the authority anyway.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        import time as _time
+
+        from panel.tabs.rally import tab as rallytab
+
+        tab._bell = lambda: None
+        tab._alert_var.set(False)
+        tab._autojoin_var.set(False)
+        tab._on_line("[rally] push.alliance.march.create  team=77  participants=1 [a] "
+                     "content=38  slots=1/5  join=500500/100")
+        # A line with no address leaves nothing behind — the join then waits for the
+        # client exactly as it did before.
+        tab._on_line("[rally] push.alliance.march.create  team=99  participants=1 [c]")
+        assert set(tab._points) == {"77"}, tab._points
+        assert tab._points["77"][:2] == (500500, 100), tab._points
+
+        rt.tabs = {rallytab.RallyTab.ID: tab}
+        assert rallytab.point_map(rt) == "77:500500/100", rallytab.point_map(rt)
+
+        # …and a minute on, it is not offered: the banner has left or come down, and a
+        # squad sent at a tile nobody is standing on is a squad thrown away.
+        stale = _time.time() + rallytab.POINT_TTL_SEC + 1
+        assert rallytab.point_map(rt, now=stale) == "", rallytab.point_map(rt, now=stale)
+    finally:
+        root.destroy()
+
+
 def test_the_wire_closes_a_banner_the_clients_own_count_still_calls_open():
     """`slots=5/5` off the wire shuts a banner the march list has a seat in (#1281).
 

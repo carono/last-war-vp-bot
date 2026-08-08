@@ -1317,6 +1317,118 @@ when a bigger window is available: the log's own confirmations, and the game's t
 list (`tools/dev/rally_trophies.py --check FROM TO`, horizon about an hour).
 
 
+## Where the 5–7 seconds actually go, second by second (#1301)
+
+«Авторалли отвечает на 5–7 секунде.» The decomposition below is off the live profile's
+own logs for 2026-08-08 — 91 create-pushes and the run they each woke — and the answer
+is that **almost none of the delay is ours**.
+
+| stage | median | tail |
+|---|---|---|
+| push crosses the wire → the trigger fires | **0.005 s** | 0.08 s |
+| fire → the run starts | 0.26 s | 2.3 / 4.2 / 5.8 / 9.9 / 14.8 s |
+| run starts → `SendCreateMarchMessage` | ~0.30 s | stable — one call into the VM |
+| **the banner's age when our squad left** | **11.6 s** | p25 8.6 s, max 78 s (30 sends) |
+
+Three things fall out of it, and the first two kill hypotheses that had been carried for
+a while:
+
+* **the detection is not a poll and never was.** `rally_auto_join` is a WIRE trigger
+  (`push.alliance.march`), so «half a polling period» explains nothing. The handful of
+  4 / 17 / 43 s outliers are the listener child being restarted, not a cadence;
+* **the DSL costs nothing measurable.** A recipe is parsed once when it is loaded — the
+  measurement shows it nowhere. What costs is a round trip into the game VM (~0.15 s, and
+  there is exactly ONE before the send since #1281) and waiting on the client. Rewriting
+  the recipe «natively» would buy fractions of the 0.3 s and leave the 10 s untouched;
+* **the queue was worth removing anyway.** The fire waited a median of 0.26 s but a p90
+  of several seconds behind the ordinary schedule, so the trigger now ships
+  `immediate=True` — the same flag, for the same reason, that `alliance_help` got in
+  #1288.
+
+### The client's own march table is a median of 10 s late
+
+This is the whole of it. Every reading the sieve makes — which banners are out, whose
+they are, how full, whether they have arrived — comes off
+`DataCenter.WorldMarchDataManager:GetAllMarches()`, and that table does not learn about a
+banner when the push announcing it arrives:
+
+| create push → the teamUuid first appears in `GetAllMarches()` | |
+|---|---|
+| min | 0.08 s |
+| p25 | 8.07 s |
+| **p50** | **10.34 s** |
+| p75 | 19.13 s |
+| p90 | 38.03 s |
+| max | 62.15 s |
+
+Over 31 banners. And in **23 of the 26 late cases the client noticed within 1.5 s of a
+REFRESH push** — that is, only once somebody else had joined the banner and the server
+said so again.
+
+One case end to end, entirely in the log:
+
+```
+16:19:49.682  push.alliance.march.create      the banner goes up
+16:19:50.175  TAP rally_join_all              0.49 s later — as fast as it gets
+              sent=0 rallies=0 free=2 seen=0 ours=0        …and there is nothing to join
+16:19:57.929  push.alliance.march.refresh     somebody else joins; the client notices
+16:19:58.314  TAP rally_join_all → sent=1     banner age at the send: 8.6 s
+```
+
+Nothing in that run is slow. It is a correct run against a client that has not been told.
+
+### What the push already carries
+
+Everything the send needs, from the first byte — confirmed against recorded
+`push.alliance.march.create` frames:
+
+| field | is |
+|---|---|
+| `uuid` | the teamUuid (the leader's march uuid plus one) |
+| `attackPointId` | **the tile joiners gather on** — the same value as `leaderMarch.startId` and the first leg of `leaderMarch.path` |
+| `server` / `nowServer` / `srcServer` | the server |
+| `assemblyMarchMax` | the seats (already used, #1281) |
+| `targetContentId` | what it is going for (already used, #1281) |
+
+`SendCreateMarchMessage(formation, 6, point, team, 1, 1, false, server, nil)` needs
+nothing else. Note **`attackPointId`, not `targetPointId`** — the second is the monster,
+and aiming a join at it is the «invalid end point» refusal that cost this ability weeks
+(«The wall was the END POINT», above).
+
+So the address travels the way the target and the seat count already do: the monitor
+prints `join=<tile>/<server>`, the tab keeps it per teamUuid with the time it was heard,
+`join_rally.md` parks it as `points`, and `rally_join_all` offers a wire-only banner as an
+extra candidate — in front of the client's, since it is by definition the fresher. A team
+the client already lists is skipped and stays the client's; the wire only ever ADDS.
+
+Three guards, each of which has a way of failing quietly without it:
+
+* **a 60 s shelf life** on a heard address. The leader's tile is right only while the
+  banner STANDS, and the wire has no `endTime` — a banner gathers for 60 s (`waitTime`
+  minus `createTime` on every push measured), and after that the client's table is the
+  authority anyway;
+* **a round trip on the uuid.** A teamUuid is 19 digits; an integer VM holds it exactly, a
+  float rounds it, and a send at a rounded uuid reaches nothing while returning cleanly —
+  which is exactly the shape this ability spent weeks in (#1237). The candidate is kept
+  only when `tostring(tonumber(t)) == t`;
+* **the ordinary filters still apply.** Seats (the wire's own count), a march of ours
+  already in that team, and the banners this run has been refused by.
+
+### NOT YET PROVEN LIVE
+
+**Whether the server accepts a join aimed at a banner the client has not registered.**
+Nothing in the protocol suggests it should care — the message carries the team, the tile
+and the server, and the server holds the banner regardless of what our client has
+rendered — but that is an argument, not a measurement, and this ability has a long
+history of arguments that measured wrong. The client was signed out elsewhere while this
+was written, so it could not be tried.
+
+What the log will say when it is: a run reporting `from_wire=[…]` beside `sent=`, followed
+either by the ordinary «the squads are in the rally» or by the refusal path, which reads
+the server's own words off the message tip. If it is refused, the fallback is already the
+old behaviour — the client catches up and the next run joins, exactly as now.
+
+
 ## Everything this task believed and then disproved (#1281)
 
 A negative result saves the next person a day exactly as often as a positive one, and

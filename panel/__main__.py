@@ -5187,9 +5187,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # …and how many seats each of them has, for the same reason and from the same
         # line: a banner that has not left yet can still be shut, and the join must not
         # spend a squad on one it cannot enter.
+        #
+        # …and WHERE a joiner is sent for each of them, which is what lets the run act on
+        # a banner the client's own march table has not heard of yet (#1301). That table
+        # is a median of 10 s behind the push; the push has the address from the first
+        # byte.
         return {"squads": squads,
                 "targets": rallytab.target_map(self._rt),
-                "slots": rallytab.slot_map(self._rt)}
+                "slots": rallytab.slot_map(self._rt),
+                "points": rallytab.point_map(self._rt)}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

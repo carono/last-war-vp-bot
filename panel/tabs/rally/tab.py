@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from tkinter import ttk
 
 from ...runtime import game_process
@@ -182,6 +183,18 @@ class RallyTab(PanelTab):
         # says so. Measured during the Marshal event: nine banners, every one 5 of 5, and
         # every squad we owned was being sent at one of them (#1281).
         self._slots: dict = {}
+        # WHERE A JOINER IS SENT, per teamUuid: `(point, server, when-we-heard-it)` off
+        # the same line (#1301). The client's own march table is the join's ordinary
+        # source and it is SLOW — median 10 s behind the push, and in 23 of 26 late
+        # cases it only learned about the banner once somebody else had joined it — so
+        # every run in that window honestly reported «no rally is out» and sent nothing.
+        # The push has the address from the first byte, so it is kept here and offered
+        # to the join for the banners the client has not caught up with.
+        #
+        # The timestamp is what keeps it honest: the leader's tile is right for as long
+        # as the banner STANDS, and the wire has no `endTime` to say when it stopped —
+        # so an entry is only offered while it is fresh (`point_map`).
+        self._points: dict = {}
         # …and what the JOIN has tried, per teamUuid: `(attempts, last-attempt)`. Kept
         # apart from `_seen` because they answer different questions — one banner is one
         # bell, but one banner may well be worth a second attempt at joining (#1281).
@@ -1064,6 +1077,11 @@ class RallyTab(PanelTab):
             taken, _, cap = seats.partition("/")
             if cap.isdigit() and int(cap) > 0:
                 self._slots[team] = f"{taken}/{cap}" if taken.isdigit() else cap
+        if "join=" in clean:
+            aim = clean.split("join=")[1].split()[0].strip()
+            point, _, server = aim.partition("/")
+            if point.isdigit() and server.isdigit():
+                self._points[team] = (int(point), int(server), time.time())
         # THE BELL IS ONE PER BANNER; THE JOIN IS NOT (#1281). `_seen` used to gate both,
         # and it was marked HERE — before the join had been tried — so a join the game
         # was too busy to start, or one every squad was out for, was never tried again
@@ -1172,7 +1190,18 @@ class RallyTab(PanelTab):
                 return
             _time.sleep(0.15)
         try:
-            out = self.rt.actions.play("join_rally", {"squads": squads},
+            # EVERYTHING THE WIRE KNOWS, on THIS driver too (#1301). Two things play the
+            # recipe — the schedule's «rally_auto_join» and this tab, straight off the
+            # capture's own reader — and only the first was being handed what the push
+            # carried. So the faster of the two drivers was the blinder one: no target
+            # (the kind a banner is going for), no seat count, and no address for a
+            # banner the client's march table had not caught up with. The three come off
+            # the same monitor line this tab already reads.
+            out = self.rt.actions.play("join_rally",
+                                       {"squads": squads,
+                                        "targets": target_map(self.rt),
+                                        "slots": slot_map(self.rt),
+                                        "points": point_map(self.rt)},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
             # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
             # itself, off the capture's own reader and past the schedule entirely, so its
@@ -1247,6 +1276,40 @@ def slot_map(rt) -> str:
     tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
     known = dict(getattr(tab, "_slots", {}) or {}) if tab is not None else {}
     return ",".join(f"{team}:{cap}" for team, cap in known.items())
+
+
+#: How long a heard address is offered for. A banner gathers for a minute at most —
+#: `waitTime` on the push is 60 s after `createTime` on every one measured — so an
+#: entry older than this stands for a banner that has either left or come down, and the
+#: client's own march table is the authority by then anyway.
+POINT_TTL_SEC = 60.0
+
+
+def point_map(rt, now=None) -> str:
+    """`team:point/server,…` for the banners heard in the last minute (#1301).
+
+    THE ONE THING THE CLIENT IS SLOW ABOUT. Everything else the join reads —  which
+    banners are out, how full they are, whether they have arrived — comes off
+    `GetAllMarches()`, and that table is a median of 10 s behind the push (max 62 s,
+    measured over 31 banners). Until it catches up, the sieve honestly answers «no rally
+    is out» and the run sends nothing: that IS the 8–11 s a person sees between a banner
+    going up and our squad leaving.
+
+    So the address travels the same way the target and the seat count already do — off
+    the wire, parked by the recipe, read inside the one chunk that sends. The join adds
+    a wire-only banner as a candidate and skips any the client already knows about, so
+    nothing here overrides a reading; it only fills the gap ahead of one.
+
+    Empty when the tab is not in this window, exactly like `target_map` — the join then
+    behaves as it did before, which is to wait for the client.
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    known = dict(getattr(tab, "_points", {}) or {}) if tab is not None else {}
+    now = time.time() if now is None else now
+    fresh = [f"{team}:{point}/{server}"
+             for team, (point, server, heard) in known.items()
+             if now - heard <= POINT_TTL_SEC]
+    return ",".join(fresh)
 
 
 def join_squads(rt) -> list:

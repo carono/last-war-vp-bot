@@ -5082,6 +5082,51 @@ def rally_join_all() -> str:
         "target_of[ts9] = g(m9, 'targetUuid') end "
         "local n9 = tostring(g(m9, 'allianceName')) "
         "if mine ~= nil and n9 == mine then our_t[ts9] = true end end end end "
+        # THE BANNERS THE CLIENT HAS NOT HEARD OF YET (#1301), and they are the whole of
+        # the delay a person sees. Everything above this line reads `GetAllMarches()`,
+        # and that table is a MEDIAN OF 10 s behind the push that announced the banner
+        # (p25 8.1 s, p75 19.1 s, max 62 s, over 31 banners) — in 23 of 26 late cases it
+        # only learned about the banner once somebody ELSE had joined it. The trigger
+        # itself is instant: 0.005 s from the wire to the fire, 0.3 s from there to the
+        # send. So a run woken by a push spent its 0.3 s, found nothing, and truthfully
+        # reported `rallies=0` — measured end to end at 16:19:49.682 push → 16:19:50.175
+        # send → `sent=0 rallies=0 seen=0`, and the same banner joined at 16:19:58 the
+        # moment a refresh push made the client notice it.
+        #
+        # The push carries everything the send needs from the first byte, so the panel
+        # parks it here as `team:tile/server,…` (`rallytab.point_map`) and a banner the
+        # wire has announced becomes a candidate with the address off the wire. It is
+        # ONLY ever an addition: a team the client already lists is skipped here and
+        # stays the client's, and one we already have a march in (`taken`) or have been
+        # refused by this run (`blocked`) is skipped as it would be anywhere else.
+        #
+        # THEY GO IN FRONT, because that is the point: a banner the client has not caught
+        # up with is by definition the freshest one on the map, and the ones already in
+        # its table have had at least one run to be taken.
+        #
+        # NOT PUT THROUGH THE ALLIANCE SIEVE, and it does not need to be: these arrive on
+        # `push.alliance.march.*`, which is this alliance's own stream. The sieve above
+        # exists because `GetAllMarches()` returns both sides of a war; the wire does not.
+        #
+        # A uuid THAT DOES NOT SURVIVE THE ROUND TRIP IS DROPPED. A teamUuid is 19 digits;
+        # an integer Lua holds exactly and a double does not, and a send aimed at a
+        # rounded uuid reaches nothing while reporting cleanly — the failure this ability
+        # already spent weeks in (#1237). `tostring(tonumber(t)) == t` is the whole test:
+        # it holds on an integer VM and fails on the scientific notation a float gives
+        # back, so the candidate is simply left to the client rather than sent into the
+        # void.
+        "local from_wire = {} "
+        "pcall(function() local ahead = {} "
+        "for pair in string.gmatch(tostring("
+        "DataCenter.__lw_rally_points or ''), '[^,]+') do "
+        "local team, pt, sv = string.match(pair, '(%d+):(%d+)/(%d+)') "
+        "if team ~= nil and not seen_t[team] and not taken[team] and not blocked[team] then "
+        "local tn = tonumber(team) local pn, sn = tonumber(pt), tonumber(sv) "
+        "if tn ~= nil and tostring(tn) == team and pn ~= nil and sn ~= nil then "
+        "ahead[#ahead+1] = {team = tn, point = pn, server = sn} "
+        "from_wire[#from_wire+1] = team end end end "
+        "if #ahead > 0 then for _, r in ipairs(rallies) do ahead[#ahead+1] = r end "
+        "rallies = ahead end end) "
         # A RALLY THAT HAS ALREADY ARRIVED IS NOT A RALLY TO JOIN (#1281). The client
         # keeps a resolved banner in its march table — same teamUuid, same
         # `type=ASSEMBLY_MARCH`, `status` still saying MOVING — so nothing in the shape
@@ -5207,6 +5252,12 @@ def rally_join_all() -> str:
         # are this alliance's and how many we are already standing in. `joinable` is the
         # denominator «not one missed» is measured against; the rest are not chances.
         "report = report..' seen='..seen_n..' ours='..our_n..' already_in='..in_n "
+        # …and how many of the candidates the client could not have offered. A run whose
+        # every send went to a wire-only banner reads `seen=0 rallies=2` otherwise, which
+        # is a pair of numbers that cannot both be true (#1301).
+        "if #from_wire > 0 then report = report..' from_wire=['"
+        "..table.concat(from_wire, ' ')"
+        "..'] (heard on the wire, not yet in the march table the client keeps)' end "
         # THE EVENT'S OWN NUMBER, beside ours. The invasion rations attacks itself
         # (`attackNum`), and our per-day cap is a different thing with a different unit —
         # so both are shown and neither is substituted for the other, and a person

@@ -48,6 +48,7 @@
 ARGS squads = [1, 2, 3, 4]
 ARGS targets = ""
 ARGS slots = ""
+ARGS points = ""
 
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
@@ -58,7 +59,18 @@ ARGS slots = ""
 # thrown at a banner nobody could enter (#1281). `__lw_rally_shut` starts empty every run: it
 # collects the banners THIS run has been refused by, and a refusal is only terminal for
 # as long as that banner stands — the next run asks the map again.
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_shut = {}
+#
+# `points` is `team:tile/server,…` off the same push: WHERE a joiner is sent. It is the
+# one thing the client is slow about, and it is the whole of the delay a person sees
+# (#1301). Measured over 91 banners: the push reaches the trigger in 0.005 s and the
+# send goes out 0.3 s later, but the client's own march table — everything the sieve
+# reads — learns about the banner a MEDIAN OF 10 s after the push, and in 23 of 26 late
+# cases only once somebody ELSE had joined it. Every run inside that window honestly
+# answered «no rally is out» and sent nothing. So a banner the wire has announced and the
+# client has not caught up with is offered as a candidate with the address the push
+# carried, and one the client already knows about is left to the client — nothing here
+# overrides a reading, it only fills the gap ahead of one.
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_shut = {}
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.

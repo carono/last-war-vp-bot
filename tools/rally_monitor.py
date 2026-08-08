@@ -191,6 +191,42 @@ def _march_target(march):
     return None
 
 
+def _join_point(payload):
+    """(pointId, server) a JOINER is sent to — the leader's own tile, off the push.
+
+    The whole of what a join needs is in the create push from the first byte (#1301):
+    `SendCreateMarchMessage(formation, 6, point, team, 1, 1, false, server, nil)` wants
+    the tile the joiners gather on, which is the LEADER's tile and not the monster —
+    that distinction cost this ability weeks (docs/research/rally-join.md, «The wall was
+    the END POINT»). The push spells it three ways over and the three agree:
+    `attackPointId`, `leaderMarch.startId`, and the first leg of `leaderMarch.path`.
+
+    ONLY THE LEADER'S MARCH IS READ for the fallbacks. A member's `startId` is that
+    member's OWN base, so taking it from whichever march came first would send the next
+    joiner to an alliancemate's doorstep.
+
+    Returns None when either half is missing — half an address is not an address, and
+    the join falls back to what the client knows, which is the behaviour this replaces.
+    """
+    if not isinstance(payload, dict):
+        return None
+    leader = payload.get("leaderMarch")
+    leader = leader if isinstance(leader, dict) else {}
+    point = payload.get("attackPointId") or leader.get("startId")
+    if not point:
+        path = leader.get("path")
+        head = path.split(";")[0].strip() if isinstance(path, str) else ""
+        point = int(head) if head.isdigit() else None
+    server = (payload.get("server") or payload.get("nowServer")
+              or payload.get("srcServer"))
+    if not point or not server:
+        return None
+    try:
+        return int(point), int(server)
+    except (TypeError, ValueError):
+        return None
+
+
 class RallyMonitor(LiveDecoder):
     """LiveDecoder that harvests + archives the armies behind every rally.
 
@@ -292,8 +328,16 @@ class RallyMonitor(LiveDecoder):
         # had was being thrown at one (#1281).
         cap = payload.get("assemblyMarchMax")
         seats = f"  slots={len(marches)}/{cap}" if cap else ""
+        # WHERE A JOINER WOULD BE SENT, off the same push (#1301). Measured over 91
+        # banners: the client's own march table learns about a banner a MEDIAN OF 10 s
+        # after the push carrying it crossed the wire — and in 23 of 26 late cases only
+        # once somebody else joined it. Everything the join needs is here from the first
+        # byte, so the panel keeps it and the join can act on a banner the client has
+        # not caught up with yet.
+        join = _join_point(payload)
+        aim = f"  join={join[0]}/{join[1]}" if join else ""
         print(f"{_stamp()} {command}  {tag}  "
-              f"participants={len(marches)} [{who}]{where}{kind}{seats}", flush=True)
+              f"participants={len(marches)} [{who}]{where}{kind}{seats}{aim}", flush=True)
 
     def report(self):
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")
