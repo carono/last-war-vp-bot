@@ -425,6 +425,14 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         event_pattern="push.alliance.march",
         scenario=("join_rally",),
         enabled=False,
+        # «Сразу, без очереди» (#1301), and it was measured on this trigger rather than
+        # assumed from `alliance_help`'s. Over 91 create-pushes on 2026-08-08 the
+        # DETECTION was already instant — 0.005 s median from the push crossing the wire
+        # to the fire — and the queue behind it was not: 0.26 s median, with a tail of
+        # 2.3 / 4.2 / 5.8 / 9.9 / 14.8 s spent waiting for the ordinary schedule to
+        # reach a boundary. A banner is decided in fractions of a second during an
+        # event, so seconds of queue are the whole race.
+        immediate=True,
         label_key="triggers.item.rally_auto_join",
     ),
     Trigger(
