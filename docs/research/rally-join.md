@@ -1441,19 +1441,43 @@ So `_banner_uuid(payload)` takes the marches' team when they have one — that i
 the rest of the file keys by — and falls back to `payload.uuid`, which is present from the
 first frame. A push with neither is still tagged `solo`, as before.
 
-### NOT YET PROVEN LIVE
+### PROVEN LIVE: the server accepts a join the client has not heard of
+
+One banner, one log, three readings that can only be true together:
+
+```
+01:20:01.014  push.alliance.march.create  team=<banner>  participants=1  slots=1/5  join=<tile>/<server>
+01:20:01.017  the trigger fires                                     (+0.003 s)
+01:20:02.704  the client, asked directly:  rallies = 'no active rallies'
+01:20:04.597  the press goes out
+01:20:04.742  push.alliance.march.refresh team=<banner> participants=2 [us, the leader]   (+0.145 s)
+              report: sent=1 rallies=1 seen=0 ours=0 already_in=0 from_wire=[<banner>]
+```
+
+`seen=0` is the whole of it: the client's march table held NOTHING, the address came off
+the wire, and the server put our squad in the banner 145 ms after the send. **3.73 s from
+the push to standing in the rally**, against a median banner age of 11.6 s before.
+
+Note the create push carries `team=<banner>` — that is the fix below this section
+(`_banner_uuid`); before it the same line read `solo` and the panel binned it.
+
+What is left inside those 3.7 s is all panel, and all of it is measurable: 0.45 s the
+join spent behind `rally_monitor`, which fires on the same push and got into the queue
+first; 1.28 s from «запуск» to `> action`; 1.85 s of the recipe itself (1.08 s parking
+the arguments, 0.77 s the press).
+
+### The argument this replaces
 
 **Whether the server accepts a join aimed at a banner the client has not registered.**
 Nothing in the protocol suggests it should care — the message carries the team, the tile
 and the server, and the server holds the banner regardless of what our client has
 rendered — but that is an argument, not a measurement, and this ability has a long
 history of arguments that measured wrong. The client was signed out elsewhere while this
-was written, so it could not be tried.
-
-What the log will say when it is: a run reporting `from_wire=[…]` beside `sent=`, followed
-either by the ordinary «the squads are in the rally» or by the refusal path, which reads
-the server's own words off the message tip. If it is refused, the fallback is already the
-old behaviour — the client catches up and the next run joins, exactly as now.
+was written, so it could not be tried — it was measured two days later, above, and the
+argument turned out to be right. It is kept here because the reasoning is what would have
+been wrong if the measurement had gone the other way, and because the fallback it names
+is still the behaviour a refusal falls back to: the client catches up and the next run
+joins, exactly as before.
 
 
 ## Everything this task believed and then disproved (#1281)
