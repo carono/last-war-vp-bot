@@ -228,6 +228,126 @@ def test_the_announced_rule_carries_the_priority_and_the_bound():
     assert "сброс" in forever, forever
 
 
+# -- the sprint's clock (#1294) --------------------------------------------------------
+
+def test_the_countdown_line_books_the_sprint_ahead_of_the_star():
+    """The whole mechanism in one assertion: the ordinary poll reads a countdown in
+    seconds, and the watcher's next sleep ends BEFORE the star matures rather than five
+    minutes later. A ripe star lives under two minutes, so arriving on the next ordinary
+    look is arriving after it is gone."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    import time
+    order = _order(lines=WAITING_RUN + ['LOG "star countdown: 40 s to star 7"'])
+    order._play()
+    lead = order.sprint_lead_sec()
+    assert lead > 0, "the sprint is off by default — it is the point of the change"
+    assert 40 - lead - 1 <= order._sleep_for() <= 40 - lead + 1, order._sleep_for()
+    assert not order._sprint_due(), "it fired the moment it was booked"
+    order._star_at = time.time() + lead - 0.1        # the appointment has come round
+    assert order._sprint_due()
+
+
+def test_a_finished_run_wakes_the_loop_that_is_already_asleep():
+    """The bug this pins is the whole feature failing quietly. A tick hands its run to a
+    worker and returns AT ONCE, so the sleep is sized before the countdown is read —
+    without a wake-up the appointment is first honoured on the next ordinary look, five
+    minutes after the star, which is exactly what this was built to stop."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    order = _order(lines=WAITING_RUN + ['LOG "star countdown: 40 s to star 7"'])
+    order._wake.clear()
+    order._play()
+    assert order._wake.is_set(), "the loop would sleep out the star it just booked"
+
+
+def test_a_poll_with_no_star_books_nothing_and_keeps_the_ordinary_pace():
+    """No star, no appointment: the standing order must not wake up every second for a
+    day that has nothing rare in it."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    order = _order(lines=UR_RUN)
+    order._play()
+    assert order._sprint_at() == 0.0
+    assert not order._sprint_due()
+    assert order._sleep_for() >= 30.0, order._sleep_for()
+
+
+def test_a_star_that_has_gone_takes_its_appointment_with_it():
+    """A star helped by somebody else between two polls leaves a countdown behind. If the
+    booking outlived the star, the sprint would fire at nothing every five minutes."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    order = _order(lines=WAITING_RUN + ['LOG "star countdown: 40 s to star 7"'])
+    order._play()
+    assert order._sprint_at() > 0
+    order.rt.actions.play = _replaying(UR_RUN)      # the next poll: the star is gone
+    order._play()
+    assert order._sprint_at() == 0.0, "the appointment survived the star"
+
+
+def _replaying(lines):
+    """A `rt.actions.play` that feeds a recorded run to the caller's own handler."""
+    def play(name, args=None, on_event=None, **_kw):
+        from panel.runtime.actions import Outcome
+        for line in lines:
+            on_event(line)
+        return Outcome(True, "")
+    return play
+
+
+def test_a_sprint_that_takes_the_star_counts_what_it_cost():
+    """«Замер: сколько попыток до и после, сколько звёзд удалось взять» — the tally is
+    part of the deliverable, not a nicety, because «жать чаще» is otherwise a claim
+    nobody can check."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    order = _order(lines=[
+        'LOG "star sprint: ★7 in 3 s — pressing until the server answers"',
+        '  ACT assist_sprint_sent n=1',
+        '  ACT assist_sprint_done how=taken lvl=7 presses=4 tip=',
+        'LOG "assist_star_taken — ★7 helped after 4 press(es)"',
+    ])
+    order._play_sprint()
+    assert (order._taken, order._missed, order._presses) == (1, 0, 4)
+    assert "7" in order.tally_text() or "1" in order.tally_text(), order.tally_text()
+    assert any("звезда 7 взята" in ln for ln in order.logs), order.logs
+
+
+def test_a_lost_sprint_is_said_out_loud_and_counted_apart():
+    """A star that went to somebody else is not a failure of the order and not a
+    success either — it is the third outcome, and it has to be tellable from both."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    order = _order(lines=[
+        '  ACT assist_sprint_done how=gone lvl=6 presses=11 tip=dispatch_des028',
+        'LOG "assist_star_missed — ★6 not taken after 11 press(es)"',
+    ])
+    order._play_sprint()
+    assert (order._taken, order._missed, order._presses) == (0, 1, 11)
+    assert any("забрал" in ln for ln in order.logs), order.logs
+
+
+def test_the_sprint_is_played_with_the_same_level_rule_and_its_own_window():
+    """One rule, read in one place. The window is the sprint's own — it bounds a star
+    that never matures, which the level has nothing to say about."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    order = _order(level_min="7", lines=[])
+    order._play_sprint()
+    name, args = order.played[-1]
+    assert name == "assist_star_sprint", name
+    assert args["level"] == 7, args
+    assert args["window_sec"] == order.sprint_window_sec(), args
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

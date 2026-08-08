@@ -17,6 +17,7 @@ answer, `P` = panel-only, `F` = file.
 | `autoloot_push_restart` | 1.5 s one-shot | re-spawn the push listener with the new rule | nothing | no | level box typed while «Автолут ★» on | fires once |
 | «Автолут ★» loop | 0.5 s (`autoloot_poll`) | pick targets out of `rob_candidates()`, fire the robbery scenario | `V` only when a fresh target exists (`session_ready`) | no | checkbox on | checkbox off; pauses 30 min on spent budget |
 | «Автопомощь» loop | 300 s (`autoassist_poll`) | play `assist_secret_task.md` | nothing itself (the scenario reads) | no | checkbox on | checkbox off; pauses 60 min on spent budget |
+| «Автопомощь» star sprint | one-shot, `autoassist_sprint_lead_sec` (3 s) before a star matures | play `assist_star_sprint.md` — press until the server answers | nothing itself (the scenario reads) | no | the ordinary loop reading a `star countdown: <n> s` line | the appointment is spent on the first wake-up; lead 0 = off |
 | ★ capture child | 1 s flush | decode `world.get.block`, rewrite `tasks.json`, record shares into `secret_shared.json`, print findings | pcap | no | «Мониторинг ★» on / boot | checkbox off, child exit |
 | ghost capture child | 1 s flush | same for ghost tiles + writes `secret_shared.json` | pcap | no | ghost monitor on / boot | checkbox off, child exit |
 
@@ -31,6 +32,7 @@ answer, `P` = panel-only, `F` = file.
 | `autoloot_push_restart` | `autoloot.py:range_changed` → `restart_push` |
 | «Автолут ★» loop | `autoloot.py:_loop` → `tick` → `run` → `_spend` |
 | «Автопомощь» loop | `autoassist.py:_loop` → `tick` → `_play` |
+| «Автопомощь» star sprint | `autoassist.py:_loop` → `_sprint_due` → `sprint` → `_play_sprint` |
 | capture children | `capture.py:start` → `_launch`; `tools/secret_task_capture.py` |
 
 Boot (`tab.py:ensure_loaded`, tab is `EAGER`) starts only the four standing orders.
@@ -79,7 +81,7 @@ Alliance page rows are replaced whole by each roster read; ghost pages by each g
 | **Перейти / клик по координате / история** | validate boxes → `rt.game.jump(x, y, server)` → remember in history → write the server into the «Сервер» box | game's own coordinate jump (`GotoWorldPos`), no height passed | nothing | log «перешёл на @[x,y\|srv]» | `tab.py:_goto_coord`, `_jump`, `_jump_to_row` |
 | **↻ сервер** | thread → read the server the client is looking at → fill the box | 1 chunk | nothing | log «текущий сервер N» | `tab.py:_load_current_server` |
 | **Автолут ★** (checkbox) | on: spawn push listener with the rule + start 0.5 s loop; off: kill both | listener sniffs and robs on its own; the loop plays the steal scenario | rows it robs get 💰 via the same path as «Собрать»; `how=gone` rows removed | state line under the box: выкл / сторожит / целей N / грабит / пауза до HH:MM / нет своего сервера / нет источника / не в игре / ошибка | `autoloot.py:toggle`, `tick`, `_spend` |
-| **Автопомощь** (checkbox) | on: start 300 s loop; each tick plays `assist_secret_task.md` | `hero.dispatch.assist` (5/day), targets chosen by the scenario | none — it helps the alliance, does not touch the ★ list | state line: выкл / сторожит / помогает / помог N / пауза до HH:MM / не в игре | `autoassist.py:toggle`, `tick`, `_play` |
+| **Автопомощь** (checkbox) | on: start 300 s loop; each tick plays `assist_secret_task.md`, and the loop also wakes a few seconds before a ripening star to play `assist_star_sprint.md` | `hero.dispatch.assist` (5/day), targets chosen by the scenario | none — it helps the alliance, does not touch the ★ list | state line: выкл / сторожит / помогает / помог N / пауза до HH:MM / придерживаю под звезду / жму — звезда вот-вот / не в игре, plus the sprint tally | `autoassist.py:toggle`, `tick`, `_play`, `sprint`, `_play_sprint` |
 | **Мониторинг ★** (checkbox) | build command on the Tk thread → thread: read current server as `--seed-server`, spawn the pcap child with `--json tasks.json --shared-json secret_shared.json --interval 1` | nothing (passive) | fills the checkpoint; each finding arms the 800 ms nudge | log «запускаю … pid N», findings that pass the level filter | `capture.py:start` → `_launch` → `on_line` |
 | **Зум** (combo / phone cycle) | store the level, log height+step | nothing | nothing | log «зум: N, шаг M» — affects **only** «Обойти карту», not jumps | `tab.py:_on_zoom_choice`, `_cycle_zoom` |
 | **Фильтры: уровень от / до** | save, render, update counters | nothing | hides rows only; the same pair also filters the capture's log lines | count line moves, table narrows | `tab.py:_on_display_filter_change`, `capture.py:passes` |

@@ -412,6 +412,33 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.secret_task_assist_refresh(),
         wait=2.0, label="Re-read the alliance's secret tasks",
     ),
+    # --- the star sprint: the last seconds of a star's countdown (#1294) ------
+    # A ripe star lives under two minutes — live, the day's only one was gone before a
+    # five-minute poll ever saw it ready. The three buttons below are the robbery's
+    # answer to the same race, aimed at a MOMENT rather than at a tile: the client
+    # already knows the star's `completionTime`, so the panel schedules a wake-up for it
+    # and these press through the instant it arrives.
+    "arm_assist_sprint": Button(
+        lua=_lua_actions.secret_task_assist_sprint_arm(),
+        wait=0.2, label="Arm the star sprint",
+    ),
+    "assist_secret_task_sprint": Button(
+        lua=_lua_actions.secret_task_assist_sprint_press(),
+        # AS FAST AS THE CHANNEL ALLOWS, exactly like `steal_secret_task` — one round
+        # trip through the warm daemon is 80-135 ms, so this floor is the call's own
+        # pace and not a throttle. Pressing before the star matures costs nothing: the
+        # reply's error branch raises a tip and never touches `todayAssistNum`.
+        wait=0.05, label="Help the armed star (sprint)",
+        count_lua=_lua_actions.secret_task_assist_sprint_pending(),
+        # The cap is the WIDTH of the spam. At ~0.15 s a round this is about eighteen
+        # seconds of pressing, which covers a lead of a few seconds and a good spell
+        # after — and the armed window stops it sooner whenever the recipe says so.
+        max_taps=120,
+    ),
+    "finish_assist_sprint": Button(
+        lua=_lua_actions.secret_task_assist_sprint_verdict(),
+        wait=0.1, label="Close the star sprint",
+    ),
     # --- world -> rob a ghost-recon squad («Операция Призрак») ----------------
     # A DIFFERENT feature from `steal_secret_task` above: that one robs a hero
     # dispatch («секретка», `hero.dispatch.steal`), this one robs the weekly

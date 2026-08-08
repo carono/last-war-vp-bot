@@ -1492,7 +1492,10 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
-        star_wait_min=lambda: 240)
+        star_wait_min=lambda: 240,
+        # The star sprint's session tally, which the card carries as a row of
+        # its own once one has run (#1294). Empty here: no sprint, no row.
+        tally_text=lambda: "")
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
@@ -1560,7 +1563,10 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
-        star_wait_min=lambda: 240)
+        star_wait_min=lambda: 240,
+        # The star sprint's session tally, which the card carries as a row of
+        # its own once one has run (#1294). Empty here: no sprint, no row.
+        tally_text=lambda: "")
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
@@ -1703,7 +1709,10 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
-        star_wait_min=lambda: 240)
+        star_wait_min=lambda: 240,
+        # The star sprint's session tally, which the card carries as a row of
+        # its own once one has run (#1294). Empty here: no sprint, no row.
+        tally_text=lambda: "")
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
@@ -2043,7 +2052,10 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # …and the same pair for «Автопомощь», whose card sits above the alliance one (#1272).
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: 6,
-        star_wait_min=lambda: 240)
+        star_wait_min=lambda: 240,
+        # The star sprint's session tally, which the card carries as a row of
+        # its own once one has run (#1294). Empty here: no sprint, no row.
+        tally_text=lambda: "")
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(
         ur_var=_Var(False), star_var=_Var(False), counts=lambda: (1, 0),
@@ -2250,7 +2262,10 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
         state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
-        star_wait_min=lambda: 240)
+        star_wait_min=lambda: 240,
+        # The star sprint's session tally, which the card carries as a row of
+        # its own once one has run (#1294). Empty here: no sprint, no row.
+        tally_text=lambda: "")
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),

@@ -293,6 +293,12 @@ class SettingsTab(PanelTab):
                 # (#1292). 0 is «as long as the day allows», which is why the spin box
                 # starts there and not at one.
                 ("autoassist_star_wait_min", {"spin": (0, 1440), "width": 10}),
+                # …and the two numbers that decide whether the star it waited for is
+                # actually collected (#1294): how early the pressing starts, and how
+                # long it may last. 0 for the lead switches the sprint off, so the box
+                # starts there.
+                ("autoassist_sprint_lead_sec", {"spin": (0, 120), "width": 10}),
+                ("autoassist_sprint_window_sec", {"spin": (1, 300), "width": 10}),
                 ("trace_filter", {"width": 20}),
                 ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
         )):

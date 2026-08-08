@@ -168,6 +168,22 @@ DEFAULTS: dict = {
     # so the wait needs a floor: past this many minutes the help goes to a UR instead.
     # 0 = wait as long as the task's own expiry and the daily reset allow.
     "autoassist_star_wait_min": 240,
+    # …and being THERE when the star it waited for finally matures (#1294). A ripe star
+    # is taken by alliancemates in under two minutes, so the watcher schedules itself:
+    # it sleeps until this many seconds before the star is due — the client knows the
+    # moment to the millisecond — and then presses until the server answers. The poll
+    # above is untouched; this costs one wake-up per star and nothing in between.
+    #
+    # TEN SECONDS BECAUSE THE RECIPE HAS A PREAMBLE, measured live: re-reading the
+    # alliance list and scanning it puts the first press 3.5-4.7 s after the run starts,
+    # so a lead of three would have it land AFTER the star matured — the same failure
+    # with extra steps. Pressing early is free (the reply's error branch never touches
+    # the counter), so the margin costs nothing but a few refused sends.
+    # 0 = no sprint, take whatever the ordinary poll happens to find ready.
+    "autoassist_sprint_lead_sec": 10,
+    # …and how long that pressing may last. It bounds the case the clock cannot: a star
+    # that never matures because its owner cancelled it.
+    "autoassist_sprint_window_sec": 20,
     # Where «Отправить диагностику» ships the zipped debug logs (panel/debug_sender.py).
     # Empty = do not send: the archive is still written, but nothing leaves the box.
     "debug_send_url": "",

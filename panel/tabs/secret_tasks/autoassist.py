@@ -14,10 +14,23 @@ them, the tasks worth helping are already in the client's own table, so the reci
 choose for itself and the panel has no queue to fill.
 
 Which is why this is a poll rather than a listener. There is no push saying «a mate's
-task has just finished», the tasks finish in their own time all day, and the race the
-auto-loot listener exists to win — a human reading the same broadcast — is not a race
-that exists here: helping pays the helper and the owner both, so nobody is competing
-for a tile. A quiet look every few minutes is the whole requirement.
+task has just finished» — forty-five minutes of the live wire carried some three
+thousand messages and not one of the `push.hero.dispatch.task.*` family, which the client
+keeps for its OWN tasks (#1294) — and the tasks finish in their own time all day.
+
+BUT A POLL ALONE IS NOT ENOUGH FOR THE STAR, and that is the one thing this class does
+beyond keeping time (#1294). A ripe star is taken by alliancemates in under two minutes;
+live, the day's only one came and went between two five-minute looks and `star_ready`
+never read non-zero. Helping is not competitive in general — it pays the helper and the
+owner both — but the STARS are, because everybody's daily plan wants the same rare thing.
+
+The answer costs nothing extra all day, because the client already knows the moment. A
+task carries its own `completionTime`, so the ordinary poll reads the star's maturity
+hours ahead (live: 78, 79 and 233 minutes) and this class simply SLEEPS UNTIL IT.
+A few seconds before, it plays `actions/assist_star_sprint.md`, which presses as fast as
+the channel allows until the server answers. The period is unchanged, no reading happens
+while the star ripens, and the fast pressing lasts seconds — «жать часто, но только там,
+где секунды решают».
 
 The rule is the same shape as the auto-loot one and read the same way — live, on every
 tick, so raising the minimum takes effect at once and a half-typed box is «no bound»
@@ -63,6 +76,19 @@ WAIT_LINE = re.compile(
 #: nothing to help at all would bury the lines that matter.
 NO_STAR_LINE = re.compile(r"no star ripening today — taking UR")
 
+#: The countdown in SECONDS, which is what the sprint is scheduled off (#1294). The
+#: scenario says it whenever a star is on its way; the minutes line beside it is for the
+#: person, this one is for the clock. A star matures at a moment the client knows to the
+#: millisecond, so this is read once every ordinary poll and nothing has to poll faster
+#: to find it.
+COUNTDOWN_LINE = re.compile(r"star countdown: (-?\d+) s")
+
+#: What `actions/assist_star_sprint.md` says when a sprint ends. Three outcomes, and they
+#: must stay distinguishable: «took it», «somebody else did» and «the server never
+#: answered» are three different days.
+TAKEN_LINE = re.compile(r"assist_star_taken — ★(\d+) helped after (\d+) press")
+MISSED_LINE = re.compile(r"assist_star_missed — ★(\d+) not taken after (\d+) press")
+
 # The states the standing order reports on screen — the reasons a tick can end without a
 # help. Every one of them used to look identical from outside, which is what «автолут не
 # работает совершенно» turned out to be (#1227); this order is born with the answer.
@@ -74,6 +100,7 @@ STATE_PAUSED = "autoassist.state.paused"      # the day's five are spent, until�
 STATE_WAITING = "autoassist.state.waiting"    # holding a help for a star, until…
 STATE_NO_LOGIN = "autoassist.state.no_login"  # the client is not in a session
 STATE_ERROR = "autoassist.state.error"        # the last tick raised
+STATE_SPRINT = "autoassist.state.sprint"      # pressing through a star's last seconds
 
 
 class AutoAssist:
@@ -83,11 +110,27 @@ class AutoAssist:
         self.rt = rt
         self.tab = tab
         self._stop = None            # threading.Event of the poll loop, while running
+        # …and what interrupts its sleep: a run that has just learned when the next star
+        # is due, or the checkbox being cleared. A tick returns before its run finishes,
+        # so without this the appointment would be five minutes late every time (#1294).
+        self._wake = threading.Event()
         self._running = False        # a scenario is in flight
         self._pause_until = 0.0      # wall clock the watcher may play again at
         self._warned_login = False   # "this client is not logged in" is said once
         self._said_wait = None       # the last «жду звезду» announced, so it is said once
         self._state = (STATE_OFF, "")
+        # When the nearest ripening star is due, as a wall clock, or 0 for «none known».
+        # Read off the ordinary poll's own countdown line and nothing else: the game
+        # already knows the moment to the millisecond, so this is the whole of the
+        # scheduling (#1294).
+        self._star_at = 0.0
+        # The tally the order shows and the log repeats — what the sprint actually cost
+        # and bought. Kept for the session rather than for the day: it is a measurement
+        # of the mechanism, and a counter that survives a restart would quietly mix two.
+        self._sprints = 0            # sprints played
+        self._presses = 0            # presses they made, all told
+        self._taken = 0              # stars the SERVER confirmed
+        self._missed = 0             # …and stars that went to somebody else
 
     @property
     def running(self) -> bool:
@@ -107,6 +150,7 @@ class AutoAssist:
         self._pause_until = 0.0
         self._warned_login = False
         self._said_wait = None
+        self._star_at = 0.0
         self._state = (STATE_WATCHING, "")
         self.tab.say("autoassist", "log.autoassist.on", rule=self.rule_text())
         threading.Thread(target=self._loop, args=(self._stop,), daemon=True).start()
@@ -115,21 +159,45 @@ class AutoAssist:
         stop, self._stop = self._stop, None
         if stop is not None:
             stop.set()
+            self._wake.set()                  # …and do not sit out the rest of a sleep
             self.tab.say("autoassist", "log.autoassist.off")
         self._state = (STATE_OFF, "")
 
     # -- the poll ------------------------------------------------------------
     def _loop(self, stop: threading.Event) -> None:
-        """Look every few minutes until the checkbox is cleared.
+        """Look every few minutes — and be awake for the second a star matures.
 
         One bad tick costs a log line and not the order for the session, and the same
         complaint is printed once rather than on every poll — the auto-loot watcher's
         shape, for the same reason: nobody is watching this loop.
+
+        THE PERIOD NEVER CHANGES; THE SLEEP DOES (#1294). A ripe star is gone in under
+        two minutes and a five-minute look cannot land inside that window — but nothing
+        has to look faster to find one, because the task carries its own
+        `completionTime` and the ordinary poll reads it hours ahead. So the wait is cut
+        short exactly once per star: the loop wakes a few seconds before it is due, plays
+        the sprint, and goes back to the ordinary pace. No extra game read happens while
+        the star ripens, which is the whole difference between this and a shorter poll.
+
+        WHICH IS WHY THE SLEEP IS INTERRUPTIBLE AND THE POLL HAS ITS OWN DEADLINE. A tick
+        hands the run to a worker and returns at once, so the countdown the run reads
+        arrives AFTER the sleep has already been sized: without a wake-up the appointment
+        would first be honoured on the next ordinary look, five minutes late, which is
+        precisely the failure this exists to fix. `_wake` is set when a run learns
+        something and by `stop()`, and `next_poll` keeps the ordinary look on its own
+        schedule so an extra wake-up costs a recalculation and never a second run.
         """
         last_err = ""
+        next_poll = 0.0                  # the first look is immediate
         while True:
+            self._wake.clear()
             try:
-                self.tick()
+                if self._sprint_due():
+                    self.sprint()
+                elif time.time() >= next_poll:
+                    next_poll = time.time() + self.rt.settings.opt_float(
+                        "autoassist_poll", low=30.0, high=3600.0)
+                    self.tick()
                 last_err = ""
             except Exception as exc:      # noqa: BLE001 — one tick, never the loop
                 err = f"{type(exc).__name__}: {exc}"
@@ -137,9 +205,41 @@ class AutoAssist:
                 if err != last_err:
                     last_err = err
                     self.tab.say("autoassist", "log.autoassist.poll_error", error=err)
-            if stop.wait(self.rt.settings.opt_float("autoassist_poll",
-                                                    low=30.0, high=3600.0)):
+            self._wake.wait(self._sleep_for(next_poll))
+            if stop.is_set():
                 return
+
+    def _sleep_for(self, next_poll: float = 0.0) -> float:
+        """How long to sleep next: until the next ordinary look, unless a star is sooner.
+
+        Never below half a second — a schedule that lands a shade early is the point, and
+        one that lands a shade early over and over is a spin loop.
+        """
+        poll = self.rt.settings.opt_float("autoassist_poll", low=30.0, high=3600.0)
+        wait = poll if next_poll <= 0 else next_poll - time.time()
+        due = self._sprint_at()
+        if due > 0:
+            wait = min(wait, due - time.time())
+        return max(0.5, min(poll, wait))
+
+    def _sprint_at(self) -> float:
+        """The wall clock the sprint should START at, or 0 when there is nothing to run.
+
+        The star's own moment, minus the operator's lead. A lead of 0 turns the sprint
+        off outright — the ordinary poll then takes whatever it happens to find ready,
+        which is the behaviour there was before this existed.
+        """
+        lead = self.sprint_lead_sec()
+        if not lead or self._star_at <= 0:
+            return 0.0
+        return self._star_at - lead
+
+    def _sprint_due(self) -> bool:
+        """Whether this wake-up is the scheduled one. Half a second of slack, because
+        `Event.wait` is not a real-time clock and arriving 20 ms early must not count as
+        «not yet» and cost another whole period."""
+        due = self._sprint_at()
+        return bool(due) and time.time() >= due - 0.5
 
     def tick(self) -> None:
         """One look: play the scenario unless something says not to.
@@ -187,6 +287,10 @@ class AutoAssist:
         and wrapping it in a second claim would invent a refusal in the middle of it.
         """
         helped, spent, waiting, no_star = 0, False, None, False
+        # «No star coming» until the scenario says otherwise. Cleared here rather than
+        # left standing, or a star that has since been helped by somebody else keeps its
+        # appointment for ever and the sprint fires at nothing every five minutes.
+        self._star_at = 0.0
 
         def put(msg) -> None:
             nonlocal helped, spent, waiting, no_star
@@ -198,6 +302,13 @@ class AutoAssist:
                 spent = True
             if NO_STAR_LINE.search(line):
                 no_star = True
+            due = COUNTDOWN_LINE.search(line)
+            if due is not None:
+                # The scenario's own arithmetic on the GAME's clock, turned into a wall
+                # clock here and nowhere else. A negative countdown means the star is
+                # already ripe — the appointment is now, not in the past.
+                secs = int(due.group(1))
+                self._star_at = time.time() + max(secs, 0)
             held = WAIT_LINE.search(line)
             if held is not None:
                 waiting = tuple(int(g) for g in held.groups())
@@ -211,7 +322,7 @@ class AutoAssist:
             self._state = (STATE_ERROR, type(exc).__name__)
             self.tab.say("autoassist", "log.autoassist.failed",
                          reason=f"{type(exc).__name__}: {exc}")
-            self._running = False
+            self._done()
             return
         if not outcome:
             # The scenario's own reason, verbatim — it is the authority on why it
@@ -255,7 +366,141 @@ class AutoAssist:
         else:
             self._said_wait = None
             self._state = (STATE_WATCHING, "")
+        self._done()
+
+    # -- the sprint ------------------------------------------------------------
+    def sprint(self) -> None:
+        """The scheduled wake-up: the star is about to mature, so go and press.
+
+        Same three gates as an ordinary tick — one run at a time, a spent day, a client
+        that is not in a session — because every one of them is as true here as there.
+        A missed appointment is dropped rather than retried: the next ordinary poll
+        re-reads the countdown, and a star we were too busy for at the moment it matured
+        is not a star a minute of catching up will win.
+        """
+        if self._running:
+            self._state = (STATE_HELPING, "")
+            self._star_at = 0.0
+            return
+        if time.time() < self._pause_until:
+            self._state = (STATE_PAUSED, _hhmm(self._pause_until))
+            self._star_at = 0.0
+            return
+        if not self.session_ready():
+            self._state = (STATE_NO_LOGIN, "")
+            if not self._warned_login:
+                self._warned_login = True
+                self.tab.say("autoassist", "log.autoassist.no_login")
+            self._star_at = 0.0
+            return
+        self._warned_login = False
+        # The appointment is spent whatever happens next: kept here rather than after the
+        # run, so a sprint that raises still cannot be scheduled twice for one star.
+        self._star_at = 0.0
+        self._running = True
+        threading.Thread(target=self._play_sprint, daemon=True).start()
+
+    def _play_sprint(self) -> None:
+        """Play `actions/assist_star_sprint.md` and count what it cost and bought.
+
+        The recipe is the authority on everything below it: it re-reads the list, arms
+        one star, presses until the SERVER answers and says which of the three things
+        happened. This adds the tally — presses, stars taken, stars lost — because
+        «жать чаще» is a claim that has to be measurable, and a sprint that presses forty
+        times to lose every race is a different answer from one that presses three to
+        win.
+        """
+        self._state = (STATE_SPRINT, "")
+        self._sprints += 1
+        taken = missed = None
+        started = time.time()
+
+        def put(msg) -> None:
+            nonlocal taken, missed
+            line = str(msg)
+            self.rt.put(f"[autoassist] {line}")
+            hit = TAKEN_LINE.search(line)
+            if hit is not None:
+                taken = (int(hit.group(1)), int(hit.group(2)))
+            lost = MISSED_LINE.search(line)
+            if lost is not None:
+                missed = (int(lost.group(1)), int(lost.group(2)))
+
+        try:
+            outcome = self.rt.actions.play(
+                "assist_star_sprint",
+                {"level": self.level_min() or 0,
+                 "window_sec": self.sprint_window_sec()}, on_event=put)
+        except Exception as exc:      # noqa: BLE001 — a failed press, never the watcher
+            self._state = (STATE_ERROR, type(exc).__name__)
+            self.tab.say("autoassist", "log.autoassist.failed",
+                         reason=f"{type(exc).__name__}: {exc}")
+            self._done()
+            return
+        secs = round(time.time() - started, 1)
+        if not outcome:
+            self._state = (STATE_ERROR, "")
+            self.tab.say("autoassist", "log.autoassist.failed",
+                         reason=outcome.reason or "?")
+        elif taken is not None:
+            lvl, presses = taken
+            self._taken += 1
+            self._presses += presses
+            self._state = (STATE_HELPED, "★%d" % lvl)
+            self.tab.say("autoassist", "log.autoassist.sprint_taken",
+                         lvl=lvl, presses=presses, secs=secs)
+        elif missed is not None:
+            lvl, presses = missed
+            self._missed += 1
+            self._presses += presses
+            self._state = (STATE_WATCHING, "")
+            self.tab.say("autoassist", "log.autoassist.sprint_missed",
+                         lvl=lvl, presses=presses, secs=secs)
+        else:
+            # The recipe found nothing starred to press — the star was helped, cancelled
+            # or expired between the poll that scheduled this and the moment it arrived.
+            self._state = (STATE_WATCHING, "")
+        self._done()
+        # Whatever happened, the list has moved: a star was taken out of it, or somebody
+        # else took it. The next ordinary tick re-reads the countdown and re-schedules.
+        self._said_wait = None
+
+    def _done(self) -> None:
+        """A run has finished: let the loop re-size its sleep around what it learned.
+
+        The tick that started it returned long ago, so the countdown it read arrived
+        after the sleep was already chosen. Without this the appointment would be kept
+        on the NEXT ordinary look — five minutes after the star, which is the failure
+        this whole thing exists to fix (#1294).
+        """
         self._running = False
+        self._wake.set()
+
+    def sprint_lead_sec(self) -> int:
+        """How many seconds BEFORE the star matures the pressing starts.
+
+        A setting rather than a box, like the poll and the pause beside it. `0` switches
+        the sprint off altogether and leaves the ordinary poll to take whatever it finds
+        ready — which is the behaviour that lost the star in the first place, so it is
+        not the default.
+        """
+        return self.rt.settings.opt_int("autoassist_sprint_lead_sec", low=0, high=120)
+
+    def sprint_window_sec(self) -> int:
+        """How long the pressing may last, from the moment the target is armed."""
+        return self.rt.settings.opt_int("autoassist_sprint_window_sec", low=1, high=300)
+
+    def tally_text(self) -> str:
+        """The sprint's measurement in one phrase, or empty until one has run.
+
+        On the tab and on the phone both. It answers the question the change was made
+        to answer — how many presses a star costs and how many of them are won — and it
+        is empty rather than «0/0» before there is anything to report.
+        """
+        if not self._sprints:
+            return ""
+        return self.tab.t("autoassist.tally", taken=self._taken, missed=self._missed,
+                          presses=self._presses)
 
     # -- the rule ------------------------------------------------------------
     def level_min(self) -> "int | None":

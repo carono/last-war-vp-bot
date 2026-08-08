@@ -70,6 +70,11 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_level) or 0) 
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_ur) or 0) INTO ur_ready
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_eta) or -1) INTO star_eta_min
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_hold) or 0) INTO star_hold
+# …and the SAME wait in seconds. Minutes are what a person reads; this is what the
+# sprint is scheduled off (#1294) — a star is taken in under two minutes, so «через 2
+# мин» is not a number anything can aim at, and `completionTime` is known to the
+# millisecond anyway.
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_eta_sec) or -1) INTO star_eta_sec
 
 # 4. Say why nothing happened, when nothing does. A silent standing order is
 #    indistinguishable from a broken one.
@@ -90,6 +95,12 @@ ELSE
     ELSE
         IF star_pending > 0
             LOG "waiting for star {star_level} (ready in {star_eta_min} min) — holding {star_hold} of {helps_left} help(s) back"
+            # …and the same wait to the second, for whoever has to ARRIVE at it (#1294).
+            # The panel schedules the sprint off this line: it sleeps until a few seconds
+            # before the star is due instead of polling faster all day, because the star
+            # only lives about two minutes once it matures and nothing but this number
+            # says when that is.
+            LOG "star countdown: {star_eta_sec} s to star {star_level}"
         ELSE
             LOG "no star ripening today — taking UR ({ur_ready} ready)"
 

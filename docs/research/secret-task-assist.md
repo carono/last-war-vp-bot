@@ -4,12 +4,16 @@ How the alliance's own finished hero-dispatch tasks are helped headless, why it 
 the same feature as «Помочь всем», and the one thing that makes a correct-looking press
 help nobody.
 
-- Recipe: `src/lastwar_bot/actions/assist_secret_task.md`.
+- Recipes: `src/lastwar_bot/actions/assist_secret_task.md` (the ordinary order) and
+  `assist_star_sprint.md` (the last seconds of a star's countdown, #1294).
 - Buttons: `tools/lib/game_buttons.py` (`assist_secret_task`,
-  `refresh_alliance_secret_tasks`); the Lua is `tools/lib/lua_actions.py`
-  (`secret_task_assists_left`, `secret_task_assist_refresh`, `secret_task_assist_rule`,
-  `secret_task_assist_scan`, `secret_task_star_field`, `secret_task_assists_pending`,
-  `assist_next_secret_task`, and the walk behind them all, `_ASSIST_SCAN`).
+  `refresh_alliance_secret_tasks`, `scan_secret_task_stars`, and the sprint's
+  `arm_assist_sprint` / `assist_secret_task_sprint` / `finish_assist_sprint`); the Lua is
+  `tools/lib/lua_actions.py` (`secret_task_assists_left`, `secret_task_assist_refresh`,
+  `secret_task_assist_rule`, `secret_task_assist_scan`, `secret_task_star_field`,
+  `secret_task_assists_pending`, `assist_next_secret_task`,
+  `secret_task_assist_sprint_arm` / `_press` / `_pending` / `_verdict`, and the walk
+  behind them all, `_ASSIST_SCAN`).
 - Standing order: the «Секретки» tab's «Автопомощь» checkbox on the alliance page →
   `panel/tabs/secret_tasks/autoassist.py`.
 - Read out of the live client with `string.dump` constant tables (the technique is
@@ -145,6 +149,94 @@ lines later, «holding 2 of 0 help(s) back» — a choice described that was not
 `tests/test_assist_star_priority.py` runs the whole decision in a real Lua VM against a
 stand-in dispatch manager: the priority, the reserve, and each of the three bounds on the
 waiting. `tests/test_panel_autoassist.py` covers what the panel makes of it.
+
+## The star sprint: being there in the second it matures (#1294)
+
+The priority above holds a help back for a ripening star. Live acceptance of it measured
+what was still missing:
+
+> the day's only ripe star was gone from the alliance list in **under two minutes** —
+> taken by alliancemates — and `star_ready` never read non-zero on a single poll.
+
+The reserve had worked and the help was still not spent. A rule that waits for a star and
+then arrives late loses twice: the star goes to somebody else *and* the URs it held the
+budget from go unhelped as well. Помощь is not competitive in general — it pays the helper
+and the owner both — but the STARS are, because everybody's daily plan wants the same rare
+thing.
+
+### The moment is known in advance, so nothing polls faster
+
+`completionTime` is on the task. The five-minute poll therefore learns the exact instant a
+star matures **hours ahead** — live, three level-7 stars announced themselves 78, 79 and
+233 minutes out, to the millisecond. Nothing has to look more often to *discover*
+readiness; the only problem is being awake for it.
+
+So the scan parks the countdown in seconds as well as minutes (`__lw_star_eta_sec`), the
+recipe says it out loud (`star countdown: <n> s to star <lvl>`), and the panel's standing
+order **schedules**: it sleeps until a few seconds before the star is due, plays
+`actions/assist_star_sprint.md`, and returns to the ordinary period. The poll interval is
+untouched and no game read happens while the star ripens — the whole cost is one extra
+wake-up per star.
+
+### The sprint is the robbery's shape, aimed at a moment
+
+`arm_assist_sprint` → `assist_secret_task_sprint xall` → `finish_assist_sprint`, which is
+`steal_secret_task`'s loop with the target chosen by time rather than by a queue:
+
+* the armed target is the ready star if there is one and otherwise the **nearest ripening
+  one** — the recipe is played early on purpose, so at arming time the star usually has
+  not finished yet. Never a UR: thirty-four of those sat unhelped in one live reading, and
+  the ordinary recipe spends them at its own pace;
+* the press **leaves its target armed** (the opposite of `assist_next_secret_task`, which
+  drops its task so `xall` moves on), because pressing the same task again is the point;
+* the loop stops on the SERVER: `todayAssistNum` moving, or a tip saying the task is gone.
+  `dispatch_des028` — «уже решена с помощью других лиц» — *is* the lost race, so it is
+  terminal; an unfamiliar tip leaves the loop pressing, exactly as the robbery's list
+  rules;
+* a window (default 20 s) bounds the case the clock cannot: a star that never matures
+  because its owner cancelled the task.
+
+**The lead has to cover the recipe's own preamble.** Measured live: from `run_action` to
+the target being armed is **3.5–4.7 s** — the mandatory re-read of the alliance list is
+most of it — so the arming was moved to sit directly after the scan, ahead of the six
+`READ_LUA`s the log lines need, and `autoassist_sprint_lead_sec` defaults to **10**. A
+lead of three would have the first press land *after* the star matured, which is the
+original failure with extra steps.
+
+**Pressing before the star matures is free**, on the evidence already in this file:
+`HandleMessage` takes the `errorCode` branch on a refusal, and `todayAssistNum` reaches
+the client only on the success branch, out of the server's own reply. An early press
+therefore spends nothing — the same guarantee `steal_secret_task` leans on.
+
+The verdict line is the measurement: `ACT assist_sprint_done how=<taken|gone|unanswered>
+lvl=<n> presses=<n> tip=<id>`, and the panel keeps a session tally («спринты: взято 1 /
+упущено 0, нажатий 4») on the tab and on the phone.
+
+### The listener was checked on the wire, and there is nothing to listen to
+
+`MsgDefines` does carry a push family for hero dispatch — `push.hero.dispatch.task.patch`
+(`PushDispatchOneTask`), `…task.full`, `…task.del`, `…task.add.follow.count`, beside the
+`push.hero.dispatch.mission.steal` already known. It looks exactly like the readiness
+event this feature would want.
+
+It is not. `SFSNetwork.HandleMessage` was wrapped with a counter and watched on a live,
+logged-in client with 160 alliance tasks running:
+
+```
+45 minutes, ~3000 messages, 34 distinct commands
+hero.dispatch pushes: 0
+hero.dispatch seen at all: only the REPLY to our own `alliance.list`, 3 of them
+alliance task count:  160 -> 170 -> 199, and it moved only on those three re-reads
+```
+
+Nothing in the push family arrived, and the local `allianceTask` table did not change
+except when it was asked to — which is the same finding as «the list goes stale» below,
+seen from the other side. The pushes evidently concern the account's OWN dispatches, not
+the alliance's list. `tools/known_commands.txt`, built from captures, says the same: the
+only observed `hero.dispatch` push is `mission.steal`.
+
+**So a listener would not have helped, and the schedule does not need one.** Recorded here
+so the next person does not spend an afternoon re-hooking the same function.
 
 ## The trap: the local list goes stale, and a stale send looks like no send
 

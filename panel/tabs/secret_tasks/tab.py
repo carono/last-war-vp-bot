@@ -1932,8 +1932,16 @@ class SecretTasksTab(PanelTab):
             pass
 
     def _assist_line_text(self) -> str:
-        """«Автопомощь» in one line: what it would help with, and what it is doing."""
-        return f"{self.autoassist.rule_text()} · {self.autoassist.state_text()}"
+        """«Автопомощь» in one line: what it would help with, and what it is doing.
+
+        …plus what the star sprint has actually cost and bought this session, once one
+        has run (#1294). «Жать чаще» is a claim, and a claim about a budget belongs on
+        screen beside the rule that spends it — the phone carries the same tally as a row
+        of its own on the «Автопомощь» card.
+        """
+        line = f"{self.autoassist.rule_text()} · {self.autoassist.state_text()}"
+        tally = self.autoassist.tally_text()
+        return f"{line} · {tally}" if tally else line
 
     def _refresh_assist_line(self) -> None:
         """Redraw the auto-help label, and only when its words have actually changed.
@@ -2818,6 +2826,10 @@ class SecretTasksTab(PanelTab):
         assist_state, assist_datum = self.autoassist.state()
         assist_low = self.autoassist.level_min()
         assist_wait = self.autoassist.star_wait_min()
+        # …and the sprint's tally, which the window puts at the end of the rule line
+        # under the checkbox (#1294). Empty until a sprint has run, and a row that would
+        # say nothing is left off the card rather than drawn blank.
+        assist_tally = self.autoassist.tally_text()
         return {"cards": [{"title": "secret.autoloot.frame",
                            # The RULE as well as the state (#1256): the window draws the
                            # two side by side under the checkbox, and «минимальный
@@ -2876,7 +2888,13 @@ class SecretTasksTab(PanelTab):
                                     {"label": "autoassist.star_wait",
                                      "value": (str(assist_wait) if assist_wait
                                                else self.t("autoassist.star_wait.any"))},
-                                    {"label": assist_state, "value": assist_datum}],
+                                    {"label": assist_state, "value": assist_datum}]
+                                   # …and the sprint's own tally (#1294), where the
+                                   # window puts it at the end of the rule line. It is
+                                   # the answer to «а помогает ли это» and belongs
+                                   # wherever the rule is read, phone included.
+                                   + ([{"label": "autoassist.tally.row",
+                                        "value": assist_tally}] if assist_tally else []),
                            # A press the phone MAY make: the whole ability is
                            # `actions/assist_secret_task.md` and nothing spawns a tool
                            # first, so there is no hand-driven half to copy out of the

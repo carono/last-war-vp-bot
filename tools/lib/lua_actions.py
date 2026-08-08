@@ -1376,14 +1376,29 @@ def secret_task_queue_set(targets) -> str:
 STEAL_GONE_TIPS = ("dispatch_des040", "dispatch_des041",
                    "dispatch_des042", "dispatch_des043")
 
-#: Lua that records the tip a refusal raises, so the loop can read the server's answer.
+#: Lua that records the tip a refusal raises, so a loop can read the server's answer.
 #: Installed once, idempotent, and a pass-through — it takes nothing away from the game.
-_STEAL_TIP_HOOK = (
-    "if not M.__lw_tip_hooked then M.__lw_tip_hooked = true "
+#:
+#: It stamps the tip into a field PER SPAM (#1294): the robbery clears `__lw_steal_tip`
+#: when it arms a tile and the star sprint clears `__lw_assist_tip` when it arms a task,
+#: so neither can read the other's refusal and stop on it. One hook, two mailboxes —
+#: `UIUtil.ShowTipsId` is the game's single tip door and wrapping it twice would leave a
+#: shim behind on every re-install.
+#:
+#: The guard carries a VERSION. A client that has been up since before this change has
+#: the one-mailbox hook installed and would never fill `__lw_assist_tip`, so the sprint
+#: would read every refusal as silence and press out its whole cap. Bumping the key
+#: re-installs over it; the old shim stays in the chain and keeps working.
+_TIP_HOOK = (
+    "if not M.__lw_tip_hooked_v2 then M.__lw_tip_hooked_v2 = true "
     "local orig = UIUtil.ShowTipsId "
     "UIUtil.ShowTipsId = function(id, ...) "
-    "pcall(function() DataCenter.ActDispatchTaskDataManager.__lw_steal_tip = tostring(id) end) "
+    "pcall(function() local D=DataCenter.ActDispatchTaskDataManager "
+    "D.__lw_steal_tip = tostring(id) D.__lw_assist_tip = tostring(id) end) "
     "return orig(id, ...) end end ")
+
+#: The old name, kept because it reads better where the robbery arms its mark.
+_STEAL_TIP_HOOK = _TIP_HOOK
 
 #: …and the expression that reads it back: 1 when the server has said the tile is gone.
 _STEAL_GONE = ("(function() local M=DataCenter.ActDispatchTaskDataManager "
@@ -1735,8 +1750,8 @@ _DAY_RESET_MS = 2 * 3600 * 1000
 #:     the parked level. A star counts as a star even when it is also `color = 5`;
 #:   * `bstar` / `bur` — the best of each, highest level first;
 #:   * `spend` — starred tasks still COUNTING DOWN that can still be helped today, with
-#:     `seta` the wait to the nearest of them and `slvl` its level. Each one holds back
-#:     one of the day's helps;
+#:     `seta` the wait to the nearest of them, `slvl` its level and `bnext` the task
+#:     itself. Each one holds back one of the day's helps;
 #:   * `slate` — starred tasks that cannot make it: they ripen after their own
 #:     `actEndTime`, after the daily reset, or after the parked wait bound. Waiting for
 #:     one of those spends nothing and gains nothing, so they are counted and said out
@@ -1761,7 +1776,7 @@ _ASSIST_SCAN = (
     + ("local dayend=(math.floor((now-%d)/86400000)+1)*86400000+%d "
        % (_DAY_RESET_MS, _DAY_RESET_MS)) +
     "local sready,uready,spend,seta,slvl,slate=0,0,0,-1,0,0 "
-    "local bstar,bsrank,bur,burank=nil,-1,nil,-1 "
+    "local bstar,bsrank,bur,burank,bnext=nil,-1,nil,-1,nil "
     "for _,v in pairs(M.allianceTask or {}) do "
     "local done=tonumber(v.completionTime) or 0 "
     "local rewarded=tonumber(v.rewarded) or 0 "
@@ -1779,7 +1794,7 @@ _ASSIST_SCAN = (
     "elseif spec==1 then "
     "local lim=dayend if exp>0 and exp<lim then lim=exp end "
     "if done<lim and (wait<=0 or done-now<=wait) then spend=spend+1 "
-    "if seta<0 or done-now<seta then seta=done-now slvl=lvl end "
+    "if seta<0 or done-now<seta then seta=done-now slvl=lvl bnext=v end "
     "else slate=slate+1 end "
     "end end end "
     "local best=bstar if best==nil and left-spend>0 then best=bur end ")
@@ -1801,12 +1816,20 @@ def secret_task_assist_scan() -> str:
     rounded up, and `-1` when there is no star to wait for: «готова через 0 минут» about
     a star forty seconds away is the kind of countdown #1227 was about.
 
+    `__lw_star_eta_sec` IS THE SAME WAIT IN SECONDS, and it is what the sprint is
+    scheduled off (#1294). A star matures at a moment the client already knows to the
+    millisecond — `completionTime` is on the task — so nothing has to poll to DISCOVER
+    readiness; the only question is being there when it arrives. Rounded DOWN, so the
+    schedule lands a shade early rather than a shade late, and `-1` for «no star coming»
+    exactly as the minutes are.
+
     Says what it saw on the way past — `ACT assist_scan star_ready=… ur_ready=…
-    star_pending=… star_eta_min=… star_lvl=… star_late=… left=…` — so the decision below
-    it can be read back out of a log without re-asking the game.
+    star_pending=… star_eta_min=… star_eta_sec=… star_lvl=… star_late=… left=…` — so the
+    decision below it can be read back out of a log without re-asking the game.
     """
     return ("pcall(function() " + _ASSIST_SCAN +
             "local etamin=-1 if seta>=0 then etamin=math.ceil(seta/60000) end "
+            "local etasec=-1 if seta>=0 then etasec=math.floor(seta/1000) end "
             # What is actually being HELD, which is not the same as how many stars are
             # coming: three ripening stars hold nothing at all out of a spent budget,
             # and a recipe that says «придерживаю 3 из 0» is reporting arithmetic
@@ -1814,10 +1837,11 @@ def secret_task_assist_scan() -> str:
             "local hold=spend if hold>left then hold=left end "
             "M.__lw_star_ready=sready M.__lw_star_ur=uready M.__lw_star_pending=spend "
             "M.__lw_star_eta=etamin M.__lw_star_level=slvl M.__lw_star_late=slate "
-            "M.__lw_star_left=left M.__lw_star_hold=hold "
+            "M.__lw_star_left=left M.__lw_star_hold=hold M.__lw_star_eta_sec=etasec "
             'CS.UnityEngine.Debug.LogError("ACT assist_scan star_ready="..tostring(sready)'
             '.." ur_ready="..tostring(uready).." star_pending="..tostring(spend)'
-            '.." star_eta_min="..tostring(etamin).." star_lvl="..tostring(slvl)'
+            '.." star_eta_min="..tostring(etamin).." star_eta_sec="..tostring(etasec)'
+            '.." star_lvl="..tostring(slvl)'
             '.." star_late="..tostring(slate).." left="..tostring(left)'
             '.." hold="..tostring(hold)) end)')
 
@@ -1825,9 +1849,9 @@ def secret_task_assist_scan() -> str:
 def secret_task_star_field(name: str) -> str:
     """Lua *expression* -> one number :func:`secret_task_assist_scan` parked.
 
-    `ready` / `ur` / `pending` / `eta` / `level` / `late` / `left` / `hold`. Zero when
-    nothing has been scanned yet, which is the honest answer for a recipe that has not
-    looked: no star ready, no star coming, nothing to hold back.
+    `ready` / `ur` / `pending` / `eta` / `eta_sec` / `level` / `late` / `left` / `hold`.
+    Zero when nothing has been scanned yet, which is the honest answer for a recipe that
+    has not looked: no star ready, no star coming, nothing to hold back.
     """
     return ("(tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_%s) or 0)" % name)
 
@@ -1873,6 +1897,168 @@ def assist_next_secret_task() -> str:
             "pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchAssist, u, s) end) "
             'CS.UnityEngine.Debug.LogError("ACT assist_sent uuid="..tostring(u)'
             '.." srv="..tostring(s)) end')
+
+
+# --------------------------------------------------------------------------
+# The star sprint — being there in the second the star matures (#1294)
+# --------------------------------------------------------------------------
+# WHAT WAS MEASURED. Live acceptance of #1292 caught the whole problem in one reading:
+# the day's only ripe star was gone from the alliance list in UNDER TWO MINUTES, taken by
+# alliancemates, and `star_ready` never once read non-zero. The reserve had done its job
+# — a help was being held — and the help was still not spent, because a look every five
+# minutes cannot land inside a two-minute window. Waiting for a star and then arriving
+# late loses twice: the URs went unspent too.
+#
+# THE CLOCK IS ALREADY IN THE CLIENT'S HAND, and that is what makes this cheap. A task
+# carries `completionTime`, so the moment it matures is known to the millisecond as soon
+# as the ordinary five-minute poll has seen it — live, three level-7 stars announced
+# themselves 78, 79 and 233 minutes ahead. Nothing has to poll faster to DISCOVER
+# readiness. What is needed is to be pressing when it arrives, which is one scheduled
+# wake-up and a few seconds of spam — not a shorter period all day.
+#
+# SO IT IS THE ROBBERY'S SHAPE, aimed at a moment instead of at a tile (#1272): arm the
+# target a couple of seconds early, press as fast as the channel allows, and stop on the
+# SERVER — the daily counter moving, or a tip that says the task is not there any more.
+#
+# PRESSING EARLY IS FREE, on the same evidence the robbery rests on.
+# `DispatchAssistMessage:HandleMessage` takes the `errorCode` branch on a refusal and
+# raises a tip; `todayAssistNum` is only ever set from the SUCCESS branch, out of the
+# server's own reply (docs/research/secret-task-assist.md). A press against a task that
+# has not finished yet therefore spends nothing — exactly as a robbery a second too early
+# does — so the loop may start before the countdown ends and let the server decide when
+# «yes» begins.
+
+#: Tips that mean «this task cannot be helped any more» — terminal for the sprint.
+#:
+#: `dispatch_des028` is the one that cost two of the day's five before it was understood
+#: («Спасибо, но задача уже решена с помощью других лиц»), and it is the exact answer a
+#: LOST race gives: somebody else got there first. `dispatch_des041` is the task's own
+#: expiry. Anything else the server says leaves the loop pressing, for the reason the
+#: robbery's list gives: a tip we have not met before must not be read as a refusal.
+ASSIST_GONE_TIPS = ("dispatch_des028", "dispatch_des041")
+
+#: 1 when the server has said the armed task is not helpable any more.
+_ASSIST_GONE = ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+                "local t=tostring(M.__lw_assist_tip or '') "
+                + " ".join("if t=='%s' then return 1 end" % k for k in ASSIST_GONE_TIPS)
+                + " return 0 end)()")
+
+
+def secret_task_assist_gone() -> str:
+    """Lua *expression* -> 1 when the server has refused the armed task terminally."""
+    return _ASSIST_GONE
+
+
+def secret_task_assist_taken() -> str:
+    """Lua *expression* -> 1 when the server has confirmed a help of the armed task.
+
+    `todayAssistNum` against the mark stamped when the target was armed, and that is the
+    whole test — the counter reaches the client only on the reply's success branch, so a
+    `assist_sprint_sent` line proves a frame left and nothing more.
+    """
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "local now=tonumber(M:GetTodayAssistNum()) or 0 "
+            "local mark=tonumber(M.__lw_assist_mark) "
+            "if mark == nil then return 0 end "
+            "if now ~= mark then return 1 end return 0 end)()")
+
+
+def secret_task_assist_sprint_arm() -> str:
+    """Choose the star to sprint at, stamp the baseline, and open the window.
+
+    The target is the ready star if the scan found one and otherwise the NEAREST RIPENING
+    one — the sprint is played a couple of seconds early on purpose, so at arming time the
+    star it is aimed at usually has not matured yet. Only a star: a UR is not worth a spam
+    loop (thirty-four of them sat unhelped in one live reading) and the ordinary recipe
+    spends those at its own pace.
+
+    Parks `__lw_assist_target` (uuid + server, and the level for the log), the counter
+    mark the presses are judged against, a fresh tip mailbox and the deadline the loop
+    stops at. Says `ACT assist_armed lvl=… eta_sec=… window=…`, or `ACT assist_armed
+    none` when the scan found no star at all — a sprint with nothing to press must say so
+    rather than look like a silent success.
+
+    How wide the window is comes off `__lw_assist_window_ms`, parked by the recipe from
+    its own `ARGS` a line earlier, because a `TAP` carries no arguments. Twenty seconds
+    when nothing has parked one.
+    """
+    return (_ASSIST_SCAN +
+            "local t=bstar or bnext "
+            "M.__lw_assist_tip=nil "
+            "M.__lw_assist_mark=tonumber(M:GetTodayAssistNum()) or 0 "
+            "M.__lw_assist_presses=0 "
+            "local win=tonumber(M.__lw_assist_window_ms) or 20000 "
+            "M.__lw_assist_deadline=now+win "
+            "if t==nil or left<=0 then M.__lw_assist_target=nil "
+            'CS.UnityEngine.Debug.LogError("ACT assist_armed none left="..tostring(left)) '
+            "else local eta=0 local d=tonumber(t.completionTime) or 0 "
+            "if d>now then eta=math.floor((d-now)/1000) end "
+            "local lvl=0 pcall(function() lvl=tonumber(t.cfg:getValue('level')) or 0 end) "
+            "M.__lw_assist_target={uuid=t.uuid,server=t.targetServer,level=lvl} "
+            'CS.UnityEngine.Debug.LogError("ACT assist_armed lvl="..tostring(lvl)'
+            '.." eta_sec="..tostring(eta).." window="..tostring(math.floor(win/1000))'
+            '.." left="..tostring(left)) end ' + _TIP_HOOK)
+
+
+def secret_task_assist_sprint_pending() -> str:
+    """Lua *expression* -> is the armed star still worth pressing again? (1 or 0)
+
+    The sprint's `count_lua`, and the same four questions the robbery's asks: there is a
+    target, the day's budget is not spent, the server has not confirmed this one, and it
+    has not said the task is gone. Plus the one the robbery does not need — the window,
+    because a star that never matures (a mate who cancelled, a clock that was wrong)
+    would otherwise be pressed until the button's cap every single time.
+    """
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "if M.__lw_assist_target==nil then return 0 end "
+            + _SERVER_NOW_MS +
+            "local dl=tonumber(M.__lw_assist_deadline) or 0 "
+            "if dl>0 and nowms>dl then return 0 end "
+            "local b=%s local t=%s local g=%s "
+            "if b>0 and t==0 and g==0 then return 1 end return 0 end)()"
+            % (secret_task_assists_left(), secret_task_assist_taken(),
+               secret_task_assist_gone()))
+
+
+def secret_task_assist_sprint_press() -> str:
+    """Press the armed star once — one `hero.dispatch.assist`, and LEAVE IT ARMED.
+
+    The opposite of :func:`assist_next_secret_task`, which drops its target from the local
+    list before sending so that `xall` moves on. Here the target has to survive its own
+    press, because pressing it AGAIN is the entire point: the loop ends when the server
+    answers, not when the client has asked once.
+    """
+    return ("local M=DataCenter.ActDispatchTaskDataManager "
+            "local t=M.__lw_assist_target "
+            "if t and %s > 0 then "
+            "M.__lw_assist_presses=(tonumber(M.__lw_assist_presses) or 0)+1 "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchAssist, "
+            "t.uuid, t.server) end) "
+            'CS.UnityEngine.Debug.LogError("ACT assist_sprint_sent n="'
+            '..tostring(M.__lw_assist_presses)) end' % secret_task_assists_left())
+
+
+def secret_task_assist_sprint_verdict() -> str:
+    """Say what the sprint did, disarm, and leave the numbers a measurement needs.
+
+    `ACT assist_sprint_done how=<taken|gone|unanswered> lvl=<n> presses=<n> tip=<id>` —
+    the same three outcomes the robbery reports per target, for the same reason: «took
+    it», «somebody else did» and «the server never answered» are three different days and
+    they look identical in a log that only says the spam ended.
+
+    `presses` is the measurement the task asked for (#1294): how many attempts a taken
+    star costs, and how many a lost one burns.
+    """
+    return ("local M=DataCenter.ActDispatchTaskDataManager "
+            "local t=M.__lw_assist_target local how='unanswered' "
+            "if %s == 1 then how='taken' elseif %s == 1 then how='gone' end "
+            "local lvl=0 if t then lvl=tonumber(t.level) or 0 end "
+            'CS.UnityEngine.Debug.LogError("ACT assist_sprint_done how="..how'
+            '.." lvl="..tostring(lvl)'
+            '.." presses="..tostring(tonumber(M.__lw_assist_presses) or 0)'
+            '.." tip="..tostring(M.__lw_assist_tip or "")) '
+            "M.__lw_assist_target=nil"
+            % (secret_task_assist_taken(), secret_task_assist_gone()))
 
 
 def dispatch_task_cfg_rank(cfg_ids) -> str:
