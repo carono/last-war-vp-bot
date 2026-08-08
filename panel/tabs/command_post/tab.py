@@ -98,6 +98,11 @@ TREASURE_SQUADS = (1, 2, 3)
 # `treasure_auto` plays it on its own; the page's «Отработать сейчас» plays it once.
 TREASURE_AUTO_ACTION = "auto_treasure"
 
+# …and the third door into it (#1296): one lap of the whole map, reading the client's own
+# point manager at every stop. The errand walks it by itself every few minutes; this is
+# the press for somebody who wants it walked now.
+TREASURE_SCAN_ACTION = "scan_treasures"
+
 
 def _int(value, default: int = 0) -> int:
     try:
@@ -1039,6 +1044,13 @@ class TreasuresPane(_Pane):
         # — the ear, the nearest free squad, the claim — is `actions/auto_treasure.md`.
         self.rt.tr(ttk.Button(box, width=18, command=self._work_now),
                    "cmdpost.treasure.auto").pack(side="right", padx=(0, 4))
+        # «Обойти карту» — the THIRD door (#1296). The refresh above asks the server for
+        # THIS alliance's own detect-event list, and the «Скан» beside it only starts a
+        # listener; neither reads the map, and a chest nobody shared is on the map and
+        # nowhere else. This walks it: `actions/scan_treasures.md`, the camera and the
+        # client's own point manager, no capture and no child process.
+        self.rt.tr(ttk.Button(box, width=16, command=self._sweep_now),
+                   "cmdpost.treasure.sweep").pack(side="right", padx=(0, 4))
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
             anchor="w", pady=(6, 4))
         self._scroll = self._list(body)
@@ -1051,6 +1063,14 @@ class TreasuresPane(_Pane):
         """
         squad = _int(self._squad_var.get(), TREASURE_SQUADS[0])
         self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="action")
+
+    def _sweep_now(self) -> None:
+        """Walk the whole map once and queue every chest lying on it.
+
+        A press that STARTS something: what it changes is in the game — the errand's own
+        queue — and the list below still comes from the readings afterwards.
+        """
+        self.rt.play_async(TREASURE_SCAN_ACTION, tag="action")
 
     # -- what is remembered between sessions --------------------------------
     def config(self) -> dict:
@@ -1340,7 +1360,9 @@ class CommandPostTab(PanelTab):
         return {"cards": [c for c in cards if c], "now": now,
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             {"id": "treasure_auto",
-                             "label": "cmdpost.treasure.auto"}]}
+                             "label": "cmdpost.treasure.auto"},
+                            {"id": "treasure_sweep",
+                             "label": "cmdpost.treasure.sweep"}]}
 
     def _web_ghost(self, coords, now) -> dict:
         """«Операция Призрак» — what the last scan wrote down, and what will be taken.
@@ -1434,6 +1456,10 @@ class CommandPostTab(PanelTab):
                      else TREASURE_SQUADS[0])
             return {"ok": self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]},
                                              tag="web")}
+        if action == "treasure_sweep":
+            # The map lap, and it travels for the same reason the errand does: it is ONE
+            # recipe and the phone plays it whole. Nothing is parked by a tool first.
+            return {"ok": self.rt.play_async(TREASURE_SCAN_ACTION, tag="web")}
         return {"error": "unknown"}
 
     # -- lifecycle ----------------------------------------------------------

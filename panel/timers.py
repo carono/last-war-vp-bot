@@ -294,6 +294,28 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.apply_ministry_interior",
     ),
     Timer(
+        name="auto_treasure",
+        scenario=("auto_treasure",),
+        # «На вкладке действие нужна кнопка собрать сокровища, чтобы я стриггерил
+        # действие» (#1296). The errand normally runs off its own trigger, which fires
+        # when a chest is heard; this row is the other half — a person at the panel
+        # pressing «Запустить» and having the whole thing happen now: the map walked, the
+        # nearest free squad sent, the gift claimed.
+        #
+        # Five minutes, which is the period of the ONE expensive part of it. The two ears
+        # cost nothing and the map lap is what a run may pay for, and the lap has a clock
+        # of its own inside the recipe — so a shorter period here would mostly re-ask two
+        # questions that answer in a tenth of a second, and a longer one would sit out
+        # chests. OFF by default like everything else here: the trigger is the ordinary
+        # way to have this running, and two of them at once is two runs of the same queue.
+        interval_sec=300,
+        # A run FAILS when the client is not answering, which is worth another go soon —
+        # a chest is out for minutes and the whole ability is about being early.
+        retry_sec=60,
+        enabled=False,
+        label_key="timers.item.auto_treasure",
+    ),
+    Timer(
         name="restart_game",
         scenario=("restart_game",),
         # Six hours. Nothing in the game is spent by a restart and nothing is lost —
