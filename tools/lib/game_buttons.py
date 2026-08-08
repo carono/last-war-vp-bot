@@ -397,6 +397,14 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.secret_task_assists_pending(),
         max_taps=10,
     ),
+    "scan_secret_task_stars": Button(
+        # One walk over the alliance list, parked where the recipe's `READ_LUA`s can
+        # read it (#1292). Not a press at all — it changes nothing in the game and
+        # sends nothing — but the recipe needs six answers to ONE walk, and a `TAP` is
+        # how the DSL runs a chunk it then asks questions of.
+        lua=_lua_actions.secret_task_assist_scan(),
+        wait=0.4, label="Scan the alliance list for stars",
+    ),
     "refresh_alliance_secret_tasks": Button(
         # `hero.dispatch.alliance.list`, fire and forget. NOT optional before a help:
         # the local copy keeps tasks somebody else has already helped with, and every

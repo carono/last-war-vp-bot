@@ -217,6 +217,26 @@ IF screen == unknown
     LOG "Don't know where we are; bailing out"
 ```
 
+**`{name}` in the message is filled in from the script's variables as the line is
+logged** — whatever a `READ_LUA … INTO name` (or an `ARGS` default) holds at that
+moment, not at parse time:
+
+```
+READ_LUA (tonumber(...__lw_star_level) or 0) INTO star_level
+READ_LUA (tonumber(...__lw_star_eta) or -1) INTO star_eta_min
+LOG "waiting for star {star_level} (ready in {star_eta_min} min)"
+```
+
+This is the other half of `ARGS` substitution, which happens once *before* the file is
+parsed and so can only carry what the run started with. A name nothing has set is left
+standing exactly as written (`{typo}` shows up in the log), the same way an unknown
+`ARGS` placeholder is. A variable holding a Lua error reads as `?`.
+
+Use it wherever a scenario decides something a person will later have to explain — a
+budget held back, a target chosen, a wait entered. The panel reads these lines too: a
+standing order that reports «waiting» without saying for what or how long is
+indistinguishable from a broken one.
+
 ### `STOP ["reason"]`
 
 Signal that the bot should halt entirely. Unwinds all enclosing blocks

@@ -2817,6 +2817,7 @@ class SecretTasksTab(PanelTab):
         # below is a dictionary walk like everything else on this screen.
         assist_state, assist_datum = self.autoassist.state()
         assist_low = self.autoassist.level_min()
+        assist_wait = self.autoassist.star_wait_min()
         return {"cards": [{"title": "secret.autoloot.frame",
                            # The RULE as well as the state (#1256): the window draws the
                            # two side by side under the checkbox, and «минимальный
@@ -2866,6 +2867,15 @@ class SecretTasksTab(PanelTab):
                            "rows": [{"label": "autoassist.level_min",
                                      "value": (str(assist_low) if assist_low is not None
                                                else self.t("autoassist.any_level"))},
+                                    # …and the other half of the rule (#1292): how long
+                                    # a ripening star may hold one of the day's five
+                                    # back. The window says it inside the rule line
+                                    # under the checkbox; a card has rows rather than a
+                                    # sentence, so here it is a row of its own — the
+                                    # same fact in each front-end's own idiom.
+                                    {"label": "autoassist.star_wait",
+                                     "value": (str(assist_wait) if assist_wait
+                                               else self.t("autoassist.star_wait.any"))},
                                     {"label": assist_state, "value": assist_datum}],
                            # A press the phone MAY make: the whole ability is
                            # `actions/assist_secret_task.md` and nothing spawns a tool

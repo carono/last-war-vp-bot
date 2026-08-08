@@ -162,6 +162,12 @@ DEFAULTS: dict = {
     # budget resets once.
     "autoassist_poll": 300.0,      # seconds between two looks
     "autoassist_pause_min": 60,    # minutes to wait out a spent budget
+    # …and how long a star still counting down may hold one of the day's five back
+    # (#1292). A star outranks every UR, so a ripening one reserves a help rather than
+    # letting a UR spend it — but a star is rare (one alliance task in two hundred),
+    # so the wait needs a floor: past this many minutes the help goes to a UR instead.
+    # 0 = wait as long as the task's own expiry and the daily reset allow.
+    "autoassist_star_wait_min": 240,
     # Where «Отправить диагностику» ships the zipped debug logs (panel/debug_sender.py).
     # Empty = do not send: the archive is still written, but nothing leaves the box.
     "debug_send_url": "",

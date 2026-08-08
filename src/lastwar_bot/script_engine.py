@@ -157,6 +157,8 @@ _WAIT_RE = re.compile(
     re.IGNORECASE,
 )
 _LOG_RE = re.compile(r'^LOG\s+"(.*)"\s*$', re.IGNORECASE)
+#: A `{name}` in a LOG line — the script's own variables, filled in as it is logged.
+_VAR_REF_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _STOP_RE = re.compile(r"^STOP(?:\s+\"(.*)\")?\s*$", re.IGNORECASE)
 # FAIL ends the run as a FAILURE (unlike STOP, which ends it as a clean success):
 # `run_action`/`run_text` return False, which a timer turns into a retry. `RETURN
@@ -933,6 +935,29 @@ class Interpreter:
     def _log(self, msg: str) -> None:
         self.ctx.on_event("  " * self._depth + msg)
 
+    def _fill(self, text: str) -> str:
+        """Put the script's live variables into a `{name}` placeholder (#1292).
+
+        `ARGS` substitution happens once, before the file is parsed, so `{level}` in a
+        `LOG` line carries what the run STARTED with. This is the other half: a name a
+        `READ_LUA … INTO` has since written is replaced with what it holds NOW, at the
+        moment the line is logged. A star's countdown, a budget, a count — the numbers a
+        standing order is judged on are all read rather than passed in, and a log line
+        that cannot name them says «waiting» without ever saying for what or how long.
+
+        An unknown name is left standing exactly as it is written, which is what the
+        `ARGS` substitution does with a placeholder it does not know: a visible
+        `{typo}` in the log beats a silently empty sentence.
+        """
+        def one(m: "re.Match") -> str:
+            name = m.group(1)
+            if name not in self.ctx.vars:
+                return m.group(0)
+            value = self.ctx.vars[name]
+            return "?" if value is None else str(value)
+
+        return _VAR_REF_RE.sub(one, text)
+
     def _check_cancel(self) -> None:
         """The run's checkpoint: stop if asked, step aside if somebody outranks us.
 
@@ -1013,7 +1038,7 @@ class Interpreter:
             case WaitStmt():
                 self._do_wait(stmt)
             case LogStmt():
-                self._log(f'LOG "{stmt.message}"')
+                self._log(f'LOG "{self._fill(stmt.message)}"')
             case StopStmt():
                 self.ctx.halt = True
                 self.ctx.halt_reason = stmt.reason or f"STOP at line {stmt.line_no}"

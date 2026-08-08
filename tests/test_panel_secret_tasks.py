@@ -1491,7 +1491,8 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
-        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
+        star_wait_min=lambda: 240)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
@@ -1558,7 +1559,8 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
-        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
+        star_wait_min=lambda: 240)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
@@ -1700,7 +1702,8 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
-        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
+        star_wait_min=lambda: 240)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
@@ -2039,7 +2042,8 @@ def test_the_phone_is_shown_every_page_the_window_has():
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     # …and the same pair for «Автопомощь», whose card sits above the alliance one (#1272).
     tab.autoassist = types.SimpleNamespace(
-        state=lambda: ("autoassist.state.off", ""), level_min=lambda: 6)
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: 6,
+        star_wait_min=lambda: 240)
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(
         ur_var=_Var(False), star_var=_Var(False), counts=lambda: (1, 0),
@@ -2112,9 +2116,14 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # scenario, so there is no hand-driven half to copy out of the house.
     assert "autoassist.frame" in cards, cards
     assist = cards["autoassist.frame"]
+    # …and BOTH halves of the rule (#1292): the minimum level, and how long a ripening
+    # star may hold one of the day's five back. The window says the second inside the
+    # rule line under the checkbox; a card has rows, so here it is a row.
     assert [r["label"] for r in assist["rows"]] == ["autoassist.level_min",
+                                                    "autoassist.star_wait",
                                                     "autoassist.state.off"]
     assert assist["rows"][0]["value"] == "6"
+    assert assist["rows"][1]["value"] == "240"
     assert [a["id"] for a in assist["actions"]] == ["autoassist"]
     assert assist["actions"][0]["label"] == "autoassist.on"         # it is not on yet
     # THE GHOST SWITCH IS ON BOTH GHOST CARDS (#1264): on the one its findings land on,
@@ -2240,7 +2249,8 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
     tab.autoloot = types.SimpleNamespace(
         state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.autoassist = types.SimpleNamespace(
-        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None)
+        state=lambda: ("autoassist.state.off", ""), level_min=lambda: None,
+        star_wait_min=lambda: 240)
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),

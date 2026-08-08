@@ -22,12 +22,21 @@ for a tile. A quiet look every few minutes is the whole requirement.
 The rule is the same shape as the auto-loot one and read the same way — live, on every
 tick, so raising the minimum takes effect at once and a half-typed box is «no bound»
 rather than «level 0». The RANK half is not a setting: only UR and starred tasks are
-helped, because that is what the daily plan pays for, and a star-only rule would fire
-roughly never (live, one alliance task in two hundred carried a star while thirty-four
-finished URs sat there waiting).
+helped, because that is what the daily plan pays for.
+
+WHICH OF THE TWO GOES FIRST IS THE ORDER'S WHOLE POINT (#1292). A star outranks every UR
+whatever their levels, and a star still counting down RESERVES one of the day's five
+rather than letting a UR spend it — the scenario decides all of that and this class only
+repeats it. It needs saying because a star is rare: live, one alliance task in two
+hundred carried one while thirty-four finished URs sat there waiting, so a budget that
+takes whatever is ready is empty by the time the day's star matures. The same rarity is
+why the waiting has a floor — `autoassist_star_wait_min`, plus the task's own expiry and
+the daily reset — because thirty-four unspent URs is the other way to throw five helps
+away.
 """
 from __future__ import annotations
 
+import re
 import threading
 import time
 
@@ -39,6 +48,21 @@ SPENT_MARK = "no assists left today"
 #: …and what one landed help looks like in its output (`ACT assist_sent uuid=…`).
 SENT_MARK = "assist_sent"
 
+#: …and the line that says the budget is being HELD rather than spent (#1292). The
+#: scenario decides that — a star still counting down outranks every ready UR, so it
+#: reserves one of the day's five — and this is the panel repeating the decision, with
+#: the star's level and its countdown in whole minutes exactly as the game gave them.
+#: Reword the `LOG` line in `actions/assist_secret_task.md` and this order goes back to
+#: saying «наблюдаю» about a tick that deliberately did nothing.
+WAIT_LINE = re.compile(
+    r"waiting for star (\d+) \(ready in (-?\d+) min\) — holding (\d+) of (\d+)")
+
+#: …and the other way the priority can fall: nothing starred is coming, so the URs get
+#: the budget. Said in the operator's own language below, and only when helps were
+#: actually made — a poll every five minutes announcing «звёзд нет» about a day with
+#: nothing to help at all would bury the lines that matter.
+NO_STAR_LINE = re.compile(r"no star ripening today — taking UR")
+
 # The states the standing order reports on screen — the reasons a tick can end without a
 # help. Every one of them used to look identical from outside, which is what «автолут не
 # работает совершенно» turned out to be (#1227); this order is born with the answer.
@@ -47,6 +71,7 @@ STATE_WATCHING = "autoassist.state.watching"  # watching; nothing matched last l
 STATE_HELPING = "autoassist.state.helping"    # a run is in flight
 STATE_HELPED = "autoassist.state.helped"      # …and it helped this many
 STATE_PAUSED = "autoassist.state.paused"      # the day's five are spent, until…
+STATE_WAITING = "autoassist.state.waiting"    # holding a help for a star, until…
 STATE_NO_LOGIN = "autoassist.state.no_login"  # the client is not in a session
 STATE_ERROR = "autoassist.state.error"        # the last tick raised
 
@@ -61,6 +86,7 @@ class AutoAssist:
         self._running = False        # a scenario is in flight
         self._pause_until = 0.0      # wall clock the watcher may play again at
         self._warned_login = False   # "this client is not logged in" is said once
+        self._said_wait = None       # the last «жду звезду» announced, so it is said once
         self._state = (STATE_OFF, "")
 
     @property
@@ -80,6 +106,7 @@ class AutoAssist:
         self._stop = threading.Event()
         self._pause_until = 0.0
         self._warned_login = False
+        self._said_wait = None
         self._state = (STATE_WATCHING, "")
         self.tab.say("autoassist", "log.autoassist.on", rule=self.rule_text())
         threading.Thread(target=self._loop, args=(self._stop,), daemon=True).start()
@@ -159,20 +186,27 @@ class AutoAssist:
         watcher's `_spend` gives: the interlock this order has is «one run at a time»,
         and wrapping it in a second claim would invent a refusal in the middle of it.
         """
-        helped, spent = 0, False
+        helped, spent, waiting, no_star = 0, False, None, False
 
         def put(msg) -> None:
-            nonlocal helped, spent
+            nonlocal helped, spent, waiting, no_star
             line = str(msg)
             self.rt.put(f"[autoassist] {line}")
             if SENT_MARK in line:
                 helped += 1
             if SPENT_MARK in line:
                 spent = True
+            if NO_STAR_LINE.search(line):
+                no_star = True
+            held = WAIT_LINE.search(line)
+            if held is not None:
+                waiting = tuple(int(g) for g in held.groups())
 
         try:
             outcome = self.rt.actions.play(
-                "assist_secret_task", {"level": self.level_min() or 0}, on_event=put)
+                "assist_secret_task",
+                {"level": self.level_min() or 0,
+                 "star_wait_min": self.star_wait_min()}, on_event=put)
         except Exception as exc:      # noqa: BLE001 — a failed press, never the watcher
             self._state = (STATE_ERROR, type(exc).__name__)
             self.tab.say("autoassist", "log.autoassist.failed",
@@ -191,10 +225,35 @@ class AutoAssist:
             self._pause_until = time.time() + pause
             self._state = (STATE_PAUSED, _hhmm(self._pause_until))
             self.tab.say("autoassist", "log.autoassist.spent", mins=int(pause // 60))
+        elif waiting is not None:
+            # BEFORE «помог N», deliberately (#1292). Both can be true in one tick — a
+            # star ripens while the URs beneath it spend what the reserve does not need
+            # — and of the two it is the holding that has to be on screen: «помог 3»
+            # about a budget that is deliberately keeping its last two back reads as a
+            # standing order that has stopped, which is the complaint #1227 was.
+            lvl, mins, held, left = waiting
+            self._state = (STATE_WAITING,
+                           "%s (★%d)" % (_hhmm(time.time() + max(mins, 0) * 60), lvl))
+            # …and in the log, in the operator's own language — but only when the fact
+            # has moved. The scenario says it on every poll by design (it is a branch,
+            # not a report), and a line every five minutes about the same star waiting
+            # the same wait is how the lines that matter get buried.
+            if waiting != self._said_wait:
+                self._said_wait = waiting
+                self.tab.say("autoassist", "log.autoassist.waiting",
+                             lvl=lvl, mins=mins, held=held, left=left)
+            if helped:
+                self.tab.say("autoassist", "log.autoassist.helped", n=helped)
         elif helped:
+            self._said_wait = None
             self._state = (STATE_HELPED, str(helped))
-            self.tab.say("autoassist", "log.autoassist.helped", n=helped)
+            # «Звёзд нет — беру UR» carries its reason when that is what happened, so a
+            # spent help can always be told from the rule that spent it.
+            self.tab.say("autoassist",
+                         "log.autoassist.no_star" if no_star
+                         else "log.autoassist.helped", n=helped)
         else:
+            self._said_wait = None
             self._state = (STATE_WATCHING, "")
         self._running = False
 
@@ -209,16 +268,34 @@ class AutoAssist:
         raw = str(self.tab.assist_level_var.get()).strip()
         return int(raw) if raw.isdigit() else None
 
+    def star_wait_min(self) -> int:
+        """How long a ripening star may hold one of the day's five back, in minutes.
+
+        A setting rather than a box on the page: it is a pace, like the poll and the
+        pause beside it in «Настройки», and it is read live on every run so shortening
+        it late in the day takes effect on the next look. `0` means «as long as the
+        task's own expiry and the daily reset allow» — the scenario's own floor.
+        """
+        return self.rt.settings.opt_int("autoassist_star_wait_min", low=0, high=1440)
+
     def rule_text(self) -> str:
         """The standing order in one phrase — what it will help with, in the log's words.
 
-        The rank half is said every time and not only when it happens to bite: «UR или
-        ★» is what the order IS, and a rule the log stops mentioning is a rule the next
-        person has to read the source to find.
+        The rank half is said every time and not only when it happens to bite: «сначала
+        звезда, UR только если звёзд нет» is what the order IS, and a rule the log stops
+        mentioning is a rule the next person has to read the source to find. The wait
+        bound rides with it for the same reason — it is the one number that decides
+        whether a held help is ever spent.
         """
-        low = self.level_min()
-        return (self.tab.t("autoassist.rule_min", lvl=low) if low is not None
+        low, wait = self.level_min(), self.star_wait_min()
+        rank = (self.tab.t("autoassist.rule_min", lvl=low) if low is not None
                 else self.tab.t("autoassist.rule_any"))
+        # Two phrases rather than one key with a number in it: «0» is not a duration but
+        # a different rule («as long as the day allows»), and a sentence built to hold a
+        # number cannot say that without reading as «не дольше сколько угодно минут».
+        held = (self.tab.t("autoassist.rule_wait", wait=wait) if wait
+                else self.tab.t("autoassist.rule_wait_any"))
+        return f"{rank} · {held}"
 
     # -- what it is doing right now --------------------------------------------
     def state(self) -> tuple:

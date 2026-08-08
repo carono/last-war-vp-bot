@@ -289,6 +289,10 @@ class SettingsTab(PanelTab):
                 # wants — would be four hundred game reads a day for five presses.
                 ("autoassist_poll", {"spin": (30, 3600), "width": 10}),
                 ("autoassist_pause_min", {"spin": (1, 1440), "width": 10}),
+                # …and how long the same order holds a help back for a ripening star
+                # (#1292). 0 is «as long as the day allows», which is why the spin box
+                # starts there and not at one.
+                ("autoassist_star_wait_min", {"spin": (0, 1440), "width": 10}),
                 ("trace_filter", {"width": 20}),
                 ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
         )):

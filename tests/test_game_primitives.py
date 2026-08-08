@@ -595,6 +595,37 @@ def test_args_do_not_maul_lua_braces():
     assert se.render_value(True) == "true" and se.render_value(False) == "false"
 
 
+def test_log_says_what_a_variable_holds_right_now():
+    """`LOG "…{name}…"` is filled from the script's LIVE variables (#1292).
+
+    `ARGS` substitution happens once, before the file is parsed, so it can only carry
+    what a run STARTED with. The numbers a standing order is judged on are read out of
+    the game instead — «жду звезду 7 (готова через 90 мин)» is two `READ_LUA`s — and a
+    log line that cannot name them says «waiting» without ever saying for what.
+    """
+    ev = FakeEval(rluas=[7, 90])
+    log: list[str] = []
+    ctx = se.new_context(on_event=log.append)
+    ctx.evaluator = ev
+    ctx.link_checked = True
+    se.run_text('READ_LUA star_level() INTO lvl\n'
+                'READ_LUA star_eta() INTO mins\n'
+                'LOG "waiting for star {lvl} (ready in {mins} min)"\n', ctx=ctx)
+    assert any('waiting for star 7 (ready in 90 min)' in ln for ln in log), log
+
+
+def test_log_leaves_a_name_it_does_not_know_standing():
+    """The same rule `ARGS` substitution follows: a visible `{typo}` in the log beats a
+    silently empty sentence."""
+    ev = FakeEval()
+    log: list[str] = []
+    ctx = se.new_context(on_event=log.append)
+    ctx.evaluator = ev
+    ctx.link_checked = True
+    se.run_text('LOG "nothing here: {nosuchvar}"\n', ctx=ctx)
+    assert any("{nosuchvar}" in ln for ln in log), log
+
+
 def test_args_reach_conditions_as_variables():
     """A passed argument is also a script variable, so IF/WHILE can test it."""
     ev = FakeEval()

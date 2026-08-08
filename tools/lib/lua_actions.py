@@ -1696,77 +1696,163 @@ def secret_task_assist_refresh() -> str:
             'CS.UnityEngine.Debug.LogError("ACT assist_list_requested")')
 
 
-def secret_task_assist_rule(level_min: int) -> str:
-    """Park the help rule in the VM: the lowest level worth one of the day's five.
+def secret_task_assist_rule(level_min: int, star_wait_min: int = 0) -> str:
+    """Park the help rule in the VM: the lowest level, and how long a star is worth.
 
     `TAP` takes no arguments, so the rule cannot travel with the press — it is left on
     the dispatch manager's own table, the same place the robbery queue lives, because
     this VM rejects some new globals. The RANK half of the rule is not a setting: only
-    the top two ranks are ever helped (see :func:`secret_task_assistable`).
+    the top two ranks are ever helped, and a star always outranks a UR
+    (see :data:`_ASSIST_SCAN`).
+
+    `star_wait_min` is the second half of the priority: the longest a ripening star may
+    hold one of the day's five back. `0` means «hold for any star that can ripen at all
+    today» — the bound then comes from the task's own expiry and the daily reset alone.
     """
     return ("local M=DataCenter.ActDispatchTaskDataManager M.__lw_assist_level=%d "
-            'CS.UnityEngine.Debug.LogError("ACT assist_rule level="..tostring(%d))'
-            % (int(level_min), int(level_min)))
+            "M.__lw_assist_wait_ms=%d "
+            'CS.UnityEngine.Debug.LogError("ACT assist_rule level="..tostring(%d)'
+            '.." star_wait_min="..tostring(%d))'
+            % (int(level_min), int(star_wait_min) * 60000,
+               int(level_min), int(star_wait_min)))
 
 
-#: The Lua that walks `allianceTask` and leaves the best helpable task in `best`.
+#: When the day the daily counters belong to rolls over, in ms past midnight UTC.
 #:
-#: «Best» is the highest level, and a starred task before a plain one at the same level
-#: — one of five a day is worth aiming. The rank gate is «UR or ★», which is the game's
-#: own wording in the daily plan and not a preference: the config's `color` reaches 5 at
-#: UR (the same number `grid.is_ur` reads) and `is_special` is what draws the star. Live,
-#: one task in two hundred was starred and thirty-four were finished URs — a star-only
-#: rule would have helped roughly never.
-_ASSIST_PICK = (
+#: 02:00 UTC, measured rather than assumed: 597 of 636 secret-task tiles in one capture
+#: shared a single expiry of 01:59:59 UTC and the rest fell on adjacent days
+#: (`docs/research/protocol.md`, «Expiry is a daily reset»), and the treasure activity's
+#: own `expire` landed on the same boundary (`docs/research/world-treasures.md`). It is
+#: what «до конца дня» means for a help that has to be spent before the five come back.
+_DAY_RESET_MS = 2 * 3600 * 1000
+
+#: One walk over `allianceTask`, leaving the whole decision in locals (#1292).
+#:
+#: What it leaves behind, all judged on the GAME's clock and on the task's own config row
+#: (`lw_dispatch_tasks` through `v.cfg` — never the cfgId's digits, #1267):
+#:
+#:   * `sready` / `uready` — helpable NOW: finished, unrewarded, unexpired, at or above
+#:     the parked level. A star counts as a star even when it is also `color = 5`;
+#:   * `bstar` / `bur` — the best of each, highest level first;
+#:   * `spend` — starred tasks still COUNTING DOWN that can still be helped today, with
+#:     `seta` the wait to the nearest of them and `slvl` its level. Each one holds back
+#:     one of the day's helps;
+#:   * `slate` — starred tasks that cannot make it: they ripen after their own
+#:     `actEndTime`, after the daily reset, or after the parked wait bound. Waiting for
+#:     one of those spends nothing and gains nothing, so they are counted and said out
+#:     loud rather than silently waited on;
+#:   * `left` — helps still in today's budget;
+#:   * `best` — what a press would take: a ready star always, and a ready UR only while
+#:     there are more helps left than there are stars worth waiting for.
+#:
+#: THE PRIORITY IS THE POINT. «Звезда в приоритете, UR только если звёзд нет» (#1292):
+#: the old rank was `lvl*2+spec`, so a level-7 UR beat a level-6 star and the star was
+#: gone by the time it mattered. A star is rare — one alliance task in two hundred
+#: carried `is_special = 1` against 34 finished URs (#1272) — which is exactly why the
+#: budget waits for one rather than racing it, and exactly why the wait needs a floor
+#: under it: 34 URs sitting unspent all day is the other way to waste the five.
+_ASSIST_SCAN = (
     "local M=DataCenter.ActDispatchTaskDataManager "
     + _SERVER_NOW_MS +
     "local now=nowms local low=tonumber(M.__lw_assist_level) or 0 "
-    "local best,bestrank=nil,-1 "
+    "local wait=tonumber(M.__lw_assist_wait_ms) or 0 "
+    "local left=" + secret_task_assists_left() + " "
+    # The next boundary the daily counters roll over on, on the game's own clock.
+    + ("local dayend=(math.floor((now-%d)/86400000)+1)*86400000+%d "
+       % (_DAY_RESET_MS, _DAY_RESET_MS)) +
+    "local sready,uready,spend,seta,slvl,slate=0,0,0,-1,0,0 "
+    "local bstar,bsrank,bur,burank=nil,-1,nil,-1 "
     "for _,v in pairs(M.allianceTask or {}) do "
     "local done=tonumber(v.completionTime) or 0 "
     "local rewarded=tonumber(v.rewarded) or 0 "
+    "local exp=tonumber(v.actEndTime) or 0 "
     "local lvl,spec,colour=0,0,0 "
     "pcall(function() lvl=tonumber(v.cfg:getValue('level')) or 0 "
     "spec=tonumber(v.cfg:getValue('is_special')) or 0 "
     "colour=tonumber(v.cfg:getValue('color')) or 0 end) "
-    "if done>0 and done<=now and rewarded==0 and lvl>=low "
-    "and (colour>=5 or spec==1) then "
-    "local rank=lvl*2+spec if rank>bestrank then best,bestrank=v,rank end "
-    "end end ")
+    "if done>0 and rewarded==0 and (exp==0 or now<exp) and lvl>=low then "
+    "if done<=now then "
+    "if spec==1 then sready=sready+1 "
+    "if lvl>bsrank then bstar,bsrank=v,lvl end "
+    "elseif colour>=5 then uready=uready+1 "
+    "if lvl>burank then bur,burank=v,lvl end end "
+    "elseif spec==1 then "
+    "local lim=dayend if exp>0 and exp<lim then lim=exp end "
+    "if done<lim and (wait<=0 or done-now<=wait) then spend=spend+1 "
+    "if seta<0 or done-now<seta then seta=done-now slvl=lvl end "
+    "else slate=slate+1 end "
+    "end end end "
+    "local best=bstar if best==nil and left-spend>0 then best=bur end ")
 
 
-def secret_task_assistable() -> str:
-    """Lua *expression* -> how many alliance tasks the parked rule would help with.
+def secret_task_assist_scan() -> str:
+    """Walk the alliance list once and park the reading the recipe branches on.
 
-    Counted the same way :data:`_ASSIST_PICK` chooses, so the number the log shows and
-    the task the press picks can never disagree.
+    A snapshot rather than seven separate reads: the recipe asks six questions of it
+    («is a star ready», «is one coming», «how long», «what level», «has one run out of
+    day», «is there a UR at all») and they must all be answers to the SAME walk — a star
+    that ripens between two reads would otherwise be waited for and helped in the same
+    breath, or neither.
+
+    Each answer is parked as a PLAIN NUMBER of its own on the dispatch manager — the
+    same table the level and the robbery queue already live on — so the recipe reads one
+    with `(tonumber(…__lw_star_left) or 0)` and a scan that never ran reads as zero
+    rather than as a nil index that would fail the run. `__lw_star_eta` is in MINUTES,
+    rounded up, and `-1` when there is no star to wait for: «готова через 0 минут» about
+    a star forty seconds away is the kind of countdown #1227 was about.
+
+    Says what it saw on the way past — `ACT assist_scan star_ready=… ur_ready=…
+    star_pending=… star_eta_min=… star_lvl=… star_late=… left=…` — so the decision below
+    it can be read back out of a log without re-asking the game.
     """
-    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
-            + _SERVER_NOW_MS +
-            "local now=nowms local low=tonumber(M.__lw_assist_level) or 0 local n=0 "
-            "for _,v in pairs(M.allianceTask or {}) do "
-            "local done=tonumber(v.completionTime) or 0 "
-            "local rewarded=tonumber(v.rewarded) or 0 "
-            "local lvl,spec,colour=0,0,0 "
-            "pcall(function() lvl=tonumber(v.cfg:getValue('level')) or 0 "
-            "spec=tonumber(v.cfg:getValue('is_special')) or 0 "
-            "colour=tonumber(v.cfg:getValue('color')) or 0 end) "
-            "if done>0 and done<=now and rewarded==0 and lvl>=low "
-            "and (colour>=5 or spec==1) then n=n+1 end end return n end)()")
+    return ("pcall(function() " + _ASSIST_SCAN +
+            "local etamin=-1 if seta>=0 then etamin=math.ceil(seta/60000) end "
+            "M.__lw_star_ready=sready M.__lw_star_ur=uready M.__lw_star_pending=spend "
+            "M.__lw_star_eta=etamin M.__lw_star_level=slvl M.__lw_star_late=slate "
+            "M.__lw_star_left=left "
+            'CS.UnityEngine.Debug.LogError("ACT assist_scan star_ready="..tostring(sready)'
+            '.." ur_ready="..tostring(uready).." star_pending="..tostring(spend)'
+            '.." star_eta_min="..tostring(etamin).." star_lvl="..tostring(slvl)'
+            '.." star_late="..tostring(slate).." left="..tostring(left)) end)')
+
+
+def secret_task_star_field(name: str) -> str:
+    """Lua *expression* -> one number :func:`secret_task_assist_scan` parked.
+
+    `ready` / `ur` / `pending` / `eta` / `level` / `late` / `left`. Zero when nothing has
+    been scanned yet, which is the honest answer for a recipe that has not looked: no
+    star ready, no star coming, nothing to hold back.
+    """
+    return ("(tonumber(DataCenter.ActDispatchTaskDataManager.__lw_star_%s) or 0)" % name)
 
 
 def secret_task_assists_pending() -> str:
     """Lua *expression* -> presses `assist_secret_task` can still make.
 
-    `min(tasks the rule matches, helps left today)` — the button's `count_lua`, so `xall`
-    stops both when the list runs out and when the daily five are spent.
+    The button's `count_lua`, re-read by `xall` between presses, and where the priority
+    is actually SPENT rather than merely described:
+
+        ready stars, up to the budget
+      + ready URs, but only into what is left AFTER one help is set aside for every
+        star still ripening today
+
+    So five helps and two ripening stars buy three URs now and keep two in hand; five
+    helps and five ripening stars buy nothing at all and say so. A star that cannot
+    ripen in time was never counted into `spend`, so it holds nothing back.
     """
-    return ("(function() local q=%s local b=%s if q<b then return q end return b end)()"
-            % (secret_task_assistable(), secret_task_assists_left()))
+    return ("(function() %s "
+            "local n=sready if n>left then n=left end "
+            "local room=left-n-spend "
+            "if room>0 then local u=uready if u>room then u=room end n=n+u end "
+            "return n end)()" % _ASSIST_SCAN)
 
 
 def assist_next_secret_task() -> str:
     """Help the best matching alliance task — one press, one `hero.dispatch.assist`.
+
+    `best` is a ready star when there is one and a ready UR only when the reserve allows
+    it (:data:`_ASSIST_SCAN`), so the press cannot spend on a UR what the count above is
+    holding for a star.
 
     The chosen task is dropped from the LOCAL list before the send
     (`DeleteAllianceTasks`, which is what the reply's own handler does on success). That
@@ -1775,12 +1861,12 @@ def assist_next_secret_task() -> str:
     uuid on every round until the loop's cap. It costs nothing to drop — the next
     `hero.dispatch.alliance.list` brings back whatever is still real.
     """
-    return (_ASSIST_PICK +
-            "if best and %s > 0 then local u,s=best.uuid,best.targetServer "
+    return (_ASSIST_SCAN +
+            "if best and left > 0 then local u,s=best.uuid,best.targetServer "
             "pcall(function() M:DeleteAllianceTasks(u) end) "
             "pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchAssist, u, s) end) "
             'CS.UnityEngine.Debug.LogError("ACT assist_sent uuid="..tostring(u)'
-            '.." srv="..tostring(s)) end' % secret_task_assists_left())
+            '.." srv="..tostring(s)) end')
 
 
 def dispatch_task_cfg_rank(cfg_ids) -> str:

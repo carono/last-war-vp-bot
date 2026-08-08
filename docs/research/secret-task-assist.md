@@ -8,7 +8,8 @@ help nobody.
 - Buttons: `tools/lib/game_buttons.py` (`assist_secret_task`,
   `refresh_alliance_secret_tasks`); the Lua is `tools/lib/lua_actions.py`
   (`secret_task_assists_left`, `secret_task_assist_refresh`, `secret_task_assist_rule`,
-  `secret_task_assistable`, `secret_task_assists_pending`, `assist_next_secret_task`).
+  `secret_task_assist_scan`, `secret_task_star_field`, `secret_task_assists_pending`,
+  `assist_next_secret_task`, and the walk behind them all, `_ASSIST_SCAN`).
 - Standing order: the «Секретки» tab's «Автопомощь» checkbox on the alliance page →
   `panel/tabs/secret_tasks/autoassist.py`.
 - Read out of the live client with `string.dump` constant tables (the technique is
@@ -92,6 +93,53 @@ digits.
 `is_special = 1`, and 34 finished ones were `color = 5`. A star-only auto-help would fire
 roughly never; «UR or ★» is the daily plan's own wording and the only version of the rule
 that can spend five a day.
+
+## The priority: a star first, and a ripening one holds a help back (#1292)
+
+«UR or ★» says which tasks are worth a help. It does not say what to do when both are on
+the table, and the first version got that wrong: the pick ranked tasks by `lvl*2+spec`,
+so a level-7 UR beat a level-6 star, and the same measurement above says why that
+matters — a star is one task in two hundred, and by the time the day's star matures the
+five helps have gone on URs.
+
+So the rule is an ORDER, not a filter:
+
+1. **a ready star before any ready UR**, whatever their levels. Among stars the level
+   still decides, and among URs too;
+2. **a star still counting down RESERVES one help.** Five helps and two ripening stars
+   spend three on URs now and keep two in hand. It is one help per star, not the whole
+   budget — thirty-four unspent URs is the other way to waste the day;
+3. **and the waiting has a floor.** A star is worth a held help only while it can be
+   helped *today*: it has to finish before its own `actEndTime`, before the daily reset
+   the counter rides on, and inside the operator's own `autoassist_star_wait_min`
+   («Ожидание звезды», 240 min by default; 0 = as long as the first two allow). A star
+   that fails any of the three is counted, **said out loud** and left — the help goes to
+   a UR instead.
+
+**The daily reset is 02:00 UTC**, and it is measured rather than assumed: 597 of 636
+secret-task tiles in one capture shared an expiry of 01:59:59 UTC
+([`protocol.md`](protocol.md), «Expiry is a daily reset»), and the treasure activity's
+own `expire` fell on the same boundary ([`world-treasures.md`](world-treasures.md)). It
+is what «до конца дня» has to mean for a counter that comes back once a day.
+
+All of it is one walk over `allianceTask` (`lua_actions._ASSIST_SCAN`), which leaves
+behind everything the three consumers need — the count `xall` re-reads between presses,
+the task a press takes, and the numbers the recipe says out loud:
+
+```
+ACT assist_scan star_ready=0 ur_ready=34 star_pending=1 star_eta_min=90 star_lvl=7 star_late=0 left=5
+  LOG "waiting for star 7 (ready in 90 min) — holding 1 of 5 help(s) back"
+  TAP Help a secret task (alliance) xall -> 4 press(es)
+```
+
+Four URs, one help kept, and a line saying which. The panel repeats the same reading —
+«придерживаю помощь под звезду до 14:35 (★7)» on the tab and on the phone — because a
+budget deliberately held back and an order that has died look identical from outside,
+which is what #1227 was.
+
+`tests/test_assist_star_priority.py` runs the whole decision in a real Lua VM against a
+stand-in dispatch manager: the priority, the reserve, and each of the three bounds on the
+waiting. `tests/test_panel_autoassist.py` covers what the panel makes of it.
 
 ## The trap: the local list goes stale, and a stale send looks like no send
 
