@@ -49,6 +49,28 @@ own squad screen.
   label, not as a key: it splits on a swap (above) and it collapses to one surviving hero
   when a squad marched wiped.
 
+## The alliance, and how a group gets its name
+
+The march envelope carries `allianceId`, `allianceName` and `allianceAbbr`, and the
+archive dropped all three until #1305 — so an archive written before it says nothing about
+who belongs where. Three sources, in order of trust:
+
+1. **The archive's own tag**, latest reading wins. A player who changed alliance during
+   the window belongs to the one they are in now.
+2. **The profiles' leaderboard stores** (`leaderboard_history.db`). Only ever the reader's
+   own alliance — a ranking lists your side — so it names one group and no more. On this
+   machine it covered 100 of 253 players, all one tag.
+3. **Riding together.** A rally is an alliance affair, so co-participation is membership:
+   union the players of every `teamUuid` and each connected component is an alliance.
+   Measured here: 253 players fall into **7 components** of 100 / 74 / 37 / 29 / 11 / 1 /
+   1, and the 100 whose tag is independently known landed in **exactly one** of them, with
+   no component holding two different known tags. That is what makes it safe to spread one
+   member's tag across a whole component.
+
+A component nobody can name stays a group and keeps its players — it is never a bin. The
+report says for each group which of the three it came from, because «the tag was on every
+line» and «the tag came off one member's ranking row» are not the same claim.
+
 ## A rally is one measurement, not one per line
 
 A rally is re-broadcast on every refresh and the archive keeps a line each time, so the

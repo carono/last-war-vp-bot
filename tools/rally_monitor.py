@@ -14,9 +14,14 @@ ids, tiers, levels, skills) and writes one JSON line per participant to
 
 Each JSONL line::
 
-    {timestamp, teamUuid, ownerUid, ownerName, power, curHp,
+    {timestamp, teamUuid, ownerUid, ownerName,
+     allianceId, allianceName, allianceAbbr, headSkinId,
+     power, curHp,
      heroes:[{heroId, tier, level, skills:[{skillId, level}]}],
      formation, armyInfoRaw}
+
+The four alliance/avatar fields were added in #1305 and are absent from anything
+archived before it — a reader must treat them as optional.
 
 On Ctrl+C (or the ``--seconds`` timer) it prints a short summary: how many
 distinct rally teams (стяги) and how many distinct participants were seen.
@@ -317,6 +322,15 @@ class RallyMonitor(LiveDecoder):
                 "teamUuid": str(team) if team is not None else None,
                 "ownerUid": owner,
                 "ownerName": march.get("ownerName"),
+                # The envelope has said who the sender's alliance is and which avatar
+                # they wear all along, and the archive dropped all four. Anything
+                # reading the archive later — `tools/rally_report.py` groups by
+                # alliance and draws the avatar — has no other source for them: they
+                # are not in `armyInfo`, and the wire never repeats them.
+                "allianceId": march.get("allianceId"),
+                "allianceName": march.get("allianceName"),
+                "allianceAbbr": march.get("allianceAbbr"),
+                "headSkinId": march.get("headSkinId"),
                 "power": march.get("power"),
                 "curHp": march.get("curHp"),
                 "x": mt[0] if mt else None,

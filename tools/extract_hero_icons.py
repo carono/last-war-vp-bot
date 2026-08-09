@@ -43,12 +43,19 @@ except ImportError:  # pragma: no cover
 # with Unity 2019.4.40f1 (see LastWar_Data/resources.assets), so tell UnityPy.
 UnityPy.config.FALLBACK_UNITY_VERSION = "2019.4.40f1"
 
-# dir-path prefix -> output category. LW_HeroBody is opt-in via --body.
-ICON_PREFIXES = {
+# dir-path prefix -> output category. `big` and `small` are the default; the rest are
+# asked for by name with `--sets`, because each one costs a pass over the bundles that
+# carry it. `head` is the player's own avatar — the picture beside a name in a rally,
+# a chat line or a ranking (`tools/rally_report.py` uses it).
+SET_PREFIXES = {
     "big": "Assets/Main/Sprites/HeroIconsBig",
     "small": "Assets/Main/Sprites/HeroIconsSmall",
+    "body": "Assets/Main/Sprites/LW_HeroBody",
+    "head": "Assets/Main/Sprites/UI/UIHeadIcon",
+    "head_s6": "Assets/Main/SeasonRes/S6/Sprites/UIHeadIcon",
 }
-BODY_PREFIXES = {"body": "Assets/Main/Sprites/LW_HeroBody"}
+ICON_PREFIXES = {name: SET_PREFIXES[name] for name in ("big", "small")}
+BODY_PREFIXES = {"body": SET_PREFIXES["body"]}
 
 
 def read_sections(gameres: Path):
@@ -135,9 +142,20 @@ def main() -> int:
                     default=Path(__file__).resolve().parent.parent / "results" / "hero_icons")
     ap.add_argument("--body", action="store_true",
                     help="also extract full-body hero art (LW_HeroBody)")
+    ap.add_argument("--sets", default=None,
+                    help="comma-separated sets to extract instead of the default "
+                         "hero icons: " + ", ".join(sorted(SET_PREFIXES)))
     args = ap.parse_args()
 
-    categories = dict(ICON_PREFIXES)
+    if args.sets:
+        chosen = [name.strip() for name in args.sets.split(",") if name.strip()]
+        unknown = [name for name in chosen if name not in SET_PREFIXES]
+        if unknown:
+            sys.exit(f"unknown set(s): {', '.join(unknown)} — "
+                     f"pick from {', '.join(sorted(SET_PREFIXES))}")
+        categories = {name: SET_PREFIXES[name] for name in chosen}
+    else:
+        categories = dict(ICON_PREFIXES)
     if args.body:
         categories.update(BODY_PREFIXES)
 

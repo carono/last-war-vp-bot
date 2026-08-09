@@ -25,21 +25,23 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "tools"))
+sys.path.insert(0, str(_REPO / "tools" / "lib"))
 
-import rally_report as rr            # noqa: E402 — reachable only once the path is set
+import head_icons_map as head_map    # noqa: E402 — reachable only once the path is set
+import rally_report as rr            # noqa: E402
 
 UID_A = "1000000000000001"
 UID_B = "1000000000000002"
 
 
 def _line(stamp, uid, name, power, hp, slot, heroes, team="2000000000000001",
-          formation=60001):
+          formation=60001, alliance=None, head=None):
     """One archived participant, in the shape `tools/rally_monitor.py` writes."""
     rows = [{"f1": hero, "f2": 175, "f3": 5, "f4": index + 1, "f15": 30}
             for index, hero in enumerate(heroes)]
     rows.append({"f1": rr.DRONE_ID, "f4": len(heroes) + 1, "f16": {"f1": rr.DRONE_ID,
                                                                   "f2": 40}})
-    return json.dumps({
+    record = {
         "timestamp": stamp, "teamUuid": team, "ownerUid": uid, "ownerName": name,
         "power": power, "curHp": hp, "x": None, "y": None, "targetServer": None,
         "heroes": [{"heroId": h, "tier": 5, "level": 175, "skills": []} for h in heroes],
@@ -47,7 +49,13 @@ def _line(stamp, uid, name, power, hp, slot, heroes, team="2000000000000001",
         "armyInfoRaw": {"f1": {"f1": hp, "f2": hp, "f3": 900 + int(stamp), "f4": uid},
                         "f2": {"f2": rows, "f13": formation},
                         "f4": slot},
-    }, ensure_ascii=False)
+    }
+    if alliance is not None:
+        record.update({"allianceAbbr": alliance, "allianceName": f"Alliance {alliance}",
+                       "allianceId": f"{alliance}-0000"})
+    if head is not None:
+        record["headSkinId"] = head
+    return json.dumps(record, ensure_ascii=False)
 
 
 def _archive(tmp, name, lines):
@@ -196,16 +204,109 @@ def test_the_fullest_reading_names_the_squad():
     assert [h["id"] for h in squad["heroes"]] == [1, 2, 3, 4, 5], squad["heroes"]
 
 
-def test_a_page_is_one_file_and_reaches_nothing():
-    """No fetched script, no fetched font, no network — it opens on a phone offline."""
+def test_the_alliance_is_the_last_one_the_player_was_seen_in():
+    """A player who moved during the window belongs to the alliance they are in now."""
     with tempfile.TemporaryDirectory() as tmp:
         path = _archive(tmp, "rally_log.jsonl", [
-            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5]),
-            _line(2000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5]),
+            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000001", alliance="AL1"),
+            _line(5000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000002", alliance="AL2"),
         ])
-        page = rr.render(rr.load([path]))
-    for reach in ("http://", "https://", "src=", "@import", "<link"):
+        data = rr.load([path])
+        groups = rr.group_by_alliance(data, [path])
+    assert data["players"][0]["alliance"]["tag"] == "AL2"
+    assert [g["tag"] for g in groups] == ["AL2"]
+    assert groups[0]["how"] == "archive"
+
+
+def test_riding_together_spreads_one_known_tag_over_the_group():
+    """Archives written before #1305 carry no tag; a rally is still an alliance affair."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _archive(tmp, "rally_log.jsonl", [
+            # one rally, two players — only the first line says which alliance
+            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000001", alliance="AL1"),
+            _line(1000, UID_B, "Player2", 40_000_000, 2800, 1, [6, 7, 8, 10, 11],
+                  team="2000000000000001"),
+            # …and somebody who never rode with either of them
+            _line(2000, "1000000000000003", "Player3", 30_000_000, 2000, 1, [1, 2, 3],
+                  team="2000000000000009"),
+        ])
+        data = rr.load([path])
+        groups = rr.group_by_alliance(data, [path])
+
+    named = [g for g in groups if g["tag"] == "AL1"]
+    assert len(named) == 1, [g["tag"] for g in groups]
+    assert {p["uid"] for p in named[0]["players"]} == {UID_A, UID_B}
+    assert named[0]["how"] == "partial"          # the reader is told it was spread
+    # the stranger is a group of their own and is NOT thrown away
+    other = [g for g in groups if g["tag"] == ""]
+    assert len(other) == 1 and other[0]["how"] == "unknown"
+    assert [p["uid"] for p in other[0]["players"]] == ["1000000000000003"]
+    assert sum(len(g["players"]) for g in groups) == 3
+
+
+def test_an_avatar_is_one_file_per_id_beside_the_page():
+    """Two hundred players wearing the same avatar cost one PNG, not two hundred."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _archive(tmp, "rally_log.jsonl", [
+            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  head=head_map.PICKABLE_BASE + 1),
+            _line(1000, UID_B, "Player2", 40_000_000, 2800, 1, [6, 7, 8, 10, 11],
+                  team="2000000000000001", head=head_map.PICKABLE_BASE + 1),
+            # an id outside the pickable range resolves to nothing — placeholder
+            _line(2000, "1000000000000003", "Player3", 30_000_000, 2000, 1, [1, 2],
+                  team="2000000000000002", head=99999),
+        ])
+        data = rr.load([path])
+        out = os.path.join(tmp, "report.html")
+        hrefs, stats = rr.copy_avatars(data["players"], out)
+
+        assert stats["ids"] == 2, stats               # two distinct ids, three players
+        assert stats["unmapped"] == [99999], stats
+        if head_map.available():                     # skipped where nothing is extracted
+            key = str(head_map.PICKABLE_BASE + 1)
+            assert list(hrefs) == [key] and stats["copied"] == 1, (hrefs, stats)
+            assert hrefs[key] == f"report_avatars/{key}.png"   # relative, beside the page
+            assert os.path.exists(os.path.join(tmp, "report_avatars", f"{key}.png"))
+        else:
+            assert hrefs == {}, hrefs
+
+
+def test_only_the_pickable_avatar_range_is_mapped():
+    """The id -> sprite table is encrypted; the numbering rule covers one family only."""
+    assert head_map.resname_for(head_map.PICKABLE_BASE + 1) == "player_head_1"
+    assert head_map.resname_for(head_map.PICKABLE_BASE + head_map.PICKABLE_MAX) == \
+        f"player_head_{head_map.PICKABLE_MAX}"
+    for outside in (head_map.PICKABLE_BASE,                       # the base itself
+                    head_map.PICKABLE_BASE + head_map.PICKABLE_MAX + 1,
+                    25000, 25015, 21016, None, "x"):
+        assert head_map.resname_for(outside) is None, outside
+
+
+def test_a_page_reaches_nothing_off_the_disk():
+    """No fetched script, no fetched font, no network — it opens on a phone offline.
+
+    The avatars ARE files now, so `src=` is allowed — but only ever as a relative path
+    next to the page. A scheme, a protocol-relative `//host`, or an absolute path would
+    each be a link out of the folder the reader was handed.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _archive(tmp, "rally_log.jsonl", [
+            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  head=head_map.PICKABLE_BASE + 1),
+            _line(2000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000002", head=head_map.PICKABLE_BASE + 1),
+        ])
+        data = rr.load([path])
+        hrefs, _stats = rr.copy_avatars(data["players"],
+                                        os.path.join(tmp, "report.html"))
+        page = rr.render(data, rr.group_by_alliance(data, [path]), hrefs)
+    for reach in ("http://", "https://", "@import", "<link", 'src="/', 'src="//'):
         assert reach not in page, reach
+    for href in hrefs.values():
+        assert not href.startswith(("/", "http", "..")), href
     assert "Player1" in page and UID_A in page          # the data really is embedded
 
 

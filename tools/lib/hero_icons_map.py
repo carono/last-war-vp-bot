@@ -31,7 +31,11 @@ from __future__ import annotations
 import os
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_HERE)
+#: This module lives in `tools/lib`, so the repository is TWO levels up. It used to go
+#: up one, which pointed ICON_ROOT at `tools/results/hero_icons` — a directory that has
+#: never existed, so `icon_path()` answered None for every hero however many icons had
+#: been extracted (#1305).
+_ROOT = os.path.dirname(os.path.dirname(_HERE))
 ICON_ROOT = os.path.join(_ROOT, "results", "hero_icons")
 
 DRONE_ID = 1000000

@@ -10,6 +10,20 @@ The rally monitor (`tools/rally_monitor.py`) archives one line per participant o
 This folds every profile's archive into one page: the players, each player's squads, the
 last reading of each squad, and how each squad's power moved over the recorded window.
 
+Players are grouped by alliance. The tag comes off the archive when it is there (the last
+reading wins, so somebody who changed alliance mid-window counts under the one they are in
+now), off the profiles' leaderboard stores when it is not, and off who rides with whom
+when neither knows — a rally is an alliance affair, so its participants are one alliance.
+A group nobody can name keeps its players and says so. See
+`docs/research/rally-squad-identity.md`.
+
+Avatars are files beside the page, not inside it: `<report>_avatars/<headSkinId>.png`, one
+per id however many players wear it, linked relatively. Extract them first with
+`tools/extract_hero_icons.py --sets head,head_s6 --out results/head_icons`; ids the
+numbering rule cannot place get a coloured initial instead, and the generator prints how
+many. See `docs/research/player-avatars.md` — chiefly for why the id → picture table is
+a hypothesis for one family and absent for the rest.
+
 **The page is not about rallies.** A rally is only the moment somebody's squad became
 visible and its power was written down — a point on a time axis, and nothing else. Who
 marched with whom, where they went and how many rallies anybody joined is not shown.
@@ -52,10 +66,13 @@ somewhere tracked is refused.
 from __future__ import annotations
 
 import argparse
+import collections
 import glob
 import html
 import json
 import os
+import shutil
+import sqlite3
 import sys
 import time
 
@@ -130,6 +147,79 @@ def _detail(army) -> dict:
     return {"heroes": heroes, "drone": drone, "formation": formation}
 
 
+def live_head_skins() -> dict:
+    """``uid -> headSkinId`` for the reader's own alliance, asked of the live client.
+
+    The archive only started carrying `headSkinId` in #1305, so everything captured
+    before it has no avatar at all. The running game still knows: its alliance roster
+    (`DataCenter.AllianceMemberDataManager.allianceMembers`) holds a `headSkinId` per
+    member, and that covers the one alliance the reader is in. Empty when there is no
+    client — no client is an answer, not an error.
+    """
+    try:
+        from lua_client import get_evaluator
+        ev = get_evaluator()
+        lua = (
+            'local out = {}\n'
+            'local m = DataCenter.AllianceMemberDataManager\n'
+            'for _, v in pairs((m and m.allianceMembers) or {}) do\n'
+            '  if v.uid and v.headSkinId then\n'
+            '    out[#out+1] = tostring(v.uid) .. ":" .. tostring(v.headSkinId)\n'
+            '  end\n'
+            'end\n'
+            'CS.UnityEngine.Debug.LogError("RRHEADS " .. table.concat(out, ","))')
+        for line in ev.run(lua, marker="RRHEADS", settle=1.5):
+            if "RRHEADS " not in line:
+                continue
+            out = {}
+            for pair in line.split("RRHEADS ", 1)[1].strip().split(","):
+                uid, _, head = pair.partition(":")
+                if uid.isdigit() and head.strip().isdigit():
+                    out[uid] = int(head)
+            return out
+    except Exception:                            # noqa: BLE001 — no client is an answer
+        pass
+    return {}
+
+
+def copy_avatars(players, out_path: str) -> tuple:
+    """Put one PNG per avatar id in a folder beside the report; return the hrefs.
+
+    The pictures travel WITH the page as files rather than inside it: a folder named
+    after the report, one file per `headSkinId` however many players wear it, and
+    relative links from the page. Nothing is fetched from anywhere.
+
+    Returns ``({headSkinId: "folder/<id>.png"}, stats)``.
+    """
+    stats = {"ids": 0, "copied": 0, "unmapped": [], "bytes": 0, "folder": ""}
+    wanted = sorted({p["head"] for p in players if p["head"] is not None})
+    stats["ids"] = len(wanted)
+    if not wanted:
+        return {}, stats
+    try:
+        import head_icons_map as head_map
+    except Exception:                            # noqa: BLE001 — no map is an answer
+        stats["unmapped"] = list(wanted)
+        return {}, stats
+
+    folder = os.path.splitext(os.path.basename(out_path))[0] + "_avatars"
+    directory = os.path.join(os.path.dirname(os.path.abspath(out_path)), folder)
+    stats["folder"] = directory
+    hrefs = {}
+    for head_id in wanted:
+        source = head_map.icon_path(head_id)
+        if not source:
+            stats["unmapped"].append(head_id)
+            continue
+        os.makedirs(directory, exist_ok=True)
+        destination = os.path.join(directory, f"{head_id}.png")
+        shutil.copyfile(source, destination)
+        hrefs[str(head_id)] = f"{folder}/{head_id}.png"
+        stats["copied"] += 1
+        stats["bytes"] += os.path.getsize(destination)
+    return hrefs, stats
+
+
 def _hero_names() -> dict:
     """``heroId -> display name`` for the ids anybody has confirmed by eye.
 
@@ -154,6 +244,7 @@ def load(paths) -> dict:
     seen: set = set()
     players: dict = {}
     sources: list = []
+    rally_members: dict = {}
     lo = hi = 0.0
 
     for path in paths:
@@ -187,7 +278,7 @@ def load(paths) -> dict:
                 player = players.get(uid)
                 if player is None:
                     player = players[uid] = {"uid": uid, "name": "", "aliases": set(),
-                                             "squads": {}}
+                                             "squads": {}, "alliance": None, "head": None}
                 name = row.get("ownerName") or ""
                 if name:
                     player["aliases"].add(name)
@@ -196,6 +287,17 @@ def load(paths) -> dict:
                     # line read.
                     if stamp >= player.get("_named", 0):
                         player["name"], player["_named"] = name, stamp
+                # LAST KNOWN wins for both: a player who changed alliance during the
+                # window belongs to the one they are in now, not the one they left.
+                if row.get("allianceAbbr") and stamp >= player.get("_allied", 0):
+                    player["alliance"] = {"tag": row.get("allianceAbbr"),
+                                          "name": row.get("allianceName") or "",
+                                          "id": str(row.get("allianceId") or "")}
+                    player["_allied"] = stamp
+                if row.get("headSkinId") is not None and stamp >= player.get("_headed", 0):
+                    player["head"], player["_headed"] = row["headSkinId"], stamp
+                if team != "0":
+                    rally_members.setdefault(team, set()).add(uid)
 
                 army = row.get("armyInfoRaw")
                 slot = _slot(army)
@@ -230,7 +332,8 @@ def load(paths) -> dict:
     names = _hero_names()
     out = []
     for player in players.values():
-        player.pop("_named", None)
+        for key in ("_named", "_allied", "_headed"):
+            player.pop(key, None)
         squads = []
         for squad in player["squads"].values():
             moments = sorted(squad["moments"].values(), key=lambda m: m[0])
@@ -275,10 +378,119 @@ def load(paths) -> dict:
             "last": last,
             "power": sum(s["power"] for s in squads),
             "peak": sum(s["peak"] for s in squads),
+            "alliance": player["alliance"],
+            "head": player["head"],
             "squads": squads,
         })
     out.sort(key=lambda p: -p["peak"])
-    return {"players": out, "sources": sources, "window": [round(lo), round(hi)]}
+    return {"players": out, "sources": sources, "window": [round(lo), round(hi)],
+            "rallies": rally_members}
+
+
+# ----------------------------------------------------------------------- the alliance
+
+
+def _components(rally_members: dict, uids) -> dict:
+    """``uid -> group id``, where a group is everybody who ever rode together.
+
+    A rally is an alliance affair, so co-participation is alliance membership. Checked
+    on this machine's archives: 253 players fall into 7 groups, and the 100 whose tag is
+    independently known from the leaderboard store landed in exactly one of them, with no
+    group holding two different known tags. That is what makes it safe to spread one
+    member's tag over a whole group when the archive predates #1305 and carries none.
+    """
+    parent = {uid: uid for uid in uids}
+
+    def find(uid):
+        while parent[uid] != uid:
+            parent[uid] = parent[parent[uid]]
+            uid = parent[uid]
+        return uid
+
+    for members in rally_members.values():
+        members = [uid for uid in members if uid in parent]
+        for other in members[1:]:
+            first, second = find(members[0]), find(other)
+            if first != second:
+                parent[first] = second
+    return {uid: find(uid) for uid in parent}
+
+
+def _leaderboard_alliances(paths) -> dict:
+    """``uid -> {tag, name, id}`` out of the profiles' leaderboard stores, latest wins.
+
+    A fallback for archives written before #1305, which carry no alliance at all. It only
+    ever knows the reader's OWN alliance — a ranking lists your side — so it names one
+    group and leaves the rest to `_components`.
+    """
+    out: dict = {}
+    stamps: dict = {}
+    for path in paths:
+        store = os.path.join(os.path.dirname(path), "leaderboard_history.db")
+        if not os.path.exists(store):
+            continue
+        try:
+            conn = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+            rows = conn.execute(
+                "SELECT uid, alliance, alliance_id, ts FROM entries "
+                "WHERE alliance IS NOT NULL AND alliance != ''").fetchall()
+            conn.close()
+        except sqlite3.Error:
+            continue
+        for uid, tag, alliance_id, stamp in rows:
+            uid = str(uid)
+            if stamp >= stamps.get(uid, -1):
+                stamps[uid] = stamp
+                out[uid] = {"tag": tag, "name": "", "id": str(alliance_id or "")}
+    return out
+
+
+def group_by_alliance(data: dict, paths) -> list:
+    """Fold the players into alliances, saying for each how the tag was arrived at.
+
+    Order of trust: the tag the archive carries (last known reading wins, so a player who
+    changed alliance mid-window is counted under the one they are in now), then the
+    profiles' leaderboard stores, then the tag of anybody who rode in the same rallies.
+    A group nobody can name stays a group and keeps its players — never a bin.
+    """
+    players = {p["uid"]: p for p in data["players"]}
+    known = {uid: p["alliance"] for uid, p in players.items() if p["alliance"]}
+    for uid, alliance in _leaderboard_alliances(paths).items():
+        if uid in players and uid not in known:
+            known[uid] = alliance
+            players[uid]["source"] = "leaderboard"
+
+    groups = _components(data.get("rallies") or {}, players)
+    # One group at a time: if anybody in it is named, the whole group takes that name.
+    by_group: dict = {}
+    for uid, player in players.items():
+        by_group.setdefault(groups.get(uid, uid), []).append(player)
+
+    out = []
+    for index, (group, members) in enumerate(sorted(
+            by_group.items(), key=lambda kv: -sum(p["peak"] for p in kv[1])), 1):
+        tags = [known[p["uid"]] for p in members if p["uid"] in known]
+        counted = collections.Counter(t["tag"] for t in tags)
+        tag = counted.most_common(1)[0][0] if counted else ""
+        named = next((t for t in tags if t["tag"] == tag), None)
+        direct = sum(1 for p in members if p["alliance"])
+        members.sort(key=lambda p: -p["peak"])
+        out.append({
+            "tag": tag,
+            "name": (named or {}).get("name", ""),
+            "id": (named or {}).get("id", ""),
+            # How the tag got here, in the reader's terms: on every player's own lines,
+            # on some of them, or on none at all and only on the group's shape.
+            "how": ("archive" if direct == len(members)
+                    else "partial" if direct else "inferred" if tag else "unknown"),
+            "known": len(tags),
+            "index": index,
+            "players": members,
+            "power": sum(p["peak"] for p in members),
+            "last": max((p["last"] for p in members), default=0),
+        })
+    out.sort(key=lambda g: (-g["power"],))
+    return out
 
 
 # --------------------------------------------------------------------------- drawing
@@ -301,18 +513,34 @@ border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:15px}
 .seg button{background:var(--card);color:var(--dim);border:0;padding:9px 12px;
 font-size:14px;cursor:pointer}
 .seg button.on{background:var(--accent);color:#0d1017;font-weight:600}
-.pl{background:var(--card);border:1px solid var(--line);border-radius:12px;
+.al{background:var(--card);border:1px solid var(--line);border-radius:12px;
 margin-bottom:10px;overflow:hidden}
-.pl>.hd{display:flex;align-items:baseline;gap:8px;padding:12px 14px;cursor:pointer}
+.al>.hd{display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer}
+.al>.hd:active{background:#222631}
+.al.open>.hd{border-bottom:1px solid var(--line)}
+.tag{font-size:17px;font-weight:700;color:var(--accent);white-space:nowrap}
+.tag.none{color:var(--dim)}
+.albd{padding:2px 10px 8px}
+.how{font-size:11px;color:var(--dim);padding:6px 4px 2px}
+.pl{border-top:1px solid var(--line)}
+.pl:first-child{border-top:0}
+.pl>.hd{display:flex;align-items:center;gap:9px;padding:9px 4px;cursor:pointer}
 .pl>.hd:active{background:#222631}
-.pl.open>.hd{border-bottom:1px solid var(--line)}
+.ava{width:34px;height:34px;border-radius:9px;flex:0 0 auto;object-fit:cover;
+background:#222631}
+.ava.ph{display:flex;align-items:center;justify-content:center;font-size:13px;
+font-weight:700;color:#0d1017}
 .nm{font-weight:600;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
 white-space:nowrap}
+.who{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px;
+overflow:hidden}
+.who .nm{display:block}
+.who .meta{overflow:hidden;text-overflow:ellipsis}
 .pw{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap;
 margin-left:auto}
 .pw .up,.pw .dn{font-weight:600;font-size:12px;margin-left:4px}
 .meta{color:var(--dim);font-size:12px;white-space:nowrap}
-.bd{padding:0 14px 12px}
+.bd{padding:0 4px 12px}
 .sq{border-top:1px solid var(--line)}
 .sq>.hd{display:flex;align-items:baseline;gap:8px;padding:10px 2px;cursor:pointer}
 .sq>.hd:active{background:#222631}
@@ -532,29 +760,70 @@ function playerBody(p){
   return parts.join('');
 }
 
+/* The avatar: a file beside the page when the id resolved to one, a coloured square
+   with the first letter when it did not. Nothing is fetched from anywhere. */
+function avatar(p){
+  var href = p.head != null ? DATA.avatars[String(p.head)] : null;
+  if (href) return '<img class="ava" src="' + esc(href) + '" alt="" loading="lazy">';
+  var hash = 0;
+  for (var i = 0; i < p.uid.length; i++) hash = (hash * 31 + p.uid.charCodeAt(i)) % 360;
+  var letter = (p.name || '?').trim().charAt(0).toUpperCase() || '?';
+  return '<span class="ava ph" style="background:hsl(' + hash + ',45%,62%)">' +
+         esc(letter) + '</span>';
+}
+
+function playerRow(p, ai, pi){
+  var sum = p.squads.reduce(function(a, s){ return a + headline(s); }, 0);
+  return '<div class="pl" data-al="' + ai + '" data-pl="' + pi + '"><div class="hd">' +
+    avatar(p) +
+    '<span class="who"><b class="nm">' + esc(p.name) + '</b>' +
+    '<span class="meta">' + p.squads.length + ' отр. · ' + when(p.last) + '</span>' +
+    '</span>' +
+    '<span class="pw">' + num(sum) + '</span></div></div>';
+}
+
+var HOW = {
+  archive: '',
+  partial: 'тег альянса записан не у всех — остальным проставлен по общим стягам',
+  inferred: 'тег альянса взят из таблицы рангов и разошёлся по тем, кто ездит в одних ' +
+            'стягах с ним',
+  unknown: 'тег альянса нигде не записан — это просто те, кто ездит в одних стягах'
+};
+
+function allianceBody(g, ai, q){
+  var out = [], shown = 0;
+  if (HOW[g.how]) out.push('<div class="how">' + HOW[g.how] + '</div>');
+  g.players.forEach(function(p, pi){
+    if (q && p.name.toLowerCase().indexOf(q) < 0 && p.uid.indexOf(q) < 0) return;
+    shown++;
+    out.push(playerRow(p, ai, pi));
+  });
+  if (!shown) out.push('<div class="empty">никого не нашлось</div>');
+  return '<div class="albd">' + out.join('') + '</div>';
+}
+
 function render(){
   var q = document.getElementById('q').value.trim().toLowerCase();
   var host = document.getElementById('list');
-  var shown = 0, out = [], rows = [];
-  DATA.players.forEach(function(p, i){
-    if (q && p.name.toLowerCase().indexOf(q) < 0 && p.uid.indexOf(q) < 0) return;
-    rows.push({i: i, p: p, sum: p.squads.reduce(function(a, s){
-      return a + headline(s); }, 0)});
+  var out = [], shown = 0;
+  DATA.alliances.forEach(function(g, ai){
+    var hits = q ? g.players.filter(function(p){
+      return p.name.toLowerCase().indexOf(q) >= 0 || p.uid.indexOf(q) >= 0; }) : g.players;
+    if (q && !hits.length) return;
+    shown += hits.length;
+    var label = g.tag ? esc(g.tag) : 'без тега №' + g.index;
+    out.push('<div class="al' + (q ? ' open' : '') + '" data-al="' + ai + '">' +
+      '<div class="hd"><span class="tag' + (g.tag ? '' : ' none') + '">' + label +
+        '</span>' +
+      '<span class="nm meta">' + (g.name ? esc(g.name) : '') + '</span>' +
+      '<span class="pw">' + num(g.players.reduce(function(a, p){
+        return a + p.squads.reduce(function(b, s){ return b + headline(s); }, 0); }, 0)) +
+        '</span>' +
+      '<span class="meta">' + hits.length + ' игр.</span></div>' +
+      (q ? allianceBody(g, ai, q) : '') + '</div>');
   });
-  /* Ordered by the number actually printed, so switching the mode reorders the list
-     instead of leaving it sorted by something the reader cannot see. */
-  rows.sort(function(a, b){ return b.sum - a.sum; });
-  rows.forEach(function(r){
-    shown++;
-    out.push('<div class="pl" data-pl="' + r.i + '"><div class="hd">' +
-      '<span class="nm">' + esc(r.p.name) + '</span>' +
-      '<span class="pw">' + num(r.sum) + '</span>' +
-      '<span class="meta">' + r.p.squads.length + ' отр. · ' + when(r.p.last) +
-      '</span></div></div>');
-  });
-  host.innerHTML = out.join('') ||
-    '<div class="empty">никого не нашлось</div>';
-  document.getElementById('count').textContent = shown + ' из ' + DATA.players.length;
+  host.innerHTML = out.join('') || '<div class="empty">никого не нашлось</div>';
+  document.getElementById('count').textContent = shown + ' из ' + DATA.total;
 }
 
 document.addEventListener('click', function(ev){
@@ -565,22 +834,32 @@ document.addEventListener('click', function(ev){
   var sq = sqHead && sqHead.parentNode;
   if (sq) {
     var pl = sq.closest('.pl');
-    var p = DATA.players[+pl.dataset.pl], s = p.squads[+sq.dataset.sq];
+    var p = DATA.alliances[+pl.dataset.al].players[+pl.dataset.pl];
     var open = sq.querySelector('.sqbd');
     if (open) { open.remove(); } else {
       pl.querySelectorAll('.sqbd').forEach(function(n){ n.remove(); });
-      sq.insertAdjacentHTML('beforeend', squadBody(s));
+      sq.insertAdjacentHTML('beforeend', squadBody(p.squads[+sq.dataset.sq]));
     }
     return;
   }
   var plHead = ev.target.closest('.pl > .hd');
   var pl = plHead && plHead.parentNode;
-  if (!pl) return;
-  var body = pl.querySelector('.bd');
-  if (body) { body.remove(); pl.classList.remove('open'); return; }
-  pl.classList.add('open');
-  pl.insertAdjacentHTML('beforeend',
-    '<div class="bd">' + playerBody(DATA.players[+pl.dataset.pl]) + '</div>');
+  if (pl) {
+    var body = pl.querySelector('.bd');
+    if (body) { body.remove(); pl.classList.remove('open'); return; }
+    pl.classList.add('open');
+    pl.insertAdjacentHTML('beforeend', '<div class="bd">' +
+      playerBody(DATA.alliances[+pl.dataset.al].players[+pl.dataset.pl]) + '</div>');
+    return;
+  }
+  var alHead = ev.target.closest('.al > .hd');
+  var al = alHead && alHead.parentNode;
+  if (!al) return;
+  var albd = al.querySelector('.albd');
+  if (albd) { albd.remove(); al.classList.remove('open'); return; }
+  al.classList.add('open');
+  al.insertAdjacentHTML('beforeend',
+    allianceBody(DATA.alliances[+al.dataset.al], +al.dataset.al, ''));
 });
 
 document.getElementById('q').addEventListener('input', render);
@@ -596,8 +875,14 @@ render();
 """
 
 
-def render(data: dict) -> str:
-    """The whole page — data, style and behaviour in one file."""
+def render(data: dict, alliances: list = None, avatars: dict = None) -> str:
+    """The page — data, style and behaviour in one file, avatars in a folder beside it."""
+    if alliances is None:
+        alliances = [{"tag": "", "name": "", "id": "", "how": "unknown", "known": 0,
+                      "index": 1, "players": data["players"],
+                      "power": sum(p["peak"] for p in data["players"]),
+                      "last": max((p["last"] for p in data["players"]), default=0)}]
+    avatars = avatars or {}
     window = data["window"]
     span = ""
     if window and window[1]:
@@ -607,16 +892,22 @@ def render(data: dict) -> str:
     moments = sum(p["moments"] for p in data["players"])
     files = ", ".join(html.escape(os.path.basename(os.path.dirname(s["path"])) or s["path"])
                       for s in data["sources"] if s["kept"])
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    # The page holds the alliances, and each alliance holds its players — `players` and
+    # `rallies` would be the same objects a second and a third time.
+    payload = json.dumps({"alliances": alliances, "avatars": avatars,
+                          "total": len(data["players"])},
+                         ensure_ascii=False, separators=(",", ":"))
     payload = payload.replace("</", "<\\/")
+    faces = sum(1 for p in data["players"] if p["head"] is not None
+                and str(p["head"]) in avatars)
     return (
         '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         "<title>Мощь отрядов</title><style>" + _CSS + "</style></head><body>"
         "<h1>Мощь отрядов</h1>"
-        f'<div class="sub">{html.escape(span)} · игроков '
+        f'<div class="sub">{html.escape(span)} · альянсов {len(alliances)} · игроков '
         f'{len(data["players"])} · отрядов {squads} · замеров {moments} · '
-        f'профили: {files or "—"}</div>'
+        f'аватаров {faces} · профили: {files or "—"}</div>'
         '<div class="bar"><input type="search" id="q" placeholder="имя или uid" '
         'autocomplete="off"><div class="seg">'
         '<button class="on" data-mode="full" title="только замеры полным составом">'
@@ -648,8 +939,11 @@ def main() -> int:
                          "archive when left out — a player's squads often sit in a "
                          "neighbour's capture rather than your own")
     ap.add_argument("--out", default="profiles/rally_report.html")
-    ap.add_argument("--min-rallies", type=int, default=0,
-                    help="drop players seen in fewer rallies than this")
+    ap.add_argument("--min-moments", type=int, default=0,
+                    help="drop players seen fewer times than this")
+    ap.add_argument("--no-live", action="store_true",
+                    help="do not ask the running client for the avatars its alliance "
+                         "roster knows (archives written before #1305 have none)")
     args = ap.parse_args()
 
     head = os.path.normpath(args.out).replace("\\", "/").split("/")[0]
@@ -666,13 +960,27 @@ def main() -> int:
         return 1
 
     data = load(paths)
-    if args.min_rallies:
-        data["players"] = [p for p in data["players"] if p["rallies"] >= args.min_rallies]
+    if args.min_moments:
+        data["players"] = [p for p in data["players"]
+                           if p["moments"] >= args.min_moments]
     if not data["players"]:
         print("no rally rows in " + ", ".join(paths), file=sys.stderr)
         return 1
 
-    page = render(data)
+    if not args.no_live:
+        live = live_head_skins()
+        filled = 0
+        for player in data["players"]:
+            if player["head"] is None and player["uid"] in live:
+                player["head"] = live[player["uid"]]
+                filled += 1
+        if filled:
+            print(f"  {filled} avatar id(s) taken from the running client's alliance "
+                  f"roster — the archive predates #1305 and carries none")
+
+    alliances = group_by_alliance(data, paths)
+    avatars, faces = copy_avatars(data["players"], args.out)
+    page = render(data, alliances, avatars)
     directory = os.path.dirname(os.path.abspath(args.out))
     if directory:
         os.makedirs(directory, exist_ok=True)
@@ -680,8 +988,19 @@ def main() -> int:
         fh.write(page)
     squads = sum(len(p["squads"]) for p in data["players"])
     moments = sum(p["moments"] for p in data["players"])
-    print(f"{args.out} — {len(data['players'])} player(s), {squads} squad(s), "
-          f"{moments} moment(s), {os.path.getsize(args.out) // 1024} KiB")
+    named = sum(1 for g in alliances if g["tag"])
+    print(f"{args.out} — {len(alliances)} alliance(s) ({named} named), "
+          f"{len(data['players'])} player(s), {squads} squad(s), {moments} moment(s), "
+          f"{os.path.getsize(args.out) // 1024} KiB")
+    if faces["ids"]:
+        print(f"  avatars: {faces['copied']} file(s), {faces['bytes'] // 1024} KiB "
+              f"in {faces['folder']}"
+              + (f"; {len(faces['unmapped'])} id(s) with no sprite: "
+                 f"{sorted(set(faces['unmapped']))}" if faces["unmapped"] else ""))
+    else:
+        print("  avatars: no headSkinId in these archives — every player gets the "
+              "letter placeholder. `tools/rally_monitor.py` archives the field as of "
+              "#1305, so a capture taken from now on will have them.")
     return 0
 
 
