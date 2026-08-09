@@ -20,7 +20,9 @@ The directory is split by role. **Run every script from the repo root** (paths l
 - **`tools/`** — human-verified production entrypoints, the ones confirmed working live:
   `rally_join.py` (rally listen/join/decline + squad select), `rally_create.py` (raise a
   rally on a searched monster — press «Стягивание», pick the squad, launch),
-  `rally_monitor.py` (live rally capture), `alliance_help_monitor.py` (live auto-help — answers
+  `rally_monitor.py` (live rally capture), `rally_report.py` (one HTML page of everybody's
+  squads and their power over time, out of what the monitor archived),
+  `alliance_help_monitor.py` (live auto-help — answers
   `push.al.help.new` with `al.help.all` the second it lands; the panel's
   «Авто-помощь союзникам» checkbox runs it, and a live session has not confirmed it
   end to end yet), `lua_trace.py` (live Lua tracer), `lua_daemon.py` (the warm Lua
@@ -383,6 +385,53 @@ cargo ordering proves the *ranks* are graded (see protocol.md §7 → Trucks);
 which colour the client paints each rank is not on the wire. `--type` takes
 tier numbers 1-5 as well as names, which is what the wire actually says.
 
+## The squads report (`rally_report.py`)
+
+One HTML page of everybody's squads and how their power moved, built out of the rally
+archives the monitor has already written. It captures nothing itself — it only reads.
+
+```bash
+# from the repo root, under the WINDOWS Python (the avatars and the client live there)
+/mnt/c/Python312/python.exe tools/rally_report.py
+```
+
+That is the whole command. It reads every `profiles/*/rally_log.jsonl`, writes
+`profiles/rally_report.html`, refreshes `profiles/rally_report_avatars/` beside it, and
+prints how many alliances, players, squads, measurements and avatars came out. Run it
+again whenever you want the page brought up to date.
+
+WSL's own `python3` produces the page too, but with no pictures: the photo cache is a
+Windows path and `~` resolves to the WSL home instead.
+
+| flag | what it does |
+|---|---|
+| `--no-live` | do not ask the running client for the avatar ids its alliance roster knows — faster, and the right choice when the game is not up |
+| `--out profiles/name.html` | somewhere else; the avatar folder follows it (`name_avatars/`) |
+| `--input profiles/default/rally_log.jsonl` | one archive instead of all of them; repeatable |
+| `--min-moments N` | leave out players seen fewer than N times |
+
+**What the page shows.** Alliances at the top; open one for its players; open a player
+for a chart of all their squads and the list of them; open a squad for its heroes, its
+statistics and its own chart. There is a search box for a name or a uid, and three
+readings of the same series — `мощь` (only the marches at full strength), `все замеры`
+(every one, wounded included) and `на бойца` (power ÷ soldiers).
+
+**The charts are per day, one point each: that day's highest reading**, taken inside
+whichever of the three is on. A day nobody was seen on is a break in the line with a
+dashed jump across it — not a zero, and not a straight continuation.
+
+**Where it takes the pieces from.** The powers and the squads come from the archives,
+which are only written while «Монитор стягиваний» is ticked on the rally tab — the report
+cannot conjure a day the monitor was off. The alliance tag comes from the archive, or the
+profiles' ranking stores, or from who rides with whom, and the page says which. The
+avatars come from the client's own photo cache, so it holds the people that client has
+met. Full reasoning: [`../docs/research/rally-squad-identity.md`](../docs/research/rally-squad-identity.md)
+and [`../docs/research/player-avatars.md`](../docs/research/player-avatars.md).
+
+**The page is other people's accounts** — nicknames, uids, alliance tags, faces. It is
+written into `profiles/`, which is git-ignored, and a destination outside a git-ignored
+tree is refused rather than warned about. Do not commit it or paste it anywhere public.
+
 ## Step-by-step
 
 ### 0. Python env (WSL, one-time)
@@ -564,7 +613,16 @@ results/
 ├── traffic/<ts>_desc.txt        # what the operator did in the game, that run
 ├── traces/<ts>_trace.log       # one file per Lua tracer run (lua_trace.py)
 ├── traces/<ts>_desc.txt         # the same description, beside the other half
+├── head_icons/{head,head_s6}/  # the game's built-in avatars (extract_hero_icons --sets)
 └── raw/                     # raw request/response bodies (*.bin)
+```
+The rally archives and the report built from them live under `profiles/` instead, because
+they belong to a panel profile rather than to a run:
+```
+profiles/
+├── <profile>/rally_log.jsonl   # one line per rally participant (rally_monitor --out)
+├── rally_report.html           # the page (rally_report.py)
+└── rally_report_avatars/       # its pictures, one file per face, linked relatively
 ```
 `<ts>` is `YYYYMMDD_HHMMSS` taken when the run starts, so a restart always
 lands in a new file (`_2`, `_3`, … disambiguate the same second).
