@@ -84,6 +84,14 @@ So the unit of the archive is the moment a squad was seen: 13 206 distinct lines
 **4 694 moments** across 544 squads. The moment is stamped at the FIRST line of the
 rally, not the last refresh.
 
+A moment is not a chart point, though. `tools/rally_report.py` plots one point per DAY —
+the day's highest reading, taken inside whichever mode is on — because a squad goes out
+several times a day and its ceiling is the figure worth reading. Every moment is carried
+into the page for that: an earlier version thinned out runs of identical readings, which
+is harmless on a per-reading axis and wrong on a per-day one, since the deleted middle
+day then reads as a day with no reading, i.e. as «not seen». Days with genuinely no
+reading are drawn as a break with a dashed jump, and never as a zero.
+
 `teamUuid == "0"` on ~2 % of lines — a create push arriving before the team id exists.
 Those have no rally to group by; a ten-minute bucket per squad collapses them (453 such
 lines in 120 squads, median 147 s apart, so a run of them is one create being repeated).

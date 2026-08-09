@@ -147,19 +147,27 @@ def test_one_rally_is_one_moment_however_many_lines_it_left():
                                                        (9000, 51_000_000)]
 
 
-def test_a_flat_run_of_moments_keeps_only_its_ends():
-    """Forty separate sightings at an unchanged power draw one line — two points do."""
+def test_an_unchanging_squad_still_has_a_point_on_every_day_it_was_seen():
+    """The page buckets by day, so a day whose only reading was thinned out reads as
+    «not seen» — a break in the line. A squad that never changes is exactly the one
+    that would have had every middle day deleted, and it is the one whose flat line
+    means the most.
+    """
+    import datetime
+    noon = datetime.datetime(2026, 3, 2, 12, 0).timestamp()
     with tempfile.TemporaryDirectory() as tmp:
         path = _archive(tmp, "rally_log.jsonl", [
-            _line(1000 + step * 600, UID_A, "Player1", 50_000_000, 3000, 1,
-                  [1, 2, 3, 4, 5], team=str(4000000000000000 + step))
-            for step in range(40)
-        ] + [_line(90_000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5],
-                   team="4000000000000099")])
+            # five days running, three sightings a day, the same reading every time
+            _line(noon + day * 86400 + hour * 3600, UID_A, "Player1",
+                  50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team=str(4000000000000000 + day * 10 + hour))
+            for day in range(5) for hour in range(3)
+        ])
         data = rr.load([path])
     squad = data["players"][0]["squads"][0]
-    assert squad["moments"] == 41, squad["moments"]        # every sighting is counted
-    assert [p[0] for p in squad["series"]] == [1000, 24_400, 90_000], squad["series"]
+    assert squad["moments"] == 15, squad["moments"]
+    days = {datetime.datetime.fromtimestamp(p[0]).date() for p in squad["series"]}
+    assert len(days) == 5, sorted(days)          # not one of them may go missing
 
 
 def test_a_create_before_the_team_id_is_not_a_second_moment():

@@ -54,6 +54,13 @@ is, and it was checked rather than assumed:
 * the march uuid (`armyInfo.f1.f3`) is allocated per march, so keying on it turns every
   rally into a brand-new "squad" — which is what the previous report did.
 
+**The charts are per DAY, one point each: the day's best reading.** A squad goes out
+several times a day and the interesting figure is its ceiling, not whichever outing
+happened to be last. The maximum is taken inside the chosen mode, so a day's best
+full-strength march and a day's best per-soldier figure never end up on the same curve.
+A day with no reading gets NO point — the line breaks and the jump is drawn as a thin
+dash, because «not seen that day» and «power fell» must not look alike.
+
 **Power in a rally is what marched, not what the squad is worth.** A squad that lost
 soldiers marches at a fraction of its power — 27 M at 1 725 hp where the same slot sends
 56 M at 3 123 hp. So the page offers two readings of the same series: `мощь` as archived,
@@ -397,16 +404,14 @@ def load(paths) -> dict:
             moments = sorted(squad["moments"].values(), key=lambda m: m[0])
             for moment in moments:
                 moment[0] = round(moment[0])
-            # A run of moments at an unchanged power draws one straight line, so only its
-            # two ends are worth carrying — the shape is identical and the page is a
-            # third of the size. The count of moments is kept separately.
-            series = []
-            for index, moment in enumerate(moments):
-                interior = (0 < index < len(moments) - 1
-                            and moments[index - 1][1:] == moment[1:]
-                            and moments[index + 1][1:] == moment[1:])
-                if not interior:
-                    series.append(moment)
+            # EVERY moment travels, and the run of identical readings in the middle is
+            # NOT thinned out. It used to be — the shape of a line through them is the
+            # same either way — but the page buckets the series BY DAY now, and a day
+            # whose only reading was dropped as "interior" comes out as a day with no
+            # reading, which the chart draws as a break meaning «not seen». That is the
+            # one thing the whole page is trying not to say by accident, and it would
+            # have been said most often about the squads that changed least.
+            series = moments
             detail = squad["detail"] or {"heroes": [], "drone": None, "formation": None}
             for hero in detail["heroes"]:
                 hero["name"] = names.get(hero["id"], "")
@@ -658,8 +663,30 @@ function fullPoints(s){
   var floor = s.fullHp * 0.95;
   return s.series.filter(function(p){ return p[2] >= floor; });
 }
+
+var DAY = 86400;
+
+/* One point per DAY: the day's best reading. A squad goes out several times a day and
+   the interesting figure is the ceiling, not whichever outing happened to be last.
+   The maximum is taken INSIDE the chosen mode — a day's best full-strength march and a
+   day's best per-soldier figure are different readings, and mixing them draws a curve
+   that is neither. A day with nothing in it produces NO point: that is a hole, and the
+   chart breaks the line across it rather than inventing a value. */
+function byDay(pts){
+  var best = {};
+  pts.forEach(function(p){
+    var d = new Date(p[0] * 1000);
+    d.setHours(0, 0, 0, 0);
+    var key = Math.round(d.getTime() / 1000);
+    var held = best[key];
+    if (!held || value(p) > value(held)) best[key] = [key, p[1], p[2], p[0]];
+  });
+  return Object.keys(best).map(function(k){ return best[k]; })
+              .sort(function(a, b){ return a[0] - b[0]; });
+}
+
 function points(s){
-  return MODE === 'full' ? fullPoints(s) : s.series;
+  return byDay(MODE === 'full' ? fullPoints(s) : s.series);
 }
 function esc(s){
   return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
@@ -676,7 +703,7 @@ function chart(series){
   var xs = pts.map(function(p){ return p[0]; }), ys = pts.map(value);
   var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
   var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
-  if (x1 === x0) { x0 -= 1800; x1 += 1800; }
+  if (x1 === x0) { x0 -= DAY / 2; x1 += DAY / 2; }
   if (y1 === y0) { y0 = y0 * 0.98 - 1; y1 = y1 * 1.02 + 1; }
   else { var pad = (y1 - y0) * 0.12; y0 -= pad; y1 += pad; }
   if (y0 < 0 && Math.min.apply(null, ys) >= 0) y0 = 0;   /* no negative power */
@@ -691,29 +718,55 @@ function chart(series){
     out.push('<text x="' + (L - 6) + '" y="' + (y + 4).toFixed(1) + '" fill="#98a0b3" ' +
              'font-size="12" text-anchor="end">' + big(v) + '</text>');
   }
-  /* Under four days every tick would read the same date, so the clock goes in too. */
-  var label = (x1 - x0) < 4 * 86400 ? when : day;
-  for (var k = 0; k <= 2; k++) {
-    var t = x0 + (x1 - x0) * k / 2, tx = X(t);
-    var anchor = k === 0 ? 'start' : (k === 2 ? 'end' : 'middle');
+  /* The axis is days now, so the ticks are days — one per day while they fit. */
+  var days = Math.round((x1 - x0) / DAY) + 1;
+  var ticks = Math.min(Math.max(days, 2), 5) - 1;
+  for (var k = 0; k <= ticks; k++) {
+    var t = x0 + (x1 - x0) * k / ticks, tx = X(t);
+    var anchor = k === 0 ? 'start' : (k === ticks ? 'end' : 'middle');
     out.push('<text x="' + tx.toFixed(1) + '" y="' + (H - 6) + '" fill="#98a0b3" ' +
-             'font-size="12" text-anchor="' + anchor + '">' + label(t) + '</text>');
+             'font-size="12" text-anchor="' + anchor + '">' + day(t) + '</text>');
   }
+  var gaps = 0;
   series.forEach(function(s){
     if (!s.pts.length) return;
-    var d = s.pts.map(function(p, i){
-      return (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(value(p)).toFixed(1);
-    }).join(' ');
-    out.push('<path d="' + d + '" fill="none" stroke="' + s.color +
-             '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>');
-    var dots = s.pts.length <= 60 ? s.pts : [s.pts[0], s.pts[s.pts.length - 1]];
-    dots.forEach(function(p){
+    /* A missing day breaks the line. The run either side is drawn solid; the jump over
+       the hole is a thin dashed hint, so «not seen» never looks like a reading. */
+    var run = [];
+    var flush = function(){
+      if (run.length > 1) {
+        out.push('<path d="' + run.map(function(p, i){
+          return (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(value(p)).toFixed(1);
+        }).join(' ') + '" fill="none" stroke="' + s.color + '" stroke-width="2" ' +
+        'stroke-linejoin="round" stroke-linecap="round"/>');
+      }
+      run = [];
+    };
+    s.pts.forEach(function(p, i){
+      if (i && p[0] - s.pts[i - 1][0] > DAY * 1.5) {
+        gaps++;
+        var a = s.pts[i - 1];
+        flush();
+        out.push('<path d="M' + X(a[0]).toFixed(1) + ' ' + Y(value(a)).toFixed(1) +
+                 ' L' + X(p[0]).toFixed(1) + ' ' + Y(value(p)).toFixed(1) +
+                 '" fill="none" stroke="' + s.color + '" stroke-width="1" ' +
+                 'stroke-dasharray="3 4" opacity=".45"/>');
+      }
+      run.push(p);
+    });
+    flush();
+    s.pts.forEach(function(p){
       out.push('<circle cx="' + X(p[0]).toFixed(1) + '" cy="' + Y(value(p)).toFixed(1) +
-               '" r="2.6" fill="' + s.color + '"><title>' + esc(s.name) + ' · ' +
-               when(p[0]) + ' · ' + num(p[1]) + ' · ' + num(p[2]) + ' бойцов</title></circle>');
+               '" r="2.8" fill="' + s.color + '"><title>' + esc(s.name) + ' · ' +
+               day(p[0]) + ' · максимум ' + num(p[1]) + ' при ' + num(p[2]) +
+               ' бойцах (замер ' + when(p[3] || p[0]) + ')</title></circle>');
     });
   });
   out.push('</svg>');
+  if (gaps) {
+    out.push('<div class="empty">пунктир — дни, в которые отряд не выходил: ' +
+             'это пропуск, а не падение мощи</div>');
+  }
   return out.join('');
 }
 
@@ -731,14 +784,14 @@ function squadSeries(s){
    The last archived reading is not it — a squad that went out wiped is archived at a
    twentieth of its power, and calling that "the squad" is reading a casualty list. */
 function headline(s){
-  var pick = MODE === 'all' ? s.series : fullPoints(s);
-  if (!pick.length) pick = s.series;
+  var pick = points(s);
+  if (!pick.length) pick = byDay(s.series);
   var last = pick[pick.length - 1];
   return last ? value(last) : 0;
 }
 
 function delta(s){
-  var pts = MODE === 'full' ? points(s) : s.series;
+  var pts = points(s);
   if (pts.length < 2) return '';
   var a = value(pts[0]), b = value(pts[pts.length - 1]);
   if (!a) return '';
@@ -778,8 +831,8 @@ function squadBody(s){
     '<span>с <b>' + when(s.first) + '</b></span></div>');
   var series = squadSeries(s);
   if (series.pts.length < 2) {
-    parts.push('<div class="empty">на этом режиме у отряда один замер — график ' +
-               'будет со второго</div>');
+    parts.push('<div class="empty">на этом режиме у отряда один день с замерами — ' +
+               'график будет со второго</div>');
   } else {
     parts.push(chart([series]));
   }
@@ -800,11 +853,11 @@ function playerBody(p){
     if (quiet.length) {
       parts.push('<div class="empty">не на графике: ' + quiet.map(function(s){
         return 'отряд ' + (s.slot || '?'); }).join(', ') +
-        ' — меньше двух замеров на этом режиме</div>');
+        ' — меньше двух дней с замерами на этом режиме</div>');
     }
   } else {
-    parts.push('<div class="empty">пока по одному замеру на отряд — общего графика ' +
-               'нет</div>');
+    parts.push('<div class="empty">пока по одному дню с замерами на отряд — общего ' +
+               'графика нет</div>');
   }
   p.squads.forEach(function(s, i){
     var who = s.heroes.map(function(h){ return h.name ? esc(h.name) : '#' + h.id; })
