@@ -1135,6 +1135,7 @@
   "log.profile.client_shared_boot": "один клиент у профилей: {names}. Свой клиент каждому даётся в «{tab}» → «{page}» → «{frame}».",
   "log.profile.closed": "профиль закрыт: {name}",
   "log.profile.folder_failed": "не удалось открыть папку профиля: {error}",
+  "log.profile.not_a_profile": "«{name}» — папка в profiles/ без config.json, аккаунтом не считаю",
   "log.profile.held_elsewhere": "{name} открыт в другой панели — здесь не открываю",
   "log.profile.held_stale": "{name} заперт панелью, которая перестала отвечать (pid {pid}, молчит {mins} мин) — закройте её, и профиль вернётся",
   "log.profile.last_one": "{name} — единственный открытый профиль, его нельзя закрыть",

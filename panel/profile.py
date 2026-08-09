@@ -475,13 +475,15 @@ class ProfileManager:
         # has something to select.
         if not self.list():
             self._ensure_dir(DEFAULT_PROFILE)
-        else:
-            # Backfill config.json for any profile that predates this rule — so
-            # `panel/profiles/` never shows a profile with no config file of its own,
-            # right from the next time anything so much as opens the panel (#1246),
-            # rather than only once that particular profile is next touched.
-            for existing in self.list():
-                self._ensure_dir(existing)
+        # THE BACKFILL THAT USED TO BE HERE IS GONE (#1306). It wrote an empty
+        # `config.json` into every listed profile that had none, so that `profiles/`
+        # never showed a profile with no config file to point at (#1246). Under the
+        # rule in `list()` that loop can no longer do anything — a directory without a
+        # config is not listed — and worse, run over the DIRECTORIES instead it would
+        # turn every stray folder into a real account, which is the exact bug this
+        # change exists to fix. The invariant it was defending is now the definition:
+        # everything `list()` returns has a config because having one is what put it
+        # there. What has a directory and no config is said out loud (`strays`).
         self.pinned = bool(sanitize(pin or ""))
         self._active = self._ensure_dir(pin) if self.pinned else self._read_active()
 
@@ -489,24 +491,57 @@ class ProfileManager:
     def list(self) -> list[str]:
         """Existing profile names, sorted (the default first if present).
 
-        ``profiles/`` also holds the panel's own machinery — the DSL bot's profiles in
-        ``_bot/``, and whatever a future one needs — so a directory in there is only a
-        profile if :func:`paths.is_profile_name` says so. Otherwise the folder somebody
-        opens to find their accounts would list the plumbing beside them, which is the
-        confusion this whole move is about.
+        **A PROFILE IS A DIRECTORY WITH A `config.json` IN IT** (#1306), not any
+        directory that happens to sit in ``profiles/``. That answers the question
+        «what makes a profile a profile» once, and it stays right whatever else ends up
+        beside them — which the old rule did not: the squads report writes its faces
+        into ``profiles/<report>_avatars/``, and the panel duly believed there was an
+        account of that name and reported it as a co-owner of the default profile's
+        daemon. Reserving that one name would have fixed that one folder; this fixes
+        the class.
+
+        The machinery is excluded first and separately (:func:`paths.is_profile_name`):
+        the DSL bot's ``_bot/``, anything dot-prefixed. A folder that passes THAT and
+        still has no config is not silently dropped — :meth:`strays` is what the panel
+        says out loud about it, because «skipped quietly» and «there was nothing there»
+        are the same two states this repository keeps having to tell apart.
         """
+        return sorted(self._dirs(with_config=True),
+                      key=lambda n: (n != DEFAULT_PROFILE, n.lower()))
+
+    def strays(self) -> list[str]:
+        """Directories that look like a profile and have no ``config.json``. Sorted.
+
+        Two quite different things end up here and the panel says the same sentence
+        about both, because from the outside they ARE the same thing — a folder in
+        ``profiles/`` that the panel is not treating as an account:
+
+        * something that is not a profile at all (a report's pictures, a stray copy);
+        * a real profile whose config was lost or never written, which under the rule
+          above has just become invisible. That one MUST be said: a person who put it
+          there is otherwise left looking for a profile the panel will never mention.
+        """
+        return sorted(self._dirs(with_config=False), key=str.lower)
+
+    def _dirs(self, *, with_config: bool) -> list[str]:
+        """Directory names in ``profiles/`` that pass the name rule, split by config."""
         try:
-            names = [n for n in os.listdir(PROFILES_DIR)
-                     if paths.is_profile_name(n)
-                     and os.path.isdir(os.path.join(PROFILES_DIR, n))]
+            entries = os.listdir(PROFILES_DIR)
         except OSError:
-            names = []
-        return sorted(names, key=lambda n: (n != DEFAULT_PROFILE, n.lower()))
+            return []
+        out = []
+        for name in entries:
+            path = os.path.join(PROFILES_DIR, name)
+            if not (paths.is_profile_name(name) and os.path.isdir(path)):
+                continue
+            if os.path.exists(os.path.join(path, CONFIG_FILE)) is with_config:
+                out.append(name)
+        return out
 
     def exists(self, name: str) -> bool:
         name = sanitize(name)
         return (bool(name) and paths.is_profile_name(name)
-                and os.path.isdir(os.path.join(PROFILES_DIR, name)))
+                and os.path.isfile(os.path.join(PROFILES_DIR, name, CONFIG_FILE)))
 
     @property
     def active(self) -> str:

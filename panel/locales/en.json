@@ -1135,6 +1135,7 @@
   "log.profile.client_shared_boot": "one client for the profiles: {names}. Each gets one of its own in «{tab}» → «{page}» → «{frame}».",
   "log.profile.closed": "profile closed: {name}",
   "log.profile.folder_failed": "the profile folder could not be opened: {error}",
+  "log.profile.not_a_profile": "«{name}» is a folder in profiles/ with no config.json — not treated as an account",
   "log.profile.held_elsewhere": "{name} is open in another panel — left alone here",
   "log.profile.held_stale": "{name} is held by a panel that stopped answering (pid {pid}, silent for {mins} min) — close it and this profile comes back",
   "log.profile.last_one": "{name} is the only profile open — it cannot be closed",

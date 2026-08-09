@@ -1135,6 +1135,7 @@
   "log.profile.client_shared_boot": "satu klien untuk profil: {names}. Klien sendiri didapat masing-masing di «{tab}» → «{page}» → «{frame}».",
   "log.profile.closed": "profil ditutup: {name}",
   "log.profile.folder_failed": "folder profil tidak bisa dibuka: {error}",
+  "log.profile.not_a_profile": "«{name}» adalah folder di profiles/ tanpa config.json — tidak dianggap akun",
   "log.profile.held_elsewhere": "{name} terbuka di panel lain — tidak dibuka di sini",
   "log.profile.held_stale": "{name} ditahan panel yang berhenti menjawab (pid {pid}, diam {mins} mnt) — tutup panel itu dan profil kembali",
   "log.profile.last_one": "{name} adalah satu-satunya profil yang terbuka — tidak bisa ditutup",

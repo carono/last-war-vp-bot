@@ -580,6 +580,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         for key, fmt in self._held_notes:
             self._say("profile", key, **fmt)
         self._held_notes = []
+        # …and which folders in `profiles/` are NOT accounts, said rather than skipped
+        # (#1306). A profile is a directory with a `config.json`, and a directory
+        # without one is passed over — which is indistinguishable from «there was
+        # nothing there» unless somebody says so. Two quite different things land here
+        # (a report's pictures; a real profile whose config was lost) and the person is
+        # the only one who can tell which they are looking at.
+        for stray in self._workspace.profiles.strays():
+            self._say("profile", "log.profile.not_a_profile", name=stray)
         self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)

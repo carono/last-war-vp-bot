@@ -42,6 +42,7 @@ from __future__ import annotations
 TIER = "ui"        # Tk (not a display) — see tools/run_tests.py
 
 import logging
+import os
 import sys
 import threading
 import types
@@ -153,20 +154,36 @@ def test_the_session_anchor_finds_a_client_that_was_not_there_at_spawn():
         sys.modules.pop("psutil", None)
 
 
-def test_a_session_that_cannot_be_resolved_is_cannot_tell_not_nothing():
-    """A profile whose Windows session is not logged on must not go deaf."""
+def test_a_session_not_logged_on_is_an_answer_and_a_failed_question_is_not():
+    """The two ways of finding no client, which are not the same finding.
+
+    A session that is not logged on has been ASKED and has answered: that account has
+    no client, so nothing on the wire is its. A question that could not be PUT — no
+    session table, no pywin32 — is doubt, and doubt keeps the traffic.
+    """
     real = map_capture.game_link.pids
-
-    def refuse(user=None, **_kw):
-        raise LookupError(f"no session for {user}")
-
-    map_capture.game_link.pids = refuse
-    sys.modules.pop("psutil", None)
+    stub = types.ModuleType("psutil")
+    stub.pid_exists = lambda pid: False
+    stub.process_iter = lambda attrs=None: []
+    stub.net_connections = lambda kind="tcp": []
+    sys.modules["psutil"] = stub
     try:
-        watcher = map_capture.OwnPorts((), ttl=0.0, logins=("Player1",))
-        assert watcher() == set(), "«cannot tell» is the empty answer, and it is kept"
+        def not_logged_on(user=None, **_kw):
+            raise LookupError(f"no session for {user}")
+
+        map_capture.game_link.pids = not_logged_on
+        assert map_capture.OwnPorts((), ttl=0.0, logins=("Player1",))() == set(), (
+            "an account with no client must hear nothing, not everything")
+
+        def cannot_ask(user=None, **_kw):
+            raise OSError("no session table on this machine")
+
+        map_capture.game_link.pids = cannot_ask
+        assert map_capture.OwnPorts((), ttl=0.0, logins=("Player1",))() is None, (
+            "doubt must lose the separation, never the traffic")
     finally:
         map_capture.game_link.pids = real
+        sys.modules.pop("psutil", None)
 
 
 # -- the commentary sink ------------------------------------------------------
@@ -250,6 +267,128 @@ def test_the_web_server_logs_to_the_window():
     assert "debug_log.panel_logger(\"web\")" in source
     assert "server.rt.dbg(\"web\")" not in source, (
         "the access log is back in whichever profile happened to start the server")
+
+
+# -- what makes a profile a profile -------------------------------------------
+
+def _scratch_profiles(tmp: str):
+    """Point `panel.profile` at an empty tree and hand back a bare manager."""
+    from panel import profile as profilemod
+
+    profilemod.PROFILES_DIR = tmp
+    manager = profilemod.ProfileManager.__new__(profilemod.ProfileManager)
+    return profilemod, manager
+
+
+def test_a_profile_is_a_directory_with_a_config_not_any_directory():
+    """The definition, and the folder that forced it (#1306).
+
+    `profiles/` also collects things that are not accounts — the squads report writes
+    its faces into `profiles/<report>_avatars/` — and «every directory in profiles/»
+    made one of those an account with a share in another profile's daemon. Reserving
+    that one name would have fixed that one folder.
+    """
+    import tempfile
+    from panel import profile as profilemod
+
+    keep = profilemod.PROFILES_DIR
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            mod, manager = _scratch_profiles(tmp)
+            for name in ("alpha", "avatars_of_a_report", "beta"):
+                os.makedirs(os.path.join(tmp, name))
+            for name in ("alpha", "beta"):
+                with open(os.path.join(tmp, name, mod.CONFIG_FILE), "w",
+                          encoding="utf-8") as fh:
+                    fh.write("{}")
+
+            assert manager.list() == ["alpha", "beta"], manager.list()
+            assert manager.exists("alpha")
+            assert not manager.exists("avatars_of_a_report"), (
+                "a folder with no config is an account again")
+        finally:
+            profilemod.PROFILES_DIR = keep
+
+
+def test_an_empty_config_is_still_a_profile():
+    """`{}` means «nothing overridden», not «not a profile».
+
+    Pinned because the rule above is about the FILE existing, and a profile that has
+    never had a setting changed is exactly the one whose file is empty.
+    """
+    import tempfile
+    from panel import profile as profilemod
+
+    keep = profilemod.PROFILES_DIR
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            mod, manager = _scratch_profiles(tmp)
+            os.makedirs(os.path.join(tmp, "untouched"))
+            with open(os.path.join(tmp, "untouched", mod.CONFIG_FILE), "w",
+                      encoding="utf-8") as fh:
+                fh.write("{}")
+            assert manager.list() == ["untouched"]
+            assert manager.exists("untouched")
+        finally:
+            profilemod.PROFILES_DIR = keep
+
+
+def test_a_folder_that_is_not_a_profile_is_SAID_not_skipped():
+    """«Passed over quietly» and «there was nothing there» must not look the same.
+
+    Two different things land in `strays()` — a report's pictures, and a real profile
+    whose config was lost and which has just become invisible — and only the person
+    can tell which they are looking at. So the panel says the line either way.
+    """
+    import tempfile
+    from panel import profile as profilemod
+
+    keep = profilemod.PROFILES_DIR
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            mod, manager = _scratch_profiles(tmp)
+            os.makedirs(os.path.join(tmp, "alpha"))
+            with open(os.path.join(tmp, "alpha", mod.CONFIG_FILE), "w",
+                      encoding="utf-8") as fh:
+                fh.write("{}")
+            os.makedirs(os.path.join(tmp, "avatars_of_a_report"))
+            os.makedirs(os.path.join(tmp, "_bot"))          # machinery: never said
+            os.makedirs(os.path.join(tmp, ".hidden"))       # nor is a dot-directory
+
+            assert manager.strays() == ["avatars_of_a_report"], manager.strays()
+        finally:
+            profilemod.PROFILES_DIR = keep
+
+
+def test_the_shell_says_the_line_and_it_exists_in_every_locale():
+    """The saying half: a key, in all eleven, said off `strays()` at boot."""
+    import json
+
+    source = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert "log.profile.not_a_profile" in source, "nothing says it"
+    assert "profiles.strays()" in source, "the line is said off something else"
+
+    locales = sorted((_REPO / "panel" / "locales").glob("*.json"))
+    assert len(locales) >= 11, [p.name for p in locales]
+    for path in locales:
+        text = json.loads(path.read_text(encoding="utf-8"))
+        assert "log.profile.not_a_profile" in text, path.name
+        assert "{name}" in text["log.profile.not_a_profile"], path.name
+
+
+def test_the_backfill_that_would_undo_all_this_is_gone():
+    """The old rule wrote a config into every listed directory — including the strays.
+
+    It is how `profiles/rally_report_avatars/` came to hold a `config.json` on the live
+    machine: the panel PROMOTED the folder. Run over directories rather than over
+    profiles, that loop turns every stray into an account, so its absence is part of
+    the definition rather than tidying.
+    """
+    source = (_REPO / "panel" / "profile.py").read_text(encoding="utf-8")
+    body = source[source.index("def __init__(self, pin"):
+                  source.index("    # -- profile enumeration")]
+    assert "for existing in self.list()" not in body, (
+        "the backfill loop is back; it re-promotes strays into accounts")
 
 
 # -- what is shared ON PURPOSE ------------------------------------------------

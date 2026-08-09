@@ -154,7 +154,56 @@ a fallback: `triggers.load_catalogue` is a module function with no runtime to as
 logs whenever it grows a profile's `triggers.json`. It named the file's basename — which
 is `triggers.json` for every profile there is — and now names the profile directory.
 
-## 5. Named, and left alone
+## 5. A profile is a directory with a `config.json` — **fixed**
+
+The profile list was «every directory in `profiles/` that is not reserved». The squads
+report (#1305) writes `profiles/rally_report.html` and puts the faces beside it in
+`profiles/rally_report_avatars/`, so the panel believed there was an account of that
+name and reported it live as a co-owner of the default profile's daemon:
+
+```
+daemon 47654 … 'shared': ['rally_report_avatars', 'Основной аккаунт']
+```
+
+**And it was not a phantom, because the panel promoted it.** `ProfileManager.__init__`
+backfilled an empty `config.json` into every listed directory (#1246, so that no profile
+was left without a file to point at) — over a list that included the strays. The folder
+of JPEGs had a real config in it within a minute of the panel starting.
+
+Three fixes were on the table; the operator chose the one that answers the question
+rather than the instance:
+
+* *reserve the name* — fixes that one folder. The next one is named after whatever
+  `--out` the report was given.
+* *move reports under `profiles/_reports/`* — right by ordering, and it still leaves
+  «any directory is an account» in place for whatever somebody drops in next.
+* **define it: a profile is a directory with a `config.json`.** True whatever else ends
+  up beside them.
+
+So `list()` requires the file, `exists()` requires it, and the backfill loop is gone —
+run over directories it is the very thing that turns a stray into an account.
+
+**What is skipped is SAID, not passed over.** A directory that clears the name rule and
+has no config is reported at boot, one line each, `log.profile.not_a_profile`, in all
+eleven locales. Two quite different things land there — a report's pictures, and a real
+profile whose config was lost and which has just become invisible — and only the person
+can tell which they are looking at. Silence would make the second indistinguishable from
+«there was never anything there», which is the failure this file keeps being about.
+
+An EMPTY config is still a profile: `{}` means «nothing overridden», and it is exactly
+what a profile that has never had a setting changed looks like. «Основной аккаунт» is
+one, and its own mine — no `daemon_port`, so it drives the default client — is the
+bullet above and not this one.
+
+One repair by hand, once: the `config.json` the old backfill had written into
+`profiles/rally_report_avatars/` was removed on the live machine. Nothing in the code
+does that for anybody else's install — it reports the folder instead.
+
+**Still worth doing later, and deliberately not done here:** moving the report and its
+faces out of `profiles/` altogether, under `profiles/_reports/`. The paths have already
+been given to the operator, so it is a move to make on purpose rather than in passing.
+
+## 6. Named, and left alone
 
 * **`game_clock`'s offset is process-wide.** Every client's offset is a drift between
   this PC's clock and the game's, so the number is the same for all of them, and
@@ -170,29 +219,7 @@ is `triggers.json` for every profile there is — and now names the profile dire
 * **A profile with no `daemon_port` of its own drives the default client** — i.e. another
   profile's. The panel already says so in as many words when it notices two profiles on
   one port. It is a настройка to get right, not a bug to fix in code.
-* **A directory in `profiles/` that is not a profile is listed as one — FOUND, NOT
-  FIXED.** The squads report (#1305) writes `profiles/rally_report.html` and puts the
-  faces beside it in `profiles/rally_report_avatars/`, and the profile list is «every
-  directory in `profiles/` that is not reserved». So the panel now believes there is an
-  account called `rally_report_avatars`, and reports it live as a co-owner of the
-  default profile's daemon:
-
-  ```
-  daemon 47654 … 'shared': ['rally_report_avatars', 'Основной аккаунт']
-  ```
-
-  Harmless today — a phantom with no config drives nothing — but it is in the picker,
-  it is in that list, and the next reader of it has to know which of the names are real.
-
-  It is left alone deliberately, because every plausible fix is somebody's decision
-  rather than a repair. Reserving the one name does not generalise: the folder is named
-  after whatever `--out` the report was given. Filtering the list on «has a
-  `config.json`» agrees with #1246's stated invariant and would also quietly drop a
-  profile directory somebody made by hand. Moving reports under `profiles/_reports/`
-  (the `_bot` convention) is the cleanest, and it relocates an artefact that shipped
-  yesterday. **Ask before choosing.**
-
-## 6. Shared ON PURPOSE, so nobody «fixes» them later
+## 7. Shared ON PURPOSE, so nobody «fixes» them later
 
 Pinned in `tests/test_profile_isolation.py` for exactly that reason.
 

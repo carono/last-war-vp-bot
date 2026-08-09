@@ -1135,6 +1135,7 @@
   "log.profile.client_shared_boot": "şu profiller tek bir istemcide: {names}. Her biri kendi istemcisini «{tab}» → «{page}» → «{frame}» altında alır.",
   "log.profile.closed": "profil kapatıldı: {name}",
   "log.profile.folder_failed": "profil klasörü açılamadı: {error}",
+  "log.profile.not_a_profile": "«{name}», profiles/ içinde config.json'u olmayan bir klasör — hesap sayılmıyor",
   "log.profile.held_elsewhere": "{name} başka bir panelde açık — burada açılmadı",
   "log.profile.held_stale": "{name} yanıt vermeyi bırakan bir panel tarafından tutuluyor (pid {pid}, {mins} dk sessiz) — onu kapatın, profil geri gelir",
   "log.profile.last_one": "{name} açık olan tek profil — kapatılamaz",
