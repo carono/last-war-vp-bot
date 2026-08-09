@@ -216,6 +216,16 @@ def chat_photos_dir() -> str:
                                        os.path.join(data_dir(), "ChatPhotos")))
 
 
+def local_images() -> str:
+    """Where the client caches the player photos it downloads as it meets people.
+
+    A flat-ish tree beside the chat-photo cache in the same download directory:
+    `LocalImages/<last 6 digits of uid>/<md5(f"{uid}_{picVer}")>.jpg`. It fills up with
+    exactly the players this client has seen, which is what makes it worth reading.
+    """
+    return _env("LW_LOCAL_IMAGES", os.path.join(data_dir(), "LocalImages"))
+
+
 def gameres() -> str:
     """The text index of the shipped asset bundles."""
     return _env("LW_GAMERES", os.path.join(game_dir(), GAMERES_SUBPATH))

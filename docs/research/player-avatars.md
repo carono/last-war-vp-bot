@@ -1,7 +1,37 @@
-# The player's avatar: where the picture is, and where the table is not
+# The player's avatar: the cache first, the sprite second
 
-Task #1305. What a player wears beside their name is a small number on the wire and a
-Unity sprite in the client. Both halves are reachable; the thing that joins them is not.
+Task #1305. There are two different pictures called «the avatar», and only one of them is
+in the game's assets.
+
+## The one that matters: the photo the player uploaded
+
+**It is not in the bundles — it is in the client's photo cache**, because it belongs to
+the player, not to the game. The client downloads it the first time it meets them and
+keeps it in its download tree (`game_paths.local_images()`), keyed exactly the way the
+chat-photo cache is:
+
+    LocalImages/<last 6 digits of uid>/<md5(f"{uid}_{picVer}")>.jpg
+
+On this machine that is 11 623 JPEGs across the uid buckets — i.e. everybody this client
+has ever seen, which is precisely the set a report about people it has seen needs.
+
+A uid alone does not name the file: `picVer` counts up every time a player changes their
+picture, and nothing on the rally wire carries it. So `tools/lib/player_photos.py` finds
+it by trying — hash `uid_0` … `uid_4000` and keep the highest one that is a file in that
+uid's bucket. It cannot be fooled (a hash either names a file or it does not), it costs
+about two seconds for 253 players, and the highest hit is the newest picture: the older
+ones stay in the cache after a change. Observed `picVer` on this cache: 1 to 2 898,
+median 53 — which is why the ceiling is 4 000 and why it is a real limit worth stating.
+
+Coverage measured over the rally archives: **181 of 253 players** had a cached photo.
+Sizes average 55 KiB, so `tools/rally_report.py` shrinks them to 128 px on the way into
+the report's folder — 182 files came to 947 KiB instead of about 10 MB.
+
+## The other one: the built-in avatar, and the table that is missing
+
+The rest of this file is about the fallback — a player who never uploaded a photo wears
+one of the game's own, and THAT one is a number on the wire and a sprite in the bundles.
+Both halves are reachable; the thing that joins them is not.
 
 ## The number
 
@@ -64,17 +94,21 @@ To fix it properly: open the avatar picker in the game, read which picture sits 
 id, and put the pairs in `head_icons_map.CONFIRMED` — a confirmed id always beats the
 numbering rule.
 
-## An uploaded photo is a different thing again
+## Which is why the cache comes first
 
-The member record also has `pic` and `picVer`: a player who uploaded their own photo
-instead of picking an avatar. Two of the hundred had one. Those are not in the bundles at
-all — they arrive over chat and land in the on-disk photo cache, which
-`tools/chat_assets.py` already resolves (`md5(f"{uid}_{picVer}").jpg`). Not wired into the
-report; noted so the next person does not re-derive it.
+The alliance roster's `pic` field looked like it meant «has an uploaded photo», and only
+two of a hundred members had it set — which is why the photo route looked like a dead end
+at first. It is not: 181 of 253 players have a picture in the cache. Whatever `pic` marks,
+it is not what to test.
+
+So `tools/rally_report.py` asks in this order — the player's own photo out of the cache,
+the built-in sprite for their `headSkinId`, and a coloured initial for whoever neither can
+place. In practice the sprite path now covers a handful of people, and would cover more on
+a machine whose client has met fewer of them.
 
 ## A note on the folder
 
-`tools/rally_report.py` copies one PNG per id into `<report>_avatars/` beside the page and
-links to it relatively — the pictures travel with the report and nothing is fetched. Six
-files, 50 KiB, for a page of 253 players: the same avatar shared by forty people costs one
-file.
+The pictures travel WITH the report: `<report>_avatars/` beside the page, one file per
+picture (`<uid>.jpg` for a cached photo, `<headSkinId>.png` for a sprite, so forty people
+wearing the same built-in avatar cost one file), relative links, nothing fetched. 182
+files, 947 KiB, for a page of 253 players.

@@ -247,31 +247,70 @@ def test_riding_together_spreads_one_known_tag_over_the_group():
     assert sum(len(g["players"]) for g in groups) == 3
 
 
-def test_an_avatar_is_one_file_per_id_beside_the_page():
-    """Two hundred players wearing the same avatar cost one PNG, not two hundred."""
+def _fake_cache(root: str, uid: str, pic_ver: int) -> str:
+    """One JPEG in the client's cache layout: bucket by uid tail, name by md5."""
+    import hashlib
+    bucket = os.path.join(root, uid[-6:])
+    os.makedirs(bucket, exist_ok=True)
+    digest = hashlib.md5(f"{uid}_{pic_ver}".encode()).hexdigest()
+    path = os.path.join(bucket, f"{digest}.jpg")
+    try:
+        from PIL import Image
+        Image.new("RGB", (256, 256), (30, 90, 150)).save(path, "JPEG")
+    except ImportError:
+        # No image library here — the bytes only have to exist for the lookup, and
+        # `_shrink` hands an unreadable file over whole rather than dropping it.
+        with open(path, "wb") as fh:
+            fh.write(b"not a picture")
+    return path
+
+
+def test_the_newest_cached_photo_wins():
+    """A player who changed their picture leaves the old file behind — take the new."""
+    import player_photos
     with tempfile.TemporaryDirectory() as tmp:
+        _fake_cache(tmp, UID_A, 3)
+        newest = _fake_cache(tmp, UID_A, 41)
+        player_photos.reset_cache()
+        found = player_photos.newest_for(UID_A, root=tmp)
+        assert found == (newest, 41), found
+        assert player_photos.newest_for(UID_B, root=tmp) is None      # never downloaded
+        assert player_photos.newest_for("", root=tmp) is None
+
+
+def test_the_photo_cache_beats_the_built_in_avatar():
+    """A player's own picture is the picture; the built-in one is what is left."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = os.path.join(tmp, "cache")
+        _fake_cache(cache, UID_A, 7)
         path = _archive(tmp, "rally_log.jsonl", [
+            # A wears a built-in avatar AND has a photo cached — the photo wins
             _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
                   head=head_map.PICKABLE_BASE + 1),
+            # B only has the built-in one
             _line(1000, UID_B, "Player2", 40_000_000, 2800, 1, [6, 7, 8, 10, 11],
                   team="2000000000000001", head=head_map.PICKABLE_BASE + 1),
-            # an id outside the pickable range resolves to nothing — placeholder
+            # C's id is outside the pickable range and has no photo — placeholder
             _line(2000, "1000000000000003", "Player3", 30_000_000, 2000, 1, [1, 2],
                   team="2000000000000002", head=99999),
         ])
+        import player_photos
+        player_photos.reset_cache()
         data = rr.load([path])
         out = os.path.join(tmp, "report.html")
-        hrefs, stats = rr.copy_avatars(data["players"], out)
+        hrefs, stats = rr.copy_avatars(data["players"], out, root=cache)
 
-        assert stats["ids"] == 2, stats               # two distinct ids, three players
+        assert stats["photos"] == 1, stats
+        assert hrefs[UID_A] == f"report_avatars/{UID_A}.jpg"   # relative, beside the page
+        assert os.path.exists(os.path.join(tmp, "report_avatars", f"{UID_A}.jpg"))
+        # only the players the cache could not answer for cost a sprite
+        assert stats["ids"] == 2, stats
         assert stats["unmapped"] == [99999], stats
         if head_map.available():                     # skipped where nothing is extracted
             key = str(head_map.PICKABLE_BASE + 1)
-            assert list(hrefs) == [key] and stats["copied"] == 1, (hrefs, stats)
-            assert hrefs[key] == f"report_avatars/{key}.png"   # relative, beside the page
-            assert os.path.exists(os.path.join(tmp, "report_avatars", f"{key}.png"))
-        else:
-            assert hrefs == {}, hrefs
+            assert hrefs[key] == f"report_avatars/{key}.png"
+            assert stats["sprites"] == 1, stats
+        assert "1000000000000003" not in hrefs
 
 
 def test_only_the_pickable_avatar_range_is_mapped():
@@ -299,9 +338,13 @@ def test_a_page_reaches_nothing_off_the_disk():
             _line(2000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5],
                   team="2000000000000002", head=head_map.PICKABLE_BASE + 1),
         ])
+        cache = os.path.join(tmp, "cache")
+        _fake_cache(cache, UID_A, 7)
+        import player_photos
+        player_photos.reset_cache()
         data = rr.load([path])
         hrefs, _stats = rr.copy_avatars(data["players"],
-                                        os.path.join(tmp, "report.html"))
+                                        os.path.join(tmp, "report.html"), root=cache)
         page = rr.render(data, rr.group_by_alliance(data, [path]), hrefs)
     for reach in ("http://", "https://", "@import", "<link", 'src="/', 'src="//'):
         assert reach not in page, reach

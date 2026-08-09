@@ -17,12 +17,15 @@ when neither knows — a rally is an alliance affair, so its participants are on
 A group nobody can name keeps its players and says so. See
 `docs/research/rally-squad-identity.md`.
 
-Avatars are files beside the page, not inside it: `<report>_avatars/<headSkinId>.png`, one
-per id however many players wear it, linked relatively. Extract them first with
-`tools/extract_hero_icons.py --sets head,head_s6 --out results/head_icons`; ids the
-numbering rule cannot place get a coloured initial instead, and the generator prints how
-many. See `docs/research/player-avatars.md` — chiefly for why the id → picture table is
-a hypothesis for one family and absent for the rest.
+Avatars are files beside the page, not inside it — `<report>_avatars/`, linked relatively,
+nothing fetched. The picture a player uploaded comes out of the CLIENT'S PHOTO CACHE
+(`tools/lib/player_photos.py`), which holds exactly the people this client has met, and is
+copied as `<uid>.jpg` shrunk to 128 px. A player who never uploaded one wears a built-in
+avatar instead: that is a `headSkinId`, and its sprite comes out of the bundles
+(`tools/extract_hero_icons.py --sets head,head_s6 --out results/head_icons`) as
+`<headSkinId>.png`, one file however many players wear it. Whoever neither source can
+place gets a coloured initial, and the generator prints how many. See
+`docs/research/player-avatars.md`.
 
 **The page is not about rallies.** A rally is only the moment somebody's squad became
 visible and its power was written down — a point on a time axis, and nothing else. Who
@@ -182,32 +185,85 @@ def live_head_skins() -> dict:
     return {}
 
 
-def copy_avatars(players, out_path: str) -> tuple:
-    """Put one PNG per avatar id in a folder beside the report; return the hrefs.
+#: Avatars are drawn 34 px wide, so a 55 KiB photo out of the cache is fifty times more
+#: picture than the page can show. Shrunk to this, a folder of two hundred is under a
+#: megabyte and still sharp on a 3× phone screen.
+AVATAR_PX = 128
+
+
+def _shrink(source: str, destination: str) -> None:
+    """Copy a picture down to `AVATAR_PX`, or copy it whole if PIL is not installed."""
+    try:
+        from PIL import Image
+        with Image.open(source) as img:
+            img = img.convert("RGB") if img.mode not in ("RGB", "L") else img
+            img.thumbnail((AVATAR_PX, AVATAR_PX), Image.LANCZOS)
+            img.save(destination, "JPEG", quality=82, optimize=True)
+        return
+    except Exception:                            # noqa: BLE001 — see below
+        pass
+    # No PIL, or a cache entry that is not a picture the library can read — the file is
+    # still what the client downloaded, so hand it over whole rather than dropping the
+    # player's face over a resize.
+    shutil.copyfile(source, destination)
+
+
+def copy_avatars(players, out_path: str, root: str = None) -> tuple:
+    """Put the players' avatars in a folder beside the report; return the hrefs.
 
     The pictures travel WITH the page as files rather than inside it: a folder named
-    after the report, one file per `headSkinId` however many players wear it, and
-    relative links from the page. Nothing is fetched from anywhere.
+    after the report, one file per picture however many rows show it, and relative links
+    from the page. Nothing is fetched from anywhere.
 
-    Returns ``({headSkinId: "folder/<id>.png"}, stats)``.
+    Two sources, in that order:
+
+    1. **The client's photo cache** — the picture the player uploaded for themselves,
+       downloaded by the client the first time it met them
+       (`tools/lib/player_photos.py`). One file per uid, named `<uid>.jpg`.
+    2. **The extracted head sprites** — the built-in avatar a player picked instead of
+       uploading one, named by its `headSkinId` so forty players wearing it cost one
+       file (`tools/lib/head_icons_map.py`).
+
+    Whatever neither source can place gets a coloured initial in the page.
+
+    Returns ``({key: "folder/<file>"}, stats)`` — the key is the uid for a cached photo
+    and the `headSkinId` for a sprite, which is how `avatar()` decides in the page.
     """
-    stats = {"ids": 0, "copied": 0, "unmapped": [], "bytes": 0, "folder": ""}
-    wanted = sorted({p["head"] for p in players if p["head"] is not None})
-    stats["ids"] = len(wanted)
-    if not wanted:
-        return {}, stats
-    try:
-        import head_icons_map as head_map
-    except Exception:                            # noqa: BLE001 — no map is an answer
-        stats["unmapped"] = list(wanted)
-        return {}, stats
-
+    stats = {"photos": 0, "sprites": 0, "ids": 0, "copied": 0, "unmapped": [],
+             "bytes": 0, "folder": "", "cache": ""}
     folder = os.path.splitext(os.path.basename(out_path))[0] + "_avatars"
     directory = os.path.join(os.path.dirname(os.path.abspath(out_path)), folder)
     stats["folder"] = directory
     hrefs = {}
+
+    try:
+        import player_photos
+        stats["cache"] = root or player_photos.game_paths.local_images()
+    except Exception:                            # noqa: BLE001 — no cache is an answer
+        player_photos = None
+
+    if player_photos is not None:
+        for player in players:
+            found = player_photos.newest_for(player["uid"], root=root)
+            if not found:
+                continue
+            os.makedirs(directory, exist_ok=True)
+            destination = os.path.join(directory, f"{player['uid']}.jpg")
+            _shrink(found[0], destination)
+            hrefs[player["uid"]] = f"{folder}/{player['uid']}.jpg"
+            stats["photos"] += 1
+            stats["bytes"] += os.path.getsize(destination)
+
+    # Only the players the cache could not answer for need a built-in sprite.
+    wanted = sorted({p["head"] for p in players
+                     if p["head"] is not None and p["uid"] not in hrefs})
+    stats["ids"] = len(wanted)
+    try:
+        import head_icons_map as head_map
+    except Exception:                            # noqa: BLE001 — no map is an answer
+        head_map = None
     for head_id in wanted:
-        source = head_map.icon_path(head_id)
+        source = head_map and head_map.icon_path(head_id)
         if not source:
             stats["unmapped"].append(head_id)
             continue
@@ -215,8 +271,10 @@ def copy_avatars(players, out_path: str) -> tuple:
         destination = os.path.join(directory, f"{head_id}.png")
         shutil.copyfile(source, destination)
         hrefs[str(head_id)] = f"{folder}/{head_id}.png"
-        stats["copied"] += 1
+        stats["sprites"] += 1
         stats["bytes"] += os.path.getsize(destination)
+
+    stats["copied"] = stats["photos"] + stats["sprites"]
     return hrefs, stats
 
 
@@ -763,7 +821,10 @@ function playerBody(p){
 /* The avatar: a file beside the page when the id resolved to one, a coloured square
    with the first letter when it did not. Nothing is fetched from anywhere. */
 function avatar(p){
-  var href = p.head != null ? DATA.avatars[String(p.head)] : null;
+  /* the player's own photo out of the client's cache first, the built-in avatar they
+     picked second, a coloured initial when neither is on disk */
+  var href = DATA.avatars[p.uid] ||
+             (p.head != null ? DATA.avatars[String(p.head)] : null);
   if (href) return '<img class="ava" src="' + esc(href) + '" alt="" loading="lazy">';
   var hash = 0;
   for (var i = 0; i < p.uid.length; i++) hash = (hash * 31 + p.uid.charCodeAt(i)) % 360;
@@ -898,8 +959,8 @@ def render(data: dict, alliances: list = None, avatars: dict = None) -> str:
                           "total": len(data["players"])},
                          ensure_ascii=False, separators=(",", ":"))
     payload = payload.replace("</", "<\\/")
-    faces = sum(1 for p in data["players"] if p["head"] is not None
-                and str(p["head"]) in avatars)
+    faces = sum(1 for p in data["players"]
+                if p["uid"] in avatars or str(p["head"]) in avatars)
     return (
         '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -992,15 +1053,17 @@ def main() -> int:
     print(f"{args.out} — {len(alliances)} alliance(s) ({named} named), "
           f"{len(data['players'])} player(s), {squads} squad(s), {moments} moment(s), "
           f"{os.path.getsize(args.out) // 1024} KiB")
-    if faces["ids"]:
-        print(f"  avatars: {faces['copied']} file(s), {faces['bytes'] // 1024} KiB "
-              f"in {faces['folder']}"
-              + (f"; {len(faces['unmapped'])} id(s) with no sprite: "
-                 f"{sorted(set(faces['unmapped']))}" if faces["unmapped"] else ""))
-    else:
-        print("  avatars: no headSkinId in these archives — every player gets the "
-              "letter placeholder. `tools/rally_monitor.py` archives the field as of "
-              "#1305, so a capture taken from now on will have them.")
+    drawn = sum(1 for p in data["players"]
+                if p["uid"] in avatars or str(p["head"]) in avatars)
+    print(f"  avatars: {drawn} of {len(data['players'])} player(s) — "
+          f"{faces['photos']} from the client's photo cache, {faces['sprites']} "
+          f"built-in sprite(s); {faces['copied']} file(s), "
+          f"{faces['bytes'] // 1024} KiB in {faces['folder']}")
+    if faces["unmapped"]:
+        print(f"  {len(faces['unmapped'])} avatar id(s) have no sprite on disk: "
+              f"{sorted(set(faces['unmapped']))} — see docs/research/player-avatars.md")
+    if not faces["photos"] and faces["cache"]:
+        print(f"  the photo cache answered for nobody: {faces['cache']}")
     return 0
 
 
