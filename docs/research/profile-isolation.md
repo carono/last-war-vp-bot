@@ -73,6 +73,33 @@ anchor = this session                   →  local ports {60525, 64455}
 
 Disjoint, which is the whole claim.
 
+### 1a. …and «could not tell» was not «nothing»
+
+The first fix was not enough, and the panel said so within ten minutes of coming back
+up: a profile whose client is not running at all was still firing its triggers off a
+live account's pushes — the same `al.help.new`, in two profiles' logs, at the same
+second, twice.
+
+`OwnPorts` had two answers where there are three, and the missing distinction is the one
+this repository keeps rediscovering (`«пусто»` against `«не смог прочитать»`):
+
+| answer | means | the decoder |
+|---|---|---|
+| a set of ports | these are ours | drop everything else |
+| `None` | **could not tell** — no psutil, a socket table that refuses, no session table | keep everything |
+| the empty set | **asked; this account has no client running** | drop everything |
+
+The last two were one answer, and «keep everything» was the wrong half of it. A profile
+with no client is not an edge case: it is the ordinary state of a panel that has just
+started, and of every account whose Windows session is not logged on.
+
+A session that is not logged on IS an answer — `game_link.pids` says so by raising
+`LookupError`, and that account demonstrably has no client. Any other exception is the
+question failing to be put, which stays «could not tell». The rule itself is
+`live_sniffer.is_foreign`, extracted so it can be read and tested without a live
+capture: the test that used to re-spell the condition beside the code went on passing
+after the condition changed.
+
 **Still machine-wide on purpose:** the two sniffers on the «Разработка» tab. They are
 research tools whose job is to record everything that crosses the wire, the tab is off
 even in the window, and narrowing them would quietly remove the traffic somebody started

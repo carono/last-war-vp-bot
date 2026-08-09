@@ -11,9 +11,13 @@ would each be a silent disaster:
 
   * it keeps OUR ports and drops the other client's;
   * **it never goes deaf on doubt** — no psutil, a pid that cannot be asked, a foreign
-    token that refuses, and the answer is «cannot tell», which the decoder reads as
-    «keep everything». A capture that quietly kept nothing would look exactly like an
+    token that refuses, and the answer is `None`, «cannot tell», which the decoder reads
+    as «keep everything». A capture that quietly kept nothing would look exactly like an
     account with nothing happening;
+  * **and «cannot tell» is not «nothing»** (#1306). An answered lookup that finds no
+    client of ours is the EMPTY set, and then every packet on the wire is somebody
+    else's — which is the case that used to be folded into the one above, so a profile
+    whose client was down fired its triggers off a live account's pushes;
   * it follows the client across a RESTART, by the Windows account it runs as, so a
     relaunch does not need a new capture.
 
@@ -110,8 +114,8 @@ def test_no_psutil_means_cannot_tell_which_keeps_everything():
     """«Cannot tell» must never come back looking like «nothing is ours»."""
     _uninstall()
     watcher = map_capture.OwnPorts([7])
-    assert watcher() == set(), "an unanswerable question must answer empty"
-    # …and empty is what the decoder reads as «keep everything» — pinned below.
+    assert watcher() is None, "an unanswerable question must answer None, not empty"
+    # …and None is what the decoder reads as «keep everything» — pinned below.
 
 
 def test_a_refused_socket_table_keeps_everything_too():
@@ -124,33 +128,62 @@ def test_a_refused_socket_table_keeps_everything_too():
     mod.net_connections = refuse
     sys.modules["psutil"] = mod
     try:
-        assert map_capture.OwnPorts([7])() == set()
+        assert map_capture.OwnPorts([7])() is None
     finally:
         _uninstall()
 
 
-def test_the_decoder_keeps_everything_when_the_owner_is_unknown():
-    """The contract the two above rest on, read off the decoder itself."""
-    from live_sniffer import LiveDecoder
+def test_the_decoder_reads_all_three_answers():
+    """The contract the ones above rest on, read off the decoder's own rule.
 
-    dec = LiveDecoder()
-    assert dec.own_ports is None, "a capture is machine-wide until told whose it is"
+    `live_sniffer.is_foreign` is that rule, extracted so it can be read without a live
+    capture — the test used to re-spell the condition here, which meant it went on
+    passing after the condition changed.
+    """
+    from live_sniffer import is_foreign
 
-    kept = []
-    dec.own_ports = lambda: set()          # «cannot tell»
-    # The gate is `if mine and ...`, so an empty answer never drops anything. Read the
-    # condition rather than a packet, because a packet needs scapy and a live capture.
-    for sport, dport in ((55001, 10012), (55003, 10012)):
-        mine = dec.own_ports()
-        kept.append(not (mine and sport not in mine and dport not in mine))
-    assert kept == [True, True], kept
+    # «Could not tell» — nothing is foreign, whatever port it is on.
+    assert not is_foreign(None, 55001, 10012)
+    assert not is_foreign(None, 55003, 10012)
+    # Ours — one kept, one dropped.
+    assert not is_foreign({55001}, 55001, 10012)
+    assert is_foreign({55001}, 55003, 10012)
+    # «We have no client» — everything here belongs to somebody else.
+    assert is_foreign(set(), 55001, 10012)
+    assert is_foreign(set(), 55003, 10012)
 
-    dec.own_ports = lambda: {55001}
-    kept = []
-    for sport, dport in ((55001, 10012), (55003, 10012)):
-        mine = dec.own_ports()
-        kept.append(not (mine and sport not in mine and dport not in mine))
-    assert kept == [True, False], "the other client's packet was not dropped"
+
+def test_a_client_that_is_not_running_hears_nothing_rather_than_everything():
+    """The whole of #1306's second half, at the watcher rather than at the rule.
+
+    A profile whose client is down is the ordinary state of a panel that has just
+    started, so this is not an edge case — it is most of the mornings.
+    """
+    real = map_capture.game_link.pids
+    stub = types.ModuleType("psutil")
+    stub.pid_exists = lambda pid: False
+    stub.process_iter = lambda attrs=None: []
+    stub.net_connections = lambda kind="tcp": []
+    sys.modules["psutil"] = stub
+    try:
+        # Asked, answered: that account has no client.
+        map_capture.game_link.pids = lambda user=None, **_kw: []
+        assert map_capture.OwnPorts((), ttl=0.0, logins=("Player1",))() == set()
+        # …and a session that is not logged on is an answer of the same kind.
+        def no_session(user=None, **_kw):
+            raise LookupError(f"no session for {user}")
+
+        map_capture.game_link.pids = no_session
+        assert map_capture.OwnPorts((), ttl=0.0, logins=("Player1",))() == set()
+        # Whereas a question that could not be PUT stays «cannot tell».
+        def refuse(user=None, **_kw):
+            raise OSError("no WTS on this machine")
+
+        map_capture.game_link.pids = refuse
+        assert map_capture.OwnPorts((), ttl=0.0, logins=("Player1",))() is None
+    finally:
+        map_capture.game_link.pids = real
+        _uninstall()
 
 
 def test_a_restarted_client_is_followed_by_its_windows_account():
@@ -184,7 +217,7 @@ def test_a_client_whose_user_cannot_be_read_is_not_adopted_by_guesswork():
         # It dies, and with no user anchored there is nothing to follow it by — which
         # must read as «cannot tell» rather than as another account's client.
         _install({}, [_Proc(4002, "lastwar.exe", "PC\\second")], [_Conn(4002, 55003)])
-        assert watcher() == set(), "somebody else's client was adopted"
+        assert watcher() is None, "somebody else's client was adopted"
     finally:
         _uninstall()
 

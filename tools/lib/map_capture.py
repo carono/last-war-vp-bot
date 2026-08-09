@@ -149,10 +149,23 @@ class OwnPorts:
     a client that starts late, dies and comes back, or was never up when the panel
     started is picked up by the next refresh instead of never.
 
-    NEVER DEAF ON DOUBT. An empty answer means «could not tell», and the decoder treats
-    that as «keep everything» rather than «keep nothing»: a machine that will not
-    attribute another user's sockets (which is ordinary for the second account, running
-    under its own Windows login) must lose the separation, never the traffic.
+    NEVER DEAF ON DOUBT, AND «DOUBT» IS NOT «NOTHING» (#1306). Three answers, not two,
+    because folding the last two together is the same defect as reading «пусто» as «не
+    смог прочитать»:
+
+    * **a set of ports** — these are ours, and a packet on any other is somebody else's;
+    * **``None``** — «could not tell». No psutil, a socket table that refuses, a machine
+      with no session table: the separation is lost, never the traffic, so the decoder
+      keeps everything. This is what the second account under its own Windows login
+      looks like on a machine that will not attribute its sockets.
+    * **the empty set** — «asked, and this account HAS no client running». Then nothing
+      on the wire is ours by definition, and keeping it all is not caution, it is
+      wrong: a profile whose client is down was firing its triggers off a live
+      account's pushes, measured on 2026-08-09 at the same second, twice.
+
+    The last two used to be one answer. A profile with no client is the ordinary state
+    of a panel that has just started, so «keep everything» there is not an edge case —
+    it is most of the mornings.
     """
 
     #: How often the socket table is re-read. A reconnect is seconds of silence anyway,
@@ -174,8 +187,11 @@ class OwnPorts:
         #: is `DOMAIN\\name` as Windows spells it, and the flag carries a bare login.
         self._users = self._usernames(self._pids)
         self._ttl = ttl
-        self._ports: set = set()
+        self._ports: "set | None" = None
         self._at = 0.0
+        #: Did the last pid lookup ANSWER? False means it could not be made — which is
+        #: «could not tell», and a very different thing from «answered: no client».
+        self._resolved = False
 
     @property
     def anchored(self) -> bool:
@@ -206,35 +222,55 @@ class OwnPorts:
         and answers for another Windows account's session; `psutil.process_iter` neither
         does that reliably nor cheaply (4–8 s cold, with the GIL held). The username
         scan below it is what is left for a machine with no session table at all.
+
+        Sets :attr:`_resolved` on the way: whether the question was ANSWERED, which is
+        what tells «this account has no client» from «nobody could say».
         """
         try:
             import psutil
         except ImportError:
             psutil = None                # noqa: N806 — a scan is optional, a session is not
+        self._resolved = False
         alive = {p for p in self._pids
                  if psutil is None or psutil.pid_exists(p)} if self._pids else set()
         if alive:
+            self._resolved = True
             return alive
         found: set = set()
+        answered = False
         for login in sorted(self._logins):
-            found |= self._in_session(login)
+            pids, said = self._in_session(login)
+            found |= pids
+            answered = answered or said
         if self._own_session:
-            found |= self._in_session(None)
+            pids, said = self._in_session(None)
+            found |= pids
+            answered = answered or said
         if not found:
             # The client was restarted: same account, new pid. Find it by the user a
             # seed pid proved, rather than going deaf until the panel notices.
             found = self._by_username(psutil)
+        self._resolved = answered or bool(found)
         if found:
             self._pids = found
         return found
 
     @staticmethod
-    def _in_session(login) -> set:
-        """The client pids in ``login``'s Windows session — ``None`` means this one."""
+    def _in_session(login) -> tuple:
+        """``(pids, answered)`` for ``login``'s Windows session; ``None`` means this one.
+
+        ``answered`` is the half that matters as much as the pids. A session that is not
+        logged on IS an answer — that account has no client, so nothing on the wire is
+        its — and `game_link.pids` says so by raising `LookupError`. Anything else
+        (no pywin32, a WTS that refuses, not Windows at all) is the question failing,
+        which is «could not tell» and must not be read as «no client».
+        """
         try:
-            return {int(pid) for pid in game_link.pids(user=login)}
-        except Exception:                # noqa: BLE001 — no session yet, no WTS, no game
-            return set()
+            return {int(pid) for pid in game_link.pids(user=login)}, True
+        except LookupError:              # named, and not logged on: a real answer
+            return set(), True
+        except Exception:                # noqa: BLE001 — the question could not be put
+            return set(), False
 
     def _by_username(self, psutil) -> set:
         """Every client on the machine running as one of the accounts we anchored on."""
@@ -251,7 +287,8 @@ class OwnPorts:
                 pass
         return found
 
-    def __call__(self) -> set:
+    def __call__(self) -> "set | None":
+        """This client's local ports, ``None`` for «could not tell». See the class note."""
         now = time.time()
         if now - self._at < self._ttl:
             return self._ports
@@ -259,11 +296,13 @@ class OwnPorts:
         try:
             import psutil
         except ImportError:
-            self._ports = set()
+            self._ports = None           # no socket table at all: could not tell
             return self._ports
         pids = self._live_pids()
         if not pids:
-            self._ports = set()          # "cannot tell" — the decoder keeps everything
+            # Answered «no client of ours is running» → nothing on the wire is ours.
+            # Unanswerable → the separation is lost rather than the traffic.
+            self._ports = set() if self._resolved else None
             return self._ports
         ports = set()
         try:
@@ -274,7 +313,7 @@ class OwnPorts:
                 if c.pid in pids and c.laddr and game_link.is_game_socket(c):
                     ports.add(c.laddr.port)
         except Exception:                # noqa: BLE001 — AccessDenied on some setups
-            ports = set()
+            ports = None                 # refused: could not tell, so keep everything
         self._ports = ports
         return self._ports
 

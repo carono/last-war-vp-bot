@@ -295,6 +295,25 @@ class Stream:
 # --------------------------------------------------------------------------
 
 
+def is_foreign(mine, sport: int, dport: int) -> bool:
+    """Is this packet ANOTHER account's client? ``mine`` is what `own_ports()` said.
+
+    THREE ANSWERS, NOT TWO (#1306), and this function exists so that the difference is
+    stated once and can be read without a live capture:
+
+    * ``None`` — «could not tell». Nothing is foreign; the separation is lost rather
+      than the traffic.
+    * a set of ports — ours. A packet on none of them is somebody else's.
+    * the EMPTY set — «asked, and this account has no client running». Then every
+      packet here is somebody else's, which is the case that used to be folded into
+      «could not tell»: a profile whose client was down went on firing its triggers off
+      a live account's pushes, at the same second, measured.
+    """
+    if mine is None:
+        return False
+    return sport not in mine and dport not in mine
+
+
 class LiveDecoder:
     def __init__(self, discover: bool = False, show_raw: bool = False,
                  transcript=None):
@@ -313,11 +332,13 @@ class LiveDecoder:
         self.packets = 0
         # WHOSE CLIENT THIS CAPTURE IS FOR (map_capture.own_ports_watcher).
         #
-        # `None` — everybody's, which is what every capture did until now and is still
-        # the honest answer when the owner cannot be worked out. Otherwise a callable
-        # returning the set of LOCAL tcp ports belonging to our own client, refreshed
-        # as it is asked, and a packet on any other port is dropped before it is
-        # decoded at all.
+        # `None` here — everybody's, which is what every capture did until now and is
+        # what a capture run by hand still is. Otherwise a callable returning the LOCAL
+        # tcp ports belonging to our own client, refreshed as it is asked, and a packet
+        # on any other port is dropped before it is decoded at all. The CALLABLE has
+        # three answers of its own — a set, the empty set («we have no client, so none
+        # of this is ours») and `None` («could not tell, keep everything») — and
+        # `map_capture.OwnPorts` is where they are spelled out.
         #
         # It is needed because the BPF filter cannot express it. The filter narrows by
         # the game's REMOTE port, and two clients of the same game dial the same
@@ -362,8 +383,7 @@ class LiveDecoder:
         # Another account's client, if we know enough to tell. Before the stream
         # bookkeeping, so a foreign connection never even gets a Stream of its own.
         if self.own_ports is not None:
-            mine = self.own_ports()
-            if mine and tcp.sport not in mine and tcp.dport not in mine:
+            if is_foreign(self.own_ports(), tcp.sport, tcp.dport):
                 self.foreign += 1
                 return
 
