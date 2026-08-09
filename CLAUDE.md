@@ -488,6 +488,43 @@ C:\Python312\python.exe tests\test_panel_i18n.py
 The details a tab author needs — where the keys live, what happens when one is missing,
 how to add a language — are in [`docs/panel-tabs.md`](docs/panel-tabs.md).
 
+## A profile is a whole panel of its own
+
+**Also binding, on every agent, with no exceptions.** One window holds several profiles
+at once, and the operator's rule for them is one sentence: **«профиль — это полностью
+независимый инстанс панели».** Its own threads, its own log, its own captures, its own
+daemon, its own budgets. Nothing one profile does may be visible, audible or felt in
+another.
+
+So before you write down a value, ask the two questions in this order — the second is
+where the mistakes are:
+
+1. **Is there one of this per MACHINE or one per ACCOUNT?** A port, a socket, the
+   desktop's foreground, the keyboard are the machine's, and they are shared on purpose
+   through `panel/runtime/claims.py`, which hands out an OWNER rather than a wait. A
+   log, a schedule, a capture, a daily budget, a commentary sink are an account's, and
+   holding one in a module-level global is the bug this rule exists to stop.
+2. **If it is an account's, what identifies the account AT THE MOMENT IT IS NEEDED?**
+   Never «what is running right now»: most of this is wired up during the boot, when a
+   profile whose client lives in its own Windows session has no client yet. Use
+   something durable — the profile's name, its Windows session, its daemon port.
+
+Getting (1) right and answering (2) with a snapshot is how the worst of these happened:
+every capture the panel spawned was narrowed by a pid list read once, so three of four
+profiles ran all day decoding all four accounts — a trigger firing off another account's
+push, and the ★ auto-loot spending THIS account's five daily robberies on a tile
+announced in somebody else's alliance. **A capture is narrowed by
+`game_process.capture_narrowing(rt.settings)` and by nothing else** (#1306).
+
+A line in a log obeys the same rule: `rt.say` / `rt.dbg` for a profile's own, and
+`debug_log.panel_logger` for the handful of things that belong to the WINDOW — the
+remote-control server, and a fallback nobody handed a logger to. Never the unscoped
+tree, which is the FIRST open profile's file and therefore an account's.
+
+The whole inventory — what leaked, what is shared deliberately, and what was measured —
+is [`docs/research/profile-isolation.md`](docs/research/profile-isolation.md), and
+`tests/test_profile_isolation.py` fails when one of them comes back.
+
 ## Feature list upkeep
 
 **This rule is binding on every agent working in this repository — dispatcher,
