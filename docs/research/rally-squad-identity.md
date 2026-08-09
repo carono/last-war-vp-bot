@@ -1,7 +1,8 @@
 # What identifies a squad between rallies
 
 Task #1305. Measured over the four rally archives on this machine — 44 817 archived
-lines, 13 206 distinct readings, 253 players, 544 squads, six days of a live alliance.
+lines, 13 206 distinct readings, 4 694 moments, 253 players, 544 squads, four days of a
+live alliance.
 **No value from those archives is reproduced here**; only counts, ratios and shapes.
 
 ## The archive
@@ -48,6 +49,23 @@ own squad screen.
   label, not as a key: it splits on a swap (above) and it collapses to one surviving hero
   when a squad marched wiped.
 
+## A rally is one measurement, not one per line
+
+A rally is re-broadcast on every refresh and the archive keeps a line each time, so the
+line count is not the sighting count. It can be collapsed without losing anything:
+grouped by (player, slot, `teamUuid`), **the `(power, curHp)` pair was identical across
+all the lines of a rally in 4 446 of 4 446 groups** — not one rally was archived with two
+different readings. Power does not move inside a rally, because the march is fixed when
+it is created.
+
+So the unit of the archive is the moment a squad was seen: 13 206 distinct lines fold to
+**4 694 moments** across 544 squads. The moment is stamped at the FIRST line of the
+rally, not the last refresh.
+
+`teamUuid == "0"` on ~2 % of lines — a create push arriving before the team id exists.
+Those have no rally to group by; a ten-minute bucket per squad collapses them (453 such
+lines in 120 squads, median 147 s apart, so a run of them is one create being repeated).
+
 ## Power is what marched, not what the squad is worth
 
 `power` moves with `curHp`: the same slot was archived at full strength and at roughly
@@ -77,8 +95,6 @@ often in a neighbour's capture and not in your own.
 
 ## Odds and ends
 
-* `teamUuid == "0"` on ~2 % of lines — a create push before the team id is assigned.
-  Counted as a power reading, not as a rally.
 * `armyInfo.f2.f2` is a repeated field and collapses to a bare dict when a squad marched
   with one row; iterating it without `_as_list` walks the dict's keys instead.
 * Per squad row: `f1` heroId (`1000000` = the drone slot), `f2` level, `f3` tier,

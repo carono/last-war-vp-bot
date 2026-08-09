@@ -10,6 +10,13 @@ The rally monitor (`tools/rally_monitor.py`) archives one line per participant o
 This folds every profile's archive into one page: the players, each player's squads, the
 last reading of each squad, and how each squad's power moved over the recorded window.
 
+**The page is not about rallies.** A rally is only the moment somebody's squad became
+visible and its power was written down — a point on a time axis, and nothing else. Who
+marched with whom, where they went and how many rallies anybody joined is not shown.
+Accordingly a rally counts as ONE measurement however many lines it left: an archived
+rally is re-broadcast on every refresh, and across every rally in every archive here the
+`(power, curHp)` pair was identical on all the lines of a rally in 4 446 of 4 446 cases.
+
 One self-contained file — no scripts fetched, no fonts fetched, no network at all — so
 it opens on a phone that is nowhere near this machine. The charts are inline SVG built
 in the page; there is no charting library.
@@ -180,8 +187,7 @@ def load(paths) -> dict:
                 player = players.get(uid)
                 if player is None:
                     player = players[uid] = {"uid": uid, "name": "", "aliases": set(),
-                                             "rallies": set(), "squads": {}, "seen": 0}
-                player["seen"] += 1
+                                             "squads": {}}
                 name = row.get("ownerName") or ""
                 if name:
                     player["aliases"].add(name)
@@ -190,21 +196,28 @@ def load(paths) -> dict:
                     # line read.
                     if stamp >= player.get("_named", 0):
                         player["name"], player["_named"] = name, stamp
-                if team != "0":
-                    player["rallies"].add(team)
 
                 army = row.get("armyInfoRaw")
                 slot = _slot(army)
                 squad = player["squads"].get(slot)
                 if squad is None:
                     squad = player["squads"][slot] = {
-                        "slot": slot, "rallies": set(), "seen": 0,
-                        "points": [], "_best": (-1, 0.0), "detail": None,
+                        "slot": slot, "moments": {}, "_best": (-1, 0.0), "detail": None,
                     }
-                squad["seen"] += 1
-                if team != "0":
-                    squad["rallies"].add(team)
-                squad["points"].append((stamp, power, hp))
+                # ONE reading per moment. A rally is re-broadcast on every refresh and
+                # the archive keeps a line each time; measured over every rally in every
+                # archive, `(power, curHp)` was identical across all the lines of a rally
+                # in 4 446 of 4 446 cases. So the rally is the moment the squad was seen,
+                # not five measurements — and the moment is stamped when it was FIRST
+                # seen. A create push arrives before the team id exists (`teamUuid` is
+                # "0"), so those fall back to a ten-minute bucket.
+                moment = team if team != "0" else "t%d" % (stamp // 600)
+                held = squad["moments"].get(moment)
+                if held is None or (hp, power) > (held[2], held[1]):
+                    squad["moments"][moment] = [min(stamp, held[0]) if held else stamp,
+                                                power, hp]
+                elif stamp < held[0]:
+                    held[0] = stamp
                 # The composition to display is the FULLEST reading, latest among equals.
                 # A squad that marched wiped is archived with the one hero that survived,
                 # and the newest line is not the one that says what the squad is.
@@ -220,22 +233,27 @@ def load(paths) -> dict:
         player.pop("_named", None)
         squads = []
         for squad in player["squads"].values():
-            squad["points"].sort(key=lambda p: p[0])
-            # One point per change: a refresh re-broadcasts the same march unchanged, and
-            # a flat run of forty identical readings is forty pixels on top of each other.
+            moments = sorted(squad["moments"].values(), key=lambda m: m[0])
+            for moment in moments:
+                moment[0] = round(moment[0])
+            # A run of moments at an unchanged power draws one straight line, so only its
+            # two ends are worth carrying — the shape is identical and the page is a
+            # third of the size. The count of moments is kept separately.
             series = []
-            for stamp, power, hp in squad["points"]:
-                if series and series[-1][1] == power and series[-1][2] == hp:
-                    continue
-                series.append([round(stamp), power, hp])
+            for index, moment in enumerate(moments):
+                interior = (0 < index < len(moments) - 1
+                            and moments[index - 1][1:] == moment[1:]
+                            and moments[index + 1][1:] == moment[1:])
+                if not interior:
+                    series.append(moment)
             detail = squad["detail"] or {"heroes": [], "drone": None, "formation": None}
             for hero in detail["heroes"]:
                 hero["name"] = names.get(hero["id"], "")
-            full = max((hp for _, _, hp in series), default=0)
+            full = max((hp for _, _, hp in moments), default=0)
             squads.append({
                 "slot": squad["slot"],
-                "rallies": len(squad["rallies"]),
-                "seen": squad["seen"],
+                "moments": len(moments),
+                "fullMoments": sum(1 for _, _, hp in moments if hp >= full * 0.95),
                 "first": series[0][0] if series else 0,
                 "last": series[-1][0] if series else 0,
                 "power": series[-1][1] if series else 0,
@@ -253,8 +271,7 @@ def load(paths) -> dict:
             "uid": player["uid"],
             "name": player["name"] or player["uid"],
             "aliases": sorted(a for a in player["aliases"] if a != player["name"]),
-            "rallies": len(player["rallies"]),
-            "seen": player["seen"],
+            "moments": sum(s["moments"] for s in squads),
             "last": last,
             "power": sum(s["power"] for s in squads),
             "peak": sum(s["peak"] for s in squads),
@@ -463,19 +480,20 @@ function squadBody(s){
              '</div>');
   var full = fullPoints(s), lastFull = full.length ? full[full.length - 1] : null;
   parts.push('<div class="kv">' +
-    '<span>в полном составе <b>' + (lastFull ? num(lastFull[1]) : '—') + '</b></span>' +
+    '<span>мощь в полном составе <b>' + (lastFull ? num(lastFull[1]) : '—') +
+      '</b></span>' +
     '<span>пик <b>' + num(s.peak) + '</b></span>' +
-    '<span>последний выход <b>' + num(s.power) + '</b> при ' + num(s.hp) + ' из ' +
-      num(s.fullHp) + ' бойцов</span>' +
     '<span>на бойца <b>' + (s.hp ? num(s.power / s.hp) : '—') + '</b></span>' +
-    '<span>построение <b>' + (s.formation == null ? '—' : s.formation) + '</b></span>' +
-    '<span>стягов <b>' + s.rallies + '</b> (в полном составе ' + full.length + ')</span>' +
+    '<span>последний замер <b>' + num(s.power) + '</b> при ' + num(s.hp) + ' из ' +
+      num(s.fullHp) + ' бойцов</span>' +
+    '<span>замеров <b>' + s.moments + '</b> (в полном составе ' + s.fullMoments +
+      ')</span>' +
     '<span>замечен <b>' + when(s.last) + '</b></span>' +
     '<span>с <b>' + when(s.first) + '</b></span></div>');
   var series = squadSeries(s);
   if (series.pts.length < 2) {
-    parts.push('<div class="empty">на этом режиме у отряда одно измерение — ' +
-               'график будет, когда он выйдет в стяг ещё раз</div>');
+    parts.push('<div class="empty">на этом режиме у отряда один замер — график ' +
+               'будет со второго</div>');
   } else {
     parts.push(chart([series]));
   }
@@ -488,8 +506,7 @@ function playerBody(p){
   parts.push('<div class="kv"><span>uid <b>' + esc(p.uid) + '</b></span>' +
     (p.aliases.length ? '<span>раньше <b>' + p.aliases.map(esc).join(', ') +
       '</b></span>' : '') +
-    '<span>стягов <b>' + p.rallies + '</b></span>' +
-    '<span>записей <b>' + p.seen + '</b></span>' +
+    '<span>замеров <b>' + p.moments + '</b></span>' +
     '<span>замечен <b>' + when(p.last) + '</b></span></div>');
   if (series.length) {
     parts.push(chart(series) + legend(series));
@@ -497,10 +514,10 @@ function playerBody(p){
     if (quiet.length) {
       parts.push('<div class="empty">не на графике: ' + quiet.map(function(s){
         return 'отряд ' + (s.slot || '?'); }).join(', ') +
-        ' — меньше двух выходов на этом режиме</div>');
+        ' — меньше двух замеров на этом режиме</div>');
     }
   } else {
-    parts.push('<div class="empty">пока по одному измерению на отряд — общего графика ' +
+    parts.push('<div class="empty">пока по одному замеру на отряд — общего графика ' +
                'нет</div>');
   }
   p.squads.forEach(function(s, i){
@@ -532,8 +549,8 @@ function render(){
     out.push('<div class="pl" data-pl="' + r.i + '"><div class="hd">' +
       '<span class="nm">' + esc(r.p.name) + '</span>' +
       '<span class="pw">' + num(r.sum) + '</span>' +
-      '<span class="meta">' + r.p.squads.length + ' отр. · ' + r.p.rallies +
-      ' стяг.</span></div></div>');
+      '<span class="meta">' + r.p.squads.length + ' отр. · ' + when(r.p.last) +
+      '</span></div></div>');
   });
   host.innerHTML = out.join('') ||
     '<div class="empty">никого не нашлось</div>';
@@ -587,7 +604,7 @@ def render(data: dict) -> str:
         span = (time.strftime("%d.%m %H:%M", time.localtime(window[0])) + " — "
                 + time.strftime("%d.%m %H:%M", time.localtime(window[1])))
     squads = sum(len(p["squads"]) for p in data["players"])
-    kept = sum(s["kept"] for s in data["sources"])
+    moments = sum(p["moments"] for p in data["players"])
     files = ", ".join(html.escape(os.path.basename(os.path.dirname(s["path"])) or s["path"])
                       for s in data["sources"] if s["kept"])
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
@@ -595,17 +612,17 @@ def render(data: dict) -> str:
     return (
         '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        "<title>Отряды в стягах</title><style>" + _CSS + "</style></head><body>"
-        "<h1>Отряды в стягах</h1>"
+        "<title>Мощь отрядов</title><style>" + _CSS + "</style></head><body>"
+        "<h1>Мощь отрядов</h1>"
         f'<div class="sub">{html.escape(span)} · игроков '
-        f'{len(data["players"])} · отрядов {squads} · записей {kept} · '
+        f'{len(data["players"])} · отрядов {squads} · замеров {moments} · '
         f'профили: {files or "—"}</div>'
         '<div class="bar"><input type="search" id="q" placeholder="имя или uid" '
         'autocomplete="off"><div class="seg">'
-        '<button class="on" data-mode="full" title="только выходы полным составом">'
+        '<button class="on" data-mode="full" title="только замеры полным составом">'
         'мощь</button>'
-        '<button data-mode="all" title="каждая запись, включая раненые выходы">все '
-        'выходы</button>'
+        '<button data-mode="all" title="каждый замер, включая раненый отряд">все '
+        'замеры</button>'
         '<button data-mode="unit" title="мощь, делённая на число бойцов">на бойца'
         '</button></div>'
         '<span class="meta" id="count"></span></div>'
@@ -662,9 +679,9 @@ def main() -> int:
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(page)
     squads = sum(len(p["squads"]) for p in data["players"])
-    points = sum(len(s["series"]) for p in data["players"] for s in p["squads"])
+    moments = sum(p["moments"] for p in data["players"])
     print(f"{args.out} — {len(data['players'])} player(s), {squads} squad(s), "
-          f"{points} reading(s), {os.path.getsize(args.out) // 1024} KiB")
+          f"{moments} moment(s), {os.path.getsize(args.out) // 1024} KiB")
     return 0
 
 

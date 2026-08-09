@@ -61,12 +61,16 @@ def test_slot_splits_squads_and_survives_a_hero_swap():
     """Two slots are two squads; one slot stays one squad when a hero is replaced."""
     with tempfile.TemporaryDirectory() as tmp:
         path = _archive(tmp, "rally_log.jsonl", [
-            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5]),
-            _line(2000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5]),
+            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000001"),
+            _line(2000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000002"),
             # the same slot, one hero replaced — a composition key would call this a
             # third squad; the slot does not.
-            _line(3000, UID_A, "Player1", 52_000_000, 3000, 1, [1, 2, 3, 4, 9]),
-            _line(1500, UID_A, "Player1", 30_000_000, 2500, 2, [6, 7, 8, 10, 11]),
+            _line(3000, UID_A, "Player1", 52_000_000, 3000, 1, [1, 2, 3, 4, 9],
+                  team="2000000000000003"),
+            _line(1500, UID_A, "Player1", 30_000_000, 2500, 2, [6, 7, 8, 10, 11],
+                  team="2000000000000002"),
         ])
         data = rr.load([path])
 
@@ -93,7 +97,7 @@ def test_the_march_uuid_is_not_the_squad():
         data = rr.load([path])
     squads = data["players"][0]["squads"]
     assert len(squads) == 1, [s["slot"] for s in squads]
-    assert squads[0]["rallies"] == 4
+    assert squads[0]["moments"] == 4
 
 
 def test_two_profiles_of_one_alliance_are_not_two_readings():
@@ -105,39 +109,72 @@ def test_two_profiles_of_one_alliance_are_not_two_readings():
     with tempfile.TemporaryDirectory() as tmp:
         one = _archive(tmp, "one.jsonl", shared)
         two = _archive(tmp, "two.jsonl", shared + [
-            _line(2000, UID_B, "Player2", 41_000_000, 2800, 1, [6, 7, 8, 10, 11]),
+            _line(2000, UID_B, "Player2", 41_000_000, 2800, 1, [6, 7, 8, 10, 11],
+                  team="2000000000000002"),
         ])
         data = rr.load([one, two])
 
     kept = {os.path.basename(s["path"]): s["kept"] for s in data["sources"]}
     assert kept == {"one.jsonl": 2, "two.jsonl": 1}, kept
-    for player in data["players"]:
-        squad = player["squads"][0]
-        assert squad["seen"] == len(squad["series"]) or squad["seen"] == 2, squad["seen"]
     by_uid = {p["uid"]: p for p in data["players"]}
-    assert by_uid[UID_A]["seen"] == 1
-    assert by_uid[UID_B]["seen"] == 2
+    assert by_uid[UID_A]["moments"] == 1
+    assert by_uid[UID_B]["moments"] == 2
 
 
-def test_a_flat_run_collapses_to_one_point():
-    """A refresh re-broadcasts the same march; forty identical readings are one point."""
+def test_one_rally_is_one_moment_however_many_lines_it_left():
+    """A rally is re-broadcast on every refresh; that is one sighting, not forty."""
     with tempfile.TemporaryDirectory() as tmp:
         path = _archive(tmp, "rally_log.jsonl", [
+            # forty lines of ONE rally: same team, same reading, forty timestamps
             _line(1000 + step * 10, UID_A, "Player1", 50_000_000, 3000, 1,
-                  [1, 2, 3, 4, 5], team=str(3000000000000000 + step))
+                  [1, 2, 3, 4, 5], team="4000000000000001")
             for step in range(40)
-        ] + [_line(9000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5])])
+        ] + [_line(9000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                   team="4000000000000002")])
         data = rr.load([path])
-    series = data["players"][0]["squads"][0]["series"]
-    assert [point[1] for point in series] == [50_000_000, 51_000_000], series
+    squad = data["players"][0]["squads"][0]
+    assert squad["moments"] == 2, squad["moments"]
+    # …and the moment is stamped when the squad was FIRST seen, not on the last refresh.
+    assert [(p[0], p[1]) for p in squad["series"]] == [(1000, 50_000_000),
+                                                       (9000, 51_000_000)]
+
+
+def test_a_flat_run_of_moments_keeps_only_its_ends():
+    """Forty separate sightings at an unchanged power draw one line — two points do."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _archive(tmp, "rally_log.jsonl", [
+            _line(1000 + step * 600, UID_A, "Player1", 50_000_000, 3000, 1,
+                  [1, 2, 3, 4, 5], team=str(4000000000000000 + step))
+            for step in range(40)
+        ] + [_line(90_000, UID_A, "Player1", 51_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                   team="4000000000000099")])
+        data = rr.load([path])
+    squad = data["players"][0]["squads"][0]
+    assert squad["moments"] == 41, squad["moments"]        # every sighting is counted
+    assert [p[0] for p in squad["series"]] == [1000, 24_400, 90_000], squad["series"]
+
+
+def test_a_create_before_the_team_id_is_not_a_second_moment():
+    """`teamUuid` is "0" until the team exists; that line is the same sighting."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _archive(tmp, "rally_log.jsonl", [
+            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="0"),
+            _line(1060, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="0"),
+        ])
+        data = rr.load([path])
+    assert data["players"][0]["squads"][0]["moments"] == 1
 
 
 def test_a_wounded_march_is_kept_but_marked_by_its_soldier_count():
     """Power follows the soldiers that marched — the page needs the pair, not one half."""
     with tempfile.TemporaryDirectory() as tmp:
         path = _archive(tmp, "rally_log.jsonl", [
-            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5]),
-            _line(2000, UID_A, "Player1", 20_000_000, 1200, 1, [1, 2, 3, 4, 5]),
+            _line(1000, UID_A, "Player1", 50_000_000, 3000, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000001"),
+            _line(2000, UID_A, "Player1", 20_000_000, 1200, 1, [1, 2, 3, 4, 5],
+                  team="2000000000000002"),
         ])
         data = rr.load([path])
     squad = data["players"][0]["squads"][0]
