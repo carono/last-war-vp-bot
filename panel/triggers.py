@@ -69,9 +69,16 @@ from . import debug_log, paths
 from .i18n import Message
 from .profile import _write_json
 
-# Component debug logger (panel/debug_log.py) — the panel wires the rotating file
-# under it; here we only record when a listener comes up, fires or dies.
-_dbg = debug_log.get_logger("triggers")
+# The debug logger for a watcher NOBODY GAVE ONE TO — and for the catalogue loader,
+# which is a module function with no runtime to ask (`load_catalogue`).
+#
+# The WINDOW's file, not the shared tree (#1306). A profile's watcher is always handed
+# `rt.dbg("triggers")` and writes into that profile's `debug.log`; this fallback used to
+# be the unscoped root, which is the FIRST open profile's file — so a line about a
+# SECOND profile's catalogue was filed under the first account, indistinguishable from
+# its own. A line that cannot be attributed belongs where nothing is attributed.
+def _dbg_window():
+    return debug_log.panel_logger("triggers")
 
 PANEL_DIR = paths.PANEL_DIR
 # The TEMPLATE, beside the profiles (gitignored, seeded from DEFAULT_TRIGGERS on first
@@ -842,8 +849,11 @@ def load_catalogue(path: str, seed_from=None) -> TriggerCatalogue:
     merged, added = merge_new(parsed, seed.triggers)
     if added:
         save_catalogue(merged, path)
-        _dbg.info("%s: added new trigger(s) %s", os.path.basename(path),
-                  ", ".join(added))
+        # The PROFILE, not the file: every profile's catalogue is called
+        # `triggers.json`, so the basename alone named nothing anybody could act on.
+        _dbg_window().info("%s: added new trigger(s) %s",
+                           os.path.basename(os.path.dirname(path)) or path,
+                           ", ".join(added))
     return merged
 
 
@@ -899,7 +909,7 @@ class TriggerWatcher:
         # `debug` is the OWNING RUNTIME's technical logger (`rt.dbg("triggers")`),
         # so two open profiles keep two debug.logs (#1206). The module-level one is
         # the fallback for a watcher built without a runtime.
-        self._dbg = debug if debug is not None else _dbg
+        self._dbg = debug if debug is not None else _dbg_window()
         self._catalogue = catalogue
         self._config = config
         self._spawn = spawn

@@ -102,9 +102,12 @@ from . import debug_log, paths
 from .i18n import Message
 from .profile import _write_json
 
-# Component debug logger (panel/debug_log.py) — the panel wires the rotating file
-# under it; here we only record the scheduler's key events.
-_dbg = debug_log.get_logger("timers")
+# The debug logger for a scheduler NOBODY GAVE ONE TO. The panel always hands each
+# profile's own (`rt.dbg("timers")`); this fallback used to be the unscoped root,
+# which is the FIRST open profile's `debug.log` — so a stray line was filed under an
+# account it had nothing to do with. The WINDOW's file instead (#1306).
+def _dbg_window():
+    return debug_log.panel_logger("timers")
 
 # How often the scheduler wakes up to look for a due timer. Well under the
 # shortest sensible period, so a timer fires within a few seconds of coming due,
@@ -1063,7 +1066,7 @@ class TimerScheduler:
         # `debug` is the OWNING RUNTIME's technical logger (`rt.dbg("timers")`), so two
         # open profiles keep two debug.logs (#1206). The module-level one is the
         # fallback for a scheduler built without a runtime, which is what the tests do.
-        self._dbg = debug if debug is not None else _dbg
+        self._dbg = debug if debug is not None else _dbg_window()
         self._store = store
         self._catalogue = catalogue
         self._config = config

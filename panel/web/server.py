@@ -40,6 +40,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # FIRST, and for its side effect: it is what puts the repository's `tools/lib` on the
 # path, so `game_paths` below resolves whichever way this module was reached.
 from ..runtime import paths as _paths  # noqa: F401
+from .. import debug_log
 
 import game_paths                      # noqa: E402  (needs the bootstrap above)
 
@@ -534,13 +535,20 @@ def _make_handler(server: WebServer):
                 pass                            # the phone walked out of range
 
         def log_message(self, fmt: str, *args) -> None:
-            """Into the panel's debug log, never onto a console that may not exist.
+            """Into the WINDOW's debug log, never onto a console that may not exist.
 
             The default writes to stderr, and a windowed build (`pythonw`) has none —
             which on Windows is not "no output" but an exception on the first request.
+
+            The window's, not this runtime's (#1306). There is one server per process
+            and it answers for every open profile, but `server.rt` is whichever profile
+            happened to switch it on — so `GET /api/state?profile=default` was being
+            written into ANOTHER account's `debug.log`, where the person reading that
+            file has no way to tell it is not theirs. `panel/debug_log.py::panel_logger`
+            is the file that belongs to the window instead.
             """
             try:
-                server.rt.dbg("web").debug(fmt, *args)
+                debug_log.panel_logger("web").debug(fmt, *args)
             except Exception:                   # noqa: BLE001 — logging, never the server
                 pass
 

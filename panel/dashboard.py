@@ -43,9 +43,11 @@ import lua_actions      # noqa: E402
 
 from . import debug_log
 
-# Component debug logger (panel/debug_log.py). The panel wires the rotating file
-# under it; here we only note how many readings each poll resolved.
-_dbg = debug_log.get_logger("dashboard")
+# The debug logger for a parse NOBODY GAVE ONE TO. The strip's poll hands in
+# `rt.dbg("dashboard")`; this fallback used to be the unscoped root, which is the
+# FIRST open profile's `debug.log`. The WINDOW's file instead (#1306).
+def _dbg_window():
+    return debug_log.panel_logger("dashboard")
 
 # The marker the chunk logs its answer under (see tools/lib/lua_eval.py — the
 # evaluator returns the answer-log lines containing it).
@@ -137,7 +139,7 @@ def parse(lines, debug=None) -> dict:
     Reads the LAST matching line: a poll that overlapped a previous one would
     otherwise be answered with the older numbers.
     """
-    dbg = debug if debug is not None else _dbg
+    dbg = debug if debug is not None else _dbg_window()
     out: dict = {key: None for key in KEYS}
     payload = None
     for line in lines or ():

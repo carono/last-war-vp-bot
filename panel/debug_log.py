@@ -34,11 +34,21 @@ its own ``debug.log``. A *scope* is a name inserted into the logger tree —
 An unscoped call means exactly what it always meant: the shared tree, the shared file.
 So nothing that has not been given a scope changes behaviour, and a window with one
 profile open is unchanged in every respect.
+
+AND ONE SCOPE IS NOT A PROFILE AT ALL. :func:`panel_logger` is for the parts of the
+panel that belong to the WINDOW rather than to any account — the remote-control server
+is the whole of it today. There is exactly one of those per process and it answers for
+every open profile, so it used to log through whichever runtime happened to switch it
+on: `GET /api/state?profile=default` was landing, verbatim, in another account's
+`debug.log` (#1306). A line nobody can attribute is the same defect as no line at all,
+so the window's own scope has its own file — :data:`~panel.paths.FALLBACK_DEBUG_LOG`,
+which is panel-wide and beside the profile directories rather than inside one.
 """
 from __future__ import annotations
 
 import logging
 import os
+import threading
 from logging.handlers import RotatingFileHandler
 
 from . import paths
@@ -130,6 +140,32 @@ def get_logger(component: str = "panel", scope: "str | None" = None) -> logging.
     if name != ROOT_NAME:
         _seal(name)
     return logging.getLogger(f"{name}.{component}")
+
+
+#: The scope of the WINDOW itself — see the module docstring. Named with a leading
+#: underscore so it can never collide with a profile: `panel/profile.py::sanitize`
+#: refuses one, and a scope is a profile name everywhere else in this module.
+PANEL_SCOPE = "_window"
+
+_panel_lock = threading.Lock()
+_panel_ready = False
+
+
+def panel_logger(component: str = "panel") -> logging.Logger:
+    """The debug logger for something that belongs to the window, not to a profile.
+
+    Configures the window's own file on first use rather than waiting to be wired by
+    the shell: the one caller is a server that a tab can also start on its own
+    (`python -m panel.tabs.web`), and a sealed scope with no handler drops its records
+    silently. Idempotent — :func:`configure` never stacks two handlers.
+    """
+    global _panel_ready                                # noqa: PLW0603 — one file, once
+    if not _panel_ready:
+        with _panel_lock:
+            if not _panel_ready:
+                configure(paths.FALLBACK_DEBUG_LOG, scope=PANEL_SCOPE)
+                _panel_ready = True
+    return get_logger(component, scope=PANEL_SCOPE)
 
 
 def _seal(name: str) -> None:
