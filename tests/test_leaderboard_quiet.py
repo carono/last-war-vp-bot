@@ -117,11 +117,18 @@ def test_the_collector_offers_quiet_and_the_panel_asks_for_it():
 
     sched.rt = types.SimpleNamespace(
         children=types.SimpleNamespace(spawn=_spawn, python=lambda: "python"),
+        # The two knobs the capture narrowing reads (#1306).
+        settings=types.SimpleNamespace(opt_bool=lambda _k: False,
+                                       opt_str=lambda _k: ""),
         profiles=types.SimpleNamespace(leaderboard_db=lambda: "history.db"))
     sched._spawn_leaderboard(types.SimpleNamespace(name="leaderboard_collect"))
     assert spawned, "no child was spawned"
     assert "--quiet" in spawned[0], spawned[0]
     assert re.search(r"scan_leaderboard\.py$", str(spawned[0][2])), spawned[0]
+    # …and this profile's boards only: the collector is a capture like any other, and
+    # without narrowing every open profile filed every account's rows as its own.
+    assert ("--client-own-session" in spawned[0]
+            or "--client-user" in spawned[0]), spawned[0]
 
 
 def _main() -> int:

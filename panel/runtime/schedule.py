@@ -568,12 +568,18 @@ class Schedule:
         named players in one live log (#1293). The history itself is unchanged — the
         names go into the profile's own leaderboard_history.db, which is what it is for
         and which never leaves the machine.
+
+        AND ONLY THIS PROFILE'S BOARDS (#1306). It is a capture like any other and it
+        had no narrowing at all, so every open profile's collector was decoding every
+        account's boards into its own history — four copies of the same rows, each
+        filed under the wrong account.
         """
         mon = self.rt.children.spawn(
             "trigger",
             [self.rt.children.python(), "-u",
              os.path.join(TOOLS, "scan_leaderboard.py"),
-             "--sqlite", self.rt.profiles.leaderboard_db(), "--quiet"],
+             "--sqlite", self.rt.profiles.leaderboard_db(), "--quiet"]
+            + game_process.capture_narrowing(self.rt.settings),
             on_line=self._leaderboard_line,
             on_exit=lambda n=trigger.name: self.on_listener_exit(n))
         return mon if mon.start() else None

@@ -167,10 +167,10 @@ class WireHub:
         # WHOSE traffic this ear is for. Two accounts of the same game dial the same
         # server port, so the capture filter cannot separate them and every profile's
         # ear has been hearing both — a trigger firing in one account off the other's
-        # push. The pids are resolved here, where the profile is known, and followed
-        # inside the capture by user so a client restart does not need a new ear.
-        for pid in game_process.profile_pids(self._rt.settings):
-            cmd += ["--client-pid", str(pid)]
+        # push. The profile's Windows session goes with the pids and the capture looks
+        # them up again on its own clock, so an ear started before its client is not
+        # deaf to the difference for the rest of the run (#1306).
+        cmd += game_process.capture_narrowing(self._rt.settings)
         mon = self._rt.children.spawn("trigger", cmd, on_line=self._on_line,
                                       on_exit=self._on_exit)
         if not mon.start():

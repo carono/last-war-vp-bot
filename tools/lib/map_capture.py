@@ -137,6 +137,18 @@ class OwnPorts:
     where the pid still exists, and by the pid's Windows USER once it does not — which
     is what carries the answer across a client restart in the same session.
 
+    A PID IS A SEED, A SESSION IS THE ANCHOR (#1306). Narrowing by pid alone put the
+    whole separation on one reading taken at ONE moment — the moment the capture was
+    spawned, which for every profile whose client lives in another Windows session is
+    the moment the panel is still booting and that session is not up yet. The pid list
+    came back empty, "could not tell" meant "keep everything", and it meant it for the
+    rest of the run: measured live on 2026-08-09, three of four profiles were running
+    their rally monitor and their wire ear with no narrowing at all, so each of them was
+    hearing the other three accounts' banners and pushes. So the capture is told WHOSE
+    SESSION its client is in and looks the pids up for itself, every :data:`TTL_SEC` —
+    a client that starts late, dies and comes back, or was never up when the panel
+    started is picked up by the next refresh instead of never.
+
     NEVER DEAF ON DOUBT. An empty answer means «could not tell», and the decoder treats
     that as «keep everything» rather than «keep nothing»: a machine that will not
     attribute another user's sockets (which is ordinary for the second account, running
@@ -147,12 +159,28 @@ class OwnPorts:
     #: and this walk is a kernel table — cheap, but not free enough to do per packet.
     TTL_SEC = 5.0
 
-    def __init__(self, pids, ttl: float = TTL_SEC) -> None:
+    def __init__(self, pids, ttl: float = TTL_SEC, *, logins=(),
+                 own_session: bool = False) -> None:
         self._pids = {int(p) for p in pids or ()}
+        #: The Windows logins whose session holds this profile's client. Given by the
+        #: caller (the panel knows which profile it is spawning for) and kept for good;
+        #: :meth:`_usernames` only ever adds what a seed pid can prove.
+        self._logins = {str(name).strip() for name in logins or () if str(name).strip()}
+        #: «The client in the session this capture is itself running in» — the answer
+        #: for a profile that does not use a Windows session of its own. Not the same as
+        #: no anchor at all, which is what «hear everything» is.
+        self._own_session = bool(own_session)
+        #: What a SEED pid proves about its own account. Kept apart from `_logins`: this
+        #: is `DOMAIN\\name` as Windows spells it, and the flag carries a bare login.
         self._users = self._usernames(self._pids)
         self._ttl = ttl
         self._ports: set = set()
         self._at = 0.0
+
+    @property
+    def anchored(self) -> bool:
+        """Is there anything durable to find a client by, or only the seed pids?"""
+        return bool(self._logins or self._own_session)
 
     @staticmethod
     def _usernames(pids) -> set:
@@ -170,16 +198,48 @@ class OwnPorts:
         return out
 
     def _live_pids(self) -> set:
-        """The pids to watch now: the ones we were given, or their replacements."""
+        """The pids to watch now: the ones we were given, or whatever holds the session.
+
+        The seed pids first — they cost one liveness check each. The session lookup runs
+        only when they are gone or were never handed over, and it goes through
+        `game_link.pids`, which reads the SESSION table (`WTSEnumerateProcesses`, 27 ms)
+        and answers for another Windows account's session; `psutil.process_iter` neither
+        does that reliably nor cheaply (4–8 s cold, with the GIL held). The username
+        scan below it is what is left for a machine with no session table at all.
+        """
         try:
             import psutil
         except ImportError:
-            return set()
-        alive = {p for p in self._pids if psutil.pid_exists(p)}
-        if alive or not self._users:
+            psutil = None                # noqa: N806 — a scan is optional, a session is not
+        alive = {p for p in self._pids
+                 if psutil is None or psutil.pid_exists(p)} if self._pids else set()
+        if alive:
             return alive
-        # The client was restarted: same account, new pid. Find it by the user we
-        # anchored on rather than going deaf until the panel notices.
+        found: set = set()
+        for login in sorted(self._logins):
+            found |= self._in_session(login)
+        if self._own_session:
+            found |= self._in_session(None)
+        if not found:
+            # The client was restarted: same account, new pid. Find it by the user a
+            # seed pid proved, rather than going deaf until the panel notices.
+            found = self._by_username(psutil)
+        if found:
+            self._pids = found
+        return found
+
+    @staticmethod
+    def _in_session(login) -> set:
+        """The client pids in ``login``'s Windows session — ``None`` means this one."""
+        try:
+            return {int(pid) for pid in game_link.pids(user=login)}
+        except Exception:                # noqa: BLE001 — no session yet, no WTS, no game
+            return set()
+
+    def _by_username(self, psutil) -> set:
+        """Every client on the machine running as one of the accounts we anchored on."""
+        if psutil is None or not self._users:
+            return set()
         found = set()
         for proc in psutil.process_iter(["pid", "name"]):
             if (proc.info["name"] or "").lower() != GAME_PROCESS:
@@ -189,8 +249,6 @@ class OwnPorts:
                     found.add(proc.info["pid"])
             except Exception:            # noqa: BLE001
                 pass
-        if found:
-            self._pids = found
         return found
 
     def __call__(self) -> set:
@@ -685,7 +743,18 @@ def add_capture_arguments(ap: argparse.ArgumentParser,
                     metavar="PID",
                     help="decode only the traffic of THIS client (repeatable). Two "
                          "accounts dial the same server port, so without it a capture "
-                         "hears both — and every trigger fires off either")
+                         "hears both — and every trigger fires off either. A SEED: the "
+                         "pid is followed while it lives, and the anchors below are "
+                         "what find the client again afterwards")
+    ap.add_argument("--client-user", action="append", default=[], metavar="LOGIN",
+                    help="decode only the client running in this Windows account's "
+                         "session (repeatable). Unlike --client-pid this survives a "
+                         "client that starts late, restarts, or was not running when "
+                         "the capture was")
+    ap.add_argument("--client-own-session", action="store_true",
+                    help="decode only the client in the Windows session this capture "
+                         "is itself running in — the anchor for an account that does "
+                         "not use a session of its own")
     ap.add_argument("--all-tcp", action="store_true",
                     help="capture every TCP port, not just the game's — the "
                          "catch-all if port auto-detection ever fails")
@@ -740,10 +809,18 @@ def start_capture(index: MapIndex, args) -> tuple:
                   f"(is {GAME_PROCESS} running, and psutil installed?) — "
                   f"falling back to :{GAME_PORT}. Pass --port N or --all-tcp "
                   f"if the capture stays silent.{C_RESET}", file=sys.stderr)
-    if getattr(args, "client_pid", None):
-        index.own_ports = OwnPorts(args.client_pid)
-        print(f"{C_DIM}decoding only pid(s) "
-              f"{', '.join(str(p) for p in args.client_pid)} — another account's "
+    logins = tuple(getattr(args, "client_user", None) or ())
+    own_session = bool(getattr(args, "client_own_session", False))
+    seeds = tuple(getattr(args, "client_pid", None) or ())
+    if seeds or logins or own_session:
+        index.own_ports = OwnPorts(seeds, logins=logins, own_session=own_session)
+        # Named in the capture's own words, because "hears one account" and "hears the
+        # machine" look identical in every file this writes afterwards.
+        whose = [f"session of {name}" for name in logins]
+        if own_session:
+            whose.append("this session")
+        whose += [f"pid {pid}" for pid in seeds]
+        print(f"{C_DIM}decoding only {', '.join(whose)} — another account's "
               f"client on this machine is not this capture's{C_RESET}")
     if getattr(args, "dump", None):
         try:

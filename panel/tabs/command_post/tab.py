@@ -37,6 +37,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
+from ...runtime import game_process
 from ...runtime.paths import TOOLS
 from ...widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
                         font as ui_font)
@@ -270,6 +271,10 @@ class _Pane:
                "--json", checkpoint,
                "--seconds", str(SCAN_SECONDS),
                "--interval", str(SCAN_INTERVAL), *extra]
+        # …of THIS profile's map, not of every client the machine is running (#1306).
+        # A scan writes a checkpoint the page then acts out of, so a tile another
+        # account happened to be looking at would be listed here as this one's.
+        cmd += game_process.capture_narrowing(self.rt.settings)
         child = self.rt.children.spawn(self.LOG_TAG, cmd, on_exit=self._scan_ended)
         if not child.start():
             return
@@ -805,6 +810,10 @@ class SharedMissionsPane(_Pane):
         # Unconditional (#1188). The listener resolves the own server itself, so the
         # prohibition travels as a flag; there is no box left that could withhold it.
         cmd.append("--skip-own-server")
+        # …and only this profile's alliance (#1306). It watches rather than robs, but a
+        # page listing another account's shared tasks as this one's is the same lie one
+        # step earlier — and it is the list a person then acts on by hand.
+        cmd += game_process.capture_narrowing(self.rt.settings)
         child = self.rt.children.spawn("autoloot", cmd, on_line=self._on_line,
                                 on_exit=self._on_child_exit)
         if not child.start():

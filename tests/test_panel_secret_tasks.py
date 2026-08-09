@@ -3615,6 +3615,10 @@ def test_both_captures_are_told_where_to_record_a_share():
 
     rt = types.SimpleNamespace(
         children=types.SimpleNamespace(python=lambda: "python"),
+        # …and the two knobs the narrowing reads (#1306): this scan decodes ONE
+        # account's map, not every client the machine happens to be running.
+        settings=types.SimpleNamespace(opt_bool=lambda _k: False,
+                                       opt_str=lambda _k: ""),
         profiles=_FakeProfiles(_state_path()))
     made = cap.Capture.__new__(cap.Capture)
     made.rt, made.interval = rt, _Var("1")
@@ -3628,6 +3632,8 @@ def test_both_captures_are_told_where_to_record_a_share():
     assert star[star.index("--json") + 1] == rt.profiles.tasks_json()
     assert ghost[ghost.index("--json") + 1] == rt.profiles.ghost_json()
     assert star[star.index("--interval") + 1] == "1"
+    for cmd in (star, ghost):
+        assert "--client-own-session" in cmd or "--client-user" in cmd, cmd
 
 
 def test_every_page_filters_by_its_own_level_range():

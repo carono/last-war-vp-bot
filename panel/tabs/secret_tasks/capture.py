@@ -23,6 +23,7 @@ import time
 # can be imported without the panel ever having run (the tests do exactly that), so the
 # order is load-bearing rather than stylistic — see panel/runtime/paths.py.
 from ...runtime import captures as capturemod
+from ...runtime import game_process
 from ...runtime.paths import TOOLS
 
 import coords                                        # noqa: E402  (see above)
@@ -182,6 +183,13 @@ class Capture:
             # that is already reading this traffic is what lets a row on the tab say
             # «уже поделились» without the panel having done the sharing.
             cmd += ["--shared-json", self.rt.profiles.secret_shared_json()]
+        # …AND ONLY THIS PROFILE'S CLIENT (#1306). Four accounts on one machine dial the
+        # same two server ports, so with nothing said here this scan decoded every one
+        # of them: a mate's shared task, another account's ghost tile and a stranger's
+        # map all landed in THIS profile's checkpoint, which is the file auto-loot then
+        # robs from. The narrowing is the profile's Windows session, not a pid read once
+        # at spawn — the client is often not up yet when the panel starts the capture.
+        cmd += game_process.capture_narrowing(self.rt.settings)
         # Capture tick interval from the tab (falls back to the child's own default if
         # the field is blank or non-numeric).
         interval = (self.interval.get().strip() if self.interval is not None else "")

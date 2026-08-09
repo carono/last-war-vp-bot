@@ -55,6 +55,7 @@ import re
 import threading
 import time
 
+from ...runtime import game_process
 from ...runtime.paths import TOOLS
 
 #: A robbery the SERVER answered, in the recipe's own output. The daily counter moving
@@ -179,6 +180,14 @@ class AutoLoot:
         # than as a number. It is unconditional now (#1188): the home server is never a
         # target, so there is no box left to read here.
         cmd.append("--skip-own-server")
+        # …AND ONLY THIS PROFILE'S ALLIANCE (#1306). This listener is a capture and it
+        # ROBS off what it decodes, so with nothing said here it was firing this
+        # account's five daily robberies at tiles announced in ANOTHER account's
+        # alliance chat — the worst version of the leak, because the budget is spent
+        # before anybody can see where the target came from. The anchor is the profile's
+        # Windows session, not a pid read once: this child is spawned at boot, when the
+        # client it belongs to may not be up yet.
+        cmd += game_process.capture_narrowing(self.rt.settings)
         proc = self.rt.children.spawn_raw(cmd, "autoloot")
         if proc is None:
             return

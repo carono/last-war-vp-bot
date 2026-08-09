@@ -991,10 +991,10 @@ class RallyTab(PanelTab):
         cmd += ["--out", out] if archive else ["--no-archive"]
         # …and only THIS profile's client. Two accounts dial the same server port, so
         # without this the capture hears both alliances and the auto-join spends this
-        # account's squads on the other one's banner. Empty when it cannot be told,
-        # which keeps the old machine-wide behaviour rather than going deaf.
-        for pid in game_process.profile_pids(self.rt.settings):
-            cmd += ["--client-pid", str(pid)]
+        # account's squads on the other one's banner. The profile's Windows session
+        # travels with the pids, so a monitor started while the client is still coming
+        # up narrows itself as soon as there is something to narrow to (#1306).
+        cmd += game_process.capture_narrowing(self.rt.settings)
         mon = self.rt.children.spawn("rally", cmd,
                                      on_line=self._on_line, on_exit=self._on_exit)
         if not mon.start():

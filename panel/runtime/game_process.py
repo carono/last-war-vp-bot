@@ -139,6 +139,34 @@ def profile_pids(settings) -> list:
         return []
 
 
+def capture_narrowing(settings) -> list:
+    """The argv that ties a capture child to THIS profile's client, and to no other.
+
+    Every capture the panel spawns takes it — the rally monitor, the wire ear, the
+    secret-task and ghost scans, the leaderboard collector — because they all decode
+    the same two server ports and a packet filter cannot tell four accounts apart.
+
+    A PID IS A SEED, A SESSION IS THE ANCHOR (#1306). :func:`profile_pids` answers for
+    the moment it is asked, and the moment a capture is spawned is the panel's boot —
+    when a profile whose client lives in its own Windows session has no client yet. It
+    came back empty, «could not tell» meant «hear everything», and it meant it for the
+    rest of the run: measured live on 2026-08-09, three of four open profiles were
+    running their rally monitor and their wire ear with no narrowing at all. So the
+    session goes with the pids, the capture looks them up again on its own clock
+    (`map_capture.OwnPorts`), and a client that starts late is picked up rather than
+    missed for good.
+
+    Never raises and never comes back empty: a profile that names no Windows session of
+    its own says «the session I am in», which is a real anchor and not the absence of
+    one.
+    """
+    user = profile_user(settings)
+    args = ["--client-user", user] if user else ["--client-own-session"]
+    for pid in profile_pids(settings):
+        args += ["--client-pid", str(pid)]
+    return args
+
+
 # -- the reading, worded ------------------------------------------------------
 
 @dataclass(frozen=True)
