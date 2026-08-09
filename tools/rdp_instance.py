@@ -111,6 +111,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -197,17 +198,31 @@ WORK = os.path.join(tempfile.gettempdir(), "lwbot")
 LOGDIR = os.path.join(REPO, "results", "logs")
 
 
-#: Where the running commentary goes. ``None`` is this tool's own stdout, which is right
-#: for a command line and useless to the panel — a windowed panel has no console, so a
-#: caller that wants these lines in its log wraps the call in :func:`spoken_to`.
-_SAY = None
+#: Where the running commentary goes, PER THREAD. Unset is this tool's own stdout, which
+#: is right for a command line and useless to the panel — a windowed panel has no
+#: console, so a caller that wants these lines in its log wraps the call in
+#: :func:`spoken_to`.
+#:
+#: THREAD-LOCAL, AND THAT IS THE WHOLE POINT (#1306). It was one process-wide variable,
+#: which is exactly one sink for however many accounts a panel has open — and a panel
+#: brings its profiles' clients and daemons up at the SAME TIME, each on its own worker
+#: thread. Two overlapping bring-ups meant one profile's commentary printed into the
+#: other profile's log, and the `finally` below restored whichever value the other
+#: thread had left behind, so the sink could stay pointed at a closed profile for the
+#: rest of the run. A bring-up talks to whoever asked for it and to nobody else.
+_SINK = threading.local()
+
+
+def _say_now():
+    return getattr(_SINK, "say", None)
 
 
 def log(msg: str) -> None:
     line = f"[rdp] {msg}"
-    if _SAY is not None:
+    say = _say_now()
+    if say is not None:
         try:
-            _SAY(line)
+            say(line)
             return
         except Exception:      # noqa: BLE001 — a log sink must never fell the bring-up
             pass
@@ -216,18 +231,22 @@ def log(msg: str) -> None:
 
 @contextlib.contextmanager
 def spoken_to(say):
-    """Send everything :func:`log` says to ``say`` for the duration of the block.
+    """Send everything :func:`log` says on THIS THREAD to ``say`` for the block.
 
     A sink rather than a ``say=`` parameter on each function: the bring-up talks from
     six places, and a parameter threaded through five of them is one that the sixth
     eventually forgets — which reads to the person as the panel going silent half way.
+
+    Per thread, so two profiles bringing their clients up at once each hear their own
+    (see :data:`_SINK`). A thread the bring-up starts for itself does NOT inherit this
+    and falls back to stdout, which is the honest answer: a line nobody can attribute is
+    worse in a shared log than a line in a console.
     """
-    global _SAY                                    # noqa: PLW0603 — one process-wide sink
-    prev, _SAY = _SAY, say
+    prev, _SINK.say = _say_now(), say
     try:
         yield
     finally:
-        _SAY = prev
+        _SINK.say = prev
 
 
 # ------------------------------------------------------------ elevation/SYSTEM --
