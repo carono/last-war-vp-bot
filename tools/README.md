@@ -396,9 +396,16 @@ archives the monitor has already written. It captures nothing itself — it only
 ```
 
 That is the whole command. It reads every `profiles/*/rally_log.jsonl`, writes
-`profiles/rally_report.html`, refreshes `profiles/rally_report_avatars/` beside it, and
+`cache/reports/rally_report.html`, refreshes the shared faces in `cache/avatars/`, and
 prints how many alliances, players, squads, measurements and avatars came out. Run it
 again whenever you want the page brought up to date.
+
+**`cache/` is shared by every profile and belongs to none of them** (#1306). The same
+player has the same face whichever account met them, so one folder serves every page
+instead of a copy per profile — and neither the pictures nor the page is an account's
+state, which is what `profiles/<name>/` is for. It is git-ignored and safe to delete
+whole: everything in it is rebuilt by running the command again. `LW_CACHE_DIR` moves it
+to another disk.
 
 WSL's own `python3` produces the page too, but with no pictures: the photo cache is a
 Windows path and `~` resolves to the WSL home instead.
@@ -406,7 +413,7 @@ Windows path and `~` resolves to the WSL home instead.
 | flag | what it does |
 |---|---|
 | `--no-live` | do not ask the running client for the avatar ids its alliance roster knows — faster, and the right choice when the game is not up |
-| `--out profiles/name.html` | somewhere else; the avatar folder follows it (`name_avatars/`) |
+| `--out some/dir/name.html` | somewhere else; the page still links the shared `cache/avatars/`, relatively |
 | `--input profiles/default/rally_log.jsonl` | one archive instead of all of them; repeatable |
 | `--min-moments N` | leave out players seen fewer than N times |
 
@@ -616,13 +623,15 @@ results/
 ├── head_icons/{head,head_s6}/  # the game's built-in avatars (extract_hero_icons --sets)
 └── raw/                     # raw request/response bodies (*.bin)
 ```
-The rally archives and the report built from them live under `profiles/` instead, because
-they belong to a panel profile rather than to a run:
+The rally ARCHIVE belongs to a panel profile rather than to a run, and the page built
+out of every profile's archive belongs to none of them:
 ```
 profiles/
-├── <profile>/rally_log.jsonl   # one line per rally participant (rally_monitor --out)
-├── rally_report.html           # the page (rally_report.py)
-└── rally_report_avatars/       # its pictures, one file per face, linked relatively
+└── <profile>/rally_log.jsonl   # one line per rally participant (rally_monitor --out)
+
+cache/                          # shared by every profile, git-ignored, safe to delete
+├── reports/rally_report.html   # the page (rally_report.py)
+└── avatars/                    # the faces, one file each, linked relatively
 ```
 `<ts>` is `YYYYMMDD_HHMMSS` taken when the run starts, so a restart always
 lands in a new file (`_2`, `_3`, … disambiguate the same second).

@@ -74,16 +74,29 @@ def test_a_freshly_created_profile_has_a_config_file_right_away() -> None:
         assert json.loads(Path(env.config_path("alt")).read_text(encoding="utf-8")) == {}
 
 
-def test_a_profile_dir_that_predates_this_rule_is_backfilled() -> None:
-    """A directory with no config.json — as several real ones had (#1246) — gets one
-    the next time anything so much as opens a `ProfileManager`, not only when it is
-    itself next saved to."""
+def test_a_directory_with_no_config_is_not_a_profile_and_is_not_backfilled() -> None:
+    """The reversal of #1246's backfill, and why it is not a regression (#1306).
+
+    That rule wrote an empty `config.json` into every listed directory so no profile was
+    left without a file to point at. It ran over «every directory in profiles/» — which
+    is how the squads report's picture folder acquired a config and became an account
+    with a share in another profile's daemon.
+
+    A profile is a directory WITH a config now, so the invariant #1246 was maintaining
+    is the definition instead of something defended against it. A directory without one
+    is not promoted, not listed — and not silently dropped either: `strays()` is what
+    the panel says out loud about it, because a real profile whose config was lost lands
+    there too and would otherwise simply vanish.
+    """
     with _Profiles() as env:
         os.makedirs(os.path.join(profilemod.PROFILES_DIR, "orphan"))
         assert not os.path.exists(env.config_path("orphan"))
-        profilemod.ProfileManager()               # constructing ANY manager backfills it
-        assert os.path.exists(env.config_path("orphan"))
-        assert json.loads(Path(env.config_path("orphan")).read_text(encoding="utf-8")) == {}
+        mgr = profilemod.ProfileManager()          # constructing a manager promotes nothing
+        assert not os.path.exists(env.config_path("orphan")), (
+            "the folder was promoted into an account")
+        assert "orphan" not in mgr.list()
+        assert not mgr.exists("orphan")
+        assert "orphan" in mgr.strays(), "it was dropped without a word"
 
 
 # ---------------------------------------------------------------------------

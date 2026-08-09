@@ -391,6 +391,57 @@ def test_the_backfill_that_would_undo_all_this_is_gone():
         "the backfill loop is back; it re-promotes strays into accounts")
 
 
+# -- what is NOT an account's -------------------------------------------------
+
+def test_the_cache_is_shared_asked_for_in_one_place_and_not_in_profiles():
+    """Isolation is about what belongs to an ACCOUNT; a downloaded face is not one.
+
+    The same player has the same picture whichever profile met them first, so the faces
+    and the pages built from every profile's archive live in one shared directory. It
+    must not be inside `profiles/` either — that tree is accounts, and a folder sitting
+    in it is what started #1306's last chapter.
+    """
+    import game_paths
+    from panel import paths as panel_paths
+
+    cache = os.path.abspath(game_paths.cache_dir())
+    profiles = os.path.abspath(panel_paths.PROFILES_DIR)
+    assert os.path.commonpath([cache, profiles]) != profiles, (
+        f"the shared cache is inside the accounts' tree: {cache}")
+    for path in (game_paths.avatar_cache(), game_paths.report_dir()):
+        assert os.path.abspath(path).startswith(cache + os.sep), path
+
+
+def test_the_cache_moves_with_one_variable_and_nothing_re_spells_it():
+    """One place answers it, as everything machine-dependent here does."""
+    import game_paths
+
+    keep = os.environ.get("LW_CACHE_DIR")
+    os.environ["LW_CACHE_DIR"] = os.path.join("elsewhere", "lw")
+    try:
+        assert game_paths.cache_dir() == os.path.join("elsewhere", "lw")
+        assert game_paths.avatar_cache().startswith(os.path.join("elsewhere", "lw"))
+    finally:
+        if keep is None:
+            os.environ.pop("LW_CACHE_DIR", None)
+        else:
+            os.environ["LW_CACHE_DIR"] = keep
+
+    # …and the report tool asks it rather than spelling a path of its own. The literal
+    # is what the old per-report folder was BUILT from, so its absence is the check;
+    # `copy_avatars` and the prose explaining the move keep the word legitimately.
+    source = (_REPO / "tools" / "rally_report.py").read_text(encoding="utf-8")
+    assert "game_paths.avatar_cache()" in source
+    assert '"_avatars"' not in source, "the per-report avatar folder is back in the code"
+    assert "profiles/rally_report.html" not in source, "the old default is back"
+
+
+def test_the_shared_cache_is_git_ignored():
+    """It is other people's photographs and two hundred nicknames, like `profiles/`."""
+    ignore = (_REPO / ".gitignore").read_text(encoding="utf-8").split("\n")
+    assert "cache/" in [line.strip() for line in ignore], "cache/ is not ignored"
+
+
 # -- what is shared ON PURPOSE ------------------------------------------------
 
 def test_the_claim_registry_is_process_wide_and_is_meant_to_be():

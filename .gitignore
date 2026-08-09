@@ -44,6 +44,14 @@ models_cache/
 # server number. None of that belongs in a public repository, and the way it would get
 # there is somebody adding a file to a profile that no narrower rule anticipated.
 profiles/
+# EVERYTHING SHARED, as opposed to everything an account's (#1306). Downloaded pictures
+# and generated pages are the same for every profile on the machine — the same player has
+# the same face whichever account met them — so they live here rather than being copied
+# into four profile directories. Ignored for the same reason `profiles/` is: a report is
+# two hundred nicknames and uids, and the faces are other people's photographs. Nothing
+# in here is needed to run; deleting the directory costs the time to fetch it again.
+cache/
+
 # The old locations, kept ignored so that a checkout which has not been started since
 # the move cannot commit what is still sitting in them.
 panel/profiles/

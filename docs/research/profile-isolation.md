@@ -203,6 +203,55 @@ does that for anybody else's install — it reports the folder instead.
 faces out of `profiles/` altogether, under `profiles/_reports/`. The paths have already
 been given to the operator, so it is a move to make on purpose rather than in passing.
 
+## 5b. …and what is NOT an account's does not belong in a profile either
+
+The other half of the same question, settled by the operator once the folder above had
+raised it:
+
+> Кеш файлы, аватары, можно делать общими для всех, не обязательно это тянуть в профиль.
+
+**Isolation is about what belongs to an ACCOUNT** — its log, its scenarios, its daemon,
+its state, its locks, its daily budgets. A picture downloaded off the client's own cache
+is not one of those: the same player has the same face whichever profile met them first,
+so four profiles keeping four copies is four times the disk and four times the work for
+one answer. That is not an exception to the rule; it is the rule read properly.
+
+So there is one shared directory, `<project>/cache/`, asked for in one place
+(`tools/lib/game_paths.py` — `cache_dir()`, `avatar_cache()`, `report_dir()`, with
+`LW_CACHE_DIR` in front for a machine that wants it on another disk). Git-ignored for the
+same reason `profiles/` is — a report is two hundred nicknames and uids, and the faces
+are other people's photographs — and safe to delete whole: nothing in it is needed to
+run.
+
+Deliberately NOT in `profiles/`. That directory is accounts, and the definition above
+now enforces it, but a cache has no business being filed among them even when the rule
+would tolerate it.
+
+What moved, and where it is now:
+
+| was | is |
+|---|---|
+| `profiles/rally_report.html` | `cache/reports/rally_report.html` |
+| `profiles/rally_report_avatars/` | `cache/avatars/` — shared, one folder for every page |
+
+The report also stopped being «beside the page» about its pictures: it links
+`../avatars/<uid>.jpg` relatively, so the pair still copies to a phone as one tree.
+
+**What was checked and did NOT move.** Everything else inside `profiles/<name>/` is that
+account's and stays: its logs, its timer and trigger catalogues, its chat store, its
+leaderboard history, its rally archive, its secret-task and map state, its own duel
+report. The extracted game art (`results/head_icons/`, `results/hero_icons/`) was
+already machine-wide rather than per profile and was left where the tools that write it
+say it is.
+
+**One bug fell out of the move** and is worth writing down because it had nothing to do
+with paths: `rally_report.live_head_skins` asks the running client for avatar ids and
+guards the ask with `except Exception`, while `il2cpp_probe` raises **`SystemExit`** —
+«snapshot failed err=5» — when the client it attaches to has gone. `SystemExit` does not
+descend from `Exception`, so it walked past the guard and took the whole report with it.
+The docstring said «no client is an answer, not an error» and the code disagreed; it only
+showed up the first time the report was run against a client that had been kicked.
+
 ## 6. Named, and left alone
 
 * **`game_clock`'s offset is process-wide.** Every client's offset is a drift between

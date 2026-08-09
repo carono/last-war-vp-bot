@@ -108,7 +108,16 @@ a machine whose client has met fewer of them.
 
 ## A note on the folder
 
-The pictures travel WITH the report: `<report>_avatars/` beside the page, one file per
-picture (`<uid>.jpg` for a cached photo, `<headSkinId>.png` for a sprite, so forty people
-wearing the same built-in avatar cost one file), relative links, nothing fetched. 182
-files, 947 KiB, for a page of 253 players.
+The pictures travel WITH the report as files: one per picture (`<uid>.jpg` for a cached
+photo, `<headSkinId>.png` for a sprite, so forty people wearing the same built-in avatar
+cost one file), relative links, nothing fetched. 211 files, 1 076 KiB, for a page of 291
+players.
+
+**One folder for the whole machine — `cache/avatars/`** (`game_paths.avatar_cache()`,
+#1306). It was `<report>_avatars/` beside the page, which put a directory into
+`profiles/` and the panel read it as an account; but the deeper reason it moved is that
+a face is not an account's. The same player has the same picture whichever profile
+happened to meet them first, so four profiles keeping four copies is four times the disk
+for one answer. The operator's words: «Кеш файлы, аватары, можно делать общими для всех,
+не обязательно это тянуть в профиль.» What IS a profile's — its log, its schedule, its
+daemon, its budgets — stays isolated, and `profile-isolation.md` is that half.

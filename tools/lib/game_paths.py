@@ -20,6 +20,13 @@ that sets none of them.
     LW_WIN_PYTHON    the Windows interpreter child processes are started with
     LW_WEB_PORT      the port the panel's web front-end listens on (a profile may
                      override it; this is the machine's answer)
+    LW_CACHE_DIR     where WE keep what is the same for every profile — the players'
+                     faces, the generated pages. Defaults to `<project>/cache/`
+
+The last one is the odd one out and says so where it is defined: everything else here
+answers «where is the game on this machine», and that one answers «where do we put what
+we downloaded». It is here because this is the module both the panel and the tools
+already ask, and a path spelled in two places is a path that drifts.
 
 **Nothing here has to be set.** A second account is a tick and a login: the launcher in
 *that* account's profile is found by looking its profile directory up in the registry
@@ -303,6 +310,63 @@ def web_port() -> int:
     except ValueError:
         return DEFAULT_WEB_PORT
     return port if 1 <= port <= 65535 else DEFAULT_WEB_PORT
+
+
+# -- what WE keep, as opposed to where the game is ----------------------------------
+#
+# One directory, `<project>/cache/`, shared by every profile on the machine (#1306).
+#
+# WHY IT IS NOT A PROFILE'S. A profile owns what belongs to the ACCOUNT — its log, its
+# schedule, its daemon, its state, its budgets — and isolating those is the whole of
+# #1306. A picture downloaded off the client's own cache is not one of those: the same
+# player's face is the same file whatever account happened to see them first, so four
+# profiles keeping four copies is four times the disk and four times the work for one
+# answer. The operator's words: «Кеш файлы, аватары, можно делать общими для всех, не
+# обязательно это тянуть в профиль.»
+#
+# AND IT IS NOT IN `profiles/` EITHER. That directory is accounts, and a folder sitting
+# in it is how the squads report's faces became an account with a share in another
+# profile's daemon. A profile is a directory with a `config.json` now
+# (`panel/profile.py`), which closes that on its own — but a cache still has no business
+# being filed among the accounts, so it lives beside them rather than in them.
+
+
+def repo_dir() -> str:
+    """The project root — the directory holding `tools/`, `panel/`, `docs/`.
+
+    Derived, never configured: it is where this file is, so it is already right on every
+    machine. The same reasoning as `panel/paths.py`, which says it at length.
+    """
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def cache_dir() -> str:
+    """Everything downloaded or derived that is the same for every profile.
+
+    `LW_CACHE_DIR` moves it, for a machine that would rather it were on another disk —
+    it fills with pictures and it grows. Git-ignored, and nothing in it is ever needed
+    to run: deleting the whole directory costs the time to fetch it again.
+    """
+    return _env("LW_CACHE_DIR", os.path.join(repo_dir(), "cache"))
+
+
+def avatar_cache() -> str:
+    """The players' faces, copied out of the client's own photo cache, one per uid.
+
+    Shared on purpose (see the note above): the same player has the same face whichever
+    account met them. `tools/lib/player_photos.py` finds the originals; this is where
+    the shrunk copies the reports link to are kept.
+    """
+    return os.path.join(cache_dir(), "avatars")
+
+
+def report_dir() -> str:
+    """Where the generated pages go — beside the cache they link into, not in `profiles/`.
+
+    A report is not an account's either: `tools/rally_report.py` folds EVERY profile's
+    archive into one page, so filing it under one of them was always a misnomer.
+    """
+    return os.path.join(cache_dir(), "reports")
 
 
 def wireshark_dirs() -> tuple[str, ...]:

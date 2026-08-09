@@ -3,7 +3,7 @@ r"""One HTML page of everybody's rally squads, out of the rally archives — for
 
     python tools/rally_report.py
     python tools/rally_report.py --input profiles/default/rally_log.jsonl \
-                                --out profiles/rally_report.html
+                                --out cache/reports/rally_report.html
 
 The rally monitor (`tools/rally_monitor.py`) archives one line per participant of every
 `push.alliance.march.create/refresh` it sees, into `profiles/<profile>/rally_log.jsonl`.
@@ -17,8 +17,11 @@ when neither knows — a rally is an alliance affair, so its participants are on
 A group nobody can name keeps its players and says so. See
 `docs/research/rally-squad-identity.md`.
 
-Avatars are files beside the page, not inside it — `<report>_avatars/`, linked relatively,
-nothing fetched. The picture a player uploaded comes out of the CLIENT'S PHOTO CACHE
+Avatars are files, not data inside the page — `cache/avatars/`, linked relatively, nothing
+fetched. That folder is SHARED by every profile (#1306): the same player has the same face
+whichever account met them, so one copy serves every page ever generated.
+
+The picture a player uploaded comes out of the CLIENT'S PHOTO CACHE
 (`tools/lib/player_photos.py`), which holds exactly the people this client has met, and is
 copied as `<uid>.jpg` shrunk to 128 px. A player who never uploaded one wears a built-in
 avatar instead: that is a `headSkinId`, and its sprite comes out of the bundles
@@ -88,10 +91,16 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
+import game_paths                                   # noqa: E402  (needs the path above)
+
 #: Written into a directory that is not git-ignored, this file is two hundred players'
 #: nicknames and uids in a tracked tree. The check is deliberately crude and deliberately
 #: refuses rather than warns.
-_ALLOWED_ROOTS = ("profiles", "results", "screenshots")
+#:
+#: `cache` is where the page and the faces live now (#1306) and is git-ignored with the
+#: rest; `profiles` stays allowed because somebody may still point `--out` at a profile
+#: they are looking at, and it is ignored too.
+_ALLOWED_ROOTS = ("cache", "profiles", "results", "screenshots")
 
 #: The drone / air-support slot — a squad row, but not a hero.
 DRONE_ID = 1000000
@@ -187,7 +196,14 @@ def live_head_skins() -> dict:
                 if uid.isdigit() and head.strip().isdigit():
                     out[uid] = int(head)
             return out
-    except Exception:                            # noqa: BLE001 — no client is an answer
+    except (Exception, SystemExit):              # noqa: BLE001 — no client is an answer
+        # SystemExit, and it is not paranoia: `il2cpp_probe` RAISES ONE — «snapshot
+        # failed err=5» — when the client it was told to attach to has gone, and
+        # `SystemExit` does not descend from `Exception`, so it walked straight past
+        # this guard and took the whole report with it. The docstring above said «no
+        # client is an answer, not an error» while the code disagreed, and it only
+        # showed up the first time the report was run against a client that had been
+        # kicked (#1306).
         pass
     return {}
 
@@ -216,11 +232,17 @@ def _shrink(source: str, destination: str) -> None:
 
 
 def copy_avatars(players, out_path: str, root: str = None) -> tuple:
-    """Put the players' avatars in a folder beside the report; return the hrefs.
+    """Put the players' avatars in the SHARED cache; return the hrefs into it.
 
-    The pictures travel WITH the page as files rather than inside it: a folder named
-    after the report, one file per picture however many rows show it, and relative links
-    from the page. Nothing is fetched from anywhere.
+    The pictures travel WITH the page as files rather than inside it: one file per
+    picture however many rows show it, and relative links from the page. Nothing is
+    fetched from anywhere.
+
+    SHARED BY EVERY PROFILE, not kept per report or per account (#1306). The same
+    player's face is the same file whichever account happened to meet them first, so it
+    lives in `game_paths.avatar_cache()` — `cache/avatars/` — and every page ever
+    generated links into the one folder. It used to be `<report>_avatars/` beside the
+    page, which put a directory into `profiles/` that the panel then read as an account.
 
     Two sources, in that order:
 
@@ -238,8 +260,12 @@ def copy_avatars(players, out_path: str, root: str = None) -> tuple:
     """
     stats = {"photos": 0, "sprites": 0, "ids": 0, "copied": 0, "unmapped": [],
              "bytes": 0, "folder": "", "cache": ""}
-    folder = os.path.splitext(os.path.basename(out_path))[0] + "_avatars"
-    directory = os.path.join(os.path.dirname(os.path.abspath(out_path)), folder)
+    directory = game_paths.avatar_cache()
+    # The page links RELATIVELY, so it keeps working when the whole tree is copied to a
+    # phone — `../avatars/<uid>.jpg` from `cache/reports/`, and whatever the distance is
+    # when somebody passes `--out` of their own.
+    folder = os.path.relpath(directory,
+                             os.path.dirname(os.path.abspath(out_path))).replace("\\", "/")
     stats["folder"] = directory
     hrefs = {}
 
@@ -1052,7 +1078,11 @@ def main() -> int:
                     help="a rally_log.jsonl to read; repeatable. Every profile's "
                          "archive when left out — a player's squads often sit in a "
                          "neighbour's capture rather than your own")
-    ap.add_argument("--out", default="profiles/rally_report.html")
+    ap.add_argument("--out",
+                    default=os.path.join(game_paths.report_dir(),
+                                         "rally_report.html"),
+                    help="where to write the page (default: the shared "
+                         "report folder, cache/reports/)")
     ap.add_argument("--min-moments", type=int, default=0,
                     help="drop players seen fewer times than this")
     ap.add_argument("--no-live", action="store_true",

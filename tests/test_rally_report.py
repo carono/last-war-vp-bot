@@ -305,18 +305,26 @@ def test_the_photo_cache_beats_the_built_in_avatar():
         import player_photos
         player_photos.reset_cache()
         data = rr.load([path])
-        out = os.path.join(tmp, "report.html")
-        hrefs, stats = rr.copy_avatars(data["players"], out, root=cache)
+        out = os.path.join(tmp, "reports", "report.html")
+        # The faces live in ONE shared folder, not one per report (#1306) — redirected
+        # here so the test never writes into the machine's real cache.
+        shared = os.path.join(tmp, "avatars")
+        real, rr.game_paths.avatar_cache = rr.game_paths.avatar_cache, lambda: shared
+        try:
+            hrefs, stats = rr.copy_avatars(data["players"], out, root=cache)
+        finally:
+            rr.game_paths.avatar_cache = real
 
         assert stats["photos"] == 1, stats
-        assert hrefs[UID_A] == f"report_avatars/{UID_A}.jpg"   # relative, beside the page
-        assert os.path.exists(os.path.join(tmp, "report_avatars", f"{UID_A}.jpg"))
+        # Relative, and out of the report's own directory into the shared one.
+        assert hrefs[UID_A] == f"../avatars/{UID_A}.jpg", hrefs[UID_A]
+        assert os.path.exists(os.path.join(shared, f"{UID_A}.jpg"))
         # only the players the cache could not answer for cost a sprite
         assert stats["ids"] == 2, stats
         assert stats["unmapped"] == [99999], stats
         if head_map.available():                     # skipped where nothing is extracted
             key = str(head_map.PICKABLE_BASE + 1)
-            assert hrefs[key] == f"report_avatars/{key}.png"
+            assert hrefs[key] == f"../avatars/{key}.png", hrefs[key]
             assert stats["sprites"] == 1, stats
         assert "1000000000000003" not in hrefs
 
@@ -351,13 +359,23 @@ def test_a_page_reaches_nothing_off_the_disk():
         import player_photos
         player_photos.reset_cache()
         data = rr.load([path])
-        hrefs, _stats = rr.copy_avatars(data["players"],
-                                        os.path.join(tmp, "report.html"), root=cache)
+        shared = os.path.join(tmp, "avatars")
+        real, rr.game_paths.avatar_cache = rr.game_paths.avatar_cache, lambda: shared
+        try:
+            hrefs, _stats = rr.copy_avatars(data["players"],
+                                            os.path.join(tmp, "reports", "report.html"),
+                                            root=cache)
+        finally:
+            rr.game_paths.avatar_cache = real
         page = rr.render(data, rr.group_by_alliance(data, [path]), hrefs)
     for reach in ("http://", "https://", "@import", "<link", 'src="/', 'src="//'):
         assert reach not in page, reach
     for href in hrefs.values():
-        assert not href.startswith(("/", "http", "..")), href
+        # `..` is allowed now and only now: the faces are a folder SHARED by every
+        # report (#1306), so a page reaches out of its own directory into it. What is
+        # still forbidden is anything absolute or off this machine.
+        assert not href.startswith(("/", "http")), href
+        assert not os.path.isabs(href), href
     assert "Player1" in page and UID_A in page          # the data really is embedded
 
 
@@ -381,6 +399,9 @@ def test_writing_outside_a_git_ignored_tree_is_refused():
         sys.argv = ["rally_report.py", "--out", "docs/rally.html"]
         assert rr.main() == 1
         assert not os.path.exists(os.path.join(_REPO, "docs", "rally.html"))
+        # …and the shared cache IS a permitted destination — it is git-ignored with
+        # the rest, and it is where the page goes by default now (#1306).
+        assert "cache" in rr._ALLOWED_ROOTS, rr._ALLOWED_ROOTS
     finally:
         sys.argv, _ = argv, os.chdir(cwd)
 
