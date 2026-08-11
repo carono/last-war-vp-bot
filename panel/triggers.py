@@ -560,6 +560,17 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         # reason — a chest is worked over several ticks (march, wait for the dig, claim),
         # so sitting quiet for a minute and a half after each fire would be sitting out
         # the claim.
+        #
+        # AND THE CLAIM NO LONGER RIDES ON THESE TWO NUMBERS (#1318). Measured across the
+        # whole of this gap — `tests/test_treasure_timing.py`, thirty chests, one per
+        # second of it — a claim that could only leave on a visit was **24 s late at
+        # worst and 10 s on average**, against a criterion of one second. Nothing here was
+        # slow; the QUESTION was being asked late. So the errand's first press now arms a
+        # watch inside the game: it reads the dig's own deadline off our march and pins a
+        # one-shot of the game's timer to it, which measures **0 ms on every one of the
+        # same thirty chests**. What this poll still does is what a poll is good for —
+        # hearing a chest, looking at the map the camera is on, and re-arming a client
+        # that has been restarted since the last tick.
         interval_sec=10,
         cooldown_sec=20,
         scenario=("auto_treasure",),

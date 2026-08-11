@@ -1075,3 +1075,107 @@ the scenario list, the phone) and by nothing on a schedule.
   fixed rather than unknown — the two bugs above burned every claim while the squad was
   still walking and then started the chest over each lap. The farming lists stay 🟡 until a
   chest is dug AND paid end to end.
+
+---
+
+# The claim moved into the game, and the number that moved it (#1318, 2026-08-11)
+
+**«Сбор сокровища происходит не всегда и с большими задержками — это недопустимо… таймер
+работать с наивысшим приоритетом, отслеживать время завершения раскопки и в ту же
+микросекунду забирать сокровище, и продолжать попытки, пока сокровище не будет взято или не
+исчезнет. Критерий приёмки: ВСЕ сокровища всегда забраны в первую секунду. Также не забывай
+отправлять отряд на раскопку — это тоже работает через раз.»**
+
+Three complaints, three different causes, and none of them was in the code that claims.
+
+## 1. The claim was asked for at the panel's pace, and the panel is slow by design
+
+Everything above is a CHUNK: the panel decides it wants something done and sends the Lua.
+The errand's poll (`panel/triggers.py`, `treasure_auto`) looks every 10 s and then sits out
+a 20 s cooldown, so a dig that finishes a moment after a visit waits out the rest of that
+visit's gap before anybody asks. Nothing in the chunk is slow — the QUESTION is asked late.
+
+Measured, offline, on the errand's real Lua in a real interpreter
+(`tests/test_treasure_timing.py`): one chest per second of the poll gap, thirty chests, the
+same march and the same clock for both models.
+
+```
+panel only : worst 24 000 ms · mean 10 000 ms · best 0 ms   (30 chests)
+with watch : worst      0 ms · mean      0 ms · best 0 ms   (30 chests)
+```
+
+Against a criterion of 1000 ms, the old model misses on most of the gap by construction.
+
+## 2. What the game already knows, and nobody was reading
+
+A dig march carries `MarchStatus.TREASURE_DIGGING` (19) and, with it, an `endTime` —
+**the server's own millisecond for when the digging finishes**
+([squad-state.md](squad-state.md)). So the moment the chest becomes takeable is not
+something to poll for, guess at or wait a grace out for: it is a field on our own march,
+readable the moment the squad starts digging.
+
+`_TREASURE_TICK` (`tools/lib/lua_actions.py`) is the claim half, parked on the VM as
+`DataCenter.__lw_treasure_auto.tick` and driven three ways:
+
+* the game's own timer, every `TREASURE_REAP_FAST_SEC` (0.2 s) while a chest is live;
+* a **one-shot pinned to `endTime`** whenever a dig deadline is within
+  `TREASURE_DUE_ARM_MS` — which is what turns «within a fifth of a second» into «in the
+  frame it ends»;
+* the panel's own step, at the end of every press, so a press is never slower than the
+  watch and a client whose watch has idled out still claims.
+
+The watch stops itself after `TREASURE_REAP_STOP_SEC` with nothing to work — it is a
+self-rescheduling timer inside somebody's game client and must have an end — and the poll
+re-arms it on its next visit.
+
+## 3. The try cap was a chest thrown away
+
+`TREASURE_CLAIM_TRIES = 4` at 25 s apart wrote a chest off as `claim-unconfirmed` while it
+was still lying on the map. There is no cap now: `TREASURE_CLAIM_RAMP_MS` spaces the tries
+(0.5 s → 1 → 2 → 4 → 8 → 15, then 15 s) and the only two ends are the reward — the window,
+or the server's own `801348 claim repeat`, which is the same fact said from the other side
+— and the chest going off the map (its own `expireTime`, or the ttl).
+
+**And a refusal is pinned on a chest now.** The reply names none, but the watch records
+which chest it claimed last (`A.claim_uuid` / `A.claim_at`), so a code arriving within 15 s
+of a claim is that chest's answer: `801348` finishes it as had, `801354` finishes it as
+another alliance's, anything else is a refusal worth retrying.
+
+## 4. «Отправка отряда работает через раз» — the silence read backwards
+
+`TREASURE_MARCH_SETTLE_SEC` existed because an unanswered march reads exactly like a
+finished one. The conclusion drawn from that was the wrong way round: after 20 s of silence
+the errand decided the squad had been and come back, and claimed into a road nobody had
+walked. But the client drops a march **without a word** for a formation it thinks is
+committed (above, «a march that vanishes is a SQUAD that is committed») — so that silence is
+usually a send that never happened.
+
+A march that has never been SEEN is therefore re-sent, up to `TREASURE_RESEND_TRIES`, and
+only after three separate looks at an empty road (`t.looks`) — because a client the watch is
+not running on is only looked at when the panel presses, and a near chest could be marched,
+dug and walked home between two of those. A chest that has swallowed every send is not
+written off either: it goes `claim_only` and the server gets the last word, because «our
+marches are being dropped» and «this reading cannot see our march» look identical from here
+and only one of them means the gift is unreachable.
+
+## 5. The row buttons stopped driving the game by hand
+
+«Кнопка принудительного сбора может не срабатывать» was structural. «Копать» assembled a
+march inside the panel; «Забрать» sent one claim and reported the SEND as the result — and a
+send that returns cleanly proves nothing here (above, «A refused claim says NOTHING»). Both
+now play `actions/take_treasure.md`, which parks that one chest in the errand's own queue
+(`treasure_queue_one_parked`) and lets the watch work it: squad, deadline, claim, retries.
+Both words stay because the READING has two; which of them the game will accept is the
+game's answer, not the panel's guess.
+
+## What is measured and what is not
+
+Offline, and pinned: the two models' latency, the one-shot at the deadline, the retry ramp,
+the watch's own end, the re-send of a march that never appeared, and every gate that was
+ever got wrong here (`tests/test_treasure_auto.py`, `tests/test_treasure_timing.py`).
+
+**Live: still nothing.** No chest has been dug AND paid end to end by the bot, so the
+farming lists stay 🟡. What a live session should show is `lag=`/`worst=` on «Командный
+пункт» and in the errand's report — the milliseconds between the chest becoming takeable and
+the first claim leaving. That is the acceptance criterion, and it is now a number on the
+screen rather than an impression.

@@ -98,6 +98,10 @@ TREASURE_SQUADS = (1, 2, 3)
 # march the nearest free squad onto it, take the gift once it is dug. The trigger
 # `treasure_auto` plays it on its own; the page's «Отработать сейчас» plays it once.
 TREASURE_AUTO_ACTION = "auto_treasure"
+# …and ONE named chest, for a row that was pressed: same queue, same watch,
+# same retries (#1318). Both row words play it; the game decides which half
+# of it applies.
+TREASURE_TAKE_ACTION = "take_treasure"
 
 # …and the third door into it (#1296): one lap of the whole map, reading the client's own
 # point manager at every stop. The errand walks it by itself every few minutes; this is
@@ -1073,6 +1077,13 @@ class TreasuresPane(_Pane):
         self._lap_var = tk_stringvar(self.rt.root)
         ttk.Label(body, textvariable=self._lap_var, foreground=DIM).pack(
             anchor="w", pady=(0, 4))
+        # WHAT THE GAME-SIDE WATCH IS DOING, and how late the last gift was (#1318). The
+        # ability's whole promise is «в первую секунду», which is a MEASUREMENT — so the
+        # milliseconds between a chest becoming takeable and its claim leaving are on the
+        # screen beside it rather than in somebody's impression of how it felt.
+        self._watch_var = tk_stringvar(self.rt.root)
+        ttk.Label(body, textvariable=self._watch_var, foreground=DIM).pack(
+            anchor="w", pady=(0, 4))
         self._scroll = self._list(body)
 
     def _work_now(self) -> None:
@@ -1175,7 +1186,7 @@ class TreasuresPane(_Pane):
                 "cross": bool(home) and _int(fields.get("srv")) != home,
             })
         targets += self._scanned_targets({str(t["uuid"]) for t in targets}, home)
-        return num, daily, targets, self._lap_counts(ev)
+        return num, daily, targets, self._lap_counts(ev), self._watch_counts(ev)
 
     @staticmethod
     def _lap_counts(ev) -> dict:
@@ -1195,6 +1206,24 @@ class TreasuresPane(_Pane):
                            marker=MARKER, settle=0.5) or ():
             if " LAP " in line:
                 return _fields(line, " LAP ")
+        return {}
+
+    @staticmethod
+    def _watch_counts(ev) -> dict:
+        """What the game-side watch is doing — including the number the criterion needs.
+
+        A READING and nothing else: the watch is armed by the errand's own recipe, and the
+        panel's only business with it is drawing what it says. `lag` is milliseconds from a
+        chest becoming takeable to its first claim leaving, `worst` the worst this client
+        has seen; `-1` for either is «no chest has been taken yet», which must not share a
+        zero with «taken instantly».
+        """
+        import lua_actions
+        for line in ev.run('CS.UnityEngine.Debug.LogError("ACT WATCH " .. (%s))'
+                           % lua_actions.treasure_reaper_state(),
+                           marker=MARKER, settle=0.4) or ():
+            if " WATCH " in line:
+                return _fields(line, " WATCH ")
         return {}
 
     def _scanned_targets(self, known: set, home: int) -> list:
@@ -1240,12 +1269,13 @@ class TreasuresPane(_Pane):
         return num, daily
 
     def render(self, data) -> None:
-        num, daily, targets, lap = data
+        num, daily, targets, lap, watch = data
         self._status("")
         self._info("cmdpost.treasure.info", n=num,
                    daily=", ".join("%d: %d" % kv for kv in sorted(daily.items()))
                    or self.rt.t("cmdpost.treasure.no_daily"))
         self._lap_line(lap)
+        self._watch_line(watch)
         self._clear_list()
         if not targets:
             self._empty("cmdpost.treasure.empty")
@@ -1271,6 +1301,31 @@ class TreasuresPane(_Pane):
                              ago=_int(lap.get("ago")))
         self.after(lambda: self._lap_var.set(text))
 
+    def _watch_line(self, watch: dict) -> None:
+        """Draw the watch's own state, or say plainly that it is not running.
+
+        A watch that reads `on=0` after the errand has been armed is a client that lost its
+        timer, and every claim is back to waiting for a panel tick — which is the whole of
+        the bug this was built to close. So it is a line on the screen and not a detail in
+        a log.
+        """
+        if not watch:
+            text = self.rt.t("cmdpost.treasure.watch.never")
+        elif _int(watch.get("on")) != 1:
+            text = self.rt.t("cmdpost.treasure.watch.off",
+                             paid=_int(watch.get("paid")))
+        else:
+            lag = _int(watch.get("lag"), -1)
+            text = self.rt.t("cmdpost.treasure.watch",
+                             live=_int(watch.get("live")),
+                             claims=_int(watch.get("claims")),
+                             paid=_int(watch.get("paid")),
+                             lag=(self.rt.t("cmdpost.treasure.watch.nolag")
+                                  if lag < 0 else "%d" % lag),
+                             worst=max(0, _int(watch.get("worst"), -1)),
+                             eye=str(watch.get("eye") or "?"))
+        self.after(lambda: self._watch_var.set(text))
+
     def _row(self, target):
         import coords as coords_fmt
         frame = ttk.Frame(self._scroll)
@@ -1285,14 +1340,12 @@ class TreasuresPane(_Pane):
         state.pack(side="left", padx=(0, 8))
         ttk.Label(frame, text=_short(target["uuid"]), foreground=DIM).pack(
             side="left", padx=(0, 8))
-        if target["dug"]:
-            self.rt.tr(ttk.Button(frame, width=12,
-                                    command=lambda t=target: self._claim(t)),
-                         "cmdpost.treasure.claim").pack(side="right", padx=(4, 0))
-        else:
-            self.rt.tr(ttk.Button(frame, width=12,
-                                    command=lambda t=target: self._dig(t)),
-                         "cmdpost.treasure.dig").pack(side="right", padx=(4, 0))
+        # One press behind both words: the label is what the READING earned, and the
+        # errand decides what the game will actually take (`_take`).
+        self.rt.tr(ttk.Button(frame, width=12,
+                                command=lambda t=target: self._take(t)),
+                     "cmdpost.treasure.claim" if target["dug"]
+                     else "cmdpost.treasure.dig").pack(side="right", padx=(4, 0))
         self.rt.tr(ttk.Button(frame, width=10,
                                 command=lambda t=target: self._jump(t)),
                      "cmdpost.jump").pack(side="right")
@@ -1303,60 +1356,42 @@ class TreasuresPane(_Pane):
         if target["x"] or target["y"]:
             self.rt.game.jump(target["x"], target["y"], target["server"] or None)
 
-    def _dig(self, target) -> None:
-        """March the chosen squad onto the tile — the dig half of the treasure.
+    def _take(self, target) -> None:
+        """Hand ONE chest to the errand — «Копать» and «Забрать» are the same press (#1318).
 
-        A march rides a *formation*, and a cold one silently no-ops, so the squad slot
-        is resolved to its formation uuid the way every other march in the repo does
-        (`rally_join.formation_by_squad`, falling back to any warm formation).
+        BOTH ROW BUTTONS PLAY ONE RECIPE, and what they used to do is why. «Копать»
+        assembled a march here, in the panel; «Забрать» sent one claim and reported the
+        SEND as the result — and a send that returns cleanly proves nothing about a
+        treasure claim, which the server refuses in complete silence
+        (`docs/research/world-treasures.md`). So the button said «взято» and nothing
+        arrived: «кнопка принудительного сбора может не срабатывать», exactly as reported.
+
+        What a press means now: this chest joins the errand's own queue and gets everything
+        that already works there — the nearest free squad, the dig's own deadline read off
+        our march, a claim in the frame that deadline passes, and retries until it is paid
+        or gone. The two labels stay because the READING has two words for a chest; which
+        of the two moves the game is the game's answer, and the panel holds no gate over it
+        (`CLAUDE.md`).
         """
-        squad = self._squad_var.get()
+        squad = _int(self._squad_var.get(), TREASURE_SQUADS[0])
+        self.rt.play_async(TREASURE_TAKE_ACTION, {
+            "uuid": str(target["uuid"]), "server": _int(target["server"]),
+            "pid": _int(target["pid"]), "x": _int(target["x"]), "y": _int(target["y"]),
+            "squads": [squad],
+        }, tag="action", on_result=self.take_from_run)
 
-        def work():
-            ok, armed = False, True
-            try:
-                import lua_actions
-                import rally_join
-                ev = self.evaluator()
-                formation = (rally_join.formation_by_squad(ev.run, squad)
-                             or rally_join.pick_formation(ev.run))
-                if not formation:
-                    armed = False       # no warm squad: say which one, not "failed"
-                else:
-                    lines = ev.run(lua_actions.dig_treasure_march(
-                        target["pid"], target["uuid"], target["server"], formation,
-                        cross=target["cross"]), marker=MARKER, settle=1.6)
-                    ok = any("dig_treasure_armed" in ln for ln in (lines or []))
-            except Exception:          # noqa: BLE001
-                ok = False
-            if not armed:
-                self._log("cmdpost.treasure.log_no_squad", squad=squad)
-            else:
-                self._log("cmdpost.treasure.log_dig" if ok
-                          else "cmdpost.treasure.log_failed",
-                          uuid=_short(target["uuid"]))
-            self.after(self.refresh)
+    def take_from_run(self, outcome) -> None:
+        """Say where the chest the press was for ended up, and re-read the list.
 
-        threading.Thread(target=work, daemon=True).start()
-
-    def _claim(self, target) -> None:
-        """Take an already-dug treasure — `detect.event.claim.treasure {uuid, server}`."""
-        def work():
-            ok = False
-            try:
-                import lua_actions
-                ev = self.evaluator()
-                lines = ev.run(lua_actions.claim_treasure(target["uuid"],
-                                                          target["server"]),
-                               marker=MARKER, settle=1.5)
-                ok = any("claim_treasure_sent" in ln for ln in (lines or []))
-            except Exception:          # noqa: BLE001
-                ok = False
-            self._log("cmdpost.treasure.log_claim" if ok
-                      else "cmdpost.treasure.log_failed", uuid=_short(target["uuid"]))
-            self.after(self.refresh)
-
-        threading.Thread(target=work, daemon=True).start()
+        The recipe already asked — `READ_LUA … INTO chest` — so the word on screen is the
+        game's own and the panel neither re-reads it nor keeps it. It is also the only way
+        the line moves for somebody who pressed from the PHONE.
+        """
+        got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+        state = str(got.get("chest") or "")
+        if state:
+            self._log("cmdpost.treasure.log_take", state=state)
+        self.after(self.refresh)
 
 
 # ---------------------------------------------------------------------------
@@ -1522,6 +1557,13 @@ class CommandPostTab(PanelTab):
         lap = (pane._lap_var.get() if pane is not None
                and getattr(pane, "_lap_var", None) is not None else "")
         rows = [{"label": "cmdpost.treasure.look", "value": lap}] if lap else []
+        # …and the watch beside it, the same line the window draws (#1318). «В первую
+        # секунду» is a number, and a phone is where the person usually is when a chest
+        # comes out — so the milliseconds travel too.
+        watch = (pane._watch_var.get() if pane is not None
+                 and getattr(pane, "_watch_var", None) is not None else "")
+        if watch:
+            rows.append({"label": "cmdpost.treasure.watch.row", "value": watch})
         items = []
         try:
             import lastwar_proto as proto
@@ -1533,6 +1575,17 @@ class CommandPostTab(PanelTab):
                 "text": coords.fmt(chest.x, chest.y, chest.server_id),
                 "detail": str(chest.alliance_abbr or ""),
                 "until": float(chest.expires_at) / 1000.0 if chest.expires_at else None,
+                # THE ROW'S OWN PRESS, on the phone as in the window. It travels because
+                # the ability behind it is ONE recipe now (`actions/take_treasure.md`,
+                # #1318): nothing is parked by a tool first and nothing is assembled here.
+                # The word is the one the reading earned, exactly as the window's is.
+                "actions": [{"id": "treasure_take",
+                             "label": ("cmdpost.treasure.claim" if chest.dug
+                                       else "cmdpost.treasure.dig"),
+                             "args": {"uuid": str(chest.uuid),
+                                      "server": int(chest.server_id or 0),
+                                      "pid": int(chest.point_id or 0),
+                                      "x": int(chest.x or 0), "y": int(chest.y or 0)}}],
             })
         return {"title": "cmdpost.tab.treasure", "rows": rows, "items": items,
                 "empty": "cmdpost.treasure.empty"}
@@ -1554,6 +1607,21 @@ class CommandPostTab(PanelTab):
             return {"ok": self.rt.play_async(
                 TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="web",
                 on_result=(page.lap_from_run if page is not None else None))}
+        if action == "treasure_take":
+            # ONE chest, named by the row that offered the press. Same recipe, same
+            # arguments and the same squad the treasure page is set to as the window's.
+            page = self._by_key.get("treasure")
+            squad = (_int(page._squad_var.get(), TREASURE_SQUADS[0])
+                     if page is not None and getattr(page, "_squad_var", None) is not None
+                     else TREASURE_SQUADS[0])
+            args = args if isinstance(args, dict) else {}
+            if not str(args.get("uuid") or "").strip():
+                return {"error": "unknown"}
+            return {"ok": self.rt.play_async(TREASURE_TAKE_ACTION, {
+                "uuid": str(args.get("uuid")), "server": _int(args.get("server")),
+                "pid": _int(args.get("pid")), "x": _int(args.get("x")),
+                "y": _int(args.get("y")), "squads": [squad],
+            }, tag="web", on_result=(page.take_from_run if page is not None else None))}
         if action == "treasure_sweep":
             # The map lap, and it travels for the same reason the errand does: it is ONE
             # recipe and the phone plays it whole. Nothing is parked by a tool first.

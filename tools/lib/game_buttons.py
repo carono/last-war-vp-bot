@@ -540,14 +540,37 @@ BUTTONS: dict[str, Button] = {
     # The squads the arm is allowed to spend are parked by the recipe first —
     # `DataCenter.__lw_treasure_auto.squads`, the same hand-off the rally's join uses,
     # because a `TAP` takes no arguments.
+    #
+    # AND THE ARM NOW STARTS A CLOCK AS WELL AS AN EAR (#1318). Hearing a chest early is
+    # worth nothing if the gift is taken ten seconds after the dig ends, and ten seconds is
+    # what a panel poll costs at best. So the arm also parks the claim half in the game
+    # (`A.tick`) and starts the game's own timer over it: the dig's deadline is read off our
+    # own march and the claim leaves in the frame it passes. The panel's press still runs
+    # the same function, so nothing depends on the timer being alive.
     "treasure_auto_arm": Button(
         lua=(_lua_actions.treasure_watch_install() + " "
-             + _lua_actions.treasure_auto_arm_parked()),
+             + _lua_actions.treasure_auto_arm_parked() + " "
+             + _lua_actions.treasure_reaper_start()),
         wait=0.3, label="Listen for treasures and work them",
     ),
     "treasure_auto_off": Button(
-        lua=_lua_actions.treasure_auto_disarm(),
+        lua=(_lua_actions.treasure_auto_disarm() + " "
+             + _lua_actions.treasure_reaper_stop()),
         wait=0.3, label="Stop working treasures by itself",
+    ),
+    # What the watch is doing, and the number the acceptance criterion is read off: how
+    # long the last chest waited between becoming takeable and its first claim leaving.
+    # ONE named chest into the same queue — what a row of «Командный пункт» parks before it
+    # plays `actions/take_treasure.md`. Its uuid and tile travel on the VM
+    # (`DataCenter.__lw_treasure_one`), because a `TAP` carries no arguments.
+    "treasure_queue_one": Button(
+        lua=_lua_actions.treasure_queue_one_parked(),
+        wait=0.2, label="Queue one named treasure",
+    ),
+    "treasure_reaper_state": Button(
+        lua=('CS.UnityEngine.Debug.LogError("ACT treasure_reaper " .. (%s))'
+             % _lua_actions.treasure_reaper_state()),
+        wait=0.2, label="What the treasure watch is doing",
     ),
     "treasure_auto_step": Button(
         lua=_lua_actions.treasure_auto_step(),

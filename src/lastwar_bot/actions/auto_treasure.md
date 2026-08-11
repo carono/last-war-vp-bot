@@ -84,6 +84,15 @@ LUA DataCenter.__lw_treasure_squads = { {squads} } DataCenter.__lw_treasure_grac
 # and re-arming never throws the queue away. A client restarted since the last run has a
 # fresh VM and no hook at all, which is exactly the case this covers — and the one the
 # trigger's poll treats as work in its own right.
+#
+# AND WITH THE EAR, A CLOCK (#1318). Hearing a chest early buys nothing if the gift is
+# taken ten seconds after the dig ends, and ten seconds is the best a panel poll can do:
+# the trigger looks every ten with a twenty-second cooldown behind it, so a dig that
+# finished a moment after a tick waited out both. So the claim half now lives in the game —
+# it reads the dig's own deadline off our march (`MarchStatus.TREASURE_DIGGING` carries an
+# `endTime`), pins a one-shot of the game's timer to that millisecond, and looks every
+# fifth of a second besides. This press starts it, and runs it once itself at the end, so
+# a run is never slower than the watch and a client whose watch has idled out still claims.
 TAP treasure_auto_arm
 
 # WHAT IS ALREADY ON SCREEN, every run. Reading the box the camera sits in costs a
@@ -105,7 +114,15 @@ TAP treasure_auto_step
 # already away.
 READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the step left no report — the press did not run") INTO report
 
-LOG "the line above is what the run did: sent= marches that went out, claimed= claims sent, paid= gifts actually received (the reward window came up), waiting= chests whose squad is still out or whose claim has not answered, and one note per chest"
+LOG "the line above is what the run did: sent= marches that went out, claimed= claims sent, paid= gifts actually received (the reward window came up, or the server answered «claim repeat», which is the same thing said from the other side), waiting= chests whose squad is still out or whose claim has not answered, resent= sends the client had dropped in silence and which went again, lag=/worst= how long the last and the worst chest waited between becoming takeable and their first claim leaving — the acceptance criterion in milliseconds — watch= whether the game-side clock is running, and one note per chest"
+
+# WHAT THE WATCH ITSELF IS DOING, read apart from the press. The report above is written by
+# a press; this is written by the thing that runs between presses, and the two disagreeing
+# is the one symptom worth chasing — a watch that says `on=0` after an arm is a client that
+# lost its timer, and every claim is back to waiting for a panel tick.
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 lag=-1 worst=-1 eye=never' end return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) .. ' ticks=' .. tostring(A.ticks or 0) .. ' live=' .. tostring(A.t_live or 0) .. ' claims=' .. tostring(A.claims_all or 0) .. ' paid=' .. tostring(A.paid_all or 0) .. ' lag=' .. tostring(A.lag_ms or -1) .. ' worst=' .. tostring(A.lag_worst or -1) .. ' eye=' .. tostring(A.look_why or 'never') end)() INTO watch
+
+LOG "the line above is the game-side watch: on= is its timer alive, ticks= how many times it has looked since the client started, live= chests it is working right now, claims=/paid= what it has sent and been paid for, lag=/worst= milliseconds from takeable to claim (-1 = no chest has been taken yet), eye= what the second ear last saw — «looked» on the map, «city» in the base, and «no-point-manager» when the client has not been out on the map since it started"
 
 # One number: how many sends this run actually made. `0` is an ordinary quiet minute —
 # nothing was announced, or the squads are all out — and not a failure.
@@ -133,16 +150,16 @@ IF asked == 1
 # window, no error, and its reply comes back under the same name with nothing readable in
 # it (measured live on 2026-08-08 against a chest uuid that cannot exist). The one
 # observable answer is the reward window the client raises when a claim is PAID, and that
-# window goes up a moment after the send rather than during it. So a run that claimed
-# comes back to look — and only such a run pays for the extra glance.
+# window goes up a moment after the send rather than during it.
+#
+# THIS RECIPE NO LONGER WAITS FOR IT (#1318). It used to sleep a second and a half and
+# press again, which was the only way to see the window when nothing else was looking —
+# and it also meant the whole confirmation, and every retry after it, happened at the pace
+# of the panel. The watch above looks every fifth of a second, so it sees the window while
+# it is still up, reads the server's own «claim repeat» as payment when the window was
+# missed, and keeps claiming until the chest is paid or gone. A run therefore reports what
+# is true at the moment it asks and stops pretending to be the last word.
 READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.claim_sent) or 0 end)() INTO claim_sent
-
-IF claim_sent > 0
-    LOG "a claim went out — looking again in a moment to see whether the reward window came up, because a refusal says nothing at all"
-    WAIT 1.5
-    TAP treasure_auto_step
-    READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the confirming press left no report") INTO report
-    LOG "the line above is the confirmation pass: paid= is a chest whose reward window came up, and a chest that is still queued will be claimed again on a later run"
 
 IF did == 0
     LOG "nothing was sent this run — the reason is on the report line above"

@@ -192,14 +192,29 @@ def _came_home(lua, slot: int = 1) -> None:
                 "do if f.index == %d then f.__out = false end end" % slot)
 
 
+def _dug_and_home(lua, slot: int = 1) -> None:
+    """The squad goes out, IS SEEN out, and comes home — our own part of the dig, done.
+
+    THE SHAPE EVERY CLAIM NOW NEEDS (#1318). A march that was never seen at all is not a
+    march that is over: it is a send the client dropped in silence, and the errand re-sends
+    rather than claiming into an empty road. So a test that wants a chest claimed has to
+    let the march exist first, which is also what the game does — a dig march is out for
+    seconds at the very least, and the watch looks five times a second.
+    """
+    _still_marching(lua, slot=slot)
+    _step(lua)                       # …seen out
+    _came_home(lua, slot=slot)
+
+
 def _march_answered(lua) -> None:
     """Let the server's answer to the march arrive — or its absence become believable.
 
     A squad whose march the server has not confirmed yet still reads FREE (#1296, measured
     live: the send at 21:01:50 and `free=3 busy=0` five seconds later, on a march that was
     on its way). So the errand does not believe «no march» until either one has been seen
-    or the settle has passed, and a test whose squad never goes out has to let that clock
-    run — which is exactly what a march the client dropped in silence looks like.
+    or the settle has passed — and since #1318 a march that was NEVER seen is read as a
+    send the client dropped, not as a squad that has been and come back. Advancing the
+    clock like this is therefore how a test asks for the RE-SEND, not for a claim.
     """
     lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_MARCH_SETTLE_SEC + 1) * 1000))
 
@@ -347,10 +362,10 @@ def test_no_claim_before_the_dig_is_heard():
     lua = _vm()
     _announce(lua)
     _step(lua)
-    _march_answered(lua)
+    _still_marching(lua, slot=1)
     report = _step(lua)
     assert _claims(lua) == []
-    assert "waiting=1" in report and ":digging" in report, report
+    assert "waiting=1" in report and ":marching" in report, report
 
 
 def test_the_alliance_feed_opens_the_claim_rather_than_closing_it():
@@ -362,7 +377,7 @@ def test_the_alliance_feed_opens_the_claim_rather_than_closing_it():
     lua = _vm()
     _announce(lua)
     _step(lua)
-    _march_answered(lua)
+    _dug_and_home(lua)
     _dug(lua)
     report = _step(lua)
     claims = _claims(lua)
@@ -386,7 +401,7 @@ def test_the_grace_waits_for_the_march_to_be_over_as_well_as_for_the_clock():
     lua.execute("NOW = NOW + 61000")
     report = _step(lua)
     assert _claims(lua) == [], "a claim went out while the squad was still in the air"
-    assert "still-marching" in report, report
+    assert ":marching" in report, report
     assert _queued(lua) == 1, "the chest must survive to be claimed when the squad lands"
     #: …and once it lands, the same clock claims it
     _came_home(lua, slot=1)
@@ -463,6 +478,43 @@ def test_a_march_the_server_has_not_answered_yet_is_not_a_march_that_is_over():
     assert len(_claims(lua)) == 1, _claims(lua)
 
 
+def test_a_march_that_is_never_seen_at_all_is_re_sent_and_not_claimed_over():
+    """«Отправка отряда — тоже работает через раз» (#1318), and this is what that was.
+
+    The client drops a march for a formation it thinks is already committed, WITHOUT a
+    word: no error, no reply, nothing on screen. The old reading gave that silence twenty
+    seconds and then treated it as a squad that had been and come back — so the claim went
+    out into a road nobody had walked, was refused in the silence a refusal comes in, and
+    the chest was written off with the send never having happened at all.
+
+    A march that has never been seen is therefore a send to make again. Three sightings of
+    an empty road are needed before the silence is believed, because a client the watch is
+    not running on is only looked at when the panel presses.
+    """
+    if not _needs_lua("a march that never left"):
+        return
+    lua = _vm()
+    _announce(lua)
+    report = _step(lua)
+    assert len(_marched(lua)) == 1, report
+    #: one empty look is not enough to condemn a send — a client the watch is not running
+    #: on is only looked at when the panel presses, and a near chest could have been
+    #: marched, dug and walked home between two of those.
+    report = _step(lua)
+    assert "resent" not in report, report
+    #: …but an empty road that has been looked at three times, and for longer than the
+    #: server has ever taken to answer, is a send that never happened.
+    _march_answered(lua)
+    for _ in range(3):
+        report = _step(lua)
+        if "resent=1" in report:
+            break
+    assert "resent=1" in report, report
+    assert _claims(lua) == [], "claimed over a march that never existed"
+    _step(lua)
+    assert len(_marched(lua)) == 2, _marched(lua)
+
+
 def test_a_spent_chest_is_not_queued_again_by_the_next_lap():
     """A FINISHED CHEST IS REMEMBERED, NOT FORGOTTEN — the second half of the same live
     failure (#1296).
@@ -515,8 +567,7 @@ def test_a_claim_is_proven_by_the_reward_window_and_not_by_the_send():
     lua = _vm()
     _announce(lua)
     _step(lua)
-    _march_answered(lua)
-    _dug(lua)
+    _dug_and_home(lua)
     report = _step(lua)
     assert "claim1" in report, report
     assert _queued(lua) == 1, "a sent claim is not a paid claim"
@@ -526,21 +577,32 @@ def test_a_claim_is_proven_by_the_reward_window_and_not_by_the_send():
     assert _queued(lua) == 0
 
 
-def test_a_claim_that_never_pays_is_written_off_as_unconfirmed_not_as_claimed():
-    """Four silent refusals are still four refusals. What must not happen is the chest
-    being recorded as taken: «claimed» would read as a reward that was never had."""
-    if not _needs_lua("an unconfirmed claim"):
+def test_a_claim_that_never_pays_is_tried_again_until_the_chest_is_gone():
+    """«Продолжать попытки, пока сокровище не будет взято или не исчезнет» (#1318).
+
+    THE CAP WAS THE BUG. Four tries used to end a chest — and «claim-unconfirmed» is a
+    chest still lying on the map, still ours, still worth a send. So there is no cap any
+    more: the ramp spaces the tries out and the only two ends are the reward (or the
+    server's own «claim repeat») and the chest going off the map. What must never happen
+    is the chest being recorded as TAKEN on the strength of a send.
+    """
+    if not _needs_lua("a claim that never pays"):
         return
     lua = _vm()
     _announce(lua)
     _step(lua)
-    _dug(lua)
-    for _ in range(6):
+    _dug_and_home(lua)
+    for _ in range(8):
         _step(lua)
-        lua.execute("NOW = NOW + 26000")      # past the retry cooldown
-    assert len(_claims(lua)) == lua_actions.TREASURE_CLAIM_TRIES, _claims(lua)
+        lua.execute("NOW = NOW + 16000")      # past the ramp's longest step
+    assert len(_claims(lua)) > lua_actions.TREASURE_RESEND_TRIES + 4, _claims(lua)
+    assert _queued(lua) == 1, "a chest still on the map must still be worked"
+    assert int(lua.eval("DataCenter.__lw_treasure_auto.paid_all or 0")) == 0, \
+        "nothing was paid, so nothing may be counted as paid"
+    #: …and it ends when the chest does, not when a counter does
+    lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_TARGET_TTL_SEC + 1) * 1000))
     report = _step(lua)
-    assert "claim-unconfirmed" in report or _queued(lua) == 0, report
+    assert "expired=1" in report, report
     assert _queued(lua) == 0
 
 
@@ -552,14 +614,17 @@ def test_a_sent_claim_waits_its_retry_out_rather_than_going_every_tick():
     lua = _vm()
     _announce(lua)
     _step(lua)
-    _march_answered(lua)
-    _dug(lua)
+    _dug_and_home(lua)
     _step(lua)
     assert len(_claims(lua)) == 1
+    lua.execute("NOW = NOW + 100")
     report = _step(lua)
     assert len(_claims(lua)) == 1, "a second claim went out inside the cooldown"
-    assert "claim-sent-waiting" in report, report
-    lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_CLAIM_RETRY_SEC + 1) * 1000))
+    assert "claimed-waiting" in report, report
+    #: the ramp's FIRST step is short on purpose — the interesting refusal is the one that
+    #: raced the server by a fraction of a second — and its last is long, because a chest
+    #: that has refused eight times will refuse a ninth.
+    lua.execute("NOW = NOW + %d" % (lua_actions.TREASURE_CLAIM_RAMP_MS[0] + 50))
     _step(lua)
     assert len(_claims(lua)) == 2, _claims(lua)
 
@@ -636,7 +701,7 @@ def test_the_poll_is_true_when_nothing_is_listening():
     _announce(lua)
     assert lua.eval(lua_actions.treasure_auto_check()) is True
     _step(lua)
-    _march_answered(lua)
+    _dug_and_home(lua)
     _dug(lua)
     _step(lua)                      # the claim goes out — and is not yet proof
     assert lua.eval(lua_actions.treasure_auto_check()) is True
@@ -713,8 +778,12 @@ def test_the_recipe_names_the_presses_it_needs():
     #: army was fetched, and the pass that looks for the reward window a claim's payment
     #: shows up as. There is no lap here any more (#1296): the whole-server walk is a
     #: recipe somebody presses by hand, and nothing in this one calls it.
+    #: …and there is one press FEWER than there was (#1318). The recipe used to sleep a
+    #: second and a half after a claim and press again, because that was the only way to
+    #: see the reward window. The watch inside the game looks five times a second, so the
+    #: confirmation — and every retry after it — happens there instead.
     assert pressed == ["treasure_auto_arm", "treasure_look", "treasure_scan_harvest",
-                       "treasure_auto_step", "treasure_auto_step", "treasure_auto_step",
+                       "treasure_auto_step", "treasure_auto_step",
                        "dismiss_treasure_reward"], pressed
     for name in pressed:
         assert name in game_buttons.BUTTONS, name
@@ -798,7 +867,7 @@ def test_a_chest_nobody_shared_is_still_claimed():
     claims = _claims(lua)
     assert len(claims) == 1, claims
     assert str(claims[0]["uuid"]) == str(_UUID), claims
-    assert "claim-only" in report, report
+    assert "claim1" in report and "dig-feed" in report, report
     #: and it is spent on the reward window like any other
     _reward(lua)
     _step(lua)
@@ -836,7 +905,7 @@ def test_a_push_is_read_although_it_carries_no_sfsobject_keys():
     _announce(lua, plain=True)                    # the announcement, plain-table shape
     assert _queued(lua) == 1, "a plain-table share must still become a target"
     _step(lua)
-    _march_answered(lua)
+    _dug_and_home(lua)
     _dug(lua, plain=True)                         # …and the dig gate off a plain table
     t = lua.eval("DataCenter.__lw_treasure_auto.targets[1]")
     assert t["dug"] is not None, "the dig broadcast was not read off a plain table"

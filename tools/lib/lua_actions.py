@@ -3064,6 +3064,22 @@ local function harvest(cmd, obj)
     if code ~= nil and tostring(code) ~= "0" then
       A.last_error = tostring(code) .. " " .. tostring(getdata(obj, "errorMsg") or "")
       A.last_error_at = nowms()
+      -- …AND IT IS PINNED ON A CHEST AFTER ALL (#1318). The reply names none, which is why
+      -- this used to be a floating sentence in a log — but the claim that provoked it has a
+      -- name, and the watch writes down which chest it claimed last (`A.claim_uuid`). That
+      -- is enough for the two codes that are verdicts: «claim repeat» is a chest this
+      -- account already has, and «not in same alliance» is one it never had. Both end a
+      -- retry loop that would otherwise run until the chest expired.
+      --
+      -- Only while the claim is FRESH: a code arriving a minute later belongs to whatever
+      -- was claimed since, and pinning it on the wrong chest would write off a good one.
+      local key = A.claim_uuid
+      if key ~= nil and (tonumber(A.claim_at) or 0) > 0
+         and nowms() - A.claim_at < 15000 then
+        for _, t in ipairs(A.targets or {}) do
+          if tostring(t.uuid) == tostring(key) then t.err = tonumber(code) end
+        end
+      end
     end
   end
   if cmd:find("claim", 1, true) then
@@ -3323,16 +3339,19 @@ TREASURE_ARRIVE_GRACE_SEC = 240
 #: sending squads at an empty tile for ever.
 TREASURE_TARGET_TTL_SEC = 1800
 
-#: How many claims one target is allowed before it is written off. The send is not
-#: punished for being repeated (proven live — the 2026-08-07 session claimed twice and
-#: the server answered both), but a claim the server keeps refusing is a claim that will
-#: keep being refused.
-TREASURE_CLAIM_TRIES = 4
+#: How long between two claims on the same chest, in milliseconds, by try number — and
+#: there is no longer a cap on the tries (#1318). «Продолжать попытки, пока сокровище не
+#: будет взято или не исчезнет»: the four-try cap wrote a chest off while it was still on
+#: the map, which is the whole reward lost for a reason that mends itself in seconds. So a
+#: chest is now worked until it is PAID (the reward window, or the server's own «claim
+#: repeat») or until it is gone (its own `expireTime`, or the ttl), and the ramp is what
+#: keeps that from being a flood: the first retries are fast because the interesting case
+#: is a claim that raced the server by a fraction of a second, and the tail is slow because
+#: a chest that has refused eight times is refusing for a reason a ninth send will not fix.
+TREASURE_CLAIM_RAMP_MS = (500, 1000, 2000, 4000, 8000, 15000)
 
-#: How long between two claims on the same chest. A refused claim is SILENT (below), so
-#: the retry is on a clock rather than on an answer — and a clock that ticks every step
-#: would spend all four tries inside a minute, while the alliance is still digging.
-TREASURE_CLAIM_RETRY_SEC = 25
+#: How long between two claims on the same chest once the ramp above is spent.
+TREASURE_CLAIM_RETRY_SEC = 15
 
 #: How long after a claim the reward window still counts as ITS reward. A refused claim
 #: says nothing at all — measured live on 2026-08-08 against a uuid that cannot exist: no
@@ -3351,6 +3370,62 @@ TREASURE_PAID_WINDOW_SEC = 20
 #: comfortably longer than a server ever took to answer here, and shorter than the retry —
 #: so it costs a chest nothing.
 TREASURE_MARCH_SETTLE_SEC = 20
+
+#: …and what that silence means once it has lasted (#1318). A march that never appears is
+#: not a march that is over — it is a send the client DROPPED, which it does without a word
+#: for a formation already committed (`docs/research/world-treasures.md`). Before this, the
+#: settle above turned exactly that case into «the squad has been and come back», and the
+#: claim went out into a road nobody had walked: «отправка отряда работает через раз» is
+#: this, seen from the player's chair. So a send with no march behind it is re-sent instead,
+#: and a chest that has swallowed this many sends is written off with a word that says so.
+TREASURE_RESEND_TRIES = 3
+
+#: `MarchStatus.TREASURE_DIGGING` (`docs/research/squad-state.md`). A march in this state
+#: carries the dig's OWN deadline in `endTime` — the moment the chest finishes being dug —
+#: which is the whole of the timing this errand is built on: the claim is scheduled AT that
+#: millisecond rather than discovered by a panel that happens to look afterwards.
+TREASURE_DIG_STATUS = 19
+
+#: `MarchStatus.BACK_HOME` — the squad's dig is over and it is walking home. The fallback
+#: reading of «our part is done» for a client that never showed the digging state.
+TREASURE_HOME_STATUS = 4
+
+#: How early a known dig deadline is pinned with a one-shot of the game's own timer, in
+#: milliseconds. The watch below already runs every fifth of a second while a chest is
+#: live; this is what turns «within 200 ms» into «in the frame the dig ends», and it is
+#: only armed for a deadline that is actually near, so a chest an hour out costs nothing.
+TREASURE_DUE_ARM_MS = 5000
+
+#: The server's own answers to a claim, and both are VERDICTS rather than noise (#1318).
+#: `801348 claim repeat` means this account has already had this chest — which is a paid
+#: chest seen from the other side, and the one honest end to a retry loop when the reward
+#: window was missed. `801354 player not in same alliance` means the chest was never ours
+#: to take. Either way the target is finished; anything else is a refusal worth retrying.
+TREASURE_ERR_CLAIM_REPEAT = 801348
+TREASURE_ERR_NOT_IN_ALLIANCE = 801354
+
+#: How often the in-game watch looks while a chest is live, and while none is, in seconds.
+#: The busy period is what the acceptance criterion rests on — «ВСЕ сокровища всегда забраны
+#: в первую секунду» — and it costs one `GetOwnerFormationMarch` per chest out.
+TREASURE_REAP_FAST_SEC = 0.2
+TREASURE_REAP_IDLE_SEC = 2.0
+
+#: How long the watch keeps looping with nothing to work before it stops itself. It is a
+#: self-rescheduling timer inside somebody's game client, so it must have an end: the
+#: panel's own poll re-arms it on the next tick, and a panel that has been closed leaves
+#: nothing running a quarter of an hour later.
+TREASURE_REAP_STOP_SEC = 900
+
+#: `WorldPointType.TREASURE` — the same number the wire calls `f2` and the pcap scanner
+#: filters on (docs/research/world-treasures.md).
+TREASURE_POINT_TYPE = 21
+
+#: The box the watch reads around the camera, and how often — the SECOND ear (#1318).
+#: Half the width of the press the panel makes (`TREASURE_LOOK_BOX`) because this one runs
+#: inside the game between panel ticks: 41 × 41 tiles is about four milliseconds, against
+#: the thirty-odd of the full one. It never moves the camera and never asks the server.
+TREASURE_REAP_LOOK_BOX = 20
+TREASURE_REAP_LOOK_SEC = 3
 
 
 def treasure_auto_arm(squads=(1, 2, 3, 4),
@@ -3397,6 +3472,10 @@ def treasure_auto_arm_parked() -> str:
     pressable on its own from the Scenarios page.
     """
     return (
+        # The claim half is parked here, on every arm — the definition IS the deployment
+        # (#1318). A client running since before an edit to this file would otherwise go on
+        # claiming by last week's rules with nothing on screen to say so.
+        _TREASURE_TICK +
         "local D = DataCenter "
         "if not D.__lw_treasure_auto then D.__lw_treasure_auto = "
         "{seen={}, targets={}, news=0} end "
@@ -3471,6 +3550,472 @@ def treasure_auto_check() -> str:
     )
 
 
+#: The claim half of the errand, as ONE Lua function parked on the VM (#1318).
+#:
+#: WHY IT IS A FUNCTION AND NOT A CHUNK. Everything else in this file is a chunk the panel
+#: sends when it wants something done, which means it happens when the PANEL looks — and
+#: the panel looks every ten seconds, with a twenty-second cooldown behind it. Measured
+#: against the criterion the player set («в первую секунду»), that is the whole bug: a
+#: chest whose dig finished a tenth of a second after a tick waits out the rest of the tick
+#: AND the cooldown before anybody asks. Nothing in the chunk was slow; the QUESTION was
+#: being asked late.
+#:
+#: So the question moved into the client. `A.tick` is defined here, called by the game's
+#: own timer every fifth of a second while a chest is live, called again by a one-shot
+#: pinned to the exact millisecond a dig ends, and called by the panel's step at the end of
+#: every press. All three run the same code and the state they walk is the same table, so
+#: two of them landing together costs one extra `GetOwnerFormationMarch` and nothing else.
+_TREASURE_TICK = '''
+local D = DataCenter
+if not D.__lw_treasure_auto then D.__lw_treasure_auto = {seen={}, targets={}, news=0} end
+D.__lw_treasure_auto.tick = function()
+  local A = DataCenter.__lw_treasure_auto
+  if A == nil then return end
+  local P = LuaEntry.Player
+  -- THE GAME'S CLOCK, never this machine's (docs/research/game-clock.md). Every deadline
+  -- compared below — the dig's own `endTime`, the chest's `expireTime` — is stamped by the
+  -- server, so a PC running two minutes fast would claim two minutes early, for ever.
+  local now = 0
+  pcall(function()
+    now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end)
+  if now <= 0 then pcall(function()
+    now = math.floor((tonumber(ChatInterface.getServerTime()) or 0) * 1000) end) end
+  if now <= 0 then A.tick_why = "no-clock" return end
+  A.tick_at = now
+  A.ticks = (tonumber(A.ticks) or 0) + 1
+  local wm = DataCenter.WorldMarchDataManager
+  local home_srv = tonumber(P.serverId) or 0
+  local ttl = (tonumber(A.ttl) or %(ttl)d) * 1000
+  local grace = (tonumber(A.grace) or %(grace)d) * 1000
+  local ramp = {%(ramp)s}
+  -- The one observable proof that a claim was PAID: the window the client raises on a
+  -- successful one. A refused claim is silent (docs/research/world-treasures.md).
+  local reward = false
+  pcall(function() reward = UIManager.Instance:IsWindowOpen(
+    UIWindowNames.UIGiftPackageRewardGet) and true or false end)
+  local live, claimed, paid, expired, waiting, resent = 0, 0, 0, 0, 0, 0
+  for _, t in ipairs(A.targets or {}) do
+   if not t.done then
+    -- 1. WHAT THE SERVER SAID ABOUT THIS CHEST. The reply to a claim carries an
+    -- `errorCode`, and the hook pins it on whichever target claimed last (`A.claim_uuid`),
+    -- so two of the codes are verdicts rather than a line in a log: «claim repeat» is a
+    -- chest this account already has, and «not in same alliance» is a chest it never had.
+    -- Anything else is a refusal that may mend itself, and the retry ramp keeps trying.
+    local code = tonumber(t.err)
+    t.err = nil
+    if code == %(err_repeat)d then
+      t.done, t.why, t.done_at, t.paid = true, "already-had-it", now, now
+    elseif code == %(err_foreign)d then
+      t.done, t.why, t.done_at = true, "foreign", now
+    end
+    -- 2. PAID — the reward window, while it is fresh enough to be OURS.
+    if not t.done and t.claimed ~= nil and reward
+       and now - (tonumber(t.claimed) or 0) <= %(paid_win)d then
+      t.done, t.why, t.paid, t.done_at = true, "paid", now, now
+    end
+    -- 3. GONE — the chest's own deadline first, the errand's guess second.
+    if not t.done and (((tonumber(t.at) or 0) > 0 and now - (tonumber(t.at) or 0) > ttl)
+       or ((tonumber(t.expire) or 0) > 0 and now > tonumber(t.expire))) then
+      t.done, t.why, t.done_at = true, "expired", now
+    end
+    if t.done then
+      t.state = tostring(t.why)
+      if t.why == "paid" or t.why == "already-had-it" then
+        paid = paid + 1
+        A.paid_all = (tonumber(A.paid_all) or 0) + 1
+        -- THE NUMBER THE ACCEPTANCE CRITERION IS READ OFF. `ready_at` is the moment the
+        -- chest BECAME takeable — the dig's own deadline where the game gave one — and
+        -- `claim_at` is when the first claim for it left. Their difference is the answer
+        -- to «в первую секунду?» in milliseconds, per chest, and it is kept as the last
+        -- one and as the worst one so a good average cannot hide a bad chest.
+        if (tonumber(t.ready_at) or 0) > 0 and (tonumber(t.claim_at) or 0) > 0 then
+          t.lag = t.claim_at - t.ready_at
+          A.lag_ms = t.lag
+          if t.lag > (tonumber(A.lag_worst) or -1) then A.lag_worst = t.lag end
+        end
+      elseif t.why == "expired" then expired = expired + 1 end
+    else
+      live = live + 1
+      -- 4. WHERE OUR OWN SQUAD IS. The march object is the only thing that can say, and
+      -- what it says has three shapes: it is walking there, it is DIGGING (and then its
+      -- `endTime` is the moment the dig ends — the whole point of this watch), or it is on
+      -- its way home, which means our part is done.
+      local m = nil
+      local lost = false
+      if t.squad_uuid ~= nil then pcall(function()
+        m = wm:GetOwnerFormationMarch(P.uid, t.squad_uuid, P.allianceId) end) end
+      if m ~= nil then
+        t.march_seen = true
+        local sn = tonumber(m.status)
+        local ss = "" pcall(function() ss = tostring(m.status) end)
+        local et = nil pcall(function() et = tonumber(m.endTime) end)
+        if sn == %(dig_status)d or ss:find("TREASURE_DIGGING", 1, true) ~= nil then
+          t.digging = true
+          if et ~= nil and et > 0 then t.due = et end
+        elseif sn == %(home_status)d or ss:find("BACK_HOME", 1, true) ~= nil then
+          if t.back_at == nil then t.back_at = now end
+        elseif et ~= nil and et > 0 then
+          t.arrive = et
+        end
+      elseif t.sent ~= nil then
+        if t.march_seen then
+          -- A march that WAS there and is not: the squad has been and gone.
+          if t.gone_at == nil then t.gone_at = now end
+        else
+        -- HOW MANY TIMES WE ACTUALLY LOOKED, not just how long it has been. The clock
+        -- alone is not enough to call a send lost: a client the watch is not running on is
+        -- only looked at when the panel presses, and a chest twelve tiles from the base
+        -- could be marched, dug and walked home between two of those presses — which would
+        -- read as «the march never appeared» and send a second squad at a chest that had
+        -- already been dug. Three sightings of an empty road, and only then.
+        t.looks = (tonumber(t.looks) or 0) + 1
+        if (tonumber(t.looks) or 0) >= 3
+           and now - (tonumber(t.sent) or 0) >= %(settle)d then
+          -- …and a march that was NEVER there is a send the client dropped without a
+          -- word. Re-send it; do not read the silence as a squad that has been.
+          t.sent, t.squad, t.squad_uuid = nil, nil, nil
+          t.due, t.digging, t.armed, t.arrive, t.looks = nil, nil, nil, nil, nil
+          t.resends = (tonumber(t.resends) or 0) + 1
+          resent = resent + 1
+          lost = true
+          if t.resends > %(resends)d then
+            -- EVERY SEND SWALLOWED, and the chest is NOT written off — it is claimed
+            -- blind. Two things look like this from here: a client dropping our marches,
+            -- and a march this reading simply cannot see. The second one would cost the
+            -- whole gift for a chest that was already dug, so the last word is left to the
+            -- server: the claim goes out, and «claim repeat» / «not in same alliance» /
+            -- silence are three different answers, all of them better than a guess.
+            t.claim_only, t.blind = true, true
+          end
+        end
+        end
+      end
+      if not t.done then
+       -- 5. IS IT TAKEABLE, AND SINCE WHEN? The anchor matters as much as the answer: a
+       -- claim is measured against the moment the chest became takeable, not against the
+       -- tick that noticed.
+       local ready, anchor = false, nil
+       if lost then
+         t.state = "march-lost:resend" .. tostring(t.resends)
+         waiting = waiting + 1
+       else
+        if t.claim_only and t.sent == nil then
+          ready, anchor = true, (tonumber(t.dug) or tonumber(t.at) or now)
+        elseif t.sent ~= nil then
+          if (tonumber(t.due) or 0) > 0 and now >= tonumber(t.due) then
+            ready, anchor = true, tonumber(t.due)
+          elseif t.back_at ~= nil then ready, anchor = true, t.back_at
+          elseif t.gone_at ~= nil then ready, anchor = true, t.gone_at
+          elseif t.dug ~= nil and m == nil and t.march_seen
+                 and now - (tonumber(t.sent) or 0) >= grace then
+            ready, anchor = true, now
+          end
+        end
+        if ready and t.ready_at == nil then t.ready_at = anchor or now end
+        if ready then
+          local n = tonumber(t.tries) or 0
+          -- The gap AFTER n tries, so the first retry is the ramp's first step and not its
+          -- second. A chest is only ever cooling once it has been claimed at least once.
+          local wait = ramp[math.max(1, n)] or ramp[#ramp]
+          if t.claimed ~= nil and now - (tonumber(t.claimed) or 0) < wait then
+            waiting = waiting + 1
+            -- …unless the claim went out THIS millisecond, which is what a press looks
+            -- like from the second pass it makes: the word «claim1» is what happened, and
+            -- «waiting» would describe the same instant as if nothing had.
+            if t.claimed ~= now then t.state = "claimed-waiting" .. tostring(n) end
+          else
+            t.tries = n + 1
+            local srv = ((tonumber(t.server) or 0) ~= 0) and tonumber(t.server) or home_srv
+            -- WHICH CHEST THE NEXT `errorCode` BELONGS TO. The reply names no chest, so
+            -- the only honest way to read it is to know which one was claimed last.
+            A.claim_uuid = tostring(t.uuid)
+            A.claim_at = now
+            local ok, err = pcall(function()
+              SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end)
+            if ok then
+              t.claimed = now
+              claimed = claimed + 1
+              A.claims_all = (tonumber(A.claims_all) or 0) + 1
+              if t.claim_at == nil then
+                t.claim_at = now
+                t.lag = now - (tonumber(t.ready_at) or now)
+                A.lag_ms = t.lag
+                if t.lag > (tonumber(A.lag_worst) or -1) then A.lag_worst = t.lag end
+              end
+              t.state = "claim" .. tostring(t.tries)
+            else
+              t.state = "claim-threw:" .. tostring(err)
+            end
+          end
+        else
+          waiting = waiting + 1
+          if t.blind then t.state = "march-never-left:claiming"
+          elseif t.sent == nil then t.state = "to-send"
+          elseif t.digging then
+            t.state = "digging-" .. tostring(math.max(0, math.floor(
+              ((tonumber(t.due) or now) - now) / 1000))) .. "s"
+          elseif not t.march_seen then t.state = "march-unanswered"
+          -- OUR OWN LEGS, said apart from anybody else's (#1296). «The alliance has dug it
+          -- and our squad is still on the road» is the state that hid a hundred seconds of
+          -- burnt claims inside the word «digging»; it has its own word for that reason.
+          elseif t.dug ~= nil then t.state = "dug-still-marching"
+          else t.state = "marching" end
+        end
+        -- 6. THE MILLISECOND ITSELF. A dig deadline that is near is pinned with a one-shot
+        -- of the game's own timer, so the claim leaves in the frame the dig ends instead of
+        -- on whichever fifth of a second comes next. Armed once per deadline.
+        if (tonumber(t.due) or 0) > 0 and not ready then
+          local dt = tonumber(t.due) - now
+          if dt > 0 and dt <= %(arm_ms)d and t.armed ~= t.due then
+            t.armed = t.due
+            pcall(function() TimerManager:GetInstance():DelayInvoke(function()
+              local AA = DataCenter.__lw_treasure_auto
+              if AA ~= nil and AA.tick ~= nil then pcall(AA.tick) end
+            end, dt / 1000) end)
+          end
+        end
+       end
+      end
+    end
+   end
+  end
+  A.t_live, A.t_claimed, A.t_paid = live, claimed, paid
+  A.t_expired, A.t_waiting, A.t_resent = expired, waiting, resent
+  -- …AND THE SAME NUMBERS ADDED UP FOR WHOEVER IS HOLDING A PRESS. A step asks this
+  -- function twice — once to resolve the queue before it spends a squad on it, once to
+  -- claim what became takeable — and the second pass would otherwise report zero of what
+  -- the first one did. The step zeroes these on its way in; the game's own timer never
+  -- touches them.
+  A.s_claimed = (tonumber(A.s_claimed) or 0) + claimed
+  A.s_paid = (tonumber(A.s_paid) or 0) + paid
+  A.s_expired = (tonumber(A.s_expired) or 0) + expired
+  A.s_resent = (tonumber(A.s_resent) or 0) + resent
+  A.claim_sent = claimed
+end
+''' % {"ttl": int(TREASURE_TARGET_TTL_SEC), "grace": int(TREASURE_ARRIVE_GRACE_SEC),
+       "ramp": ", ".join(str(int(ms)) for ms in TREASURE_CLAIM_RAMP_MS),
+       "paid_win": int(TREASURE_PAID_WINDOW_SEC) * 1000,
+       "err_repeat": int(TREASURE_ERR_CLAIM_REPEAT),
+       "err_foreign": int(TREASURE_ERR_NOT_IN_ALLIANCE),
+       "dig_status": int(TREASURE_DIG_STATUS), "home_status": int(TREASURE_HOME_STATUS),
+       "settle": int(TREASURE_MARCH_SETTLE_SEC) * 1000,
+       "resends": int(TREASURE_RESEND_TRIES), "arm_ms": int(TREASURE_DUE_ARM_MS)}
+
+
+def treasure_tick_define() -> str:
+    """Park (or replace) `A.tick` — the claim half of the errand, as game-side code.
+
+    Idempotent and deliberately re-run on every arm and every step: the definition IS the
+    deployment. A client that has been running since before an edit to this file would
+    otherwise keep claiming with last week's rules, and there is nothing on screen to say
+    so.
+    """
+    return _TREASURE_TICK
+
+
+def treasure_reaper_install() -> str:
+    """Start the game-side watch that takes a chest the moment its dig ends (#1318).
+
+    «Таймер работать с наивысшим приоритетом, отслеживать время завершения раскопки и в ту
+    же микросекунду забирать сокровище, и продолжать попытки, пока сокровище не будет взято
+    или не исчезнет.» This is that timer, and it lives where the deadline lives.
+
+    WHAT IT ACTUALLY WAITS FOR. A dig march carries `MarchStatus.TREASURE_DIGGING` and,
+    with it, an `endTime` — the server's own millisecond for when the digging finishes
+    (`docs/research/squad-state.md`). So the watch does not guess and does not poll the
+    server: it reads our own march, learns the deadline the first time the squad starts
+    digging, and pins a one-shot of the game's timer to it. Between deadlines it looks
+    every fifth of a second, which is what catches the chests whose deadline never arrives
+    in a readable form — a claim-only target heard through the alliance's dig feed, a march
+    that ends by going home.
+
+    THREE THINGS IT DOES BESIDES CLAIMING, all of them cheap:
+
+      * **it watches for a send that never happened.** A march the client dropped in
+        silence used to be read as a march that was over, and the claim went out into an
+        empty road (`TREASURE_RESEND_TRIES`);
+      * **it reads the box the camera is in**, every few seconds, out of the client's own
+        point manager — the second of the two ears the panel is asked to keep open. It
+        never moves the camera, never changes the zoom and never asks the server, and in
+        the city it does nothing at all;
+      * **it stops itself.** This is a self-rescheduling timer inside somebody's game, so
+        it ends after `TREASURE_REAP_STOP_SEC` with nothing to work. The panel's poll
+        re-arms it on the next tick; a panel that has been closed leaves nothing behind.
+
+    Re-arming is safe and is how a code change is deployed: the run token is bumped, every
+    loop scheduled under the old one returns on its next wake, and exactly one loop is left
+    running. The queue itself is never touched.
+    """
+    return _TREASURE_TICK + _TREASURE_REAP_LOOP
+
+
+def treasure_reaper_start() -> str:
+    """The same watch, for a caller that has just parked `A.tick` itself.
+
+    The arm below defines the tick — it is the recipe's first press, so the definition is
+    always the current one — and the button that composes the two would otherwise carry
+    nine kilobytes of the same Lua twice.
+    """
+    return _TREASURE_REAP_LOOP
+
+
+_TREASURE_REAP_LOOP = '''
+local A = DataCenter.__lw_treasure_auto
+if A == nil then A = {seen={}, targets={}, news=0} DataCenter.__lw_treasure_auto = A end
+A.reap = (tonumber(A.reap) or 0) + 1
+local token = A.reap
+A.reap_on = true
+A.reap_started = A.tick_at or 0
+-- THE SECOND EAR: what the client can see from where it already stands. Not a lap — the
+-- whole-server walk was deleted for costing 48 s of camera and finding other people's
+-- chests (#1296) — one box around the camera, read out of the point manager the client
+-- fills for itself. It runs off `_G.WS` and never goes looking for the scene: finding it
+-- costs a `FindObjectsOfType` over every MonoBehaviour in the game, which is the panel's
+-- own press to pay, not a background timer's.
+local function look()
+  local A = DataCenter.__lw_treasure_auto
+  local now = tonumber(A.tick_at) or 0
+  if now <= 0 then return end
+  if (tonumber(A.look_at) or 0) > 0 and now - A.look_at < %(look_sec)d then return end
+  A.look_at = now
+  local inworld = false
+  pcall(function() inworld = SceneUtils.GetIsInWorld() and true or false end)
+  if not inworld then A.look_why = "city" return end
+  local scene = _G.WS
+  local pm = nil
+  pcall(function() pm = scene and scene.PointManager end)
+  if pm == nil then A.look_why = "no-point-manager" return end
+  local cx, cy = -1, -1
+  pcall(function() cx, cy = scene.CurTilePos.x, scene.CurTilePos.y end)
+  cx, cy = math.floor(tonumber(cx) or -1), math.floor(tonumber(cy) or -1)
+  if cx < 0 or cy < 0 then A.look_why = "no-camera-tile" return end
+  local size = 1000
+  pcall(function() size = scene.TileCount.x end)
+  local srv = tonumber(LuaEntry.Player.serverId) or 0
+  local mine = tostring(LuaEntry.Player.allianceId or "")
+  local box = %(look_box)d
+  local x0, x1 = math.max(0, cx - box), math.min(size - 1, cx + box)
+  local y0, y1 = math.max(0, cy - box), math.min(size - 1, cy + box)
+  local found, ours, foreign = 0, 0, 0
+  for ty = y0, y1 do
+    local base = ty * size + 1
+    for tx = x0, x1 do
+      local info = nil
+      pcall(function() info = pm:GetPointInfo(base + tx) end)
+      if info ~= nil then
+        local pt = nil
+        pcall(function() pt = tonumber(info.PointType) end)
+        if pt == %(point_type)d then
+          local uuid = nil
+          pcall(function() uuid = info.uuid end)
+          if uuid ~= nil and tostring(uuid) ~= "0" then
+            found = found + 1
+            local ally = "" pcall(function() ally = tostring(info.allianceId or "") end)
+            -- A CHEST BELONGS TO AN ALLIANCE and the game refuses everybody else's
+            -- (errorCode 801354). Eighteen of the first nineteen ever seen were foreign.
+            if mine ~= "" and ally ~= "" and ally ~= mine then foreign = foreign + 1
+            else
+              ours = ours + 1
+              local key = tostring(uuid)
+              local seen_here = nil
+              for _, t in ipairs(A.targets or {}) do
+                if tostring(t.uuid) == key then seen_here = t end end
+              if seen_here ~= nil then
+                -- The door that has the TILE upgrades a target that arrived without one.
+                if (tonumber(seen_here.pid) or 0) == 0 then
+                  seen_here.pid, seen_here.x, seen_here.y = base + tx, tx, ty
+                  seen_here.claim_only = false
+                  seen_here.src = tostring(seen_here.src or "?") .. "+eye"
+                end
+              else
+                local who = "" pcall(function() who = tostring(info.ownerUid or "") end)
+                local exp = 0 pcall(function() exp = tonumber(info.expireTime) or 0 end)
+                A.seen = A.seen or {}
+                A.seen[key] = A.seen[key] or now
+                A.targets = A.targets or {}
+                A.targets[#A.targets+1] = {uuid = uuid, pid = base + tx, x = tx, y = ty,
+                  server = tonumber(info.serverId) or srv, at = now, src = "eye",
+                  expire = exp, dug = ((who ~= "" and who ~= "0") and now or nil)}
+                A.news = (tonumber(A.news) or 0) + 1
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  A.look_why = "looked"
+  A.look_found, A.look_ours, A.look_foreign = found, ours, foreign
+end
+local tm = TimerManager:GetInstance()
+local function loop()
+  local A = DataCenter.__lw_treasure_auto
+  if A == nil or A.reap ~= token or not A.reap_on then return end
+  if A.tick ~= nil then pcall(A.tick) end
+  pcall(look)
+  local busy = (tonumber(A.t_live) or 0) > 0
+  local now = tonumber(A.tick_at) or 0
+  if busy or (tonumber(A.reap_busy_at) or 0) == 0 then A.reap_busy_at = now end
+  -- A TIMER IN SOMEBODY ELSE'S GAME HAS TO END. Nothing to work for a quarter of an hour
+  -- and the loop stops; the panel's poll arms it again the moment it next looks.
+  if now > 0 and not busy and now - (tonumber(A.reap_busy_at) or now) > %(stop_ms)d then
+    A.reap_on = false
+    CS.UnityEngine.Debug.LogError("ACT treasure_reaper idle-stop ticks="
+      .. tostring(A.ticks or 0))
+    return
+  end
+  tm:DelayInvoke(loop, busy and %(fast)s or %(idle)s)
+end
+tm:DelayInvoke(loop, %(fast)s)
+CS.UnityEngine.Debug.LogError("ACT treasure_reaper on=1 run=" .. tostring(token)
+  .. " queued=" .. tostring(#(A.targets or {})))
+''' % {"look_sec": int(TREASURE_REAP_LOOK_SEC) * 1000,
+       "look_box": int(TREASURE_REAP_LOOK_BOX), "point_type": int(TREASURE_POINT_TYPE),
+       "stop_ms": int(TREASURE_REAP_STOP_SEC) * 1000,
+       "fast": repr(float(TREASURE_REAP_FAST_SEC)),
+       "idle": repr(float(TREASURE_REAP_IDLE_SEC))}
+
+
+def treasure_reaper_stop() -> str:
+    """Stop the game-side watch; the queue and the ear are left exactly as they are.
+
+    Bumping the run token is the whole of it — a loop already scheduled cannot be cancelled,
+    so it is disowned instead and returns on its next wake (the same way a map lap is
+    stopped). What the watch knew stays on the VM: a chest halfway through is still worth
+    finishing, by the panel's press or by the next arm.
+    """
+    return (
+        "local A = DataCenter.__lw_treasure_auto "
+        "if A ~= nil then A.reap = (tonumber(A.reap) or 0) + 1 A.reap_on = false end "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_reaper on=0 ticks="'
+        "..tostring((A or {}).ticks or 0))"
+    )
+
+
+def treasure_reaper_state() -> str:
+    """Lua *expression* -> what the watch is doing, and the number the criterion needs.
+
+    ``on=<0|1> ticks=<n> live=<n> claims=<n> paid=<n> lag=<ms> worst=<ms> eye=<why>`` —
+    `lag` is the milliseconds between a chest becoming takeable and the first claim for it
+    leaving, which is «в первую секунду» said as a number rather than as an impression,
+    and `worst` is the worst one this client has seen so an average cannot hide a bad chest.
+    `-1` for either means no chest has been taken yet.
+    """
+    return (
+        "(function() local A = DataCenter.__lw_treasure_auto "
+        "if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 "
+        "lag=-1 worst=-1 eye=never' end "
+        "return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) "
+        ".. ' ticks=' .. tostring(A.ticks or 0) "
+        ".. ' live=' .. tostring(A.t_live or 0) "
+        ".. ' claims=' .. tostring(A.claims_all or 0) "
+        ".. ' paid=' .. tostring(A.paid_all or 0) "
+        ".. ' lag=' .. tostring(A.lag_ms or -1) "
+        ".. ' worst=' .. tostring(A.lag_worst or -1) "
+        ".. ' eye=' .. tostring(A.look_why or 'never') end)()"
+    )
+
+
 def treasure_auto_step() -> str:
     """Work every queued chest one step, in ONE chunk — and say what it did.
 
@@ -3488,15 +4033,12 @@ def treasure_auto_step() -> str:
         world-treasures.md`), called STRAIGHT rather than behind
         `TimerManager:DelayInvoke` — the rally join proved the direct send works from the
         daemon's thread, and a send behind a timer cannot say whether it threw.
-      * **sent** — nothing, until OUR OWN squad's march is over, and then either the
-        alliance's feed has said the chest is dug (`push.detect.treasure.claim`, caught by
-        the hook) or the grace has run out. The march gates BOTH roads, and that correction
-        is the one the first live chest paid for: see below.
-      * **dug** — claim it: `SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure,
-        uuid, targetServer)`, the exact call the in-game finish fires. Then WAIT for the
-        reward window rather than assuming; retry on a clock, up to a few times.
-      * **paid** — the reward window came up within seconds of our claim. Only then is the
-        chest spent. This chunk opens nothing; it closes nothing either.
+      * **anything else** — `A.tick`, and not this chunk (#1318). Waiting for a dig to end
+        and claiming the moment it does is a question of MILLISECONDS, and a chunk the
+        panel sends is asked every ten seconds at best. So the claim half lives in the game
+        (`_TREASURE_TICK`), is driven by the game's own timer, and is called from here as
+        the last thing this press does — a press is never slower than the watch, and the
+        watch never waits for a press.
 
     A REFUSED CLAIM IS SILENT, and the whole shape above exists because of it. Measured
     live on 2026-08-08 against a uuid that cannot exist: **no message tip, no window, no
@@ -3598,129 +4140,46 @@ def treasure_auto_step() -> str:
         "A.asked = true end "
         # The chests, nearest first — the only place the word «nearest» can be earned
         # (see the docstring).
-        "local live = {} "
+        # HOW FAR EVERY CHEST IS, AND WHICH DOOR IT CAME THROUGH — measured before anything
+        # is decided, because the words below are written on chests the tick may finish.
         "for _, t in ipairs(A.targets or {}) do if not t.done then "
         "t.d = math.max(math.abs((tonumber(t.x) or 0) - hx), "
         "math.abs((tonumber(t.y) or 0) - hy)) "
-        # WHICH DOOR THIS CHEST CAME THROUGH, and how long ago — written into the note
-        # the report ends with, because «a chest was worked» is half an answer: the three
-        # doors fail in different ways (nobody shared it / the dig feed carries no tile /
-        # the lap has not come round yet), and a log that does not say which one let this
-        # chest in cannot tell a working door from a lucky one.
+        # WHICH DOOR THIS CHEST CAME THROUGH, and how long ago — because «a chest was
+        # worked» is half an answer: the three doors fail in different ways (nobody shared
+        # it / the dig feed carries no tile / nobody has looked that way yet), and a log
+        # that does not say which one let this chest in cannot tell a working door from a
+        # lucky one.
         "t.tag = tostring(t.src or '?') "
         "if (tonumber(t.at) or 0) > 0 and now > 0 then "
         "t.tag = t.tag .. '/' .. tostring(math.floor((now - t.at) / 1000)) .. 's' end "
+        "end end "
+        # THE WATCH RUNS FIRST, and this is not a nicety: a chest whose minutes on the map
+        # are over is written off by the tick, and a step that built its list before asking
+        # would send a squad at a tile that expired a minute ago.
+        "A.s_claimed, A.s_paid, A.s_expired, A.s_resent = 0, 0, 0, 0 "
+        "if A.tick ~= nil then pcall(A.tick) end "
+        "local live = {} "
+        "for _, t in ipairs(A.targets or {}) do if not t.done then "
         "live[#live+1] = t end end "
         "table.sort(live, function(a, b) return (a.d or 0) < (b.d or 0) end) "
-        # DID THE LAST CLAIM PAY? The only observable answer there is. A refused claim is
-        # SILENT — measured live on 2026-08-08 against a uuid that cannot exist: no message
-        # tip, no window, no thrown error, and the reply arrives under the same command
-        # name carrying no readable fields — so «the send did not throw» proves nothing at
-        # all, and the version that treated it as payment wrote the chest off while the
-        # alliance was still digging it. The client raises `UIGiftPackageRewardGet` on a
-        # claim the server paid; that window, and only while it is fresh, is the proof.
-        "local reward = false "
-        "pcall(function() reward = UIManager.Instance:IsWindowOpen("
-        "UIWindowNames.UIGiftPackageRewardGet) and true or false end) "
-        "local paid_win = " + str(int(TREASURE_PAID_WINDOW_SEC)) + " * 1000 "
-        "local retry = " + str(int(TREASURE_CLAIM_RETRY_SEC)) + " * 1000 "
-        "local sent, claimed, waiting, expired, paid, notes = 0, 0, 0, 0, 0, {} "
+        # WHAT THE SEND HALF OWNS, and what it stopped owning (#1318). Everything about a
+        # chest that has ALREADY got a squad — is the dig over, is it takeable, has the
+        # server paid — is `A.tick`, because those questions have to be asked in
+        # milliseconds and this chunk is asked in tens of seconds. What is left here is the
+        # pairing: which chest, which squad, and the march itself.
+        "local sent, notes, mine = 0, {}, {} "
         "local fi = 1 "
         "for _, t in ipairs(live) do "
-        # Written off: the chest's minutes on the map are over. `ttl` is the errand's own
-        # guess and `expire` is the MAP's answer — the chest's own deadline, read off
-        # `TreasurePointInfo.expireTime` by the lap — so whichever comes first wins.
-        "if now > 0 and (((tonumber(t.at) or 0) > 0 and now - (tonumber(t.at) or 0) > ttl) "
-        "or ((tonumber(t.expire) or 0) > 0 and now > tonumber(t.expire))) then "
-        "t.done, t.why, t.done_at = true, 'expired', now expired = expired + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':expired' "
-        # The reward window came up shortly after our claim: THAT is the payment, and the
-        # chest is spent here rather than on the strength of a send that returned cleanly.
-        "elseif t.claimed and reward and now > 0 "
-        "and now - (tonumber(t.claimed) or 0) <= paid_win then "
-        "t.done, t.why, t.paid, t.done_at = true, 'paid', now, now paid = paid + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':paid' "
-        "elseif t.claimed and (tonumber(t.tries) or 0) >= "
-        + str(int(TREASURE_CLAIM_TRIES)) + " then "
-        # Every try spent and no reward window after any of them. Written off with a word
-        # that says what actually happened, because «claimed» would read as taken.
-        "t.done, t.why, t.done_at = true, 'claim-unconfirmed', now "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-unconfirmed' "
-        # A CLAIM-ONLY target (see `harvest`): heard through the alliance's dig feed, so
-        # there is no tile to march at and nothing to wait for. It goes straight to the
-        # claim — which is the case that took the first live chest.
-        "elseif t.claim_only and not t.sent then "
-        "local cooling = (t.claimed ~= nil and now > 0 "
-        "and now - (tonumber(t.claimed) or 0) < retry) "
-        "if cooling then waiting = waiting + 1 "
-        "notes[#notes+1] = t.tag .. ':claim-only-waiting' "
-        "else "
-        "t.tries = (tonumber(t.tries) or 0) + 1 "
-        "local srv = (tonumber(t.server) or 0) ~= 0 and tonumber(t.server) or home_srv "
-        "local ok, err = pcall(function() "
-        "SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end) "
-        "if ok then t.claimed = now claimed = claimed + 1 "
-        "notes[#notes+1] = t.tag .. ':claim-only-claim' .. tostring(t.tries) "
-        "else notes[#notes+1] = t.tag .. ':claim-only-threw:' .. tostring(err) end end "
-        "elseif t.sent then "
-        # IS OUR SQUAD STILL OUT? The grace exists for a dig whose broadcast never
-        # arrived — not for a squad still walking. A chest 300 tiles away outlasts any
-        # grace worth having, and a claim sent while the march is in the air is refused in
-        # silence and, before this, wrote the chest off for good. So the fallback waits
-        # for BOTH: the clock, and the march being over.
-        "local marching = false "
-        "if t.squad_uuid ~= nil then pcall(function() "
-        "marching = (wm:GetOwnerFormationMarch(P.uid, t.squad_uuid, P.allianceId) "
-        "~= nil) end) end "
-        # AN UNANSWERED MARCH READS EXACTLY LIKE A FINISHED ONE, so the absence of a march
-        # is only believed once it has been given time to appear — or once a march has
-        # actually been SEEN on this squad, which settles the question outright. Measured
-        # live: the send at 21:01:50 and `free=3 busy=0` five seconds later, on a march
-        # that was on its way. Without this, «not marching» is true for the first seconds
-        # of every send and the claim goes out into an empty road.
-        "if marching then t.march_seen = true end "
-        "local settled = (t.march_seen == true) or (now > 0 and now - (tonumber(t.sent) "
-        "or 0) >= " + str(int(TREASURE_MARCH_SETTLE_SEC)) + " * 1000) "
-        "local waited = (now > 0 and now - (tonumber(t.sent) or 0) >= grace) "
-        # OUR OWN SQUAD GATES BOTH ROADS TO A CLAIM, and this is what the first live chest
-        # cost to learn (#1296). The dig feed used to overrule the march: `t.dug` came in
-        # while our squad was two seconds out of the base and the claim went straight away.
-        # Measured on a chest twelve tiles from home: march at 20:55:41, first claim at
-        # 20:55:43, and all four tries burned inside 124 s — every one of them while the
-        # squad was still walking, every one refused in silence, and the chest written off
-        # as `claim-unconfirmed` before it had ever been dug by us. The alliance digging a
-        # chest is not this account having dug it; only our own march can make the claim
-        # payable, so `not marching` gates the feed exactly as it gates the clock.
-        "local ready = (not marching) and settled and ((t.dug ~= nil) or waited) "
-        # A claim already sent waits its retry out rather than going again every tick: a
-        # refusal says nothing, so the retry is on a clock, and four tries inside a minute
-        # would be four tries spent while the alliance is still digging.
-        "local cooling = (t.claimed ~= nil and now > 0 "
-        "and now - (tonumber(t.claimed) or 0) < retry) "
-        "if ready and not cooling then "
-        "t.tries = (tonumber(t.tries) or 0) + 1 "
-        "local srv = tonumber(t.server) or home_srv "
-        "local ok, err = pcall(function() "
-        "SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, srv) end) "
-        "if ok then t.claimed = now claimed = claimed + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim' .. tostring(t.tries) "
-        "else notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-threw:' .. tostring(err) end "
-        "elseif cooling then waiting = waiting + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':claim-sent-waiting' "
-        "else waiting = waiting + 1 "
-        # Three different waits, said apart — because «waiting» covered all three and the
-        # one that mattered was invisible in it. `dug-still-marching` is the alliance
-        # having finished while our squad is still on the road: the chest is ready and the
-        # claim is not, and a log that called that `digging` is what hid the burnt tries.
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':' "
-        ".. ((not settled) and 'march-unanswered' "
-        "or ((marching and t.dug ~= nil) and 'dug-still-marching' "
-        "or ((waited and marching) and 'still-marching' or 'digging'))) end "
+        # A chest with a squad out, or one that only ever had a uuid to claim, is the
+        # watch's business — this loop leaves it alone and the note comes off the word the
+        # watch wrote on it.
+        "if t.sent ~= nil or t.claim_only then "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
         "local f = free[fi] "
-        "if f == nil then notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':no-free-squad' "
+        "if f == nil then mine[#mine+1] = {t, 'no-free-squad'} "
         # THE CAMERA DOES NOT HAVE TO BE ON THE CHEST — checked, because for a while it
         # looked as though it did (#1296). A send with the camera elsewhere once produced
         # nothing on the wire, and a send with the camera on the tile produced the message
@@ -3728,7 +4187,9 @@ def treasure_auto_step() -> str:
         # with the camera parked 500 tiles away and every squad genuinely free, the march
         # went out exactly as before. What the client does drop in silence is a march for a
         # formation that is already committed — and a squad whose march the server has not
-        # confirmed yet still reads free here, which is what the first reading caught.
+        # confirmed yet still reads free here, which is what the first reading caught. The
+        # watch is what notices afterwards that this send left no march at all, and sends
+        # again rather than claiming into an empty road.
         "else fi = fi + 1 "
         "local srv = tonumber(t.server) or home_srv "
         "local target = (srv ~= 0 and srv ~= home_srv) and "
@@ -3738,11 +4199,22 @@ def treasure_auto_step() -> str:
         "MarchUtil.SendCreateMarchMessage(f.uuid, target, t.pid, t.uuid, 1, 1, false, "
         "srv, nil) end) "
         # The squad's UUID rides with the target, not just its slot: the «is it still
-        # walking?» test above asks about THIS squad's march, and a slot number cannot.
+        # walking?» test the watch makes asks about THIS squad's march, and a slot number
+        # cannot.
         "if ok then t.sent, t.squad, t.squad_uuid = now, f.slot, f.uuid sent = sent + 1 "
-        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':squad' .. tostring(f.slot) "
-        "else notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. t.tag .. ':march-threw:' .. tostring(err) end "
+        "t.march_seen, t.due, t.armed, t.gone_at, t.back_at = nil, nil, nil, nil, nil "
+        "mine[#mine+1] = {t, 'squad' .. tostring(f.slot)} "
+        "else mine[#mine+1] = {t, 'march-threw:' .. tostring(err)} end "
         "end end end "
+        # …AND THEN THE CLAIM HALF, AT ONCE. The same function the game's own timer calls,
+        # run here so a press is never slower than the watch it shares its state with — and
+        # so a client whose watch has idled out still claims on a press.
+        "if A.tick ~= nil then pcall(A.tick) end "
+        # …and the send half keeps its own words. The watch writes a word on every live
+        # chest, and a chest this press has just marched at — or could find no squad for —
+        # would otherwise be described by what it looks like a fifth of a second later
+        # («marching», «to-send») rather than by what this press DID about it.
+        "for _, r in ipairs(mine) do r[1].state = r[2] end "
         # A FINISHED CHEST IS REMEMBERED, NOT FORGOTTEN — and the difference is a second
         # march (#1296). The prune used to drop every `done` target, and the lap that came
         # round five minutes later looked for a duplicate among the LIVE targets only: the
@@ -3757,17 +4229,42 @@ def treasure_auto_step() -> str:
         "keep[#keep+1] = t end end "
         "A.targets = keep "
         "local spent = #keep - alive "
-        "A.report = 'sent=' .. tostring(sent) .. ' claimed=' .. tostring(claimed) "
-        ".. ' paid=' .. tostring(paid) "
-        ".. ' waiting=' .. tostring(waiting) .. ' expired=' .. tostring(expired) "
+        # The notes are written LAST, off the word the watch left on each chest, so the
+        # line says where every one of them actually stands rather than where it stood
+        # before the claim half ran.
+        "for _, t in ipairs(A.targets or {}) do "
+        "if t.d ~= nil and (not t.done or t.done_at == now) then "
+        "notes[#notes+1] = 'x' .. tostring(t.d) .. '/' .. tostring(t.tag) "
+        ".. ':' .. tostring(t.state or '?') "
+        ".. ((tonumber(t.lag) ~= nil) and ('/lag' .. tostring(t.lag) .. 'ms') or '') "
+        "end end "
+        "A.report = 'sent=' .. tostring(sent) "
+        ".. ' claimed=' .. tostring(A.s_claimed or 0) "
+        ".. ' paid=' .. tostring(A.s_paid or 0) "
+        ".. ' waiting=' .. tostring(A.t_waiting or 0) "
+        ".. ' expired=' .. tostring(A.s_expired or 0) "
         ".. ' queued=' .. tostring(alive) "
         # What is being held only so it is not started over. Said when there is any, so a
         # queue that reads 0 and a list that is not empty are never the same line.
         ".. (spent > 0 and (' spent=' .. tostring(spent)) or '') "
+        # A SEND THAT LEFT NO MARCH, said out loud (#1318). This is «отправка отряда
+        # работает через раз» in one word: the client dropped the march and the watch is
+        # sending it again, which used to be invisible because the silence read as a squad
+        # that had been and come back.
+        ".. ((tonumber(A.s_resent) or 0) > 0 "
+        "and (' resent=' .. tostring(A.s_resent)) or '') "
         ".. ' free=' .. tostring(#free) .. ' busy=' .. tostring(busy) "
         ".. ' empty=' .. tostring(dry) "
         ".. (A.asked and ' asked-for-army' or '') "
         ".. ' news=' .. tostring(A.news or 0) "
+        # THE NUMBER THE PLAYER ASKED FOR, on every line. `lag` is how long the last chest
+        # taken had to wait between becoming takeable and its first claim leaving, and
+        # `worst` is the worst this client has ever managed. «В первую секунду» is a
+        # measurement, so it is reported as one.
+        ".. ((tonumber(A.lag_ms) ~= nil) and (' lag=' .. tostring(A.lag_ms) .. 'ms') or '') "
+        ".. ((tonumber(A.lag_worst) ~= nil) "
+        "and (' worst=' .. tostring(A.lag_worst) .. 'ms') or '') "
+        ".. ' watch=' .. tostring((A.reap_on and 1) or 0) "
         # …and what the SERVER last said no to, if it said anything. A claim it refuses
         # answers with an `errorCode`, and a run that claimed and was refused otherwise
         # reads as a run that did nothing at all.
@@ -3775,12 +4272,72 @@ def treasure_auto_step() -> str:
         "and now - A.last_error_at < 60000) "
         "and (' server-said=[' .. tostring(A.last_error) .. ']') or '') "
         ".. ' [' .. table.concat(notes, ' ') .. ']' "
-        "A.did = sent + claimed "
-        # How many claims went out THIS step, so the recipe knows whether it is worth
-        # coming back in a second to see the reward window that would confirm one. Without
-        # it, every run would pay for the extra look and none of them would need it.
-        "A.claim_sent = claimed "
+        "A.did = sent + (tonumber(A.s_claimed) or 0) "
         'CS.UnityEngine.Debug.LogError("ACT treasure_auto_step " .. A.report)'
+    )
+
+
+def treasure_queue_one_parked() -> str:
+    """Put ONE named chest into the errand's queue — the press a single row makes (#1318).
+
+    A row on «Командный пункт» knows exactly which chest it is drawn for, and until now
+    each of its two buttons drove the game by hand: «Копать» assembled a march, «Забрать»
+    sent one claim and reported the send as the result. A send that returns cleanly proves
+    nothing (`docs/research/world-treasures.md`), which is precisely why the player found
+    the button unreliable — it said «взято» and nothing arrived.
+
+    So a row now parks its chest here and the ERRAND takes it: the same queue, the same
+    squad pairing, the same watch that claims at the dig's deadline and keeps trying until
+    the chest is paid or gone. The recipe is `actions/take_treasure.md`; a `TAP` carries no
+    arguments, so what it was given travels on the VM as
+    `DataCenter.__lw_treasure_one = {uuid=…, server=…, pid=…, x=…, y=…}` — the same hand-off
+    the rally's join uses for its squads.
+
+    A chest already in the queue is UPGRADED rather than duplicated: a target heard through
+    the dig feed carries a uuid and no tile, and a row that has one fills it in — which is
+    the difference between «claim it and hope» and «march on it». A chest already spent is
+    started over on purpose: this is somebody pressing the button, and the press means «try
+    it again» in the one case a person can see something the errand cannot.
+    """
+    return (
+        "local D = DataCenter "
+        "if not D.__lw_treasure_auto then D.__lw_treasure_auto = "
+        "{seen={}, targets={}, news=0} end "
+        "local A = D.__lw_treasure_auto "
+        "local one = D.__lw_treasure_one or {} "
+        "local uuid = one.uuid "
+        "local now = 0 pcall(function() "
+        "now = math.floor(tonumber(UITimeManager.Instance:GetServerTime()) or 0) end) "
+        "if now <= 0 then pcall(function() "
+        "now = math.floor((tonumber(ChatInterface.getServerTime()) or 0) * 1000) end) end "
+        "if uuid == nil or tostring(uuid) == '0' then "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_one none") return end '
+        "local key = tostring(uuid) "
+        "local pid = tonumber(one.pid) or 0 "
+        "local found = nil "
+        "for _, t in ipairs(A.targets or {}) do "
+        "if tostring(t.uuid) == key then found = t end end "
+        "local what = 'new' "
+        "if found ~= nil then what = 'again' "
+        "found.done, found.why, found.state = nil, nil, nil "
+        "found.tries, found.claimed, found.err = 0, nil, nil "
+        "found.at = now "
+        "if pid > 0 and (tonumber(found.pid) or 0) == 0 then "
+        "found.pid, found.x, found.y = pid, tonumber(one.x) or 0, tonumber(one.y) or 0 "
+        "found.claim_only = false what = 'upgraded' end "
+        "if (tonumber(one.server) or 0) ~= 0 then found.server = tonumber(one.server) end "
+        "else "
+        "A.seen = A.seen or {} A.seen[key] = A.seen[key] or now "
+        "A.targets = A.targets or {} "
+        "A.targets[#A.targets+1] = {uuid = uuid, pid = pid, "
+        "x = tonumber(one.x) or 0, y = tonumber(one.y) or 0, "
+        "server = tonumber(one.server) or 0, at = now, src = 'row', "
+        "claim_only = (pid == 0)} "
+        "A.news = (tonumber(A.news) or 0) + 1 end "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_one " .. what .. " queued="'
+        "..tostring((function() local n = 0 "
+        "for _, t in ipairs(A.targets or {}) do if not t.done then n = n + 1 end end "
+        "return n end)()))"
     )
 
 
@@ -3879,9 +4436,6 @@ TREASURE_SCAN_LAG = 0.30
 #: which is the honest price of reading the map out of the client rather than off a wire.
 TREASURE_SCAN_STEP_SEC = 0.40
 
-#: `WorldPointType.TREASURE` — the same number the wire calls `f2` and the pcap scanner
-#: filters on (docs/research/world-treasures.md).
-TREASURE_POINT_TYPE = 21
 
 #: How often the map is worth re-reading. A chest is out for MINUTES and the alliance
 #: digs it together, so the useful cadence is minutes — five of them here. The errand's
