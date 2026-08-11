@@ -266,6 +266,140 @@ def test_the_chunk_shuts_the_day_on_the_games_count_and_never_on_ours():
 
 
 
+def test_the_kinds_are_named_off_the_games_own_config():
+    """Every species the caps list knows is recognised by its `name` key (#1317).
+
+    The player asked for a counter per kind and named the ones that matter: «кроме
+    Роковой Элиты есть ещё генералы, простые и элитные». The chunk had exactly two
+    species, and one of them was mislabelled: `type == 8` is the Doom WALKER line
+    («Разрушитель»), while Doom Elite (`300602`) sits under three different types across
+    seasons — so the honest identity is the `name` key, not the type.
+    """
+    import lua_actions
+
+    chunk = lua_actions.rally_join_all()
+    for key, kind in (("'2010220'", "general_trial"),
+                      ("'challenge_zombie_001'", "general_trial_elite"),
+                      ("'300602'", "doom_elite"),
+                      ("'monster_boss_name_001'", "doom_walker"),
+                      ("'2901012'", "zombie_boss")):
+        assert key in chunk and "'%s'" % kind in chunk, (key, kind)
+    # …the two events that name their own boss rather than a species on the map.
+    assert "AllyDrillDataManager" in chunk and "bossUuid" in chunk, "the drill is not seen"
+    assert "'alliance_drill'" in chunk and "'zombie_invasion'" in chunk
+    # …and the General's Trial's own activity id, as the fallback for a season that
+    # renames its instructors.
+    assert "'107'" in chunk, "the trial's activity column is not read"
+
+
+def test_a_kind_with_its_day_spent_holds_its_banner_and_says_which():
+    """The per-kind budget refuses inside the press, and one press cannot double-spend.
+
+    The panel supplies the numbers — nothing in the client counts per species, which is
+    why this is the one budget that can drift (#1317) — and the DECISION is here, where
+    the kind of each banner is already known.
+    """
+    import lupa
+
+    import lua_actions
+
+    chunk = lua_actions.rally_join_all()
+    assert "__lw_rally_kind_left" in chunk, "the per-kind budget never reaches the press"
+    assert "kind-capped" in chunk, "a banner held back by its kind is not named"
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    parse = lua.execute(
+        "return function(text) local kind_left = {} "
+        "for pair in string.gmatch(tostring(text or ''), '[^,]+') do "
+        "local k, n = string.match(pair, '([%w_]+):(%-?%d+)') "
+        "if k ~= nil then kind_left[k] = tonumber(n) end end return kind_left end")
+    left = parse("doom_elite:2,general_trial:0,zombie_boss:-1")
+    assert left["doom_elite"] == 2 and left["general_trial"] == 0
+    assert left["zombie_boss"] == -1, "«no cap» must survive the trip as -1"
+
+    # the decision the send loop makes with them, in the chunk's own words
+    decide = lua.execute(
+        "return function(left) "
+        "if left ~= nil and left >= 0 and left <= 0 then return 'held' end "
+        "return 'sent' end")
+    assert decide(0) == "held", "a spent kind was joined"
+    assert decide(2) == "sent"
+    assert decide(-1) == "sent", "«no cap» refused a banner"
+    assert decide(None) == "sent", "a kind nobody capped refused a banner"
+
+
+def test_a_renamed_kind_keeps_the_number_somebody_typed():
+    """`doom_elite` counted the Doom WALKER, so the value travels rather than the key.
+
+    The label said «Роковая Элита» and the key counted type 8, which is «Разрушитель».
+    Both readings of what the person meant are honoured for a CAP — the number lands on
+    both rows — and for a COUNT only on the row that was really being counted, or today's
+    Doom Walkers would spend a Doom Elite budget nothing was spent from (#1317).
+    """
+    limits = rl.migrate_kinds({"doom_elite": 20, "monster": 5})
+    assert limits["doom_walker"] == 20 and limits["doom_elite"] == 20, limits
+    assert limits["monster"] == 5
+
+    counts = rl.migrate_kinds({"doom_elite": 28}, tally=True)
+    assert counts["doom_walker"] == 28, counts
+    assert counts["doom_elite"] == 28, "the old row keeps its own history"
+    assert "doom_elite" in counts
+
+    # a profile edited since the rename keeps what the person typed there
+    kept = rl.migrate_kinds({"doom_elite": 20, "doom_walker": 3})
+    assert kept["doom_walker"] == 3, kept
+
+
+def test_the_day_rolls_on_the_servers_boundary_not_this_machines():
+    """A daily budget resets when the SERVER's day turns (#1317).
+
+    The client answers it exactly (`GetTomorrowZero()`), the PC clock does not — it was
+    eleven seconds out when `game_clock` was written, and the boundary is 02:00 UTC on
+    the warzone this was measured on rather than local midnight.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        path = str(Path(td) / "counts.json")
+        store = rl.RallyCounts("2026-08-11", {"doom_elite": 3}, path, day_end_ms=2_000)
+        # before the boundary the tally stands, whatever the date string says
+        assert store.rolled(today="2026-08-12", now_ms=1_999).count_for("doom_elite") == 3
+        # …and past it the day is empty, even on the same date string
+        assert store.rolled(today="2026-08-11", now_ms=2_001).count_for("doom_elite") == 0
+
+        # The stamp survives a save/load round trip, and so does the tally under it —
+        # with a boundary that has NOT passed, because a load rolls against the game's
+        # clock and a day that ended is meant to come back empty.
+        future = rl.RallyCounts("2026-08-11", {"doom_elite": 3}, path,
+                                day_end_ms=4_000_000_000_000)
+        rl.save_counts(future, path)
+        again = rl.load_counts(path, today="2026-08-11")
+        assert again.day_end_ms == 4_000_000_000_000, again.day_end_ms
+        assert again.count_for("doom_elite") == 3, again.counts
+
+        # …and a stamp that HAS passed empties the day on the next read, whatever the
+        # date string in the file says.
+        rl.save_counts(store, path)
+        assert rl.load_counts(path, today="2026-08-11").count_for("doom_elite") == 0
+
+        # a store that has never been able to ask a client still rolls on the date
+        blind = rl.RallyCounts("2026-08-10", {"monster": 2}, path)
+        assert blind.rolled(today="2026-08-11").count_for("monster") == 0
+
+
+def test_what_each_kind_has_left_is_what_the_recipe_is_handed():
+    """`kind:left,…`, with «no cap» left out — the shape the press parses (#1317)."""
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"doom_elite": 3, "monster": 0}))
+        gate.record_joins(rt, ["doom_elite", "doom_elite"], 2)
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["doom_elite"] == "1", left
+        assert "monster" not in left, "an uncapped kind must not be named at all"
+        # …and a kind whose day is gone says 0 rather than dropping out of the list
+        gate.record_joins(rt, ["doom_elite"], 1)
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["doom_elite"] == "0", left
+
+
 def test_the_tally_never_counts_more_than_the_run_sent():
     """Two drivers, one difference — the count must not be spent twice (#1281).
 

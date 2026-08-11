@@ -1124,15 +1124,31 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
         assert rows["rally_day.max"] and rows["rally_day.max"] != "0", rows
         tab.autorally._daily_var.set("20")
-        # …and the per-kind record under it is still «spent/allowed», every one of them.
-        kinds = [row for row in card["rows"]
-                 if row["label"].startswith("rally_limit.type.")]
+        # …and EVERY KIND is under it (#1317), «spent/allowed» where there is a cap and a
+        # word where there is none — «3/0» reads like a budget somebody has overspent.
+        kinds = {row["label"]: row["value"] for row in card["rows"]
+                 if row["label"].startswith("rally_limit.type.")}
         assert kinds, card["rows"]
-        assert all("/" in row["value"] for row in kinds), kinds
+        for kind in ("doom_elite", "doom_walker", "zombie_boss", "general_trial",
+                     "general_trial_elite", "alliance_drill", "zombie_invasion"):
+            assert "rally_limit.type." + kind in kinds, (kind, kinds)
+        assert kinds["rally_limit.type.doom_elite"] == "0/20", kinds
+        uncapped = kinds["rally_limit.type.general_trial"]
+        assert "/" not in uncapped and uncapped.startswith("0 "), uncapped
 
-        # Both cards are on the screen the phone actually gets.
-        titles = [c.get("title") for c in tab.web_view()["cards"]]
-        assert "rally.frame" in titles and "autorally.frame" in titles, titles
+        # ONE CARD, exactly as the window now draws one group (#1317): the switches and
+        # the «Автосбор» block are the same subject — what the bot does by itself — and
+        # two cards let the phone and the window disagree about what belongs to it.
+        view = tab.web_view()
+        titles = [c.get("title") for c in view["cards"]]
+        assert "autorally.group" in titles, titles
+        assert "rally.frame" not in titles, titles
+        group = [c for c in view["cards"] if c.get("title") == "autorally.group"][0]
+        labels = [i["label"] for i in group["items"]]
+        for wanted in ("rally.monitor", "rally.alert", "rally.autojoin",
+                       "autorally.squads"):
+            assert wanted in labels, (wanted, labels)
+        assert group["rows"], group
     finally:
         root.destroy()
 

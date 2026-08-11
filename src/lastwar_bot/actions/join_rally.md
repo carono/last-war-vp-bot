@@ -69,6 +69,26 @@ ARGS points = ""
 # day: the game counted 275 where the panel had recorded 320 joins.
 ARGS max_joins = 0
 
+# …AND THE CEILING PER KIND OF BANNER — `kind:left,…`, `-1` for «no ceiling» (#1317).
+#
+# «Кроме Роковой Элиты есть ещё генералы, простые и элитные, и им тоже нужен свой
+# счётчик.» The kinds are the game's own species, read off `lw_world_monster` by the
+# `name` key the config carries (`300602` Doom Elite, `monster_boss_name_001` Doom
+# Walker, `2901012` Zombie Boss, `2010220` Vanguard Instructors and
+# `challenge_zombie_001` Elite Instructor of the General's Trial), plus the two events
+# that name their own boss: the Alliance Exercise through `AllyDrillDataManager` and the
+# Zombie Invasion through its own monster lists.
+#
+# **THE COUNT BEHIND THIS ONE IS THE PANEL'S, AND THAT IS A KNOWN COST.** The client keeps
+# ONE daily rally counter and no per-species number anywhere — every boss / monster /
+# rally / activity / season manager was walked for #1317 and there is none, and the trophy
+# list that carries a `contentId` per finished rally is emptied whenever the player
+# collects. So this budget can drift where `max_joins` cannot, and it was chosen with that
+# said out loud. What is done about it: one writer for the tally
+# (`panel/tabs/rally/limits.py::record_run`), the day rolled on the SERVER's boundary
+# rather than this machine's, and the total ceiling above still standing over all of it.
+ARGS kind_left = 
+
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
 #
@@ -93,7 +113,7 @@ ARGS max_joins = 0
 # `__lw_rally_cap` is the day's ceiling, parked in the same line and for the same reason:
 # the press is one chunk and a door in front of it would be a second call on the one path
 # that is measured in fractions of a second (#1317).
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_cap = tonumber("{max_joins}") or 0 DataCenter.__lw_rally_shut = {}
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_cap = tonumber("{max_joins}") or 0 DataCenter.__lw_rally_kind_left = "{kind_left}" DataCenter.__lw_rally_shut = {}
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.

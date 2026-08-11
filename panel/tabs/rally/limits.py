@@ -215,6 +215,28 @@ def join_gate(rt) -> list:
     return list(limits.types()) or [rallylimitsmod.UNKNOWN_TYPE]
 
 
+def kind_left(rt) -> str:
+    """`kind:left,…` — what each kind of banner has left today, as the recipe wants it.
+
+    `-1` is «no ceiling», which is what a cap of `0` means in the profile's file, and a
+    kind with a ceiling that is spent is `0`. The recipe parks the string and the press
+    decides per banner (#1317) — the panel supplies numbers and refuses nothing itself.
+
+    THE COUNT IS THE PANEL'S HERE, unavoidably: the client keeps one daily rally counter
+    and no per-species number (docs/research/rally-join.md, «the door came back»). That is
+    the cost the person accepted for a per-kind budget; `max_joins` is the one number the
+    game itself stands behind.
+    """
+    limits, counts = read(rt)
+    parts = []
+    for key in limits.types():
+        left = counts.left_for(key, limits)
+        if left < 0:
+            continue                    # unlimited: say nothing, the press treats it so
+        parts.append("%s:%d" % (key, left))
+    return ",".join(parts)
+
+
 def kinds_of(ctx) -> list:
     """What KIND each thing the run spent was, in the order it spent them.
 
@@ -272,9 +294,11 @@ def record_joins(rt, kinds, did: int = 1) -> None:
     ``did`` is how many joins the game confirmed; the ones that landed are counted from
     the front of the list, so a send that achieved nothing writes nothing.
 
-    IT IS A RECORD, NOT A RULE. Nothing reads this back to refuse a join. What the day
-    actually costs is the game's own `MonsterManager` count (:func:`trophy_progress`);
-    this is the panel's own note of WHAT it went to, which the game does not keep.
+    IT IS A RECORD, AND SINCE #1317 IT IS ALSO A RULE — the per-kind one. Nothing about
+    the writing changed; what changed is that :func:`kind_left` reads it back, because the
+    game keeps no per-species number to read instead. The total the day actually costs is
+    still the game's own `MonsterManager` count (:func:`trophy_progress`), and that is the
+    ceiling that cannot drift.
     """
     kinds = [str(k).strip() for k in (kinds or []) if str(k).strip()]
     if did <= 0 or not kinds:
@@ -283,7 +307,37 @@ def record_joins(rt, kinds, did: int = 1) -> None:
     counts = rallylimitsmod.load_counts(path)
     for key in kinds[:did]:
         counts = counts.record(key)
+    counts = counts.with_day_end(day_end_ms(rt))
     rallylimitsmod.save_counts(counts, path)
+
+
+def day_end_ms(rt) -> int:
+    """When the SERVER's day turns, asked of the client — `0` if it cannot answer.
+
+    Written into the counts file so the tally rolls on the game's boundary rather than on
+    a date this machine works out (#1317). Asked HERE, right after a run, because that is
+    the one moment a client is certainly there and nothing is waiting on the answer — a
+    banner's path never touches it.
+    """
+    try:
+        if not rt.game.ready():
+            return 0
+    except Exception:                        # noqa: BLE001 — a stamp, never the run
+        return 0
+    import lua_actions
+    chunk = ("CS.UnityEngine.Debug.LogError('DAYEND '..tostring(%s))"
+             % lua_actions.server_day_end())
+    try:
+        lines = rt.game.evaluator().run(chunk, marker="DAYEND", settle=0.4, early=True)
+    except Exception:                        # noqa: BLE001
+        return 0
+    for line in lines or []:
+        if "DAYEND " in line:
+            try:
+                return int(float(line.split("DAYEND ", 1)[1].split()[0]))
+            except (ValueError, IndexError):
+                return 0
+    return 0
 
 
 def record(rt, counts, type_key):

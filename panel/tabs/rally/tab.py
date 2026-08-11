@@ -250,16 +250,19 @@ class RallyTab(PanelTab):
         self.tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
                 "tab.rally").pack(side="left")
 
+        # ONE GROUP FOR THE AUTO SIDE (#1317). «Объедини в одну группу всё, что касается
+        # автостягов — лимиты, отряды, параметры.» It was spread over three blocks in two
+        # places and a person could not tell which of them the automatic mode reads: the
+        # switches were one frame, the squads another, and the caps a third that turned
+        # out to bound something else entirely. Everything the auto-join uses is inside
+        # this frame now, in the order it is decided — what it does by itself, with which
+        # squads, on what parameters, and how much of the day it may spend — and the
+        # manual «Запустить» form below it is the only thing outside.
+        auto = self.tr(ttk.LabelFrame(body, padding=8), "autorally.group")
+        auto.pack(fill="x", padx=10, pady=(0, 8))
+        self._build_monitor(auto)
+        self.autorally.build(auto)
         self._build_form(body)
-        self._build_monitor(body)
-        # «Автосбор» — the squads a join may spend, the drill, the banner-carrier and
-        # the daily caps. It was a page inside «Настройки» until #1237: everything on
-        # it is about rallies, none of it is a knob of the panel, and the switch that
-        # SPENDS the list is six lines above it here. It is drawn UNDER the switches
-        # on purpose, so the tab reads «join by itself: on» and then «with these».
-        autorally = ttk.Frame(body)
-        autorally.pack(fill="x", padx=10, pady=(0, 6))
-        self.autorally.build(autorally)
 
         self.tr(ttk.Label(body, foreground="#888", wraplength=640, justify="left"),
                 "rally_tab.hint").pack(anchor="w", padx=10, pady=(0, 10))
@@ -361,7 +364,7 @@ class RallyTab(PanelTab):
         other end (#1183) — and the switches are this tab's own now, not the shell's.
         """
         rally = self.tr(ttk.LabelFrame(parent, padding=8), "rally.frame")
-        rally.pack(fill="x", padx=10, pady=(0, 6))
+        rally.pack(fill="x", pady=(0, 6))
         top = ttk.Frame(rally)
         top.pack(fill="x")
         self.tr(ttk.Checkbutton(top, variable=self._monitor_var,
@@ -450,7 +453,14 @@ class RallyTab(PanelTab):
             progress = {}
         done = progress.get("done", -1) if progress else -1
         top = progress.get("max", 0) if progress else 0
-        self._after(lambda: self.autorally.set_today(done, top))
+
+        def paint() -> None:
+            self.autorally.set_today(done, top)
+            # …and the per-kind tally beside the caps, which is a file read and needs no
+            # game at all — but moves for the same reason and at the same moments (#1317).
+            self.autorally.paint_counts()
+
+        self._after(paint)
 
     def _unwatch_squads(self) -> None:
         off, self._squads_off = self._squads_off, None
@@ -508,8 +518,14 @@ class RallyTab(PanelTab):
             cards.append({"title": None, "rows": [
                 {"label": "rally_tab.stamina",
                  "value": f"{state.stamina}/{state.stamina_max}"}]})
-        cards.append(self._web_autojoin_card())
-        cards.append(self._web_autorally_card())
+        # ONE CARD FOR THE AUTO SIDE, exactly as the window now draws one group (#1317):
+        # what it does by itself, with which squads, on what parameters, and how much of
+        # the day is left — in that order. Two cards said the same things and let the
+        # phone and the window disagree about what belonged to the automatic mode.
+        switches, page = self._web_autojoin_card(), self._web_autorally_card()
+        cards.append({"title": "autorally.group",
+                      "items": list(switches["items"]) + list(page["items"]),
+                      "rows": page["rows"]})
         return {"cards": cards, "now": __import__("time").time(),
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             # The window's own «Наполнить отряды», mirrored: a squad
@@ -561,17 +577,21 @@ class RallyTab(PanelTab):
                  != autorallymod.DRILL_OFF]
         limits, counts = rallylimits.read(self.rt)
         # THE DAY'S CEILING FIRST, because it is the one that stops a join (#1317): what
-        # the person allowed, and what the GAME says has been joined so far. The per-kind
-        # rows under it are the panel's own record of what those joins went for, and they
-        # bound the «Запустить» run rather than the auto-join — the same two blocks the
-        # window draws, in the same order.
+        # the person allowed, and what the GAME says has been joined so far. Then the
+        # per-kind budgets — «сегодня / лимит» each, the very numbers the auto-join is
+        # gated on — in the same order the window draws them, inside the same one group.
         ceiling = self.autorally.daily_max()
         rows = [{"label": "rally_day.max",
                  "value": (str(ceiling) if ceiling
                            else self.t("rally_day.unlimited"))},
                 {"label": "rally_day.today", "value": self.autorally.today_text()}]
         rows += [{"label": "rally_limit.type." + key,
-                  "value": "%d/%d" % (counts.count_for(key), limits.limit_for(key))}
+                  # A kind with no cap says so in words rather than as «3/0», which reads
+                  # like a budget that has been overspent.
+                  "value": ("%d/%d" % (counts.count_for(key), limits.limit_for(key))
+                            if limits.limit_for(key) > 0
+                            else "%d · %s" % (counts.count_for(key),
+                                              self.t("rally_day.unlimited")))}
                  for key in limits.types()]
         return {
             "title": "autorally.frame",
@@ -1246,7 +1266,9 @@ class RallyTab(PanelTab):
                                         # the tab's own reader plays the recipe past the
                                         # schedule entirely, and a door only one of the
                                         # two drivers passes is not a door.
-                                        "max_joins": self.autorally.daily_max()},
+                                        "max_joins": self.autorally.daily_max(),
+                                        # …and the per-kind budgets, on this driver too.
+                                        "kind_left": rallylimits.kind_left(self.rt)},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
             # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
             # itself, off the capture's own reader and past the schedule entirely, so its

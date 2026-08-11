@@ -5245,7 +5245,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 "targets": rallytab.target_map(self._rt),
                 "slots": rallytab.slot_map(self._rt),
                 "points": rallytab.point_map(self._rt),
-                "max_joins": rallytab.daily_max(self._rt)}
+                "max_joins": rallytab.daily_max(self._rt),
+                # …and what each KIND has left today (#1317). The panel is the only thing
+                # that can count those — the client keeps one daily rally number and no
+                # per-species one — so it supplies them and the press decides per banner.
+                "kind_left": rallygate.kind_left(self._rt)}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

@@ -4798,6 +4798,20 @@ def rally_day_count() -> str:
             "tostring(math.floor(tonumber(b) or -1)) end)()")
 
 
+def server_day_end() -> str:
+    """Lua *expression* -> the ms at which the SERVER's day turns, or 0.
+
+    `UITimeManager:GetInstance():GetTomorrowZero()` — the client's own answer, and the
+    only honest one: the boundary is 02:00 UTC on the warzone this was measured on
+    (#1188) and there is nothing that says every warzone shares it. Anything a daily
+    budget of ours resets on is judged against this rather than against a date the PC
+    works out for itself (#1317).
+    """
+    return ("(function() local v = 0 "
+            "pcall(function() v = UITimeManager:GetInstance():GetTomorrowZero() end) "
+            "return math.floor(tonumber(v) or 0) end)()")
+
+
 def rally_joined_count() -> str:
     """Lua *expression* -> how many of OUR squads are standing in a rally right now.
 
@@ -5040,29 +5054,60 @@ def rally_join_all() -> str:
         # first version of the branch below turned that into the key `monster_type_`
         # with nothing after it. Empty is «no answer», and «no answer» has to be the
         # unheard-of case rather than a species with a blank name (#1281).
+        # THE SPECIES IS ITS `name` KEY, NOT ITS `type` (#1317). Read out of the live
+        # config: «Роковая Элита» (`300602`) sits under three different types across
+        # seasons, and type 8 is not it at all — that is the Doom WALKER line
+        # (`monster_boss_name_001`, «Разрушитель»), which is what the old `doom_elite`
+        # key had been counting. `activity` is what marks an event's monsters, and 107 is
+        # the General's Trial, whose two species are the ones the player names as «простые
+        # и элитные»: `2010220` Vanguard Instructors and `challenge_zombie_001` Elite
+        # Instructor.
         "local function monster_of(cid) "
-        "if LCI == nil or cid == nil then return nil, nil end "
-        "local ty, lv = nil, nil "
+        "if LCI == nil or cid == nil then return nil, nil, nil, nil end "
+        "local ty, lv, nm, act = nil, nil, nil, nil "
         "pcall(function() ty = LCI:getValue('lw_world_monster', cid, 'type', nil) end) "
         "pcall(function() lv = LCI:getValue('lw_world_monster', cid, 'level', nil) end) "
+        "pcall(function() nm = LCI:getValue('lw_world_monster', cid, 'name', nil) end) "
+        "pcall(function() act = LCI:getValue('lw_world_monster', cid, 'activity', nil) end) "
         "if ty ~= nil and tostring(ty) == '' then ty = nil end "
         "if lv ~= nil and tostring(lv) == '' then lv = nil end "
-        "return ty, lv end "
+        "if nm ~= nil and tostring(nm) == '' then nm = nil end "
+        "if act ~= nil and tostring(act) == '' then act = nil end "
+        "return ty, lv, nm, act end "
+        # THE ALLIANCE EXERCISE NAMES ITS OWN BOSS, and that is the only exact way to know
+        # one: the drill's boss is not a species on the map but a uuid the manager carries
+        # (`AllyDrillDataManager.actInfo.data.bossUuid` / `bossPointId`, read live for
+        # #1317 while a drill was running).
+        "local drill_uuid, drill_point = nil, nil "
+        "pcall(function() local d = DataCenter.AllyDrillDataManager.actInfo.data "
+        "drill_uuid = d and d.bossUuid drill_point = d and d.bossPointId end) "
         # THE INVASION EVENT STILL ANSWERS FIRST: its own monster lists are the only thing
         # that marks a banner as one the event does not ration, and that is a different
         # question from what species is standing on the tile.
         "local function kind_of(r) "
         "local cid = target_of_team[tostring(r.team)] "
-        "local ty, lv = monster_of(cid) "
+        "local ty, lv, nm, act = monster_of(cid) "
         "r.level = lv r.mtype = ty "
+        "if drill_uuid ~= nil and r.target ~= nil "
+        "and tostring(r.target) == tostring(drill_uuid) then return 'alliance_drill', true end "
+        "if drill_point ~= nil and r.point ~= nil "
+        "and tostring(r.point) == tostring(drill_point) then return 'alliance_drill', true end "
         "if inv_ok then "
         "local tu = r.target "
         "if tu ~= nil and inv_set[tostring(tu)] then return 'zombie_invasion', true end "
         "if r.point ~= nil and inv_set['p'..tostring(r.point)] then return 'zombie_invasion', true end end "
-        # …and then the species, which is the split the player reads off the screen.
+        # …then the event a species belongs to, and then the species itself — which is the
+        # split the player reads off the screen.
+        "if nm ~= nil then local key = tostring(nm) "
+        "if key == '2010220' then return 'general_trial', true end "
+        "if key == 'challenge_zombie_001' then return 'general_trial_elite', true end "
+        "if key == '300602' then return 'doom_elite', true end "
+        "if key == 'monster_boss_name_001' then return 'doom_walker', true end "
+        "if key == '2901012' or key == '2901011' then return 'zombie_boss', true end end "
+        "if act ~= nil and tostring(act) == '107' then return 'general_trial', true end "
         "if ty ~= nil and tonumber(ty) ~= nil then "
-        "if tonumber(ty) == 8 then return 'doom_elite', true end "
-        "if tonumber(ty) == 7 then return 'monster', true end "
+        "if tonumber(ty) == 8 then return 'doom_walker', true end "
+        "if tonumber(ty) == 7 then return 'zombie_boss', true end "
         "return 'monster_type_'..tostring(tonumber(ty)), true end "
         # NOT HEARD OF, and said so rather than assumed. A banner raised before the panel
         # started listening has no push behind it, so its kind is genuinely unknown; it is
@@ -5233,6 +5278,21 @@ def rally_join_all() -> str:
         "kbleft = MM:GetRestKillBossNum() end) "
         "local cap = tonumber(DataCenter.__lw_rally_cap) or 0 "
         "local capped = (cap > 0 and tonumber(kb) ~= nil and tonumber(kb) >= cap) "
+        # …AND THE CEILING PER KIND (#1317). `kind:left,…`, parked by the panel, which is
+        # the only thing that can count them: the client keeps ONE daily rally counter and
+        # no per-species number anywhere — every manager was walked for #1317 and there is
+        # none. So the panel's tally is the source, the person's number is the cap, and
+        # what happens HERE is the decision: a banner of a kind with nothing left is
+        # passed over and named, and each send spends one from the kind it went to, so two
+        # banners of the same kind in one press cannot both take the last one.
+        #
+        # A kind with NO entry is unlimited, exactly as `0` means in the panel's file.
+        "local kind_left = {} "
+        "pcall(function() for pair in string.gmatch(tostring("
+        "DataCenter.__lw_rally_kind_left or ''), '[^,]+') do "
+        "local k, n = string.match(pair, '([%w_]+):(%-?%d+)') "
+        "if k ~= nil then kind_left[k] = tonumber(n) end end end) "
+        "local kind_blocked = {} "
         "local sent, errs, went, left_over, kinds, went_kind = 0, {}, {}, {}, {}, {} "
         "local sent_teams = {} "
         "local unknown_kind = 0 "
@@ -5245,11 +5305,21 @@ def rally_join_all() -> str:
         # The day is spent: every banner is NAMED as passed over for that reason rather
         # than silently skipped, so «nothing went out» never reads as «no rally was out».
         "if capped then left_over[#left_over+1] = tostring(r.team)..':day-capped' "
+        # …and so is a banner whose KIND is spent, with the kind in the word: «нечего
+        # слать» and «этого вида на сегодня хватит» are different answers (#1317).
+        "elseif kind_left[kind] ~= nil and kind_left[kind] >= 0 and kind_left[kind] <= 0 then "
+        "kind_blocked[kind] = (kind_blocked[kind] or 0) + 1 "
+        "left_over[#left_over+1] = tostring(r.team)..':kind-capped('..kind..')' "
         "elseif qi >= #home then left_over[#left_over+1] = tostring(r.team)..(#home == 0 and ':no-squad' or ':squads-spent') "
         "else qi = qi + 1 local q = home[qi] "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
         "if ok then sent = sent + 1 keep[tostring(r.team)] = 0 "        # age 0: freshly sent
+        # One off the kind's budget, HERE and not in the panel afterwards: two banners of
+        # one kind in a single press would otherwise both be measured against the same
+        # «one left» (#1317).
+        "if kind_left[kind] ~= nil and kind_left[kind] > 0 then "
+        "kind_left[kind] = kind_left[kind] - 1 end "
         "tries[tostring(r.team)] = (tonumber(tries[tostring(r.team)] or 0) or 0) + 1 "
         "sent_teams[#sent_teams+1] = tostring(r.team) "
         "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
@@ -5323,6 +5393,14 @@ def rally_join_all() -> str:
         "if cap > 0 then report = report..' cap='..tostring(kb)..'/'..cap "
         "if capped then report = report..' -- the ceiling for today is reached, so nothing "
         "was sent' end end "
+        # …and which KINDS held a banner back, with how many each (#1317). Said even when
+        # something else went out, because «two of the four were the wrong kind today» is
+        # exactly the sentence a person needs to change a number with.
+        "local kb_parts = {} "
+        "for k, n in pairs(kind_blocked) do kb_parts[#kb_parts+1] = k..'x'..n end "
+        "table.sort(kb_parts) "
+        "if #kb_parts > 0 then report = report..' kind_capped=['..table.concat(kb_parts, ' ')"
+        "..'] (this kind has had its allowance for today)' end "
         "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind"
         "..' (the event list could not be read — counted as monster, said rather than assumed)' end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "

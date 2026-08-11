@@ -22,11 +22,17 @@ ways — which squads may go to a rally:
   GAME says it has joined so far (#1317). The number is the only thing the panel keeps:
   the count comes from the client's own daily rally-boss counter and the door itself is
   in `actions/join_rally.md`, which is handed the ceiling as `max_joins`.
-* **the daily caps per monster type** — the older, panel-counted budget (panel/
-  rally_limits.py). It bounds the «Запустить» run on this tab and NOTHING ELSE: the
-  auto-join is bounded by the ceiling above, because the game keeps one total and no
-  per-kind number exists to enforce a per-kind cap with
-  (docs/research/rally-join.md, «The game keeps the count itself»).
+* **the daily cap per KIND of banner** — how many Doom Elites, Doom Walkers, Zombie
+  Bosses, General's Trial instructors… a day, with what the panel has counted today
+  beside each (panel/rally_limits.py). The names are the game's own
+  (`tools/game_locale.py`), and the numbers behind them are the PANEL's: the client keeps
+  one daily rally counter and no per-species number at all — every manager was walked for
+  #1317 — so this is the one budget here that can drift, and it was chosen knowing that
+  (docs/research/rally-join.md).
+
+All five are the AUTOMATIC side, and since #1317 they are drawn inside one group on the
+tab («Автостяг») so that nothing about it can be mistaken for the manual «Запустить» form
+below.
 
 THE VARIABLES EXIST WITHOUT THE WIDGETS, and that is still true now the block is on the
 tab: the auto-join runs at boot, from `ensure_loaded`, in a profile nobody has opened
@@ -86,6 +92,7 @@ class AutoRallyPage:
         self._today_var = tk.StringVar(master=master, value=DAILY_UNREAD)
         self._limits = None            # loaded when the page is drawn
         self._limit_vars: dict = {}
+        self._count_vars: dict = {}    # what the panel has counted today, per kind
 
     # -- the page -----------------------------------------------------------
     def build(self, parent: ttk.Frame) -> None:
@@ -161,13 +168,22 @@ class AutoRallyPage:
         tr(ttk.Label(day, foreground="#888", wraplength=620, justify="left"),
            "rally_day.hint").pack(anchor="w", pady=(6, 0))
 
-        # -- daily caps per monster type -------------------------------------
+        # -- daily caps per kind of banner ------------------------------------
+        # THE KINDS ARE THE GAME'S OWN, AND SO ARE THEIR NAMES (#1317): the labels are
+        # `tools/game_locale.py`'s copy of what the game calls each species, never a
+        # translation of ours. Beside every box is what the panel has counted TODAY —
+        # which is also what the auto-join is gated on, so the two must be one reading.
         limits_frame = tr(ttk.LabelFrame(parent, padding=8), "rally_limit.frame")
         limits_frame.pack(fill="x", pady=(10, 0))
         self._limits = rallylimitsmod.load_limits(self.rt.profiles.rally_limits_json())
         lgrid = ttk.Frame(limits_frame)
         lgrid.pack(fill="x")
-        for r, key in enumerate(self._limits.types()):
+        tr(ttk.Label(lgrid), "rally_limit.col.kind").grid(row=0, column=0, sticky="w",
+                                                          padx=(0, 10))
+        tr(ttk.Label(lgrid), "rally_limit.col.cap").grid(row=0, column=1, sticky="w",
+                                                         padx=(0, 10))
+        tr(ttk.Label(lgrid), "rally_limit.col.today").grid(row=0, column=2, sticky="w")
+        for r, key in enumerate(self._limits.types(), start=1):
             tr(ttk.Label(lgrid), f"rally_limit.type.{key}").grid(
                 row=r, column=0, sticky="w", padx=(0, 10), pady=2)
             var = tk.StringVar(master=self.rt.root,
@@ -176,6 +192,11 @@ class AutoRallyPage:
             numeric_spinbox(lgrid, from_=0, to=999, width=6,
                             textvariable=var).grid(row=r, column=1, sticky="w")
             var.trace_add("write", lambda *a: self.save_limits())
+            spent = tk.StringVar(master=self.rt.root, value="0")
+            self._count_vars[key] = spent
+            ttk.Label(lgrid, textvariable=spent).grid(row=r, column=2, sticky="w",
+                                                      padx=(10, 0))
+        self.paint_counts()
         tr(ttk.Label(limits_frame, foreground="#888", wraplength=620, justify="left"),
            "rally_limit.hint").pack(anchor="w", pady=(6, 0))
 
@@ -189,6 +210,38 @@ class AutoRallyPage:
             limits = limits.with_limit(key, var.get())
         self._limits = limits
         rallylimitsmod.save_limits(limits, self.rt.profiles.rally_limits_json())
+
+    def paint_counts(self) -> None:
+        """Put today's per-kind tally beside the caps (Tk thread, cheap: a file read).
+
+        The very numbers the auto-join is gated on (`limits.kind_left`), so the person
+        reading the box can see why a kind stopped being joined.
+        """
+        if not self._count_vars:
+            return
+        counts = rallylimitsmod.load_counts(self.rt.profiles.rally_counts_json())
+        for key, var in self._count_vars.items():
+            try:
+                var.set(str(counts.count_for(key)))
+            except tk.TclError:                # the page is going away
+                return
+
+    def counts_today(self) -> dict:
+        """`{kind: joined today}` for whoever draws it — the phone included."""
+        counts = rallylimitsmod.load_counts(self.rt.profiles.rally_counts_json())
+        return {key: counts.count_for(key) for key in self.limit_keys()}
+
+    def limit_keys(self) -> list:
+        """The kinds this profile has caps for, in the file's own order."""
+        limits = self._limits or rallylimitsmod.load_limits(
+            self.rt.profiles.rally_limits_json())
+        return list(limits.types())
+
+    def cap_for(self, key: str) -> int:
+        """The cap this profile has for one kind (`0` = no cap)."""
+        limits = self._limits or rallylimitsmod.load_limits(
+            self.rt.profiles.rally_limits_json())
+        return limits.limit_for(key)
 
     def reload_limits(self) -> None:
         """Re-read the active profile's caps into the fields (on a profile switch).
@@ -204,6 +257,7 @@ class AutoRallyPage:
                 self.rt.profiles.rally_limits_json())
             for key, var in self._limit_vars.items():
                 var.set(str(self._limits.limit_for(key)))
+            self.paint_counts()          # the tally belongs to the profile too
         finally:
             self.rt.settings.loading = was
 

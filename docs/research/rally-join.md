@@ -765,9 +765,60 @@ is spent whether or not a squad is standing empty.
    overshot by roughly the squads in flight (four here). Nothing readable in the client
    counts a JOIN — see the four dead ends below, which were re-checked for #1317 and are
    still dead.
-2. **it is one total, not a split.** A per-kind ceiling remains unenforceable for the same
-   reason it was in #1281: there is no per-kind number in the client to enforce it with.
-   The per-kind rows on «Автосбор» say what they actually bound now.
+2. **it is one total, not a split.** There is no per-kind number in the client at all
+   (below), so a per-kind budget can only be one the panel keeps — which is what #1317
+   went on to build, with that said out loud first.
+
+### Every kind a banner can be, and the search for a counter per kind (#1317)
+
+The player asked for a counter per kind — «кроме Роковой Элиты есть ещё генералы,
+простые и элитные». Two questions, and they have different answers.
+
+**What the kinds ARE — read out of the live config,** `lw_world_monster` through
+`LocalController.instance():getTable(...)`: 12 115 rows, 97 columns, values reached as
+`row[index[col][1]]` and localised strings through the table's own `vExt` pool. Grouped by
+`type` there are 25 species families and 13 of them carry `boss = 1`; grouped by the
+`name` key — which is what actually identifies a species — the ones a player meets are:
+
+| kind key | name key | the game's own words (en / ru) | where it lives |
+| --- | --- | --- | --- |
+| `doom_elite` | `300602` | Doom Elite / Роковая Элита | types 1, 3 **and** 17 |
+| `doom_walker` | `monster_boss_name_001` | Doom Walker / Разрушитель | type 8 |
+| `zombie_boss` | `2901012` | Zombie Boss / Зомби-Босс | type 7 |
+| `general_trial` | `2010220` | Vanguard Instructors / Инструкторы Авангарда | `activity = 107` |
+| `general_trial_elite` | `challenge_zombie_001` | Elite Instructor / Элитные Инструкторы | `activity = 107` |
+| `alliance_drill` | `500426` | Alliance Exercise / Учение Альянса | its own manager |
+| `zombie_invasion` | `2901000` | Zombie Invasion / Вторжение Зомби | its own manager |
+
+**THE `doom_elite` KEY HAD BEEN COUNTING THE WRONG SPECIES.** It was `type == 8`, which is
+the Doom WALKER line; Doom Elite is `300602` and appears under three types across seasons.
+That is why the identity is the `name` key now, and why #1317 carries the stored number
+onto both rows rather than renaming in place (`rally_limits.RENAMED_KINDS`).
+
+The two events are not species on the map and are matched off their own managers:
+`AllyDrillDataManager.actInfo.data` carries the exercise's `bossUuid` / `bossPointId`
+(read live while a drill was running, with `isAutoRally = 1` beside it), and the invasion
+keeps its own monster lists, as before.
+
+**And the counter per kind does not exist.** Walked for #1317, in the live VM:
+
+* `MonsterManager` in full — `daily_kill_boss`, `kill_boss_max_num`,
+  `find_monster_max_level`, `whistleRewardNum`, `lastTime`. One total, no split;
+* every manager in `DataCenter` whose name matches boss / monster / rally / act / season,
+  for any numeric field named `*times*`, `*remain*`, `*num*`, `*count*`, `*limit*`. What
+  came back is other events' own budgets — `ActGhostreconManager.stealTimes`,
+  `ActDispatchTaskDataManager.todayStealNum`, `SeasonDataManager.daily*` — and nothing
+  that counts rallies by kind;
+* the trophy list (`CollectRewardDataManager.collectRewardList`), which does carry a
+  `contentId` per finished rally and could be grouped by kind: **it is emptied when the
+  player collects**, and it read `0` rows at the time of this check.
+
+So a per-kind budget is the panel's own tally or it is nothing. The person was told that
+in those words and chose the tally; what softens it is written into the code rather than
+hoped for: one writer (`limits.record_run`), the day rolled on the SERVER's boundary
+(`GetTomorrowZero()`, stored as `day_end_ms` in `rally_counts.json`), the decision taken
+inside the press so two banners of one kind cannot both take the last slot, and the
+game-counted total ceiling still standing over all of it.
 
 ### How the kind was looked for, and the four places it is not
 
