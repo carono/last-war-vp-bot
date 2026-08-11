@@ -141,8 +141,8 @@ class RallyTab(PanelTab):
     # The monitor has to be listening before the rally goes out, not from whenever
     # somebody happens to open the tab.
     EAGER = True
-    LOCALE_NS = ("rally_tab", "rally", "autorally", "rally_limit", "log.rally",
-                 "squads")
+    LOCALE_NS = ("rally_tab", "rally", "autorally", "rally_limit", "rally_day",
+                 "log.rally", "squads")
     NEEDS = frozenset({"daemon", "children", "actions"})
     # The flat keys this tab's settings used to be spelled with, so a profile that
     # predates the per-tab block keeps every value it had (§5 rule 1).
@@ -422,9 +422,35 @@ class RallyTab(PanelTab):
         # one — so it is re-read whenever somebody looks here, or the two would show
         # different things until this tab happened to be rebuilt (#1281).
         self._show_autojoin()
+        # …and how much of the day is spent, which is what makes the ceiling beside it
+        # readable. `on_show` and not `ensure_loaded`: this feeds the screen and nothing
+        # else, so a profile nobody looks at pays no VM read for it (docs/panel-tabs.md).
+        self._refresh_day()
 
     def on_hide(self) -> None:
         self._unwatch_squads()
+
+    # -- the day's count -----------------------------------------------------
+    def _refresh_day(self) -> None:
+        """Ask the GAME how many rallies today, and paint it beside the ceiling (#1317).
+
+        A reading and never a tally: `MonsterManager`'s own daily rally-boss counter, per
+        account, reset by the server on the server's day. The panel writes down nothing —
+        two counters of one thing is exactly what #1281 had to unpick.
+
+        Off the Tk thread, and a client that cannot answer leaves the dash where it is:
+        «unread» and «none today» must not look alike.
+        """
+        threading.Thread(target=self._day_work, daemon=True).start()
+
+    def _day_work(self) -> None:
+        try:
+            progress = rallylimits.trophy_progress(self.rt)
+        except Exception:                          # noqa: BLE001 — a reading, never a run
+            progress = {}
+        done = progress.get("done", -1) if progress else -1
+        top = progress.get("max", 0) if progress else 0
+        self._after(lambda: self.autorally.set_today(done, top))
 
     def _unwatch_squads(self) -> None:
         off, self._squads_off = self._squads_off, None
@@ -534,9 +560,19 @@ class RallyTab(PanelTab):
                  if page._drill_state.get(s, autorallymod.DRILL_OFF)
                  != autorallymod.DRILL_OFF]
         limits, counts = rallylimits.read(self.rt)
-        rows = [{"label": "rally_limit.type." + key,
-                 "value": "%d/%d" % (counts.count_for(key), limits.limit_for(key))}
-                for key in limits.types()]
+        # THE DAY'S CEILING FIRST, because it is the one that stops a join (#1317): what
+        # the person allowed, and what the GAME says has been joined so far. The per-kind
+        # rows under it are the panel's own record of what those joins went for, and they
+        # bound the «Запустить» run rather than the auto-join — the same two blocks the
+        # window draws, in the same order.
+        ceiling = self.autorally.daily_max()
+        rows = [{"label": "rally_day.max",
+                 "value": (str(ceiling) if ceiling
+                           else self.t("rally_day.unlimited"))},
+                {"label": "rally_day.today", "value": self.autorally.today_text()}]
+        rows += [{"label": "rally_limit.type." + key,
+                  "value": "%d/%d" % (counts.count_for(key), limits.limit_for(key))}
+                 for key in limits.types()]
         return {
             "title": "autorally.frame",
             "items": [
@@ -581,6 +617,10 @@ class RallyTab(PanelTab):
         if action != "refresh":
             return {"error": "unknown"}
         self.rt.squads.refresh_async()
+        # The same two things «Обновить» gets at the machine: where the squads are, and
+        # how much of the day is spent (#1317). Asked HERE and not in `web_view`, which
+        # the phone polls — a VM read per poll is a read a banner pays for.
+        self._refresh_day()
         return {"ok": True}
 
     def refresh_squads(self) -> None:
@@ -1201,7 +1241,12 @@ class RallyTab(PanelTab):
                                        {"squads": squads,
                                         "targets": target_map(self.rt),
                                         "slots": slot_map(self.rt),
-                                        "points": point_map(self.rt)},
+                                        "points": point_map(self.rt),
+                                        # The day's ceiling, on THIS driver too (#1317):
+                                        # the tab's own reader plays the recipe past the
+                                        # schedule entirely, and a door only one of the
+                                        # two drivers passes is not a door.
+                                        "max_joins": self.autorally.daily_max()},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
             # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
             # itself, off the capture's own reader and past the schedule entirely, so its
@@ -1211,6 +1256,9 @@ class RallyTab(PanelTab):
             # `limits.record_run` and nothing about it is repeated here.
             from . import limits as rallygate
             rallygate.record_run(self.rt, out.ctx)
+            # …and the day's count has moved (or has just stopped this run), so the
+            # reading beside the ceiling is stale until it is asked again (#1317).
+            self._refresh_day()
             if not out.ok and out.reason:
                 self.say("rally", "rally_tab.refused", reason=out.reason)
         except Exception as exc:                   # noqa: BLE001 — never crash the panel
@@ -1326,3 +1374,24 @@ def join_squads(rt) -> list:
     saved = block.get("autorally")
     raw = (saved or {}).get("squads") if isinstance(saved, dict) else None
     return [int(s) for s in raw] if isinstance(raw, list) else []
+
+
+def daily_max(rt) -> int:
+    """How many rallies a day the auto-join may join — `0` is «no ceiling» (#1317).
+
+    The same two-source rule as :func:`join_squads`, and for the same reason: the
+    «rally_auto_join» trigger fires in a profile whose «Ралли» tab may never be built, and
+    a ceiling that only holds while a tab is on screen is not a ceiling.
+
+    A profile with no saved number gets the game's own threshold rather than «for ever» —
+    the bug this closes is precisely the door that was never shut.
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    if tab is not None:
+        return tab.autorally.daily_max()
+    block = rt.settings.tab_config(RallyTab.ID, RallyTab.LEGACY_KEYS)
+    saved = block.get("autorally")
+    raw = (saved or {}).get("daily_max") if isinstance(saved, dict) else None
+    if not isinstance(raw, int) or not 0 <= raw <= autorallymod.DAILY_MAX_TOP:
+        return autorallymod.DAILY_MAX_DEFAULT
+    return raw

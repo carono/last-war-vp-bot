@@ -58,7 +58,7 @@ the bottom).
 | `ghost_map_state.json` | the «Призрак: карта» page's OWN list — what it has gathered and kept (#1251) |
 | `world_treasures.json` | what the treasure scan currently sees |
 | `rally_log.jsonl` | rally-monitor output |
-| `rally_limits.json`, `rally_counts.json` | per-monster-type caps on rally auto-join, and today's count |
+| `rally_limits.json`, `rally_counts.json` | the per-monster-type cap on the «Ралли» tab's own «Запустить» run, and the panel's record of what today's joins went for. **The auto-join's daily ceiling is NOT here** — it is one number in the tab's config block (`autorally.daily_max`) and the count it is judged against is the game's own (#1317) |
 | `resource_stats.json` | day-keyed tally of resources gained |
 | `leaderboard_history.db` | accumulating snapshots of the ranking boards |
 | `chat_log.jsonl` | raw capture written by the chat reader |

@@ -50,6 +50,25 @@ ARGS targets = ""
 ARGS slots = ""
 ARGS points = ""
 
+# HOW MANY RALLIES THIS ACCOUNT JOINS IN A DAY — `0` is «as many as there are» (#1317).
+#
+# The ceiling is the person's and the COUNT IS THE GAME'S: the client keeps one daily
+# rally-boss counter (`MonsterManager.daily_kill_boss`, threshold 20), the server resets
+# it on the server's own day, and nothing here or in the panel writes a tally of its own.
+# The press reads both in the one chunk it was already making, so the door costs no call.
+#
+# This is a REVERSAL of #1281, made on the player's word, and both halves of it were
+# true. #1281 removed the door because the panel's own count had drifted twelve ahead of
+# the game's and was refusing banners the account was entitled to — and because past the
+# twenty the game stops PAYING rather than stops joining. What that leaves is «лимит
+# Роковой Элиты стоит 20, а бот целый день цепляется к стягам»: a squad in an unpaid
+# rally is a squad away from home for nothing. So the door is back and the tally is not.
+#
+# The count lags by the squads still marching (it moves when a rally FINISHES), so a
+# ceiling can be overshot by about the number of squads in flight. Measured live over one
+# day: the game counted 275 where the panel had recorded 320 joins.
+ARGS max_joins = 0
+
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
 #
@@ -70,7 +89,11 @@ ARGS points = ""
 # client has not caught up with is offered as a candidate with the address the push
 # carried, and one the client already knows about is left to the client — nothing here
 # overrides a reading, it only fills the gap ahead of one.
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_shut = {}
+#
+# `__lw_rally_cap` is the day's ceiling, parked in the same line and for the same reason:
+# the press is one chunk and a door in front of it would be a second call on the one path
+# that is measured in fractions of a second (#1317).
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_cap = tonumber("{max_joins}") or 0 DataCenter.__lw_rally_shut = {}
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.
@@ -91,6 +114,14 @@ READ_LUA (DataCenter.__lw_rally_todo or 0) INTO todo
 # «one join happened», so an invasion boss is counted under `zombie_invasion` and never
 # against the ordinary monsters' twenty (`Schedule._kinds`, #1281).
 READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
+
+# THE DAY'S CEILING, AND IT IS CHECKED BEFORE EVERY OTHER ENDING (#1317). `-4` says the
+# game's own count of today's rallies has reached the number the person set, so a banner
+# passed over here is not a fault and not a quiet map — and a squad standing empty is not
+# a reason to go and fetch it an army. The report line above names both numbers (`cap=`).
+IF todo == -4
+    LOG "not sent — the rallies allowed for today are already joined; the count is the game's own and the ceiling is the one set in «Автосбор»"
+    STOP
 
 IF todo == 0
     LOG "nothing was sent — the reason is on the line above"

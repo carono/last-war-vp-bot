@@ -10,10 +10,17 @@ this is where the panel asks what the DAY looks like — and nothing more than t
   itself; the panel keeps none.
 
 **NOTHING HERE GATES A JOIN** (#1281), and :func:`join_gate` keeps its name only
-because the schedule asks for one — it answers «yes» to everything. The daily twenty is a trophy threshold, not a
-door: past it the game stops paying and the joining goes on. A gate on it was the panel
-forbidding what nothing forbids, and the tally behind that gate had drifted twelve ahead
-of the client's own by the time anybody compared them.
+because the schedule asks for one — it answers «yes» to everything. The tally behind the
+gate this module used to hold had drifted twelve ahead of the client's own by the time
+anybody compared them, so the count stopped being ours to keep.
+
+**The day DOES have an end again (#1317) — it is simply not enforced here.** The player
+asked for it back in one sentence: «лимит Роковой Элиты стоит 20, а бот целый день
+цепляется к стягам». The ceiling is one number on «Автосбор» and the door is inside the
+press (`actions/join_rally.md` → `lua_actions.rally_join_all`), judged against the GAME's
+own daily rally counter. That keeps both rules at once: the gate lives in the ability, and
+the count belongs to whoever decides it. What is left here is the per-kind record and the
+cap on the tab's own «Запустить» run — neither of which a join is ever refused on.
 
 NO Tk HERE, on purpose. The schedule runs the «rally_auto_join» trigger off the Tk
 thread and must be able to gate it whether or not the «Ралли» tab is even in this

@@ -170,12 +170,13 @@ class _Rt:
 
 
 def test_the_reading_comes_from_the_game_and_never_refuses(monkey=None):
-    """The twenty is a TROPHY THRESHOLD, not a door (#1281).
+    """THIS is a reading; the door is elsewhere (#1281, #1317).
 
-    Past it the game stops paying, not joining — so nothing in the panel may refuse a
-    banner on a count, and the count itself is not ours to keep: the tally this module
-    used to write said twenty at the moment the client's own read eight. There is one
-    counter now and it belongs to the game.
+    The count is not ours to keep — the tally this module used to write said twenty at
+    the moment the client's own read eight — so what the panel shows is what the client
+    counts, and showing it refuses nothing and says nothing. The day's ceiling does exist
+    again since #1317, and it is enforced where the press is: inside `rally_join_all`,
+    against this same game-side number.
     """
     with tempfile.TemporaryDirectory() as td:
         rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 20}))
@@ -221,19 +222,47 @@ def test_the_tally_is_kept_per_kind_and_reads_nothing_back():
         assert counts.count_for("monster") == 2, counts
 
 
-def test_the_chunk_reports_the_games_count_and_says_what_the_threshold_costs():
-    """Past the threshold the run SENDS and says the trophy will not come — not «capped»."""
+def test_the_chunk_shuts_the_day_on_the_games_count_and_never_on_ours():
+    """The day HAS an end again (#1317), and the number that ends it is the game's.
+
+    #1281 took the door out and was right about the tally it took out with it: the
+    panel's own count had drifted twelve ahead of the client's and was refusing banners
+    the account was entitled to. It was wrong about the door. «Лимит Роковой Элиты стоит
+    20, а бот целый день цепляется к стягам» — past the paid twenty a joined squad is a
+    squad away from home for nothing, all evening.
+
+    So the ceiling is the person's (`__lw_rally_cap`, `0` = none) and the count is the
+    game's (`daily_kill_boss`), and nothing between them is written down here.
+    """
     import lua_actions
 
     chunk = lua_actions.rally_join_all()
     assert "GetKillBossNum" in chunk and "GetRestKillBossNum" in chunk
     assert "trophies=" in chunk
-    assert "the joins still go out" in chunk, "the wording must not read as a refusal"
-    assert "capped-" not in chunk, "a banner may not be skipped on our own count"
-    # …and no banner is held back by a count of OURS under any other name either. What
-    # the chunk may skip on is what the GAME says: a banner with no seat left
-    # (`banner-full`) or one the server has just refused us (`refused-full`).
-    assert "capped" not in chunk, chunk[:200]
+    # The door: the person's ceiling, the game's count, and a banner NAMED as passed over
+    # rather than silently dropped — «nothing was sent» must never read as «nothing was
+    # out».
+    assert "__lw_rally_cap" in chunk, "the ceiling no longer reaches the press"
+    assert "day-capped" in chunk, "a banner held back by the day is not named"
+    assert "DataCenter.__lw_rally_todo = -4" in chunk, "the recipe is not told the day is done"
+    # …and NOT on a tally of ours: the file this module writes is a record of what the
+    # joins went for, and no name of it may appear in the press.
+    for ours in ("rally_counts", "count_for", "load_counts"):
+        assert ours not in chunk, ours
+
+    # The arithmetic itself, run rather than read — the three answers that matter.
+    import lupa
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    condition = chunk[chunk.index("local capped ="):]
+    condition = condition[:condition.index(" local sent,")]
+    decide = lua.execute("return function(kb, cap) %s return capped end" % condition)
+    assert decide(19, 20) is False, "a day with one rally left was shut"
+    assert decide(20, 20) is True, "the ceiling did not shut the day"
+    assert decide(275, 20) is True, "a day long past the ceiling stayed open"
+    assert decide(99, 0) is False, "«0» must mean «no ceiling», not «none allowed»"
+    # A GATE THAT CANNOT SEE DOES NOT REFUSE: an unreadable counter joins as before.
+    assert decide(None, 20) is False, "an unreadable count refused a banner"
 
 
 

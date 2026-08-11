@@ -732,6 +732,43 @@ daily cap is spent». Twelve rallies we were entitled to, refused by a number we
 ourselves. The cure is not a better tally — it is to stop keeping one: `GetRestKillBossNum()`
 is the answer, from the authority that decides it.
 
+### …and the door came back, on the same number (#1317)
+
+#1281 removed the tally AND the refusal that rode with it, on the true observation that
+past twenty the game stops PAYING rather than stops joining. The player has since said
+what the second half of that costs: **«лимит Роковой Элиты стоит 20, а бот целый день
+цепляется к стягам»**. A squad in an unpaid rally is a squad that is not at home for the
+next banner, for the rest of the evening — measured on the live profile the day #1317 was
+written: `daily_kill_boss = 275` against a threshold of 20, and 320 joins in the panel's
+own per-kind record over the same day.
+
+So the door is back and the tally is not:
+
+* **the ceiling is the person's** — one number on «Автосбор», stored in the «Ралли» tab's
+  own profile block (`autorally.daily_max`, default 20 = the game's own threshold, `0` =
+  no ceiling). It travels to `actions/join_rally.md` as `max_joins`, from BOTH drivers:
+  the schedule's «rally_auto_join» hook and the tab's own capture reader;
+* **the count is the game's** — `GetKillBossNum()`, read inside `rally_join_all`'s single
+  chunk, so the door costs no call on the path a banner is decided in;
+* **nothing is written down** — `rally_counts.json` stays what #1281 left it as: a record
+  of what the joins went for, and the cap on the tab's own «Запустить» run. It is not read
+  back to refuse a join and never will be.
+
+When the ceiling is reached the chunk sends nothing, names every banner it passed over as
+`day-capped`, reports `cap=<done>/<ceiling>` and sets `__lw_rally_todo = -4`; the recipe
+stops on that verdict BEFORE its «fetch an army for the empty squad» branch — a spent day
+is spent whether or not a squad is standing empty.
+
+**Two limits are known and written down rather than left to be discovered:**
+
+1. **the count lags the joins.** It moves when a rally FINISHES, so a ceiling can be
+   overshot by roughly the squads in flight (four here). Nothing readable in the client
+   counts a JOIN — see the four dead ends below, which were re-checked for #1317 and are
+   still dead.
+2. **it is one total, not a split.** A per-kind ceiling remains unenforceable for the same
+   reason it was in #1281: there is no per-kind number in the client to enforce it with.
+   The per-kind rows on «Автосбор» say what they actually bound now.
+
 ### How the kind was looked for, and the four places it is not
 
 Recorded so the next person does not repeat them:

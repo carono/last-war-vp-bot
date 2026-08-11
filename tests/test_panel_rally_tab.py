@@ -1083,6 +1083,8 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         _skip(exc)
         return
     try:
+        from panel.tabs.rally import autorally as autorallymod
+
         _hold_autojoin(tab, False)
         tab._monitor_var.set(True)
         tab._alert_var.set(False)
@@ -1106,10 +1108,27 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         assert squads.get("pill") is None, squads
         assert [i for i in tab._web_autojoin_card()["items"]
                 if i["label"] == "rally.autojoin"][0]["pill"] == "rally.state.on"
-        # The daily cap is on the phone too — it is what silently stopped the joining
-        # once already, and «spent/allowed» is the only reading that shows it coming.
-        assert card["rows"], card
-        assert all("/" in row["value"] for row in card["rows"]), card["rows"]
+        # THE DAY'S CEILING IS ON THE PHONE, FIRST (#1317). It is the number that stops
+        # the joining, so «сколько за день» and «сколько уже сегодня» are the two rows a
+        # person on a bus is actually asking about — and the second is the GAME's count,
+        # which reads as a dash until the client has been asked rather than as a
+        # confident «0».
+        rows = {row["label"]: row["value"] for row in card["rows"]}
+        assert rows["rally_day.max"] == "20", rows
+        assert rows["rally_day.today"] == autorallymod.DAILY_UNREAD, rows
+        tab.autorally.set_today(8, 20)
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_day.today"] == "8 / 20", rows
+        # «0» is «no ceiling» and says so in words rather than as a bare zero.
+        tab.autorally._daily_var.set("0")
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_day.max"] and rows["rally_day.max"] != "0", rows
+        tab.autorally._daily_var.set("20")
+        # …and the per-kind record under it is still «spent/allowed», every one of them.
+        kinds = [row for row in card["rows"]
+                 if row["label"].startswith("rally_limit.type.")]
+        assert kinds, card["rows"]
+        assert all("/" in row["value"] for row in kinds), kinds
 
         # Both cards are on the screen the phone actually gets.
         titles = [c.get("title") for c in tab.web_view()["cards"]]
@@ -1351,6 +1370,83 @@ def test_the_join_opens_nothing_and_reaches_the_send_in_two_calls():
             if isinstance(x, se.TapStmt)] == ["rally_join_all"]
     assert not [s for s in stmts if type(s).__name__ == "CallStmt"], \
         "a sub-recipe on the banner's path can fail the run — this one must not have any"
+
+
+def test_the_days_ceiling_travels_on_both_drivers_and_into_the_recipe():
+    """«Лимит стоит 20, а бот целый день цепляется к стягам» (#1317).
+
+    The ceiling is one number the panel keeps and the recipe enforces. Two things play
+    `join_rally` — the schedule's «rally_auto_join» and this tab's own reader — and a
+    door only one of them passes is not a door: over one live event four of the six runs
+    that joined something came through the tab.
+
+    The count behind the door is the GAME's, so there is nothing here to keep in step;
+    what is pinned here is that the number reaches the recipe from both sides, and that a
+    profile whose tab was never built still has one.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    from panel.tabs import TabRegistry
+    from panel.tabs.rally import autorally as autorallymod
+    from panel.tabs.rally import tab as rl
+    try:
+        args = {}
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        rt.game.claim = lambda owner="panel", priority=0: True
+        tab._refresh_day = lambda: None          # the reading is not what this pins
+        tab.autorally._daily_var.set("7")
+        tab._join_work([1])
+        assert args.get("max_joins") == 7, args
+
+        # …the trigger's side of it: the same live page, through the module function the
+        # schedule's hook asks (`panel/__main__.py::_rally_join_args`).
+        assert rl.daily_max(rt) == 7
+
+        # A half-typed box is the DEFAULT and never «0» — 0 means «join for ever», and a
+        # box being edited must not quietly take the door off its hinges.
+        tab.autorally._daily_var.set("")
+        assert rl.daily_max(rt) == autorallymod.DAILY_MAX_DEFAULT
+
+        # …and a window with no rally tab answers from the saved block, with the game's
+        # own threshold when the profile predates the number.
+        rt.tabs = TabRegistry()
+        rt.settings.values = {"autorally": {"squads": [1], "daily_max": 12}}
+        assert rl.daily_max(rt) == 12
+        rt.settings.values = {"autorally": {"squads": [1]}}
+        assert rl.daily_max(rt) == autorallymod.DAILY_MAX_DEFAULT
+        rt.settings.values = {}
+        assert rl.daily_max(rt) == autorallymod.DAILY_MAX_DEFAULT
+    finally:
+        root.destroy()
+
+    # …and the recipe both of them play parks it and stops on the answer, BEFORE the
+    # branch that goes and fetches an army: a day that is spent is spent whether or not
+    # a squad is standing empty.
+    from lastwar_bot import script_engine as se
+
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    body, _ = se.prepare_source(src, {"squads": [1], "max_joins": 20})
+    stmts = se.parse_text(body)
+    park = [s for s in stmts if isinstance(s, se.LuaStmt) and "__lw_rally_cap" in s.chunk]
+    assert len(park) == 1, "the ceiling is not parked with the rest of the argument"
+    assert "20" in park[0].chunk, park[0].chunk[:120]
+    capped = [i for i, s in enumerate(stmts)
+              if isinstance(s, se.IfStmt) and s.condition == "todo == -4"]
+    fetch = [i for i, s in enumerate(stmts)
+             if isinstance(s, se.IfStmt) and s.condition == "todo < 0"]
+    assert capped, [getattr(s, "condition", None) for s in stmts]
+    assert capped[0] < fetch[0], "a spent day still went looking for an army"
+    assert any(isinstance(x, se.StopStmt) for x in stmts[capped[0]].then_block), \
+        "the recipe does not stop on a spent day"
 
 
 def test_the_arm_prefers_a_squad_that_can_actually_be_sent():

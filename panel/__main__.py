@@ -5224,10 +5224,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         squads = rallytab.join_squads(self._rt)
         if not squads:
             self._say("trigger", "triggers.log.no_squads")
-        # …and which budgets are already spent, so the chunk can skip a banner of that
-        # kind BEFORE the send instead of the day noticing afterwards (#1281). A kind
-        # configured uncapped is never in this list, which is what lets an invasion boss
-        # through on a day the ordinary twenty are gone.
         # …and what each banner we have HEARD of is going for, so the chunk can name
         # the kind before a squad leaves (#1281). The wire is the only place it exists.
         #
@@ -5239,10 +5235,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # a banner the client's own march table has not heard of yet (#1301). That table
         # is a median of 10 s behind the push; the push has the address from the first
         # byte.
+        #
+        # …and HOW MANY RALLIES THIS DAY IS WORTH (#1317). The ceiling is the person's
+        # number and the count behind it is the game's own — the recipe reads it inside
+        # the press it was already making, so the door costs no call and the panel keeps
+        # no tally. It travels on BOTH drivers or it is not a door: the tab's own reader
+        # plays the same recipe past this hook entirely.
         return {"squads": squads,
                 "targets": rallytab.target_map(self._rt),
                 "slots": rallytab.slot_map(self._rt),
-                "points": rallytab.point_map(self._rt)}
+                "points": rallytab.point_map(self._rt),
+                "max_joins": rallytab.daily_max(self._rt)}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

@@ -4773,6 +4773,31 @@ def rally_joinable_count() -> str:
     return "(function() %s return #rallies end)()" % _RALLY_PRELUDE_MINE
 
 
+def rally_day_count() -> str:
+    """Lua *expression* -> `"<done> <max>"` — the day's rallies, as the GAME counts them.
+
+    `DataCenter.MonsterManager` keeps the account's own daily rally-boss counter and the
+    threshold beside it — `daily_kill_boss` / `kill_boss_max_num`, reached through
+    `GetKillBossNum()` and `GetMaxKillBossNum()` (docs/research/rally-join.md, «The game
+    keeps the count itself»). It is per ACCOUNT, kept by the server and reset on the
+    server's own day, which is why nothing here counts anything and no PC clock is
+    consulted.
+
+    It counts a rally that FINISHED and paid, so it lags the joins in flight by however
+    many squads are out — measured live at 275 against 320 joins the panel had recorded
+    over the same day. That is the honest limit of it and it is the number the ceiling is
+    judged against all the same, because it is the only one the game keeps
+    (`rally_join_all`, #1317).
+
+    `"-1 -1"` when the manager cannot be reached — «unreadable», never «none today».
+    """
+    return ("(function() local a, b = -1, -1 "
+            "pcall(function() local MM = DataCenter.MonsterManager "
+            "a = MM:GetKillBossNum() b = MM:GetMaxKillBossNum() end) "
+            "return tostring(math.floor(tonumber(a) or -1)) .. ' ' .. "
+            "tostring(math.floor(tonumber(b) or -1)) end)()")
+
+
 def rally_joined_count() -> str:
     """Lua *expression* -> how many of OUR squads are standing in a rally right now.
 
@@ -5185,16 +5210,29 @@ def rally_join_all() -> str:
         # Pair and send. One squad per rally, both in the order they arrived. EVERY BANNER
         # IS NAMED — the one it went to, and the one it did not and why — so «not a banner
         # missed» can be checked one at a time instead of as a total (#1281).
-        # THE DAILY TWENTY IS A TROPHY THRESHOLD, NOT A DOOR (#1281). The player checked
-        # what it actually does: past twenty the game simply stops paying a trophy — it
-        # does not stop the joining. We were refusing every banner after our own count
-        # said twenty, and our count was twelve ahead of the game's at the time, so the
-        # afternoon ended with squads at home, banners on the map and nothing forbidding
-        # either. Nothing here refuses any more; the numbers below are a READING.
+        # THE DAY'S CEILING, AND IT IS THE GAME'S OWN NUMBER (#1317). `daily_kill_boss`
+        # is what the client counts rally bosses with — one per rally that finished and
+        # paid today, kept by the server and reset on the SERVER's day, so it needs no
+        # tally of ours and no PC clock.
+        #
+        # It was a READING here until #1317 and it is a door again, which is a reversal
+        # worth spelling out. #1281 took the door out for a good reason — the panel's own
+        # tally was twelve ahead of the game's and had been refusing banners the account
+        # was entitled to since 19:42 — and drew the wrong conclusion from a true fact:
+        # past twenty the game stops PAYING, it does not stop the joining. The player has
+        # since said what that costs: «лимит Роковой Элиты стоит 20, а бот целый день
+        # цепляется к стягам» — a squad in an unpaid rally is a squad away from home for
+        # nothing, all evening. So the door is back, with the tally taken out of it: the
+        # count is the game's (`GetKillBossNum`), the ceiling is the person's
+        # (`__lw_rally_cap`, 0 = no ceiling), and nothing here is written down.
+        #
+        # A GATE THAT CANNOT SEE DOES NOT REFUSE: an unreadable `kb` joins as before.
         "local kb, kbmax, kbleft = nil, nil, nil "
         "pcall(function() local MM = DataCenter.MonsterManager "
         "kb = MM:GetKillBossNum() kbmax = MM:GetMaxKillBossNum() "
         "kbleft = MM:GetRestKillBossNum() end) "
+        "local cap = tonumber(DataCenter.__lw_rally_cap) or 0 "
+        "local capped = (cap > 0 and tonumber(kb) ~= nil and tonumber(kb) >= cap) "
         "local sent, errs, went, left_over, kinds, went_kind = 0, {}, {}, {}, {}, {} "
         "local sent_teams = {} "
         "local unknown_kind = 0 "
@@ -5204,7 +5242,10 @@ def rally_join_all() -> str:
         "r.target = target_of[tostring(r.team)] "
         "local kind, known = kind_of(r) "
         "if not known then unknown_kind = unknown_kind + 1 end "
-        "if qi >= #home then left_over[#left_over+1] = tostring(r.team)..(#home == 0 and ':no-squad' or ':squads-spent') "
+        # The day is spent: every banner is NAMED as passed over for that reason rather
+        # than silently skipped, so «nothing went out» never reads as «no rally was out».
+        "if capped then left_over[#left_over+1] = tostring(r.team)..':day-capped' "
+        "elseif qi >= #home then left_over[#left_over+1] = tostring(r.team)..(#home == 0 and ':no-squad' or ':squads-spent') "
         "else qi = qi + 1 local q = home[qi] "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(q.uuid, 6, r.point, r.team, 1, 1, false, r.server, nil) end) "
@@ -5247,6 +5288,11 @@ def rally_join_all() -> str:
         # under-strength is only reported when there is nothing left to try.
         "if sent == 0 and empty == 0 and (walled > 0 or under > 0) and #rallies > 0 then "
         "DataCenter.__lw_rally_todo = (walled > 0) and -3 or -2 end "
+        # `-4` — the day's ceiling is reached (#1317). It OUTRANKS every other verdict:
+        # a squad standing empty on a day the person has already spent is not a reason to
+        # fetch an army, and the recipe stops on this before it reaches its `todo < 0`
+        # branch. Only ever set when the game answered with a number of its own.
+        "if capped then DataCenter.__lw_rally_todo = -4 end "
         "local report = 'sent='..sent..' rallies='..#rallies..' free='..#home "
         # The split that makes «rallies=1» readable: of every team on the map, how many
         # are this alliance's and how many we are already standing in. `joinable` is the
@@ -5270,8 +5316,13 @@ def rally_join_all() -> str:
         "if #went_kind > 0 then report = report..' going_for=['..table.concat(went_kind, ' ')..']' end "
         "if kb ~= nil then report = report..' trophies='..tostring(kb)..'/'..tostring(kbmax) "
         "if kbleft ~= nil and tonumber(kbleft) ~= nil and tonumber(kbleft) <= 0 then "
-        "report = report..' -- past the trophy threshold: the joins still go out, the game "
-        "just pays nothing more today' end end "
+        "report = report..' -- past the trophy threshold: the game pays nothing more today' end end "
+        # THE DOOR SAYS SO IN THE RUN'S OWN SENTENCE (#1317), with both numbers: the
+        # game's count and the ceiling it was judged against. `cap=0` is «no ceiling» and
+        # says nothing at all, exactly as it did before the door existed.
+        "if cap > 0 then report = report..' cap='..tostring(kb)..'/'..cap "
+        "if capped then report = report..' -- the ceiling for today is reached, so nothing "
+        "was sent' end end "
         "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind"
         "..' (the event list could not be read — counted as monster, said rather than assumed)' end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "

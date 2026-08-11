@@ -18,9 +18,15 @@ ways — which squads may go to a rally:
 * **the alliance drill** — the same question with a third state, because a drill also
   needs to know WHO raises the banner. Exactly one squad can lead.
 * **creating a rally** — one banner-carrier and the elite level it goes out on.
-* **the daily caps** — how many rallies of each monster type a day (panel/
-  rally_limits.py). The list of types is the caps file's own keys, so adding a type is
-  a data change rather than a code one.
+* **the day's ceiling** — how many rallies this account joins in a day, and how many the
+  GAME says it has joined so far (#1317). The number is the only thing the panel keeps:
+  the count comes from the client's own daily rally-boss counter and the door itself is
+  in `actions/join_rally.md`, which is handed the ceiling as `max_joins`.
+* **the daily caps per monster type** — the older, panel-counted budget (panel/
+  rally_limits.py). It bounds the «Запустить» run on this tab and NOTHING ELSE: the
+  auto-join is bounded by the ceiling above, because the game keeps one total and no
+  per-kind number exists to enforce a per-kind cap with
+  (docs/research/rally-join.md, «The game keeps the count itself»).
 
 THE VARIABLES EXIST WITHOUT THE WIDGETS, and that is still true now the block is on the
 tab: the auto-join runs at boot, from `ensure_loaded`, in a profile nobody has opened
@@ -47,6 +53,16 @@ RALLY_ELITE_MIN, RALLY_ELITE_MAX = 1, 35
 DRILL_OFF, DRILL_ON, DRILL_FLAG = "", "on", "flag"
 DRILL_MARKS = {DRILL_OFF: " ", DRILL_ON: "✓", DRILL_FLAG: "🚩"}
 
+#: How many rallies a day the auto-join may spend, and the range the box offers. `0` is
+#: «no ceiling», and the default is the game's own threshold — `kill_boss_max_num` reads
+#: 20 on a live account, so a panel that has never been touched behaves like the game's
+#: own idea of a day (#1317).
+DAILY_MAX_DEFAULT, DAILY_MAX_TOP = 20, 999
+
+#: What the reading shows before the game has been asked. Not «0 / 20», which is a
+#: statement about the day and would be a lie on a client nobody has read yet.
+DAILY_UNREAD = "—"
+
 
 class AutoRallyPage:
     """The «Авторалли» page's state, and the widgets over it."""
@@ -63,6 +79,11 @@ class AutoRallyPage:
         self._create_flagship = None
         self._create_buttons: dict = {}
         self._create_elite_var = tk.StringVar(master=master, value=str(RALLY_ELITE_MIN))
+        # The day's ceiling and the game's count of it. Both live here rather than in
+        # `build()`, for the reason the whole page does: the auto-join runs at boot in a
+        # profile nobody has opened this tab in, and the ceiling has to travel with it.
+        self._daily_var = tk.StringVar(master=master, value=str(DAILY_MAX_DEFAULT))
+        self._today_var = tk.StringVar(master=master, value=DAILY_UNREAD)
         self._limits = None            # loaded when the page is drawn
         self._limit_vars: dict = {}
 
@@ -122,6 +143,23 @@ class AutoRallyPage:
         tr(ttk.Label(create, foreground="#888", wraplength=620, justify="left"),
            "autorally.create.hint").pack(anchor="w", pady=(6, 0))
         self.paint_create_squads()
+
+        # -- the day's ceiling, and the game's count of it --------------------
+        # One number the person sets and one number the game answers with — and never a
+        # tally of ours between them (#1317). The door is in `actions/join_rally.md`; all
+        # this does is hold the ceiling and draw what the client says it has spent.
+        day = tr(ttk.LabelFrame(parent, padding=8), "rally_day.frame")
+        day.pack(fill="x", pady=(10, 0))
+        drow = ttk.Frame(day)
+        drow.pack(fill="x")
+        tr(ttk.Label(drow), "rally_day.max").pack(side="left", padx=(0, 6))
+        numeric_spinbox(drow, from_=0, to=DAILY_MAX_TOP, width=6,
+                        textvariable=self._daily_var).pack(side="left")
+        tr(ttk.Label(drow), "rally_day.today").pack(side="left", padx=(16, 6))
+        ttk.Label(drow, textvariable=self._today_var,
+                  font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        tr(ttk.Label(day, foreground="#888", wraplength=620, justify="left"),
+           "rally_day.hint").pack(anchor="w", pady=(6, 0))
 
         # -- daily caps per monster type -------------------------------------
         limits_frame = tr(ttk.LabelFrame(parent, padding=8), "rally_limit.frame")
@@ -231,6 +269,37 @@ class AutoRallyPage:
         """The squads a join may spend, as `join_rally` wants them."""
         return [s for s in RALLY_SQUADS if self._squad_vars[s].get()]
 
+    def daily_max(self) -> int:
+        """The day's ceiling as `join_rally` wants it — `0` is «no ceiling» (#1317).
+
+        A half-typed box reads as the default rather than as 0, because 0 here means «join
+        for ever» and a box being edited must never quietly turn the door off.
+        """
+        raw = str(self._daily_var.get()).strip()
+        if not raw.isdigit():
+            return DAILY_MAX_DEFAULT
+        return max(0, min(DAILY_MAX_TOP, int(raw)))
+
+    def today_text(self) -> str:
+        """What the game last said about today — `«done / max»`, or `—` if never read."""
+        return str(self._today_var.get() or DAILY_UNREAD)
+
+    def set_today(self, done, top) -> None:
+        """Write the game's own count onto the page (Tk thread).
+
+        `done < 0` is «unreadable» and draws the dash — a client at the login screen
+        answers plausibly to almost everything (`docs/research/game-clock.md`), and a
+        confident «0 / 20» there is exactly the shape of that lie.
+        """
+        try:
+            if done is None or int(done) < 0:
+                self._today_var.set(DAILY_UNREAD)
+            else:
+                self._today_var.set("%d / %d" % (int(done), self.daily_max()
+                                                 or int(top or 0)))
+        except (TypeError, ValueError, tk.TclError):
+            pass
+
     # -- persistence ---------------------------------------------------------
     def config(self) -> dict:
         """The page as it is stored: squad lists, not a widget per squad.
@@ -256,6 +325,9 @@ class AutoRallyPage:
                 "flagship": self._create_flagship,
                 "elite_level": self.create_elite_level(),
             },
+            # The day's ceiling — the ONE number the panel keeps about the budget, and
+            # the one the auto-join is handed (#1317).
+            "daily_max": self.daily_max(),
         }
 
     def apply_config(self, raw) -> None:
@@ -292,6 +364,14 @@ class AutoRallyPage:
         self._create_elite_var.set(str(level))
         self.paint_create_squads()
 
+        # A profile that predates the ceiling gets the game's own threshold rather than
+        # «no ceiling»: the point of #1317 is that a day HAS an end, and an absent value
+        # meaning «join for ever» would keep the bug for everyone who never opens the box.
+        daily = raw.get("daily_max")
+        if not isinstance(daily, int) or not 0 <= daily <= DAILY_MAX_TOP:
+            daily = DAILY_MAX_DEFAULT
+        self._daily_var.set(str(daily))
+
     def persist_vars(self) -> list:
         """Every control whose change has to reach the profile.
 
@@ -299,4 +379,4 @@ class AutoRallyPage:
         variable, so those call `rt.settings.changed()` from their own handler instead.
         """
         return [self._drill_on_var, self._drill_banner_var, self._create_elite_var,
-                *self._squad_vars.values()]
+                self._daily_var, *self._squad_vars.values()]
