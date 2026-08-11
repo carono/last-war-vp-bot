@@ -86,13 +86,23 @@ ARGS kind_skip =
 
 # …and the per-kind DAILY BUDGET, `kind:left,…`, `-1` for «no ceiling».
 #
-# THE PRESS UNDERSTANDS THIS AND THE PANEL DOES NOT SEND IT YET, deliberately. A budget per
-# kind can only be counted by the panel — the client keeps ONE daily rally counter and no
-# per-species number anywhere; every boss / monster / rally / activity / season manager was
-# walked for #1317 and there is none, and the trophy list that carries a `contentId` per
-# finished rally is emptied whenever the player collects. That makes it the one budget here
-# that can drift, so whether to keep it is the person's decision and it has not been made:
-# until it is, the filter above is what the panel uses and this stays empty.
+# «По умолчанию на всех по 20, на золотых оставляем без лимита.» A budget per kind can only
+# be counted by the PANEL — the client keeps one daily rally counter and no per-species
+# number anywhere; every boss / monster / rally / activity / season manager was walked for
+# #1317 and there is none, and the trophy list that carries a `contentId` per finished rally
+# is emptied whenever the player collects. The person chose it with that said out loud, so
+# the drift is answered rather than hoped away:
+#
+#   * a join is counted only when the game CONFIRMED it — the run's own `joined`, a
+#     difference measured in the client, never a frame that left (#1281 counted sends and
+#     went twelve ahead);
+#   * the tally is the profile's own file and rolls on the SERVER's day
+#     (`GetTomorrowZero`), not on this machine's midnight;
+#   * it is compared with the game's `daily_kill_boss` every time it is used, and **while
+#     ours is ahead of the game's, no per-kind door refuses anything** — a banner is never
+#     held back by a number the game contradicts;
+#   * and `max_joins` above, which the GAME counts, stands over all of it, so drift cannot
+#     turn into an overspend either.
 ARGS kind_left = 
 
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only

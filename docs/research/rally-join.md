@@ -846,11 +846,30 @@ Two more trial-shaped managers exist and are NOT the General's Trial —
 reader does not spend the same twenty minutes on them.
 
 So a per-kind budget is the panel's own tally or it is nothing. The person was told that
-in those words and chose the tally; what softens it is written into the code rather than
-hoped for: one writer (`limits.record_run`), the day rolled on the SERVER's boundary
-(`GetTomorrowZero()`, stored as `day_end_ms` in `rally_counts.json`), the decision taken
-inside the press so two banners of one kind cannot both take the last slot, and the
-game-counted total ceiling still standing over all of it.
+in those words and chose it — «по умолчанию на всех по 20, на золотых оставляем без
+лимита» — so every kind ships capped at twenty and `desert_boss` («Золотой вожак»)
+uncapped, and the drift has rules rather than hopes:
+
+* **one writer** (`limits.record_run`), counting only what the game CONFIRMED — the run's
+  own `joined`, a difference measured in the client. #1281's tally counted sends and went
+  twelve ahead;
+* **the day is the server's** — `GetTomorrowZero()`, stored as `day_end_ms` in
+  `rally_counts.json`, never this machine's midnight;
+* **the decision is inside the press**, so two banners of one kind in a single run cannot
+  both take the last slot;
+* **the tally is reconciled with the game's own count every time it is used**
+  (`limits.ahead_of_game`): while the panel's sum is AHEAD of `daily_kill_boss`, **no
+  per-kind door refuses anything**. A banner may never be held back by a number the game
+  contradicts — that is exactly the failure #1281 suffered;
+* **the game-counted total ceiling stands over all of it**, so drift cannot cause an
+  overspend either;
+* and **both numbers are on screen** — «наш счёт / игра» under the table in the window and
+  as a row on the phone — because a tally nobody can check is a tally nobody should trust.
+
+The two files carry a `v` since #1317, and that version is the only thing that can say
+whether a stored `doom_elite` means the old key (the Doom Walker line) or the species the
+game calls Doom Elite: both names are legitimate now, so the rename is applied to
+unversioned files exactly once and never again.
 
 ### How the kind was looked for, and the four places it is not
 

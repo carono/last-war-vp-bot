@@ -30,6 +30,10 @@ import os
 
 from .profile import _write_json
 
+# The vocabulary itself — every kind of banner the game knows, read off the live config
+# (#1317). `tools/lib` is on the path by the time the panel imports this.
+import rally_kinds                                                    # noqa: E402
+
 # The built-in vocabulary and its caps: what a profile with no limits file is seeded
 # from, and the last-resort fallback. A cap of 0 means the key is never held back.
 #
@@ -50,18 +54,19 @@ from .profile import _write_json
 # A species nobody has seen before still lands under `monster_type_<n>` and is folded in
 # on the next read rather than being silently counted as something it is not.
 #
-# THE NUMBERS: what was capped before keeps its cap, and everything #1317 added starts at
-# 0 — «no cap». A new key that arrived with a limit already on it would stop somebody's
-# joining the first evening after an update, for a rule they never set.
+# THE NUMBERS ARE THE PLAYER'S, IN THEIR OWN WORDS (#1317): «по умолчанию на всех по 20,
+# на золотых оставляем без лимита». So every kind the game knows starts at twenty and the
+# Golden line's boss — `desert_boss`, which the game calls «Золотой вожак» — starts
+# uncapped. A profile's own file always wins over this; these are only what a profile that
+# has never been edited is seeded with.
+DEFAULT_CAP = 20
+
+#: The kinds that ship UNCAPPED. One so far, and it is the one the person named.
+UNCAPPED_KINDS = ("desert_boss",)
+
 DEFAULT_RALLY_LIMITS: dict[str, int] = {
-    "monster": 20,             # anything on the map this list has no better name for
-    "zombie_boss": 0,          # `2901012` Zombie Boss / Зомби-Босс — the type-7 line
-    "doom_elite": 20,          # `300602` Doom Elite / Роковая Элита
-    "doom_walker": 20,         # `monster_boss_name_001` Doom Walker / Разрушитель
-    "zombie_invasion": 0,      # `2901000` Zombie Invasion — its own event
-    "alliance_drill": 0,       # `500426` Alliance Exercise — the drill's boss
-    "general_trial": 0,        # `2010220` Vanguard Instructors — General's Trial
-    "general_trial_elite": 0,  # `challenge_zombie_001` Elite Instructor — the same event
+    kind: (0 if kind in UNCAPPED_KINDS else DEFAULT_CAP)
+    for kind in rally_kinds.KIND_ORDER
 }
 
 #: What #1317 renamed, and why the values travel rather than the key.
@@ -72,6 +77,12 @@ DEFAULT_RALLY_LIMITS: dict[str, int] = {
 #: copied into BOTH: into `doom_walker` because that is what it was counting, and into
 #: `doom_elite` because that is the row the person was setting when they typed it.
 RENAMED_KINDS: dict[str, tuple] = {"doom_elite": ("doom_walker", "doom_elite")}
+
+#: The file format's own version, and the ONLY thing that says a stored `doom_elite` is
+#: the old meaning (#1317). Both keys are legitimate now — `doom_elite` is a real species
+#: again — so a file has to say whether it predates the rename; an unversioned one does,
+#: a versioned one does not, and the rename is applied exactly once either way.
+FILE_VERSION = 2
 
 # A monster type the resolver could not classify falls back to this key, so an
 # unknown rally is still counted (and capped) under a real budget rather than slipping
@@ -176,8 +187,9 @@ def load_limits(path: str) -> RallyLimits:
         return RallyLimits(DEFAULT_RALLY_LIMITS, path)
     # New built-in types added after this profile's file was written are folded in so
     # the caps vocabulary grows without a hand edit; the file's own values win.
+    stored = {str(k): v for k, v in data.items() if k != "v"}
     merged = dict(DEFAULT_RALLY_LIMITS)
-    merged.update(migrate_kinds({str(k): v for k, v in data.items()}))
+    merged.update(migrate_kinds(stored) if not data.get("v") else stored)
     return RallyLimits(merged, path)
 
 
@@ -188,10 +200,10 @@ def migrate_kinds(stored: dict, tally: bool = False) -> dict:
     already has under the new name: a profile edited since the rename keeps what the
     person typed.
 
-    `tally=True` is the COUNTS file, and there only the first new name gets the number.
-    A cap is a wish and may honestly be copied to both rows; a count is a fact about
-    today, and copying today's Doom Walkers onto Doom Elite would spend a budget that
-    nothing was spent from.
+    `tally=True` is the COUNTS file, and there the number MOVES rather than being copied:
+    a cap is a wish and may honestly sit on both rows, but a count is a fact about today,
+    and one join must appear exactly once. Copying it would spend a budget nothing was
+    spent from AND double the sum the game's own count is checked against (#1317).
     """
     out = dict(stored)
     for old, news in RENAMED_KINDS.items():
@@ -200,11 +212,15 @@ def migrate_kinds(stored: dict, tally: bool = False) -> dict:
         for new in (news[:1] if tally else news):
             if new not in stored:
                 out[new] = stored[old]
+        if tally:
+            out.pop(old, None)
     return out
 
 
 def save_limits(limits: RallyLimits, path: str | None = None) -> None:
-    _write_json(path or limits.path, limits.as_dict())
+    stored = limits.as_dict()
+    stored["v"] = FILE_VERSION
+    _write_json(path or limits.path, stored)
 
 
 class RallyCounts:
@@ -309,13 +325,14 @@ def load_counts(path: str, today: str | None = None) -> RallyCounts:
     if not isinstance(data, dict):
         return RallyCounts(today, {}, path)
     raw = data.get("counts") if isinstance(data.get("counts"), dict) else {}
+    kept = {str(k): v for k, v in raw.items()}
     store = RallyCounts(str(data.get("date") or today),
-                        migrate_kinds({str(k): v for k, v in raw.items()}, tally=True),
+                        kept if data.get("v") else migrate_kinds(kept, tally=True),
                         path, data.get("day_end_ms"))
     return store.rolled(today)
 
 
 def save_counts(counts: RallyCounts, path: str | None = None) -> None:
     _write_json(path or counts.path,
-                {"date": counts.date, "day_end_ms": counts.day_end_ms,
-                 "counts": dict(counts.counts)})
+                {"v": FILE_VERSION, "date": counts.date,
+                 "day_end_ms": counts.day_end_ms, "counts": dict(counts.counts)})

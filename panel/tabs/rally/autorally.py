@@ -102,6 +102,9 @@ class AutoRallyPage:
         # whose tab was never built — see `kind_skip`. Empty means «go for everything».
         self._kinds_off: set = set()
         self._kind_vars: dict = {}
+        # «наша сумма / игра» for today, drawn under the table so the drift of a
+        # panel-kept tally is visible rather than quiet (#1317).
+        self._tally_var = tk.StringVar(master=master, value=DAILY_UNREAD)
 
     # -- the page -----------------------------------------------------------
     def build(self, parent: ttk.Frame) -> None:
@@ -177,73 +180,64 @@ class AutoRallyPage:
         tr(ttk.Label(day, foreground="#888", wraplength=620, justify="left"),
            "rally_day.hint").pack(anchor="w", pady=(6, 0))
 
-        # -- WHICH KINDS OF BANNER TO GO FOR ---------------------------------
-        # The whole vocabulary the game has (`tools/lib/rally_kinds.py`, read off the live
-        # config), with the game's own words as labels — `rally_limit.type.<kind>` is
-        # filled from the game's tables and never translated here. A filter and not a
-        # budget: nothing is counted, so nothing can drift, and the press knows what a
-        # banner is before a squad leaves (#1317).
+        # -- EVERY KIND OF BANNER: go for it? how many a day? how many today? ---
+        # ONE TABLE, because they are one decision asked three ways (#1317). The
+        # vocabulary is the game's (`tools/lib/rally_kinds.py`, read off the live config)
+        # and so are the labels — `rally_limit.type.<kind>` is filled from the game's own
+        # tables, never translated here.
+        #
+        # The tick counts nothing and cannot drift; the number is a budget the PANEL keeps,
+        # because the client has no per-species counter — which is why the line under the
+        # table shows our sum and the game's own count side by side, and why the budgets
+        # stand down whenever ours is ahead of the game's (`limits.kind_left`).
         kinds = tr(ttk.LabelFrame(parent, padding=8), "rally_kind.frame")
         kinds.pack(fill="x", pady=(10, 0))
+        self._limits = rallylimitsmod.load_limits(self.rt.profiles.rally_limits_json())
         grid = ttk.Frame(kinds)
         grid.pack(fill="x")
-        columns = 3
+        columns = 2                 # sixty-eight rows: two columns of (tick, cap, today)
+        for head, col in (("rally_kind.col.on", 0), ("rally_limit.col.cap", 1),
+                          ("rally_limit.col.today", 2)):
+            for block in range(columns):
+                tr(ttk.Label(grid), head).grid(row=0, column=block * 4 + col,
+                                               sticky="w", padx=(0, 6))
+        per = (len(rally_kinds.KIND_ORDER) + columns - 1) // columns
         for n, kind in enumerate(rally_kinds.KIND_ORDER):
+            block, line = n // per, n % per + 1
             var = tk.BooleanVar(master=self.rt.root, value=kind not in self._kinds_off)
             self._kind_vars[kind] = var
             box = ttk.Checkbutton(
                 grid, variable=var,
                 command=lambda k=kind, v=var: self.set_kind(k, bool(v.get())))
             tr(box, f"rally_limit.type.{kind}")
-            box.grid(row=n // columns, column=n % columns, sticky="w", padx=(0, 12))
+            box.grid(row=line, column=block * 4, sticky="w", padx=(0, 6))
+            cap = tk.StringVar(master=self.rt.root,
+                               value=str(self._limits.limit_for(kind)))
+            self._limit_vars[kind] = cap
+            numeric_spinbox(grid, from_=0, to=999, width=5,
+                            textvariable=cap).grid(row=line, column=block * 4 + 1,
+                                                   sticky="w")
+            cap.trace_add("write", lambda *a: self.save_limits())
+            spent = tk.StringVar(master=self.rt.root, value="0")
+            self._count_vars[kind] = spent
+            ttk.Label(grid, textvariable=spent).grid(row=line, column=block * 4 + 2,
+                                                     sticky="w", padx=(6, 18))
+        self.paint_counts()
+
         row = ttk.Frame(kinds)
         row.pack(fill="x", pady=(6, 0))
         tr(ttk.Button(row, command=lambda: self.set_all_kinds(True)),
            "rally_kind.all").pack(side="left")
         tr(ttk.Button(row, command=lambda: self.set_all_kinds(False)),
            "rally_kind.none").pack(side="left", padx=(6, 0))
+        # BOTH NUMBERS, SIDE BY SIDE — the panel's sum for today and the game's own count.
+        # A tally the panel keeps is only honest while anybody can see how far it has
+        # wandered; the person asked for exactly this (#1317).
+        tr(ttk.Label(row), "rally_kind.tally").pack(side="left", padx=(16, 4))
+        ttk.Label(row, textvariable=self._tally_var,
+                  font=("TkDefaultFont", 10, "bold")).pack(side="left")
         tr(ttk.Label(kinds, foreground="#888", wraplength=620, justify="left"),
            "rally_kind.hint").pack(anchor="w", pady=(6, 0))
-
-    def build_manual_caps(self, parent: ttk.Frame) -> None:
-        """The per-kind daily caps of the MANUAL «Запустить» run (#1317).
-
-        They are drawn beside the form they bound, and not inside «Автостяг», because
-        that is the only thing they decide: the auto-join is bounded by the day's ceiling
-        and by the kind filter above. A per-kind BUDGET for the auto-join would have to be
-        counted by the panel — the client keeps no per-species number — and whether to
-        keep one is the person's decision, not this file's.
-
-        Beside every box is what the panel has counted today under that kind, which is the
-        same tally `record_run` writes for every driver.
-        """
-        tr = self.rt.tr
-        limits_frame = tr(ttk.LabelFrame(parent, padding=8), "rally_limit.frame")
-        limits_frame.pack(fill="x", pady=(8, 0))
-        self._limits = rallylimitsmod.load_limits(self.rt.profiles.rally_limits_json())
-        lgrid = ttk.Frame(limits_frame)
-        lgrid.pack(fill="x")
-        tr(ttk.Label(lgrid), "rally_limit.col.kind").grid(row=0, column=0, sticky="w",
-                                                          padx=(0, 10))
-        tr(ttk.Label(lgrid), "rally_limit.col.cap").grid(row=0, column=1, sticky="w",
-                                                         padx=(0, 10))
-        tr(ttk.Label(lgrid), "rally_limit.col.today").grid(row=0, column=2, sticky="w")
-        for r, key in enumerate(self._limits.types(), start=1):
-            tr(ttk.Label(lgrid), f"rally_limit.type.{key}").grid(
-                row=r, column=0, sticky="w", padx=(0, 10), pady=2)
-            var = tk.StringVar(master=self.rt.root,
-                               value=str(self._limits.limit_for(key)))
-            self._limit_vars[key] = var
-            numeric_spinbox(lgrid, from_=0, to=999, width=6,
-                            textvariable=var).grid(row=r, column=1, sticky="w")
-            var.trace_add("write", lambda *a: self.save_limits())
-            spent = tk.StringVar(master=self.rt.root, value="0")
-            self._count_vars[key] = spent
-            ttk.Label(lgrid, textvariable=spent).grid(row=r, column=2, sticky="w",
-                                                      padx=(10, 0))
-        self.paint_counts()
-        tr(ttk.Label(limits_frame, foreground="#888", wraplength=620, justify="left"),
-           "rally_limit.hint").pack(anchor="w", pady=(6, 0))
 
     def set_all_kinds(self, wanted: bool) -> None:
         """«Все» / «Никакие» — sixty-eight boxes is too many to click one at a time."""
@@ -280,6 +274,24 @@ class AutoRallyPage:
                 var.set(str(counts.count_for(key)))
             except tk.TclError:                # the page is going away
                 return
+
+    def set_tally(self, ours, game, top) -> None:
+        """Draw «our sum / the game's count» under the table (Tk thread, #1317).
+
+        `game < 0` is «the client could not be asked», which is a dash rather than a zero:
+        a confident «12 / 0» would be the panel accusing the game of having done nothing.
+        """
+        try:
+            if game is None or int(game) < 0:
+                self._tally_var.set("%d / %s" % (int(ours or 0), DAILY_UNREAD))
+            else:
+                self._tally_var.set("%d / %d" % (int(ours or 0), int(game)))
+        except (TypeError, ValueError, tk.TclError):
+            pass
+
+    def tally_text(self) -> str:
+        """What the tally line says right now — the phone shows the same string."""
+        return str(self._tally_var.get() or DAILY_UNREAD)
 
     def counts_today(self) -> dict:
         """`{kind: joined today}` for whoever draws it — the phone included."""

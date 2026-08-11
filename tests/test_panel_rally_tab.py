@@ -1133,7 +1133,9 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
                      "general_trial_elite", "alliance_drill", "zombie_invasion"):
             assert "rally_limit.type." + kind in kinds, (kind, kinds)
         assert kinds["rally_limit.type.doom_elite"] == "0/20", kinds
-        uncapped = kinds["rally_limit.type.general_trial"]
+        # «на золотых оставляем без лимита» — an uncapped kind says the word rather than
+        # «0/0», which reads like a budget nobody may spend (#1317).
+        uncapped = kinds["rally_limit.type.desert_boss"]
         assert "/" not in uncapped and uncapped.startswith("0 "), uncapped
 
         # ONE CARD, exactly as the window now draws one group (#1317): the switches and
@@ -1519,6 +1521,48 @@ def test_the_kind_filter_travels_and_an_untouched_profile_joins_everything():
         assert rl.kind_skip(rt) == ""
         rt.settings.values = {}
         assert rl.kind_skip(rt) == ""
+    finally:
+        root.destroy()
+
+
+def test_the_per_kind_budget_travels_and_shows_its_drift():
+    """The budget the person chose, with the drift it can have made visible (#1317).
+
+    «По умолчанию на всех по 20, на золотых оставляем без лимита» — and the count behind
+    those twenties is the panel's own, because the client keeps none per species. So three
+    things are pinned: the numbers reach the recipe from this driver, the sum and the
+    game's own count sit side by side where somebody can see them disagree, and a tally
+    running AHEAD of the game refuses nothing at all.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.rally import limits as gate
+
+        args = {}
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        rt.game.claim = lambda owner="panel", priority=0: True
+        tab._refresh_day = lambda: None
+        gate.kind_left = lambda _rt: "doom_elite:19,oni_general:20"
+        tab._join_work([1])
+        assert args.get("kind_left") == "doom_elite:19,oni_general:20", args
+
+        # both numbers on the tab, and the same string on the phone
+        tab.autorally.set_tally(12, 9, 20)
+        assert tab.autorally.tally_text() == "12 / 9"
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_kind.tally"] == "12 / 9", rows
+        # …and an unread client is a dash rather than a confident zero
+        tab.autorally.set_tally(12, -1, 20)
+        assert tab.autorally.tally_text().endswith("—"), tab.autorally.tally_text()
     finally:
         root.destroy()
 

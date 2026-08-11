@@ -267,13 +267,6 @@ class RallyTab(PanelTab):
         self.autorally.build(auto)
         self._build_form(body)
 
-        # …and the manual run's own per-kind daily caps, beside the form they bound and
-        # nowhere near «Автостяг» — that block has a ceiling and a filter of its own, and
-        # the two budgets must not read as one (#1317).
-        manual_caps = ttk.Frame(body)
-        manual_caps.pack(fill="x", padx=10, pady=(0, 6))
-        self.autorally.build_manual_caps(manual_caps)
-
         self.tr(ttk.Label(body, foreground="#888", wraplength=640, justify="left"),
                 "rally_tab.hint").pack(anchor="w", padx=10, pady=(0, 10))
 
@@ -464,11 +457,20 @@ class RallyTab(PanelTab):
         done = progress.get("done", -1) if progress else -1
         top = progress.get("max", 0) if progress else 0
 
+        # …and the two numbers that make the panel's own tally honest: our sum for today
+        # against the game's own count, side by side (#1317).
+        try:
+            summary = rallylimits.day_summary(self.rt)
+        except Exception:                          # noqa: BLE001 — a reading, never a run
+            summary = {}
+
         def paint() -> None:
             self.autorally.set_today(done, top)
             # …and the per-kind tally beside the caps, which is a file read and needs no
             # game at all — but moves for the same reason and at the same moments (#1317).
             self.autorally.paint_counts()
+            self.autorally.set_tally(summary.get("kinds", 0), summary.get("game", -1),
+                                     summary.get("max", 0))
 
         self._after(paint)
 
@@ -605,6 +607,11 @@ class RallyTab(PanelTab):
         rows.append({"label": "rally_kind.web",
                      "value": (", ".join(self.t("rally_limit.type." + k) for k in off)
                                if off else self.t("rally_kind.all"))})
+        # …AND THE TALLY THE PANEL KEEPS, AGAINST THE GAME'S OWN COUNT (#1317). The
+        # per-kind budgets are ours and can drift; the phone is where somebody notices, so
+        # the two numbers travel together here exactly as they sit together in the window.
+        rows.append({"label": "rally_kind.tally",
+                     "value": self.autorally.tally_text()})
         rows += [{"label": "rally_limit.type." + key,
                   # A kind with no cap says so in words rather than as «3/0», which reads
                   # like a budget that has been overspent.
@@ -1287,9 +1294,11 @@ class RallyTab(PanelTab):
                                         # schedule entirely, and a door only one of the
                                         # two drivers passes is not a door.
                                         "max_joins": self.autorally.daily_max(),
-                                        # …and the kinds to leave alone, on this driver
-                                        # too — a filter travels or it is not a filter.
-                                        "kind_skip": self.autorally.kind_skip()},
+                                        # …the kinds to leave alone and the per-kind
+                                        # budgets, on this driver too — a rule travels on
+                                        # both or it is not a rule.
+                                        "kind_skip": self.autorally.kind_skip(),
+                                        "kind_left": rallylimits.kind_left(self.rt)},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
             # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
             # itself, off the capture's own reader and past the schedule entirely, so its

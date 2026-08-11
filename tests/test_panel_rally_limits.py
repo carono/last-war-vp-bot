@@ -69,7 +69,8 @@ def test_negative_and_junk_caps_coerce():
 def test_with_limit_writes_one_type_only():
     limits = rl.default_limits().with_limit("monster", 5)
     assert limits.limit_for("monster") == 5
-    assert limits.limit_for("zombie_invasion") == 0        # untouched
+    assert limits.limit_for("zombie_invasion") == rl.DEFAULT_CAP    # untouched
+    assert limits.limit_for("desert_boss") == 0                     # …and still uncapped
 
 
 # -- counts: the day roll ---------------------------------------------------
@@ -96,8 +97,12 @@ def test_limits_file_is_seeded_then_round_trips():
     Path(path).write_text(json.dumps({"monster": 9}), encoding="utf-8")
     back = rl.load_limits(path)
     assert back.limit_for("monster") == 9
-    # …and a NEW built-in type is folded into the old file rather than lost.
-    assert back.limit_for("zombie_invasion") == 0
+    # …and a NEW built-in kind is folded into the old file rather than lost, with the
+    # number the person asked for: «по умолчанию на всех по 20, на золотых без лимита».
+    assert back.limit_for("zombie_invasion") == rl.DEFAULT_CAP
+    assert back.limit_for("oni_general") == rl.DEFAULT_CAP
+    assert back.limit_for("desert_boss") == 0, "«золотые» must ship uncapped"
+    assert set(rl.DEFAULT_RALLY_LIMITS) == set(rl.rally_kinds.KIND_ORDER)
 
 
 def test_counts_file_round_trips_and_rolls_on_load():
@@ -411,10 +416,12 @@ def test_a_renamed_kind_keeps_the_number_somebody_typed():
     assert limits["doom_walker"] == 20 and limits["doom_elite"] == 20, limits
     assert limits["monster"] == 5
 
+    # A COUNT moves rather than being copied: one join has to appear exactly once, or the
+    # sum the game's own daily count is checked against is doubled for ever (#1317).
     counts = rl.migrate_kinds({"doom_elite": 28}, tally=True)
     assert counts["doom_walker"] == 28, counts
-    assert counts["doom_elite"] == 28, "the old row keeps its own history"
-    assert "doom_elite" in counts
+    assert "doom_elite" not in counts, counts
+    assert sum(counts.values()) == 28, counts
 
     # a profile edited since the rename keeps what the person typed there
     kept = rl.migrate_kinds({"doom_elite": 20, "doom_walker": 3})
@@ -462,13 +469,29 @@ def test_what_each_kind_has_left_is_what_the_recipe_is_handed():
         rt = _Rt(Path(td), ["monster"],
                  limits=rl.RallyLimits({"doom_elite": 3, "monster": 0}))
         gate.record_joins(rt, ["doom_elite", "doom_elite"], 2)
+        rt.game.trophy = (2, 20, 18)          # the game agrees two rallies happened
         left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
         assert left["doom_elite"] == "1", left
         assert "monster" not in left, "an uncapped kind must not be named at all"
         # …and a kind whose day is gone says 0 rather than dropping out of the list
         gate.record_joins(rt, ["doom_elite"], 1)
+        rt.game.trophy = (3, 20, 17)
         left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
         assert left["doom_elite"] == "0", left
+
+        # AND THE RECONCILIATION (#1317): while OUR tally runs ahead of the game's own
+        # count, no per-kind door refuses anything — #1281's twelve-ahead tally is exactly
+        # what that prevents. The game's total ceiling still guards the other direction.
+        rt.game.trophy = (1, 20, 19)          # the game says one; we think three
+        assert gate.ahead_of_game(rt) is True
+        assert gate.kind_left(rt) == "", "a banner was refused on a number the game denies"
+        summary = gate.day_summary(rt)
+        assert summary["kinds"] == 3 and summary["game"] == 1 and summary["drift"] == 2
+
+        # …a client that cannot be asked neither refuses nor relaxes on a guess
+        rt.game._types = None
+        assert gate.ahead_of_game(rt) is False
+        assert gate.day_summary(rt)["game"] == -1
 
 
 def test_the_tally_never_counts_more_than_the_run_sent():

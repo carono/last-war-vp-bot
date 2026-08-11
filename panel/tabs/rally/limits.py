@@ -223,11 +223,17 @@ def kind_left(rt) -> str:
     decides per banner (#1317) — the panel supplies numbers and refuses nothing itself.
 
     THE COUNT IS THE PANEL'S HERE, unavoidably: the client keeps one daily rally counter
-    and no per-species number (docs/research/rally-join.md, «the door came back»). That is
-    the cost the person accepted for a per-kind budget; `max_joins` is the one number the
-    game itself stands behind.
+    and no per-species number (docs/research/rally-join.md). The person chose that budget
+    knowing it can drift, so the drift has a rule rather than a hope — see
+    :func:`day_summary`: **while the panel's tally is AHEAD of the game's own count, no
+    per-kind door refuses anything.** That is #1281's lesson made mechanical: a banner may
+    never be refused on a number the game contradicts, and the game's total ceiling
+    (`max_joins`) still guards the other direction, so drift cannot cause an overspend
+    either.
     """
     limits, counts = read(rt)
+    if ahead_of_game(rt, counts):
+        return ""                       # our own count is not to be trusted right now
     parts = []
     for key in limits.types():
         left = counts.left_for(key, limits)
@@ -235,6 +241,44 @@ def kind_left(rt) -> str:
             continue                    # unlimited: say nothing, the press treats it so
         parts.append("%s:%d" % (key, left))
     return ",".join(parts)
+
+
+def ahead_of_game(rt, counts=None) -> bool:
+    """Has the panel counted more joins today than the GAME has (#1317)?
+
+    The reconciliation the person asked for, in one question: «сверяй сумму по видам с
+    общим игровым счётчиком и при расхождении верь игре». Being ahead is the failure mode
+    that costs rallies — #1281's tally was twelve ahead and refused banners the account was
+    entitled to — so in that state the per-kind budgets stand down until the game agrees.
+
+    Unreadable game, unreadable answer: `False`, because a gate that cannot see must not
+    refuse and must not relax on a guess either — being behind or level is the ordinary
+    case, and the per-kind doors work as configured.
+    """
+    if counts is None:
+        _limits, counts = read(rt)
+    progress = trophy_progress(rt)
+    done = progress.get("done", -1) if progress else -1
+    if done < 0:
+        return False
+    return sum(counts.counts.values()) > done
+
+
+def day_summary(rt) -> dict:
+    """Both numbers side by side, so the drift is VISIBLE rather than quiet (#1317).
+
+    ``{"kinds": <the panel's sum for today>, "game": <daily_kill_boss>, "max": <the
+    game's threshold>, "drift": kinds - game}``; `game` is `-1` when the client could not
+    be asked. The person asked for this in as many words: a panel-kept tally is only
+    honest while anybody can see how far it has wandered from the game's own count.
+    """
+    _limits, counts = read(rt)
+    progress = trophy_progress(rt)
+    ours = sum(counts.counts.values())
+    done = progress.get("done", -1) if progress else -1
+    return {"kinds": ours, "game": done,
+            "max": progress.get("max", 0) if progress else 0,
+            "drift": (ours - done) if done >= 0 else 0}
 
 
 def kinds_of(ctx) -> list:

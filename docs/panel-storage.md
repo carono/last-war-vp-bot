@@ -58,7 +58,7 @@ the bottom).
 | `ghost_map_state.json` | the «Призрак: карта» page's OWN list — what it has gathered and kept (#1251) |
 | `world_treasures.json` | what the treasure scan currently sees |
 | `rally_log.jsonl` | rally-monitor output |
-| `rally_limits.json`, `rally_counts.json` | the per-KIND daily caps the auto-join obeys, and what the panel has counted today under each. Since #1317 the kinds are the game's own species (Doom Elite, Doom Walker, Zombie Boss, the General's Trial's two instructors, the Alliance Exercise, the Zombie Invasion) and the counts carry the client's own `day_end_ms`, so they reset on the SERVER's day. **The total daily ceiling is NOT here** — it is one number in the tab's config block (`autorally.daily_max`), judged against the game's own count |
+| `rally_limits.json`, `rally_counts.json` | the per-KIND daily caps the auto-join obeys, and what the panel has counted today under each. Since #1317 the kinds are the game's own species (Doom Elite, Doom Walker, Zombie Boss, the General's Trial's two instructors, the Alliance Exercise, the Zombie Invasion) and the counts carry the client's own `day_end_ms`, so they reset on the SERVER's day. Both files carry a `v`, which is what tells a pre-rename `doom_elite` from the species of that name. Every kind ships capped at 20 and «Золотой вожак» uncapped. **The total daily ceiling is NOT here** — it is one number in the tab's config block (`autorally.daily_max`), judged against the game's own count |
 | `resource_stats.json` | day-keyed tally of resources gained |
 | `leaderboard_history.db` | accumulating snapshots of the ranking boards |
 | `chat_log.jsonl` | raw capture written by the chat reader |
