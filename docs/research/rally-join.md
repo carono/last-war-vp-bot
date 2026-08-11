@@ -847,8 +847,10 @@ reader does not spend the same twenty minutes on them.
 
 So a per-kind budget is the panel's own tally or it is nothing. The person was told that
 in those words and chose it — «по умолчанию на всех по 20, на золотых оставляем без
-лимита» — so every kind ships capped at twenty and `desert_boss` («Золотой вожак»)
-uncapped, and the drift has rules rather than hopes:
+лимита» — so every kind ships capped at twenty and the whole Golden line uncapped
+(`desert_boss`, `golden_defender`, `golden_striker`, `golden_annihilator`,
+`wandering_mummy_warlord` — the person listed them when the first, narrower reading of
+«на золотых» proved to be one species), and the drift has rules rather than hopes:
 
 * **one writer** (`limits.record_run`), counting only what the game CONFIRMED — the run's
   own `joined`, a difference measured in the client. #1281's tally counted sends and went

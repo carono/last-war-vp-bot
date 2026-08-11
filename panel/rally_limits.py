@@ -61,8 +61,13 @@ import rally_kinds                                                    # noqa: E4
 # has never been edited is seeded with.
 DEFAULT_CAP = 20
 
-#: The kinds that ship UNCAPPED. One so far, and it is the one the person named.
-UNCAPPED_KINDS = ("desert_boss",)
+#: The kinds that ship UNCAPPED — «на золотых оставляем без лимита», and «золотые» is the
+#: whole GOLDEN LINE of season 3, not just its boss: the person listed them one by one
+#: when the first reading of that sentence turned out to be too narrow. They are the
+#: game's own names (`tools/game_locale.py`): Golden Defender / Striker / Annihilator, the
+#: Desert Boss («Золотой вожак») and the Wandering Mummy Warlord.
+UNCAPPED_KINDS = ("desert_boss", "golden_defender", "golden_striker",
+                  "golden_annihilator", "wandering_mummy_warlord")
 
 DEFAULT_RALLY_LIMITS: dict[str, int] = {
     kind: (0 if kind in UNCAPPED_KINDS else DEFAULT_CAP)

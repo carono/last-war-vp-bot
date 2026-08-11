@@ -101,7 +101,12 @@ def test_limits_file_is_seeded_then_round_trips():
     # number the person asked for: «по умолчанию на всех по 20, на золотых без лимита».
     assert back.limit_for("zombie_invasion") == rl.DEFAULT_CAP
     assert back.limit_for("oni_general") == rl.DEFAULT_CAP
-    assert back.limit_for("desert_boss") == 0, "«золотые» must ship uncapped"
+    # «на золотых оставляем без лимита» — the whole Golden line of season 3, named one by
+    # one by the person after the first, narrower reading of that sentence.
+    for golden in ("desert_boss", "golden_defender", "golden_striker",
+                   "golden_annihilator", "wandering_mummy_warlord"):
+        assert back.limit_for(golden) == 0, golden
+    assert set(rl.UNCAPPED_KINDS) <= set(rl.rally_kinds.KIND_ORDER)
     assert set(rl.DEFAULT_RALLY_LIMITS) == set(rl.rally_kinds.KIND_ORDER)
 
 
