@@ -5246,10 +5246,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 "slots": rallytab.slot_map(self._rt),
                 "points": rallytab.point_map(self._rt),
                 "max_joins": rallytab.daily_max(self._rt),
-                # …and what each KIND has left today (#1317). The panel is the only thing
-                # that can count those — the client keeps one daily rally number and no
-                # per-species one — so it supplies them and the press decides per banner.
-                "kind_left": rallygate.kind_left(self._rt)}
+                # …and which KINDS of banner to leave alone (#1317). A filter and not a
+                # budget: the press knows what a banner is before a squad leaves, so this
+                # is exact and counts nothing. The per-kind BUDGET (`kind_left`) is not
+                # sent — the client keeps no per-species number, so a budget could only be
+                # the panel's own tally, and whether to keep one is the person's call.
+                "kind_skip": rallytab.kind_skip(self._rt)}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

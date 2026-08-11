@@ -11,9 +11,23 @@ from __future__ import annotations
 
 import os
 
+from rally_kinds import KIND_OF_NAME
+
 # Home/world server id fallback, from env LW_DEFAULT_SERVER (0 = unknown; the live
 # curServerId is preferred at call time, this is only used when it is missing).
 HOME_SERVER = int(os.environ.get("LW_DEFAULT_SERVER") or 0)
+
+
+def _kind_table() -> str:
+    """The species table as a Lua literal — `name key -> kind` (#1317).
+
+    Built once from `rally_kinds.KIND_OF_NAME`, which was read out of the live config
+    rather than written by hand, so a season that adds a boss is a data change here and
+    a locale line in the panel, never a new branch in this chunk.
+    """
+    body = ",".join("['%s']='%s'" % (key, kind)
+                    for key, kind in sorted(KIND_OF_NAME.items()))
+    return "local KIND_OF_NAME = {%s} " % body
 
 
 def scene_world() -> str:
@@ -5049,6 +5063,7 @@ def rally_join_all() -> str:
         "local team, cid = string.match(pair, '(%d+):(%d+)') "
         "if team ~= nil then target_of_team[team] = tonumber(cid) end end end) "
         "local LCI = nil pcall(function() LCI = LocalController.instance() end) "
+        + _kind_table() +
         # AN UNKNOWN ROW ANSWERS WITH AN EMPTY STRING, NOT NIL — measured live: asking
         # `lw_world_monster` for an id it has never heard of came back `type=''`, and a
         # first version of the branch below turned that into the key `monster_type_`
@@ -5098,12 +5113,8 @@ def rally_join_all() -> str:
         "if r.point ~= nil and inv_set['p'..tostring(r.point)] then return 'zombie_invasion', true end end "
         # …then the event a species belongs to, and then the species itself — which is the
         # split the player reads off the screen.
-        "if nm ~= nil then local key = tostring(nm) "
-        "if key == '2010220' then return 'general_trial', true end "
-        "if key == 'challenge_zombie_001' then return 'general_trial_elite', true end "
-        "if key == '300602' then return 'doom_elite', true end "
-        "if key == 'monster_boss_name_001' then return 'doom_walker', true end "
-        "if key == '2901012' or key == '2901011' then return 'zombie_boss', true end end "
+        "if nm ~= nil then local hit = KIND_OF_NAME[tostring(nm)] "
+        "if hit ~= nil then return hit, true end end "
         "if act ~= nil and tostring(act) == '107' then return 'general_trial', true end "
         "if ty ~= nil and tonumber(ty) ~= nil then "
         "if tonumber(ty) == 8 then return 'doom_walker', true end "
@@ -5292,7 +5303,16 @@ def rally_join_all() -> str:
         "DataCenter.__lw_rally_kind_left or ''), '[^,]+') do "
         "local k, n = string.match(pair, '([%w_]+):(%-?%d+)') "
         "if k ~= nil then kind_left[k] = tonumber(n) end end end) "
+        # …AND THE KINDS THE PERSON SIMPLY DOES NOT WANT (#1317). A filter, not a budget:
+        # nothing is counted, so nothing can drift — «цепляться к этим, к тем не
+        # цепляться» is answerable exactly, because the kind of a banner is known here
+        # BEFORE a squad leaves. `kind_skip` is a plain list of kinds, and a banner of one
+        # is passed over and named `kind-off`.
+        "local kind_off = {} "
+        "pcall(function() for k in string.gmatch(tostring("
+        "DataCenter.__lw_rally_kind_skip or ''), '[^,]+') do kind_off[k] = true end end) "
         "local kind_blocked = {} "
+        "local kind_dropped = {} "
         "local sent, errs, went, left_over, kinds, went_kind = 0, {}, {}, {}, {}, {} "
         "local sent_teams = {} "
         "local unknown_kind = 0 "
@@ -5305,6 +5325,11 @@ def rally_join_all() -> str:
         # The day is spent: every banner is NAMED as passed over for that reason rather
         # than silently skipped, so «nothing went out» never reads as «no rally was out».
         "if capped then left_over[#left_over+1] = tostring(r.team)..':day-capped' "
+        # …a kind the person has switched off, which is a different sentence again: it is
+        # not «today is spent», it is «not this kind at all» (#1317).
+        "elseif kind_off[kind] then "
+        "kind_dropped[kind] = (kind_dropped[kind] or 0) + 1 "
+        "left_over[#left_over+1] = tostring(r.team)..':kind-off('..kind..')' "
         # …and so is a banner whose KIND is spent, with the kind in the word: «нечего
         # слать» and «этого вида на сегодня хватит» are different answers (#1317).
         "elseif kind_left[kind] ~= nil and kind_left[kind] >= 0 and kind_left[kind] <= 0 then "
@@ -5401,6 +5426,14 @@ def rally_join_all() -> str:
         "table.sort(kb_parts) "
         "if #kb_parts > 0 then report = report..' kind_capped=['..table.concat(kb_parts, ' ')"
         "..'] (this kind has had its allowance for today)' end "
+        # …and the kinds that were passed over because nobody wants them. Named the same
+        # way and kept apart from the budget, so «я это выключил» never reads as «на
+        # сегодня хватит» (#1317).
+        "local ko_parts = {} "
+        "for k, n in pairs(kind_dropped) do ko_parts[#ko_parts+1] = k..'x'..n end "
+        "table.sort(ko_parts) "
+        "if #ko_parts > 0 then report = report..' kind_off=['..table.concat(ko_parts, ' ')"
+        "..'] (this kind is switched off in «Автостяг»)' end "
         "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind"
         "..' (the event list could not be read — counted as monster, said rather than assumed)' end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "

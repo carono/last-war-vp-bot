@@ -48,6 +48,10 @@ from tkinter import ttk
 from ... import rally_limits as rallylimitsmod
 from ...widgets import numeric_spinbox
 
+# The vocabulary of kinds, read out of the live game config rather than written here
+# (#1317). `tools/lib` is on the path by the time the panel imports this.
+import rally_kinds                                                    # noqa: E402
+
 # The squads the page offers. The game's own squad slots are read live where they
 # matter (the formation whose `index` is the slot, tools/lib/lua_actions.py); this is
 # only how many the page draws.
@@ -93,6 +97,11 @@ class AutoRallyPage:
         self._limits = None            # loaded when the page is drawn
         self._limit_vars: dict = {}
         self._count_vars: dict = {}    # what the panel has counted today, per kind
+        # WHICH KINDS OF BANNER TO LEAVE ALONE (#1317). The set is the state and the
+        # checkboxes are a view of it, because the auto-join runs at boot in a profile
+        # whose tab was never built — see `kind_skip`. Empty means «go for everything».
+        self._kinds_off: set = set()
+        self._kind_vars: dict = {}
 
     # -- the page -----------------------------------------------------------
     def build(self, parent: ttk.Frame) -> None:
@@ -168,13 +177,49 @@ class AutoRallyPage:
         tr(ttk.Label(day, foreground="#888", wraplength=620, justify="left"),
            "rally_day.hint").pack(anchor="w", pady=(6, 0))
 
-        # -- daily caps per kind of banner ------------------------------------
-        # THE KINDS ARE THE GAME'S OWN, AND SO ARE THEIR NAMES (#1317): the labels are
-        # `tools/game_locale.py`'s copy of what the game calls each species, never a
-        # translation of ours. Beside every box is what the panel has counted TODAY —
-        # which is also what the auto-join is gated on, so the two must be one reading.
+        # -- WHICH KINDS OF BANNER TO GO FOR ---------------------------------
+        # The whole vocabulary the game has (`tools/lib/rally_kinds.py`, read off the live
+        # config), with the game's own words as labels — `rally_limit.type.<kind>` is
+        # filled from the game's tables and never translated here. A filter and not a
+        # budget: nothing is counted, so nothing can drift, and the press knows what a
+        # banner is before a squad leaves (#1317).
+        kinds = tr(ttk.LabelFrame(parent, padding=8), "rally_kind.frame")
+        kinds.pack(fill="x", pady=(10, 0))
+        grid = ttk.Frame(kinds)
+        grid.pack(fill="x")
+        columns = 3
+        for n, kind in enumerate(rally_kinds.KIND_ORDER):
+            var = tk.BooleanVar(master=self.rt.root, value=kind not in self._kinds_off)
+            self._kind_vars[kind] = var
+            box = ttk.Checkbutton(
+                grid, variable=var,
+                command=lambda k=kind, v=var: self.set_kind(k, bool(v.get())))
+            tr(box, f"rally_limit.type.{kind}")
+            box.grid(row=n // columns, column=n % columns, sticky="w", padx=(0, 12))
+        row = ttk.Frame(kinds)
+        row.pack(fill="x", pady=(6, 0))
+        tr(ttk.Button(row, command=lambda: self.set_all_kinds(True)),
+           "rally_kind.all").pack(side="left")
+        tr(ttk.Button(row, command=lambda: self.set_all_kinds(False)),
+           "rally_kind.none").pack(side="left", padx=(6, 0))
+        tr(ttk.Label(kinds, foreground="#888", wraplength=620, justify="left"),
+           "rally_kind.hint").pack(anchor="w", pady=(6, 0))
+
+    def build_manual_caps(self, parent: ttk.Frame) -> None:
+        """The per-kind daily caps of the MANUAL «Запустить» run (#1317).
+
+        They are drawn beside the form they bound, and not inside «Автостяг», because
+        that is the only thing they decide: the auto-join is bounded by the day's ceiling
+        and by the kind filter above. A per-kind BUDGET for the auto-join would have to be
+        counted by the panel — the client keeps no per-species number — and whether to
+        keep one is the person's decision, not this file's.
+
+        Beside every box is what the panel has counted today under that kind, which is the
+        same tally `record_run` writes for every driver.
+        """
+        tr = self.rt.tr
         limits_frame = tr(ttk.LabelFrame(parent, padding=8), "rally_limit.frame")
-        limits_frame.pack(fill="x", pady=(10, 0))
+        limits_frame.pack(fill="x", pady=(8, 0))
         self._limits = rallylimitsmod.load_limits(self.rt.profiles.rally_limits_json())
         lgrid = ttk.Frame(limits_frame)
         lgrid.pack(fill="x")
@@ -199,6 +244,16 @@ class AutoRallyPage:
         self.paint_counts()
         tr(ttk.Label(limits_frame, foreground="#888", wraplength=620, justify="left"),
            "rally_limit.hint").pack(anchor="w", pady=(6, 0))
+
+    def set_all_kinds(self, wanted: bool) -> None:
+        """«Все» / «Никакие» — sixty-eight boxes is too many to click one at a time."""
+        for kind, var in self._kind_vars.items():
+            var.set(bool(wanted))
+            if wanted:
+                self._kinds_off.discard(kind)
+            else:
+                self._kinds_off.add(kind)
+        self.rt.settings.changed()
 
     # -- the caps file (its own per-profile file, not the settings blob) -----
     def save_limits(self) -> None:
@@ -323,6 +378,32 @@ class AutoRallyPage:
         """The squads a join may spend, as `join_rally` wants them."""
         return [s for s in RALLY_SQUADS if self._squad_vars[s].get()]
 
+    def kind_skip(self) -> str:
+        """`kind,kind,…` — the kinds of banner the auto-join must LEAVE ALONE (#1317).
+
+        The shape `join_rally` wants, and it is read off the SET rather than off the
+        widgets: the auto-join runs at boot in a profile whose tab was never built, and a
+        list of unbuilt checkboxes would answer «skip everything» — a new switch must
+        never quietly stop somebody's joining. Empty is «go for everything», which is what
+        a profile that has never opened the list says and what the bot did before the list
+        existed.
+        """
+        return ",".join(kind for kind in rally_kinds.KIND_ORDER
+                        if kind in self._kinds_off)
+
+    def kinds_on(self) -> list:
+        """The kinds the auto-join may go for, in the order the panel draws them."""
+        return [kind for kind in rally_kinds.KIND_ORDER
+                if kind not in self._kinds_off]
+
+    def set_kind(self, kind: str, wanted: bool) -> None:
+        """Tick or untick one kind (the checkbox's own handler)."""
+        if wanted:
+            self._kinds_off.discard(kind)
+        else:
+            self._kinds_off.add(kind)
+        self.rt.settings.changed()
+
     def daily_max(self) -> int:
         """The day's ceiling as `join_rally` wants it — `0` is «no ceiling» (#1317).
 
@@ -382,6 +463,10 @@ class AutoRallyPage:
             # The day's ceiling — the ONE number the panel keeps about the budget, and
             # the one the auto-join is handed (#1317).
             "daily_max": self.daily_max(),
+            # …and the kinds of banner to leave alone. Stored as what is OFF, so a season
+            # that adds a boss is joined by default rather than silently ignored by every
+            # profile written before it existed.
+            "kinds_off": sorted(self._kinds_off),
         }
 
     def apply_config(self, raw) -> None:
@@ -425,6 +510,11 @@ class AutoRallyPage:
         if not isinstance(daily, int) or not 0 <= daily <= DAILY_MAX_TOP:
             daily = DAILY_MAX_DEFAULT
         self._daily_var.set(str(daily))
+
+        off = raw.get("kinds_off")
+        self._kinds_off = {str(k) for k in off} if isinstance(off, list) else set()
+        for kind, var in self._kind_vars.items():
+            var.set(kind not in self._kinds_off)
 
     def persist_vars(self) -> list:
         """Every control whose change has to reach the profile.

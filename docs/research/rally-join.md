@@ -813,6 +813,38 @@ keeps its own monster lists, as before.
   `contentId` per finished rally and could be grouped by kind: **it is emptied when the
   player collects**, and it read `0` rows at the time of this check.
 
+### The whole vocabulary, and what each event answers to (#1317, round two)
+
+The player's answer to «сколько видов взять» was «делай всех, кого перечислил», so the
+list is not a selection any more: every `boss = 1` row of `lw_world_monster` — **71 name
+keys, 66 distinct names**, because the game gives six different rows the same words
+(«Роковая Элита» is `300602`, `s6_monster_eliteboss_name`, `season_monster_name001`,
+`season_s2_monster_name001`, `season_s3_monster_name007` and `season_s4_monster_lang_name`).
+The map lives in `tools/lib/rally_kinds.py`, was generated from the live config rather
+than typed, and the labels are pulled out of the game's own locale tables into
+`panel/locales/*.json` by the same generator.
+
+What that list covers, by season: the Doom line (Doom Elite, Doom Walker), the zombie line
+(Zombie Boss, Invading Zombies, Zombie Horde, Zombie Raider, Mutant Raider), season 1's
+Crimson family, season 2's mutated beasts and the Glacieradon, season 3's Golden guards,
+the sandworms and the Desert Boss, season 4's Oni family (Oni General, Oni Dōji, Oni
+Tengu, Oni Samurai, the Oniwagon and the two Oni legions, the Bloodnight Alpha Wolf and
+the Blood Night Doom Elite), season 5's Plague nomads, season 6's Shadow four and the
+Wonder boss, plus the one-offs (Ironclad Vehicle, Maxwell's «Comrades», Sky Predator,
+Willson the Slugger, the Corruptors, the summoned mummies and the Night Army).
+
+**Each event was checked on its own, as asked:**
+
+| event | what identifies it | state when checked |
+| --- | --- | --- |
+| Alliance Exercise | `AllyDrillDataManager.actInfo.data.bossUuid` / `bossPointId` | **running** — the ids were read live, `isAutoRally = 1` beside them |
+| General's Trial | its species: `activity = 107` (Vanguard Instructors, Elite Instructor) and `2010221` Elite Forces, the alliance boss | config only; the event was not on |
+| Zombie Invasion | `ActivityMonsterInvasionDataManager.monsterInvasionData` lists | **off**: `invasionId = 0` and `monsterInvasionData` is nil, which is why every read of it is inside a `pcall` |
+
+Two more trial-shaped managers exist and are NOT the General's Trial —
+`JungleTrialDataManager` and `LWActivityLockhartManager`; they are named here so the next
+reader does not spend the same twenty minutes on them.
+
 So a per-kind budget is the panel's own tally or it is nothing. The person was told that
 in those words and chose the tally; what softens it is written into the code rather than
 hoped for: one writer (`limits.record_run`), the day rolled on the SERVER's boundary

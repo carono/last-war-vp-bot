@@ -292,6 +292,77 @@ def test_the_kinds_are_named_off_the_games_own_config():
     assert "'107'" in chunk, "the trial's activity column is not read"
 
 
+def test_every_kind_the_game_knows_has_a_name_and_a_label():
+    """The whole vocabulary, read off the live config rather than guessed (#1317).
+
+    «Делай всех, кого перечислил.» So the list is every `boss = 1` row of
+    `lw_world_monster` grouped by its `name` key — and the labels are the GAME's words for
+    them, pulled out of its own tables, because the panel may not name what the game has
+    already named.
+    """
+    import json
+    from pathlib import Path
+
+    import rally_kinds as rk
+
+    assert len(rk.KIND_ORDER) > 60, len(rk.KIND_ORDER)
+    assert len(set(rk.KIND_ORDER)) == len(rk.KIND_ORDER), "a kind is listed twice"
+    # the ones the player named, by the game's own key
+    for key, kind in (("300602", "doom_elite"),
+                      ("monster_boss_name_001", "doom_walker"),
+                      ("2901012", "zombie_boss"),
+                      ("2901011", "invading_zombies"),
+                      ("season_s4_city_boss_name", "oni_general"),
+                      ("season_s3_dark_knight_name", "desert_boss"),
+                      ("2010220", "general_trial"),
+                      ("challenge_zombie_001", "general_trial_elite"),
+                      ("2010221", "general_trial_forces")):
+        assert rk.KIND_OF_NAME[key] == kind, (key, rk.KIND_OF_NAME.get(key))
+    # …and the six rows the game calls «Роковая Элита» are ONE kind, not six
+    doom = [k for k, v in rk.KIND_OF_NAME.items() if v == "doom_elite"]
+    assert len(doom) >= 5, doom
+    # the two events have no species at all — they are matched off their managers
+    for event in rk.EVENT_KINDS:
+        assert event in rk.KIND_ORDER
+        assert event not in rk.KIND_OF_NAME.values()
+
+    root = Path(__file__).resolve().parents[1]
+    for lang in ("en", "ru", "vi"):
+        words = json.loads((root / "panel" / "locales" / f"{lang}.json").read_text("utf-8"))
+        for kind in rk.KIND_ORDER:
+            assert words.get("rally_limit.type." + kind), (lang, kind)
+
+
+def test_a_kind_switched_off_is_left_alone_and_nothing_is_counted_for_it():
+    """The filter: «к этим цепляйся, к тем нет», decided inside the press (#1317).
+
+    A filter and not a budget — the kind of a banner is known before a squad leaves, so
+    nothing has to be counted and there is nothing to drift. An empty filter is «go for
+    everything», which is what a profile that has never touched the list says.
+    """
+    import lupa
+
+    import lua_actions
+
+    chunk = lua_actions.rally_join_all()
+    assert "__lw_rally_kind_skip" in chunk, "the filter never reaches the press"
+    assert "kind-off" in chunk, "a banner left alone is not named"
+    assert "kind_off=[" in chunk, "the run does not say which kinds it left alone"
+    # …and the species table is IN the press, so a season's boss is data rather than a
+    # new branch of Lua.
+    assert "KIND_OF_NAME" in chunk and "['300602']='doom_elite'" in chunk
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    parse = lua.execute(
+        "return function(text) local off = {} "
+        "for k in string.gmatch(tostring(text or ''), '[^,]+') do off[k] = true end "
+        "return off end")
+    off = parse("oni_general,doom_walker")
+    assert off["oni_general"] and off["doom_walker"]
+    assert off["doom_elite"] is None, "an unnamed kind was switched off"
+    assert parse("")["doom_elite"] is None, "an empty filter stopped a banner"
+
+
 def test_a_kind_with_its_day_spent_holds_its_banner_and_says_which():
     """The per-kind budget refuses inside the press, and one press cannot double-spend.
 

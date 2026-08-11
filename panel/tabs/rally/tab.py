@@ -64,6 +64,9 @@ from . import autorally as autorallymod
 from . import limits as rallylimits
 from .autorally import AutoRallyPage
 
+# The kind vocabulary, read off the live game config (tools/lib/rally_kinds.py, #1317).
+import rally_kinds                                                    # noqa: E402
+
 # ---------------------------------------------------------------------------
 # The two things a rally can be raised on: a «Роковая Элита» (searched under the
 # «лупа»'s Boss tab) and an ordinary world monster (its Monster tab).
@@ -142,7 +145,7 @@ class RallyTab(PanelTab):
     # somebody happens to open the tab.
     EAGER = True
     LOCALE_NS = ("rally_tab", "rally", "autorally", "rally_limit", "rally_day",
-                 "log.rally", "squads")
+                 "rally_kind", "log.rally", "squads")
     NEEDS = frozenset({"daemon", "children", "actions"})
     # The flat keys this tab's settings used to be spelled with, so a profile that
     # predates the per-tab block keeps every value it had (§5 rule 1).
@@ -263,6 +266,13 @@ class RallyTab(PanelTab):
         self._build_monitor(auto)
         self.autorally.build(auto)
         self._build_form(body)
+
+        # …and the manual run's own per-kind daily caps, beside the form they bound and
+        # nowhere near «Автостяг» — that block has a ceiling and a filter of its own, and
+        # the two budgets must not read as one (#1317).
+        manual_caps = ttk.Frame(body)
+        manual_caps.pack(fill="x", padx=10, pady=(0, 6))
+        self.autorally.build_manual_caps(manual_caps)
 
         self.tr(ttk.Label(body, foreground="#888", wraplength=640, justify="left"),
                 "rally_tab.hint").pack(anchor="w", padx=10, pady=(0, 10))
@@ -585,6 +595,16 @@ class RallyTab(PanelTab):
                  "value": (str(ceiling) if ceiling
                            else self.t("rally_day.unlimited"))},
                 {"label": "rally_day.today", "value": self.autorally.today_text()}]
+        # …AND WHICH KINDS ARE SWITCHED OFF (#1317). The filter is what actually decides
+        # whether a banner is joined, so the phone has to be able to see it — «галки стоят
+        # и ничего не происходит» is the question this screen exists to answer, and a kind
+        # unticked at the machine is now one of the answers. The kinds that are ON are not
+        # listed one by one: sixty-eight rows is not a screen, and «all of them» is the
+        # ordinary case that needs no words.
+        off = [k for k in self.autorally.kind_skip().split(",") if k]
+        rows.append({"label": "rally_kind.web",
+                     "value": (", ".join(self.t("rally_limit.type." + k) for k in off)
+                               if off else self.t("rally_kind.all"))})
         rows += [{"label": "rally_limit.type." + key,
                   # A kind with no cap says so in words rather than as «3/0», which reads
                   # like a budget that has been overspent.
@@ -1267,8 +1287,9 @@ class RallyTab(PanelTab):
                                         # schedule entirely, and a door only one of the
                                         # two drivers passes is not a door.
                                         "max_joins": self.autorally.daily_max(),
-                                        # …and the per-kind budgets, on this driver too.
-                                        "kind_left": rallylimits.kind_left(self.rt)},
+                                        # …and the kinds to leave alone, on this driver
+                                        # too — a filter travels or it is not a filter.
+                                        "kind_skip": self.autorally.kind_skip()},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
             # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
             # itself, off the capture's own reader and past the schedule entirely, so its
@@ -1396,6 +1417,25 @@ def join_squads(rt) -> list:
     saved = block.get("autorally")
     raw = (saved or {}).get("squads") if isinstance(saved, dict) else None
     return [int(s) for s in raw] if isinstance(raw, list) else []
+
+
+def kind_skip(rt) -> str:
+    """Which kinds of banner the auto-join must leave alone — `kind,kind,…` (#1317).
+
+    The same two-source rule as :func:`join_squads`: the live page when the tab is in this
+    window, the saved profile block when it is not, and «nothing» when neither has an
+    opinion — a filter nobody has set must not stop a single banner.
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    if tab is not None:
+        return tab.autorally.kind_skip()
+    block = rt.settings.tab_config(RallyTab.ID, RallyTab.LEGACY_KEYS)
+    saved = block.get("autorally")
+    raw = (saved or {}).get("kinds_off") if isinstance(saved, dict) else None
+    if not isinstance(raw, list):
+        return ""
+    off = {str(k) for k in raw}
+    return ",".join(k for k in rally_kinds.KIND_ORDER if k in off)
 
 
 def daily_max(rt) -> int:

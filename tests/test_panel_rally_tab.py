@@ -1465,6 +1465,64 @@ def test_the_days_ceiling_travels_on_both_drivers_and_into_the_recipe():
         "the recipe does not stop on a spent day"
 
 
+def test_the_kind_filter_travels_and_an_untouched_profile_joins_everything():
+    """«К каким видам цепляться» reaches both drivers, and its default is «all» (#1317).
+
+    The dangerous direction is the silent one: a filter stored as what is ON would make a
+    profile written before the list existed — or one whose tab was never built — skip every
+    banner. It is stored as what is OFF, and an empty set is «go for everything».
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    from panel.tabs import TabRegistry
+    from panel.tabs.rally import tab as rl
+    try:
+        args = {}
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        rt.game.claim = lambda owner="panel", priority=0: True
+        tab._refresh_day = lambda: None
+
+        assert tab.autorally.kind_skip() == "", "a fresh profile skips something"
+        tab._join_work([1])
+        assert args.get("kind_skip") == "", args
+
+        tab.autorally.set_kind("oni_general", False)
+        tab.autorally.set_kind("doom_walker", False)
+        skip = tab.autorally.kind_skip().split(",")
+        assert set(skip) == {"oni_general", "doom_walker"}, skip
+        args.clear()
+        tab._join_work([1])
+        assert set(args["kind_skip"].split(",")) == {"oni_general", "doom_walker"}, args
+        # …and the trigger's side of it, through the module function the schedule asks
+        assert set(rl.kind_skip(rt).split(",")) == {"oni_general", "doom_walker"}
+
+        # the phone says which kinds are left alone, in words rather than in keys
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_kind.web"], rows
+        assert "{" not in rows["rally_kind.web"], rows["rally_kind.web"]
+
+        # …a window with no rally tab answers from the saved block
+        rt.tabs = TabRegistry()
+        rt.settings.values = {"autorally": {"squads": [1],
+                                            "kinds_off": ["doom_elite"]}}
+        assert rl.kind_skip(rt) == "doom_elite"
+        # …and a profile that predates the list stops nothing at all
+        rt.settings.values = {"autorally": {"squads": [1]}}
+        assert rl.kind_skip(rt) == ""
+        rt.settings.values = {}
+        assert rl.kind_skip(rt) == ""
+    finally:
+        root.destroy()
+
+
 def test_the_arm_prefers_a_squad_that_can_actually_be_sent():
     """A squad can be at home, idle and EMPTY — and taking it forces the screen (#1238).
 
