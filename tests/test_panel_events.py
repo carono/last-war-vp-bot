@@ -41,6 +41,7 @@ from panel.tabs.events import model as modelmod       # noqa: E402
 ACTIONS = _REPO / "src" / "lastwar_bot" / "actions"
 READ = ACTIONS / "read_codename_event.md"
 ATTACK = ACTIONS / "attack_codename_boss.md"
+DAILY = ACTIONS / "attack_codename_daily.md"
 
 #: The reading as the live client answers it while «Кодовое имя» is running…
 OPEN = "open=1 attacks=1 need=3 left=2 maxdmg=12607399171 targets=1 until=6042"
@@ -220,6 +221,92 @@ def test_the_presses_the_attack_names_are_buttons_that_exist():
         assert game_buttons.get(name) is not None, f"«{name}» is not a button"
 
 
+# ---------------------------------------------------------------------------
+# the day's worth of it — the errand a clock plays once a day
+# ---------------------------------------------------------------------------
+def test_the_daily_errand_is_a_scenario_that_only_calls_the_single_attack():
+    """`CLAUDE.md`: the ability is one file, and it is built out of the one beside it.
+
+    The day's run is not a second implementation of an attack — every march it sends is
+    `CALL attack_codename_boss`, so the boss, the squad and the proof that the server's
+    count moved have exactly one definition. A copy here would be the version that goes
+    stale the first time the send changes.
+    """
+    assert DAILY.exists()
+    text = DAILY.read_text(encoding="utf-8")
+    body = [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    assert "CALL attack_codename_boss" in body
+    for pressed in ("TAP codename_arm", "TAP codename_send"):
+        assert pressed not in body, f"the day's run sends for itself: «{pressed}»"
+
+
+def test_the_daily_errand_asks_the_server_how_many_are_owed():
+    """HOW MANY is the game's answer. A three written down here would be the bug.
+
+    An attack made by hand, or from the phone, counts as much as one this panel sent —
+    the count is the SERVER's — so the run has to ask before it sends and after each
+    send, and stop when the answer says nothing is owed.
+    """
+    text = DAILY.read_text(encoding="utf-8")
+    body = [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    assert body[0] == "TAP codename_fetch", body[0]
+    # The same arithmetic the board draws and the clock loops on — one copy, in
+    # `lua_actions`, so a panel saying «one left» and a run believing «three» cannot
+    # happen.
+    assert lua_actions.codename_attacks_left() in text
+    assert lua_actions.codename_attacks_left() in READ.read_text(encoding="utf-8")
+    # …and the loop is bounded, on the count and on the number of turns.
+    loop = [line for line in body if line.startswith("WHILE cn_left")]
+    assert loop and "LIMIT" in loop[0], body
+
+
+def test_a_day_with_nothing_owed_is_a_SUCCESS_and_a_day_half_done_is_not():
+    """The two endings a clock reads differently.
+
+    Sunday — the one day «Кодовое имя» does not run — and a day whose attacks are
+    already made both STOP: a failure would sit out the retry hold and try again every
+    retry period until midnight, for a state that cannot change. A day that still owes
+    attacks and could not send one FAILS, so the clock keeps its place and comes back
+    for what is still owed instead of writing the day off as done.
+    """
+    text = DAILY.read_text(encoding="utf-8")
+    body = [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    assert sum(1 for line in body if line.startswith("STOP")) == 2, body
+    shut = [i for i, line in enumerate(body) if line.startswith("IF cn_open")]
+    assert shut and any(body[i].startswith("STOP")
+                        for i in range(shut[0], min(shut[0] + 4, len(body))))
+    assert any(line.startswith("FAIL") for line in body), body
+
+
+def test_the_day_is_a_timer_of_a_day_and_the_row_has_a_name():
+    """It is in the catalogue as a DAILY errand, off until the operator says otherwise."""
+    import json
+
+    from panel import timers as timersmod
+
+    entry = next(t for t in timersmod.DEFAULT_TIMERS
+                 if t.name == "attack_codename_daily")
+    assert entry.scenario == ("attack_codename_daily",)
+    assert entry.interval_sec == 24 * 3600
+    assert not entry.enabled, "an errand that marches must not ship switched on"
+    # A retry well short of the period: a run fails because a squad is out, and a squad
+    # comes home in minutes. Waiting a day would lose the day.
+    assert 0 < entry.retry_sec < entry.interval_sec / 10
+    assert entry.label_key == "timers.item.attack_codename_daily"
+    english = json.loads(
+        (Path(i18nmod.LOCALES_DIR) / "en.json").read_text(encoding="utf-8"))
+    assert entry.label_key in english
+    # The built-in list is the only copy that ships: `profiles/` is the machine's own
+    # tree and is not in the repository, so an errand that lived only in the local
+    # template would exist on the machine that wrote it and nowhere else. Being here is
+    # what makes an already-configured profile adopt it, switched off
+    # (`timers.adopt_new_errands`).
+    assert timersmod.DEFAULT_TIMERS.index(entry) >= 0
+
+
 def test_both_tabs_name_the_same_two_scenarios():
     """«Чеклист» draws this event too, and repeats the names rather than importing."""
     from panel.tabs.checklist import model as checklist
@@ -276,6 +363,8 @@ def _tab(raw=SHUT, plays=True):
     tab._body = None
     tab._status = None
     tab._attack_button = None
+    tab._daily_button = None
+    tab._sent_key = None
     return tab
 
 
@@ -325,13 +414,18 @@ def test_the_phone_is_offered_the_attack_only_while_the_event_is_running():
     shut = _tab(SHUT)
     assert not [a for c in shut.web_view()["cards"] for a in c.get("actions") or ()]
     assert shut.web_press("attack_codename", {}) == {"error": "closed"}
+    assert shut.web_press("daily_codename", {}) == {"error": "closed"}
     assert shut.rt.played == [], "a press reached the game with the event shut"
 
     live = _tab(OPEN)
     ids = [a["id"] for c in live.web_view()["cards"] for a in c.get("actions") or ()]
-    assert ids == ["attack_codename"]
+    assert ids == ["attack_codename", "daily_codename"]
     assert live.web_press("attack_codename", {}) == {"ok": True}
     assert live.rt.played == [modelmod.CODENAME_ATTACK]
+
+    day = _tab(OPEN)
+    assert day.web_press("daily_codename", {}) == {"ok": True}
+    assert day.rt.played == [modelmod.CODENAME_DAILY]
 
 
 def test_a_closed_event_still_has_its_card_on_the_phone():

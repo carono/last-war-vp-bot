@@ -6470,6 +6470,24 @@ def codename_attacks_needed() -> str:
             % _CODENAME_MGR)
 
 
+def codename_attacks_left() -> str:
+    """Lua *expression* -> how many of the day's attacks are still owed, or nil.
+
+    `needed - made`, floored at zero, and nil when either half could not be read — the
+    same three-way answer every other reading here gives, because «none left» and
+    «nobody knows» are different states and a caller that conflates them either skips a
+    day's reward or marches at a client that cannot answer.
+
+    One copy of the arithmetic, spelled here rather than in each caller: the «События»
+    board draws it, `read_codename_event.md` reports it and `attack_codename_daily.md`
+    loops on it, and a board that said two while the loop believed three would be worse
+    than no number at all.
+    """
+    return ("(function() local a = %s local n = %s if a == nil or n == nil then "
+            "return nil end local l = n - a if l < 0 then l = 0 end return l end)()"
+            % (codename_attacks_made(), codename_attacks_needed()))
+
+
 def codename_max_damage() -> str:
     """Lua *expression* -> the biggest single hit landed on the boss.
 

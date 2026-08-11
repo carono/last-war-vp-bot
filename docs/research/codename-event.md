@@ -188,12 +188,47 @@ marching, gathering, standing in a rally or wiped cannot be sent.
 
 ---
 
+## The day's worth of it, on a clock (#1308)
+
+The single attack above is what a person presses. The day owes `rewardMaxTimes` of them
+— three, out of the event's own config — and a timer set to the single attack would send
+one march a day and earn a third of the reward for ever. So the day's run is its own
+recipe, `attack_codename_daily.md`, and the errand `attack_codename_daily` in the timer
+catalogue plays it once every 86 400 s.
+
+**How many is asked, never written down.** The count `actBossTransTimes` is the SERVER's
+and it counts attacks made from anywhere — this panel, the phone, or the person playing
+on the screen. So the run reads `needed - made` before it sends and again after each
+send, and stops when the answer is zero. A day the person has already played by hand
+costs nothing; a day nobody touched costs three marches. The arithmetic has one copy,
+`lua_actions.codename_attacks_left()`, shared by the board, the reading and the loop —
+a panel saying «one left» while the loop believed «three» would be worse than no number.
+
+**Every march is `CALL attack_codename_boss`**, so the boss, the free squad and the proof
+that the count moved keep exactly one definition.
+
+**The three endings, and why the clock reads them differently.** Sunday and a day already
+played both `STOP` — a deliberate success. A failure there would sit out the retry hold
+and try again every retry period until midnight over a state that cannot change, which is
+ninety-odd logged failures for nothing. A day that still owes attacks and could not send
+one `FAIL`s: no squad standing in the base, the boss not in the list yet, the client no
+longer talking to the server. Those mend themselves in minutes — usually because the
+squad this errand itself just sent is on its way home — so `retry_sec` is 900 s and the
+next attempt re-asks the count and sends only what is STILL owed, never the three again.
+
+`interval_sec` is a day because a day's reward is the thing being spent and there is one
+of it; `retry_sec` is what actually finishes a day, in two or three short goes.
+
+---
+
 ## Where it lives
 
 | | |
 |---|---|
 | the reading | `src/lastwar_bot/actions/read_codename_event.md` — one round trip, one line of `key=value` |
 | the attack | `src/lastwar_bot/actions/attack_codename_boss.md` — one attack, one squad |
+| the day's worth | `src/lastwar_bot/actions/attack_codename_daily.md` — as many as the day still owes |
+| the clock | `panel/timers.py`, the errand `attack_codename_daily` — a day, retried in 15 min |
 | the presses | `tools/lib/game_buttons.py`, `codename_*` |
 | the Lua | `tools/lib/lua_actions.py`, `codename_*` |
 | the tab | `panel/tabs/events/` — «События», first group |
@@ -217,6 +252,10 @@ moved for each — `1 → 2` on the first headless send, and `3 → 4` on a full
 for any of them. The recipe's failure path was proven too, and by accident: it reported
 «the count did not move» over an attack that had gone out, which is how the ask-on-every-
 poll rule above was found.
+
+**Not yet proven live: the day's run on a clock (#1308).** Its parts are each proven —
+the ask, the count, the send — and the recipe adds only the loop around them and the
+three endings. Until it has finished a real day it stays 🟡 in `docs/farming.md`.
 
 **Not established:** whether the daily ranking reads `maxDamage` or some per-day number
 kept elsewhere. `maxDamage` did not move across four attacks because none of them beat

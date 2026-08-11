@@ -34,6 +34,14 @@ CODENAME_VARIABLE = "codename"
 #: The scenario one press of «Атаковать сейчас» plays. One attack, one squad.
 CODENAME_ATTACK = "attack_codename_boss"
 
+#: …and the whole day's worth, which the clock plays once a day and this tab offers as a
+#: second press. It asks the server how many attacks the day still owes and sends only
+#: those, so pressing it after two by hand costs one march and pressing it twice costs
+#: nothing the second time. The single attack above is kept beside it on purpose: a
+#: better ranking is bought by attacking MORE than the day owes, and that is a decision
+#: the person makes one march at a time.
+CODENAME_DAILY = "attack_codename_daily"
+
 # -- the three states an event can be in ------------------------------------
 OPEN = "open"
 CLOSED = "closed"

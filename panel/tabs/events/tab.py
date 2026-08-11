@@ -25,10 +25,15 @@ trip, one line of `key=value` pairs — the panel assembles no Lua and holds no 
 (`CLAUDE.md`). It is re-read when the tab is first opened, every few minutes while it is
 open, and whenever the person presses «Обновить».
 
-**The one press here plays a scenario and nothing else.** «Атаковать сейчас» runs
+**Both presses here play a scenario and nothing else.** «Атаковать сейчас» runs
 `actions/attack_codename_boss.md`, which finds the boss, finds a squad standing in the
-base and sends it. Whether the attack COUNTED is then re-read from the game, never
-inferred from the press returning cleanly.
+base and sends it. «Выполнить дневную норму» runs `actions/attack_codename_daily.md` —
+the same attack, repeated until the day owes no more — and is the very errand the clock
+plays once a day (`timers.item.attack_codename_daily`), offered here because a person who
+has just sat down wants it now rather than at the top of the next period. HOW MANY is the
+scenario's question to the server and never a number this tab keeps, so the day's press is
+safe to lean on: on a day already played it sends nothing. Whether an attack COUNTED is
+then re-read from the game, never inferred from the press returning cleanly.
 
 That is the rule both boards share: **the state is read, the doing is offered.** A press
 may start work; only a reading may say it is done. «Чеклист» draws the same press on its
@@ -93,6 +98,10 @@ class EventsTab(PanelTab):
         self._body = None
         self._status = None
         self._attack_button = None
+        self._daily_button = None
+        #: Which of the two presses is on its way, so the sentence that comes back names
+        #: the right one. `None` while nothing is running.
+        self._sent_key = None
 
     # -- the tab ------------------------------------------------------------
     def build(self) -> None:
@@ -189,7 +198,7 @@ class EventsTab(PanelTab):
         self._busy = False
         self._render()
 
-    # -- the one press ------------------------------------------------------
+    # -- the two presses ----------------------------------------------------
     def attack(self) -> bool:
         """Send a squad at the «Кодовое имя» boss. One attack, one press.
 
@@ -198,15 +207,37 @@ class EventsTab(PanelTab):
         the board afterwards; whether the attack counted is the game's answer, not this
         button's.
         """
+        return self._play(modelmod.CODENAME_ATTACK, "events.codename.log.sent")
+
+    def daily(self) -> bool:
+        """Make the day's attacks — as many as the day still owes, and no more.
+
+        The clock's errand, offered here as a press because a person who has just come
+        back to the machine wants it NOW rather than at the top of the next period. What
+        «the day still owes» means is the scenario's business
+        (`actions/attack_codename_daily.md`): it asks the server what has already been
+        made, from whatever hand made it, and sends only the difference — so this press
+        is safe to lean on and does nothing at all on a day already played.
+        """
+        return self._play(modelmod.CODENAME_DAILY, "events.codename.log.daily")
+
+    def _play(self, scenario: str, sent_key: str) -> bool:
+        """Start one of the two, with the sentence its finish will be reported in.
+
+        One press at a time, whichever it is: both drive the same client at the same
+        boss, and two at once would be two runs racing for the same free squad.
+        """
         if self._attacking:
             return False
         self._attacking = True
+        self._sent_key = sent_key
         self._paint_attack_button()
         started = self.rt.play_async(
-            modelmod.CODENAME_ATTACK, tag="events",
+            scenario, tag="events",
             on_result=self._attack_back, on_done=self._attack_done)
         if not started:
             self._attacking = False
+            self._sent_key = None
             self._paint_attack_button()
             self.say("events", "events.codename.log.busy")
         return started
@@ -214,13 +245,14 @@ class EventsTab(PanelTab):
     def _attack_back(self, outcome) -> None:
         """Say what came of it — the scenario's own words, never a guess of ours."""
         if outcome is not None and getattr(outcome, "ok", False):
-            self.say("events", "events.codename.log.sent")
+            self.say("events", self._sent_key or "events.codename.log.sent")
         else:
             self.say("events", "events.codename.log.failed",
                      error=(getattr(outcome, "reason", "") or "?"))
 
     def _attack_done(self) -> None:
         self._attacking = False
+        self._sent_key = None
         self._paint_attack_button()
         #: Re-read rather than counting the press: the count that matters is the
         #: server's, and it is the only thing that says an attack really went out.
@@ -235,6 +267,7 @@ class EventsTab(PanelTab):
         if self._body is None:
             return
         self._attack_button = None
+        self._daily_button = None
         for child in list(self._body.winfo_children()):
             child.destroy()
         for group in modelmod.GROUPS:
@@ -264,13 +297,24 @@ class EventsTab(PanelTab):
             self._row(rows, "events.codename.until", modelmod.hhmm(state.seconds), grey)
 
         press = ttk.Frame(self._body)
-        press.pack(fill="x", padx=28, pady=(4, 6))
+        press.pack(fill="x", padx=28, pady=(4, 2))
         self._attack_button = self.tr(ttk.Button(press, command=self.attack),
                                       "events.codename.attack")
         self._attack_button.pack(side="left")
-        self._paint_attack_button()
         self.tr(ttk.Label(press, foreground=_GREY),
                 "events.codename.attack.hint").pack(side="left", padx=(10, 0))
+
+        # …and the day's worth, the same errand the clock plays once a day. Beside the
+        # single attack rather than instead of it: the day's three earn the reward, and
+        # anything past them buys a better damage ranking one march at a time.
+        daily = ttk.Frame(self._body)
+        daily.pack(fill="x", padx=28, pady=(0, 6))
+        self._daily_button = self.tr(ttk.Button(daily, command=self.daily),
+                                     "events.codename.daily")
+        self._daily_button.pack(side="left")
+        self.tr(ttk.Label(daily, foreground=_GREY),
+                "events.codename.daily.hint").pack(side="left", padx=(10, 0))
+        self._paint_attack_button()
 
     def _row(self, parent, label_key: str, value: str, grey: str) -> None:
         frame = ttk.Frame(parent)
@@ -283,12 +327,17 @@ class EventsTab(PanelTab):
                                                      padx=(8, 8))
 
     def _paint_attack_button(self) -> None:
-        """Dead while an attack is on its way, and while the event is known to be shut."""
-        if self._attack_button is None:
-            return
+        """Both presses: dead while one is on its way, and while the event is shut.
+
+        The same gate for the two of them — the day's errand cannot send an attack the
+        single press cannot send either, and a button that looks alive on a Sunday only
+        buys the person a failure to read.
+        """
         try:
             alive = self.codename().can_attack and not self._attacking
-            self._attack_button.configure(state=("normal" if alive else "disabled"))
+            for button in (self._attack_button, self._daily_button):
+                if button is not None:
+                    button.configure(state=("normal" if alive else "disabled"))
         except tk.TclError:                 # the window is going away
             pass
 
@@ -338,9 +387,13 @@ class EventsTab(PanelTab):
         card = {"title": "events.group." + modelmod.CODENAME, "rows": rows}
         if state.can_attack and not self._attacking:
             card["actions"] = [{"id": "attack_codename",
-                                "label": "events.codename.attack"}]
+                                "label": "events.codename.attack"},
+                               {"id": "daily_codename",
+                                "label": "events.codename.daily"}]
         else:
             card["items"] = [{"label": "events.codename.attack",
+                              "pill": "events.codename.attack.off"},
+                             {"label": "events.codename.daily",
                               "pill": "events.codename.attack.off"}]
         return {"cards": [
             {"title": None, "rows": [
@@ -352,11 +405,11 @@ class EventsTab(PanelTab):
             "actions": [{"id": "refresh", "label": "events.refresh"}]}
 
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить» and «Атаковать сейчас» — the same two the window has."""
+        """The same three presses the window has, and nothing the window has not."""
         if action == "refresh":
             return {"ok": self.refresh()}
-        if action == "attack_codename":
+        if action in ("attack_codename", "daily_codename"):
             if not self.codename().can_attack:
                 return {"error": "closed"}
-            return {"ok": self.attack()}
+            return {"ok": self.attack() if action == "attack_codename" else self.daily()}
         return {"error": "unknown"}
