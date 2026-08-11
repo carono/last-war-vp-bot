@@ -28,10 +28,11 @@ WHAT SURVIVES IT, which is what makes this safe to hand to a phone:
   (panel/runtime/workspace.py). The command line is repeated as it was, too
   (`updates.relaunch`), so a `--profile` still names the page that comes up first.
 * **the address the person is holding.** The web server's port and token are the
-  profile's own knobs, saved with everything else, and the tab that binds it is EAGER
-  (panel/tabs/web.py) — so the new panel comes up on the same socket with the same
-  token, and the browser's cookie is still the right one. The page says «нет связи» for
-  as long as the boot takes and comes back by itself on the next poll.
+  PANEL's own knobs, in `profiles/settings.json`, and the shell binds the socket while
+  it is building the window (panel/runtime/web_control.py, #1313) — so the new panel
+  comes up on the same socket with the same token, and the browser's cookie is still the
+  right one. The page says «нет связи» for as long as the boot takes and comes back by
+  itself on the next poll.
 * **the game and the daemon.** Separate processes holding a warm Lua VM and a client;
   nothing here touches either, and the new panel attaches to the same daemon.
 

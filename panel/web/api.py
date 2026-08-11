@@ -339,9 +339,10 @@ class WebApi:
             # an account: which version of the bot the window is running, and the press
             # that puts it back on the code that is now on disk
             # (panel/runtime/panel_control.py). Here rather than on a screen of its own
-            # because the «Веб» tab has none by decision (CLAUDE.md, «The three
-            # divergences there are»), and what such a tab genuinely needs on the move
-            # goes on «Состояние». Empty `controls` in a process that is not a panel —
+            # because the remote control's own settings have none by decision
+            # (CLAUDE.md, «The divergences there are»), and what such a corner of the
+            # panel genuinely needs on the move goes on «Состояние». Empty `controls`
+            # in a process that is not a panel —
             # a tab launched on its own answers this route too.
             # `version` is the RELEASE this checkout is on, with the `+N-dev` mark when
             # it sits between two of them (#1274) — the same string the window draws,

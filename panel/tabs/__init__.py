@@ -174,7 +174,11 @@ TABS: tuple = (
     TabSpec("timers",    "panel.tabs.timers",    "TimersTab",    order=30),
     TabSpec("settings",  "panel.tabs.settings",  "SettingsTab",  order=40,
             aggregates=True),
-    TabSpec("web",       "panel.tabs.web",       "WebTab",       order=45),
+    # …and no `web` at order 45: the remote control is one server for the whole WINDOW,
+    # so its switch, port and token are a menu entry and a panel-wide block in
+    # `profiles/settings.json` rather than a page inside one account (#1313).
+    # `panel/runtime/web_control.py` owns them; `panel/profile.py::migrate_web_settings`
+    # brought the profiles' copies across and swept the retired id out of their lists.
     TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50,
             in_development=True),
     TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200,

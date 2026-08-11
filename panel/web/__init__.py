@@ -15,12 +15,15 @@ an ability is one `src/lastwar_bot/actions/*.md` scenario and both front-ends pl
     panel/web/api.py       the JSON surface: state, timers, scenarios, log, words
     panel/web/server.py    the socket, the token and the static files
     panel/web/static/      the page itself — no words in it, they come from /api/i18n
-    panel/tabs/web.py      the switch, the address and the token, in the window
+    panel/runtime/web_control.py  the switch, the port and the token — the WINDOW's
+    panel/runtime/web_dialog.py   …and the modal that draws them, off the menu bar
 
-WHO STARTS IT. The «Веб» tab, from the profile's own knobs, which is what makes the
-remote control a per-profile thing like the daemon port: two accounts farming at once
-are two panels' worth of state and two ports. Switch the tab off and there is no server
-— the plugin rule, doing exactly what it says.
+WHO STARTS IT. The shell does, at boot, from the panel-wide block in
+`profiles/settings.json` — because there is ONE server per window and it answers for
+every profile that window has open. It used to be a per-profile tab, which meant a
+window with three accounts open held three copies of one answer and obeyed whichever of
+them switched on first (#1313). Switch it off in menu → «Веб» and there is no server:
+no thread, no socket, nothing listening.
 """
 from __future__ import annotations
 

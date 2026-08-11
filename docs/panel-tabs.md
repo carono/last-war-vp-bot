@@ -79,7 +79,7 @@ All of these are class attributes with defaults, so declare only what is true.
 | `TIMERS` / `TRIGGERS` | Errands the tab brings with it (§3.2). | If it has any; see below. |
 | `EAGER` | Load at boot instead of on first show — and be DRAWN at boot with it. | Only if `ensure_loaded` brings up something that must be RUNNING. |
 | `LAZY` | Is `build()` allowed to wait until somebody looks at the tab? **True by default**; see the section below for what it asks of you. | Never, unless your tab must exist before it is looked at — and then say why beside it. |
-| `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always — and `True` unless it is one of the three that must not (below). |
+| `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always — and `True` unless it is one of the two that must not (below). |
 
 `DEFAULT_ENABLED` is what a profile that has NEVER opened «Настройки → Вкладки»
 behaves by — the code's own constant. A profile that HAS opened that page keeps
@@ -139,7 +139,7 @@ declarations off in one commit; `DEFAULT_ENABLED` then decides what happens next
 every profile that never unticked the tab has it on the following start.
 
 Nothing about this reaches the phone as a control: the mark is set in code and the page
-that lists tabs lives on «Настройки», which is one of the three tabs with no web screen
+that lists tabs lives on «Настройки», which is one of the two tabs with no web screen
 at all, so there is nothing to mirror.
 
 ---
@@ -689,7 +689,7 @@ It fails on a key any shipped locale is missing (in either direction — a key n
 uses any more has to go from all of them at once), and on a translatable literal handed
 to a widget, a menu entry or a dialog anywhere under `panel/`.
 
-The fourth is the phone's copy: that the three exempt tabs still have no screen, that
+The fourth is the phone's copy: that the two exempt tabs still have no screen, that
 every word a screen names is a locale key that exists, that a screen is made of nothing
 the renderer cannot draw, and that a button offered on a screen has a `web_press` that
 answers for it. What it CANNOT check is «one side was edited and the other was not», in
@@ -826,12 +826,21 @@ Three things bound it:
   down it does not exist, and the rule stands. What is forbidden is the silent version:
   shipping one side, deciding alone that the other does not need it, leaving no trace —
   after which nobody can tell an exception from an omission.
-* **Three tabs have no screen, and they are what a legal exception looks like:**
-  `settings`, `web`, `develop` were proposed, argued and agreed, and the reasons are
-  written in `CLAUDE.md`. `tests/test_panel_web_screens.py` fails if one of them grows
-  a screen quietly — and a fourth exception is added the same way: ask, agree, write it
-  in both files, pin it in the test.
-* **A control added to one of those three is covered by its standing exception, not by
+* **Two tabs have no screen, and they are what a legal exception looks like:**
+  `settings` and `develop` were proposed, argued and agreed, and the reasons are written
+  in `CLAUDE.md`. `tests/test_panel_web_screens.py` fails if one of them grows a screen
+  quietly — and a third exception is added the same way: ask, agree, write it in both
+  files, pin it in the test.
+* **There were THREE, and «Веб» is now a MENU ENTRY rather than a tab (#1313).** The
+  divergence did not change — the door the person came in through is still not opened
+  from the far side of it — but its subject did: one server answers for every open
+  profile, so the port, the token and the certificate are the WINDOW's and live in the
+  panel-wide `profiles/settings.json`. `panel/runtime/web_control.py` owns them,
+  `panel/runtime/web_dialog.py` draws them off the menu bar, and the same test pins
+  both halves: no `web` tab in the registry, and no route in `panel/web/api.py` that
+  can reach the setting. Anything else a screenless corner of the panel needs on the
+  move goes the way «⟳ Перезапустить панель» did — onto «Состояние» as a press.
+* **A control added to one of those two is covered by its standing exception, not by
   a new one** — but say so where you add it, or the next reader cannot tell. «Обновлять
   до dev-версии» on «Разработка» (#1274) is the worked example: the tick exists only in
   the window, and what the phone gets instead is the CONSEQUENCE of it — the version on

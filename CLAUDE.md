@@ -168,9 +168,9 @@ yourself that the other does not need it, and leaving no trace of the decision. 
 there is no way to tell an exception from an omission — and six months on, neither is
 there any way to tell which side is the truth.
 
-The three tabs below are exactly what a legal divergence looks like: discussed,
-justified, written into both files, and pinned by a test. Any future one is expected to
-look the same.
+The divergences below are exactly what a legal one looks like: discussed, justified,
+written into both files, and pinned by a test. Any future one is expected to look the
+same.
 
 ### What that looks like
 
@@ -221,29 +221,44 @@ scenario, then the button appears in the web. A second copy of a hand-driven pre
 reachable from outside the house, is not an improvement — it is the same debt in two
 places.
 
-### The three divergences there are, and how they got there
+### The divergences there are, and how they got there
 
 They are the model for the paragraph above: each was **proposed, argued and agreed with
 the person**, and then written down here — not decided in passing by whoever was in the
 file at the time.
 
 `settings` — paths, interpreters and ports: breaking a profile with one thumb is easier
-than fixing it from a bus. `web` — the door the person came in through; managing it from
-the far side is how somebody locks themselves out. `develop` — two sniffers for working
-on the bot itself, switched off even in the window.
+than fixing it from a bus. `develop` — two sniffers for working on the bot itself,
+switched off even in the window. Both declare `WEB_SCREEN = False`,
+`tests/test_panel_web_screens.py` fails if one of them quietly grows a screen, and what
+those two genuinely need on the move goes on «Состояние» as a switch rather than as a
+page. A third exception is added the same way: ask, agree, write it in both files, pin
+it in the test.
 
-All three declare `WEB_SCREEN = False`, `tests/test_panel_web_screens.py` fails if one
-of them quietly grows a screen, and what those three genuinely need on the move goes on
-«Состояние» as a switch rather than as a page. A fourth exception is added the same way:
-ask, agree, write it in both files, pin it in the test.
+**THERE WERE THREE, and the third teaches the OTHER lesson (#1313).** «Веб» — the door
+the person came in through; managing it from the far side is how somebody locks
+themselves out — is no longer a tab at all. It never should have been one: there is one
+server per WINDOW and it answers for every profile that window has open, so the port,
+the token and the certificate are the machine's, and a page inside one account held one
+copy of them per account and obeyed whichever profile switched on first. Ask the two
+questions in the order this file gives them («A profile is a whole panel of its own»)
+and the answer was «per machine» all along. So the knobs are a panel-wide block in
+`profiles/settings.json` (`panel/profile.py`), `panel/runtime/web_control.py` turns them
+into the one running server, `panel/runtime/web_dialog.py` draws them off the menu bar
+beside «Профиль», and `panel/profile.py::migrate_web_settings` brought the profiles'
+copies across so nobody's phone stopped signing in. **The divergence itself did not
+change** and the same test pins it from the other side: no `web` tab in the registry,
+and nothing in `panel/web/api.py` that can reach the setting.
 
-**«⟳ Перезапустить панель» is what that looks like in practice** (#1258). Python edits
-reach a running panel only through a fresh interpreter, and the person making them is
-usually holding a phone rather than standing at the machine — so the press went onto
-«Состояние», beside the client's three, and «Веб» still has no page. Both front-ends
-read one table (`panel/runtime/panel_control.py`) exactly as they do for the client's
-lifecycle, both ask the same question first, and the shell registers the one thing that
-can carry it out. Anything else a screenless tab needs on the move goes the same way.
+**«⟳ Перезапустить панель» is what a legal exception looks like in practice** (#1258).
+Python edits reach a running panel only through a fresh interpreter, and the person
+making them is usually holding a phone rather than standing at the machine — so the
+press went onto «Состояние», beside the client's three, and the remote control's own
+settings still have no page. Both front-ends read one table
+(`panel/runtime/panel_control.py`) exactly as they do for the client's lifecycle, both
+ask the same question first, and the shell registers the one thing that can carry it
+out. Anything else a screenless corner of the panel needs on the move goes the same
+way.
 
 ### Definition of done
 

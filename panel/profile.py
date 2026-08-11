@@ -948,6 +948,118 @@ def set_dev_updates(flag: bool) -> None:
     _write_json(SETTINGS_FILE, data)
 
 
+# -- the remote control: panel-wide too, for the same reason (#1313) -------------
+#
+# The web front-end is ONE SERVER PER WINDOW answering for every profile that window has
+# open (`panel/web/api.py`), so the port it binds, the token it accepts and the
+# certificate it serves are facts about the MACHINE and not about an account — the first
+# of the two questions `CLAUDE.md` makes every value answer. They were a profile's knobs
+# while they lived on a tab, which meant a window with three accounts open held three
+# copies of one answer and obeyed whichever profile happened to switch on first.
+#
+# So the block moved here, beside `active_profile` and `open_profiles`, and the tab it
+# used to live on became a menu entry: `panel/runtime/web_control.py` reads and writes
+# it, `panel/runtime/web_dialog.py` draws it.
+
+#: The key in `profiles/settings.json`. A dict of the six knobs; absent means the block
+#: has never been written and :func:`migrate_web_settings` has not run yet.
+WEB_KEY = "web"
+
+#: What a profile's copy of it used to be called, inside that profile's `config.json`.
+#: Read once, by the migration, and by nothing else.
+LEGACY_WEB_TAB = "web"
+
+
+def web_settings() -> dict:
+    """The panel's remote-control knobs — ``{}`` when nobody has set any.
+
+    Nothing is defaulted here: what an unset port or an unset host MEAN belongs to
+    `panel/runtime/web_control.py`, which is also the only thing that starts a server.
+    """
+    block = ProfileManager._read_settings().get(WEB_KEY)
+    return dict(block) if isinstance(block, dict) else {}
+
+
+def set_web_settings(values: dict) -> None:
+    """Remember them for the whole panel. Written even when nothing else is."""
+    data = ProfileManager._read_settings()
+    block = dict(values or {})
+    if data.get(WEB_KEY) == block:
+        return
+    data[WEB_KEY] = block
+    _write_json(SETTINGS_FILE, data)
+
+
+def migrate_web_settings() -> "str | None":
+    """Bring the «Веб» knobs out of the profiles and into the panel-wide file. Once.
+
+    Returns the profile the answer was taken FROM (so the caller can say so in the log),
+    or ``None`` when there was nothing to bring across — a fresh install, or a panel
+    that has already migrated.
+
+    WHICH PROFILE WINS, when several kept their own copy: the one that had the switch
+    ON, because that is the port and the token a phone is holding right now; the first
+    with a token if none is on, so a link that was set up and switched off still works
+    when it is switched back on; the first block there is otherwise. Ties go to the
+    default profile, which is read first — it is the base every other profile layers
+    onto, so it is also the likeliest to be the one somebody configured.
+
+    AND THE LEFTOVERS ARE SWEPT UP. The id `web` is taken out of each profile's
+    `tabs.enabled` / `tabs.known` / `tabs.order` and its `tabs.config.web` block is
+    dropped — otherwise every start would log «this profile names a tab that no longer
+    exists» once per profile, for ever, about a tab nobody removed on purpose.
+    """
+    # ASKED FIRST, and cheaply: this is called on every read of the setting, and after
+    # the first start the answer is one small JSON file rather than a walk of every
+    # profile on disk. The KEY, not its value — an empty block is the recorded answer
+    # «there was nothing to bring across», and re-running would only re-read the same
+    # empty profiles.
+    if WEB_KEY in ProfileManager._read_settings():
+        return None
+    manager = ProfileManager()
+    best, best_rank, source = None, -1, None
+    names = manager.list()
+    ordered = ([DEFAULT_PROFILE] if DEFAULT_PROFILE in names else []) + \
+              [n for n in names if n != DEFAULT_PROFILE]
+    for name in ordered:
+        own = manager._load_own(name)
+        block = (own.get("tabs") or {}).get("config", {}).get(LEGACY_WEB_TAB)
+        if not isinstance(block, dict) or not block:
+            continue
+        rank = 2 if block.get("enabled") else (1 if str(block.get("token") or "") else 0)
+        if rank > best_rank:
+            best, best_rank, source = dict(block), rank, name
+    set_web_settings(best or {})
+    for name in ordered:
+        _sweep_web_leftovers(manager, name)
+    return source
+
+
+def _sweep_web_leftovers(manager: "ProfileManager", name: str) -> None:
+    """Take the retired tab id out of one profile's OWN file. Writes only if it was there.
+
+    The profile's own file, unmerged: a non-default profile that never had a copy of its
+    own must not grow one here, and `save()` would have written the merged answer back
+    as an override.
+    """
+    own = manager._load_own(name)
+    tabs = own.get("tabs")
+    if not isinstance(tabs, dict):
+        return
+    changed = False
+    for key in ("enabled", "known", "order"):
+        listed = tabs.get(key)
+        if isinstance(listed, list) and LEGACY_WEB_TAB in listed:
+            tabs[key] = [t for t in listed if t != LEGACY_WEB_TAB]
+            changed = True
+    config = tabs.get("config")
+    if isinstance(config, dict) and LEGACY_WEB_TAB in config:
+        del config[LEGACY_WEB_TAB]
+        changed = True
+    if changed:
+        _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), own)
+
+
 def update_channel() -> str:
     """The channel name `panel/runtime/updates.py` speaks — `"dev"` or `"release"`.
 

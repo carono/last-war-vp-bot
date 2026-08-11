@@ -49,6 +49,7 @@ from panel.runtime import interrupt as interruptmod  # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
 from panel.runtime import panic as panicmod  # noqa: E402
 from panel.runtime import recovery as recoverymod  # noqa: E402
+from panel.runtime import web_control as webctl  # noqa: E402
 from panel.runtime.log import LogBus       # noqa: E402
 from panel.web import api as apimod        # noqa: E402
 from panel.web import server as webmod     # noqa: E402
@@ -1118,11 +1119,11 @@ def test_the_restart_is_the_windows_and_the_phones_one_press():
     assert "control.confirm" in script and "window.confirm" in script, \
         "the phone would restart the panel on one stray tap"
     html = (_REPO / "panel" / "web" / "static" / "index.html").read_text(encoding="utf-8")
-    # ON «Состояние», not on a screen of its own: the «Веб» tab has none by decision,
-    # and this is where what such a tab needs on the move goes (CLAUDE.md).
+    # ON «Состояние», not on a screen of its own: the remote control's own settings have
+    # none by decision, and this is where what they need on the move goes (CLAUDE.md).
     state_page = html.split('id="view-state"', 1)[1].split("</section>", 1)[0]
     assert 'id="panel-controls"' in state_page, \
-        "the restart left the state screen — the «Веб» tab still has no page of its own"
+        "the restart left the state screen — the remote control still has no page"
 
 
 # ---------------------------------------------------------------------------
@@ -1242,60 +1243,56 @@ def test_the_interrupt_is_the_windows_and_the_phones_one_press():
 
 
 # ---------------------------------------------------------------------------
-# the address the TAB hands out — the other half of the same promise
+# the address the PANEL hands out — the other half of the same promise
 # ---------------------------------------------------------------------------
 #
-# `WebServer.scheme` above is only half of it: the link a person taps is written by the
-# tab, and the tab spelt `http://` into it whatever the server was doing. A TLS-only
-# server reached over `http://` answers nothing a phone can explain, which is the exact
-# failure the scheme exists to prevent — so the tab is pinned here too, with no display:
-# `_scheme` and `_address` read four things, and a stand-in can hold all four.
-class _Var:
-    """As much of a Tk variable as the address needs — no root, no event loop."""
+# `WebServer.scheme` above is only half of it: the link a person taps is written beside
+# the switch, and it used to spell `http://` into it whatever the server was doing. A
+# TLS-only server reached over `http://` answers nothing a phone can explain, which is
+# the exact failure the scheme exists to prevent.
+#
+# Since #1313 the switch is a menu entry rather than a tab and the knobs are the
+# WINDOW's, so what is pinned here is `panel/runtime/web_control.py` — with no display
+# and no settings file: `scheme` and `address` read the saved block and the bound
+# socket, and a stand-in can be both.
 
-    def __init__(self, value: str = "") -> None:
-        self._value = value
-
-    def get(self) -> str:
-        return self._value
-
-
-def _tab(server=None, cert: str = "", token: str = "tok", port: int = 9761):
-    from panel.tabs.web import WebTab
-    stub = types.SimpleNamespace(_server=server, _cert=_Var(cert), _token=_Var(token))
-    stub._serving = lambda: server
-    stub._port_number = lambda: port
-    stub._scheme = types.MethodType(WebTab._scheme, stub)
-    stub._address = types.MethodType(WebTab._address, stub)
-    return stub
+def _link(server=None, cert: str = "", token: str = "tok", port: int = 9761) -> str:
+    """`web_control.address()` over a made-up setting and a made-up socket."""
+    values = dict(webctl.defaults(), token=token, cert=cert, port=str(port))
+    saved = (webctl.settings, webctl.serving)
+    webctl.settings, webctl.serving = (lambda: dict(values)), (lambda: server)
+    try:
+        return webctl.address()
+    finally:
+        webctl.settings, webctl.serving = saved
 
 
-def test_the_link_on_the_tab_is_plain_http_until_a_certificate_is_named():
-    assert _tab()._address() == "http://%s:9761/?token=tok" % webmod.addresses()[0]
+def test_the_link_the_panel_shows_is_plain_http_until_a_certificate_is_named():
+    assert _link() == "http://%s:9761/?token=tok" % webmod.addresses()[0]
 
 
 def test_the_link_follows_the_certificate_of_the_server_that_is_serving():
-    """The certificate that decides the scheme belongs to the socket, not to the tab.
+    """The certificate that decides the scheme belongs to the socket, not to the field.
 
-    A sibling profile's server is the one a phone will meet (§3.1), so its certificate
-    is what the link must agree with — including when this profile named none.
+    The socket that is bound is the one a phone will meet, so its certificate is what
+    the link must agree with — including when the saved block names none.
     """
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
         tls = webmod.WebServer(rt, port=9999, token="theirs", api=api,
                                certfile="cert.pem")
-        link = _tab(server=tls)._address()
+        link = _link(server=tls)
         assert link.startswith("https://"), link
         assert link.endswith(":9999/?token=theirs"), link
-        # …and the other way round: this profile's certificate does not make a
-        # sibling's plain-HTTP socket into a TLS one.
+        # …and the other way round: a certificate named in the setting does not make a
+        # plain-HTTP socket into a TLS one.
         plain = webmod.WebServer(rt, port=9999, token="theirs", api=api)
-        assert _tab(server=plain, cert="cert.pem")._address().startswith("http://")
+        assert _link(server=plain, cert="cert.pem").startswith("http://")
 
 
-def test_with_nothing_bound_the_tab_answers_from_its_own_field():
-    """Before the switch goes on there is no socket to ask, and the field is all there is."""
-    assert _tab(cert="cert.pem")._address().startswith("https://")
+def test_with_nothing_bound_the_panel_answers_from_the_saved_setting():
+    """Before the switch goes on there is no socket to ask, and the block is all there is."""
+    assert _link(cert="cert.pem").startswith("https://")
 
 
 # ---------------------------------------------------------------------------
@@ -1647,12 +1644,23 @@ def test_the_timers_tab_offers_the_hook_the_web_presses():
         "the tab's boxes will overwrite")
 
 
-def test_the_tab_is_in_the_registry_and_names_the_same_key():
+def test_the_remote_control_belongs_to_the_window_and_not_to_a_profile():
+    """It is a menu entry and a panel-wide block, and there is no tab left (#1313).
+
+    One server answers for every open profile, so one copy of the port, the token and
+    the certificate is the whole point: a `web` tab would be a page inside one account
+    holding a setting that belongs to the machine, which is what this replaced.
+    """
     from panel import tabs as tabsreg
 
-    spec = tabsreg.BY_ID.get("web")
-    assert spec is not None, "the «Веб» tab is not registered"
-    assert spec.title_key == "tab.web"
+    assert "web" not in tabsreg.BY_ID, (
+        "the «Веб» tab is back in the registry — the remote control's knobs are the "
+        "window's, and a per-profile page for them is the mistake #1313 undid")
+    shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert 'label=self._t("menu.web")' in shell, "no «Веб» entry in the menu bar"
+    assert "webctl.apply(" in shell, (
+        "nothing starts the remote control at boot — it exists to be reachable "
+        "without anybody opening its dialog")
 
 
 def _main() -> int:

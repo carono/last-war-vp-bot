@@ -22,7 +22,8 @@ that window has open — serving a single page:
 panel/web/api.py        the JSON surface — state, timers, scenarios, log, words
 panel/web/server.py     the socket, the token, the static files
 panel/web/static/       index.html · app.js · style.css — the page itself
-panel/tabs/web.py       «Веб»: the switch, the address, the token
+panel/runtime/web_control.py  the switch, the port and the token — the WINDOW's
+panel/runtime/web_dialog.py   …and the modal that draws them, off the menu bar
 ```
 
 The page has four screens of its own: **state** (is the client on the line, is the daemon
@@ -37,12 +38,13 @@ Everything past those four comes from the TABS, which hand the phone their own s
 (§3.9) — the profile and its resources, the accounts, the alliance, the heroes, the
 inventory, the chat, the rallies and where the squads are, the starred secret tiles with
 their countdowns, the command post's three pages, today's duel plan, the statistics.
-Three tabs deliberately have none: «Настройки», «Веб» and «Develop».
+Two tabs deliberately have none: «Настройки» and «Develop». There were three until
+#1313, when «Веб» stopped being a tab at all — see §4.
 
 Default port **9761** — and the number lives in `tools/lib/game_paths.py` like every
 other value that has a different answer on a different machine. Three layers: the
-profile's own knob wins, `LW_WEB_PORT` is the machine's answer, 9761 is everybody's. Off
-until somebody switches it on.
+PANEL's own knob wins (menu → «Веб»), `LW_WEB_PORT` is the machine's answer, 9761 is
+everybody's. Off until somebody switches it on.
 
 ## 2. Why it is not a bot, and cannot become one
 
@@ -276,12 +278,20 @@ duel plan and the statistics.
 
 The tabs that do NOT, on purpose, and the reason each was argued rather than assumed:
 «Настройки» is paths, interpreters and ports — breaking a profile with one thumb is
-easier than fixing it from a bus; «Веб» is the door the person came in through, and
-managing it from the far side is how somebody locks themselves out; «Develop» is two
-sniffers for working on the bot itself, off even in the window. That is the whole list,
-a fourth is added the same way (ask, agree, write it in `CLAUDE.md` and
-`docs/panel-tabs.md`, pin it in the test), and the test fails if one of the three quietly
-grows a screen.
+easier than fixing it from a bus; «Develop» is two sniffers for working on the bot
+itself, off even in the window. That is the whole list, a third is added the same way
+(ask, agree, write it in `CLAUDE.md` and `docs/panel-tabs.md`, pin it in the test), and
+the test fails if one of the two quietly grows a screen.
+
+**The third was «Веб» itself, and it is now a MENU ENTRY rather than a tab (#1313).**
+The reason for the divergence is unchanged — it is the door the person came in through,
+and managing it from the far side is how somebody locks themselves out. What changed is
+where the knobs live: one server answers for every open profile, so its port, its token
+and its certificate belong to the WINDOW, and a page inside one account held one copy of
+them per account. They are a panel-wide block in `profiles/settings.json` now, with a
+one-time migration out of the profiles that had them, and the same test pins the
+divergence from the other side: no `web` tab in the registry, and no route in
+`panel/web/api.py` that can reach the setting.
 
 Where a tab still drives the game by hand rather than through a scenario — or half by
 hand: the secret-task and ghost robberies press through a scenario now, but still spawn a
@@ -361,12 +371,12 @@ the press existed in exactly one place: a button that appeared only *after* a su
 update, in the window. The one action that applies a change to a running panel was
 hidden behind the one path that had not been taken.
 
-**Why it is on «Состояние» and not on a screen of its own.** «Веб» is one of the three
-tabs that deliberately have no phone screen (`CLAUDE.md`, «The three divergences there
-are»): it is the door the person came in through, and managing that door from the far
-side is how somebody locks themselves out. The rule that goes with that exception is
-that what such a tab genuinely needs on the move goes onto «Состояние» as an element
-rather than becoming a page — and a restart is exactly that. `tests/test_panel_web.py`
+**Why it is on «Состояние» and not on a screen of its own.** The remote control's own
+settings deliberately have no phone screen (`CLAUDE.md`, «The divergences there are»):
+they are the door the person came in through, and managing that door from the far side
+is how somebody locks themselves out. The rule that goes with that exception is that
+what such a corner of the panel genuinely needs on the move goes onto «Состояние» as an
+element rather than becoming a page — and a restart is exactly that. `tests/test_panel_web.py`
 fails if the button leaves the state screen.
 
 **The table again, for the same reason as §3.10.** `panel/runtime/panel_control.py`
@@ -413,17 +423,14 @@ from «упало» — which is precisely the state a remote control must never
   a way to break a profile with one thumb.
 * **A QR code for the link.** Would need a generator or a dependency; the address is
   short and the token is twelve characters.
-* **Accounts and passwords.** One token per profile, regenerable. There is one person.
+* **Accounts and passwords.** One token per panel, regenerable. There is one person.
 
 ## 5. Trying it
 
-```
-python -m panel.tabs.web --profile main
-```
-
-opens the tab on its own: tick the switch, and the address it shows is the one to open on
-a phone that is on the same network. In the panel it is «Веб», between «Настройки» and
-«Чат».
+Menu → «Веб»: tick the switch, and the address it shows is the one to open on a phone
+that is on the same network. It sits beside «Профиль» in the menu bar because it is the
+same kind of thing — one answer for the whole window, touched twice a month — and there
+is no tab to open on its own any more.
 
 ```
 C:\Python312\python.exe tests\test_panel_web.py

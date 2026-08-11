@@ -155,8 +155,8 @@ def panel_logger(component: str = "panel") -> logging.Logger:
     """The debug logger for something that belongs to the window, not to a profile.
 
     Configures the window's own file on first use rather than waiting to be wired by
-    the shell: the one caller is a server that a tab can also start on its own
-    (`python -m panel.tabs.web`), and a sealed scope with no handler drops its records
+    the shell: the one caller is a server a test can also start on its own
+    (`panel/web/server.py`), and a sealed scope with no handler drops its records
     silently. Idempotent — :func:`configure` never stacks two handlers.
     """
     global _panel_ready                                # noqa: PLW0603 — one file, once

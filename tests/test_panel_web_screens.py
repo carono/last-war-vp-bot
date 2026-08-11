@@ -83,17 +83,36 @@ def _keys_in(view: dict) -> list:
 
 # ---------------------------------------------------------------------------
 def test_the_tabs_that_offer_a_screen_are_the_ones_that_should():
-    """Three tabs say no on purpose, and it is a decision rather than an oversight.
+    """Two tabs say no on purpose, and it is a decision rather than an oversight.
 
     «Настройки» is paths, interpreters and ports — breaking a profile with one thumb is
-    easier than fixing it from a bus. «Веб» is the door the person came in through.
-    «Develop» is two sniffers for working on the bot itself.
+    easier than fixing it from a bus. «Develop» is two sniffers for working on the bot
+    itself. There were THREE until #1313: «Веб» was the third, and it is now a menu
+    entry rather than a tab — see the test below, which is where its half of this
+    decision went.
     """
     offered = {tab_id for tab_id, _cls in _tabs_with_screens()}
-    for never in ("settings", "web", "develop"):
+    for never in ("settings", "develop"):
         assert never not in offered, (
             f"«{never}» offers a phone screen — that was decided against "
             f"(docs/research/panel-web.md §4)")
+
+
+def test_the_remote_controls_own_settings_are_reachable_from_the_window_only():
+    """The door the person came in through is not opened from the far side (#1313).
+
+    The knobs moved off a tab and onto the menu bar, because one server answers for
+    every open profile and its port, token and certificate are the WINDOW's. What did
+    not change is the divergence: locking yourself out with one thumb is easier than
+    walking back to the machine to undo it. So there is no `web` tab to grow a screen,
+    and the API has no route of its own for any of this.
+    """
+    assert "web" not in {spec.id for spec in tabsreg.TABS}, (
+        "the «Веб» tab is back — its settings belong to the window (#1313)")
+    api = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
+    assert "web_control" not in api, (
+        "the API reaches the remote control's own settings — a phone that can move the "
+        "port or the token is a phone that can lock the person out of the panel")
 
 
 def test_every_screen_is_made_of_keys_and_data_and_never_of_sentences():

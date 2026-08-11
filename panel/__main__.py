@@ -106,6 +106,8 @@ from .runtime import health as healthmod
 from .runtime import interrupt as interruptmod
 from .runtime import panel_control as panelctl
 from .runtime import panic as panicmod
+from .runtime import web_control as webctl
+from .runtime import web_dialog as webdlg
 
 import game_link
 from . import dashboard as dashmod
@@ -557,6 +559,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # panel before #1206 that is exactly one, the profile the saved pointer names,
         # and `--profile` overrides which page is on top (creating it if it is new).
         profiles = profilemod.ProfileManager()
+        # BEFORE ANY SESSION READS ITS CONFIG, because the remote control's knobs are
+        # coming OUT of the profiles and into the panel-wide file (#1313), and a session
+        # already holding the old file in its widgets would write the retired block
+        # straight back on its next save. Once per installation; a no-op ever after.
+        moved = profilemod.migrate_web_settings()
         # BEFORE ANY SESSION IS BUILT, because a session reads its port on the way up and
         # a link built on the wrong one drives the wrong client for the rest of the run
         # (#1224). Only the half that needs nothing asked — see `_sort_out_clients`.
@@ -580,6 +587,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         for key, fmt in self._held_notes:
             self._say("profile", key, **fmt)
         self._held_notes = []
+        # …and, once in the life of an installation, whose «Веб» knobs became the
+        # panel's (#1313). Said rather than done silently: the port and the token that
+        # a phone is holding moved house, and the person is entitled to know which of
+        # their profiles the surviving answer came from.
+        if moved:
+            self._say("web", "log.web.migrated", name=moved)
         # …and which folders in `profiles/` are NOT accounts, said rather than skipped
         # (#1306). A profile is a directory with a `config.json`, and a directory
         # without one is passed over — which is indistinguishable from «there was
@@ -628,6 +641,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # are open and which tabs each has, so it says how, and the phone only asks
         # whether anybody can (panel/runtime/panic.py).
         panicmod.set_handler(self._resume)
+        # THE REMOTE CONTROL COMES UP WITH THE WINDOW, because what it is FOR is being
+        # reachable: one that only started once somebody had opened its dialog would be
+        # a remote control for a person standing at the machine. It is the WINDOW's — one
+        # socket, one token, every open profile behind it — so it is started here and not
+        # by whichever profile happens to be showing (#1313).
+        webctl.apply(self._rt)
         # …and the five keys that send a squad (#1283). The listener itself is
         # `panel/runtime/hotkeys.py`; this is only where it is told which profile a
         # press belongs to — the one whose page is showing — because the window is the
@@ -1665,6 +1684,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         menubar.add_command(label=self._t("menu.profile"),
                             command=self._open_profile_dialog)
+        # …and beside it the OTHER thing that belongs to the window rather than to an
+        # account: one server, one port, one token for every profile open here (#1313).
+        menubar.add_command(label=self._t("menu.web"), command=self._open_web_dialog)
         menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
         self.config(menu=menubar)
@@ -1675,6 +1697,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
             except tk.TclError:            # already gone with the window
                 pass
         self._hook(self._build_menu)
+
+    def _open_web_dialog(self) -> None:
+        """Menu → «Веб»: the remote control's switch, port and token, for the window.
+
+        Everything it does is `panel/runtime/web_dialog.py`; the shell only says which
+        profile's log a press should be said in, and that is the one on screen at the
+        moment of the press rather than at the moment the dialog opened.
+        """
+        webdlg.open_dialog(self, lambda: self._rt, self._t)
 
     def _show_about(self) -> None:
         win = tk.Toplevel(self)
@@ -2039,6 +2070,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 pass
         self._paint_outer()
         self._show(self._workspace.current)
+        # The web server keeps ONE runtime as its fallback and its log; if that was the
+        # profile just closed, point it at one that is still open (#1313).
+        webctl.follow(self._workspace)
         self._say("profile", "log.profile.closed", name=name)
 
     def _profile_language(self) -> str | None:
@@ -3017,10 +3051,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # EVERY EAGER TAB, NOW THAT THEY EXIST. `_startup` also walks them, but it runs
         # on a thread of its own that is started while these are still being built one
         # event-loop turn at a time — so a tab built after that walk was silently never
-        # loaded. It cost the «Веб» tab its whole point: the panel came up, the profile
-        # said the remote control was on, and nothing was listening until somebody
-        # clicked the tab (#1221). `ensure_loaded` is idempotent by contract, so the two
-        # walks cost nothing where they overlap.
+        # loaded. It cost the remote control its whole point once: the panel came up,
+        # the setting said it was on, and nothing was listening until somebody clicked
+        # the tab it then lived on (#1221; it is the shell that starts it since #1313).
+        # `ensure_loaded` is idempotent by contract, so the two walks cost nothing where
+        # they overlap.
         #
         # AND DRAWN FIRST: what an EAGER tab starts asks its own checkbox whether it is
         # switched on, so «load at boot» has to mean «exists at boot» too (#1215).
@@ -4855,6 +4890,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._stall.stop()
         if getattr(self, "_hotkeys", None) is not None:
             self._hotkeys.stop()          # the keyboard belongs to Windows again
+        # The socket is the WINDOW's, so it is let go here rather than by a tab's
+        # shutdown — and quietly, because the log it would be said in is about to close.
+        webdlg.close_dialog()
+        webctl.stop(quiet=True)
         self._workspace.each(self._close_session)
         self._workspace.shutdown()
         self.destroy()
