@@ -1670,6 +1670,53 @@ def test_the_per_kind_budget_travels_and_shows_its_drift():
         root.destroy()
 
 
+def test_a_kind_over_its_cap_is_said_on_the_tab_and_on_the_phone():
+    """The overspend is drawn on BOTH front-ends, or it is drawn nowhere (#1322).
+
+    A cap that has been passed can only mean the per-kind door did not hold, and the one
+    time it happened the sole trace was «30» beside «20» in a table of sixty-eight rows.
+    So the window says it in a red line under the table and the phone says it as a row,
+    and an ordinary day says nothing on either.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.rally import limits as gate
+
+        # nothing over budget: neither front-end says a word about it
+        gate.over_budget = lambda _rt, counts=None, limits=None: []
+        tab.autorally.paint_counts()
+        assert tab.autorally._over_var.get() == "", tab.autorally._over_var.get()
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert "rally_kind.over" not in rows, rows
+
+        # …and a kind past its cap is a sentence in the window and a row on the phone,
+        # both naming the kind in the game's own words and both carrying the two numbers.
+        gate.over_budget = (lambda _rt, counts=None, limits=None:
+                            [("general_trial_elite", 30, 20)])
+        tab.autorally.paint_counts()
+        line = tab.autorally._over_var.get()
+        assert "30/20" in line, line
+        assert rt.t("rally_limit.type.general_trial_elite") in line, line
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert "rally_kind.over" in rows, rows
+        assert "30/20" in rows["rally_kind.over"], rows
+        assert rt.t("rally_limit.type.general_trial_elite") in rows["rally_kind.over"]
+    finally:
+        root.destroy()
+        import importlib
+
+        importlib.reload(importlib.import_module("panel.tabs.rally.limits"))
+
+
 def test_the_arm_prefers_a_squad_that_can_actually_be_sent():
     """A squad can be at home, idle and EMPTY — and taking it forces the screen (#1238).
 

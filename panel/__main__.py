@@ -5248,8 +5248,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 "max_joins": rallytab.daily_max(self._rt),
                 # …which KINDS of banner to leave alone, and how many of each are left
                 # today (#1317). The filter counts nothing and is exact; the budget is the
-                # panel's own tally, chosen by the person with the drift explained, and it
-                # stands down whenever that tally runs ahead of the game's own count.
+                # panel's own tally, chosen by the person with the drift explained. It is
+                # handed over on EVERY run since #1322 — it used to be withheld whenever
+                # the tally ran ahead of the game's own count, which is the ordinary state
+                # of an account with squads on the road, so the door never once shut.
                 "kind_skip": rallytab.kind_skip(self._rt),
                 "kind_left": rallygate.kind_left(self._rt),
                 # …and HOW MANY SOLDIERS MUST BE HOME for a banner to be worth a squad

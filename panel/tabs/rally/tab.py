@@ -633,6 +633,15 @@ class RallyTab(PanelTab):
         # the two numbers travel together here exactly as they sit together in the window.
         rows.append({"label": "rally_kind.tally",
                      "value": self.autorally.tally_text()})
+        # …AND A KIND THAT HAS GONE PAST ITS CAP, WHICH IS THE DOOR HAVING FAILED (#1322).
+        # The same red line the window draws under the table. It is a row only when there
+        # is something to say: an ordinary day shows nothing here, and the whole point of
+        # the row is that «30 / 20» stopped being two digits in a table of sixty-eight and
+        # became a sentence on the screen the person is actually holding.
+        over = rallylimits.over_budget(self.rt, counts, limits)
+        if over:
+            rows.append({"label": "rally_kind.over",
+                         "value": rallylimits.over_text(self.rt, over)})
         rows += [{"label": "rally_limit.type." + key,
                   # A kind with no cap says so in words rather than as «3/0», which reads
                   # like a budget that has been overspent.

@@ -859,14 +859,46 @@ in those words and chose it — «по умолчанию на всех по 20,
   `rally_counts.json`, never this machine's midnight;
 * **the decision is inside the press**, so two banners of one kind in a single run cannot
   both take the last slot;
-* **the tally is reconciled with the game's own count every time it is used**
-  (`limits.ahead_of_game`): while the panel's sum is AHEAD of `daily_kill_boss`, **no
-  per-kind door refuses anything**. A banner may never be held back by a number the game
-  contradicts — that is exactly the failure #1281 suffered;
 * **the game-counted total ceiling stands over all of it**, so drift cannot cause an
   overspend either;
 * and **both numbers are on screen** — «наш счёт / игра» under the table in the window and
   as a row on the phone — because a tally nobody can check is a tally nobody should trust.
+
+#### The reconciliation that switched the whole door off (#1322)
+
+There was a fifth rule here and it undid the other four: **while the panel's sum ran ahead
+of `daily_kill_boss`, no per-kind door refused anything** (`limits.ahead_of_game`, called
+from `limits.kind_left`). It was written against #1281's failure — a tally twelve ahead of
+the game refusing banners the account was entitled to — and it compares two different
+quantities:
+
+| counter | what one unit of it is |
+| --- | --- |
+| the panel's per-kind tally | a join, the moment the game confirms one more of our squads standing in a rally |
+| `MonsterManager.daily_kill_boss` | a rally that has FINISHED and paid today |
+
+So the panel is ahead by every squad currently on the road, at every hour of every day.
+This file's own note further up measured 320 panel joins against 275 counted by the game;
+live on 2026-08-12 the pair read **52 and 30**, `general_trial_elite` stood at **30 against
+a cap of 20**, and the string `kind_capped=` does not occur ONCE in that day's `panel.log`.
+The only thing that ever stopped the auto-join was the soldier floor.
+
+What the old rule protected against is gone on its own: since #1281's `record_run` a join
+is written down only from `joined`, a difference measured in the client, so being ahead is
+LAG rather than invention. So the reconciliation is now a READING (`ahead_of_game` is kept
+for `day_summary` and the tab's «наш счёт / игра»), and three things make the door
+checkable instead:
+
+* `kind_left` hands the numbers over on every run, whatever the game's count says;
+* the press names the budget it was HANDED for each kind it saw —
+  `kind_budget=[general_trial_elite:2 doom_elite:11]`, and
+  `(the panel handed no per-kind budget at all)` when the string was empty. A door that
+  refused nothing and a door that was never given numbers used to read identically in the
+  log, which is why this lasted a day;
+* a kind that ever gets PAST its cap is the door having failed — the press passes a kind
+  over the moment it has nothing left — so `limits.over_budget` names it in the log
+  (`rally_kind.over_budget`), in red under the table in the window and as a row on the
+  phone.
 
 The two files carry a `v` since #1317, and that version is the only thing that can say
 whether a stored `doom_elite` means the old key (the Doom Walker line) or the species the

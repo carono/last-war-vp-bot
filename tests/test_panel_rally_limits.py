@@ -488,19 +488,143 @@ def test_what_each_kind_has_left_is_what_the_recipe_is_handed():
         left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
         assert left["doom_elite"] == "0", left
 
-        # AND THE RECONCILIATION (#1317): while OUR tally runs ahead of the game's own
-        # count, no per-kind door refuses anything — #1281's twelve-ahead tally is exactly
-        # what that prevents. The game's total ceiling still guards the other direction.
+        # AND THE RECONCILIATION IS A READING, NOT A STAND-DOWN (#1322). It used to
+        # withhold every per-kind number the moment our sum ran ahead of the game's, and
+        # ahead is where an account with squads on the road stands all day: the panel
+        # counts a join when it lands, `daily_kill_boss` counts a rally that has finished
+        # and paid. Live, that door never once shut — game 30, panel 52, and
+        # `general_trial_elite` at 30 against a cap of 20.
         rt.game.trophy = (1, 20, 19)          # the game says one; we think three
-        assert gate.ahead_of_game(rt) is True
-        assert gate.kind_left(rt) == "", "a banner was refused on a number the game denies"
+        assert gate.ahead_of_game(rt) is True, "the drift is still worth showing"
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["doom_elite"] == "0", \
+            "the budget was withheld because the panel is ahead — that is #1322"
         summary = gate.day_summary(rt)
         assert summary["kinds"] == 3 and summary["game"] == 1 and summary["drift"] == 2
 
-        # …a client that cannot be asked neither refuses nor relaxes on a guess
+        # …and a client that cannot be asked changes nothing about the budgets either:
+        # they are the panel's own file and need no game to be handed over.
         rt.game._types = None
         assert gate.ahead_of_game(rt) is False
         assert gate.day_summary(rt)["game"] == -1
+        assert "doom_elite:0" in gate.kind_left(rt), \
+            "an unreadable client took the per-kind door away"
+
+
+def test_the_budget_holds_at_its_edge_and_only_for_the_kind_it_belongs_to():
+    """19 / 20 / 21, and a kind spent does not spend its neighbour's day (#1322).
+
+    The boundary is what the report was about: «Элитные инструкторы» has a cap of 20 and
+    went to 30. `left_for` is the number the press is handed, so the edge is pinned on it
+    — 1 left at nineteen, 0 at twenty, 0 (never negative) past it — and pinned again on
+    `allowed`, which is the same decision said the other way round.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"general_trial_elite": 20, "doom_elite": 20,
+                                        "desert_boss": 0}))
+        limits, _counts = gate.read(rt)
+
+        gate.record_joins(rt, ["general_trial_elite"] * 19, 19)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.left_for("general_trial_elite", limits) == 1
+        assert counts.allowed("general_trial_elite", limits) is True
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["general_trial_elite"] == "1", left
+        # …and the kind beside it has spent nothing at all
+        assert left["doom_elite"] == "20", left
+        assert "desert_boss" not in left, "an uncapped kind must not be named"
+        assert rt.said == [], "nothing is over budget yet and something complained"
+
+        # …the twentieth is the last one allowed, and after it the door is shut
+        gate.record_joins(rt, ["general_trial_elite"], 1)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("general_trial_elite") == 20
+        assert counts.left_for("general_trial_elite", limits) == 0
+        assert counts.allowed("general_trial_elite", limits) is False
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["general_trial_elite"] == "0", left
+        assert left["doom_elite"] == "20", "a spent kind spent its neighbour's day"
+        assert gate.over_budget(rt) == [], "twenty of twenty is not an overspend"
+        assert rt.said == [], "a budget at its cap is not a fault"
+
+        # …and a twenty-first that got past the press anyway is not swallowed: the number
+        # is `0` rather than `-1`, and the panel SAYS the door did not hold (#1322).
+        gate.record_joins(rt, ["general_trial_elite"], 1)
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("general_trial_elite") == 21
+        assert counts.left_for("general_trial_elite", limits) == 0, \
+            "an overspent kind must never hand the press a negative budget"
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["general_trial_elite"] == "0", left
+        assert gate.over_budget(rt) == [("general_trial_elite", 21, 20)], \
+            gate.over_budget(rt)
+        assert rt.said == ["rally_kind.over_budget"], rt.said
+
+        # …and the complaint is about the kind THIS run joined, not about a row that was
+        # already over when the run started.
+        rt.said.clear()
+        gate.record_joins(rt, ["doom_elite"], 1)
+        assert rt.said == [], rt.said
+
+
+def test_the_budget_travels_on_the_run_that_changes_kind():
+    """A run that joins two kinds spends one from each — and the edge moves with it."""
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"],
+                 limits=rl.RallyLimits({"general_trial_elite": 2, "doom_elite": 3}))
+        gate.record_joins(rt, ["general_trial_elite", "doom_elite"], 2)
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["general_trial_elite"] == "1" and left["doom_elite"] == "2", left
+
+        # …the elite instructors run out first, and the Doom Elite budget is untouched
+        gate.record_joins(rt, ["general_trial_elite"], 1)
+        left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
+        assert left["general_trial_elite"] == "0" and left["doom_elite"] == "2", left
+
+        # …and the day rolls both of them back together, on the SERVER's boundary
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.rolled(today="2026-08-13").count_for("general_trial_elite") == 0
+
+
+def test_the_press_says_which_budget_it_was_handed():
+    """A door that refuses nothing and a door with no numbers used to read alike (#1322).
+
+    That is why the failure lasted a day: `kind_capped=` simply never appeared in the log,
+    which is also what a quiet map looks like. So the report names the budget in force for
+    every kind the run SAW, and says in words when the panel handed over nothing at all.
+    """
+    import lua_actions
+
+    chunk = lua_actions.rally_join_all()
+    assert "kind_budget=[" in chunk, "the run does not say what budget it was handed"
+    assert "the panel handed no per-kind budget at all" in chunk, \
+        "a press with no numbers still looks like a press that refused nothing"
+    assert "kind_left0" in chunk and "kind_seen[kind] = true" in chunk, \
+        "the budget is reported after the sends have already spent from it"
+    # …and it is remembered BEFORE the loop that spends from it, or the line would say
+    # «0 left» for the very banner it had just allowed.
+    assert chunk.index("local kind_left0") < chunk.index("kind_seen[kind] = true")
+
+    # …and the line the chunk builds, in the chunk's own words: a kind with a ceiling
+    # carries its number, and one the panel said nothing about says `none` rather than
+    # dropping out — «I was given no budget for this» is the answer that was missing.
+    import lupa
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    line = chunk[chunk.index("local kbud = {}"):]
+    line = line[:line.index(" local kb_parts")]
+    build = lua.execute("return function(seen, left0) local report = '' %s return report end"
+                        % line.replace("kind_seen", "seen").replace("kind_left0", "left0")
+                              .replace("kind_n", "(function() local n = 0 "
+                                                 "for _ in pairs(left0) do n = n + 1 end "
+                                                 "return n end)()"))
+    seen = lua.table_from({"general_trial_elite": True, "desert_boss": True})
+    assert build(seen, lua.table_from({"general_trial_elite": 2})) == \
+        " kind_budget=[desert_boss:none general_trial_elite:2]", \
+        build(seen, lua.table_from({"general_trial_elite": 2}))
+    # …and a press handed nothing at all says so, which is the one line #1322 needed
+    assert "no per-kind budget at all" in build(seen, lua.table_from({}))
 
 
 def test_the_tally_never_counts_more_than_the_run_sent():

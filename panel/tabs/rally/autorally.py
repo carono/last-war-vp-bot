@@ -55,6 +55,7 @@ from tkinter import ttk
 
 from ... import rally_limits as rallylimitsmod
 from ...widgets import numeric_spinbox
+from . import limits as rallygate
 
 # The vocabulary of kinds, read out of the live game config rather than written here
 # (#1317). `tools/lib` is on the path by the time the panel imports this.
@@ -127,6 +128,11 @@ class AutoRallyPage:
         # whose tab was never built — see `kind_skip`. Empty means «go for everything».
         self._kinds_off: set = set()
         self._kind_vars: dict = {}
+        # …and, under it, the kinds that have gone PAST their cap (#1322). Empty is the
+        # only thing a working door can produce — the press passes a kind over the moment
+        # it has nothing left — so anything here is the gate having failed, which is
+        # precisely what nobody could see when «Элитные инструкторы» reached 30 of 20.
+        self._over_var = tk.StringVar(master=master, value="")
         # «наша сумма / игра» for today, drawn under the table so the drift of a
         # panel-kept tally is visible rather than quiet (#1317).
         self._tally_var = tk.StringVar(master=master, value=DAILY_UNREAD)
@@ -238,8 +244,11 @@ class AutoRallyPage:
         #
         # The tick counts nothing and cannot drift; the number is a budget the PANEL keeps,
         # because the client has no per-species counter — which is why the line under the
-        # table shows our sum and the game's own count side by side, and why the budgets
-        # stand down whenever ours is ahead of the game's (`limits.kind_left`).
+        # table shows our sum and the game's own count side by side. That comparison is a
+        # READING and nothing more since #1322: it used to switch the budgets off whenever
+        # ours ran ahead, which is every hour of every day, so no kind was ever capped.
+        # A «today» that has gone past its cap is the door having failed, and the log says
+        # so in words (`limits.over_budget`).
         kinds = tr(ttk.LabelFrame(parent, padding=8), "rally_kind.frame")
         kinds.pack(fill="x", pady=(10, 0))
         self._limits = rallylimitsmod.load_limits(self.rt.profiles.rally_limits_json())
@@ -286,6 +295,12 @@ class AutoRallyPage:
         tr(ttk.Label(row), "rally_kind.tally").pack(side="left", padx=(16, 4))
         ttk.Label(row, textvariable=self._tally_var,
                   font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        # …and the overspend, in red and in words, or nothing at all (#1322). A cap that
+        # has been passed is the door having failed, and the table alone said it in two
+        # digits nobody was reading: `paint_counts` fills this line whenever a kind is
+        # over, and leaves it empty — invisible — on the ordinary day.
+        ttk.Label(kinds, textvariable=self._over_var, foreground="#c00",
+                  wraplength=620, justify="left").pack(anchor="w", pady=(4, 0))
         tr(ttk.Label(kinds, foreground="#888", wraplength=620, justify="left"),
            "rally_kind.hint").pack(anchor="w", pady=(6, 0))
 
@@ -324,6 +339,18 @@ class AutoRallyPage:
                 var.set(str(counts.count_for(key)))
             except tk.TclError:                # the page is going away
                 return
+        # …and the same reading said as a sentence when a kind has gone past its cap
+        # (#1322). The phone draws the identical row; the log says it out loud once, at
+        # the run that put it over (`limits.record_joins`).
+        limits = self._limits or rallylimitsmod.load_limits(
+            self.rt.profiles.rally_limits_json())
+        over = rallygate.over_budget(self.rt, counts, limits)
+        try:
+            self._over_var.set(
+                self.rt.t("rally_kind.over_line",
+                          kinds=rallygate.over_text(self.rt, over)) if over else "")
+        except tk.TclError:                    # the page is going away
+            return
 
     def set_tally(self, ours, game, top) -> None:
         """Draw «our sum / the game's count» under the table (Tk thread, #1317).

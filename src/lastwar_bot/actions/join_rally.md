@@ -98,11 +98,23 @@ ARGS kind_skip =
 #     went twelve ahead);
 #   * the tally is the profile's own file and rolls on the SERVER's day
 #     (`GetTomorrowZero`), not on this machine's midnight;
-#   * it is compared with the game's `daily_kill_boss` every time it is used, and **while
-#     ours is ahead of the game's, no per-kind door refuses anything** — a banner is never
-#     held back by a number the game contradicts;
+#   * the drift against the game's `daily_kill_boss` is SHOWN — «наша сумма / игра» on the
+#     tab and on the phone — and a kind that ever gets past its cap is named in the log,
+#     because past the cap can only mean this door did not hold;
 #   * and `max_joins` above, which the GAME counts, stands over all of it, so drift cannot
 #     turn into an overspend either.
+#
+# THE DOOR STOOD OPEN ALL DAY AND SAID NOTHING, WHICH IS THE LESSON (#1322). The rule
+# above used to have one more line: while the panel's tally ran ahead of the game's count,
+# every per-kind budget stood down. It compares two DIFFERENT things — the panel counts a
+# join the moment it lands, `daily_kill_boss` counts a rally that has finished and paid —
+# so «ahead» is what an account with squads on the road reads at every hour of every day,
+# and the stand-down was permanent. Live: the game said 30 where the panel said 52,
+# «Элитные инструкторы» reached 30 against a cap of 20, and `kind_capped=` does not appear
+# once in that day's log. The reconciliation it was made of is right and is kept as a
+# READING; what it may never do again is switch the door off. So the report now names the
+# budget the press was handed for every kind it saw (`kind_budget=[…]`), and a door that
+# was given no numbers says so in its own line instead of looking like a quiet map.
 ARGS kind_left = 
 
 # THE SOLDIER FLOOR — below it the auto-join does not go out at all; `0` is «no floor»

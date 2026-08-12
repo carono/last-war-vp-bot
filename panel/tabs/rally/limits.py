@@ -259,17 +259,32 @@ def kind_left(rt) -> str:
     decides per banner (#1317) — the panel supplies numbers and refuses nothing itself.
 
     THE COUNT IS THE PANEL'S HERE, unavoidably: the client keeps one daily rally counter
-    and no per-species number (docs/research/rally-join.md). The person chose that budget
-    knowing it can drift, so the drift has a rule rather than a hope — see
-    :func:`day_summary`: **while the panel's tally is AHEAD of the game's own count, no
-    per-kind door refuses anything.** That is #1281's lesson made mechanical: a banner may
-    never be refused on a number the game contradicts, and the game's total ceiling
-    (`max_joins`) still guards the other direction, so drift cannot cause an overspend
-    either.
+    and no per-species number (docs/research/rally-join.md).
+
+    THE STAND-DOWN IS GONE, AND IT IS THE WHOLE REASON THIS DOOR NEVER SHUT (#1322).
+    Until now this function answered `""` — no per-kind budget at all — whenever the
+    panel's sum for today ran ahead of the game's `daily_kill_boss`. That compared two
+    different quantities and therefore stood the door down permanently:
+
+      * the panel counts a JOIN, at the moment the game confirms one more of our squads
+        standing in a rally;
+      * `daily_kill_boss` counts a rally that has FINISHED and paid today.
+
+    So the panel is ahead by every squad currently marching, all day, every day — the
+    recipe's own comment measured 320 panel joins against 275 counted by the game. Live
+    on 2026-08-12 the two read 52 and 30, `general_trial_elite` stood at 30 against a cap
+    of 20, and the word `kind_capped=` does not appear ONCE in that day's `panel.log`.
+    The only thing that ever stopped the joining was the soldier floor.
+
+    What #1281's stand-down was protecting against was a tally that counted SENDS and had
+    gone twelve ahead of anything that happened. That tally is gone: since #1281's own
+    `record_run` a join is written down only from `joined`, a difference measured in the
+    client, so being ahead is LAG and not invention. The drift stays visible
+    (:func:`day_summary`, the «наша сумма / игра» line on the tab and on the phone), and
+    an overspend now says so out loud instead of passing quietly
+    (:func:`over_budget`, :func:`record_joins`).
     """
     limits, counts = read(rt)
-    if ahead_of_game(rt, counts):
-        return ""                       # our own count is not to be trusted right now
     parts = []
     for key in limits.types():
         left = counts.left_for(key, limits)
@@ -282,14 +297,14 @@ def kind_left(rt) -> str:
 def ahead_of_game(rt, counts=None) -> bool:
     """Has the panel counted more joins today than the GAME has (#1317)?
 
-    The reconciliation the person asked for, in one question: «сверяй сумму по видам с
-    общим игровым счётчиком и при расхождении верь игре». Being ahead is the failure mode
-    that costs rallies — #1281's tally was twelve ahead and refused banners the account was
-    entitled to — so in that state the per-kind budgets stand down until the game agrees.
+    A READING, AND NEVER A GATE (#1322). It used to switch every per-kind budget off,
+    which is how «Элитные инструкторы» reached 30 against a cap of 20: the panel counts
+    joins and the game counts finished rallies, so «ahead» is the ordinary state of an
+    account with squads on the road rather than a sign that anything has drifted. It is
+    kept because the drift is worth SHOWING — :func:`day_summary` draws both numbers —
+    and it costs a VM read, so nothing on a banner's path may call it.
 
-    Unreadable game, unreadable answer: `False`, because a gate that cannot see must not
-    refuse and must not relax on a guess either — being behind or level is the ordinary
-    case, and the per-kind doors work as configured.
+    Unreadable game, unreadable answer: `False`.
     """
     if counts is None:
         _limits, counts = read(rt)
@@ -379,6 +394,13 @@ def record_joins(rt, kinds, did: int = 1) -> None:
     game keeps no per-species number to read instead. The total the day actually costs is
     still the game's own `MonsterManager` count (:func:`trophy_progress`), and that is the
     ceiling that cannot drift.
+
+    AND IT IS WHERE A LEAKING DOOR SAYS SO (#1322). A budget that is past its cap can
+    only mean the gate did not hold — the numbers were not handed to the press, or the
+    press did not judge them — and the first time that happened nothing said a word: the
+    count went to 30 against a cap of 20 and the only sign of it was a number on a table
+    nobody was looking at. So every kind that goes over is named in the log, once per run
+    that put it over, on both front-ends because the log is shared.
     """
     kinds = [str(k).strip() for k in (kinds or []) if str(k).strip()]
     if did <= 0 or not kinds:
@@ -389,6 +411,61 @@ def record_joins(rt, kinds, did: int = 1) -> None:
         counts = counts.record(key)
     counts = counts.with_day_end(day_end_ms(rt))
     rallylimitsmod.save_counts(counts, path)
+    limits = rallylimitsmod.load_limits(rt.profiles.rally_limits_json())
+    for key, spent, cap in over_budget(rt, counts, limits):
+        if key not in kinds[:did]:
+            continue                    # somebody else's overspend, not this run's news
+        try:                             # the kind's own words, when there is a locale
+            label = rt.t("rally_limit.type." + key)
+        except Exception:                # noqa: BLE001
+            label = key
+        try:
+            rt.say("rally", "rally_kind.over_budget", kind=label, count=spent, cap=cap)
+        except Exception:                # noqa: BLE001 — a complaint, never the run
+            pass
+
+
+def over_budget(rt, counts=None, limits=None) -> list:
+    """Every kind whose day has gone PAST its cap — `[(kind, counted, cap), …]` (#1322).
+
+    Empty is the ordinary answer and the only one a working gate can give: the press
+    passes over a kind with nothing left, so a count can reach its cap and never exceed
+    it. Anything in this list is the gate having failed — the budgets never reached the
+    press, or reached it and were not judged — which is exactly the state #1322 was
+    reported in and which nothing was saying out loud.
+
+    Drawn by the tab and by the phone (both show «today/cap» per kind) and said in the
+    log by :func:`record_joins`; it reads two files and asks the game nothing, so it is
+    safe to call anywhere.
+    """
+    if limits is None or counts is None:
+        stored_limits, stored_counts = read(rt)
+        limits = limits if limits is not None else stored_limits
+        counts = counts if counts is not None else stored_counts
+    out = []
+    for key in limits.types():
+        cap = limits.limit_for(key)
+        spent = counts.count_for(key)
+        if cap > 0 and spent > cap:
+            out.append((key, spent, cap))
+    return out
+
+
+def over_text(rt, over) -> str:
+    """«Элитные инструкторы 30/20, …» — the overspend in the kinds' own words (#1322).
+
+    One function because two front-ends draw it: the red line under the table in the
+    window and the row on the phone. The digits are data and need no translating; the
+    kind's name is `rally_limit.type.<kind>`, which is filled from the game's own tables.
+    """
+    parts = []
+    for key, spent, cap in over or ():
+        try:
+            label = rt.t("rally_limit.type." + key)
+        except Exception:                    # noqa: BLE001 — a line, never the run
+            label = key
+        parts.append("%s %d/%d" % (label, spent, cap))
+    return ", ".join(parts)
 
 
 def day_end_ms(rt) -> int:

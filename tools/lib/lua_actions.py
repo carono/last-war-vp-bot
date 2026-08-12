@@ -5882,6 +5882,15 @@ def rally_join_all() -> str:
         "DataCenter.__lw_rally_kind_left or ''), '[^,]+') do "
         "local k, n = string.match(pair, '([%w_]+):(%-?%d+)') "
         "if k ~= nil then kind_left[k] = tonumber(n) end end end) "
+        # …AND THE DOOR IS MADE CHECKABLE FROM THE RUN'S OWN LINE (#1322). The budget that
+        # was in force is remembered before a single send spends from it, and the report
+        # names it for every kind this run actually looked at. A door that refuses nothing
+        # and a door that was never handed a number read exactly alike in the log —
+        # `kind_capped=` simply never appeared — and for a whole day that was the
+        # difference between a cap of 20 and thirty joins of «Элитные инструкторы».
+        "local kind_left0, kind_n = {}, 0 "
+        "for k, v in pairs(kind_left) do kind_left0[k] = v kind_n = kind_n + 1 end "
+        "local kind_seen = {} "
         # …AND THE KINDS THE PERSON SIMPLY DOES NOT WANT (#1317). A filter, not a budget:
         # nothing is counted, so nothing can drift — «цепляться к этим, к тем не
         # цепляться» is answerable exactly, because the kind of a banner is known here
@@ -5901,6 +5910,7 @@ def rally_join_all() -> str:
         "r.target = target_of[tostring(r.team)] "
         "local kind, known = kind_of(r) "
         "if not known then unknown_kind = unknown_kind + 1 end "
+        "kind_seen[kind] = true "
         # The day is spent: every banner is NAMED as passed over for that reason rather
         # than silently skipped, so «nothing went out» never reads as «no rally was out».
         "if capped then left_over[#left_over+1] = tostring(r.team)..':day-capped' "
@@ -6020,6 +6030,19 @@ def rally_join_all() -> str:
         "was sent' "
         "elseif not (pool > 0) then report = report..' (the number of soldiers in the "
         "base could not be read — the floor did not refuse anything)' end end "
+        # THE BUDGET THIS RUN WAS ACTUALLY HANDED, for every kind it saw (#1322). `kind:N`
+        # is what that kind had left when the press started, `none` is a kind the panel
+        # named no ceiling for, and `(the panel handed no per-kind budget at all)` is the
+        # sentence that would have told us in one line why nothing was ever capped. Said
+        # whether or not anything was held back, because the whole failure was a door that
+        # stayed silent while it stood open: `kind_capped=` never appeared, and neither
+        # does it on an evening when every kind is well inside its allowance.
+        "local kbud = {} "
+        "for k in pairs(kind_seen) do local v = kind_left0[k] "
+        "kbud[#kbud+1] = k..':'..((v == nil) and 'none' or tostring(v)) end "
+        "table.sort(kbud) "
+        "if #kbud > 0 then report = report..' kind_budget=['..table.concat(kbud, ' ')..']' "
+        "if kind_n == 0 then report = report..' (the panel handed no per-kind budget at all)' end end "
         # …and which KINDS held a banner back, with how many each (#1317). Said even when
         # something else went out, because «two of the four were the wrong kind today» is
         # exactly the sentence a person needs to change a number with.
