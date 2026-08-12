@@ -1554,11 +1554,24 @@ class RallyTab(PanelTab):
             # (the kind a banner is going for), no seat count, and no address for a
             # banner the client's march table had not caught up with. The three come off
             # the same monitor line this tab already reads.
+            # …WITH THE PROFILE'S OWN EAR UNDER THIS TAB'S MAPS (#1323). This tab's
+            # capture is the richer source and wins wherever it knows a banner, but it
+            # is not always there: a person may press «Присоединиться» with «Монитор»
+            # and «Оповещение» unticked, or the child may have failed to start, and then
+            # this driver joined blind — no seat count and, worse, no target, which makes
+            # the kind of every banner fall back to `monster` and every per-kind cap
+            # void. The ear the schedule already runs keeps the same three maps.
+            from ...runtime import rally_wire as rallywire
+
+            book = self.rt.banners
             out = self.rt.actions.play("join_rally",
                                        {"squads": squads,
-                                        "targets": target_map(self.rt),
-                                        "slots": slot_map(self.rt),
-                                        "points": point_map(self.rt),
+                                        "targets": rallywire.merge(
+                                            target_map(self.rt), book.targets()),
+                                        "slots": rallywire.merge(
+                                            slot_map(self.rt), book.slots()),
+                                        "points": rallywire.merge(
+                                            point_map(self.rt), book.points()),
                                         # The day's ceiling, on THIS driver too (#1317):
                                         # the tab's own reader plays the recipe past the
                                         # schedule entirely, and a door only one of the

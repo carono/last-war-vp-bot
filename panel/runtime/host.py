@@ -188,6 +188,7 @@ class PanelRuntime:
         self._schedule = None           # built on first ask (see the property below)
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
+        self._banners = None            # …and what it heard about the banners out
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         self._lock = None               # this profile's instance lock, held open
         self._lock_on = None            # …and which profile it is holding
@@ -267,6 +268,23 @@ class PanelRuntime:
             from .wire import WireHub
             self._wire = WireHub(self)
         return self._wire
+
+    @property
+    def banners(self):
+        """What the wire has said about the rallies standing on the map (#1323).
+
+        Plain memory — no game, no thread, no child of its own: the ear above fills it
+        as the pushes arrive, and the auto-join reads it for the one thing that exists
+        nowhere else, which monster each banner is going for. Empty is a fine answer and
+        costs a join nothing; what it cannot be any more is ABSENT, which is what it was
+        in a profile whose window does not show the «Ралли» tab — the kind of every
+        banner then fell back to `monster` and every per-kind cap the person had set was
+        left at zero for good (panel/runtime/rally_wire.py).
+        """
+        if self._banners is None:
+            from .rally_wire import BannerBook
+            self._banners = BannerBook(self)
+        return self._banners
 
     # -- the shorthands every tab uses constantly ---------------------------
     def dbg(self, component: str = "panel"):

@@ -726,11 +726,20 @@ def test_a_banner_with_no_seat_left_is_never_a_target():
 
 
 def test_the_kinds_are_the_games_own_species():
-    """Type 7 and type 8 are different keys, and an unseen type names itself (#1281).
+    """Type 7 and type 8 are different keys, and a row nobody can name is not (#1281).
 
     `lw_world_monster.type` is the split the player reads off the screen: 7 is the zombie
     line, 8 is the Doom line («Роковая Элита»). Counting both as `monster` is what made
     the budget one bucket, and the chunk classifies for real now.
+
+    THE «UNSEEN TYPE NAMES ITSELF» HALF IS WITHDRAWN (#1323). It used to answer
+    `monster_type_<n>` for a row the name table cannot name, on the grounds that a new
+    species should land under a key of its own and be folded in later. Nothing folds it
+    in: a profile's caps file is seeded from `rally_kinds.KIND_ORDER`, so such a key has
+    no cap, is handed no budget, is drawn nowhere and can never be over budget — while
+    the tally counts joins under it all day. The key a join is COUNTED under and the key
+    the door looks a budget up by have to be the same key, so an unnamed row is the
+    fallback kind and its type is kept for the REPORT instead.
     """
     import lua_actions
 
@@ -741,7 +750,9 @@ def test_the_kinds_are_the_games_own_species():
     # …and the two species land in two keys, with an unseen one naming itself
     assert "'doom_elite'" in chunk, "type 8 has no key of its own"
     assert "tonumber(ty) == 8" in chunk and "tonumber(ty) == 7" in chunk
-    assert "'monster_type_'" in chunk, "an unknown type must name itself, not become monster"
+    assert "monster_type_" not in chunk, \
+        "an unnameable row must land on a kind the panel can actually cap (#1323)"
+    assert "r.unnamed = tonumber(ty)" in chunk, "…and its type must reach the report"
     # a banner nobody heard the push for is counted, and SAID
     assert "return 'monster', false end" in chunk
     assert "unclassified=" in chunk

@@ -49,11 +49,22 @@ import threading
 import time
 
 from . import game_process
+from . import rally_wire
 from .paths import TOOLS
 
 #: The marker line the child prints for every match. Kept in `panel/triggers.py` because
 #: that is where the trigger vocabulary lives; imported rather than re-spelled.
 from ..triggers import FIRE_MARKER
+
+#: The child's SECOND machine line and the one command family it is asked for (#1323).
+#: A rally's kind is `targetContentId`, which rides on this push and on nothing the
+#: client keeps, so a profile that hears the push without its payload cannot name a
+#: single banner — and every per-kind daily budget silently collapses into one bucket.
+#: The line carries four numbers of THINGS and no player (tools/wire_event_monitor.py),
+#: it is swallowed here exactly as the marker is, and it costs no extra capture: it is
+#: read off a frame the ear had in its hands anyway.
+FIELDS_MARKER = "##FIELDS##"
+FIELDS_PATTERN = "push.alliance.march"
 
 #: How often the ear may say what it has been hearing. Every match used to print a line
 #: of its own — the command plus a summary of its payload — and a live day carried 6 307
@@ -164,6 +175,13 @@ class WireHub:
         # have no business in it (#1293). What the ear heard is said here instead, by
         # counts, in `_note_heard`.
         cmd += ["--quiet"]
+        # …AND THE ONE PAYLOAD THE PANEL CANNOT DO WITHOUT (#1323). Asked for
+        # unconditionally rather than only when the auto-join is on: the ear is one
+        # child for whatever this profile subscribes to, the fields line is only ever
+        # built for a command already being matched, and a book that starts filling the
+        # moment the ear opens is a book that has the banner in it when the trigger
+        # fires. It costs a dict write per push and nothing else.
+        cmd += ["--fields", FIELDS_PATTERN]
         # WHOSE traffic this ear is for. Two accounts of the same game dial the same
         # server port, so the capture filter cannot separate them and every profile's
         # ear has been hearing both — a trigger firing in one account off the other's
@@ -210,6 +228,8 @@ class WireHub:
         Returns ``False`` for the marker so the reader swallows it (it is machinery),
         and ``None`` for anything else so it logs as it always did.
         """
+        if line.startswith(FIELDS_MARKER):
+            return self._on_fields(line)
         if not line.startswith(FIRE_MARKER):
             return None
         command = line[len(FIRE_MARKER):].strip()
@@ -223,6 +243,26 @@ class WireHub:
                 except Exception:       # noqa: BLE001 — never let one kill the ear
                     self._rt.dbg("triggers").error(
                         "wire subscriber for %r raised", pattern, exc_info=True)
+        return False
+
+    def _on_fields(self, line: str):
+        """A fields line: remember the banner it describes, and swallow the line.
+
+        SWALLOWED WHATEVER HAPPENS (`False`), even when nothing could be made of it —
+        it is machinery, like the marker, and the one thing it must never do is reach
+        the profile's log, where the whole point of #1293 was to stop the wire's
+        payloads from piling up.
+
+        Never fires a subscriber. A trigger acts on the MARKER, which arrives beside
+        this line and carries its own cooldown; this only fills the book that says what
+        each banner is going for (`panel/runtime/rally_wire.py`).
+        """
+        parts = line.split("\t")
+        try:
+            self._rt.banners.note(rally_wire.parse_fields(parts[2] if len(parts) > 2
+                                                          else ""))
+        except Exception:               # noqa: BLE001 — a reading, never the ear
+            self._rt.dbg("triggers").error("wire fields line unreadable", exc_info=True)
         return False
 
     def _note_heard(self, command: str) -> bool:

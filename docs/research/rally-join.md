@@ -1527,6 +1527,64 @@ when a bigger window is available: the log's own confirmations, and the game's t
 list (`tools/dev/rally_trophies.py --check FROM TO`, horizon about an hour).
 
 
+### The kind was only known in a window that showed the tab (#1323)
+
+The per-kind door was reported dead again after #1322 — «ограничение по типам не
+работает вообще». Two separate things were true, and only the second is a defect in the
+code:
+
+1. **The panel was still running the code from before the fix.** `lua_actions` and
+   `game_buttons` are read once at import, so a Python edit reaches a running panel only
+   through a fresh interpreter («⟳ Перезапустить панель»). Every join report that day —
+   seven hours after the commit — lacks `kind_budget=[…]`, which #1322 prints for every
+   run that saw a banner. The stand-down was therefore still in force.
+2. **A banner's KIND is only knowable from the wire, and the panel kept it in one
+   place: the «Ралли» tab.** `targetContentId` is on the push and in no reading the
+   client keeps (above); `RallyTab._targets` is filled by that tab's own capture child;
+   and `rallytab.target_map(rt)` answers `""` when `rt.tabs.get("rally")` is `None` —
+   which is every window that does not SHOW the tab. The auto-join is a standing order
+   of the schedule's and runs there all the same.
+
+What (2) looks like from the outside, on two profiles of one machine on the same day:
+
+| | targets parked | what the day counted |
+| --- | --- | --- |
+| the window with the tab | `1000000000000000001:2010710,…` | `general_trial_elite 37 · doom_elite 20 · doom_walker 7 · sky_predator 24` |
+| the window without it | `""` | `monster 15` |
+
+Every banner in the second one classified as the fallback kind, so one bucket took the
+whole day and every cap the person had set stayed at zero — and the run said
+`unclassified=1` in a sentence that blamed the event lists, which is the only reason it
+was not obvious.
+
+**The fix is that the profile itself remembers what it heard.** The ear the schedule
+already runs (`panel/runtime/wire.py`, one capture per profile) is started with
+`--fields push.alliance.march`; `tools/wire_event_monitor.py` then prints a second
+machine line beside the marker —
+
+```
+##FIELDS##	push.alliance.march.create	team=<uuid> content=<id> slots=1/5 join=<tile>/<server>
+```
+
+— built from an allow-list, so it can hold numbers of THINGS and never a player, a uid
+or an alliance id (#1293 is why that matters, and the fields line is swallowed by the
+hub exactly as the marker is). `panel/runtime/rally_wire.BannerBook` keeps it per
+profile, and both join drivers merge it UNDER the tab's own maps: the tab's capture is
+not cooled down at all, so where both know a banner the tab's entry wins.
+
+Two smaller things went with it:
+
+* **`monster_type_<n>` is gone.** A row the name table cannot name used to get a key of
+  its own, and that key is in nobody's vocabulary — the caps file is seeded from
+  `rally_kinds.KIND_ORDER`, so it has no cap, is handed no budget, is drawn nowhere and
+  can never be over budget, while the tally counts joins under it. The key a join is
+  counted under and the key the door looks a budget up by have to be one key. The type
+  is kept in the report instead (`going_for=[… type12 unnamed]`).
+* **The report says why nothing could be named.** `unclassified=N` now carries the count
+  of parked targets with it, so «no target for this banner» and «this profile cannot
+  name a single banner» stop reading alike.
+
+
 ## Where the 5–7 seconds actually go, second by second (#1301)
 
 «Авторалли отвечает на 5–7 секунде.» The decomposition below is off the live profile's

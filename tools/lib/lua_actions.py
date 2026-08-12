@@ -5619,10 +5619,15 @@ def rally_join_all() -> str:
         # `lw_world_monster` turns it into a type and a level: 7 is the zombie line
         # (Invading Zombies / Zombie Boss), 8 is the Doom line (Роковая Элита).
         "local target_of_team = {} "
+        # HOW MANY OF THEM THERE WERE, remembered before anything is looked up (#1323).
+        # An empty map is not «this banner is new», it is «this profile cannot name a
+        # single banner», and the two produce the same `monster` in the count while
+        # meaning opposite things.
+        "local tgt_n = 0 "
         "pcall(function() for pair in string.gmatch(tostring("
         "DataCenter.__lw_rally_targets or ''), '[^,]+') do "
         "local team, cid = string.match(pair, '(%d+):(%d+)') "
-        "if team ~= nil then target_of_team[team] = tonumber(cid) end end end) "
+        "if team ~= nil then target_of_team[team] = tonumber(cid) tgt_n = tgt_n + 1 end end end) "
         "local LCI = nil pcall(function() LCI = LocalController.instance() end) "
         + _kind_table() +
         # AN UNKNOWN ROW ANSWERS WITH AN EMPTY STRING, NOT NIL — measured live: asking
@@ -5680,7 +5685,17 @@ def rally_join_all() -> str:
         "if ty ~= nil and tonumber(ty) ~= nil then "
         "if tonumber(ty) == 8 then return 'doom_walker', true end "
         "if tonumber(ty) == 7 then return 'zombie_boss', true end "
-        "return 'monster_type_'..tostring(tonumber(ty)), true end "
+        # A ROW THE NAME TABLE CANNOT NAME IS NOT A KIND OF ITS OWN (#1323). This used to
+        # answer `monster_type_<n>`, and that key is in nobody's vocabulary: the panel's
+        # caps file is seeded from `rally_kinds.KIND_ORDER`, so such a key has no cap, is
+        # never handed a budget, is never shown on the tab and never appears in
+        # `over_budget` — while the tally counts joins under it all day. The key a join is
+        # COUNTED under and the key the door looks a budget up by have to be one key or
+        # the door is open by construction. So an unnamed row is the fallback kind, the
+        # type is kept for the report (`r.unnamed`), and nothing is spent from a budget
+        # nobody could set.
+        "r.unnamed = tonumber(ty) "
+        "return 'monster', false end "
         # NOT HEARD OF, and said so rather than assumed. A banner raised before the panel
         # started listening has no push behind it, so its kind is genuinely unknown; it is
         # counted as an ordinary monster because something must be counted, and the report
@@ -5944,7 +5959,12 @@ def rally_join_all() -> str:
         "went[#went+1] = tostring(r.team)..'/s'..tostring(q.slot) "
         "kinds[#kinds+1] = kind "
         "went_kind[#went_kind+1] = tostring(r.team)..'='..kind"
-        "..((r.level ~= nil) and (' lv'..tostring(r.level)) or '') "
+        "..((r.level ~= nil) and (' lv'..tostring(r.level)) or '')"
+        # …and the type of a row the name table could not name, which is the one thing
+        # lost by counting it as the fallback kind rather than as `monster_type_<n>`
+        # (#1323). Said here, where a person can read it, instead of in a key nothing
+        # can cap.
+        "..((r.unnamed ~= nil) and (' type'..tostring(r.unnamed)..' unnamed') or '') "
         'CS.UnityEngine.Debug.LogError("ACT rally_join_all send squad="..tostring(q.slot)'
         '.." team="..tostring(r.team).." point="..tostring(r.point).." server="..tostring(r.server)) '
         "else errs[#errs+1] = tostring(q.slot)..':'..tostring(err) "
@@ -6059,8 +6079,21 @@ def rally_join_all() -> str:
         "table.sort(ko_parts) "
         "if #ko_parts > 0 then report = report..' kind_off=['..table.concat(ko_parts, ' ')"
         "..'] (this kind is switched off in «Автостяг»)' end "
-        "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind"
-        "..' (the event list could not be read — counted as monster, said rather than assumed)' end "
+        # WHAT COULD NOT BE NAMED, AND WHY — and the «why» is the whole of #1323. The
+        # sentence here used to blame the event list, which is one of three reasons and
+        # not the common one: a banner's KIND is `targetContentId`, that field is on the
+        # push and in no reading the client keeps (docs/research/rally-join.md), and the
+        # panel parks it per banner. A profile whose targets arrive empty therefore
+        # classifies every banner as the fallback `monster`, spends one bucket's budget
+        # all day and leaves every kind the person actually capped at zero — which reads
+        # in the log exactly like an evening of ordinary monsters. So the count of parked
+        # targets is said beside the count of banners nothing could name.
+        "if unknown_kind > 0 then report = report..' unclassified='..unknown_kind "
+        "if tgt_n == 0 then report = report..' (no banner targets were parked at all, so "
+        "the kind of every banner fell back to \"monster\" — a per-kind budget cannot "
+        "bite here, whatever the panel handed over)' "
+        "else report = report..' (no target for this banner, or the event lists could "
+        "not be read — counted as \"monster\", said rather than assumed)' end end "
         "if #arrived > 0 then report = report..' arrived=['..table.concat(arrived, ' ')..']' end "
         "if #full > 0 then report = report..' no_seat=['..table.concat(full, ' ')..']' end "
         "if #left_over > 0 then report = report..' passed=['..table.concat(left_over, ' ')..']' end "

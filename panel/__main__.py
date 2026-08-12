@@ -106,6 +106,7 @@ from .runtime import health as healthmod
 from .runtime import interrupt as interruptmod
 from .runtime import panel_control as panelctl
 from .runtime import panic as panicmod
+from .runtime import rally_wire as rallywire
 from .runtime import web_control as webctl
 from .runtime import web_dialog as webdlg
 
@@ -5241,10 +5242,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the press it was already making, so the door costs no call and the panel keeps
         # no tally. It travels on BOTH drivers or it is not a door: the tab's own reader
         # plays the same recipe past this hook entirely.
+        # …AND THE WIRE'S OWN BOOK UNDER ALL THREE (#1323). `rallytab.*_map` answers off
+        # the «Ралли» tab, and a window that does not SHOW that tab has no such tab and
+        # no such capture — while this trigger is a standing order of the schedule's and
+        # fires all the same. Every banner then arrived with no target, was classified as
+        # the fallback `monster`, and each of the person's per-kind caps stayed at zero
+        # while one bucket took the whole day. So the profile's own ear keeps the same
+        # three maps (`panel/runtime/rally_wire.py`) and they are the floor under the
+        # tab's: where both know a banner, the tab's entry wins.
+        book = self._rt.banners
         return {"squads": squads,
-                "targets": rallytab.target_map(self._rt),
-                "slots": rallytab.slot_map(self._rt),
-                "points": rallytab.point_map(self._rt),
+                "targets": rallywire.merge(rallytab.target_map(self._rt),
+                                           book.targets()),
+                "slots": rallywire.merge(rallytab.slot_map(self._rt), book.slots()),
+                "points": rallywire.merge(rallytab.point_map(self._rt), book.points()),
                 "max_joins": rallytab.daily_max(self._rt),
                 # …which KINDS of banner to leave alone, and how many of each are left
                 # today (#1317). The filter counts nothing and is exact; the budget is the

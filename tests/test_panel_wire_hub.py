@@ -90,6 +90,13 @@ class _Rt:
         self.children = _Children()
         self.settings = _Settings()
         self.said: list = []
+        # The real one is `panel/runtime/rally_wire.BannerBook` — the profile's memory
+        # of what the wire said each banner is going for (#1323). Held on the runtime
+        # rather than on the «Ралли» tab, because the ear runs in a window that does
+        # not show that tab and the auto-join runs with it.
+        from panel.runtime.rally_wire import BannerBook
+
+        self.banners = BannerBook(self)
 
     def say(self, tag, key, **fmt):
         self.said.append((tag, key, fmt))
@@ -213,6 +220,47 @@ def test_a_human_line_is_left_for_the_log():
     hub.subscribe("al.help.new", lambda c: None)
     assert hub._on_line("12:00:00 <-- al.help.new  something") is None
     assert hub._on_line(f"{FIRE_MARKER}\tal.help.new") is False
+
+
+def test_a_fields_line_fills_the_banner_book_and_never_reaches_the_log():
+    """The one payload the panel cannot do without, and it is machinery (#1323).
+
+    A rally's KIND is `targetContentId`, which rides on the push and on nothing the
+    client keeps — so a profile that hears the push without its payload cannot name a
+    single banner, classifies every one of them as `monster`, and leaves every per-kind
+    cap the person set at zero all day. The fields line carries it; like the marker it
+    is SWALLOWED (`False`), because the whole point of #1293 is that no push payload
+    piles up in a profile's log.
+    """
+    import panel.runtime.wire as wiremod
+
+    rt, hub = _hub()
+    fired: list = []
+    hub.subscribe("push.alliance.march", fired.append)
+    line = (f"{wiremod.FIELDS_MARKER}\tpush.alliance.march.create\t"
+            "team=1000000000000000001 content=2010710 slots=1/5 join=468553/935")
+    assert hub._on_line(line) is False, "a fields line must not reach the log"
+    assert rt.banners.targets() == "1000000000000000001:2010710"
+    assert rt.banners.slots() == "1000000000000000001:1/5"
+    # …and it is not a fire: the trigger acts on the MARKER, which has its own cooldown.
+    assert fired == [], "a fields line must not run anything"
+
+
+def test_the_child_is_asked_for_the_one_payload_the_join_needs():
+    """`--fields push.alliance.march` travels on the command line, always (#1323).
+
+    Unconditional rather than «when the auto-join is on»: the ear is one child for the
+    union of this profile's patterns, the line is only ever built for a command already
+    being matched, and a book that fills from the moment the ear opens is a book that
+    has the banner in it when the trigger fires.
+    """
+    import panel.runtime.wire as wiremod
+
+    rt, hub = _hub()
+    hub.subscribe("al.help.new", lambda c: None)
+    cmd = rt.children.spawned[-1].cmd
+    assert "--fields" in cmd, cmd
+    assert cmd[cmd.index("--fields") + 1] == wiremod.FIELDS_PATTERN, cmd
 
 
 def test_the_child_is_asked_for_markers_only():

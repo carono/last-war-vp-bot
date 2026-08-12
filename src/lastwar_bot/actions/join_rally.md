@@ -147,6 +147,15 @@ ARGS min_soldiers = 0
 # collects the banners THIS run has been refused by, and a refusal is only terminal for
 # as long as that banner stands — the next run asks the map again.
 #
+# WHERE THE THREE MAPS COME FROM, because it decides whether the door below can work at
+# all (#1323). A banner's KIND is `targetContentId`, and that field is on the push and in
+# nothing the client keeps — so the panel has to remember what it heard, and it used to
+# remember it only on the «Ралли» tab. A window that does not SHOW that tab has no such
+# tab, so the auto-join arrived here with `targets` EMPTY, classified every banner as the
+# fallback `monster`, spent that one budget all day and left every per-kind ceiling the
+# person had set untouched. The profile's own wire ear keeps the same three maps now
+# (`panel/runtime/rally_wire.py`) and the tab's answer wins wherever both know a banner.
+#
 # `points` is `team:tile/server,…` off the same push: WHERE a joiner is sent. It is the
 # one thing the client is slow about, and it is the whole of the delay a person sees
 # (#1301). Measured over 91 banners: the push reaches the trigger in 0.005 s and the

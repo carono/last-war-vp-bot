@@ -52,6 +52,20 @@ from map_capture import (  # noqa: E402
 # and logs its own sentence.
 FIRE = "##TRIGGER##"
 
+# The SECOND machine line, and the reason it exists (#1323). A marker says «that
+# command arrived»; some abilities need a handful of the push's own fields as well,
+# and there is exactly one such case: which monster a rally banner is going for.
+# `targetContentId` rides on `push.alliance.march.*` and on nothing the client keeps
+# (docs/research/rally-join.md), so a profile that hears the push and not its payload
+# cannot name a single banner — and the per-kind daily budgets, which are keyed on
+# exactly that name, all collapse into one bucket without a word being said.
+#
+# So a `--fields` pattern makes the child print this line beside the marker, carrying
+# ONLY the fields named in `_FIELD_BUILDERS` below. It is swallowed by the panel's
+# reader exactly as the marker is, and it is NAME-FREE by construction: numbers and
+# ids of things, never a person — which is the rule #1293 set for this child's output.
+FIELDS = "##FIELDS##"
+
 # How long to sit quiet after printing a marker before printing another for the
 # same run. The panel's queue already coalesces the *presses*; this only stops the
 # log filling with markers when a command repeats in a tight burst.
@@ -64,6 +78,68 @@ def _stamp() -> str:
     return time.strftime("%H:%M:%S")
 
 
+def _march_fields(payload) -> str:
+    """`team=… content=… slots=…/… join=…/…` off an alliance-march push, or `""`.
+
+    THE SAME FOUR WORDS `tools/rally_monitor.py` PRINTS, and read out of the payload by
+    that tool's own helpers rather than by a second copy of them: which banner
+    (`teamUuid`, and on a `create` it is only on the envelope), what it is going for
+    (`targetContentId` — the whole point of this line), how many seats it has and where
+    a joiner is sent. Everything the join needs from the wire and not one field more.
+
+    NOT A PLAYER IN SIGHT, on purpose: the push carries `ownerName`, `ownerUid` and an
+    alliance id, and none of them is here. A line that can only ever hold numbers of
+    THINGS is what makes this safe to print from a child whose output a parent logs
+    (#1293).
+
+    Empty for a push that is not about a banner, and never raises: this runs in the
+    scapy callback, where an exception closes the capture socket.
+    """
+    try:
+        import rally_monitor                       # tools/ is on the path already
+    except Exception:                              # noqa: BLE001 — no fields, not a crash
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    out = []
+    try:
+        team = rally_monitor._banner_uuid(payload)
+        if not team:
+            return ""                              # a solo march is not a banner
+        out.append(f"team={team}")
+        content = payload.get("targetContentId") or payload.get("targetUid")
+        if content:
+            out.append(f"content={content}")
+        cap = payload.get("assemblyMarchMax")
+        if cap:
+            out.append(f"slots={len(list(rally_monitor._iter_marches(payload)))}/{cap}")
+        aim = rally_monitor._join_point(payload)
+        if aim:
+            out.append(f"join={aim[0]}/{aim[1]}")
+    except Exception:                              # noqa: BLE001 — a field, never the ear
+        return ""
+    return " ".join(out)
+
+
+#: Which commands get a fields line, and what builds it. One entry, and the shape is
+#: the point: a new one is a named command family plus a function that may only ever
+#: return numbers of THINGS.
+_FIELD_BUILDERS = (("alliance.march", _march_fields),)
+
+
+def _fields_for(command: str, payload) -> str:
+    """The fields line for one command, or `""` when nothing knows how to build it.
+
+    A command the parent asked for but nobody can describe yields nothing rather than
+    a guess — `summarise()` would answer, and what it answers with is the payload,
+    player names and all (#1293).
+    """
+    for family, build in _FIELD_BUILDERS:
+        if family in command:
+            return build(payload)
+    return ""
+
+
 class EventMonitor(LiveDecoder):
     """Watch the down stream; announce every command that matches a pattern.
 
@@ -71,9 +147,16 @@ class EventMonitor(LiveDecoder):
     subclass, since the scapy sniffer calls ``feed_packet`` regardless.
     """
 
-    def __init__(self, patterns, cooldown: float = COOLDOWN, quiet: bool = False):
+    def __init__(self, patterns, cooldown: float = COOLDOWN, quiet: bool = False,
+                 fields=()):
         super().__init__()
         self.patterns = tuple(patterns)
+        # The commands whose payload fields the parent asked for (`--fields`). A
+        # subset of what is already being matched: this decodes nothing extra and
+        # opens no second capture — it reads the payload of a frame the ear had in
+        # its hands anyway (#1323).
+        self.fields = tuple(f for f in (fields or ()) if f)
+        self.field_lines = 0        # how many fields lines went out (the report says)
         self.cooldown = cooldown
         # `quiet`: print the marker and NOT the human line. The summary beside a
         # command is the push's own payload — `uid`, `senderName`, `allianceId` — and
@@ -97,6 +180,20 @@ class EventMonitor(LiveDecoder):
         if direction != "down" or not any(p in command for p in self.patterns):
             return
         self.matches += 1
+        # THE FIELDS LINE IS NOT COOLED DOWN, and that is deliberate (#1323). The
+        # cooldown exists so a burst of one command cannot fill a log with markers —
+        # a press is coalesced by the panel's queue anyway. This line is not a press
+        # and never reaches a log: it is one banner's own numbers, and during an event
+        # ten banners announce themselves inside one throttle window. Cooling it would
+        # leave nine of them unnamed, which is the very state this exists to end.
+        if self.fields and any(p in command for p in self.fields):
+            try:
+                built = _fields_for(command, proto.envelope_payload(env))
+                if built:
+                    print(f"{FIELDS}\t{command}\t{built}", flush=True)
+                    self.field_lines += 1
+            except Exception:        # noqa: BLE001 — never let a field kill the ear
+                pass
         now = time.time()
         if now - self._last_fire.get(command, 0.0) < self.cooldown:
             return
@@ -118,6 +215,9 @@ class EventMonitor(LiveDecoder):
 
     def report(self) -> None:
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")
+        if self.fields:
+            print(f"{self.field_lines} fields line(s) printed "
+                  f"for {' / '.join(self.fields)}")
         print(f"{C_OK}{self.matches} match(es) seen, {self.fired} marker(s) printed"
               f"{C_RESET}")
         print(f"{self.packets} packet(s) with payload")
@@ -141,6 +241,10 @@ def main() -> int:
                     help="fire when a down command name contains this (repeatable)")
     ap.add_argument("--cooldown", type=float, default=COOLDOWN, metavar="SEC",
                     help=f"quiet time between two markers (default {COOLDOWN})")
+    ap.add_argument("--fields", action="append", metavar="SUBSTR", default=[],
+                    help="also print a machine-only fields line for a matched command "
+                         "whose name contains this (repeatable). Only the fields the "
+                         "panel needs, never a player: see FIELDS above")
     ap.add_argument("--quiet", action="store_true",
                     help="print the markers only — no human line per match. That line "
                          "carries the push's payload (uid, sender name, alliance id), "
@@ -162,7 +266,8 @@ def main() -> int:
     except Exception:
         pass
 
-    monitor = EventMonitor(args.match, cooldown=args.cooldown, quiet=args.quiet)
+    monitor = EventMonitor(args.match, cooldown=args.cooldown, quiet=args.quiet,
+                           fields=args.fields)
     stop, bpf = start_capture(monitor, args)
 
     print("Wire-event listener — scapy/npcap, no dumpcap")
