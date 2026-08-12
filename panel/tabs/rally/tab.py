@@ -62,9 +62,11 @@ from ...widgets import (ScrollableFrame, install_numeric_field, tk_stringvar,
 from ..base import PanelTab, TriggerSpec
 from . import autorally as autorallymod
 from . import limits as rallylimits
+from . import roster as rostermod
 from .autorally import AutoRallyPage
 
 # The kind vocabulary, read off the live game config (tools/lib/rally_kinds.py, #1317).
+import coords                                                         # noqa: E402
 import rally_kinds                                                    # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -145,7 +147,7 @@ class RallyTab(PanelTab):
     # somebody happens to open the tab.
     EAGER = True
     LOCALE_NS = ("rally_tab", "rally", "autorally", "rally_limit", "rally_day",
-                 "rally_kind", "log.rally", "squads")
+                 "rally_kind", "rally_roster", "log.rally", "squads")
     NEEDS = frozenset({"daemon", "children", "actions"})
     # The flat keys this tab's settings used to be spelled with, so a profile that
     # predates the per-tab block keeps every value it had (§5 rule 1).
@@ -239,6 +241,17 @@ class RallyTab(PanelTab):
         # constructor and not in the draw, because its squad list is what the auto-join
         # spends and a profile applies its config before anything is on screen.
         self.autorally = AutoRallyPage(rt)
+        # WHAT IS STANDING ON THE MAP RIGHT NOW (#1324) — the banners, who is in them,
+        # what they are going for and how much room is left. Built HERE and not in the
+        # draw for the same reason as everything else on this tab: the capture is
+        # running before anybody opens the page (`EAGER`), so the model has to be there
+        # to catch the first push, and a tab rebuilt for a language change must find its
+        # banners where it left them. `build()` only draws what this already holds.
+        self.roster = rostermod.RallyRoster(rt, on_event=self._roster_event,
+                                            on_change=self._roster_changed)
+        self._faces = rostermod.FaceImages()
+        self._roster_body = None    # the frame the banners are drawn into, once built
+        self._roster_count = tk_stringvar(master)
 
     # -- UI -----------------------------------------------------------------
     def build(self) -> None:
@@ -265,6 +278,9 @@ class RallyTab(PanelTab):
         auto.pack(fill="x", padx=10, pady=(0, 8))
         self._build_monitor(auto)
         self.autorally.build(auto)
+        # …and what the switches above are listening TO, drawn between them and the
+        # manual form: the banners standing right now (#1324).
+        self._build_roster(body)
         self._build_form(body)
 
         self.tr(ttk.Label(body, foreground="#888", wraplength=640, justify="left"),
@@ -405,6 +421,128 @@ class RallyTab(PanelTab):
         except tk.TclError:
             pass
 
+    # -- the banners standing right now (#1324) ------------------------------
+    #
+    # The switches above say what the panel DOES about a rally; this says what there
+    # IS. It is drawn from `panel/tabs/rally/roster.py`, which lives on the pushes the
+    # capture is already reading and asks the game for the composition — so the block
+    # moves as the game moves rather than on a clock, and every number in it is the
+    # game's own (docs/research/rally-roster.md).
+
+    #: How tall a face is drawn beside a member's name.
+    FACE_PX = 22
+
+    def _build_roster(self, parent) -> None:
+        box = self.tr(ttk.LabelFrame(parent, padding=8), "rally_roster.frame")
+        box.pack(fill="x", padx=10, pady=(0, 8))
+        head = ttk.Frame(box)
+        head.pack(fill="x")
+        ttk.Label(head, textvariable=self._roster_count).pack(side="left")
+        # A button that STARTS a reading, not one that marks anything: the block is a
+        # board of readings and pressing this asks the game again (CLAUDE.md).
+        self.tr(ttk.Button(head, command=self.roster.refresh_async),
+                "rally_roster.refresh").pack(side="right")
+        self._roster_body = ttk.Frame(box)
+        self._roster_body.pack(fill="x", pady=(4, 0))
+        self.tr(ttk.Label(box, foreground="#888", wraplength=620, justify="left"),
+                "rally_roster.hint").pack(anchor="w", pady=(6, 0))
+        self._paint_roster()
+
+    def _roster_changed(self) -> None:
+        """The model moved — repaint, on the Tk thread whichever thread said so."""
+        self._after(self._paint_roster)
+
+    def _roster_event(self, key: str, fmt: dict) -> None:
+        """One transition, in the log: a banner up, a joiner, a leaver, an ending."""
+        self._after(lambda: self.say("rally", key, **fmt))
+
+    def _paint_roster(self) -> None:
+        """Redraw the block from the model. Cheap: a dozen banners of five people."""
+        body = self._roster_body
+        if body is None:
+            return
+        import tkinter as tk
+
+        try:
+            for child in body.winfo_children():
+                child.destroy()
+            banners = self.roster.banners()
+            live, gone = self.roster.counts()
+            self._roster_count.set(self.t("rally_roster.count", live=live, gone=gone))
+            if not banners:
+                self.tr(ttk.Label(body, foreground="#888"),
+                        "rally_roster.empty").pack(anchor="w")
+                return
+            for banner in banners:
+                self._paint_banner(body, banner)
+        except tk.TclError:                  # noqa: PERF203 — a window on its way out
+            self._roster_body = None
+
+    def _paint_banner(self, parent, banner) -> None:
+        """One banner: what it is, where, how full — then the people in it."""
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(2, 4))
+        line = ttk.Frame(row)
+        line.pack(fill="x")
+        # A banner that has ended is greyed rather than dropped: «what happened to that
+        # one» is a question asked after the fact.
+        colour = "#888" if banner.gone_at else ""
+        state = banner.ending or banner.state
+        self.tr(ttk.Label(line, foreground=colour or "#0a7"),
+                f"rally_roster.state.{state}").pack(side="left")
+        ttk.Label(line, text=self._banner_title(banner),
+                  foreground=colour, font=ui_font(weight="bold")).pack(side="left",
+                                                                       padx=(6, 0))
+        ttk.Label(line, text=self._banner_where(banner),
+                  foreground=colour or "#888").pack(side="left", padx=(6, 0))
+        ttk.Label(line, text=self._banner_seats(banner),
+                  foreground=colour).pack(side="right")
+        people = ttk.Frame(row)
+        people.pack(fill="x", padx=(12, 0))
+        for member in banner.members:
+            self._paint_member(people, member, colour)
+        if not banner.members:
+            # The wire has announced it and the client is a median of 10 s behind —
+            # said in words, or a banner with nobody in it reads as an empty rally.
+            self.tr(ttk.Label(people, foreground="#888"),
+                    "rally_roster.awaiting").pack(anchor="w")
+
+    def _paint_member(self, parent, member, colour: str) -> None:
+        chip = ttk.Frame(parent)
+        chip.pack(side="left", padx=(0, 10))
+        image = self._faces.get(member.face or "", self.FACE_PX)
+        if image is not None:
+            label = ttk.Label(chip, image=image)
+            label.image = image              # Tk keeps no reference of its own
+            label.pack(side="left", padx=(0, 4))
+        text = member.name + (" ★" if member.leader else "")
+        ttk.Label(chip, text=text,
+                  foreground=colour or ("#07a" if member.mine else "")).pack(side="left")
+
+    def _banner_title(self, banner) -> str:
+        """What the banner is going for, in the panel's own words for that kind.
+
+        The kind is `rally_kinds.KIND_OF_NAME` — THE table the per-kind budget is keyed
+        by, so the block and the door never name a banner differently — and its label is
+        the `rally_limit.type.*` key that is already translated in every locale. A banner
+        the config could not name says «неизвестно» rather than inventing a species.
+        """
+        kind = banner.kind or rally_kinds.FALLBACK_KIND
+        name = self.t("rally_limit.type." + kind)
+        return f"{name} · {banner.level}" if banner.level else name
+
+    def _banner_where(self, banner) -> str:
+        """The target tile, in the clickable form the log uses; empty when unread."""
+        if not banner.target:
+            return ""
+        return coords.fmt(banner.target[0], banner.target[1],
+                          banner.server or None)
+
+    def _banner_seats(self, banner) -> str:
+        """«3/5», or just «3» while the wire has not said how big the banner is."""
+        return (f"{banner.taken}/{banner.seats_cap}" if banner.seats_cap
+                else str(banner.taken))
+
     # -- lifecycle -----------------------------------------------------------
     def ensure_loaded(self) -> None:
         """Start the monitor if this profile had it on. There is no lazy data read here.
@@ -432,6 +570,11 @@ class RallyTab(PanelTab):
         # readable. `on_show` and not `ensure_loaded`: this feeds the screen and nothing
         # else, so a profile nobody looks at pays no VM read for it (docs/panel-tabs.md).
         self._refresh_day()
+        # …and the banners, for the same reason and on the same rule: the block lives
+        # on the pushes, so this read is only about what a person opening the tab
+        # between two of them should see (#1324).
+        self.roster.refresh_async()
+        self._paint_roster()
 
     def on_hide(self) -> None:
         self._unwatch_squads()
@@ -549,6 +692,12 @@ class RallyTab(PanelTab):
         cards.append({"title": "autorally.group",
                       "items": list(switches["items"]) + list(page["items"]),
                       "rows": page["rows"]})
+        # …AND THE BANNERS THEMSELVES, which is the whole reason a phone is being held
+        # (#1324). The same block the window draws: what is standing, what it is going
+        # for, how much room is left and who is already in it, faces and all. Cheap —
+        # it reads the model the pushes maintain and asks the game for nothing, which
+        # is the rule for everything in a `web_view` (docs/panel-tabs.md).
+        cards += self._web_roster_cards()
         return {"cards": cards, "now": __import__("time").time(),
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             # The window's own «Наполнить отряды», mirrored: a squad
@@ -556,6 +705,53 @@ class RallyTab(PanelTab):
                             # the phone is exactly the one who cannot walk to the machine
                             # to press it (#1285).
                             {"id": "fill", "label": "rally_tab.fill_squads"}]}
+
+    def _web_roster_cards(self) -> list:
+        """The live block, as the phone draws it: a card per banner (#1324).
+
+        A card and not a row apiece, because a banner is a heading with a list of
+        people under it — and the people carry FACES, which the renderer can only draw
+        on an item. The picture travels as a link into the panel's own avatar route,
+        never as bytes inside the view: this runs on every poll while somebody is
+        looking, and twenty photos per poll would be a screen that costs a megabyte a
+        minute to leave open.
+        """
+        live, gone = self.roster.counts()
+        head = {"title": "rally_roster.frame",
+                "rows": [{"label": "rally_roster.live", "value": str(live)},
+                         {"label": "rally_roster.ended", "value": str(gone)}],
+                "items": [],
+                "actions": [{"id": "roster", "label": "rally_roster.refresh"}]}
+        banners = self.roster.banners()
+        if not banners:
+            head["items"].append({"label": "rally_roster.empty"})
+        cards = [head]
+        for banner in banners:
+            rows = [{"label": "rally_roster.state",
+                     "value": self.t("rally_roster.state."
+                                     + (banner.ending or banner.state))},
+                    {"label": "rally_roster.seats",
+                     "value": self._banner_seats(banner)}]
+            where = self._banner_where(banner)
+            if where:
+                rows.append({"label": "rally_roster.where", "value": where})
+            cards.append({"head": self._banner_title(banner), "rows": rows,
+                          "items": [self._web_member(m) for m in banner.members],
+                          "empty": "rally_roster.awaiting"})
+        return cards
+
+    def _web_member(self, member) -> dict:
+        """One person in a banner: their face, their name, what they brought."""
+        item = {"text": member.name,
+                "detail": (f"{member.power:,}".replace(",", " ")
+                           if member.power else "")}
+        if member.face:
+            item["avatar"] = rostermod.face_url(member.face)
+        if member.leader:
+            item["pill"] = "rally_roster.leader"
+        elif member.mine:
+            item["pill"] = "rally_roster.mine"
+        return item
 
     def _web_autojoin_card(self) -> dict:
         """The three switches, one per line, each saying on or off. READINGS.
@@ -687,6 +883,11 @@ class RallyTab(PanelTab):
         reading here, editable only at the machine. A wrong squad sent from a bus is a
         squad that is not home when the next rally lands.
         """
+        if action == "roster":
+            # The window's «Обновить» beside the block, mirrored: it starts a READING
+            # and marks nothing (#1324). The screen catches up on the next poll.
+            self.roster.refresh_async()
+            return {"ok": True}
         if action == "fill":
             return {"ok": self.rt.play_async(
                 "fill_empty_squads", {"squads": list(RALLY_SQUADS)}, tag="fill_squads",
@@ -760,10 +961,22 @@ class RallyTab(PanelTab):
         self._stop_capture()
         self._refresh_hint()
         self.autorally.reload_limits()
+        # ANOTHER ACCOUNT IS ANOTHER ALLIANCE (#1324). The banners on screen belong to
+        # the alliance of the profile that was open; leaving one of them up would be
+        # this tab showing one account another account's rally, which is the shape of
+        # leak `game_process.capture_narrowing` exists to stop
+        # (docs/research/profile-isolation.md). The faces go too — they are files in a
+        # shared folder, but the Tk images belong to what was drawn.
+        self.roster.reset()
+        self._faces.forget()
+        self._paint_roster()
         self._sync_capture()
 
     def on_language_change(self) -> None:
         self._refresh_hint()
+        # Every word in the block is a key — the kind, the state, the heading — so the
+        # whole of it is redrawn rather than left in the language it was drawn in.
+        self._paint_roster()
 
     def panic(self) -> None:
         """«Стоп всё»: the capture off, and a run in flight asked to stop."""
@@ -793,6 +1006,10 @@ class RallyTab(PanelTab):
         self._stop_run()
         self._stop_capture()
         self._unwatch_squads()
+        # The block's reader is a worker that asks the game: a window on its way out
+        # must not leave one queued behind it.
+        self.roster.stop()
+        self._faces.forget()
 
     # -- reading the controls ----------------------------------------------
     def _kind(self) -> str:
@@ -1178,6 +1395,16 @@ class RallyTab(PanelTab):
         team = clean.split("team=")[1].split()[0].strip()
         if not team:
             return False
+        # THE BANNER IS OVER, and this line is the only place that says which way
+        # (#1324): `gone=launched` — the squads left for the monster — or
+        # `gone=cancelled`. It carries no army, no seats and no address, and above all
+        # it is NOT a banner to go and join: everything below this point is about a
+        # rally that is still standing, so the ending is handed to the block and the
+        # line stops here. Ringing the bell for it, or sending a squad at it, is what
+        # the early return prevents.
+        if "gone=" in clean:
+            self.roster.ended(team, clean.split("gone=")[1].split()[0].strip())
+            return False
         if "content=" in clean:
             content = clean.split("content=")[1].split()[0].strip()
             if content and content.isdigit():
@@ -1199,6 +1426,19 @@ class RallyTab(PanelTab):
             point, _, server = aim.partition("/")
             if point.isdigit() and server.isdigit():
                 self._points[team] = (int(point), int(server), time.time())
+        # …AND THE SAME THREE FACTS GO TO THE BLOCK, which then asks the game for the
+        # composition (#1324). The push is the EVENT — the block lives on it rather
+        # than on a clock — and these are the fields the client's own march record does
+        # not carry, so they travel from here and everything else is read.
+        count = 0
+        if "participants=" in clean:
+            head = clean.split("participants=")[1].split()[0].strip()
+            count = int(head) if head.isdigit() else 0
+        aim = self._points.get(team)
+        self.roster.heard(team, content=self._targets.get(team, ""),
+                          seats=self._slots.get(team, ""),
+                          point=(aim[0], aim[1]) if aim else None,
+                          count=count)
         # THE BELL IS ONE PER BANNER; THE JOIN IS NOT (#1281). `_seen` used to gate both,
         # and it was marked HERE — before the join had been tried — so a join the game
         # was too busy to start, or one every squad was out for, was never tried again

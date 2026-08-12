@@ -350,6 +350,15 @@ def _make_handler(server: WebServer):
         # -- the two verbs --------------------------------------------------
         def do_GET(self) -> None:               # noqa: N802 — BaseHTTPRequestHandler
             path, query = _split(self.path)
+            # A PICTURE IS NOT JSON, and this is the only route that answers with one
+            # (#1324). The «Ралли» screen draws the face of everybody standing in a
+            # banner, out of the client's own cache; sending them inside the view would
+            # be a megabyte per poll, so the view carries links and the browser fetches
+            # each face once. Handled before `_api` because everything below there
+            # encodes its answer as JSON.
+            if path == "/api/avatar":
+                self._avatar(query)
+                return
             if path.startswith("/api/"):
                 self._api("GET", path, query, {})
                 return
@@ -383,6 +392,42 @@ def _make_handler(server: WebServer):
                 self._json(500, {"error": str(exc)})
                 return
             self._json(status, payload)
+
+        # -- one picture ----------------------------------------------------
+        def _avatar(self, query: dict) -> None:
+            """Serve one face out of the shared avatar folder, by bare name (#1324).
+
+            The folder is the MACHINE's and not an account's, by an explicit decision
+            (`game_paths.avatar_cache()`, #1306): the same player has the same face
+            whichever profile met them first. So this route takes no profile — there is
+            nothing per-account to isolate here, and the name it is given is checked by
+            `player_faces.file_named` rather than trusted.
+
+            Behind the same token as everything else: a folder of players' photographs
+            is not something to hand to whoever finds the port.
+            """
+            if not self._authorised(query):
+                self._refuse(query)
+                return
+            try:
+                import player_faces
+                full = player_faces.file_named(_one(query.get("face")))
+            except Exception:                   # noqa: BLE001 — one request, not the panel
+                full = None
+            if not full:
+                self._send(404, b"", "text/plain")
+                return
+            try:
+                with open(full, "rb") as fh:
+                    blob = fh.read()
+            except OSError:
+                self._send(404, b"", "text/plain")
+                return
+            kind = "image/png" if full.lower().endswith(".png") else "image/jpeg"
+            # A face does not change while the panel is open — a `picVer` bump writes a
+            # new file under a new name — so the browser may keep it and stop asking.
+            self._send(200, blob, kind,
+                       headers=[("Cache-Control", "private, max-age=86400")])
 
         def _peer(self) -> str:
             """WHO is asking: the address the socket says, and nothing else.

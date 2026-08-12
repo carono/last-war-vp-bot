@@ -776,10 +776,22 @@ row says WHICH errand it is.
 **Which fields are words and which are data is fixed.** `title`, `label`, `empty`,
 `pill` are **locale keys** and are said by the browser out of the panel's own table;
 `text`, `value`, `detail`, `note`, `head` and a fact's `value` are **data** — a player's
-name, a count, a date. That is what puts a screen in eleven languages by construction:
+name, a count, a date.
+
+That is what puts a screen in eleven languages by construction:
 the i18n test only reads `t()` calls in `.py`, so a sentence written into a dict would
 sail past it. `tests/test_panel_web_screens.py` reads the views instead and fails on a
 label that is not a key.
+
+**A picture is a LINK, never bytes.** An item may carry `avatar` — a URL into the
+panel's own picture route, `"/api/avatar?face=<file name>"` — and the browser draws it
+before the title and drops it silently if it will not load (#1324, «Ралли» draws the
+face of everybody standing in a banner). It is a link and not a payload because
+`web_view` runs on every poll: twenty photos inside the view would be a megabyte a
+minute to leave a screen open, where a link is fetched once and then cached. Build it
+with `panel.tabs.rally.roster.face_url`, which sends only the file's NAME — the route
+serves one folder (`game_paths.avatar_cache()`) and `player_faces.file_named` checks the
+name three ways rather than trusting it.
 
 `until` is an epoch and `now` is the PANEL's clock: the phone counts down against the
 panel's time rather than its own, because a tablet an hour out would otherwise call

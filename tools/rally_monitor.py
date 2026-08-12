@@ -76,12 +76,20 @@ from map_capture import (  # noqa: E402
 
 # The rally stream. Matched as a substring against the decoded command name so
 # "alliance.march.create" also catches the push.-prefixed form, and the same for
-# refresh. remove carries no armyInfo (bare {teamUuid, isCancel}) so it is left
-# out — a rally launching does not add an army snapshot.
+# refresh.
 WANT = (
     "alliance.march.create",
     "alliance.march.refresh",
 )
+
+# …and the END of a banner, which carries no armyInfo at all — `{teamUuid, isCancel}`
+# and nothing else, so it adds no row to the archive and is handled apart from the
+# stream above (#1324). It is worth hearing for one reason: it is the only thing that
+# says WHICH WAY a banner ended. The client's march table loses it at the same moment
+# either way, so a reader of the table alone can never tell «стяг ушёл» from «стяг
+# отменили» — and to somebody deciding whether to send a squad after it, those are not
+# the same news.
+WANT_END = "alliance.march.remove"
 
 # A hero list uses ids 50006..50022; 1000000 is the air-support / drone slot
 # that rides in the same squad list but is not a hero.
@@ -294,6 +302,9 @@ class RallyMonitor(LiveDecoder):
 
     def emit(self, direction, env):  # LiveDecoder hook
         command = proto.envelope_command(env) or ""
+        if WANT_END in command:
+            self._ended(command, proto.envelope_payload(env))
+            return
         if not any(tag in command for tag in WANT):
             return
         payload = proto.envelope_payload(env)
@@ -385,6 +396,28 @@ class RallyMonitor(LiveDecoder):
         aim = f"  join={join[0]}/{join[1]}" if join else ""
         print(f"{_stamp()} {command}  {tag}  "
               f"participants={len(marches)} [{who}]{where}{kind}{seats}{aim}", flush=True)
+
+    def _ended(self, command: str, payload) -> None:
+        """A banner is over: say so on one line, and say which way it ended (#1324).
+
+        `{teamUuid, isCancel}` is the whole payload — `isCancel` false is the rally
+        LAUNCHING (the squads left for the monster), true is the leader disbanding it or
+        the gathering window running out. Nothing is archived: there is no army in it,
+        and the archive is a record of who brought what.
+
+        The line keys by `team=` like every other one, so a reader that groups by banner
+        needs no new parsing, and carries `gone=` — which is also what tells a reader
+        this is NOT a banner to go and join.
+        """
+        if not isinstance(payload, dict):
+            return
+        team = payload.get("teamUuid") or payload.get("uuid")
+        if not team:
+            return
+        cancelled = bool(payload.get("isCancel"))
+        self.frames += 1
+        print(f"{_stamp()} {command}  {C_RALLY}team={team}{C_RESET}  "
+              f"gone={'cancelled' if cancelled else 'launched'}", flush=True)
 
     def report(self):
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")

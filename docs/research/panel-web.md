@@ -65,6 +65,7 @@ one call onto the runtime:
 | `/api/panel` | the PANEL's own life — `runtime/panel_control.py`, which is the shell's own «close and start again» |
 | `/api/log` | the log bus, tapped |
 | `/api/i18n` | `panel/locales/` |
+| `/api/avatar` | ONE PICTURE, and the only route that does not answer with JSON — a face out of the shared avatar folder (`game_paths.avatar_cache()`), by bare name, behind the same token (#1324) |
 
 There is no Lua here, no step sequence, no gate. A phone cannot ask this server to do
 anything the window cannot, which is the point: the abilities stay in one place and both
@@ -269,6 +270,13 @@ Two rules make that safe, and both are pinned by `tests/test_panel_web_screens.p
   returns what the tab ALREADY has and never reads the game. A phone left on a screen
   would otherwise poll the client all day. The reading is refreshed by a press, which is
   the same «Обновить» the window has.
+* **a picture is a link.** An item may carry `avatar`, and it is a URL into `/api/avatar`
+  rather than the bytes themselves (#1324, «Ралли» draws the face of everybody standing in
+  a banner, out of the game client's own picture cache). The reason is the rule above it:
+  the view is polled, so twenty photos inside it would be a megabyte a minute to leave a
+  screen open — a link is fetched once and cached for a day. Only the file's NAME travels,
+  and `player_faces.file_named` checks it three ways rather than trusting it, because a
+  folder of players' photographs is not something to hand to whoever finds the port.
 
 The tabs that offer one: the profile and its resources, the accounts, the alliance, the
 heroes and the inventory (all five through `DataTab`, which is a reading and an

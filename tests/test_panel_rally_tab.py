@@ -464,6 +464,42 @@ def test_the_alert_fires_once_per_banner():
         root.destroy()
 
 
+def test_the_end_of_a_banner_reaches_the_block_and_nothing_else():
+    """`gone=` is a banner that is OVER: no bell for it, and no squad sent after it.
+
+    The line carries `team=` like every other one, so everything below the guard would
+    have taken it for a banner standing there — the alert would ring for a rally that
+    has just left, and the auto-join would spend a squad on it.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        rang = []
+        joined = []
+        tab._bell = lambda: rang.append(1)
+        tab.join_now = lambda: joined.append(1)
+        tab._alert_var.set(True)
+        tab._autojoin_var.set(True)
+        tab._on_line("[rally] march uuid=9 team=88")     # the banner goes up
+        rang.clear()
+        joined.clear()
+        tab._on_line("[rally] push.alliance.march.remove team=88 gone=launched")
+        assert not rang, "the bell rang for a banner that had already left"
+        assert not joined, "a squad was sent after a banner that had left"
+        banner = [b for b in tab.roster.banners() if b.team == "88"]
+        assert banner and banner[0].ending == "launched", tab.roster.banners()
+    finally:
+        root.destroy()
+
+
 def test_every_pass_reports_what_it_went_for():
     """The budget is told about the pass that SENT, not only about the first one (#1281).
 

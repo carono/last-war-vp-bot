@@ -308,6 +308,19 @@ input[type=checkbox]:disabled { opacity: .5; }
   margin-bottom: 10px;
 }
 .item .title { font-weight: 600; overflow-wrap: anywhere; }
+/* A player's face beside their name (#1324). Round, small and fixed: the pictures come
+   out of the game client's cache at whatever size the player uploaded, and a row of
+   people has to line up whatever any one of them chose. `flex: none` so a long name
+   squeezes the text and never the face. */
+.item .face {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 8px;
+  background: var(--line);
+}
 /* The button is ALWAYS in the same place — bottom right of the card, whether or not
    there is a pill beside it. With `space-between` a row whose pill was hidden put its
    button on the left, so «Запустить» moved from card to card down the list and the

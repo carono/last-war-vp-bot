@@ -9,6 +9,10 @@ Four files, because the subject has four parts that are used by different people
 * :mod:`panel.tabs.rally.limits` — the daily budget's gate. **No Tk**, because the
   schedule asks it before letting the «rally_auto_join» trigger run, in a profile that
   may not show this tab at all.
+* :mod:`panel.tabs.rally.roster` — the banners standing right now: the model behind the
+  live block, fed by the pushes and read from the game (#1324). **No Tk either** — the
+  drawing is the tab's and the images it caches import PIL only when one is drawn — so
+  the model can be tested, and read, without a window.
 * ``__main__`` — `python -m panel.tabs.rally`, which opens the tab on its own.
 
 THE TAB IS IMPORTED LAZILY, and that is what the last bullet is worth: a plain
@@ -24,7 +28,7 @@ import importlib
 #: The submodules, so a lookup for one of them never re-enters this hook. `from . import
 #: tab` falls back to `getattr(package, "tab")` when the import raises, which without
 #: this is an infinite recursion instead of the ImportError it should be.
-_SUBMODULES = frozenset({"tab", "autorally", "limits"})
+_SUBMODULES = frozenset({"tab", "autorally", "limits", "roster"})
 
 
 def __getattr__(name: str):

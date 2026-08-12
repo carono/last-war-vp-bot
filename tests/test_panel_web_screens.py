@@ -138,8 +138,12 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     # is the first block to need one: the press belongs to that event and not to the
     # whole board (#1257).
     allowed_card = {"title", "head", "rows", "items", "empty", "search", "actions"}
+    # `avatar` is a LINK to the panel's own picture route, not bytes and not a word: the
+    # «Ралли» screen draws the face of everybody standing in a banner, out of the game
+    # client's own cache (#1324). The renderer draws it as an <img> and drops it if it
+    # will not load, so an item that has one degrades to the item without one.
     allowed_item = {"text", "label", "detail", "note", "pill", "actions", "facts",
-                    "until"}
+                    "until", "avatar"}
     for tab_id, cls in _tabs_with_screens():
         view = _sample_view(cls)
         if view is None:

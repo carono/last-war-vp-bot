@@ -712,6 +712,18 @@ function renderItem(item) {
   line.className = 'item';
   const head = document.createElement('div');
   head.className = 'row';
+  /* A FACE, when the item has one: a link into the panel's own avatar route, never
+   * bytes inside the view. The picture comes out of the game client's own cache and
+   * the browser keeps it, so a screen that repaints every couple of seconds fetches
+   * each face once (#1324). A face that will not load leaves the name alone. */
+  if (item.avatar) {
+    const face = document.createElement('img');
+    face.className = 'face';
+    face.src = item.avatar;
+    face.alt = '';
+    face.addEventListener('error', () => face.remove());
+    head.appendChild(face);
+  }
   const title = document.createElement('span');
   title.className = 'title';
   // `label` is a KEY (a line that IS one of the panel's own words), `text` is data.
