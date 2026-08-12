@@ -61,13 +61,18 @@ import rally_kinds                                                    # noqa: E4
 # has never been edited is seeded with.
 DEFAULT_CAP = 20
 
-#: The kinds that ship UNCAPPED — «на золотых оставляем без лимита», and «золотые» is the
-#: whole GOLDEN LINE of season 3, not just its boss: the person listed them one by one
-#: when the first reading of that sentence turned out to be too narrow. They are the
-#: game's own names (`tools/game_locale.py`): Golden Defender / Striker / Annihilator, the
-#: Desert Boss («Золотой вожак») and the Wandering Mummy Warlord.
+#: The kinds that ship UNCAPPED — «на золотых оставляем без лимита», and «золотые» is
+#: exactly the four the game calls Golden: Golden Defender, Golden Striker, Golden
+#: Annihilator and the Desert Boss, whose Russian name is «Золотой вожак»
+#: (`tools/game_locale.py`).
+#:
+#: THE WANDERING MUMMY WARLORD WAS IN THIS LIST AND IS NOT ANY MORE — «мумию не
+#: учитываем», said after a day of watching it («Золотой» is not in its name, in any of
+#: the eleven locales). It goes back to the ordinary twenty, and a profile seeded while
+#: it was uncapped is carried across by :data:`RESEEDED_KINDS`: the zero in those files
+#: was never anybody's choice, it was this list's.
 UNCAPPED_KINDS = ("desert_boss", "golden_defender", "golden_striker",
-                  "golden_annihilator", "wandering_mummy_warlord")
+                  "golden_annihilator")
 
 DEFAULT_RALLY_LIMITS: dict[str, int] = {
     kind: (0 if kind in UNCAPPED_KINDS else DEFAULT_CAP)
@@ -83,11 +88,22 @@ DEFAULT_RALLY_LIMITS: dict[str, int] = {
 #: `doom_elite` because that is the row the person was setting when they typed it.
 RENAMED_KINDS: dict[str, tuple] = {"doom_elite": ("doom_walker", "doom_elite")}
 
-#: The file format's own version, and the ONLY thing that says a stored `doom_elite` is
-#: the old meaning (#1317). Both keys are legitimate now — `doom_elite` is a real species
-#: again — so a file has to say whether it predates the rename; an unversioned one does,
-#: a versioned one does not, and the rename is applied exactly once either way.
-FILE_VERSION = 2
+#: What a kind's SEED changed to, and what it was: `{kind: (the old seed, the new one)}`.
+#:
+#: A profile's file wins over the built-ins, which is right for a number somebody typed
+#: and wrong for one this module put there. The Wandering Mummy Warlord shipped uncapped
+#: for a day and every profile opened in that day has a `0` nobody chose; «мумию не
+#: учитываем» has to reach those files or it only holds for installs made after it.
+#:
+#: So the value MOVES ONLY IF IT IS STILL THE OLD SEED — a profile where somebody typed
+#: their own number keeps it, whatever it is. Applied once, at the file version below.
+RESEEDED_KINDS: dict[str, tuple] = {"wandering_mummy_warlord": (0, DEFAULT_CAP)}
+
+#: The file format's own version. `2` said whether a stored `doom_elite` was the old
+#: meaning (both keys are legitimate now, so a file has to say which it means); `3` says
+#: whether :data:`RESEEDED_KINDS` has been applied. Each migration runs exactly once,
+#: and a file is rewritten at the new version the moment one does.
+FILE_VERSION = 3
 
 # A monster type the resolver could not classify falls back to this key, so an
 # unknown rally is still counted (and capped) under a real budget rather than slipping
@@ -193,9 +209,43 @@ def load_limits(path: str) -> RallyLimits:
     # New built-in types added after this profile's file was written are folded in so
     # the caps vocabulary grows without a hand edit; the file's own values win.
     stored = {str(k): v for k, v in data.items() if k != "v"}
+    try:
+        version = int(data.get("v") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version < 1:                      # the `doom_elite` rename, once
+        stored = migrate_kinds(stored)
+    if version < 3:                      # a seed of ours that changed, once
+        stored = reseed_kinds(stored)
     merged = dict(DEFAULT_RALLY_LIMITS)
-    merged.update(migrate_kinds(stored) if not data.get("v") else stored)
-    return RallyLimits(merged, path)
+    merged.update(stored)
+    limits = RallyLimits(merged, path)
+    # …and the file is rewritten AT THE NEW VERSION, so a migration runs once rather
+    # than on every read. Without it a person who sets a reseeded kind back by hand in
+    # the JSON would have this module quietly undo them at the next start-up.
+    if version < FILE_VERSION:
+        save_limits(limits, path)
+    return limits
+
+
+def reseed_kinds(stored: dict) -> dict:
+    """Move a kind whose DEFAULT changed, and only if the file still holds the old one.
+
+    «Мумию не учитываем» (#1317): the Wandering Mummy Warlord was seeded uncapped for a
+    day, so profiles opened in that day carry a `0` that is this module's opinion rather
+    than the person's. A number somebody typed themselves is never touched — the value
+    has to be exactly the old seed to move.
+    """
+    out = dict(stored)
+    for key, (was, now) in RESEEDED_KINDS.items():
+        if key not in stored:
+            continue
+        try:
+            if int(stored[key]) == int(was):
+                out[key] = now
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def migrate_kinds(stored: dict, tally: bool = False) -> dict:

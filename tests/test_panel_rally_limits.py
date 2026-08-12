@@ -101,11 +101,15 @@ def test_limits_file_is_seeded_then_round_trips():
     # number the person asked for: «по умолчанию на всех по 20, на золотых без лимита».
     assert back.limit_for("zombie_invasion") == rl.DEFAULT_CAP
     assert back.limit_for("oni_general") == rl.DEFAULT_CAP
-    # «на золотых оставляем без лимита» — the whole Golden line of season 3, named one by
-    # one by the person after the first, narrower reading of that sentence.
+    # «на золотых оставляем без лимита» — and «золотые» is exactly the four the game
+    # calls Golden, the Desert Boss («Золотой вожак») among them.
     for golden in ("desert_boss", "golden_defender", "golden_striker",
-                   "golden_annihilator", "wandering_mummy_warlord"):
+                   "golden_annihilator"):
         assert back.limit_for(golden) == 0, golden
+    # …and the Wandering Mummy Warlord is NOT one of them: «мумию не учитываем», said
+    # after a day of it running uncapped. It is an ordinary twenty like everything else.
+    assert back.limit_for("wandering_mummy_warlord") == rl.DEFAULT_CAP
+    assert "wandering_mummy_warlord" not in rl.UNCAPPED_KINDS
     assert set(rl.UNCAPPED_KINDS) <= set(rl.rally_kinds.KIND_ORDER)
     assert set(rl.DEFAULT_RALLY_LIMITS) == set(rl.rally_kinds.KIND_ORDER)
 
@@ -704,6 +708,45 @@ def test_a_profile_written_before_the_doom_key_grows_it():
         limits = rl.load_limits(rt.profiles.rally_limits_json())
         assert limits.limit_for("monster") == 20
         assert "doom_elite" in limits.types(), limits.types()
+
+
+def test_a_seed_of_ours_that_changed_is_carried_across_but_a_typed_number_is_not():
+    """«Мумию не учитываем» has to reach the profiles that were seeded uncapped (#1317).
+
+    The Wandering Mummy Warlord shipped with no cap for a day, so every profile opened in
+    that day holds a `0` nobody chose — and a profile's own file wins over the built-ins,
+    which is right for a number somebody typed and wrong for one this module put there.
+
+    So the value moves ONLY if it is still the old seed, and only once: the file is
+    rewritten at the new version, or a person setting it back by hand in the JSON would
+    be undone at the next start-up.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    path = str(tmp / "rally_limits.json")
+    # A profile written while the mummy was uncapped — version 2, the seed's own 0.
+    Path(path).write_text(json.dumps({"v": 2, "monster": 20,
+                                      "wandering_mummy_warlord": 0,
+                                      "golden_defender": 0}), encoding="utf-8")
+    back = rl.load_limits(path)
+    assert back.limit_for("wandering_mummy_warlord") == rl.DEFAULT_CAP
+    # …the Golden line was not touched: it is still uncapped on purpose.
+    assert back.limit_for("golden_defender") == 0
+    # …and the file now says so, so the migration cannot run twice.
+    stored = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert stored["v"] == rl.FILE_VERSION
+    assert stored["wandering_mummy_warlord"] == rl.DEFAULT_CAP
+
+    # A NUMBER SOMEBODY TYPED IS NEVER MOVED, whatever it is.
+    other = str(tmp / "typed.json")
+    Path(other).write_text(json.dumps({"v": 2, "wandering_mummy_warlord": 7}),
+                           encoding="utf-8")
+    assert rl.load_limits(other).limit_for("wandering_mummy_warlord") == 7
+    # …and a file already at the new version is left exactly as it is, including a 0
+    # the person chose for themselves after the reseed.
+    now = str(tmp / "now.json")
+    Path(now).write_text(json.dumps({"v": rl.FILE_VERSION,
+                                     "wandering_mummy_warlord": 0}), encoding="utf-8")
+    assert rl.load_limits(now).limit_for("wandering_mummy_warlord") == 0
 
 
 def _run_standalone() -> int:
