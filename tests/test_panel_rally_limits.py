@@ -750,14 +750,13 @@ def test_a_seed_of_ours_that_changed_is_carried_across_but_a_typed_number_is_not
 
 
 def test_the_soldier_floor_refuses_the_whole_run_and_never_on_an_unread_pool():
-    """One door over the run, judged on the base's own pool (#1317).
+    """One typed number against one named reading (#1317).
 
-    «Сделай проверку для отправки войск: наполненность не одного отряда, а всех трёх.
-    Если на 3 отряда солдат не хватает, не присоединяемся.» Soldiers are ONE pool and
-    every squad draws from it, so the per-squad ceiling cannot answer it — filling the
-    first squad is what empties the base for the second. The person set the shape of the
-    answer too: an absolute number they read off their own base, and marching soldiers do
-    not count towards it.
+    «Сделай число в панели, и будем сравнивать кол солдат в казарме с указанным, если
+    меньше, автостяги останавливаем.» No shares, no sums of the squads' ceilings, no
+    arithmetic about how many squads it would fill — and the reading is NAMED, because
+    «казарма» could be read as more than one number: it is the game's own count of
+    soldiers in the base, which the sieve was already making.
     """
     import lua_actions
     import lupa
@@ -767,7 +766,9 @@ def test_the_soldier_floor_refuses_the_whole_run_and_never_on_an_unread_pool():
     assert "GetPlayerSoldiersTotalNum" in chunk, "the pool it is judged against is gone"
     assert "low-on-soldiers(" in chunk, "a banner held back by the floor is not named"
     assert "DataCenter.__lw_rally_todo = -5" in chunk, "the recipe is not told the base is low"
-    assert "soldiers='..pool..'/'..minpool" in chunk, "the report hides one of the numbers"
+    assert "in_base='..pool..'/'..minpool" in chunk, "the report hides one of the numbers"
+    assert "GetPlayerSoldiersTotalNum" in chunk and "in_base=" in chunk, \
+        "the report does not name WHICH count of soldiers the floor was judged against"
 
     lua = lupa.LuaRuntime(unpack_returned_tuples=True)
     condition = chunk[chunk.index("local minpool ="):]

@@ -1425,36 +1425,30 @@ is no reading afterwards that says which banners were fought at half strength. I
 fraction is ever turned on, the report should name it (`not-full(n/cap, share 80%)`) so
 that stays visible.
 
-### The soldier floor: one door over the run, because the pool is shared (#1317)
+### The soldier floor: one typed number against one named reading (#1317)
 
-The per-squad ceiling above answers «is THIS squad full». The player then asked the other
-question — «наполненность не одного отряда, а всех трёх; если на 3 отряда солдат не
-хватает, не присоединяемся» — and it cannot be answered by running the same check over
-three squads, because **the soldiers are one pool and every squad draws from it**. Filling
-squad 1 to its heroes' ceiling is precisely what leaves nothing for squads 2 and 3; each
-of them is «full» only at the expense of the next. The measurements above say the same
-thing from the other side: three squads reading 1725 / 1724 / 1725 out of **1727 soldiers
-owned in total** — the same soldiers, counted three times.
+The per-squad ceiling above answers «is THIS squad full». The player asked for something
+simpler beside it, and said it twice — the second time after a wider version had been
+offered and turned down:
 
-So the gate is not per squad at all. One number stands in front of the whole run:
+> Сделай число в панели, и будем сравнивать кол солдат в казарме с указанным, если
+> меньше, автостяги останавливаем.
 
-| reading | what it is |
+That is the whole rule. **No shares of a ceiling, no sum of the squads' ceilings, no
+arithmetic about how many squads the soldiers would fill** — all three were offered and
+none is what was wanted. One number the person types in «Автостяг», one reading off the
+game, and a run that does not start while the reading is the smaller of the two.
+
+| name | what it is |
 |---|---|
-| `SoldierDataManager:GetPlayerSoldiersTotalNum()` | soldiers standing in the BASE — it falls when a march leaves and rises when one returns |
-| `DataCenter.__lw_rally_min_soldiers` | the floor, parked by the panel off «Автостяг» (`min_soldiers`) |
-| `short_pool` | `floor > 0 and pool > 0 and pool < floor` → `todo = -5`, nothing is sent |
+| `pool` | `SoldierDataManager:GetPlayerSoldiersTotalNum()` — the soldiers standing IN THE BASE. The same pool the game's own squad filler (`ConscriptSoldier` → `GetInsideSoldiers`) draws from; it falls when a march leaves and rises when one returns, so soldiers out with a squad are not in it |
+| `minpool` | the floor: `DataCenter.__lw_rally_min_soldiers`, parked by the panel off «Автостяг» (`min_soldiers`, `0` = no floor) |
+| `short_pool` | `minpool > 0 and pool > 0 and pool < minpool` → `todo = -5`, and nothing is sent |
 
-Three decisions in it, all the player's, all made with the alternatives on the table:
-
-* **an absolute number rather than a sum of ceilings.** The ceilings move whenever a hero
-  is levelled; the number that means something to the person is the one they read off
-  their own base. (The other options offered were `pool ≥ Σ ceilings` and a percentage of
-  it.)
-* **marching soldiers do not count.** The pool is what is home, so once the squads are out
-  the door shuts until they come back — one decision per wave rather than three. Said out
-  loud when it was chosen: this is what makes «не хватает на три — не цепляемся» literal.
-* **the squads it covers are the ticked ones**, and the floor covers them together — a
-  banner refused by it is refused for all of them at once.
+**Which number «казарма» is, is said out loud rather than assumed.** More than one count
+could be meant by it, so the reading is named in the label the person reads, in the hint
+under it, and in the run's own report line (`in_base=<pool>/<floor>`). A door that will
+not say what it compared cannot be argued with when it refuses.
 
 The rank of `-5` matters. It sits ABOVE `-1` / `-2` / `-3`: fetching an army for a squad
 that may not be spent is a call spent on a run that is already refused. It sits BELOW
@@ -1462,11 +1456,11 @@ that may not be spent is a call spent on a run that is already refused. It sits 
 fills up an hour later still has nothing to join today.
 
 `pool = 0` is «the reading failed», and then the floor refuses nothing: the same rule the
-ceiling follows. Both numbers are in the report whether or not anything was held back
-(`soldiers=<pool>/<floor>`), and the panel draws them side by side — the floor as a box,
-the pool as a reading fetched on the same background worker that asks for the day's count
-(≈0.1 s, «Автостяг», and mirrored on the phone). **The join itself needs no thread for
-it**: the pool is read inside the chunk the press was already making.
+ceiling follows. Both numbers are in the report whether or not anything was held back, and
+the panel draws them as one line beside the box — «в казарме: N / порог M», the reading
+fetched on the same background worker that already asks for the day's count (≈0.1 s, and
+mirrored on the phone). **The join itself needs no thread for it**: the count is read
+inside the chunk the press was already making.
 
 ### The per-kind tally: one write path, and no numbers to check it against yet
 

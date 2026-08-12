@@ -5852,23 +5852,17 @@ def rally_join_all() -> str:
         "local capped = (cap > 0 and tonumber(kb) ~= nil and tonumber(kb) >= cap) "
         # …AND THE SOLDIERS IN THE BASE, WHICH IS A DOOR OVER THE WHOLE RUN (#1317).
         #
-        # «Сделай проверку для отправки войск: наполненность не одного отряда, а всех
-        # трёх. Если на 3 отряда солдат не хватает, не присоединяемся.» The per-squad
-        # ceiling above cannot answer that: soldiers are ONE pool in this game and the
-        # squads draw from it, so filling the first squad to its ceiling is exactly what
-        # leaves nothing for the second and the third. A squad is only «full» at the
-        # expense of the others.
+        # «Сделай число в панели, и будем сравнивать кол солдат в казарме с указанным,
+        # если меньше, автостяги останавливаем.» One number typed by the person, one
+        # reading off the game, and nothing goes out while the reading is the smaller —
+        # no shares, no sums of the squads' ceilings, no arithmetic about how many squads
+        # it would fill.
         #
-        # So the person sets ONE NUMBER — how many soldiers must be standing in the base
-        # before a banner is worth a squad at all — and the whole run is refused below it.
-        # An absolute number rather than a sum of ceilings, and that is their choice made
-        # with both on the table: the ceilings move whenever a hero is levelled, and the
-        # number that matters to them is the one they can read off their own base.
-        #
-        # MARCHING SOLDIERS DO NOT COUNT, also on their word: `GetPlayerSoldiersTotalNum`
-        # is what is HOME (the pool goes down when a march leaves, docs/research/
-        # rally-join.md), so after the first squad goes out the door shuts until it comes
-        # back. That is the intended reading of «на 3 отряда не хватает — не цепляемся».
+        # THE READING IS `pool` — `SoldierDataManager:GetPlayerSoldiersTotalNum()`, the
+        # soldiers standing IN THE BASE, which the sieve above was already asking for.
+        # It is the pool the game's own squad filler draws from: it falls when a march
+        # leaves and rises when one returns, so soldiers out with a squad are not in it.
+        # The report names it (`in_base=`) rather than leaving «казарма» to be guessed at.
         #
         # A GATE THAT CANNOT SEE DOES NOT REFUSE: `pool` is 0 when the reading failed, and
         # then this door stands open exactly as it did before it existed.
@@ -6015,15 +6009,17 @@ def rally_join_all() -> str:
         "if cap > 0 then report = report..' cap='..tostring(kb)..'/'..cap "
         "if capped then report = report..' -- the ceiling for today is reached, so nothing "
         "was sent' end end "
-        # …AND THE SOLDIER FLOOR, WITH BOTH NUMBERS, whether or not it shut anything
-        # (#1317). What is in the base and what the person asked for: a run that sent
-        # nothing because the barracks is low says so in its own line, and a run that sent
-        # something still shows how close the floor was.
-        "if minpool > 0 then report = report..' soldiers='..pool..'/'..minpool "
-        "if short_pool then report = report..' -- fewer soldiers in the base than the "
-        "floor set in «Автостяг», so nothing was sent' "
-        "elseif not (pool > 0) then report = report..' (the base pool could not be read "
-        "— the floor did not refuse anything)' end end "
+        # …AND THE SOLDIER FLOOR, WITH BOTH NUMBERS AND THE NAME OF THE READING, whether
+        # or not it shut anything (#1317). `in_base` is the soldiers standing in the base
+        # (`GetPlayerSoldiersTotalNum`, the pool the squad filler draws from) — named
+        # here because «казарма» could be read as more than one number, and a door that
+        # does not say what it compared cannot be argued with.
+        "if minpool > 0 then report = report..' in_base='..pool..'/'..minpool "
+        "if short_pool then report = report..' -- fewer soldiers in the base "
+        "(GetPlayerSoldiersTotalNum) than the floor set in «Автостяг», so nothing "
+        "was sent' "
+        "elseif not (pool > 0) then report = report..' (the number of soldiers in the "
+        "base could not be read — the floor did not refuse anything)' end end "
         # …and which KINDS held a banner back, with how many each (#1317). Said even when
         # something else went out, because «two of the four were the wrong kind today» is
         # exactly the sentence a person needs to change a number with.

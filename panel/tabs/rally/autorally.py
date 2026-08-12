@@ -30,12 +30,13 @@ ways — which squads may go to a rally:
   #1317 — so this is the one budget here that can drift, and it was chosen knowing that
   (docs/research/rally-join.md).
 
-* **the soldier floor** — how many soldiers must be standing in the base before a banner
-  is worth a squad at all, with what the base holds right now beside it (#1317). One
-  number over the whole run rather than a per-squad rule, because soldiers are ONE pool
-  and the squads draw from it: «полный отряд» is only ever true at the expense of the
-  next squad, so «хватает ли на все три» is a question about the base. The door is in
-  `actions/join_rally.md` (`min_soldiers`); the panel keeps the number and the reading.
+* **the soldier floor** — one number, typed by hand, compared with the soldiers standing
+  in the base: below it the auto-join does not go out at all (#1317). «Сделай число в
+  панели, и будем сравнивать кол солдат в казарме с указанным, если меньше, автостяги
+  останавливаем» — no shares, no sums of squad ceilings, no arithmetic about how many
+  squads it would fill. The comparison is in `actions/join_rally.md` (`min_soldiers`);
+  the panel keeps the number and draws the reading beside it, «N / M», so what it is
+  compared with is on screen.
 
 All of them are the AUTOMATIC side, and since #1317 they are drawn inside one group on
 the tab («Автостяг») so that nothing about it can be mistaken for the manual «Запустить»
@@ -115,7 +116,9 @@ class AutoRallyPage:
         # opened, and the reading beside it is what makes the number choosable (#1317).
         self._min_soldiers_var = tk.StringVar(master=master,
                                               value=str(MIN_SOLDIERS_DEFAULT))
-        self._pool_var = tk.StringVar(master=master, value=DAILY_UNREAD)
+        self._pool = None                      # soldiers in the base; None = never asked
+        self._pool_var = tk.StringVar(master=master,
+                                      value="%s / %s" % (DAILY_UNREAD, DAILY_UNREAD))
         self._limits = None            # loaded when the page is drawn
         self._limit_vars: dict = {}
         self._count_vars: dict = {}    # what the panel has counted today, per kind
@@ -203,11 +206,12 @@ class AutoRallyPage:
            "rally_day.hint").pack(anchor="w", pady=(6, 0))
 
         # -- the soldier floor, and what the base holds right now ---------------
-        # ONE NUMBER OVER THE WHOLE RUN, not a per-squad rule (#1317). Soldiers are one
-        # pool and the squads draw from it, so «полный отряд» is only ever true at the
-        # expense of the next squad — the question the person asked («хватает ли на все
-        # три») can only be answered about the BASE. The gate is in
-        # `actions/join_rally.md`; this is the number and the reading beside it.
+        # ONE NUMBER, TYPED BY HAND, COMPARED WITH ONE READING (#1317): «сделай число в
+        # панели, и будем сравнивать кол солдат в казарме с указанным, если меньше,
+        # автостяги останавливаем». No shares, no sums of squad ceilings, no arithmetic
+        # about three squads — the panel holds the number, the scenario does the
+        # comparing (`actions/join_rally.md`), and the reading is drawn beside the box so
+        # that what it is compared with is on screen: «в казарме: N / порог M».
         troops = tr(ttk.LabelFrame(parent, padding=8), "rally_troops.frame")
         troops.pack(fill="x", pady=(10, 0))
         trow = ttk.Frame(troops)
@@ -218,6 +222,11 @@ class AutoRallyPage:
         tr(ttk.Label(trow), "rally_troops.now").pack(side="left", padx=(16, 6))
         ttk.Label(trow, textvariable=self._pool_var,
                   font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        # BOTH SIDES OF THE COMPARISON IN ONE LINE, so the reading moves when the box
+        # does: a «в казарме» on its own answers nothing — what the person is looking at
+        # is whether it is over the number they just typed.
+        self._min_soldiers_var.trace_add("write", lambda *a: self.paint_pool())
+        self.paint_pool()
         tr(ttk.Label(troops, foreground="#888", wraplength=620, justify="left"),
            "rally_troops.hint").pack(anchor="w", pady=(6, 0))
 
@@ -481,21 +490,33 @@ class AutoRallyPage:
         return max(0, min(MIN_SOLDIERS_TOP, int(raw)))
 
     def pool_text(self) -> str:
-        """What the base last held — the digits, or `—` when nothing has asked a client."""
+        """«N / M» — what the base holds against the floor it is compared with (#1317).
+
+        One string, because they are one fact: «в казарме: N / порог M». The phone shows
+        exactly this, and `—` on the left is «nothing has asked a client yet» rather than
+        an empty base.
+        """
         return str(self._pool_var.get() or DAILY_UNREAD)
 
     def set_pool(self, soldiers) -> None:
-        """Write the base's own soldier pool onto the page (Tk thread, #1317).
+        """Write the base's own soldier count onto the page (Tk thread, #1317).
 
         `soldiers < 0` is «the client could not be asked» and draws the dash: a confident
         «0» would read as an empty base, which is exactly the state the floor refuses on.
         """
         try:
-            if soldiers is None or int(soldiers) < 0:
-                self._pool_var.set(DAILY_UNREAD)
-            else:
-                self._pool_var.set(str(int(soldiers)))
-        except (TypeError, ValueError, tk.TclError):
+            self._pool = None if soldiers is None or int(soldiers) < 0 else int(soldiers)
+        except (TypeError, ValueError):
+            self._pool = None
+        self.paint_pool()
+
+    def paint_pool(self) -> None:
+        """Redraw «in the base / the floor» — after a read, and after the box is typed in."""
+        floor = self.min_soldiers()
+        left = DAILY_UNREAD if self._pool is None else str(self._pool)
+        try:
+            self._pool_var.set("%s / %s" % (left, floor if floor else DAILY_UNREAD))
+        except tk.TclError:                    # the page is going away
             pass
 
     def today_text(self) -> str:

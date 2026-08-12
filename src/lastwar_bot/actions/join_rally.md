@@ -105,30 +105,24 @@ ARGS kind_skip =
 #     turn into an overspend either.
 ARGS kind_left = 
 
-# HOW MANY SOLDIERS MUST BE IN THE BASE BEFORE A BANNER IS WORTH A SQUAD — `0` is «no
-# floor» (#1317).
+# THE SOLDIER FLOOR — below it the auto-join does not go out at all; `0` is «no floor»
+# (#1317).
 #
-# «Сделай проверку для отправки войск: наполненность не одного отряда, а всех трёх. Если
-# на 3 отряда солдат не хватает, не присоединяемся.» The per-squad check the sieve has
-# done since #1281 cannot answer that, and it is not a matter of adding another squad to
-# it: SOLDIERS ARE ONE POOL and every squad draws from it, so filling the first squad to
-# its heroes' ceiling is exactly what leaves the second and the third empty. «Полный
-# отряд» is true one squad at a time and says nothing about the three of them together.
+# «Сделай число в панели, и будем сравнивать кол солдат в казарме с указанным, если
+# меньше, автостяги останавливаем.» That is the whole rule: one number the person types
+# in «Автостяг», one reading off the game, and a run that does not start when the reading
+# is the smaller of the two. No shares of anything, no sums of the squads' ceilings, and
+# no arithmetic about how many squads it would fill — those were all offered and none of
+# them is what was asked for.
 #
-# So the whole run has one door in front of it, and the number is the person's own — an
-# absolute count of soldiers standing in the base, set in «Автостяг». They chose it over
-# a sum of the squads' ceilings with both on the table: the ceilings move whenever a hero
-# is levelled, and the number that means something to them is the one they read off their
-# own base.
+# WHICH NUMBER IS TAKEN, said plainly because «казарма» could mean more than one thing:
+# `SoldierDataManager:GetPlayerSoldiersTotalNum()`, the soldiers standing IN THE BASE —
+# the same pool the game's own squad filler draws from. It goes down when a march leaves
+# and back up when one returns, so soldiers already out with a squad are not in it. The
+# report says so too (`in_base=`), and the panel draws the reading beside the box.
 #
-# SOLDIERS ALREADY IN A MARCH DO NOT COUNT, also on their word. The game's own pool
-# (`GetPlayerSoldiersTotalNum`) is what is HOME — it goes down when a march leaves — so
-# after the first squads go out the door shuts until they come back. That is the intended
-# reading of «на 3 отряда не хватает — не цепляемся», and it is why a wave costs one
-# decision rather than three.
-#
-# It is judged inside the press, on the pool the sieve was already reading, so the floor
-# costs no call. A pool that cannot be read at all refuses nothing.
+# It is judged inside the press, on the reading the sieve was already making, so the
+# floor costs no call of its own. A number that cannot be read at all refuses nothing.
 ARGS min_soldiers = 0
 
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
@@ -190,7 +184,7 @@ IF todo == -4
 # so no squad may go — not the ones under strength and not the ones standing empty
 # either, which is why this ranks above `-1`/`-2`/`-3`: fetching an army for a squad that
 # may not be spent is a call spent on a run that is already refused. The report line
-# above carries both numbers (`soldiers=`).
+# above carries both numbers and names the reading it took (`in_base=`).
 IF todo == -5
     LOG "not sent — fewer soldiers are standing in the base than the floor set in «Автостяг»; the numbers are on the report line above, and the next banner will be taken once the base has been refilled"
     STOP

@@ -610,9 +610,9 @@ class RallyTab(PanelTab):
                 {"label": "rally_day.today", "value": self.autorally.today_text()}]
         # …AND THE SOLDIER FLOOR, WITH THE BASE'S OWN COUNT BESIDE IT (#1317). The phone
         # is where somebody stands when they wonder why nothing is being joined, and «в
-        # базе меньше солдат, чем ты просил» is now one of the answers — so both numbers
-        # travel, exactly as they sit together in the window. A floor of 0 says so in
-        # words rather than as «0», which reads like a base with nobody in it.
+        # казарме меньше солдат, чем ты просил» is now one of the answers — so the same
+        # «N / M» the window draws travels here, and the floor keeps a row of its own
+        # because a floor of 0 has to say «no floor» in words rather than as a bare zero.
         floor = self.autorally.min_soldiers()
         rows.append({"label": "rally_troops.min",
                      "value": (str(floor) if floor

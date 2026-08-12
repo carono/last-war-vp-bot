@@ -1135,24 +1135,31 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
         assert rows["rally_day.max"] and rows["rally_day.max"] != "0", rows
         tab.autorally._daily_var.set("20")
-        # THE SOLDIER FLOOR AND THE BASE'S OWN COUNT TRAVEL TOGETHER (#1317). «В базе
-        # меньше солдат, чем ты просил» is now one of the answers to «ничего не
-        # присоединяется», so the phone has to be able to see both numbers — and an
-        # unread pool is a dash rather than a confident «0», which would read as an empty
-        # base, the very state the floor refuses on.
+        # THE SOLDIER FLOOR AND WHAT IT IS COMPARED WITH TRAVEL TOGETHER (#1317). «В
+        # казарме меньше солдат, чем ты просил» is now one of the answers to «ничего не
+        # присоединяется», so the phone shows the same «N / M» the window draws — and an
+        # unread count is a dash rather than a confident «0», which would read as an
+        # empty base, the very state the floor refuses on.
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
-        assert rows["rally_troops.now"] == autorallymod.DAILY_UNREAD, rows
+        dash = autorallymod.DAILY_UNREAD
+        assert rows["rally_troops.now"] == "%s / %s" % (dash, dash), rows
         assert rows["rally_troops.min"], rows          # «no floor», in words, not «0»
         assert rows["rally_troops.min"] != "0", rows
         tab.autorally._min_soldiers_var.set("9000")
         tab.autorally.set_pool(5200)
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
         assert rows["rally_troops.min"] == "9000", rows
-        assert rows["rally_troops.now"] == "5200", rows
+        # …both sides of the comparison, in the order they are compared.
+        assert rows["rally_troops.now"] == "5200 / 9000", rows
         assert tab.autorally.min_soldiers() == 9000
+        # …and the reading follows the BOX too: a floor typed after a read redraws it,
+        # or the person is looking at a comparison with a number they have changed.
+        tab.autorally._min_soldiers_var.set("4000")
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_troops.now"] == "5200 / 4000", rows
         tab.autorally.set_pool(-1)                     # unreadable is a dash again
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
-        assert rows["rally_troops.now"] == autorallymod.DAILY_UNREAD, rows
+        assert rows["rally_troops.now"] == "%s / 4000" % dash, rows
         tab.autorally._min_soldiers_var.set("0")
         # …and EVERY KIND is under it (#1317), «spent/allowed» where there is a cap and a
         # word where there is none — «3/0» reads like a budget somebody has overspent.
