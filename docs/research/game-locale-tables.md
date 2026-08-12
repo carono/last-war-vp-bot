@@ -14,12 +14,32 @@ Found while translating the panel into German (#1201).
     <build>/             one <lang>.bin per language, ~1.3–1.8 MB each
 ```
 
-`<install>` is where the launcher put the game — the panel already knows it, as the
-`launcher` setting of the active profile, minus `LastWarLauncher.exe`.
+`<install>` is where the launcher put the game — asked of
+[`tools/lib/game_paths.py`](../../tools/lib/game_paths.py) and never spelled out.
 
 Nineteen languages are on disk whatever the account plays in: nothing has to be
 downloaded, the game does not have to be running, and the account's own language does
 not matter.
+
+**…AND THAT IS ONLY THE BUILD THE CLIENT SHIPPED WITH (#1320).** An update does not
+rewrite the install's copy — it downloads a newer build into the client's own download
+tree (`persistentDataPath/locale/<build>/`), and that one holds **only the languages
+actually being played in**. So after the first update the two trees disagree, and
+neither is «the» answer:
+
+| | build | languages |
+|---|---|---|
+| the install | the one it was installed at | all nineteen |
+| the download tree | the current one | the one or two in use |
+
+Read the install alone and every reading taken from the game's own wording is one build
+stale for the language the person is actually playing in — silently, because a stale
+table is a perfectly readable table. Take «the newest build» whole and eighteen
+languages vanish the first time the client updates. The answer is **per language**: the
+newest table for each, wherever it sits — `game_paths.locale_tables()`, which is what
+`tools/game_locale.py` and `tools/lib/game_kick.py` both read.
+See [game-install-layout.md](game-install-layout.md) for the rest of what an update
+moves.
 
 ## The format
 

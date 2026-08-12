@@ -47,6 +47,7 @@ cannot be imported by anything that is not the panel.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
@@ -56,6 +57,11 @@ from dataclasses import dataclass
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import game_paths  # noqa: E402
 import proc_table  # noqa: E402
+
+#: Where this module explains itself when a search comes up empty. Plain `logging`, so
+#: it lands in the debug log of whoever is running — the panel configures the tree — and
+#: costs nothing where nobody has configured one.
+_log = logging.getLogger(__name__)
 
 #: The ports the client talks HTTP on all day. Everything else that is remote and not
 #: loopback is a candidate for the game gateway — see the module docstring for why this
@@ -624,10 +630,50 @@ def probe(game_exe: str = GAME_EXE, user: "str | None" = None) -> Link:
         return Link(False, OFFLINE, PROBE_ERROR, user=user, error=str(exc))
 
     if not found:
+        _explain_absence(game_exe, user)
         return Link(False, OFFLINE, SESSION_NOT_FOUND if user else NOT_FOUND, user=user)
 
     state, conn, dead = link_of(found)
     return Link(True, state, pid=found[0], conn=conn, dead=dead, user=user)
+
+
+#: Whose absence has already been explained, so a poll every two seconds does not write
+#: the same nine lines into the log for ever. Keyed by what was looked for, so a profile
+#: whose executable or session setting CHANGES gets the reading for the new one.
+_explained: set = set()
+_explain_lock = threading.Lock()
+
+
+def _explain_absence(game_exe: str, user: "str | None") -> None:
+    """Write, once, what was actually looked for when no client was found (#1320).
+
+    «Игра не найдена» is a true sentence about two very different situations: nobody
+    started the client, and the bot is looking for the wrong thing. A client update can
+    put it in the second — a renamed executable, an install the updater moved — and from
+    the outside the two are word for word identical, which is how an afternoon goes.
+
+    So the first time a search comes back empty, the whole resolution is written into the
+    debug log: what each path resolved to, what supplied that answer, whether it is on
+    disk, and which variable moves it. Nothing is DECIDED here — this only says out loud
+    what was already decided, so the report can never disagree with the search.
+    """
+    key = (game_exe or "", user or "")
+    with _explain_lock:
+        if key in _explained:
+            return
+        _explained.add(key)
+    where = f" in {user}'s session" if user else " on this desktop"
+    try:
+        report = game_paths.report()
+    except Exception as exc:                 # noqa: BLE001 — a diagnosis, never a fault
+        report = f"(the paths could not be read: {exc})"
+    _log.warning("no %s%s. What the bot is looking for:\n%s", game_exe, where, report)
+
+
+def forget_explanations() -> None:
+    """Say it again next time — for a test, and after an install has been reconfigured."""
+    with _explain_lock:
+        _explained.clear()
 
 
 def idle_sec() -> "float | None":

@@ -53,7 +53,6 @@ than it was, and never worse off than a false restart.
 from __future__ import annotations
 
 import gzip
-import os
 import unicodedata
 
 import game_paths
@@ -94,18 +93,18 @@ def forget() -> None:
 
 
 def _read_tables() -> set:
-    """Scan every `<lang>.bin` for :data:`KEY`. Anything unreadable is simply skipped."""
+    """Scan every `<lang>.bin` for :data:`KEY`. Anything unreadable is simply skipped.
+
+    The newest table per language (`game_paths.locale_tables`), which after a client
+    update is not all in one directory: the install keeps the build it shipped with and
+    the update downloads a fresher one holding only the languages actually in use
+    (#1320). Reading one directory meant reading the older wording, which is the kind of
+    fault a phrase-matching gate cannot report — it simply stops recognising the kick.
+    """
     out: set = set()
-    root = game_paths.locale_dir()
-    if not root:
-        return out
-    try:
-        names = sorted(f for f in os.listdir(root) if f.endswith(".bin"))
-    except OSError:
-        return out
-    for name in names:
+    for _lang, path in sorted(game_paths.locale_tables().items()):
         try:
-            value = _find_key(os.path.join(root, name), KEY)
+            value = _find_key(path, KEY)
         except Exception:                    # noqa: BLE001 — a table is not a fault
             continue
         if value:

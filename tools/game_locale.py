@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import argparse
 import gzip
-import json
-import os
 import sys
 from pathlib import Path
 
@@ -93,53 +91,44 @@ _GLOSSARY = _REPO / "docs" / "game-glossary.md"
 
 # -- finding the tables ------------------------------------------------------------
 
-def locale_dir() -> Path:
-    """Where the game keeps its language tables.
+def _game_paths():
+    """`tools/lib/game_paths.py` — the ONE answer about where anything of the game is."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    import game_paths                        # noqa: PLC0415 — path wired up just above
 
-    ``LW_LOCALE_DIR`` wins; otherwise the launcher path the active profile already
-    knows, because the panel needs it to start the game anyway — and failing that, the
-    ordinary install, which is what a profile that has never been given a launcher is
-    using anyway. The last step was missing, so this said «no game found» on a perfectly
-    ordinary machine whose profiles simply carry no `launcher` key (found while making
-    `tools/lib/game_kick.py` read the kick sentence out of these tables, #1270).
+    return game_paths
+
+
+def tables() -> dict[str, Path]:
+    """``{language: its newest table on this machine}``.
+
+    **Not one directory** (#1320). The install ships every language the client has and
+    keeps that build for ever; an update downloads a fresher build into the client's own
+    download tree holding only the languages actually being played in. Take «the newest
+    build» whole and a glossary lookup loses eighteen languages the first time the client
+    updates; take the newest table per language and each tree is used for what it has.
+
+    Where a build lives, and which variable moves it, is `game_paths`' answer and not a
+    second copy of it — this file used to spell the path out again from a launcher it
+    dug out of a profile's config, and the two had already drifted (the folder it
+    searched, `panel/profiles/`, has not been where profiles live for some time).
     """
-    if os.environ.get("LW_LOCALE_DIR"):
-        return Path(os.environ["LW_LOCALE_DIR"])
-
-    launcher = _launcher_from_profile()
-    if launcher is None:
-        sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-        import game_paths                    # tools/lib — the one answer about paths
-
-        ordinary = game_paths.locale_dir()
-        if ordinary:
-            return Path(ordinary)
-        raise SystemExit("no game found — set LW_LOCALE_DIR to .../StreamingAssets/locale/<build>")
-    root = launcher.parent / "Game" / "LastWar_Data" / "StreamingAssets" / "locale"
-    if not root.is_dir():
-        raise SystemExit(f"no locale directory under {root}")
-    # One directory per build; take the newest that actually holds tables.
-    builds = sorted((d for d in root.iterdir() if d.is_dir() and any(d.glob("*.bin"))),
-                    key=lambda d: d.stat().st_mtime)
-    if not builds:
-        raise SystemExit(f"no language tables under {root}")
-    return builds[-1]
+    return {lang: Path(path) for lang, path in _game_paths().locale_tables().items()}
 
 
-def _launcher_from_profile() -> Path | None:
-    for cfg in sorted((_REPO / "panel" / "profiles").glob("*/config.json")):
-        try:
-            path = json.loads(cfg.read_text(encoding="utf-8")).get("launcher")
-        except (OSError, ValueError):
-            continue
-        if path:
-            # The profile stores a Windows path; under WSL the same file is on /mnt/<d>.
-            p = Path(path)
-            if not p.exists() and len(path) > 2 and path[1] == ":":
-                p = Path("/mnt") / path[0].lower() / path[3:].replace("\\", "/")
-            if p.exists():
-                return p
-    return None
+def locale_dir() -> Path:
+    """The newest build directory — what `--langs` prints, and nothing depends on.
+
+    Kept because a person asking «where are the tables» wants a folder, and because
+    ``LW_LOCALE_DIR`` still names one outright. Anything READING a table should go
+    through :func:`tables`, which does not assume they are all in one place.
+    """
+    found = _game_paths().locale_dir()
+    if not found:
+        raise SystemExit(
+            "no game found — set LW_LOCALE_DIR to .../locale/<build>, "
+            "or run `python tools/lib/game_paths.py` to see what is being looked at")
+    return Path(found)
 
 
 # -- reading one ------------------------------------------------------------------
@@ -157,9 +146,15 @@ def _read7(b: bytes, i: int) -> tuple[int, int]:
 
 
 def load(lang: str, root: Path | None = None) -> dict[str, str]:
-    """``{key: text}`` for one language."""
-    root = root or locale_dir()
-    blob = gzip.decompress((root / f"{lang}.bin").read_bytes())
+    """``{key: text}`` for one language.
+
+    `root` pins the build to read it out of; left unsaid, the newest table this machine
+    has for that language, wherever it happens to sit (:func:`tables`).
+    """
+    path = (root / f"{lang}.bin") if root is not None else tables().get(lang)
+    if path is None:
+        raise SystemExit(f"no table for {lang!r} on this machine")
+    blob = gzip.decompress(path.read_bytes())
     out: dict[str, str] = {}
     i = 4                                   # a 4-byte header, then pair after pair
     while i < len(blob):
@@ -173,8 +168,10 @@ def load(lang: str, root: Path | None = None) -> dict[str, str]:
 
 
 def available(root: Path | None = None) -> list[str]:
-    root = root or locale_dir()
-    return sorted(p.stem for p in root.glob("*.bin"))
+    """Which languages this machine has a table for — across every build, not one."""
+    if root is not None:
+        return sorted(p.stem for p in root.glob("*.bin"))
+    return sorted(tables())
 
 
 # -- looking a term up -------------------------------------------------------------
@@ -283,24 +280,27 @@ def main() -> int:
                     help="use every language on disk, not just the panel's")
     args = ap.parse_args()
 
-    root = locale_dir()
+    # One file per language, each from the newest build that has it — which after a
+    # client update is not all the same directory (:func:`tables`).
+    on_disk = tables()
     if args.langs:
-        print(f"{root}\n  " + " ".join(available(root)))
+        for lang in sorted(on_disk):
+            print(f"{lang:<6} {on_disk[lang]}")
         return 0
 
-    wanted = available(root) if args.all_langs else [l for l in BASE_LANGS
-                                                     if (root / f"{l}.bin").exists()]
-    tables = {l: load(l, root) for l in wanted}
+    wanted = sorted(on_disk) if args.all_langs else [l for l in BASE_LANGS
+                                                     if l in on_disk]
+    texts = {l: load(l) for l in wanted}
 
     if args.term or args.key:
         if args.key:
             key = args.key
-            said = {l: t.get(key, "") for l, t in tables.items()}
+            said = {l: t.get(key, "") for l, t in texts.items()}
             if not any(said.values()):
                 print(f"no such key: {key}", file=sys.stderr)
                 return 1
         else:
-            key, said = find(args.term, tables)
+            key, said = find(args.term, texts)
             if key is None:
                 print(f"the tables do not have «{args.term}» — the panel's own name stands")
                 return 1
@@ -310,7 +310,7 @@ def main() -> int:
         return 0
 
     if args.glossary:
-        _GLOSSARY.write_text(write_glossary(tables), encoding="utf-8")
+        _GLOSSARY.write_text(write_glossary(texts), encoding="utf-8")
         print(f"{_GLOSSARY.relative_to(_REPO)} — {len(PANEL_TERMS)} terms "
               f"× {len(wanted)} languages")
         return 0

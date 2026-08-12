@@ -221,6 +221,166 @@ def test_no_module_spells_the_install_out_for_itself():
         "…and this is the one place that does"
 
 
+# -- an update moves things, and nothing here may be a single guess (#1320) ---------
+#
+# The client update of 2026-08-12 left the window and the process alone and moved the
+# downloaded-bundle cache off the install — off the drive — while the newest language
+# tables started arriving in the client's download tree instead of the install. Both
+# read, from every caller, as «the game is not there».
+
+
+def _manifest(tmp: str, **fields) -> str:
+    """Write a launcher manifest of the shape the real one has, with invented values.
+
+    The interesting directories live inside the uninstall command rather than in fields
+    of their own — odd, and what the real file does
+    (`docs/research/game-install-layout.md`). Built with `os.path.join` so the test reads
+    back the separator it wrote: the real manifest holds Windows paths, and this has to
+    run under both interpreters.
+    """
+    import json
+
+    install = os.path.join(tmp, "install")
+    os.makedirs(install, exist_ok=True)
+    open(os.path.join(install, "LastWarLauncher.exe"), "w").close()
+    data = {"app_name": "Game One", "display_name": "Game One Deluxe",
+            "app_dir": install,
+            "uninstall_string": (f'"{os.path.join(install, "Sync.exe")}" '
+                                 f'--root "{install}" '
+                                 f'--app "{os.path.join(tmp, "data")}" '
+                                 f'--temp "{os.path.join(tmp, "tmp")}" '
+                                 f'--bundle "{os.path.join(tmp, "bundles")}"')}
+    data.update(fields)
+    with open(os.path.join(install, "LastWarLauncher.json"), "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    return install
+
+
+def test_the_launchers_own_manifest_answers_where_the_parts_went():
+    """The installer wrote down what it chose; that beats any default we could ship."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        install = _manifest(tmp)
+        for name in ("data", "tmp", os.path.join("bundles", "AssetBundles")):
+            os.makedirs(os.path.join(tmp, name), exist_ok=True)
+        launcher = os.path.join(install, "LastWarLauncher.exe")
+        with _env(**{**_CLEAR, "LW_LAUNCHER": launcher, "LW_GAME_DATA_DIR": None,
+                     "LW_ASSET_CACHE": None, "LW_BUNDLE_ROOT": None}):
+            gp.forget_manifest()
+            assert gp.game_dir() == install, "an absolute launcher names its own folder"
+            assert gp.data_dir() == os.path.join(tmp, "data")
+            assert gp.bundle_root() == os.path.join(tmp, "bundles")
+            assert gp.asset_cache() == os.path.join(tmp, "bundles", "AssetBundles")
+            # …and what the build calls itself is a title to look for, ahead of ours.
+            assert gp.window_titles()[0] == "Game One Deluxe"
+            assert gp.DEFAULT_WINDOW_TITLE in gp.window_titles()
+        gp.forget_manifest()
+
+
+def test_a_variable_wins_even_when_what_it_names_is_not_there():
+    """An override is a statement about the machine, not a hint to be second-guessed.
+
+    Quietly falling back to the ordinary install when a configured path is missing is
+    how somebody spends an afternoon watching the bot use the folder they explicitly
+    told it not to. A path that is set and missing has to fail as itself.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _manifest(tmp)
+        gone = os.path.join(tmp, "nowhere", "bundles")
+        with _env(**{**_CLEAR, "LW_ASSET_CACHE": gone, "LW_GAME_DATA_DIR": gone}):
+            gp.forget_manifest()
+            assert gp.asset_cache() == gone
+            assert gp.data_dir() == gone
+        gp.forget_manifest()
+
+
+def test_a_manifest_that_cannot_be_read_is_simply_no_answer():
+    """Never a crash: a half-written update, a shape a later build changed, no game."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        install = os.path.join(tmp, "install")
+        os.makedirs(install)
+        with open(os.path.join(install, "LastWarLauncher.json"), "w") as fh:
+            fh.write("{not json at all")
+        with _env(**{**_CLEAR,
+                     "LW_LAUNCHER": os.path.join(install, "LastWarLauncher.exe")}):
+            gp.forget_manifest()
+            assert gp.launcher_manifest() == {}
+            assert gp.manifest_paths()["bundle"] == ""
+            assert gp.window_titles() == (gp.DEFAULT_WINDOW_TITLE,)
+        with _env(**{**_CLEAR, "LW_LAUNCHER_JSON": os.path.join(tmp, "no-such.json")}):
+            gp.forget_manifest()
+            assert gp.launcher_manifest() == {}
+        gp.forget_manifest()
+
+
+def test_several_window_titles_can_be_named_and_the_variable_is_the_whole_answer():
+    with _env(**{**_CLEAR, "LW_WINDOW_TITLE": "One ; Two ;; One"}):
+        assert gp.window_titles() == ("One", "Two"), "split, trimmed, de-duplicated"
+        assert gp.window_title() == "One", "the likeliest is the first"
+
+
+def test_the_language_tables_are_looked_for_in_BOTH_trees():
+    """The install keeps the build it shipped with; an update downloads a newer one.
+
+    And the newer one holds only the languages actually in use, so «the newest build»
+    taken whole loses the rest — the answer has to be per language.
+    """
+    import tempfile
+    import time
+
+    with tempfile.TemporaryDirectory() as tmp:
+        install = os.path.join(tmp, "install")
+        shipped = os.path.join(install, gp.LOCALE_SUBPATH, "1000")
+        downloaded = os.path.join(tmp, "data", gp.LOCALE_DOWNLOAD_SUBDIR, "1001")
+        for path in (shipped, downloaded):
+            os.makedirs(path)
+        for lang in ("en", "ru", "pl"):
+            open(os.path.join(shipped, f"{lang}.bin"), "w").close()
+        open(os.path.join(downloaded, "ru.bin"), "w").close()
+        # The download is the newer build — make that unambiguous on a fast filesystem.
+        os.utime(shipped, (time.time() - 600, time.time() - 600))
+
+        with _env(**{**_CLEAR, "LW_GAME_DIR": install,
+                     "LW_GAME_DATA_DIR": os.path.join(tmp, "data"),
+                     "LW_LOCALE_DIR": None}):
+            gp.forget_manifest()
+            assert gp.locale_dirs() == (downloaded, shipped), "newest first"
+            assert gp.locale_dir() == downloaded
+            found = gp.locale_tables()
+            assert found["ru"] == os.path.join(downloaded, "ru.bin"), "the fresh one"
+            assert found["en"] == os.path.join(shipped, "en.bin"), "…and the rest stay"
+            assert sorted(found) == ["en", "pl", "ru"]
+        gp.forget_manifest()
+
+
+def test_a_missing_path_says_so_with_the_variable_that_moves_it():
+    """The diagnosis a person reads when «игра не найдена» is the only sentence there is.
+
+    It must never be a second opinion: every row is what the getters answered, so the
+    report and the search can never disagree.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        gone = os.path.join(tmp, "nowhere")
+        with _env(**{**_CLEAR, "LW_GAME_DIR": gone}):
+            gp.forget_manifest()
+            rows = {row["name"]: row for row in gp.describe()}
+            assert rows["install"]["value"] == gone
+            assert rows["install"]["exists"] is False
+            assert rows["install"]["override"] == "LW_GAME_DIR"
+            assert "install" in gp.missing()
+            text = gp.report()
+            assert "MISSING" in text and "LW_GAME_DIR" in text
+            assert gp.game_exe() in text, "and what process is being looked for"
+        gp.forget_manifest()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

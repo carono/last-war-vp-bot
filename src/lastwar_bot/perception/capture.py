@@ -12,6 +12,7 @@ CLI:
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,12 @@ if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
 import game_paths  # noqa: E402
+
+#: Where a window search says what it had to do to find the client. Plain `logging`, so
+#: it lands in the debug log of whoever is running (the panel configures the tree) and
+#: costs nothing at all when nobody is listening — this file is imported by tools that
+#: have no panel around them.
+_log = logging.getLogger(__name__)
 
 # Minimum client-area size at which SIFT-based UI detection reliably works.
 # Below this, icons rasterise too small for SIFT to extract enough keypoints.
@@ -56,24 +63,68 @@ def find_window(title_substring: str | None = None,
     is given, the owning process's executable name must also match
     (case-insensitive, exact filename).
 
-    **Left unsaid, both mean the game** — `game_paths.window_title()` and
+    **Left unsaid, both mean the game** — `game_paths.window_titles()` and
     `game_paths.game_exe()`, so `find_window()` with no arguments is the call every
     caller in this repo actually wants, and no caller has to repeat the pair. Pass
     `process_name=""` to search by title alone.
+
+    **THE TITLE IS NOT A CONTRACT (#1320).** It is a string a build chooses, and a
+    client update is free to change it — at which point a search pinned to one literal
+    reports «no client» about a client that is plainly on screen, and every reading in
+    the panel goes with it. So, unsaid, several titles are tried (the build's own name
+    out of the launcher's manifest, then the one the client has always used), and if not
+    one of them matches, **the game's own process is asked instead**: its largest visible
+    window IS the client, whatever it has decided to call itself. That last step warns on
+    the way past — it is a working answer AND a thing somebody should know about, because
+    the title it found is what belongs in `LW_WINDOW_TITLE`.
     """
     if title_substring is None:
-        title_substring = game_paths.window_title()
+        wanted = list(game_paths.window_titles())
+    else:
+        wanted = [title_substring]
     if process_name is None:
         process_name = game_paths.game_exe()
 
     if sys.platform != "win32":
         raise RuntimeError("Window capture is Windows-only")
 
+    for needle in wanted:
+        found = _windows_matching(needle, process_name)
+        if found:
+            return _largest(found)
+
+    # Nothing answered to any name we know. A window of the game's own process is a
+    # better answer than none — and a silent one would hide the very drift that made
+    # this branch necessary.
+    if process_name:
+        found = _windows_matching("", process_name)
+        if found:
+            best = _largest(found)
+            _log.warning(
+                "the game's window is titled %r, which matches none of %s; "
+                "found it by its process (%s) instead - put that title in "
+                "LW_WINDOW_TITLE to silence this",
+                best.title, wanted, process_name)
+            return best
+
+    suffix = f" from process {process_name!r}" if process_name else ""
+    raise WindowNotFoundError(
+        f"No window with a title among {wanted}{suffix}"
+    )
+
+
+def _windows_matching(needle: str, process_name: str) -> list[WindowInfo]:
+    """Every visible top-level window whose title contains `needle` — `""` means any.
+
+    A window with no title at all is never a match: the client keeps a hidden 1×1
+    helper window of its own, and «any window of that process» has to mean a window a
+    person could be looking at.
+    """
     import psutil
     import win32gui
     import win32process
 
-    needle = title_substring.lower()
+    lowered = needle.lower()
     proc_needle = process_name.lower() if process_name else None
     matches: list[WindowInfo] = []
 
@@ -81,7 +132,7 @@ def find_window(title_substring: str | None = None,
         if not win32gui.IsWindowVisible(hwnd):
             return
         title = win32gui.GetWindowText(hwnd)
-        if not title or needle not in title.lower():
+        if not title or lowered not in title.lower():
             return
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
         try:
@@ -93,15 +144,13 @@ def find_window(title_substring: str | None = None,
         matches.append(WindowInfo(hwnd=hwnd, title=title, pid=pid, process_name=pname))
 
     win32gui.EnumWindows(_enum_cb, None)
+    return matches
 
-    if not matches:
-        suffix = f" from process {process_name!r}" if process_name else ""
-        raise WindowNotFoundError(
-            f"No window with title containing {title_substring!r}{suffix}"
-        )
 
+def _largest(matches: list[WindowInfo]) -> WindowInfo:
+    """The biggest of several matches — the client, rather than a helper beside it."""
     if len(matches) > 1:
-        matches.sort(key=lambda m: _window_area(m.hwnd), reverse=True)
+        matches = sorted(matches, key=lambda m: _window_area(m.hwnd), reverse=True)
     return matches[0]
 
 

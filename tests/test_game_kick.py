@@ -171,14 +171,14 @@ def test_the_open_check_comes_before_the_text():
 def test_the_tables_are_found_without_anything_naming_this_machine():
     """The install is asked for, never written down (`CLAUDE.md`).
 
-    `game_paths.locale_dir()` answers `None` where there is nothing to read, rather than
-    raising or guessing — which is what lets :func:`game_kick.phrases` be empty instead
-    of being wrong.
+    `game_paths.locale_tables()` comes back empty where there is nothing to read, rather
+    than raising or guessing — which is what lets :func:`game_kick.phrases` be empty
+    instead of being wrong.
     """
     import game_paths
 
     src = (ROOT / "tools" / "lib" / "game_kick.py").read_text(encoding="utf-8")
-    assert "game_paths.locale_dir()" in src, "the tables are located somewhere else"
+    assert "game_paths.locale_tables()" in src, "the tables are located somewhere else"
     assert "LOCALAPPDATA" not in src, "an account's own folder is spelled out here"
     assert "C:\\" not in src, "a drive letter is spelled out here"
     import os
