@@ -105,6 +105,32 @@ ARGS kind_skip =
 #     turn into an overspend either.
 ARGS kind_left = 
 
+# HOW MANY SOLDIERS MUST BE IN THE BASE BEFORE A BANNER IS WORTH A SQUAD — `0` is «no
+# floor» (#1317).
+#
+# «Сделай проверку для отправки войск: наполненность не одного отряда, а всех трёх. Если
+# на 3 отряда солдат не хватает, не присоединяемся.» The per-squad check the sieve has
+# done since #1281 cannot answer that, and it is not a matter of adding another squad to
+# it: SOLDIERS ARE ONE POOL and every squad draws from it, so filling the first squad to
+# its heroes' ceiling is exactly what leaves the second and the third empty. «Полный
+# отряд» is true one squad at a time and says nothing about the three of them together.
+#
+# So the whole run has one door in front of it, and the number is the person's own — an
+# absolute count of soldiers standing in the base, set in «Автостяг». They chose it over
+# a sum of the squads' ceilings with both on the table: the ceilings move whenever a hero
+# is levelled, and the number that means something to them is the one they read off their
+# own base.
+#
+# SOLDIERS ALREADY IN A MARCH DO NOT COUNT, also on their word. The game's own pool
+# (`GetPlayerSoldiersTotalNum`) is what is HOME — it goes down when a march leaves — so
+# after the first squads go out the door shuts until they come back. That is the intended
+# reading of «на 3 отряда не хватает — не цепляемся», and it is why a wave costs one
+# decision rather than three.
+#
+# It is judged inside the press, on the pool the sieve was already reading, so the floor
+# costs no call. A pool that cannot be read at all refuses nothing.
+ARGS min_soldiers = 0
+
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
 #
@@ -129,7 +155,7 @@ ARGS kind_left =
 # `__lw_rally_cap` is the day's ceiling, parked in the same line and for the same reason:
 # the press is one chunk and a door in front of it would be a second call on the one path
 # that is measured in fractions of a second (#1317).
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_cap = tonumber("{max_joins}") or 0 DataCenter.__lw_rally_kind_left = "{kind_left}" DataCenter.__lw_rally_kind_skip = "{kind_skip}" DataCenter.__lw_rally_shut = {}
+LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_targets = "{targets}" DataCenter.__lw_rally_slots = "{slots}" DataCenter.__lw_rally_points = "{points}" DataCenter.__lw_rally_cap = tonumber("{max_joins}") or 0 DataCenter.__lw_rally_kind_left = "{kind_left}" DataCenter.__lw_rally_kind_skip = "{kind_skip}" DataCenter.__lw_rally_min_soldiers = tonumber("{min_soldiers}") or 0 DataCenter.__lw_rally_shut = {}
 
 # Sieve, pair, send — every rally, in one press. Nothing is read before it and no window
 # is opened by it.
@@ -157,6 +183,16 @@ READ_LUA (DataCenter.__lw_rally_kinds or "") INTO kinds
 # a reason to go and fetch it an army. The report line above names both numbers (`cap=`).
 IF todo == -4
     LOG "not sent — the rallies allowed for today are already joined; the count is the game's own and the ceiling is the one set in «Автосбор»"
+    STOP
+
+# THE SOLDIER FLOOR, AND IT IS CHECKED BEFORE EVERY SQUAD-SHAPED ENDING (#1317). `-5`
+# says there are fewer soldiers standing in the base than the number set in «Автостяг»,
+# so no squad may go — not the ones under strength and not the ones standing empty
+# either, which is why this ranks above `-1`/`-2`/`-3`: fetching an army for a squad that
+# may not be spent is a call spent on a run that is already refused. The report line
+# above carries both numbers (`soldiers=`).
+IF todo == -5
+    LOG "not sent — fewer soldiers are standing in the base than the floor set in «Автостяг»; the numbers are on the report line above, and the next banner will be taken once the base has been refilled"
     STOP
 
 IF todo == 0

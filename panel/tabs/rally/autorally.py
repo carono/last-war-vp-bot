@@ -30,9 +30,16 @@ ways — which squads may go to a rally:
   #1317 — so this is the one budget here that can drift, and it was chosen knowing that
   (docs/research/rally-join.md).
 
-All five are the AUTOMATIC side, and since #1317 they are drawn inside one group on the
-tab («Автостяг») so that nothing about it can be mistaken for the manual «Запустить» form
-below.
+* **the soldier floor** — how many soldiers must be standing in the base before a banner
+  is worth a squad at all, with what the base holds right now beside it (#1317). One
+  number over the whole run rather than a per-squad rule, because soldiers are ONE pool
+  and the squads draw from it: «полный отряд» is only ever true at the expense of the
+  next squad, so «хватает ли на все три» is a question about the base. The door is in
+  `actions/join_rally.md` (`min_soldiers`); the panel keeps the number and the reading.
+
+All of them are the AUTOMATIC side, and since #1317 they are drawn inside one group on
+the tab («Автостяг») so that nothing about it can be mistaken for the manual «Запустить»
+form below.
 
 THE VARIABLES EXIST WITHOUT THE WIDGETS, and that is still true now the block is on the
 tab: the auto-join runs at boot, from `ensure_loaded`, in a profile nobody has opened
@@ -73,6 +80,15 @@ DAILY_MAX_DEFAULT, DAILY_MAX_TOP = 20, 999
 #: statement about the day and would be a lie on a client nobody has read yet.
 DAILY_UNREAD = "—"
 
+#: The soldier floor: how many soldiers must be standing in the base before the
+#: auto-join spends a squad on a banner, and the range the box offers (#1317).
+#:
+#: `0` is «no floor», and it is the default on purpose: this is a number only the person
+#: whose base it is can choose, and a made-up one would silently stop somebody's joining
+#: the first time they updated. The gate itself is in `actions/join_rally.md`
+#: (`min_soldiers`) — all the panel keeps is the number.
+MIN_SOLDIERS_DEFAULT, MIN_SOLDIERS_TOP = 0, 9_999_999
+
 
 class AutoRallyPage:
     """The «Авторалли» page's state, and the widgets over it."""
@@ -94,6 +110,12 @@ class AutoRallyPage:
         # profile nobody has opened this tab in, and the ceiling has to travel with it.
         self._daily_var = tk.StringVar(master=master, value=str(DAILY_MAX_DEFAULT))
         self._today_var = tk.StringVar(master=master, value=DAILY_UNREAD)
+        # The soldier floor and what the base holds right now — the same pair, and here
+        # for the same reason: the door is read at boot in a profile whose tab nobody has
+        # opened, and the reading beside it is what makes the number choosable (#1317).
+        self._min_soldiers_var = tk.StringVar(master=master,
+                                              value=str(MIN_SOLDIERS_DEFAULT))
+        self._pool_var = tk.StringVar(master=master, value=DAILY_UNREAD)
         self._limits = None            # loaded when the page is drawn
         self._limit_vars: dict = {}
         self._count_vars: dict = {}    # what the panel has counted today, per kind
@@ -179,6 +201,25 @@ class AutoRallyPage:
                   font=("TkDefaultFont", 10, "bold")).pack(side="left")
         tr(ttk.Label(day, foreground="#888", wraplength=620, justify="left"),
            "rally_day.hint").pack(anchor="w", pady=(6, 0))
+
+        # -- the soldier floor, and what the base holds right now ---------------
+        # ONE NUMBER OVER THE WHOLE RUN, not a per-squad rule (#1317). Soldiers are one
+        # pool and the squads draw from it, so «полный отряд» is only ever true at the
+        # expense of the next squad — the question the person asked («хватает ли на все
+        # три») can only be answered about the BASE. The gate is in
+        # `actions/join_rally.md`; this is the number and the reading beside it.
+        troops = tr(ttk.LabelFrame(parent, padding=8), "rally_troops.frame")
+        troops.pack(fill="x", pady=(10, 0))
+        trow = ttk.Frame(troops)
+        trow.pack(fill="x")
+        tr(ttk.Label(trow), "rally_troops.min").pack(side="left", padx=(0, 6))
+        numeric_spinbox(trow, from_=0, to=MIN_SOLDIERS_TOP, width=9,
+                        textvariable=self._min_soldiers_var).pack(side="left")
+        tr(ttk.Label(trow), "rally_troops.now").pack(side="left", padx=(16, 6))
+        ttk.Label(trow, textvariable=self._pool_var,
+                  font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        tr(ttk.Label(troops, foreground="#888", wraplength=620, justify="left"),
+           "rally_troops.hint").pack(anchor="w", pady=(6, 0))
 
         # -- EVERY KIND OF BANNER: go for it? how many a day? how many today? ---
         # ONE TABLE, because they are one decision asked three ways (#1317). The
@@ -427,6 +468,36 @@ class AutoRallyPage:
             return DAILY_MAX_DEFAULT
         return max(0, min(DAILY_MAX_TOP, int(raw)))
 
+    def min_soldiers(self) -> int:
+        """The soldier floor as `join_rally` wants it — `0` is «no floor» (#1317).
+
+        A half-typed box reads as 0 rather than as whatever digits are already in it: 0
+        here means «join whatever the base holds», which is what the bot did before this
+        existed, and a box being edited must never quietly TIGHTEN a door.
+        """
+        raw = str(self._min_soldiers_var.get()).strip()
+        if not raw.isdigit():
+            return MIN_SOLDIERS_DEFAULT
+        return max(0, min(MIN_SOLDIERS_TOP, int(raw)))
+
+    def pool_text(self) -> str:
+        """What the base last held — the digits, or `—` when nothing has asked a client."""
+        return str(self._pool_var.get() or DAILY_UNREAD)
+
+    def set_pool(self, soldiers) -> None:
+        """Write the base's own soldier pool onto the page (Tk thread, #1317).
+
+        `soldiers < 0` is «the client could not be asked» and draws the dash: a confident
+        «0» would read as an empty base, which is exactly the state the floor refuses on.
+        """
+        try:
+            if soldiers is None or int(soldiers) < 0:
+                self._pool_var.set(DAILY_UNREAD)
+            else:
+                self._pool_var.set(str(int(soldiers)))
+        except (TypeError, ValueError, tk.TclError):
+            pass
+
     def today_text(self) -> str:
         """What the game last said about today — `«done / max»`, or `—` if never read."""
         return str(self._today_var.get() or DAILY_UNREAD)
@@ -475,6 +546,10 @@ class AutoRallyPage:
             # The day's ceiling — the ONE number the panel keeps about the budget, and
             # the one the auto-join is handed (#1317).
             "daily_max": self.daily_max(),
+            # …and the soldiers that must be standing in the base for a banner to be
+            # worth a squad at all. `0` is «no floor» and is what every profile written
+            # before #1317 answers — a door nobody set must not start refusing.
+            "min_soldiers": self.min_soldiers(),
             # …and the kinds of banner to leave alone. Stored as what is OFF, so a season
             # that adds a boss is joined by default rather than silently ignored by every
             # profile written before it existed.
@@ -523,6 +598,15 @@ class AutoRallyPage:
             daily = DAILY_MAX_DEFAULT
         self._daily_var.set(str(daily))
 
+        # …and the soldier floor, which is the OPPOSITE default: an absent value is «no
+        # floor», because it is a number only the person whose base it is can choose, and
+        # inventing one would stop the joining of every profile that has never seen the
+        # box (#1317).
+        floor = raw.get("min_soldiers")
+        if not isinstance(floor, int) or not 0 <= floor <= MIN_SOLDIERS_TOP:
+            floor = MIN_SOLDIERS_DEFAULT
+        self._min_soldiers_var.set(str(floor))
+
         off = raw.get("kinds_off")
         self._kinds_off = {str(k) for k in off} if isinstance(off, list) else set()
         for kind, var in self._kind_vars.items():
@@ -535,4 +619,4 @@ class AutoRallyPage:
         variable, so those call `rt.settings.changed()` from their own handler instead.
         """
         return [self._drill_on_var, self._drill_banner_var, self._create_elite_var,
-                self._daily_var, *self._squad_vars.values()]
+                self._daily_var, self._min_soldiers_var, *self._squad_vars.values()]

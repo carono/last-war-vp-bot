@@ -8,6 +8,9 @@ this is where the panel asks what the DAY looks like — and nothing more than t
 * :func:`trophy_progress` — how many rally trophies the game has paid today and how
   many are left before it stops paying. Asked of the client, which keeps the number
   itself; the panel keeps none.
+* :func:`soldier_pool` — how many soldiers are standing in the base, which is what the
+  join's own soldier floor is judged against (#1317). Also only a reading: the press
+  reads the pool itself, inside the chunk it was already making.
 
 **NOTHING HERE GATES A JOIN** (#1281), and :func:`join_gate` keeps its name only
 because the schedule asks for one — it answers «yes» to everything. The tally behind the
@@ -200,6 +203,39 @@ def trophy_progress(rt) -> dict:
             return {}
         return {"done": done, "max": top, "left": left}
     return {}
+
+
+def soldier_pool(rt) -> int:
+    """How many soldiers are standing in the BASE right now — `-1` if unreadable (#1317).
+
+    `SoldierDataManager:GetPlayerSoldiersTotalNum()`, which is what is at home: the pool
+    goes down when a march leaves and back up when it returns (docs/research/
+    rally-join.md). It is the very number the join's own floor is judged against, read
+    here only so the person can see what they are setting the floor against.
+
+    A READING AND NEVER A GATE. Nothing on a banner's path calls this — the press reads
+    the pool inside the chunk it was already making — and it is called off the Tk thread,
+    from the same background read that fetches the day's count.
+    """
+    try:
+        if not rt.game.ready():
+            return -1
+    except Exception:                        # noqa: BLE001 — a reading, never the run
+        return -1
+    chunk = ("local n = -1 pcall(function() n = tonumber("
+             "DataCenter.SoldierDataManager:GetPlayerSoldiersTotalNum()) or -1 end) "
+             "CS.UnityEngine.Debug.LogError('POOL '..tostring(n))")
+    try:
+        lines = rt.game.evaluator().run(chunk, marker="POOL", settle=0.4, early=True)
+    except Exception:                        # noqa: BLE001
+        return -1
+    for line in reversed(lines or []):
+        if "POOL " in line:
+            try:
+                return int(float(line.split("POOL ", 1)[1].split()[0]))
+            except (ValueError, IndexError):
+                return -1
+    return -1
 
 
 def join_gate(rt) -> list:

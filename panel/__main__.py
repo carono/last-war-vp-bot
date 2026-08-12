@@ -5251,7 +5251,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # panel's own tally, chosen by the person with the drift explained, and it
                 # stands down whenever that tally runs ahead of the game's own count.
                 "kind_skip": rallytab.kind_skip(self._rt),
-                "kind_left": rallygate.kind_left(self._rt)}
+                "kind_left": rallygate.kind_left(self._rt),
+                # …and HOW MANY SOLDIERS MUST BE HOME for a banner to be worth a squad
+                # (#1317). Soldiers are one pool: a squad is only «full» at the expense of
+                # the next one, so the question «хватает ли на все три» is about the base
+                # and the answer is one door over the whole run, judged in the press
+                # against the pool it already reads.
+                "min_soldiers": rallytab.min_soldiers(self._rt)}
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Tell the tabs which of them is on screen.

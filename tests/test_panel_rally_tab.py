@@ -317,6 +317,17 @@ def test_join_squads_answers_without_the_tab():
         assert rl.join_squads(rt) == [1, 4]
         rt.settings.values = {}
         assert rl.join_squads(rt) == []
+
+        # …and so does the SOLDIER FLOOR, which is a door and so must hold in a profile
+        # whose tab was never built (#1317). A profile that has never seen the box
+        # answers «no floor»: a number invented here would quietly stop somebody joining
+        # the day they updated.
+        rt.settings.values = {"autorally": {"min_soldiers": 9000}}
+        assert rl.min_soldiers(rt) == 9000
+        rt.settings.values = {"autorally": {"min_soldiers": "lots"}}
+        assert rl.min_soldiers(rt) == 0
+        rt.settings.values = {}
+        assert rl.min_soldiers(rt) == 0
     finally:
         root.destroy()
 
@@ -1124,6 +1135,25 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
         assert rows["rally_day.max"] and rows["rally_day.max"] != "0", rows
         tab.autorally._daily_var.set("20")
+        # THE SOLDIER FLOOR AND THE BASE'S OWN COUNT TRAVEL TOGETHER (#1317). «В базе
+        # меньше солдат, чем ты просил» is now one of the answers to «ничего не
+        # присоединяется», so the phone has to be able to see both numbers — and an
+        # unread pool is a dash rather than a confident «0», which would read as an empty
+        # base, the very state the floor refuses on.
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_troops.now"] == autorallymod.DAILY_UNREAD, rows
+        assert rows["rally_troops.min"], rows          # «no floor», in words, not «0»
+        assert rows["rally_troops.min"] != "0", rows
+        tab.autorally._min_soldiers_var.set("9000")
+        tab.autorally.set_pool(5200)
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_troops.min"] == "9000", rows
+        assert rows["rally_troops.now"] == "5200", rows
+        assert tab.autorally.min_soldiers() == 9000
+        tab.autorally.set_pool(-1)                     # unreadable is a dash again
+        rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
+        assert rows["rally_troops.now"] == autorallymod.DAILY_UNREAD, rows
+        tab.autorally._min_soldiers_var.set("0")
         # …and EVERY KIND is under it (#1317), «spent/allowed» where there is a cap and a
         # word where there is none — «3/0» reads like a budget somebody has overspent.
         kinds = {row["label"]: row["value"] for row in card["rows"]
@@ -1465,6 +1495,72 @@ def test_the_days_ceiling_travels_on_both_drivers_and_into_the_recipe():
     assert capped[0] < fetch[0], "a spent day still went looking for an army"
     assert any(isinstance(x, se.StopStmt) for x in stmts[capped[0]].then_block), \
         "the recipe does not stop on a spent day"
+
+
+def test_the_soldier_floor_travels_on_both_drivers_and_into_the_recipe():
+    """«Если на 3 отряда солдат не хватает, не присоединяемся» (#1317).
+
+    One number over the whole run — soldiers are a single pool, so a squad is only «full»
+    at the expense of the next one and «хватает ли на все три» is a question about the
+    BASE. Both drivers hand it to the recipe, or it is a door only half the joins pass.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    from panel.tabs import TabRegistry
+    from panel.tabs.rally import autorally as autorallymod
+    from panel.tabs.rally import tab as rl
+    try:
+        args = {}
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        rt.game.claim = lambda owner="panel", priority=0: True
+        tab._refresh_day = lambda: None
+        tab.autorally._min_soldiers_var.set("9000")
+        tab._join_work([1])
+        assert args.get("min_soldiers") == 9000, args
+        assert rl.min_soldiers(rt) == 9000          # the trigger's side, same page
+
+        # A half-typed box is «no floor» rather than whatever digits are in it: 0 is what
+        # the bot did before this existed, and a box being edited must never TIGHTEN a
+        # door on its own.
+        tab.autorally._min_soldiers_var.set("")
+        assert rl.min_soldiers(rt) == autorallymod.MIN_SOLDIERS_DEFAULT
+
+        rt.tabs = TabRegistry()
+        rt.settings.values = {"autorally": {"squads": [1], "min_soldiers": 12000}}
+        assert rl.min_soldiers(rt) == 12000
+        rt.settings.values = {"autorally": {"squads": [1]}}
+        assert rl.min_soldiers(rt) == 0
+    finally:
+        root.destroy()
+
+    # …and the recipe parks it and stops on the answer BEFORE it goes looking for an
+    # army: a base under the floor is not a reason to fetch a squad's soldiers.
+    from lastwar_bot import script_engine as se
+
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    body, _ = se.prepare_source(src, {"squads": [1], "min_soldiers": 9000})
+    stmts = se.parse_text(body)
+    park = [s for s in stmts
+            if isinstance(s, se.LuaStmt) and "__lw_rally_min_soldiers" in s.chunk]
+    assert len(park) == 1, "the floor is not parked with the rest of the argument"
+    assert "9000" in park[0].chunk, park[0].chunk[:200]
+    low = [i for i, s in enumerate(stmts)
+           if isinstance(s, se.IfStmt) and s.condition == "todo == -5"]
+    fetch = [i for i, s in enumerate(stmts)
+             if isinstance(s, se.IfStmt) and s.condition == "todo < 0"]
+    assert low, [getattr(s, "condition", None) for s in stmts]
+    assert low[0] < fetch[0], "a base under the floor still went looking for an army"
+    assert any(isinstance(x, se.StopStmt) for x in stmts[low[0]].then_block), \
+        "the recipe does not stop on a base under the floor"
 
 
 def test_the_kind_filter_travels_and_an_untouched_profile_joins_everything():

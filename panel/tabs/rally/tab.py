@@ -464,8 +464,19 @@ class RallyTab(PanelTab):
         except Exception:                          # noqa: BLE001 — a reading, never a run
             summary = {}
 
+        # …AND WHAT THE BASE HOLDS, on this same worker (#1317). «Количество солдат, если
+        # не видишь в реальном времени, запускай проверку отдельным потоком» — the thread
+        # is this one, which was already running for the day's count, because the reading
+        # costs a tenth of a second and a second thread would only be another claim on the
+        # same client. The JOIN needs no thread at all: it reads the pool inside the press.
+        try:
+            pool = rallylimits.soldier_pool(self.rt)
+        except Exception:                          # noqa: BLE001 — a reading, never a run
+            pool = -1
+
         def paint() -> None:
             self.autorally.set_today(done, top)
+            self.autorally.set_pool(pool)
             # …and the per-kind tally beside the caps, which is a file read and needs no
             # game at all — but moves for the same reason and at the same moments (#1317).
             self.autorally.paint_counts()
@@ -597,6 +608,16 @@ class RallyTab(PanelTab):
                  "value": (str(ceiling) if ceiling
                            else self.t("rally_day.unlimited"))},
                 {"label": "rally_day.today", "value": self.autorally.today_text()}]
+        # …AND THE SOLDIER FLOOR, WITH THE BASE'S OWN COUNT BESIDE IT (#1317). The phone
+        # is where somebody stands when they wonder why nothing is being joined, and «в
+        # базе меньше солдат, чем ты просил» is now one of the answers — so both numbers
+        # travel, exactly as they sit together in the window. A floor of 0 says so in
+        # words rather than as «0», which reads like a base with nobody in it.
+        floor = self.autorally.min_soldiers()
+        rows.append({"label": "rally_troops.min",
+                     "value": (str(floor) if floor
+                               else self.t("rally_troops.none"))})
+        rows.append({"label": "rally_troops.now", "value": self.autorally.pool_text()})
         # …AND WHICH KINDS ARE SWITCHED OFF (#1317). The filter is what actually decides
         # whether a banner is joined, so the phone has to be able to see it — «галки стоят
         # и ничего не происходит» is the question this screen exists to answer, and a kind
@@ -1298,7 +1319,11 @@ class RallyTab(PanelTab):
                                         # budgets, on this driver too — a rule travels on
                                         # both or it is not a rule.
                                         "kind_skip": self.autorally.kind_skip(),
-                                        "kind_left": rallylimits.kind_left(self.rt)},
+                                        "kind_left": rallylimits.kind_left(self.rt),
+                                        # …and the soldier floor, on this driver too: a
+                                        # door only one of the two drivers passes is not
+                                        # a door (#1317).
+                                        "min_soldiers": self.autorally.min_soldiers()},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
             # THE SAME BOOK THE OTHER DRIVER WRITES IN (#1281). This tab plays the recipe
             # itself, off the capture's own reader and past the schedule entirely, so its
@@ -1465,4 +1490,25 @@ def daily_max(rt) -> int:
     raw = (saved or {}).get("daily_max") if isinstance(saved, dict) else None
     if not isinstance(raw, int) or not 0 <= raw <= autorallymod.DAILY_MAX_TOP:
         return autorallymod.DAILY_MAX_DEFAULT
+    return raw
+
+
+def min_soldiers(rt) -> int:
+    """How many soldiers must be in the base before a banner is joined — `0` = no floor.
+
+    The same two-source rule as :func:`join_squads`, and for the same reason: the
+    «rally_auto_join» trigger fires in a profile whose «Ралли» tab may never be built.
+
+    A profile with no saved number answers `0`, which is what the bot did before #1317:
+    this floor is a number only the person whose base it is can choose, so an invented
+    one would quietly stop the joining of everyone who has never opened the box.
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    if tab is not None:
+        return tab.autorally.min_soldiers()
+    block = rt.settings.tab_config(RallyTab.ID, RallyTab.LEGACY_KEYS)
+    saved = block.get("autorally")
+    raw = (saved or {}).get("min_soldiers") if isinstance(saved, dict) else None
+    if not isinstance(raw, int) or not 0 <= raw <= autorallymod.MIN_SOLDIERS_TOP:
+        return autorallymod.MIN_SOLDIERS_DEFAULT
     return raw

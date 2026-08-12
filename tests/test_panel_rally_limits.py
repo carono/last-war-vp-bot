@@ -269,7 +269,7 @@ def test_the_chunk_shuts_the_day_on_the_games_count_and_never_on_ours():
 
     lua = lupa.LuaRuntime(unpack_returned_tuples=True)
     condition = chunk[chunk.index("local capped ="):]
-    condition = condition[:condition.index(" local sent,")]
+    condition = condition[:condition.index(" local minpool =")]
     decide = lua.execute("return function(kb, cap) %s return capped end" % condition)
     assert decide(19, 20) is False, "a day with one rally left was shut"
     assert decide(20, 20) is True, "the ceiling did not shut the day"
@@ -747,6 +747,54 @@ def test_a_seed_of_ours_that_changed_is_carried_across_but_a_typed_number_is_not
     Path(now).write_text(json.dumps({"v": rl.FILE_VERSION,
                                      "wandering_mummy_warlord": 0}), encoding="utf-8")
     assert rl.load_limits(now).limit_for("wandering_mummy_warlord") == 0
+
+
+def test_the_soldier_floor_refuses_the_whole_run_and_never_on_an_unread_pool():
+    """One door over the run, judged on the base's own pool (#1317).
+
+    «Сделай проверку для отправки войск: наполненность не одного отряда, а всех трёх.
+    Если на 3 отряда солдат не хватает, не присоединяемся.» Soldiers are ONE pool and
+    every squad draws from it, so the per-squad ceiling cannot answer it — filling the
+    first squad is what empties the base for the second. The person set the shape of the
+    answer too: an absolute number they read off their own base, and marching soldiers do
+    not count towards it.
+    """
+    import lua_actions
+    import lupa
+
+    chunk = lua_actions.rally_join_all()
+    assert "__lw_rally_min_soldiers" in chunk, "the floor no longer reaches the press"
+    assert "GetPlayerSoldiersTotalNum" in chunk, "the pool it is judged against is gone"
+    assert "low-on-soldiers(" in chunk, "a banner held back by the floor is not named"
+    assert "DataCenter.__lw_rally_todo = -5" in chunk, "the recipe is not told the base is low"
+    assert "soldiers='..pool..'/'..minpool" in chunk, "the report hides one of the numbers"
+
+    lua = lupa.LuaRuntime(unpack_returned_tuples=True)
+    condition = chunk[chunk.index("local minpool ="):]
+    condition = condition[:condition.index(" local kind_left =")]
+    decide = lua.execute("return function(pool, floor) "
+                         "local DataCenter = {__lw_rally_min_soldiers = floor} "
+                         "%s return short_pool end" % condition)
+    assert decide(5000, 9000) is True, "a base under the floor still joined"
+    assert decide(9000, 9000) is False, "a base exactly at the floor was refused"
+    assert decide(12000, 9000) is False, "a full base was refused"
+    assert decide(0, 9000) is False, "an unread pool refused a banner"
+    assert decide(200, 0) is False, "«0» must mean «no floor», not «join nothing»"
+
+    # THE ORDER OF THE ENDINGS. The floor outranks every squad-shaped verdict — fetching
+    # an army for a squad that may not be spent is a call spent on a refused run — and
+    # the day's ceiling outranks the floor, because «сегодня всё» is the more final of
+    # the two.
+    assert chunk.index("DataCenter.__lw_rally_todo = -5") < \
+        chunk.index("if capped then DataCenter.__lw_rally_todo = -4 end"), \
+        "a spent day is overwritten by a low base"
+
+    recipe = Path("src/lastwar_bot/actions/join_rally.md").read_text(encoding="utf-8")
+    assert "ARGS min_soldiers = 0" in recipe, "the recipe does not declare the floor"
+    assert 'DataCenter.__lw_rally_min_soldiers = tonumber("{min_soldiers}")' in recipe, \
+        "the floor is not parked where the press reads it"
+    assert recipe.index("IF todo == -5") < recipe.index("IF todo == -3"), \
+        "the low base is reported as an under-strength squad"
 
 
 def _run_standalone() -> int:

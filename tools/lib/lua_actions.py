@@ -5418,6 +5418,13 @@ def rally_join_all() -> str:
       * and the count of our squads standing in rallies BEFORE any of it, so the recipe
         can prove afterwards that the map moved.
 
+    THE DOORS ARE HERE TOO, for the same reason: a check in front of this chunk is a
+    second call on the one path measured in fractions of a second. The day's ceiling
+    against the game's own counter (`__lw_rally_cap` → `-4`), the per-kind budgets and
+    the kind filter the panel parks, and the SOLDIER FLOOR — `__lw_rally_min_soldiers`,
+    how many soldiers must be standing in the base before a banner is worth a squad at
+    all (`-5`, #1317). The pool it is judged against is the one the sieve already reads.
+
     EVERY SQUAD AND EVERY RALLY LEFT BEHIND IS NAMED. `DataCenter.__lw_rally_report` is
     a sentence the recipe reads back and logs: how many were sent, how many rallies were
     out, and one word per squad that was passed over — `out` (marching, gathering,
@@ -5843,6 +5850,30 @@ def rally_join_all() -> str:
         "kbleft = MM:GetRestKillBossNum() end) "
         "local cap = tonumber(DataCenter.__lw_rally_cap) or 0 "
         "local capped = (cap > 0 and tonumber(kb) ~= nil and tonumber(kb) >= cap) "
+        # …AND THE SOLDIERS IN THE BASE, WHICH IS A DOOR OVER THE WHOLE RUN (#1317).
+        #
+        # «Сделай проверку для отправки войск: наполненность не одного отряда, а всех
+        # трёх. Если на 3 отряда солдат не хватает, не присоединяемся.» The per-squad
+        # ceiling above cannot answer that: soldiers are ONE pool in this game and the
+        # squads draw from it, so filling the first squad to its ceiling is exactly what
+        # leaves nothing for the second and the third. A squad is only «full» at the
+        # expense of the others.
+        #
+        # So the person sets ONE NUMBER — how many soldiers must be standing in the base
+        # before a banner is worth a squad at all — and the whole run is refused below it.
+        # An absolute number rather than a sum of ceilings, and that is their choice made
+        # with both on the table: the ceilings move whenever a hero is levelled, and the
+        # number that matters to them is the one they can read off their own base.
+        #
+        # MARCHING SOLDIERS DO NOT COUNT, also on their word: `GetPlayerSoldiersTotalNum`
+        # is what is HOME (the pool goes down when a march leaves, docs/research/
+        # rally-join.md), so after the first squad goes out the door shuts until it comes
+        # back. That is the intended reading of «на 3 отряда не хватает — не цепляемся».
+        #
+        # A GATE THAT CANNOT SEE DOES NOT REFUSE: `pool` is 0 when the reading failed, and
+        # then this door stands open exactly as it did before it existed.
+        "local minpool = tonumber(DataCenter.__lw_rally_min_soldiers) or 0 "
+        "local short_pool = (minpool > 0 and pool > 0 and pool < minpool) "
         # …AND THE CEILING PER KIND (#1317). `kind:left,…`, parked by the panel, which is
         # the only thing that can count them: the client keeps ONE daily rally counter and
         # no per-species number anywhere — every manager was walked for #1317 and there is
@@ -5879,6 +5910,11 @@ def rally_join_all() -> str:
         # The day is spent: every banner is NAMED as passed over for that reason rather
         # than silently skipped, so «nothing went out» never reads as «no rally was out».
         "if capped then left_over[#left_over+1] = tostring(r.team)..':day-capped' "
+        # …the base has not got the soldiers the person asked for, and every banner is
+        # NAMED as passed over for that reason: a quiet evening and a base being refilled
+        # are different sentences (#1317).
+        "elseif short_pool then left_over[#left_over+1] = "
+        "tostring(r.team)..':low-on-soldiers('..pool..'/'..minpool..')' "
         # …a kind the person has switched off, which is a different sentence again: it is
         # not «today is spent», it is «not this kind at all» (#1317).
         "elseif kind_off[kind] then "
@@ -5941,6 +5977,13 @@ def rally_join_all() -> str:
         # a squad standing empty on a day the person has already spent is not a reason to
         # fetch an army, and the recipe stops on this before it reaches its `todo < 0`
         # branch. Only ever set when the game answered with a number of its own.
+        # `-5` — the base is under the soldier floor the person set (#1317). It ranks
+        # above the under-strength verdicts for the same reason `-4` does: nothing about
+        # a squad is the news, the BASE is, and fetching an army for a squad that may not
+        # be spent anyway is a call spent on a run that is already refused.
+        "if short_pool then DataCenter.__lw_rally_todo = -5 end "
+        # …and the day's ceiling outranks even that: «сегодня всё» is the more final of
+        # the two, and a base that fills up later still has nothing to join today.
         "if capped then DataCenter.__lw_rally_todo = -4 end "
         "local report = 'sent='..sent..' rallies='..#rallies..' free='..#home "
         # The split that makes «rallies=1» readable: of every team on the map, how many
@@ -5972,6 +6015,15 @@ def rally_join_all() -> str:
         "if cap > 0 then report = report..' cap='..tostring(kb)..'/'..cap "
         "if capped then report = report..' -- the ceiling for today is reached, so nothing "
         "was sent' end end "
+        # …AND THE SOLDIER FLOOR, WITH BOTH NUMBERS, whether or not it shut anything
+        # (#1317). What is in the base and what the person asked for: a run that sent
+        # nothing because the barracks is low says so in its own line, and a run that sent
+        # something still shows how close the floor was.
+        "if minpool > 0 then report = report..' soldiers='..pool..'/'..minpool "
+        "if short_pool then report = report..' -- fewer soldiers in the base than the "
+        "floor set in «Автостяг», so nothing was sent' "
+        "elseif not (pool > 0) then report = report..' (the base pool could not be read "
+        "— the floor did not refuse anything)' end end "
         # …and which KINDS held a banner back, with how many each (#1317). Said even when
         # something else went out, because «two of the four were the wrong kind today» is
         # exactly the sentence a person needs to change a number with.
