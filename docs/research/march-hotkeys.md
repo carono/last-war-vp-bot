@@ -294,6 +294,110 @@ was looking at rather than on the one they clicked. **This is not hypothetical: 
 first pin this watcher ever caught, minutes after being armed on a live client, came from
 the panel's own scan and not from a finger.**
 
+**Two fixes were tried before the right one, and both are worth keeping written down.**
+
+*First:* record an errand's popup and refuse it at press time. That reads fine in a test
+and destroyed the ability in a game — the panel opens a world-point popup every few
+seconds, so a person's click survived about ten seconds before an errand overwrote it and
+every key from then on answered «эту точку открыла панель». Read live ten seconds after a
+press:
+
+```
+PIN kind=DispatchTask script=1 age=10 desc=DispatchTask @[<x>,<y>|<server>]
+```
+
+*Second:* keep only the opens that did not come from a chunk. That froze the pin
+completely: the person clicked elsewhere all day and the key kept marching on the original
+target. The reason is the whole point of this section.
+
+### Who opened a popup CANNOT be asked
+
+The idea was that a scripted open leaves a `[string "…"]` frame on the stack while a finger
+does not. It does not work, and the stack says why — read live at a real open:
+
+```
+1:[string "chunk"]  2:[C]  3:[string "chunk"]     <- the watcher's own two frames
+4:…/UI/UIWorldPoint/View/UIWorldPointView.lua
+5,7,8:…/Framework/UI/UIManager.lua
+```
+
+**There is no `GoToUtil` frame at all.** The point's detail is fetched from the server and
+the window is filled in when the REPLY lands, so whoever asked for it returned long ago.
+The test therefore read «scripted» off the watcher's own two frames and answered that to
+everything, a finger included — and since a scripted open was not kept, the pin never moved
+again.
+
+So the rule is the safe way round: **every open moves the pin, and the PRESS judges.** A pin
+that always mirrors the last point opened can be refused by kind in one honest sentence; a
+pin that sometimes refuses to move is a squad marching at a target the person walked away
+from. What the errands open — a secret task, a treasure, a ghost tile, a rally-only elite —
+is refused by kind anyway; what a person clicks is marched on.
+
+### A wrapper has to be replaceable
+
+A client runs for days while the panel restarts several times a day, so «install once and
+leave it» means a live client keeps yesterday's wrapper whatever the code says — and
+wrapping the wrapper only puts the old body underneath the new one, still doing the old
+thing. The arming carries a version (`__lw_pick_ver`): a different one puts the game's own
+`InitData` back first and wraps that. The reader needs no version — it is re-assigned every
+time, which is why a correction can land there and reach a client already running.
+
+### Which march a clicked point becomes
+
+Read out of the two enums BY NAME, so a season that renumbers them changes nothing:
+
+| clicked | becomes | why |
+|---|---|---|
+| `Monster` / `Boss` with `canAttack == 1` | `ATTACK_MONSTER` | the game's own «this one can be soloed» |
+| `Monster` / `Boss` with `canAttack == 0` | **refused** | a banner is raised through its own screen, never by a key — the same refusal `macro_repeat` has made since #1283 |
+| `City`, somebody else's | `ATTACK_CITY` | |
+| `City`, the player's own | **refused** | |
+| `CollectPoint` | `COLLECT` | a resource tile has `uuid = 0` and addresses by tile |
+| `CollectArmy` | `ATTACK_ARMY_COLLECT` | somebody else's squad, mid-gather |
+| anything else | **refused, by name** | the log says which kind, so the next one can be added on purpose |
+
+`GetMonsterData` is asked **with the uuid** — called bare it answers a one-field stub whose
+`canAttack` is `0`, and every monster in the game would read as rally-only
+([`world-monsters.md`](world-monsters.md), Finding 8). It is asked at CLICK time, because
+the popup's controller is the only thing that can answer it and it is long gone by the time
+a key is pressed.
+
+Verified live against a running client, feeding the reader hand-made controllers of the
+right shape (nothing on screen was touched, nothing was sent):
+
+```
+monster-solo  = Monster/mtt=1/can=1        mine     = CollectPoint/mtt=2
+monster-rally = Boss/mtt=nil/can=0         gatherer = CollectArmy/mtt=10
+other-base    = City/mtt=11                own-base = City/mtt=nil
+road          = Road/mtt=nil
+```
+
+### What ends a pin
+
+Never the panel's own bookkeeping — a press does NOT spend the click, so three keys in a
+row put three squads on one target, which is what clicking a boss is usually for. What ends
+it is the world:
+
+* **time.** `stale`, 180 s by default, measured on the GAME's clock
+  (`UITimeManager:GetInstance():GetServerSeconds()`, never the PC's —
+  [`game-clock.md`](game-clock.md));
+* **the scene.** Walking off the world map drops it (`SceneUtils.GetIsInWorld()`);
+* **the account.** The pin records `LuaEntry.Player.uid` and `.serverId` as they were at
+  the click, and a press from another account or another home server refuses rather than
+  marching somebody else's squad at somebody else's tile.
+
+Each of the three is its own refusal in the log, so «ничего не отправилось» always says
+which of them it was.
+
+### The one that had to be found the hard way: the panel clicks too
+
+The bot opens `UIWorldPoint` popups all day of its own accord — a rally hunt, a treasure
+sweep, a jump to coordinates — and every one of them goes through the same `InitData`. A
+macro that simply took the newest pin would put somebody's squad on the tile an automation
+was looking at rather than on the one they clicked. **This is not hypothetical: the very
+first pin this watcher ever caught, minutes after being armed on a live client, came from
+the panel's own scan and not from a finger.**
+
 **And the first fix for it was the wrong one, which the first live session showed in
 ninety seconds.** Recording an errand's popup and refusing it at press time reads fine in a
 test: the pin is honest, the refusal is named, nothing marches at the wrong tile. In a
@@ -475,13 +579,25 @@ age=356`, which is the staleness gate refusing on a real client with a real read
 **Proven: a scripted open is told from a click.** The reader called straight from a chunk
 reports `script=1`, which is the refusal above.
 
-**Proven live, and then DISPROVED by the person playing** — the first session found the
-macro «works once and then nothing», and both halves of that are written up above: the
-errand-overwritten pin (`sent_ok = -9` on every press after the first) and the seven-second
-poll that answered the next key with «занят». Both are fixed; a scripted open leaving the
-pin alone was verified on the client that was already wrapped, and a press with a human pin
-now walks every gate and stops only where it was told to (`result=-1`, «no such squad»,
-with squad 0 deliberately parked).
+**Proven live, and then DISPROVED by the person playing — twice.** The first session found
+the macro «works once and then nothing»: an errand's popup had taken the pin and the
+seven-second poll answered the next key with «занят». The second found the pin FROZEN: the
+attempt to keep errands out kept everything out, for the reason in «Who opened a popup
+cannot be asked». Both write-ups are above, because the wrong turnings are the useful part.
+
+**Proven after the third try**, driving the two kinds of open the way they really arrive —
+a game-originated one through the game's own timer, an errand's straight from a chunk:
+
+```
+pin after A          CollectPoint @[<x1>,<y1>|<server>]  point=<A>
+pin after B          CollectPoint @[<x2>,<y2>|<server>]  point=<B>   <- the pin follows
+press with that pin  result=-1 kind=CollectPoint age=14              <- every gate walked,
+                                                                        stopped at squad 0
+```
+
+`InitData` was also counted on both opens (`C.InitData=1` each time, the second with the
+popup already up and no `V.OnCreate`), so a second click on another target really does
+reach the watcher.
 
 **Still not proven under a finger:** a real tap on a monster followed by a real `1`, `2`,
 `3`, ending in three marches. That is the one check the person makes.

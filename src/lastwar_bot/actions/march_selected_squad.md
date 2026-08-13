@@ -38,10 +38,13 @@
 # which is what clicking a boss is usually for. What ends a pin is time (`stale`), the
 # scene (walking off the world map), and the account — never the panel's bookkeeping.
 #
-# AND A POINT THE BOT OPENED IS NOT A TARGET ANYBODY CHOSE. The panel opens world-point
-# popups of its own all day — a rally hunt, a treasure sweep, a jump to coordinates — and
-# the first pin ever caught live was one of those rather than a finger. Those are refused,
-# not marched on: whose stack opened the popup is something the game can be asked.
+# THE PIN IS THE LAST POINT OPENED, whoever opened it, and the press is what judges. The
+# panel opens world-point popups of its own all day — a rally hunt, a treasure sweep, a
+# jump to coordinates — and it cannot be told from a person's tap (the client fills the
+# popup in when the SERVER answers, so by then nobody is on the stack). A pin that always
+# follows the last point is the safe way round: what an errand opens is refused below, by
+# kind, in its own words; a pin that refused to move would be a squad marching at a target
+# the person walked away from ten minutes ago.
 #
 # Nothing is claimed from a send that returned cleanly: the run ends as a FAILURE, naming
 # the reason, when nothing was clicked, when the squad does not exist, when the pin has
@@ -95,8 +98,6 @@ IF sent_ok == -7
     FAIL "not on the world map any more — the clicked target no longer counts"
 IF sent_ok == -8
     FAIL "the target was clicked by another account — click it again on this one"
-IF sent_ok == -9
-    FAIL "that point was opened by the panel, not clicked by you — click the target yourself"
 
 # --- 3a. The open screen: stand and watch for the march ----------------------------
 # The proof is a march of ours appearing, not the press returning cleanly: the server owns

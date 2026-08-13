@@ -7595,6 +7595,11 @@ _MACRO_FIND = (
 #: with `canAttack = 0` and every monster reads as rally-only (world-monsters.md,
 #: Finding 8). It is called here, at pin time, because the popup's controller is the only
 #: thing that can answer it and it is gone by the time a key is pressed.
+#: Bumped whenever the WRAPPER's own body changes, so an arming replaces the one a
+#: long-running client already carries instead of quietly leaving it in place. The reader
+#: needs no version — it is re-assigned every time.
+_PICK_VER = 3
+
 _PICK_READ = (
     "DataCenter.__lw_pick_read = function(s) "
     "local U = WorldPointUIType or {} local M = MarchTargetType or {} "
@@ -7611,19 +7616,27 @@ _PICK_READ = (
     "then p.mine = 1 end end) "
     # WHO OPENED THIS POPUP — the person, or the panel? The bot opens world-point popups
     # of its own all day (a rally hunt, a treasure sweep, a jump to coordinates), and a
-    # macro that took the newest one would put somebody's squad on the tile an automation
-    # was looking at rather than the one they clicked. A scripted open runs INSIDE a
-    # chunk this repository sent, and a chunk compiled from a string reports
-    # `short_src = [string "…"]`, while the game's own Lua reports its file path — so the
-    # stack says which it was. (The proof it was worth doing: the very first pin caught
-    # live came from the panel's own automation, not from a finger. And `short_src`, not
-    # `source`: the raw source of a `SafeDoString` chunk is just its name.)
-    "p.script = 0 "
-    "pcall(function() for lvl = 1, 14 do local i = debug.getinfo(lvl, 'S') "
-    "if i == nil then break end "
-    "if string.sub(tostring(i.short_src or ''), 1, 7) == '[string' then "
-    "p.script = 1 break end "
-    "end end) "
+    # WHO OPENED THIS POPUP CANNOT BE ASKED, and two live sessions were spent finding that
+    # out. The idea was that a scripted open would leave a `[string "…"]` frame on the
+    # stack while a finger would not, so an errand's sightseeing could be told from a
+    # person's click. It cannot: `InitData` does not run inside the opener at all. The
+    # stack at a real one, read live, has no `GoToUtil` in it —
+    #
+    #     1:[string "chunk"]  2:[C]  3:[string "chunk"]   <- this watcher, always
+    #     4:…/UI/UIWorldPoint/View/UIWorldPointView.lua
+    #     5,7,8:…/Framework/UI/UIManager.lua
+    #
+    # — because the point's detail is fetched from the server and the window is filled in
+    # when the REPLY lands, by which time whoever asked has long returned. So the test read
+    # «scripted» off its own two frames and answered that to everything, a finger included,
+    # and since a scripted open was not kept the pin froze on whatever got in first: the
+    # person clicked elsewhere all day and the key kept marching on the original target.
+    #
+    # So EVERY open is recorded and the PRESS decides. That is the safe way round: a pin
+    # that always mirrors the last point opened can be refused by kind, while a pin that
+    # sometimes refuses to move is a squad marching at a target nobody chose any more.
+    # What the errands open — a secret task, a treasure, a ghost tile, a rally-only elite —
+    # is refused by the press in its own words; what a person clicks is marched on.
     "p.can = -1 "
     "for n, v in pairs(U) do if tonumber(v) == p.kind then p.kindname = tostring(n) end end "
     "if p.kind ~= nil and (p.kind == U.Monster or p.kind == U.Boss) then "
@@ -7648,7 +7661,7 @@ _PICK_READ = (
     # lives in the wrapper never reaches a client wrapped by yesterday's panel — and
     # re-wrapping would only put the old body underneath the new one, still overwriting.
     # The reader is re-assigned by every arming, so this is where a correction can land.
-    "if p.script == 0 and p.point ~= nil then DataCenter.__lw_macro_pick = p end "
+    "if p.point ~= nil then DataCenter.__lw_macro_pick = p end "
     "return p end "
 )
 
@@ -7666,10 +7679,17 @@ _PICK_ARM = _PICK_READ + (
     "local cfg = UIManager.Instance.windowsConfig[UIWindowNames.UIWorldPoint] "
     "local cls = cfg and cfg.Ctrl "
     "if cls == nil then return end "
-    "if rawget(cls, '__lw_pick_orig') ~= nil then return end "
+    # A WRAPPER IS UPGRADABLE, and it has to be: a client runs for days and the panel is
+    # restarted several times a day, so «installed once, for ever» meant a client kept
+    # yesterday's wrapper whatever the code said — and wrapping the wrapper only leaves
+    # the old body underneath, still doing the old thing. The version is the flag: a
+    # different one puts the GAME's own method back first, then wraps that.
+    "if rawget(cls, '__lw_pick_orig') ~= nil then "
+    "if rawget(cls, '__lw_pick_ver') == %(ver)d then return end "
+    "cls.InitData = cls.__lw_pick_orig cls.__lw_pick_orig = nil end "
     "local orig = cls.InitData "
     "if type(orig) ~= 'function' then return end "
-    "cls.__lw_pick_orig = orig "
+    "cls.__lw_pick_orig = orig cls.__lw_pick_ver = %(ver)d "
     "cls.InitData = function(s, ...) "
     "local r = table.pack(orig(s, ...)) "
     # A SCRIPTED OPEN IS NOT RECORDED AT ALL, and the first live session is why (#1328).
@@ -7682,7 +7702,7 @@ _PICK_ARM = _PICK_READ + (
     "pcall(function() DataCenter.__lw_pick_read(s) end) "
     "return table.unpack(r, 1, r.n) end "
     "end) "
-)
+) % {"ver": _PICK_VER}
 
 #: The popup itself, wherever it sits — the same shape `_MACRO_FIND` uses for the squad
 #: screen, and for the same reason: a confirmation the game puts over it must not read
@@ -7764,8 +7784,11 @@ def macro_send() -> str:
     screen's own launch raised · ``-4`` the pin is older than the run allows · ``-5`` the
     macro does not march on that kind of point · ``-6`` the pinned monster is rally-only ·
     ``-7`` the player is not on the world map any more · ``-8`` the pin belongs to another
-    account or another home server · ``-9`` the popup was opened by the PANEL rather than
-    by the person, and a bot's own sightseeing is not a target anybody chose.
+    account or another home server.
+
+    (There was a ``-9`` — «the panel opened this, not you» — and it is gone: which of the
+    two opened a popup is not a question the client can answer, see :data:`_PICK_READ`.
+    Nothing reuses the number, so a log line from an older panel still reads true.)
 
     The pin is NOT consumed by a successful send, on purpose: three keys in a row put
     three squads on one target, which is what a person clicking a boss wants. What ends it
@@ -7811,13 +7834,11 @@ def macro_send() -> str:
         "local q = DataCenter.__lw_macro_pick "
         "if q == nil or q.point == nil then "
         "local pop = _findpopup() "
-        # Read on the spot, and NOT counted as a scripted open even though this chunk is
-        # one: nothing is being opened here, a popup that is already up is being read, and
-        # a popup standing open at the moment of the key press is the strongest evidence
-        # of what is chosen there is.
+        # A popup standing open at the moment of the key press is the strongest evidence
+        # of what is chosen there is — and the reader keeps it, so the next press has it
+        # too.
         "if pop ~= nil then pcall(function() "
-        "q = DataCenter.__lw_pick_read(pop.Ctrl) q.script = 0 "
-        "DataCenter.__lw_macro_pick = q end) end end "
+        "q = DataCenter.__lw_pick_read(pop.Ctrl) end) end end "
         "if q == nil or q.point == nil then p.result = 0 return end "
         "p.desc, p.kind = q.desc, q.kindname "
         "local now = 0 "
@@ -7830,7 +7851,6 @@ def macro_send() -> str:
         "if (q.who ~= nil and q.who ~= who) or (q.home ~= nil and tonumber(q.home) ~= home) "
         "then p.result = -8 return end "
         "if not inworld then p.result = -7 return end "
-        "if q.script == 1 then p.result = -9 return end "
         "if p.age > (tonumber(p.stale) or 180) then p.result = -4 return end "
         "if q.can == 0 then p.result = -6 return end "
         "if q.mtt == nil then p.result = -5 return end "

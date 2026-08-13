@@ -105,7 +105,6 @@ def test_the_send_recipe_refuses_every_way_a_target_can_fail():
     assert "IF sent_ok == -6" in text       # a rally-only monster
     assert "IF sent_ok == -7" in text       # no longer on the world map
     assert "IF sent_ok == -8" in text       # another account clicked it
-    assert "IF sent_ok == -9" in text       # the panel opened it, nobody clicked it
     assert "IF sent < 1" in text            # pressed and nothing went out
 
 
@@ -203,7 +202,7 @@ def test_the_send_tells_its_refusals_apart():
     for verdict in ("p.result = 0", "p.result = -1", "p.result = -2",
                     "p.result = -3", "p.result = -4", "p.result = -5",
                     "p.result = -6", "p.result = -7", "p.result = -8",
-                    "p.result = -9", "p.result = 1", "p.result = 2"):
+                    "p.result = 1", "p.result = 2"):
         assert verdict in lua, verdict
     assert "result" in lua_actions.macro_result()
 
@@ -264,39 +263,40 @@ def test_the_players_own_base_is_not_a_target():
     assert "if p.mine == 0 then p.mtt = tonumber(M.ATTACK_CITY) end" in lua
 
 
-def test_a_popup_the_panel_opened_is_not_a_target_anybody_chose():
-    """The bot opens world-point popups all day; the newest one is not a person's click.
+def test_every_open_moves_the_pin_and_the_press_is_what_judges():
+    """The target must FOLLOW the person, and the second live session is why (#1328).
 
-    A scripted open runs inside a chunk compiled from a string, and `debug.getinfo` says
-    so — the game's own Lua has file paths. Caught live: the very first pin this watcher
-    made came from the panel's own automation, not from a finger.
+    Telling an errand's popup from a finger was tried and cannot be done: `InitData` runs
+    when the SERVER's reply lands, so the opener is long gone from the stack, and the test
+    read «scripted» off this watcher's own two frames — answering that to everything. A
+    scripted open was then not kept, so the pin froze on whatever got in first and the key
+    marched on the original target however often the person clicked elsewhere.
+
+    So: every open is recorded, and the press refuses by KIND. That is the safe way round —
+    a pin that sometimes refuses to move is a squad marching at a target nobody chose.
     """
     read = lua_actions.macro_pick_arm()
-    assert "debug.getinfo(lvl, 'S')" in read and "short_src" in read
-    assert "'[string'" in read
-    assert "p.script = 1" in read
-    lua = lua_actions.macro_send()
-    assert "if q.script == 1 then p.result = -9 return end" in lua
-    # …and reading a popup that is ALREADY open is not an open: it happens inside our own
-    # chunk, and refusing it there would make the fallback useless.
-    assert "q.script = 0" in lua
-
-
-def test_an_errands_popup_never_overwrites_the_persons_click():
-    """The pin belongs to the PERSON, and the first live session is why (#1328).
-
-    Recording an errand's popup and refusing it at press time read fine in a test and was
-    useless in a game: the panel opens one every few seconds, so a click survived about
-    ten seconds and every key after that answered «эту точку открыла панель». One press
-    worked and nothing after it. Only a click may write the pin now.
-    """
-    read = lua_actions.macro_pick_arm()
-    assert ("if p.script == 0 and p.point ~= nil then DataCenter.__lw_macro_pick = p end"
-            in read), "a scripted open must not touch the pin at all"
+    assert ("if p.point ~= nil then DataCenter.__lw_macro_pick = p end" in read), (
+        "a click must always move the pin")
+    for gone in ("debug.getinfo", "short_src", "p.script"):
+        assert gone not in read, f"{gone} cannot answer who opened a popup — see #1328"
+    assert "p.result = -9" not in lua_actions.macro_send()
     # …and the keeping lives in the READER, which every arming re-assigns — not in the
     # wrapper, which is installed once and would carry yesterday's bug for ever on a
     # client that is already running.
     assert "pcall(function() DataCenter.__lw_pick_read(s) end)" in read
+
+
+def test_the_wrapper_can_be_replaced_on_a_client_that_is_already_running():
+    """A client runs for days and the panel restarts several times a day (#1328).
+
+    «Installed once, for ever» meant a live client kept yesterday's wrapper whatever the
+    code said — and wrapping the wrapper only leaves the old body underneath, still doing
+    the old thing. A version puts the GAME's own method back first.
+    """
+    read = lua_actions.macro_pick_arm()
+    assert "__lw_pick_ver" in read
+    assert "cls.InitData = cls.__lw_pick_orig cls.__lw_pick_orig = nil" in read
 
 
 def test_a_pin_goes_stale_by_time_scene_and_account():
