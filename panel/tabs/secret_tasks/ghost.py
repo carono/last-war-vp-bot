@@ -69,6 +69,27 @@ class _GhostGrid(grid.TaskGrid):
         # answer (`ghost_recon_steal`), never arithmetic over the cfgId — the same
         # rule the module docstring states.
         self.star_var = tk.BooleanVar(master=tab.rt.root, value=False)
+        # WHO MOVED IT — the box was reported ticking itself off «через какое-то время»
+        # and nothing in this tab could be shown to do it, so the variable says so
+        # itself. One debug line per change, with the six frames above it: a person
+        # pressing it looks like `_toggle_star` / a Tk callback, and anything else
+        # names whatever really wrote the default over a live value. Costs a formatted
+        # string per press and nothing at all while nobody presses.
+        try:
+            self.star_var.trace_add("write", self._star_moved)
+        except AttributeError:                  # a stand-in variable in a test
+            pass
+
+    def _star_moved(self, *_args) -> None:
+        import traceback
+
+        try:
+            value = bool(self.star_var.get())
+        except Exception:                       # noqa: BLE001 — a variable being torn down
+            return
+        where = "".join(traceback.format_stack(limit=7)[:-1]).strip().replace("\n", " | ")
+        self.tab.rt.dbg("secret").info("%s star_only -> %s, from: %s",
+                                       self.CONFIG_KEY, value, where)
 
     # -- the event's own line ---------------------------------------------------------
     def build_filters(self, parent) -> None:
@@ -121,9 +142,19 @@ class _GhostGrid(grid.TaskGrid):
                     star_only=bool(self.star_var is not None and self.star_var.get()))
 
     def apply_config(self, raw) -> None:
+        """Take what the block SAYS, and never a default over a live value.
+
+        A block that does not mention `star_only` is a profile that has not been asked
+        about this box — a legacy block (`Settings.tab_config` falls back to the flat
+        keys, which have no `grids` at all), a page added after the profile was last
+        written, a `{}` handed to a page whose key is missing. Reading a missing key as
+        «off» is how a box ticks itself off «через какое-то время»: everything else on
+        the tab keeps working, and the one thing that moved is the thing nobody
+        touched. The key is written on every save, so a box somebody DID untick comes
+        back unticked — `star_only: false` is present and is applied.
+        """
         super().apply_config(raw)
-        raw = raw if isinstance(raw, dict) else {}
-        self.star_var.set(bool(raw.get("star_only", False)))
+        grid.take(raw, "star_only", self.star_var)
 
     def persist_vars(self) -> list:
         return super().persist_vars() + [self.star_var]
@@ -460,9 +491,10 @@ class GhostMapGrid(_GhostGrid):
 
     def apply_config(self, raw) -> None:
         super().apply_config(raw)
-        raw = raw if isinstance(raw, dict) else {}
-        self.monitor_var.set(bool(raw.get("monitor", False)))
-        self.interval_var.set(str(raw.get("interval", "15")))
+        # …and the sniffer's own switch the same way (`grid.take`): a block that does
+        # not mention it must not stop a capture that is running.
+        grid.take(raw, "monitor", self.monitor_var)
+        grid.take(raw, "interval", self.interval_var, str)
 
     def persist_vars(self) -> list:
         return super().persist_vars() + [self.monitor_var, self.interval_var]

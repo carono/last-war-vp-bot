@@ -2829,7 +2829,13 @@ def _ghost_grid(cls=None):
         key = "secrettasks.stars" if row.get("starred") else "secrettasks.level"
         return i18n.t(key, n=int(row.get("level") or 0))
 
-    rt = types.SimpleNamespace(root=None, profiles=_FakeProfiles(_state_path()))
+    # …and the two a page reaches for when a box is flipped: the profile is asked to
+    # save (`refilter`), and the star box says in the debug log who moved it.
+    rt = types.SimpleNamespace(
+        root=None, profiles=_FakeProfiles(_state_path()),
+        settings=types.SimpleNamespace(changed=lambda: None),
+        dbg=lambda component="panel": types.SimpleNamespace(
+            info=lambda *a, **k: None, error=lambda *a, **k: None))
     tab = types.SimpleNamespace(t=i18n.t, rt=rt, _rank=_rank,
                                 sync_actions=lambda: None,
                                 # …and the per-page counters, which land on a notebook
@@ -3412,6 +3418,106 @@ def test_a_ghost_page_shows_only_starred_squads_when_the_box_is_ticked():
     assert [r["uuid"] for r in page.narrow(rows)] == ["1000000000000001"]
 
 
+def test_a_block_that_says_nothing_about_a_box_does_not_untick_it():
+    """The box was reported ticking itself off «через какое-то время».
+
+    `dict.get(key, False)` cannot tell «this profile says the box is off» from «this
+    profile has never been asked» — and the second happens on a live panel: a legacy
+    block (`Settings.tab_config` falls back to the flat keys, which carry no `grids`),
+    a page whose key is missing from `grids`, a `{}` handed to a page added after the
+    profile was last written. Applied as a default, each of those unticks a box the
+    person ticked, silently and long after they pressed it.
+
+    An untick that a person DID make is a `star_only: false` in the block, and that is
+    applied — the two cases must not read the same.
+    """
+    from panel.tabs.secret_tasks import ghost as gh
+
+    for cls in (gh.GhostGrid, gh.GhostAllianceGrid, gh.GhostMapGrid):
+        page = _ghost_grid(cls)
+        page.star_var.set(True)
+        page.level_from.set("4")
+
+        page.apply_config({})                        # nothing known about this page
+        assert page.star_var.get() is True, cls
+        assert page.level_from.get() == "4", cls
+        page.apply_config(None)                      # …nor about the tab at all
+        assert page.star_var.get() is True, cls
+        # A legacy block: real keys, but nothing this page has ever been asked about.
+        page.apply_config({"monitor_interval": "15", "secret_monitor": True})
+        assert page.star_var.get() is True, cls
+
+        page.apply_config({"star_only": False})      # …and an untick IS an answer
+        assert page.star_var.get() is False, cls
+
+    # The same rule for the neighbours, which have been carrying it longer: the
+    # alliance page's two boxes and the map pages' sniffer switch. A block that does
+    # not mention the sniffer must not stop a capture that is running.
+    from panel.tabs.secret_tasks import alliance as al
+    ally = _ghost_grid(al.AllianceGrid)
+    ally.ur_var = _Var(True)
+    ally.star_var.set(True)
+    ally.apply_config({})
+    assert ally.ur_var.get() is True and ally.star_var.get() is True
+
+    running = _ghost_grid(gh.GhostMapGrid)
+    running.monitor_var.set(True)
+    running.interval_var.set("3")
+    running.apply_config({})
+    assert running.monitor_var.get() is True and running.interval_var.get() == "3"
+
+
+def test_the_star_box_survives_the_events_that_redraw_the_tab():
+    """A press, a read, a phone poll and a profile's own block, in that order.
+
+    The complaint was that the box moved with nobody pressing it, so the test is the
+    round trip a live panel makes: tick it, let the pages be re-read and the screen be
+    built (the phone polls `web_view` every 2.5 s), hand the tab back its saved block —
+    and the box is where it was left.
+    """
+    import types
+    from panel.tabs.secret_tasks import ghost as gh
+
+    tab = object.__new__(st.SecretTasksTab)
+    pages = {}
+    for name, cls in (("ghost", gh.GhostGrid), ("ghost_allies", gh.GhostAllianceGrid),
+                      ("ghost_map", gh.GhostMapGrid)):
+        page = _ghost_grid(cls)
+        pages[name] = page
+        setattr(tab, name, page)
+    tab.alliance = types.SimpleNamespace(ur_var=_Var(False), star_var=_Var(False),
+                                         refilter=lambda: None)
+    posted = []
+    tab.post = lambda fn: posted.append(fn)
+
+    # 1. the press, from the phone — the window's own variable, through the tab
+    assert tab.web_press("star_ghost_map", {}) == {"ok": True}
+    for fn in posted:
+        fn()
+    assert pages["ghost_map"].star_var.get() is True
+
+    # 2. a read lands: the page merges records and redraws
+    pages["ghost_map"].apply([_ghost_record(11, level=5, starred=True),
+                              _ghost_record(12, level=5, starred=False)])
+    assert pages["ghost_map"].star_var.get() is True
+    assert [r["uuid"] for r in pages["ghost_map"].visible_rows()] == ["11"]
+
+    # 3. the phone's poll, three times over — a screen is a reading and moves nothing
+    for _ in range(3):
+        assert tab._star_action("ghost_map")["label"] == "secrettasks.filter.star_off"
+    assert pages["ghost_map"].star_var.get() is True
+
+    # 4. …and the profile's own block handed back (a re-`restore`, a page's block
+    #    missing, a legacy profile) leaves the live value alone
+    saved = {page.CONFIG_KEY: page.config() for page in pages.values()}
+    for name, page in pages.items():
+        page.apply_config(saved[page.CONFIG_KEY])
+    assert pages["ghost_map"].star_var.get() is True
+    for name, page in pages.items():
+        page.apply_config({})
+    assert pages["ghost_map"].star_var.get() is True
+
+
 def test_the_star_box_is_kept_across_a_restart_per_page():
     """Each ghost page saves its own box under its own key, like the level range."""
     import types
@@ -3834,9 +3940,16 @@ def test_each_page_saves_its_filters_under_its_own_key():
     assert fresh.interval_var.get() == "7"
     assert fresh.star_var.get() is True
 
-    # …and a page with no block of its own reads as a fresh one, not as a crash.
+    # …and a page handed NO block of its own keeps what it has, rather than crashing —
+    # or, as it used to, quietly writing the defaults over a live panel: «nothing is
+    # known about this page» is not «every box on it is off» (`grid.take`). A fresh
+    # page starts at the defaults anyway, which is where they belong.
     fresh.apply_config(None)
-    assert fresh.level_from.get() == "" and fresh.monitor_var.get() is False
+    assert fresh.level_from.get() == "4" and fresh.monitor_var.get() is True
+    assert fresh.star_var.get() is True
+    virgin = _ghost_grid(gh.GhostMapGrid)
+    virgin.apply_config(None)
+    assert virgin.level_from.get() == "" and virgin.monitor_var.get() is False
 
 
 def test_the_alliance_page_stays_a_mirror_on_purpose():

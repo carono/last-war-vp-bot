@@ -138,9 +138,9 @@ class AllianceGrid(grid.TaskGrid):
 
     def apply_config(self, raw) -> None:
         super().apply_config(raw)
-        raw = raw if isinstance(raw, dict) else {}
-        self.ur_var.set(bool(raw.get("ur_only", False)))
-        self.star_var.set(bool(raw.get("star_only", False)))
+        # Only what the block SAYS — a silence about a box is not «off» (`grid.take`).
+        grid.take(raw, "ur_only", self.ur_var)
+        grid.take(raw, "star_only", self.star_var)
 
     def persist_vars(self) -> list:
         return super().persist_vars() + [self.ur_var, self.star_var]

@@ -517,6 +517,26 @@ def fmt_left(ms: int) -> str:
     return "%02d:%02d" % (m, s)
 
 
+def take(raw, key, var, cast=bool) -> bool:
+    """Apply ``raw[key]`` to ``var`` — and leave the live value alone when it is absent.
+
+    A SAVED BLOCK THAT DOES NOT MENTION A BOX IS NOT A BLOCK THAT SAYS «OFF». The two
+    read the same through `dict.get(key, default)` and they are opposite facts: a
+    profile written before this page existed, a legacy block (`Settings.tab_config`
+    falls back to the flat keys, which carry no `grids` at all) and a `{}` handed to a
+    page whose key is missing all say «nothing is known about this box» — and answering
+    that with the default is how a box a person ticked ticks itself off again later,
+    with nothing on screen to explain it.
+
+    Every save writes every key of a page's `config()`, so an UNTICKED box is stored as
+    `false` and comes back unticked: the fact and the silence stay different.
+    """
+    if not isinstance(raw, dict) or key not in raw:
+        return False
+    var.set(cast(raw[key]))
+    return True
+
+
 class TaskGrid:
     """One page of the tab's notebook: the table above, filled by a read of its own.
 
@@ -636,8 +656,8 @@ class TaskGrid:
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
-        self.level_from.set(str(raw.get("level_from", "")))
-        self.level_to.set(str(raw.get("level_to", "")))
+        take(raw, "level_from", self.level_from, str)
+        take(raw, "level_to", self.level_to, str)
 
     def persist_vars(self) -> list:
         return [self.level_from, self.level_to]

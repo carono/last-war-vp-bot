@@ -388,8 +388,7 @@ class MineGrid(WorldGrid):
 
     def apply_config(self, raw) -> None:
         super().apply_config(raw)
-        raw = raw if isinstance(raw, dict) else {}
-        self.free_var.set(bool(raw.get("free_only", True)))
+        grid.take(raw, "free_only", self.free_var)
 
     def persist_vars(self) -> list:
         return super().persist_vars() + [self.free_var]
