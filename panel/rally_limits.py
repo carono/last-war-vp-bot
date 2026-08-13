@@ -34,6 +34,10 @@ from .profile import _write_json
 # (#1317). `tools/lib` is on the path by the time the panel imports this.
 import rally_kinds                                                    # noqa: E402
 
+# …and the one place the SERVER's day boundary is worked out (#1333). Shared with the
+# daily timers and the checklist's «до сброса», so the three cannot drift apart.
+import game_day                                                       # noqa: E402
+
 # The built-in vocabulary and its caps: what a profile with no limits file is seeded
 # from, and the last-resort fallback. A cap of 0 means the key is never held back.
 #
@@ -133,15 +137,20 @@ def _today() -> str:
         stamp = None
     if not stamp:
         return datetime.date.today().isoformat()
-    when = datetime.datetime.fromtimestamp(stamp / 1000.0, datetime.timezone.utc)
-    return (when - datetime.timedelta(hours=SERVER_DAY_HOUR_UTC)).date().isoformat()
+    return game_day.day_key(stamp)
 
 
 #: When the server's day turns, in hours UTC. Measured on the live warzone for #1188 —
 #: `GetTomorrowZero()` answered 02:00 UTC and 597 of 636 tile expiries shared `01:59:59`.
 #: It is a FALLBACK: a counts file that carries the client's own `day_end_ms` is rolled
 #: on that instead, because the client is the authority and this number is one warzone's.
-SERVER_DAY_HOUR_UTC = 2
+#:
+#: RE-EXPORTED, NOT RE-SPELT (#1333). The same number decides when a daily TIMER is next
+#: due and how long the checklist says is left before the reset, so it lives in exactly
+#: one place — `tools/lib/game_day.py` — and everything that needs it asks there. It was
+#: written out three times before that, in three different units, and one of the three
+#: had it at midnight UTC.
+SERVER_DAY_HOUR_UTC = game_day.DEFAULT_RESET_HOUR_UTC
 
 
 def _read_json(path: str):

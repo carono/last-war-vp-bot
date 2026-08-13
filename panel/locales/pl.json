@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: zdjęte z kolejki",
   "timers.log.deleted": "{name}: usunięte",
   "timers.log.done": "{name}: gotowe",
+  "timers.log.day_reset": "doba serwera: reset o {at} — zadania dzienne będą wtedy wymagalne",
   "timers.log.duplicated": "{name} → {copy}: skopiowane (wyłączone)",
   "timers.log.failed": "{name}: nie powiodło się — {error}",
   "timers.log.fire": "{name}: {mins} min od ostatniego razu — uruchamiam",

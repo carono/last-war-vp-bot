@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: sıradan alındı",
   "timers.log.deleted": "{name}: silindi",
   "timers.log.done": "{name}: bitti",
+  "timers.log.day_reset": "sunucu günü: sıfırlama {at} — günlük görevler o zaman gelecek",
   "timers.log.duplicated": "{name} → {copy}: kopyalandı (kapalı)",
   "timers.log.failed": "{name}: başarısız — {error}",
   "timers.log.fire": "{name}: son çalışmadan bu yana {mins} dk — başlatılıyor",

@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: diambil dari antrean",
   "timers.log.deleted": "{name}: dihapus",
   "timers.log.done": "{name}: selesai",
+  "timers.log.day_reset": "hari server: reset pukul {at} — tugas harian jatuh tempo saat itu",
   "timers.log.duplicated": "{name} → {copy}: disalin (dimatikan)",
   "timers.log.failed": "{name}: gagal — {error}",
   "timers.log.fire": "{name}: {mins} mnt sejak terakhir jalan — memulai",

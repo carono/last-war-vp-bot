@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: taken off the queue",
   "timers.log.deleted": "{name}: deleted",
   "timers.log.done": "{name}: done",
+  "timers.log.day_reset": "server day: the reset is at {at} — daily errands are next due then",
   "timers.log.duplicated": "{name} → {copy}: copied (switched off)",
   "timers.log.failed": "{name}: failed — {error}",
   "timers.log.fire": "{name}: {mins} min since the last run — starting",

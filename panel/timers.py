@@ -142,6 +142,26 @@ MIN_INTERVAL_SEC = 10
 MAX_INTERVAL_SEC = 7 * 24 * 3600
 DEFAULT_INTERVAL_SEC = 3600
 
+# A DAY, and the reason it is a named constant rather than 86400 in three places:
+# a period that is a WHOLE NUMBER OF DAYS is not scheduled like any other period.
+#
+# «Раз в сутки» never means «twenty-four hours after the last time». What the game
+# actually hands out once a day — five robberies, the codename attacks, a donation
+# quota — comes back at the warzone's own 00:00, and an errand chasing it on a plain
+# 24-hour period drifts forward by however long each run took and by however long the
+# panel was shut. It only has to drift past one reset to lose a whole day: the errand
+# fires at 00:01, spends the day's quota, and is next due at 00:01 TOMORROW — one
+# minute after the fresh quota arrived and twenty-three hours and fifty-nine minutes
+# before anything touches it.
+#
+# So a day-long period is anchored instead: the next turn is the first SERVER midnight
+# after the last run (:func:`next_after`). A run at 23:59 is followed by one a minute
+# later, because a minute later is when there is something to do again. Everything
+# shorter than a day is unchanged — an hourly collection has no boundary to respect,
+# and neither has a period that is not a whole number of days (36 hours is not a daily
+# errand and must not be turned into one).
+DAY_SEC = 24 * 3600
+
 PANEL_DIR = paths.PANEL_DIR
 # The TEMPLATE, beside the profiles rather than beside the code (#1276): what a profile
 # that has no timers of its own is seeded from, and nothing else. The catalogue a profile
@@ -396,6 +416,68 @@ def _as_scenario(raw) -> tuple[str, ...]:
     return tuple(step for step in (s.strip() for s in steps) if step)
 
 
+def _day_anchor(rec: dict) -> float:
+    """The moment a run BEGAN, which is the one its next turn is measured from.
+
+    ``last_run`` is when the run FINISHED, and for a plain period that is the honest
+    anchor. For a daily one it is not: an errand that starts at 23:59:40 and takes forty
+    seconds finishes on the far side of the reset, and anchoring on the finish would say
+    «this run belongs to the new day» about a run that spent the OLD day's quota. The new
+    day's would then sit untouched for twenty-four hours — the exact loss this whole
+    change exists to stop, reintroduced by a rounding of one minute.
+
+    So a run writes down when it began (:meth:`LastRunStore.mark_run`) and this reads it,
+    falling back to ``last_run`` for the records written before it did — an old file
+    schedules exactly as it always has and is corrected by its next run.
+    """
+    began = float(rec.get("began_at") or 0.0)
+    last = float(rec.get("last_run") or 0.0)
+    if began and (not last or began <= last):
+        return began
+    return last
+
+
+def is_daily(period_sec: int) -> bool:
+    """Is this period «раз в сутки» — a whole number of days, and so reset-anchored?
+
+    Whole days only. 36 hours is a period somebody typed and not a daily errand, and
+    rounding it to one would move a fire by up to a day in the name of a rule it was
+    never asking for.
+    """
+    period = int(period_sec)
+    return period >= DAY_SEC and period % DAY_SEC == 0
+
+
+def next_after(last: float, period_sec: int, day=None) -> float:
+    """When an errand that last ran at ``last`` is due again, in local ``time.time()``.
+
+    Not daily, or no day boundary to anchor to: the period, exactly as before.
+
+    Daily: the first SERVER midnight strictly after ``last``, plus the extra whole days
+    a longer period asks for. **Strictly** after is the edge the whole thing turns on —
+    a run that finished at the reset instant belongs to the day that has just started, so
+    its next turn is tomorrow's boundary and not the one it is standing on. With «at or
+    after» the errand would be due the moment it finished, and every tick for ever.
+
+    A boundary in the PAST is the ordinary answer for a panel that slept through one, and
+    it makes the errand due now — **once**. There is no salvo of missed days: the record
+    that follows the run moves ``last`` to now, and the next boundary after now is
+    tomorrow's. Three days asleep costs one run, not three.
+
+    ``day`` is this profile's :class:`panel.runtime.day_reset.DayReset` (or anything with
+    the same one method). ``None`` — a test, a scheduler built without a runtime — falls
+    back to the plain period rather than to a boundary nobody could name.
+    """
+    period = int(period_sec)
+    if day is None or not is_daily(period):
+        return last + period
+    try:
+        first = float(day.next_reset_epoch(last))
+    except Exception:                        # noqa: BLE001 — never the schedule
+        return last + period
+    return first + (period // DAY_SEC - 1) * DAY_SEC
+
+
 def _as_interval(raw, fallback: int) -> int:
     try:
         value = int(float(str(raw).strip()))
@@ -532,13 +614,18 @@ class Catalogue:
         return f"{base}_{n}"
 
     # -- the decision -------------------------------------------------------
-    def due_names(self, config: dict, records: dict, now: float) -> list[str]:
+    def due_names(self, config: dict, records: dict, now: float,
+                  day=None) -> list[str]:
         """Which enabled timers are due at ``now``, the most overdue first.
 
         ``records`` is the last-run store's raw mapping (see
         :class:`LastRunStore`). A timer with no record has never run and is due
         immediately; one whose last attempt failed is held for
         :data:`RETRY_HOLD_SEC` before being offered again.
+
+        ``day`` is the profile's server-day boundary, and a period of a whole number of
+        days is anchored to it rather than counted off from the last run
+        (:func:`next_after`).
         """
         out = []
         for timer in self.timers:
@@ -554,15 +641,16 @@ class Catalogue:
                             float(rec.get("started_at") or 0.0))
             if failed_at and now - failed_at < timer.retry_sec:
                 continue
-            last = float(rec.get("last_run") or 0.0)
+            last = _day_anchor(rec)
             period = _as_interval(item.get("interval_sec"), timer.interval_sec)
-            overdue = now - last - period
+            overdue = now - next_after(last, period, day)
             if overdue >= 0:
                 out.append((overdue, timer.name))
         out.sort(key=lambda pair: pair[0], reverse=True)
         return [name for _overdue, name in out]
 
-    def next_due(self, timer: Timer, config: dict, records: dict) -> float | None:
+    def next_due(self, timer: Timer, config: dict, records: dict,
+                 day=None) -> float | None:
         """Wall clock the timer fires at, ``0.0`` for "now" and ``None`` when off.
 
         The retry hold counts. A failed attempt leaves ``last_run`` where it was, so
@@ -574,13 +662,14 @@ class Catalogue:
         if not item.get("enabled"):
             return None
         rec = records.get(timer.name) or {}
-        last = float(rec.get("last_run") or 0.0)
+        last = _day_anchor(rec)
         failed_at = max(float(rec.get("failed_at") or 0.0),
                         float(rec.get("started_at") or 0.0))
         after_failure = failed_at + timer.retry_sec if failed_at else 0.0
         if not last:
             return max(0.0, after_failure)
-        return max(last + _as_interval(item.get("interval_sec"), timer.interval_sec),
+        return max(next_after(last, _as_interval(item.get("interval_sec"),
+                                                 timer.interval_sec), day),
                    after_failure)
 
 
@@ -972,9 +1061,19 @@ class LastRunStore:
         self._update(name, {"started_at": float(when if when is not None else time.time())})
 
     def mark_run(self, name: str, when: float | None = None) -> None:
-        """Record a successful run, clearing any earlier failure hold."""
-        self._update(name, {"last_run": float(when if when is not None else time.time()),
-                            "failed_at": 0.0, "started_at": 0.0})
+        """Record a successful run, clearing any earlier failure hold.
+
+        ``began_at`` is kept alongside — when the run STARTED, taken off the open
+        attempt this success is closing. A daily errand's next turn is measured from it
+        rather than from the finish, so a run that straddles the server's midnight is
+        still charged to the day it spent (:func:`_day_anchor`). With no open attempt to
+        read (a `run_one` that was never stamped, a test) the finish stands in for it.
+        """
+        done = float(when if when is not None else time.time())
+        with self._lock:
+            began = float((self._data.get(name) or {}).get("started_at") or 0.0)
+        self._update(name, {"last_run": done, "failed_at": 0.0, "started_at": 0.0,
+                            "began_at": began if began and began <= done else done})
 
     def mark_failed(self, name: str, when: float | None = None) -> None:
         """Record a failed attempt — the period keeps running, the retry waits."""
@@ -1083,7 +1182,7 @@ class TimerScheduler:
     def __init__(self, *, store: LastRunStore, catalogue, config, runner, log,
                  gate=None, tick: float = TICK_SEC,
                  busy_retry: float = BUSY_RETRY_SEC, debug=None,
-                 translate=None) -> None:
+                 translate=None, day=None) -> None:
         # `debug` is the OWNING RUNTIME's technical logger (`rt.dbg("timers")`), so two
         # open profiles keep two debug.logs (#1206). The module-level one is the
         # fallback for a scheduler built without a runtime, which is what the tests do.
@@ -1098,6 +1197,10 @@ class TimerScheduler:
         # the reason belong in one sentence (:meth:`note_skip`). Optional, so a test can
         # build a scheduler without an i18n at all and read the raw key back.
         self._translate = translate
+        # THIS PROFILE's server-day boundary (`panel/runtime/day_reset.py`), or `None`
+        # for a scheduler built without a runtime. A period of whole days is anchored to
+        # it instead of being counted off the last run — see :func:`next_after`.
+        self._day = day
         self._gate = gate
         self._tick = tick
         self._busy_retry = busy_retry
@@ -1429,7 +1532,7 @@ class TimerScheduler:
         now = time.time() if now is None else now
         catalogue = self._catalogue()
         config = catalogue.normalize_config(self._config())
-        pending = catalogue.due_names(config, self._store.records(), now)
+        pending = catalogue.due_names(config, self._store.records(), now, self._day)
         if not pending:
             return []
         if self._gate is not None:

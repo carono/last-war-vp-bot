@@ -47,6 +47,7 @@ from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import health as healthmod       # noqa: E402
 from panel.runtime import interrupt as interruptmod  # noqa: E402
+from panel.runtime import day_reset as dayresetmod  # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
 from panel.runtime import panic as panicmod  # noqa: E402
 from panel.runtime import recovery as recoverymod  # noqa: E402
@@ -209,6 +210,12 @@ class _Runtime:
         # its one press (#1300). Pure state, thread-safe, no window and no client — a
         # fake would only pin a shape this file invented.
         self.interrupts = interruptmod.Interrupts()
+        # …and this profile's server-day boundary, for the same reason once more (#1333):
+        # `/api/timers` and `/api/state` ask when each errand is next due, and a daily
+        # one's answer IS the game's 00:00. The real object, pointed at this test's own
+        # home — it is a small JSON file and an arithmetic helper, with no client behind
+        # it unless something calls `refresh()`, which no route does.
+        self.day = dayresetmod.DayReset(self, os.path.join(home, "day_reset.json"))
         self.played: list = []
         self.busy_next = False
 

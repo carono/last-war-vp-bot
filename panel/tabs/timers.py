@@ -755,7 +755,11 @@ class TimersTab(PanelTab):
                 if row is None:
                     continue
                 self._paint_timer_outcome(row, timer.name, records, now)
-                due = self._timer_catalogue.next_due(timer, config, records)
+                # …asked with the profile's own day boundary, so the row a person reads
+                # is the moment the scheduler will actually fire on: a daily errand's
+                # next turn is the game's 00:00, not «last run + 24 h» (#1333).
+                due = self._timer_catalogue.next_due(timer, config, records,
+                                                     self.rt.day)
                 if timer.name in pending:
                     row["next"].configure(text=self.t("timers.queued"))
                 elif due is None:

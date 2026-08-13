@@ -258,9 +258,26 @@ def test_the_board_reads_only_the_scenarios_the_shown_groups_need():
 
 
 def test_the_countdown_is_to_the_games_next_day():
+    """…and the game's day does not turn over at midnight UTC (#1333).
+
+    It used to: the countdown divided the clock by a day and called the remainder «до
+    сброса», which is 00:00 UTC — two hours early on the warzone this was measured on, in
+    the direction that matters. The board said «2:00 до сброса» about quotas that had
+    been back for two hours, and everything a person did with that reading was wrong.
+
+    So the boundary comes off the client's own `GetTomorrowZero()` (`day_end_ms`), and
+    falls back to the measured 02:00 UTC for a profile that has never had one to ask.
+    """
     day = modelmod.DAY_MS
-    assert modelmod.seconds_to_reset(20_000 * day) == 24 * 3600
-    assert modelmod.seconds_to_reset(20_000 * day + 23 * modelmod.HOUR_MS) == 3600
+    hour = modelmod.HOUR_MS
+    # …with nothing read from a client: 02:00 UTC, so a UTC midnight is two hours out
+    assert modelmod.seconds_to_reset(20_000 * day) == 2 * 3600
+    assert modelmod.seconds_to_reset(20_000 * day + 23 * hour) == 3 * 3600
+    # …and with a boundary the client DID answer with — 13:00 UTC on another warzone
+    boundary = 20_000 * day + 13 * hour
+    assert modelmod.seconds_to_reset(20_000 * day, boundary) == 13 * 3600
+    assert modelmod.seconds_to_reset(boundary - 1, boundary) == 0
+    assert modelmod.seconds_to_reset(boundary, boundary) == 24 * 3600
     assert modelmod.hhmm(5 * 3600 + 7 * 60) == "5:07"
     assert modelmod.ago(75) == "1:15"
 

@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: снято с очереди",
   "timers.log.deleted": "{name}: удалено",
   "timers.log.done": "{name}: готово",
+  "timers.log.day_reset": "серверные сутки: сброс в {at} — суточные задания встают на это время",
   "timers.log.duplicated": "{name} → {copy}: копия создана (выключена)",
   "timers.log.failed": "{name}: ошибка — {error}",
   "timers.log.fire": "{name}: прошло {mins} мин с прошлого запуска — стартую",

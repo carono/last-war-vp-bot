@@ -69,7 +69,8 @@ the bottom).
 | File | What it is |
 |---|---|
 | `timers.json` | this profile's timer catalogue: what runs, how often, with what arguments |
-| `timers_last_run.json` | when each scheduled errand last ran |
+| `timers_last_run.json` | when each scheduled errand last ran, and — since #1333 — when it BEGAN (`began_at`). A daily errand's next turn is measured from the start rather than from the finish, so a run that straddles the server's midnight is charged to the day it actually spent. A file written before that has no `began_at` and falls back to the finish |
+| `day_reset.json` | when THIS profile's warzone starts a new day — the client's own `GetTomorrowZero()`, re-read at most four times a day and kept so a fresh panel starts knowing it. Per profile because two accounts can be on two warzones, and every «раз в сутки» errand is anchored to the reset of its own. Never read → the measured 02:00 UTC stands in |
 | `triggers.json` | this profile's wire- and poll-driven errands |
 
 ### Session bookkeeping

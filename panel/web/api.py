@@ -454,7 +454,10 @@ class WebApi:
             if not (config.get(timer.name) or {}).get("enabled"):
                 continue
             on += 1
-            when = catalogue.next_due(timer, config, records)
+            # …with the profile's own day boundary, exactly as the window asks it
+            # (#1333): «раз в сутки» is the game's 00:00, so the phone's «ближайший
+            # через …» must be counted to the same moment the scheduler will fire on.
+            when = catalogue.next_due(timer, config, records, rt.day)
             if when is None:
                 continue
             if soonest is None or when < soonest:
@@ -488,7 +491,9 @@ class WebApi:
                 # next fire is minutes away on an hourly errand instead of leaving
                 # «ошибка» beside a countdown that disagrees with the period.
                 "retry_sec": int(timer.retry_sec),
-                "next": catalogue.next_due(timer, config, records),
+                # The same moment the window's row shows, off the same day boundary
+                # (#1333) — a daily errand's next turn is the server's midnight.
+                "next": catalogue.next_due(timer, config, records, rt.day),
                 "last": when or None,
                 "last_state": state,
                 "queued": timer.name in pending,

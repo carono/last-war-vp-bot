@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: aus der Warteschlange genommen",
   "timers.log.deleted": "{name}: gelöscht",
   "timers.log.done": "{name}: fertig",
+  "timers.log.day_reset": "Servertag: Reset um {at} — tägliche Aufgaben sind dann wieder fällig",
   "timers.log.duplicated": "{name} → {copy}: kopiert (ausgeschaltet)",
   "timers.log.failed": "{name}: fehlgeschlagen — {error}",
   "timers.log.fire": "{name}: {mins} min seit dem letzten Lauf — starte",

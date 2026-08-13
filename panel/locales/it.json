@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: tolto dalla coda",
   "timers.log.deleted": "{name}: cancellato",
   "timers.log.done": "{name}: fatto",
+  "timers.log.day_reset": "giornata del server: il reset è alle {at} — le attività quotidiane scadono allora",
   "timers.log.duplicated": "{name} → {copy}: copiato (spento)",
   "timers.log.failed": "{name}: fallito — {error}",
   "timers.log.fire": "{name}: {mins} min dall'ultima volta — avvio",

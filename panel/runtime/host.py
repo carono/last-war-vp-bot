@@ -26,6 +26,7 @@ from .recovery import Recovery as RecoveryState
 from .bus import EventBus
 from .children import ChildFactory
 from .daemon import GameLink
+from .day_reset import DayReset
 from .health import ProfileHealth
 from .i18n import Translator
 from .interrupt import Interrupts
@@ -128,6 +129,13 @@ class PanelRuntime:
         # phone on the profile picker — out of one object. It is born amber: nothing has
         # read this profile yet, and «нечего сказать» may never be painted green.
         self.health = ProfileHealth()
+        # …AND WHEN THIS PROFILE'S WARZONE STARTS A NEW DAY (panel/runtime/day_reset.py).
+        # Everything the game hands out once a day comes back at the server's own 00:00,
+        # which is neither this machine's midnight nor the same on every warzone — so the
+        # boundary is read from THIS profile's client and kept in THIS profile's
+        # directory. A daily errand's next turn is anchored to it (`panel/timers.py`) and
+        # «до сброса» on the checklist is counted from it.
+        self.day = DayReset(self)
         # THE RELAUNCH LOCK (:meth:`_relaunch_lock`). Which relaunch scenario is running
         # right now, and when the last one finished — the two facts that make «put the
         # client back» a thing exactly one caller can be doing, whoever asks.

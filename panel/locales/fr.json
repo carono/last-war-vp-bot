@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name} : retiré de la file",
   "timers.log.deleted": "{name} : supprimé",
   "timers.log.done": "{name} : terminé",
+  "timers.log.day_reset": "journée serveur : réinitialisation à {at} — les tâches quotidiennes sont ensuite dues",
   "timers.log.duplicated": "{name} → {copy} : copié (désactivé)",
   "timers.log.failed": "{name} : échec — {error}",
   "timers.log.fire": "{name} : {mins} min depuis le dernier passage — démarrage",

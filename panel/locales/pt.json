@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: tirada da fila",
   "timers.log.deleted": "{name}: apagada",
   "timers.log.done": "{name}: pronta",
+  "timers.log.day_reset": "dia do servidor: a redefinição é às {at} — as tarefas diárias vencem então",
   "timers.log.duplicated": "{name} → {copy}: copiada (desligada)",
   "timers.log.failed": "{name}: falhou — {error}",
   "timers.log.fire": "{name}: {mins} min desde a última vez — iniciando",

@@ -456,10 +456,24 @@ def now_ms() -> int:
         return int(time.time() * 1000)
 
 
-def seconds_to_reset(stamp_ms=None) -> int:
-    """How long until the game's day turns over and the quotas come back."""
+def seconds_to_reset(stamp_ms=None, day_end_ms=0) -> int:
+    """How long until the game's day turns over and the quotas come back.
+
+    THE GAME'S MIDNIGHT, NOT UTC'S (#1333). This used to divide the clock by a day and
+    call the remainder «до сброса», which puts the boundary at 00:00 UTC — two hours out
+    on the warzone this was measured on, in the direction that matters: the board said
+    «2:00 до сброса» while the quotas had already been back for two hours.
+
+    ``day_end_ms`` is the client's own `GetTomorrowZero()`, handed in by the tab out of
+    the profile's :class:`panel.runtime.day_reset.DayReset`. Zero falls back to the
+    measured 02:00 UTC, which is what a profile that has never had a client to ask gets.
+    """
     stamp = now_ms() if stamp_ms is None else int(stamp_ms)
-    return max(0, ((stamp // DAY_MS + 1) * DAY_MS - stamp) // 1000)
+    try:
+        import game_day
+    except Exception:                       # noqa: BLE001 — a countdown is not a crash
+        return max(0, ((stamp // DAY_MS + 1) * DAY_MS - stamp) // 1000)
+    return game_day.seconds_to_reset(stamp, day_end_ms)
 
 
 class Reading:

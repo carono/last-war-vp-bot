@@ -125,6 +125,11 @@ WORLD_STATE = "world_state_%s.json"
 # template panel/timers.json.
 TIMERS_CONFIG = "timers.json"
 TIMERS_STATE = "timers_last_run.json"
+# When THIS account's warzone starts a new day — the client's own `GetTomorrowZero()`,
+# read at most four times a day and kept so a fresh panel starts knowing it
+# (panel/runtime/day_reset.py). Per profile because two accounts can be on two
+# warzones, and a daily errand is anchored to the reset of ITS OWN.
+DAY_RESET_STATE = "day_reset.json"
 # The wire-driven errands (panel/triggers.py), seeded from the template
 # panel/triggers.json exactly as the timers are from panel/timers.json.
 TRIGGERS_CONFIG = "triggers.json"
@@ -844,6 +849,10 @@ class ProfileManager:
     def timers_state(self, name: str | None = None) -> str:
         """Last-run records of the scheduled errands (panel/timers.py)."""
         return os.path.join(self.dir(name), TIMERS_STATE)
+
+    def day_reset_json(self, name: str | None = None) -> str:
+        """When this profile's warzone starts a new day (panel/runtime/day_reset.py)."""
+        return os.path.join(self.dir(name), DAY_RESET_STATE)
 
     def triggers_json(self, name: str | None = None) -> str:
         """This profile's trigger catalogue (panel/triggers.py)."""

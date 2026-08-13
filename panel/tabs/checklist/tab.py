@@ -659,6 +659,21 @@ class ChecklistTab(PanelTab):
         except tk.TclError:                 # the window is going away
             pass
 
+    def _until_reset(self) -> str:
+        """«2:05» — how long the quotas have left, on THIS profile's server day (#1333).
+
+        One method because both front-ends draw it, and one boundary because both must
+        draw the SAME number: the window's status line under the board and the phone's
+        «до сброса» row. The boundary is the profile's own — two accounts can be on two
+        warzones, so it comes off `rt.day` and never off a constant.
+        """
+        boundary = 0
+        try:
+            boundary = self.rt.day.boundary_ms()
+        except Exception:                    # noqa: BLE001 — falls back to 02:00 UTC
+            pass
+        return modelmod.hhmm(modelmod.seconds_to_reset(day_end_ms=boundary))
+
     def _status_text(self) -> str:
         """«сделано 1 из 3 · прочитано 0:12 назад» — over the SHOWN groups only.
 
@@ -666,7 +681,7 @@ class ChecklistTab(PanelTab):
         not being taken, so neither its age nor its failure is news about anything on
         screen (#1275).
         """
-        left = modelmod.hhmm(modelmod.seconds_to_reset())
+        left = self._until_reset()
         if self._busy:
             return self.t("checklist.status.reading")
         sources = modelmod.visible_sources()
@@ -726,7 +741,7 @@ class ChecklistTab(PanelTab):
         cards = [{"title": None, "rows": [
             {"label": "checklist.web.progress", "value": "%d/%d" % (done, total)},
             {"label": "checklist.web.until_reset",
-             "value": modelmod.hhmm(modelmod.seconds_to_reset())},
+             "value": self._until_reset()},
             {"label": "checklist.web.read", "value": self._read_ago()},
         ]}]
         for group, states in modelmod.grouped(self._reading, self._codename):

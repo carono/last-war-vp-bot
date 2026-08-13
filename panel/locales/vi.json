@@ -813,6 +813,7 @@
   "timers.log.cancelled": "{name}: đã lấy khỏi hàng đợi",
   "timers.log.deleted": "{name}: đã xóa",
   "timers.log.done": "{name}: xong",
+  "timers.log.day_reset": "ngày máy chủ: đặt lại lúc {at} — nhiệm vụ hằng ngày đến hạn khi đó",
   "timers.log.duplicated": "{name} → {copy}: đã chép (đang tắt)",
   "timers.log.failed": "{name}: hỏng — {error}",
   "timers.log.fire": "{name}: {mins} phút kể từ lần chạy trước — đang khởi động",

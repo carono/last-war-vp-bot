@@ -139,6 +139,9 @@ class Schedule:
             # name its reason inside one sentence (`TimerScheduler.note_skip`).
             translate=rt.t,
             gate=self.gate,
+            # THIS profile's server-day boundary, so «раз в сутки» means the game's
+            # 00:00 and not «twenty-four hours after whenever it last happened».
+            day=rt.day,
             debug=rt.dbg("timers"),
         )
         self.triggers = triggersmod.TriggerWatcher(
@@ -344,6 +347,12 @@ class Schedule:
         running, _text = game_process.profile_status(self.rt.settings)
         if not running:
             return "timers.log.skip_game"
+        # THE ONE PLACE THE DAY BOUNDARY IS REFRESHED. A client is up — which is the
+        # only state in which `GetTomorrowZero()` can be asked at all — and the read is
+        # throttled to four times a day inside `DayReset`, so this costs one Lua round
+        # trip a quarter-day and nothing on any other tick. Never raises, never blocks a
+        # gate: a boundary that could not be read leaves the stored one in force.
+        self._refresh_day()
         # …and then whatever the errand itself said would make the run pointless
         # (:meth:`register_precondition`). Only asked with the client up, so the check
         # never pays for a reading that cannot answer.
@@ -366,6 +375,31 @@ class Schedule:
     #: and goes on to `CALL launch_game` regardless.
     _RECOVERY = frozenset(c.scenario for c in game_control.CONTROLS
                           if c.id != game_control.QUIT)
+
+    def _refresh_day(self) -> None:
+        """Take a fresh reading of the server's day boundary, and say so when it moves.
+
+        Said out loud on purpose, once per reading that CHANGES the boundary: «раз в
+        сутки» is now a promise about the game's clock rather than about the panel's, and
+        the only way anybody can tell which one is in force is a line naming the moment.
+        A reading that agrees with what was already stored is not news and is silent.
+        """
+        day = getattr(self.rt, "day", None)
+        if day is None:
+            return
+        before = day.boundary_ms()
+        try:
+            if not day.refresh():
+                return
+        except Exception:                     # noqa: BLE001 — a stamp, never the gate
+            return
+        if day.boundary_ms() == before:
+            return
+        try:
+            when = time.strftime("%H:%M", time.localtime(day.next_reset_epoch(time.time())))
+            self.rt.say("timer", "timers.log.day_reset", at=when)
+        except Exception:                     # noqa: BLE001 — a line, never the gate
+            pass
 
     def _is_recovery(self, name: str) -> bool:
         """Does errand ``name`` play a recipe that STARTS a client?"""
@@ -731,8 +765,13 @@ class Schedule:
     def on_profile_switch(self) -> None:
         """The schedule belongs to the ACCOUNT: its errands, their switches and periods,
         and the clock that says when each last ran. Re-read all of it, or the profile
-        just switched to would run the other one's errands."""
+        just switched to would run the other one's errands.
+
+        THE DAY BOUNDARY GOES WITH THEM. Two accounts can be on two warzones, so the
+        moment a daily errand is anchored to is the profile's own — carrying the previous
+        one's over would schedule this account's day on somebody else's midnight."""
         self.store.set_path(self.rt.profiles.timers_state())
+        self.rt.day.set_path(self.rt.profiles.day_reset_json())
         self._say_unfinished()
         self.load_timers()
         self.load_triggers()
