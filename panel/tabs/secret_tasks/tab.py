@@ -3006,23 +3006,30 @@ class SecretTasksTab(PanelTab):
                           # `id`, so both are the same press through the same branch of
                           # `web_press` into the same variable — the phone cannot grow a
                           # second state here any more than the window can.
+                          # …and «Только звезда» beside it, on each of the three, out of
+                          # THAT page's own box — the window draws one per page and so
+                          # does the phone, or the two front-ends would disagree about
+                          # which list is narrowed.
                           {"title": "secrettasks.ghost",
                            "rows": self.ghost.web_rows() + self._count_rows(self.ghost),
                            "items": self.ghost.web_items(),
                            "empty": "secrettasks.ghost.empty",
                            "actions": [self._ghost_monitor_action(),
+                                       self._star_action("ghost"),
                                        self._clear_action("ghost")]},
                           {"title": "secrettasks.ghost.allies",
                            "items": self.ghost_allies.web_items(),
                            "rows": self._count_rows(self.ghost_allies),
                            "empty": "secrettasks.ghost.allies.empty",
-                           "actions": [self._clear_action("ghost_allies")]},
+                           "actions": [self._star_action("ghost_allies"),
+                                       self._clear_action("ghost_allies")]},
                           # …and the sniffer's own card, where its tiles land (#1251).
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
                            "rows": self._count_rows(self.ghost_map),
                            "empty": "secrettasks.ghost.map.empty",
                            "actions": [self._ghost_monitor_action(),
+                                       self._star_action("ghost_map"),
                                        self._clear_action("ghost_map")]},
                           # …and the rest of the map, one card per page, in the order
                           # the window's notebook holds them (#1289). Readings only:
@@ -3103,6 +3110,24 @@ class SecretTasksTab(PanelTab):
         """One card's own clear button. The ★ card's is `clear`, for the list here."""
         return {"id": "clear_%s" % page, "label": "secrettasks.clear"}
 
+    #: The ghost pages carrying «Только звезда» — the same box the window draws on each
+    #: of the three, keyed by the page it narrows. The alliance page's own star box is
+    #: `star_only` and predates this table; it is not one of these.
+    STAR_PAGES = ("ghost", "ghost_allies", "ghost_map")
+
+    def _star_action(self, page: str) -> dict:
+        """One ghost card's «Только звезда» — worded by what pressing it will do.
+
+        A page whose box does not exist yet reads as one with the box off, the same as
+        `_GhostGrid.star_var` does: the card is built before anybody has looked at the
+        tab, and a screen that raises is a phone with no screen at all.
+        """
+        var = getattr(getattr(self, page), "star_var", None)
+        return {"id": "star_%s" % page,
+                "label": ("secrettasks.filter.star_off"
+                          if var is not None and var.get()
+                          else "secrettasks.filter.star_on")}
+
     def _ghost_monitor_action(self) -> dict:
         """The ghost sniffer's button, built once and drawn on both ghost cards (#1264).
 
@@ -3144,6 +3169,15 @@ class SecretTasksTab(PanelTab):
             return {"ok": True}
         if action in ("ur_only", "star_only"):
             self.post(lambda: self._toggle_alliance_filter(action))
+            return {"ok": True}
+        if action.startswith("star_"):
+            # One card, one list — the same shape as `clear_…` (#1298). Checked AFTER
+            # the pair above, whose `star_only` also starts with these five letters and
+            # means the alliance page's own box.
+            page = action[len("star_"):]
+            if page not in self.STAR_PAGES:
+                return {"error": "unknown"}
+            self.post(lambda: self._toggle_star(page))
             return {"ok": True}
         if action == "autoassist":
             # The window's own checkbox, flipped from the phone (#1272). Through the same
@@ -3235,6 +3269,17 @@ class SecretTasksTab(PanelTab):
         """
         self.hide_own_var.set(not self.hide_own_var.get())
         self._on_hide_own_change()
+
+    def _toggle_star(self, page: str) -> None:
+        """Flip «Только звезда» on one ghost page from the phone.
+
+        The window's own box on that page, not a copy of it: the phone presses the very
+        variable a finger presses, so neither front-end can be showing a list the other
+        has narrowed.
+        """
+        grid_page = getattr(self, page)
+        grid_page.star_var.set(not grid_page.star_var.get())
+        grid_page.refilter()
 
     def _toggle_alliance_filter(self, action: str) -> None:
         """Flip «UR» or «Звезда» on the alliance page from the phone (#1251)."""

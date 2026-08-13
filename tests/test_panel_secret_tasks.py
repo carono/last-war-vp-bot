@@ -2237,17 +2237,18 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.alliance = types.SimpleNamespace(
         ur_var=_Var(False), star_var=_Var(False), counts=lambda: (1, 0),
         web_items=lambda: [{"text": "X:1 Y:2", "facts": [], "until": None, "pill": None}])
+    # …each ghost page with its own «Только звезда» box, which the card draws.
     tab.ghost = types.SimpleNamespace(
-        counts=lambda: (1, 0),
+        counts=lambda: (1, 0), star_var=_Var(False),
         web_rows=lambda: [{"label": "secrettasks.ghost.state_line", "value": "идёт"}],
         web_items=lambda: [{"text": "#3 X:4 Y:5", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_allies = types.SimpleNamespace(
-        counts=lambda: (1, 0),
+        counts=lambda: (1, 0), star_var=_Var(False),
         web_items=lambda: [{"text": "#6 X:7 Y:8", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_map = types.SimpleNamespace(
-        monitor_var=_Var(False), counts=lambda: (1, 0),
+        monitor_var=_Var(False), counts=lambda: (1, 0), star_var=_Var(False),
         web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
                             "pill": None}])
     # …and the four world pages (#1289), each a card of its own on the phone.
@@ -2323,14 +2324,17 @@ def test_the_phone_is_shown_every_page_the_window_has():
     assert assist["actions"][0]["label"] == "autoassist.on"         # it is not on yet
     # THE GHOST SWITCH IS ON BOTH GHOST CARDS (#1264): on the one its findings land on,
     # and on the one named «Операция Призрак», which is where a person looks for it.
-    for title, clear in (("secrettasks.ghost", "clear_ghost"),
-                         ("secrettasks.ghost.map", "clear_ghost_map")):
+    # …and «Только звезда» beside it, one box per ghost page, as in the window.
+    for title, page in (("secrettasks.ghost", "ghost"),
+                        ("secrettasks.ghost.map", "ghost_map")):
         actions = {a["id"]: a["label"] for a in cards[title]["actions"]}
         assert actions == {"ghost_monitor": "secret.monitoring.ghost.on",
-                           clear: "secrettasks.clear"}, (title, actions)
-    # …and the allies' card, which has nothing to switch and still has its own clear.
+                           "star_%s" % page: "secrettasks.filter.star_on",
+                           "clear_%s" % page: "secrettasks.clear"}, (title, actions)
+    # …and the allies' card, which has nothing to switch and still has its own star box
+    # and its own clear.
     assert [a["id"] for a in cards["secrettasks.ghost.allies"]["actions"]] == [
-        "clear_ghost_allies"]
+        "star_ghost_allies", "clear_ghost_allies"]
     # What is left at the bottom belongs to the whole tab — «Обновить», and the camera
     # bar the window put on this tab too (#1265): which height it is set to, and the lap
     # that spends it.
@@ -2842,6 +2846,8 @@ def _ghost_grid(cls=None):
     g._status_var = _Var()
     g.status = {}
     g.level_from, g.level_to = _Var(""), _Var("")
+    # …and «Только звезда», which every ghost page has.
+    g.star_var = _Var(False)
     # The map page also owns the ghost sniffer's switch and interval (#1251).
     g.monitor_var, g.interval_var = _Var(False), _Var("15")
     return g
@@ -3362,6 +3368,71 @@ def test_the_phone_can_flip_the_same_three_boxes_the_window_has():
     assert tab.alliance.star_var.get() is True
 
 
+def test_the_phone_flips_the_star_box_of_the_ghost_page_it_names():
+    """«Только звезда» is a box PER PAGE, so the press has to say which one.
+
+    `star_only` is the alliance page's and predates the table; the three ghost ids must
+    reach the ghost pages and nothing else, and an unknown page is refused rather than
+    flipping whatever `getattr` happens to find.
+    """
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    pages = {}
+    for name in ("ghost", "ghost_allies", "ghost_map"):
+        page = types.SimpleNamespace(star_var=_Var(False), refilter=lambda: None)
+        pages[name] = page
+        setattr(tab, name, page)
+    tab.alliance = types.SimpleNamespace(ur_var=_Var(False), star_var=_Var(False),
+                                         refilter=lambda: None)
+    posted = []
+    tab.post = lambda fn: posted.append(fn)
+
+    for name in pages:
+        assert tab.web_press("star_%s" % name, {}) == {"ok": True}
+    # …and the alliance page's own box is still its own press, not one of these.
+    assert tab.web_press("star_only", {}) == {"ok": True}
+    assert tab.web_press("star_mines", {}) == {"error": "unknown"}
+    for fn in posted:
+        fn()
+    assert all(page.star_var.get() is True for page in pages.values())
+    assert tab.alliance.star_var.get() is True
+
+
+def test_a_ghost_page_shows_only_starred_squads_when_the_box_is_ticked():
+    """The box narrows THAT page's list, and only while it is ticked."""
+    from panel.tabs.secret_tasks import ghost as ghostmod
+
+    page = object.__new__(ghostmod.GhostMapGrid)
+    page.star_var = _Var(False)
+    rows = [{"uuid": "1000000000000001", "starred": True},
+            {"uuid": "1000000000000002", "starred": False}]
+
+    assert page.narrow(rows) == rows
+    page.star_var.set(True)
+    assert [r["uuid"] for r in page.narrow(rows)] == ["1000000000000001"]
+
+
+def test_the_star_box_is_kept_across_a_restart_per_page():
+    """Each ghost page saves its own box under its own key, like the level range."""
+    import types
+    from panel.tabs.secret_tasks import ghost as ghostmod
+
+    page = object.__new__(ghostmod.GhostGrid)
+    page.tab = types.SimpleNamespace()
+    page.level_from, page.level_to = _Var(""), _Var("")
+    page.star_var = _Var(True)
+
+    saved = page.config()
+    assert saved["star_only"] is True
+
+    fresh = object.__new__(ghostmod.GhostGrid)
+    fresh.level_from, fresh.level_to = _Var(""), _Var("")
+    fresh.star_var = _Var(False)
+    fresh.apply_config(saved)
+    assert fresh.star_var.get() is True
+    assert fresh.persist_vars()[-1] is fresh.star_var
+
+
 def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None):
     """«Зум кнопкой там же, где переход по координатам» (#1265).
 
@@ -3752,14 +3823,16 @@ def test_each_page_saves_its_filters_under_its_own_key():
     page.level_from.set("4")
     page.monitor_var.set(True)
     page.interval_var.set("7")
+    page.star_var.set(True)
     saved = page.config()
     assert saved == {"level_from": "4", "level_to": "", "monitor": True,
-                     "interval": "7"}, saved
+                     "interval": "7", "star_only": True}, saved
 
     fresh = _ghost_grid(gh.GhostMapGrid)
     fresh.apply_config(saved)
     assert fresh.level_from.get() == "4" and fresh.monitor_var.get() is True
     assert fresh.interval_var.get() == "7"
+    assert fresh.star_var.get() is True
 
     # …and a page with no block of its own reads as a fresh one, not as a crash.
     fresh.apply_config(None)

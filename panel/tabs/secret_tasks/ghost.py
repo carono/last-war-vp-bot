@@ -51,6 +51,11 @@ STATE_KEYS = {
 class _GhostGrid(grid.TaskGrid):
     """What both ghost pages are: the same table, filled from the same read."""
 
+    #: «Только звезда», as a class attribute so a page built without `__init__` — a
+    #: test's, or anything reading `visible_rows` before the boxes exist — is a page
+    #: with the box OFF rather than one that raises on the first draw.
+    star_var = None
+
     def __init__(self, tab) -> None:
         super().__init__(tab)
         # The last read's answer about the event itself: whether today is its day and
@@ -58,6 +63,12 @@ class _GhostGrid(grid.TaskGrid):
         # reason an empty table is not a mystery six days a week.
         self.status: dict = {}
         self._status_var = tk_stringvar(tab.rt.root)
+        # «Только звезда» over THIS page's list. Off by default, like the alliance
+        # page's: a table that hides most of itself before anybody asked is not a
+        # table of what is out there. A ghost squad's star is the event config's own
+        # answer (`ghost_recon_steal`), never arithmetic over the cfgId — the same
+        # rule the module docstring states.
+        self.star_var = tk.BooleanVar(master=tab.rt.root, value=False)
 
     # -- the event's own line ---------------------------------------------------------
     def build_filters(self, parent) -> None:
@@ -86,6 +97,36 @@ class _GhostGrid(grid.TaskGrid):
             state=self.tab.t("secrettasks.ghost.open" if self.status.get("open")
                              else "secrettasks.ghost.closed"),
             left=int(self.status.get("left") or 0)))
+
+    # -- the boxes --------------------------------------------------------------------
+    def extra_filters(self, bar) -> None:
+        """«Звезда», on every ghost page — the star is what a robbery is aimed at.
+
+        Each page keeps its own box (its own `CONFIG_KEY`), exactly as the level range
+        does since #1251: it narrows THIS list, and a box that reached across the three
+        pages would be a different feature wearing the same word.
+        """
+        self.tab.tr(ttk.Checkbutton(bar, variable=self.star_var,
+                                    command=self.refilter),
+                    "secrettasks.filter.star").pack(side="left", padx=(16, 0))
+
+    def narrow(self, rows) -> list:
+        """What the box lets through — everything while it is not ticked."""
+        if self.star_var is not None and self.star_var.get():
+            rows = [r for r in rows if r.get("starred")]
+        return rows
+
+    def config(self) -> dict:
+        return dict(super().config(),
+                    star_only=bool(self.star_var is not None and self.star_var.get()))
+
+    def apply_config(self, raw) -> None:
+        super().apply_config(raw)
+        raw = raw if isinstance(raw, dict) else {}
+        self.star_var.set(bool(raw.get("star_only", False)))
+
+    def persist_vars(self) -> list:
+        return super().persist_vars() + [self.star_var]
 
     def landed(self, status, records) -> None:
         """A read came back: keep what it said about the event, then draw the squads."""
@@ -281,7 +322,11 @@ class GhostGrid(_GhostGrid):
         disagree the first time anything else changed the state — the day the capture
         stops on its own, for instance — and then neither would be believable. See
         docs/panel-tabs.md, «One state, several places».
+
+        `super()` first, so this page keeps «Звезда» — an override that draws only its
+        own box is how a filter goes missing from one page of three.
         """
+        super().extra_filters(bar)
         self.tab.tr(ttk.Checkbutton(bar, variable=self.tab.ghost_map.monitor_var,
                                     command=self.tab.ghost_capture.toggle),
                     "secret.monitoring.ghost").pack(side="left", padx=(16, 0))
@@ -391,7 +436,12 @@ class GhostMapGrid(_GhostGrid):
         #1264) out of THIS variable. The interval stays here alone: it belongs to the
         capture this page owns, and a number in two places invites two answers where a
         checkbutton bound to one variable cannot have them.
+
+        `super()` first, for «Звезда»: this is the page the star box matters most on —
+        a lap of the map brings back everyone's tiles, and the starred ones are what a
+        robbery is aimed at.
         """
+        super().extra_filters(bar)
         self.tab.tr(ttk.Checkbutton(bar, variable=self.monitor_var,
                                     command=self.tab.ghost_capture.toggle),
                     "secret.monitoring.ghost").pack(side="left", padx=(16, 0))
