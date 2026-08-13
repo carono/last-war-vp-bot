@@ -1,21 +1,17 @@
-"""The register of players, and the searching of it — no Tk, no game, no panel.
+"""The SEARCHING of the register — no Tk, no game, no panel.
 
 Everything on this page that is a DECISION rather than a widget lives here, so it can
-be run and tested without a window: what a sweep is allowed to write onto a row, what a
-filter means, and what the counter counts.
+be run and tested without a window: what a filter means, how a column sorts, and what
+the counter counts.
 
-## The rule of this list
-
-**A row leaves for one reason and it is a person asking.** Not a lap that drove past
-nobody, not a capture that was not running, not a client that was not logged in, not a
-panel that was restarted, not a tab being opened. Those are all the same event — «this
-read said nothing» — and treating one of them as «that player is gone» is exactly the
-loss `panel/kept.py` was written after (#1282, three in one day). So the store is a
-:class:`~panel.kept.Kept` that accepts :data:`~panel.kept.PERSON_ASKED` and nothing
-else: `drop` for any other reason raises where it is written.
-
-Everything else a page might want to hide is a FILTER — «давно не виден» is a way of
-showing a row, never a way of removing one.
+**The register itself moved to the runtime** (`panel/runtime/players.py`, #1371), and
+that is the whole point of #1371: a lap of the map is not the only place the panel meets
+a player — the live block of banners, the chat, the alliance roster and every tile with
+an owner meet one too. They all write through `rt.players.sighted(…)`, and this page is
+one of the readers of what they left. The rules that used to be written here — what a
+source may overwrite, why an unknown never wins over a known, how a field remembers
+where it came from, and that a row leaves only when a PERSON asks — live beside the
+store now.
 
 ## Two notes, and they are not the same note
 
@@ -28,54 +24,36 @@ showing a row, never a way of removing one.
   rather than to the account.
 
 Keeping them apart is what stops the panel keeping a second version of a truth the game
-already owns: nothing here ever writes into a field a sweep fills.
+already owns: nothing here ever writes into a field a source fills.
 
 ## Nothing here ever asks the game anything
 
-**The register takes what a lap already brings and never goes back for more.** Not on
-opening the page, not on a filter, not on a sort, not for one row somebody selected. A
-sweep sees thousands of players and a top-up per player would be thousands of requests
-the game never asked for — so a field the map did not carry stays empty, and the page
-SAYS it is empty rather than fetching it.
+**The register takes what the panel is already told and never goes back for more.** Not
+on opening the page, not on a filter, not on a sort, not for one row somebody selected.
+A sweep sees thousands of players and a top-up per player would be thousands of requests
+the game never asked for — so a field no source carried stays empty, and the page SAYS
+it is empty rather than fetching it.
 
 That is why the server filter picks a NUMBER rather than «свой / чужой»: which server is
 this account's is a question only the client can answer, and asking it would have been
 exactly the read this rule forbids. Every row already carries the server its tile was
 on, so the box offers those.
 
-The combat numbers are the same bargain from the other side: they arrive only when the
-person opens a player IN THE GAME, or when the client fetches the alliance roster at
-login. The register keeps them when they pass by and never sends for them.
-
-## Why a sweep may not write None
-
-A base tile carries no combat numbers and a capture that has just started has heard no
-notes, so both arrive as `None` on a perfectly good record. Merged as they stand they
-would erase a power read an hour ago and a note read at login. So :func:`incoming`
-drops the empty fields on the way in: an unknown never overwrites a known, which is the
-same sentence as «an empty read removes nothing», one field down.
+The one thing on the page that DOES reach the client is the press on a coordinate, which
+jumps the camera there (#1371) — a person asking for something to happen, which is
+never what this rule was about (`CLAUDE.md`, «A button that STARTS something is not the
+thing being forbidden»).
 """
 from __future__ import annotations
 
 import json
-import os
 import time
 
-from ...kept import PERSON_ASKED, Kept
-
-#: The fields a register row can hold. Anything else a checkpoint carries is dropped on
-#: the way in — a store that quietly grew a column would be a store nobody could review.
-FIELDS = (
-    "uid", "name", "level", "server_id", "x", "y", "uuid", "country",
-    "alliance_id", "alliance_abbr", "alliance_name",
-    "power", "army_power", "army_kill", "svip_level",
-    "remark", "note", "first_seen", "last_seen", "profile_seen_at",
+from ...runtime.players import (  # noqa: F401  (the page's own vocabulary)
+    CHECKPOINT_SOURCES, FIELDS, SOURCES, SRC_ALLIANCE, SRC_CHAT, SRC_MAP,
+    SRC_PERSON, SRC_PROFILE, SRC_RALLY, SRC_REMARK, SRC_TILE, PlayerBook,
+    provenance_of,
 )
-
-#: What a sweep is allowed to write. `note` is deliberately NOT here: the person's own
-#: mark is written by the person and by nothing else, so no lap can touch it however
-#: the wire spells that player's name tomorrow.
-FROM_GAME = tuple(f for f in FIELDS if f not in ("note", "first_seen", "last_seen"))
 
 #: How old a sighting has to be before «давно не виден» claims it. A week: the map is
 #: swept in laps of a few seconds and a base that has not been under one for seven days
@@ -89,124 +67,6 @@ SEEN_WINDOWS = {
     "day": 24 * 3600,
     "week": 7 * 24 * 3600,
 }
-
-
-def incoming(record: dict, now: float | None = None) -> dict:
-    """One checkpoint record as the register takes it — empties dropped, stamped.
-
-    `seen_at` on the capture's side means «the map or a profile reply last confirmed
-    this», which is exactly what `last_seen` means here, so it is renamed rather than
-    kept twice under two names that would drift.
-    """
-    now = time.time() if now is None else now
-    out = {}
-    for field in FROM_GAME:
-        value = record.get(field)
-        # Zero is a real level and a real coordinate; only None is «did not say».
-        if value is not None and value != "":
-            out[field] = value
-    if out.get("uid") is None:
-        return {}
-    out["uid"] = str(out["uid"])
-    out["last_seen"] = int(record.get("seen_at") or now)
-    return out
-
-
-class PlayerRegistry:
-    """Everyone this profile's laps have driven past, kept for good.
-
-    A thin layer over :class:`~panel.kept.Kept`: the file, the key and the one removal
-    reason are decided here so that no caller has to remember them, and the two writes
-    a person can make — a mark, a forgetting — are the only two methods that change a
-    row's own fields.
-    """
-
-    def __init__(self, path: str) -> None:
-        self.path = path
-        self._kept = Kept(path, key="uid", accepts=(PERSON_ASKED,))
-
-    # -- reading ---------------------------------------------------------------------
-    def rows(self) -> list:
-        return self._kept.rows()
-
-    def get(self, uid) -> dict | None:
-        return self._kept.get(uid)
-
-    def __len__(self) -> int:
-        return len(self._kept)
-
-    # -- what a lap adds -------------------------------------------------------------
-    def absorb(self, records, now: float | None = None) -> int:
-        """Merge what a capture has seen. **Adds and updates; never removes.**
-
-        Returns how many rows were added or changed, so a caller can say «the lap
-        brought 412 new faces» rather than «something happened».
-        """
-        now = time.time() if now is None else now
-        fresh = []
-        for record in records or ():
-            if not isinstance(record, dict):
-                continue
-            row = incoming(record, now)
-            if not row:
-                continue
-            held = self._kept.get(row["uid"])
-            if held is None:
-                # `first_seen` is written once and never again — the merge updates a row
-                # field by field, so writing it every time would move it forward.
-                row["first_seen"] = row["last_seen"]
-            elif all(held.get(field) == value for field, value in row.items()):
-                # NOTHING NEW ABOUT THIS PLAYER, so nothing is merged and the file is
-                # not rewritten. The checkpoint re-lists the same sighting every tick
-                # for as long as it is fresh, and `Kept.merge` compares a row it is
-                # GIVEN against the row it HOLDS — which carries `first_seen` and the
-                # person's own mark besides, so the two are never equal and every
-                # single tick counted as a change. Live that was «карта добавила или
-                # обновила 103» every twenty seconds, for ever, over an unchanged map.
-                continue
-            fresh.append(row)
-        return self._kept.merge(fresh)
-
-    # -- what a person writes --------------------------------------------------------
-    def set_note(self, uid, text: str | None) -> bool:
-        """Write (or clear) THIS PROFILE's own mark on a player.
-
-        A mark on a player the register has never heard of is refused rather than
-        filed: a row with a note and no name is not a player, and the press that could
-        make one is a bug somewhere else.
-        """
-        row = self._kept.get(uid)
-        if row is None:
-            return False
-        text = (text or "").strip()
-        self._kept.merge([{"uid": str(uid), "note": text or None}])
-        return True
-
-    def forget(self, uid) -> bool:
-        """THE ONE WAY A ROW LEAVES — a person asked for it (`PERSON_ASKED`).
-
-        The store accepts no other reason, so this is not a convention but the only
-        call that compiles.
-        """
-        return self._kept.drop(uid, PERSON_ASKED)
-
-    # -- what the page tells about itself --------------------------------------------
-    def alliances(self) -> list:
-        """Every alliance tag in the register, once each, in alphabetical order."""
-        tags = {(row.get("alliance_abbr") or "").strip()
-                for row in self._kept.rows()}
-        return sorted(t for t in tags if t)
-
-    def servers(self) -> list:
-        """Every server number in the register, ascending."""
-        found = {row.get("server_id") for row in self._kept.rows()}
-        return sorted(s for s in found if isinstance(s, int))
-
-    def file_size(self) -> int:
-        try:
-            return os.path.getsize(self.path)
-        except OSError:
-            return 0
 
 
 # ---------------------------------------------------------------------------

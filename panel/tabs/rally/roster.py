@@ -45,6 +45,8 @@ from __future__ import annotations
 import threading
 import time
 
+from ...runtime import players
+
 # The kinds a banner can be, as the game names them. `tools/lib` is on the path by the
 # time the panel imports this (panel/runtime/paths.py), exactly as it is for
 # `panel/rally_limits.py` — and this is the SAME table the per-kind budget is keyed by,
@@ -346,10 +348,42 @@ class RallyRoster:
                     banner.gone_at, banner.ending = now, "closed"
                     events.append(("rally_roster.event.closed", {"team": team}))
         self._faces()
+        self._register(rows, now)
         self._prune()
         for key, fmt in events:
             self._say(key, **fmt)
         self._changed()
+
+    def _register(self, rows, now: float) -> None:
+        """Everyone standing in a banner goes into the register of players (#1371).
+
+        This read already happened — it is what draws the block — so the register costs
+        it nothing and gets what no lap of the map carries: who was in a rally, with the
+        face the client had cached for them.
+
+        THE POWER GOES IN AS `march_power` AND NOT AS `power`. What the client's march
+        table holds is the strength of the SQUAD standing in that banner, which is a
+        fraction of the player's own; merged onto `power` it would quietly overwrite a
+        real profile reading with a tenth of it. The store refuses it anyway (the rally
+        source may not write `power` at all) — this is why.
+        """
+        seen = {}
+        for row in rows:
+            for member in row.get("members") or ():
+                if not member.uid:
+                    continue
+                seen[member.uid] = {"uid": member.uid, "name": member.name,
+                                    "head": member.head or None,
+                                    "march_power": member.power or None,
+                                    "server_id": row.get("server") or None,
+                                    "seen_at": int(now)}
+        if not seen:
+            return
+        try:
+            self.rt.players.sighted(seen.values(), source=players.SRC_RALLY, now=now)
+        except Exception as exc:                                        # noqa: BLE001
+            # A register that will not take a row is not a reason to lose a banner.
+            self.rt.dbg("rally").warning("players.sighted failed: %s", exc)
 
     def _faces(self) -> None:
         """Put a face on every member, off the client's own cache. On THIS thread.

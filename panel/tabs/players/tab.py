@@ -1,4 +1,4 @@
-"""«Игроки» — the register of everyone this account's laps of the map have seen (#1335).
+"""«Игроки» — the register of everyone this account has met (#1335, #1371).
 
 ## What fills it, and what it costs
 
@@ -8,6 +8,14 @@ a player's base is simply one of the tile kinds in them — so this page adds no
 no npcap handle and no game read to a sweep. The second listener inside that capture
 (`tools/lib/world_index.py`) keeps what it hears in the profile's `world_map.json`, and
 this page merges from there on a slow tick.
+
+**And a lap is no longer the only source** (#1371). Everywhere else the panel already
+meets a player — the live block of banners, the chat, the alliance roster, the owner of
+a secret-task or ghost-recon tile — now writes into the same register through the ONE
+entrance on the runtime, `rt.players.sighted(records, source=…)`. None of them sends
+anything: each passes on what it happened to hear while doing its own job, and a source
+may only write the fields it can actually know (`panel/runtime/players.py`). Every field
+remembers who said it and when, which is what the «Откуда» column and «Подробно» show.
 
 **And it asks the game for nothing, ever** — that is the second half of the bargain.
 Not on opening the page, not behind a filter, not behind a sort, not for the row
@@ -48,12 +56,24 @@ own mark, written here by the person and by nothing else; no lap may touch it.
 
 ## Both front-ends
 
-The window has the table, the filters and the two writes. The phone has the same list
-under the renderer's own search box, the same filters as cycling presses (one state:
-a press moves the very variables the window's boxes are bound to), and the same two
-writes — the mark through a prompting action, the forgetting through a press that asks
-once and does the deed on the second press within half a minute, which is the phone's
-version of the window's confirmation dialog.
+The window has the table, the filters, the two writes, a coordinate that jumps the
+camera when it is clicked and a «Подробно» that says where every field came from. The
+phone has the same list under the renderer's own search box, the same filters as cycling
+presses (one state: a press moves the very variables the window's boxes are bound to),
+the same two writes — the mark through a prompting action, the forgetting through a
+press that asks once and does the deed on the second press within half a minute, which
+is the phone's version of the window's confirmation dialog — and the same two new
+presses, «Перейти» and «Подробно», the second of which opens the same list as a card at
+the top of the screen.
+
+## The one thing here that touches the client
+
+The coordinate press, and nothing else (#1371). Jumping the camera to a tile is a person
+asking for something to HAPPEN, which is never what «this page asks the game nothing»
+was about — that rule is about topping a row up behind somebody's back. The panel has
+one coordinate mechanism (`tools/lib/coords.py` + `rt.game.jump`), used by the log, the
+chat and every table that prints a tile, and this table uses that one rather than a
+second of its own.
 """
 from __future__ import annotations
 
@@ -91,8 +111,14 @@ COLUMNS = (
     ("coords", 110, "w"),
     ("server", 55, "center"),
     ("seen", 90, "w"),
+    ("source", 90, "w"),
     ("note", 160, "w"),
 )
+
+#: The column a click JUMPS from. A coordinate printed anywhere in the panel is a place
+#: you can go (`panel/widgets.py`, the log's own links), and a table that prints one and
+#: cannot be clicked is the odd one out rather than the careful one.
+COORD_COLUMN = "coords"
 
 #: What the «уровень» press steps through on the phone, and what the window's two
 #: boxes hold. The same list, so the two front-ends cannot drift into meaning
@@ -138,12 +164,12 @@ class PlayersTab(PanelTab):
     TITLE_KEY = "tab.players"
     ORDER = 260
     LOCALE_NS = ("players",)
-    #: NOTHING. The register is fed by the capture the «Секретки» tab already runs and
-    #: read off a file; this page never speaks to the game at all — not on opening, not
-    #: behind a filter, not behind a sort, not for a selected row. A field the map did
-    #: not carry stays empty and says so, and `tests/test_players_registry.py` fails on
-    #: the day something here reaches for `rt.game`.
-    NEEDS = frozenset()
+    #: The daemon, and ONLY for the coordinate press (#1371). Nothing on this page READS
+    #: the game — not on opening, not behind a filter, not behind a sort, not for a
+    #: selected row; a field no source carried stays empty and says so, and
+    #: `tests/test_players_registry.py` fails on the day anything here asks the client a
+    #: question. What the daemon is for is the person clicking a tile to go there.
+    NEEDS = frozenset({"daemon"})
     PREFERRED_SIZE = "1040x640"
     WEB_SCREEN = True
     #: EAGER, and this is the one thing about the tab that had to be measured live: the
@@ -159,12 +185,18 @@ class PlayersTab(PanelTab):
         super().__init__(rt, parent)
         # EVERYTHING ANSWERABLE BEFORE ANYBODY LOOKS lives here (`PanelTab.LAZY`): the
         # phone can open this screen without the window ever having drawn the tab.
-        self._registry = reg.PlayerRegistry(self.rt.profiles.players_json())
+        # THE RUNTIME'S register, not one of this tab's own (#1371): the banner block,
+        # the chat and the alliance roster write into the same book, and a second
+        # instance over the same file would be two caches of one truth.
+        self._registry = rt.players
         self._sort = reg.DEFAULT_SORT
         self._shown = 0
         self._hidden = 0
         self._merging = False
         self._armed_forget = (None, 0.0)
+        #: Whose «Подробно» is open on the phone — the card at the top of the screen.
+        #: The window says the same list in a dialog, which needs no state.
+        self._detail_uid = ""
         # The filter, as ONE dict the window's variables write into and the phone's
         # presses move. Two front-ends, one state (`docs/panel-tabs.md`).
         self._filter = dict(BLANK_FILTER)
@@ -276,8 +308,45 @@ class PlayersTab(PanelTab):
             tree.column(col, width=width, anchor=anchor, stretch=(col in ("name", "note")))
             tree.heading(col, command=lambda c=col: self._sort_by(c))
         tree.bind("<Double-1>", lambda _e: self._edit_note())
+        tree.bind("<Button-1>", self._on_click)
         self._tree = tree
         self._label_headings()
+
+    def _on_click(self, event) -> None:
+        """A click in the coordinate column jumps the camera there.
+
+        The panel has ONE coordinate mechanism and this is it: the cell holds the same
+        canonical token the log prints, `coords.parse` reads it back, and `rt.game.jump`
+        does what the log's own link does (`panel/widgets.py`). Nothing here knows how
+        to spell a coordinate or how to reach a tile — that would be the second
+        mechanism this rule exists to prevent.
+        """
+        if self._tree is None or self._tree.identify("region", event.x, event.y) != "cell":
+            return
+        column = self._tree.identify_column(event.x)
+        try:
+            name = COLUMNS[int(column[1:]) - 1][0]
+        except (ValueError, IndexError):
+            return
+        if name != COORD_COLUMN:
+            return
+        row = self._registry.get(self._tree.identify_row(event.y)) or {}
+        self._jump(self.coords_of(row))
+
+    def _jump(self, token: str) -> bool:
+        """Go to a coordinate token — the person pressed something (`CLAUDE.md`).
+
+        Off the Tk thread: a jump is a game round trip, and the event loop is shared by
+        every open profile's window. Returns whether there was anything to go to.
+        """
+        import coords as coords_fmt
+        hits = coords_fmt.parse(token or "")
+        if not hits:
+            return False
+        _s, _e, x, y, server = hits[0]
+        threading.Thread(target=self.rt.game.jump, args=(x, y, server),
+                         daemon=True).start()
+        return True
 
     def _build_footer(self, root) -> None:
         bar = ttk.Frame(root)
@@ -288,6 +357,13 @@ class PlayersTab(PanelTab):
             side="right")
         self.tr(ttk.Button(bar, command=self._edit_note), "players.note.edit").pack(
             side="right", padx=(0, 6))
+        self.tr(ttk.Button(bar, command=self._show_details), "players.details").pack(
+            side="right", padx=(0, 6))
+        self.tr(ttk.Button(bar, command=self._jump_selected), "players.goto").pack(
+            side="right", padx=(0, 6))
+        # What the coordinate column does, said out loud: a link nobody knows is there
+        # is a link nobody presses.
+        self.tr(ttk.Label(bar), "players.coords.hint").pack(side="left", padx=(12, 0))
 
     def _label_headings(self) -> None:
         if self._tree is None:
@@ -356,7 +432,13 @@ class PlayersTab(PanelTab):
             rows = reg.load_checkpoint(self.rt.profiles.world_json())
             if rows:
                 with self.rt.activity.step("players.merging", n=len(rows)):
-                    added = self._registry.absorb(rows)
+                    # THE ONE ENTRANCE, like every other source (#1371). The checkpoint
+                    # is three sources in one file — the tile, the profile reply folded
+                    # onto it and the account's own note — so its fields are attributed
+                    # one by one rather than all being called «карта».
+                    added = self._registry.sighted(
+                        rows, source=reg.SRC_MAP,
+                        field_source=reg.CHECKPOINT_SOURCES)
         except Exception as exc:                            # noqa: BLE001
             self.rt.say("players", "players.log.merge_failed", error=exc)
         finally:
@@ -446,19 +528,28 @@ class PlayersTab(PanelTab):
         total = len(self._registry)
         self._shown = min(len(rows), MAX_SHOWN)
         self._hidden = total - self._shown
+        # WHO WAS SELECTED SURVIVES THE REPAINT (#1371). The table is rebuilt whole
+        # every twenty seconds by the merge, and a `delete` drops the selection with the
+        # rows — so a person who picked a player and reached for «Метка» pressed a
+        # button that silently did nothing, roughly one time in three. Nothing on screen
+        # said why, which is how «метка не ставится» reads from the other side.
+        chosen = self._selected()
         self._tree.delete(*self._tree.get_children())
         now = time.time()
         for row in rows[:MAX_SHOWN]:
             self._tree.insert("", "end", iid=str(row.get("uid")),
                               values=self._cells(row, now))
+        if chosen and self._tree.exists(chosen):
+            self._tree.selection_set(chosen)
+            self._tree.focus(chosen)
         self._count.set(self.t("players.counter", shown=self._shown,
                                hidden=max(self._hidden, 0)))
         self._alliance_box.configure(values=[""] + self._registry.alliances())
         steps = self.server_steps()
         self._server_box.configure(
             values=[self.t("players.server.any")] + steps[1:])
-        chosen = self._filter.get("server") or ""
-        self._server_box.current(steps.index(chosen) if chosen in steps else 0)
+        picked = self._filter.get("server") or ""
+        self._server_box.current(steps.index(picked) if picked in steps else 0)
 
     def _cells(self, row: dict, now: float) -> tuple:
         return (row.get("name") or "—",
@@ -468,7 +559,25 @@ class PlayersTab(PanelTab):
                 self.coords_of(row),
                 row.get("server_id") if row.get("server_id") is not None else "—",
                 self.ago(now - float(row.get("last_seen") or 0)),
+                self.freshest(row, now),
                 self.note_of(row))
+
+    def freshest(self, row: dict, now: float) -> str:
+        """Who told us the newest thing about this player, and how long ago (#1371).
+
+        The column answers the question a register of several sources raises the moment
+        it has them: «откуда это вообще известно». The whole breakdown, field by field,
+        is one press away in «Подробно» — this is the one line of it that fits in a
+        table, and the phone says the same line under each name.
+        """
+        known = reg.provenance_of(row)
+        if not known:
+            return ""
+        _field, _value, who, when = known[0]
+        if not who:
+            return ""
+        name = self.t("players.src." + who)
+        return name if not when else "%s · %s" % (name, self.ago(now - when))
 
     @staticmethod
     def coords_of(row: dict) -> str:
@@ -497,15 +606,70 @@ class PlayersTab(PanelTab):
             return self.t("players.ago.hours", n=int(seconds // 3600))
         return self.t("players.ago.days", n=int(seconds // 86400))
 
-    # -- the two writes -----------------------------------------------------
+    # -- the two writes, and the two presses that only look --------------------
     def _selected(self) -> str | None:
         if self._tree is None:
             return None
         chosen = self._tree.selection()
         return chosen[0] if chosen else None
 
-    def _edit_note(self) -> None:
+    def _needs_row(self) -> str | None:
+        """The selected uid, SAYING SO when there is none.
+
+        A press with nothing selected used to return in silence, which is
+        indistinguishable from a press that did not work — and that is precisely how
+        «метка не ставится» was reported (#1371).
+        """
         uid = self._selected()
+        if uid is None:
+            self.say("players", "players.log.no_row")
+        return uid
+
+    def _jump_selected(self) -> None:
+        """«Перейти» — the button beside the table, same jump as clicking the cell."""
+        uid = self._needs_row()
+        if uid is None:
+            return
+        if not self._jump(self.coords_of(self._registry.get(uid) or {})):
+            self.say("players", "players.log.no_coords")
+
+    def details_lines(self, uid) -> list:
+        """Every known field of one player as «поле · значение · источник · когда».
+
+        Built once and said twice — the window's dialog and the phone's card are the
+        same list (`CLAUDE.md`, both front-ends) — and it is what makes the register
+        readable now that half a dozen sources write into it: «мощность» means one thing
+        when the game answered about that player an hour ago and another when a banner
+        mentioned them last week.
+        """
+        row = self._registry.get(uid) or {}
+        now = time.time()
+        out = []
+        for field, value, who, when in reg.provenance_of(row):
+            if field == "src":
+                continue
+            shown = human_power(value) if field in ("power", "army_power",
+                                                    "march_power") else str(value)
+            out.append(self.t("players.details.line",
+                              field=self.t("players.field." + field),
+                              value=shown,
+                              source=self.t("players.src." + who) if who
+                              else self.t("players.src.unknown"),
+                              ago=self.ago(now - when) if when
+                              else self.t("players.src.unknown")))
+        return out
+
+    def _show_details(self) -> None:
+        uid = self._needs_row()
+        if uid is None:
+            return
+        row = self._registry.get(uid) or {}
+        lines = self.details_lines(uid) or [self.t("players.details.empty")]
+        messagebox.showinfo(self.t("players.details.title", name=row.get("name") or uid),
+                            "\n".join(lines), parent=self.parent)
+
+    def _edit_note(self) -> None:
+        uid = self._needs_row()
         if uid is None:
             return
         row = self._registry.get(uid) or {}
@@ -518,14 +682,15 @@ class PlayersTab(PanelTab):
         self.set_note(uid, text)
 
     def set_note(self, uid, text: str | None) -> bool:
-        """Write the person's own mark — the one field no lap of the map may touch."""
+        """Write the person's own mark — the one field no source may touch."""
         ok = self._registry.set_note(uid, text)
         if ok:
+            self.say("players", "players.log.noted", uid=uid)
             self._render()
         return ok
 
     def _forget(self) -> None:
-        uid = self._selected()
+        uid = self._needs_row()
         if uid is None:
             return
         row = self._registry.get(uid) or {}
@@ -621,9 +786,35 @@ class PlayersTab(PanelTab):
                 "actions": self._web_filter_actions()}
         card = {"title": "players.web.list", "search": True, "items": items,
                 "empty": "players.empty"}
-        return {"cards": [head, card], "now": now,
+        cards = [head, card]
+        detail = self._web_detail_card()
+        if detail is not None:
+            # In FRONT of the list: a card the person just asked for, below two screens
+            # of names, is a card they will decide did not open.
+            cards.insert(0, detail)
+        return {"cards": cards, "now": now,
                 "actions": [{"id": "refresh", "label": "players.refresh"},
                             {"id": "reset", "label": "players.filters.reset"}]}
+
+    def _web_detail_card(self):
+        """The phone's «Подробно» — the window's dialog, as a card that can be closed.
+
+        A renderer has no modal to put a list in, so the answer stands at the top of the
+        screen until it is dismissed. Same lines, same order, same words as the dialog
+        (`details_lines`).
+        """
+        uid = self._detail_uid
+        if not uid:
+            return None
+        row = self._registry.get(uid)
+        if row is None:
+            self._detail_uid = ""
+            return None
+        lines = self.details_lines(uid) or [self.t("players.details.empty")]
+        rows = [{"label": "players.details.of", "value": str(row.get("name") or uid)}]
+        rows += [{"label": "players.details.row", "value": line} for line in lines]
+        return {"title": "players.details.card", "rows": rows,
+                "actions": [{"id": "details_close", "label": "players.details.close"}]}
 
     def _web_filter_rows(self, on_screen: int) -> list:
         """WHERE EACH FILTER STANDS, in words, above the buttons that step it.
@@ -681,10 +872,15 @@ class PlayersTab(PanelTab):
             self.ago(now - float(row.get("last_seen") or 0)),
         ) if bit)
         item = {"text": row.get("name") or uid, "detail": detail,
+                "facts": [{"label": "players.col.source",
+                           "value": self.freshest(row, now) or "—"}],
                 "actions": [
                     {"id": "note", "label": "players.note.edit",
                      "prompt": "players.note.prompt.short",
                      "value": row.get("note") or "", "args": {"uid": uid}},
+                    {"id": "goto", "label": "players.goto", "args": {"uid": uid}},
+                    {"id": "details", "label": "players.details",
+                     "args": {"uid": uid}},
                     {"id": "forget", "label": "players.forget",
                      "args": {"uid": uid}}]}
         note = self.note_of(row)
@@ -704,8 +900,31 @@ class PlayersTab(PanelTab):
             return {"ok": self._step_filter(action)}
         if action == "note":
             uid = str(args.get("uid") or "")
+            # A PRESS THAT CARRIES NO TEXT AT ALL IS NOT «СТЕРЕТЬ» (#1371). The
+            # renderer's item buttons used to ignore `prompt` and post the action's own
+            # arguments, so every «Метка» from a phone arrived with no `text` key, was
+            # read as an empty note, cleared the mark and answered «готово». Live that
+            # was 4 259 rows and not one mark on any of them. The renderer is fixed
+            # (`panel/web/static/app.js`); this refuses the shape outright, because the
+            # next renderer will be written by somebody who has not read that fix.
+            if "text" not in args:
+                return {"ok": False, "reason": "players.web.no_text"}
             if not self.set_note(uid, args.get("text")):
                 return {"ok": False, "reason": "players.web.no_such_row"}
+            return {"ok": True}
+        if action == "goto":
+            row = self._registry.get(str(args.get("uid") or "")) or {}
+            if not self._jump(self.coords_of(row)):
+                return {"ok": False, "reason": "players.web.no_coords"}
+            return {"ok": True}
+        if action == "details":
+            uid = str(args.get("uid") or "")
+            if self._registry.get(uid) is None:
+                return {"ok": False, "reason": "players.web.no_such_row"}
+            self._detail_uid = uid
+            return {"ok": True}
+        if action == "details_close":
+            self._detail_uid = ""
             return {"ok": True}
         if action == "forget":
             return self._web_forget(str(args.get("uid") or ""))

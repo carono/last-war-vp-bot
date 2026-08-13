@@ -197,6 +197,7 @@ class PanelRuntime:
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
         self._banners = None            # …and what it heard about the banners out
+        self._players = None            # …and the register every source writes into
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         self._lock = None               # this profile's instance lock, held open
         self._lock_on = None            # …and which profile it is holding
@@ -293,6 +294,24 @@ class PanelRuntime:
             from .rally_wire import BannerBook
             self._banners = BannerBook(self)
         return self._banners
+
+    @property
+    def players(self):
+        """THE ONE ENTRANCE to this profile's register of players (#1371).
+
+        Here rather than on the «Игроки» tab because the tab is not the only place the
+        panel meets a player: the banner block, the chat, the alliance roster and every
+        tile with an owner see one too, and all of them were throwing it away. A feeder
+        calls `rt.players.sighted(records, source=…)` and nothing else — five copies of
+        «open the file, merge, save» is how two of them end up disagreeing.
+
+        Built on first ask, reads nothing but its own file, and asks the game NOTHING —
+        every source is something the panel is already told (`panel/runtime/players.py`).
+        """
+        if self._players is None:
+            from .players import PlayerBook
+            self._players = PlayerBook(self.profiles.players_json())
+        return self._players
 
     # -- the shorthands every tab uses constantly ---------------------------
     def dbg(self, component: str = "panel"):

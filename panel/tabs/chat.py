@@ -25,6 +25,7 @@ import os
 import queue
 import re
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
@@ -34,6 +35,7 @@ from tkinter.scrolledtext import ScrolledText
 # stylistic — `python -m panel.tabs.chat` reaches this file before anything else does.
 from .. import chat_history as chathistmod                      # noqa: E402
 from .. import widgets                                          # noqa: E402
+from ..runtime import players                                   # noqa: E402
 from ..runtime.paths import TOOLS, repo_rel                     # noqa: E402
 from .base import PanelTab                                      # noqa: E402
 
@@ -928,13 +930,53 @@ class ChatTab(PanelTab):
         top.transient(self.rt.root)
         top.focus_set()
 
+    @staticmethod
+    def _met_in_chat(met: dict, record: dict) -> None:
+        """Whoever said this, as a row for the register of players (#1371).
+
+        A chat line already carries a uid, a nickname, the speaker's alliance tag and
+        their server — the panel decoded all four to draw the message. Nothing is asked
+        of the game for this; a message that came in is a player we have seen.
+
+        Our own messages are skipped: the register is of OTHER people, and a row for
+        the account itself would sort into every list it is not about.
+        """
+        uid = str(record.get("sender_uid") or "").strip()
+        if not uid or record.get("is_mine"):
+            return
+        server = str(record.get("server_id") or "").strip()
+        met[uid] = {"uid": uid,
+                    "name": (record.get("sender_name") or "").strip() or None,
+                    "alliance_abbr": (record.get("alliance") or "").strip() or None,
+                    "server_id": int(server) if server.isdigit() else None,
+                    "head": (record.get("head_pic") or "").strip() or None,
+                    "seen_at": int(record.get("ts") or time.time())}
+
+    def _file_met(self, met: dict) -> None:
+        """Hand a pump's worth of speakers to the register, OFF the Tk thread.
+
+        A merge that changes anything rewrites the whole register, and this runs on the
+        event loop every open profile's window shares (`docs/panel-tabs.md`).
+        """
+        rows = list(met.values())
+
+        def work() -> None:
+            try:
+                self.rt.players.sighted(rows, source=players.SRC_CHAT)
+            except Exception as exc:                                    # noqa: BLE001
+                self.rt.dbg("chat").warning("players.sighted failed: %s", exc)
+
+        threading.Thread(target=work, daemon=True).start()
+
     def _pump_chat(self) -> None:
         """Drain the chat queue and refresh treeviews — scheduled every 1 s."""
         changed: set = set()
         rebuild: set = set()          # types whose whole window must be redrawn
+        met: dict = {}                # whoever spoke, for the register (#1371)
         try:
             while True:
                 record = self._chat_q.get_nowait()
+                self._met_in_chat(met, record)
                 chat_type = record.get("chat_type", "other")
                 if chat_type not in self._chat_msgs:
                     chat_type = "other"
@@ -983,6 +1025,9 @@ class ChatTab(PanelTab):
                     self._chat_unread[chat_type] = self._chat_unread.get(chat_type, 0) + 1
         except queue.Empty:
             pass
+
+        if met:
+            self._file_met(met)
 
         if self._dm_contacts_dirty:
             self._dm_contacts_dirty = False

@@ -270,6 +270,41 @@ class WorldIndex:
                         self.trucks_seen += 1
                     else:
                         self.trains_seen += 1
+                    self._met_owner(record, now)
+
+    def _met_owner(self, record: dict, now: float) -> None:
+        """A vehicle's OWNER is a player we have just been told about (#1371).
+
+        A truck carries its owner's uid, nickname, alliance and country — everything a
+        base tile does except where they live. So the player is kept, without a
+        coordinate: their base is wherever it is, and a lorry on the road says nothing
+        about it. **The position is deliberately not written** — that is the truck's,
+        and merging it would move the player onto a road.
+
+        Fills only what is missing on a player already held: a base tile is the better
+        word for a name and an alliance, and this must never undo it. Callers hold
+        `_lock`.
+        """
+        uid = str(record.get("owner_uid") or "").strip()
+        if not uid or not uid.isdigit():
+            return
+        held = self._kinds["players"].get(uid)
+        if held is None:
+            held = {"uid": uid, "server_id": record.get("server_id"),
+                    "x": None, "y": None, "uuid": None,
+                    "name": None, "level": None, "alliance_id": None,
+                    "alliance_abbr": None, "country": None,
+                    "power": None, "army_power": None, "army_kill": None,
+                    "svip_level": None, "remark": None}
+            self._kinds["players"][uid] = held
+            self.players_seen += 1
+        for mine, theirs in (("name", "owner_name"), ("alliance_id", "alliance_id"),
+                             ("alliance_abbr", "alliance_abbr"),
+                             ("country", "country")):
+            if held.get(mine) is None and record.get(theirs) is not None:
+                held[mine] = record[theirs]
+        held["seen_at"] = int(now)
+        self._stamp(held)
 
     def _forget_march(self, payload) -> None:
         """A march ended — the truck or train reached its stop, or was wiped.

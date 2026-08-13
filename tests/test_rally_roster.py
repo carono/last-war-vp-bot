@@ -61,9 +61,21 @@ class _Game:
         return list(self.lines)
 
 
+class _Book:
+    """The register every source writes into (#1371) — here, a list of what it got."""
+
+    def __init__(self) -> None:
+        self.rows: list = []
+
+    def sighted(self, records, source, now=None, field_source=None) -> int:
+        self.rows += [dict(r) for r in records]
+        return len(self.rows)
+
+
 class _Rt:
     def __init__(self, game) -> None:
         self.game = game
+        self.players = _Book()
 
 
 def _line(team, members, point="377512", server="1832", name="", level=""):
@@ -377,6 +389,22 @@ def test_nothing_about_the_model_is_module_state():
     second, _g2, _s2 = _roster(lines=[])
     first.heard("100000000000000014", seats="1/5")
     assert len(first.banners()) == 1 and second.banners() == []
+
+
+def test_everyone_standing_in_a_banner_reaches_the_register_of_players():
+    """The block already read them (#1371) — the register costs that read nothing.
+
+    And the power goes in as the SQUAD's, never as the player's: what the march table
+    holds is the strength of the squad in that banner, a fraction of its owner's own.
+    """
+    model, _game, _said = _roster(lines=[
+        _line("100", [_member("1000000000000001", "Player1"),
+                      _member("1000000000000002", "Player2", power="2000000")])])
+    _read(model)
+    got = {row["uid"]: row for row in model.rt.players.rows}
+    assert set(got) == {"1000000000000001", "1000000000000002"}
+    assert got["1000000000000002"]["march_power"] == 2000000
+    assert "power" not in got["1000000000000002"]
 
 
 def _main() -> int:

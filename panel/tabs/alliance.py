@@ -10,8 +10,9 @@ from __future__ import annotations
 import time
 from tkinter import ttk
 
+from ..runtime import players
 from ..widgets import ScrollableFrame, font as ui_font
-from ._data import DataTab, _group, _marker_payloads, _run_lua
+from ._data import DataTab, _group, _int, _marker_payloads, _run_lua
 
 class AllianceTab(DataTab):
     """Alliance roster — name / level / power / online / last seen — in a scrollable
@@ -40,7 +41,12 @@ class AllianceTab(DataTab):
 
     def fetch(self):
         # BEST-EFFORT: try a couple of plausible roster managers; log one line per
-        # member as «ALLY name\tlevel\tpower\tonline\toffLineTime».
+        # member as «ALLY uid\tname\tlevel\tpower\tonline\toffLineTime».
+        #
+        # THE UID IS A FIELD OF A READ THAT ALREADY HAPPENS (#1371), not a second read:
+        # the member objects are in hand, and without their uid the roster is five
+        # facts about somebody the register cannot recognise. With it, every refresh of
+        # this page tops up the register's level and power for the whole alliance.
         chunk = (
             "local M = DataCenter.AllianceMemberDataManager or "
             "DataCenter.AllianceDataManager "
@@ -48,20 +54,49 @@ class AllianceTab(DataTab):
             "if not ok or type(list) ~= 'table' then "
             "ok, list = pcall(function() return M.memberList end) end "
             "if type(list) == 'table' then for _, m in ipairs(list) do "
+            "local u = tostring(m.uid or m.playerUid or m.uuid or '') "
             "local n = tostring(m.name or m.playerName or '?') "
             "local lv = tostring(m.level or m.lv or 0) "
             "local pw = tostring(m.power or m.armyPower or 0) "
             "local on = (m.online and 1 or 0) "
             "local off = tostring(m.offLineTime or 0) "
-            "CS.UnityEngine.Debug.LogError('ALLY '..n..'\\t'..lv..'\\t'..pw..'\\t'..on..'\\t'..off) "
+            "CS.UnityEngine.Debug.LogError('ALLY '..u..'\\t'..n..'\\t'..lv..'\\t'..pw"
+            "..'\\t'..on..'\\t'..off) "
             "end end"
         )
         rows = []
         for payload in _marker_payloads(_run_lua(self.rt, chunk, "ALLY"), "ALLY"):
             parts = payload.split("\t")
-            if len(parts) >= 5:
-                rows.append(parts[:5])
+            if len(parts) >= 6:
+                uid, name, level, power, online, off = parts[:6]
+                rows.append({"uid": uid, "name": name, "level": level,
+                             "power": power, "online": online == "1", "off": off})
+        self._register(rows)
         return rows
+
+    def _register(self, rows) -> None:
+        """Fold the roster into the register of players (#1371).
+
+        Runs on the tab's own worker thread (`DataTab._work`), which is where `fetch`
+        already is — nothing is asked of the game, this is the reply that just arrived.
+        A member with no uid is skipped rather than filed under their nickname: two
+        players may share a name, and a row keyed by one is a row about neither.
+        """
+        seen = []
+        for row in rows:
+            uid = (row.get("uid") or "").strip()
+            if not uid or not uid.isdigit():
+                continue
+            seen.append({"uid": uid, "name": row.get("name") or None,
+                         "level": _int(row.get("level")) or None,
+                         "power": _int(row.get("power")) or None,
+                         "online": bool(row.get("online"))})
+        if not seen:
+            return
+        try:
+            self.rt.players.sighted(seen, source=players.SRC_ALLIANCE)
+        except Exception as exc:                                        # noqa: BLE001
+            self.rt.dbg("alliance").warning("players.sighted failed: %s", exc)
 
     def web_cards(self, rows) -> list:
         """One card, one item per member: who, and when they were last seen."""
@@ -87,11 +122,13 @@ class AllianceTab(DataTab):
                                                 sticky="w", pady=6)
             self._status_var.set("")
             return
-        for r, (name, level, power, online, off) in enumerate(rows, start=1):
-            status = self.rt.t("alliance.online" if online == "1"
-                                 else "alliance.offline")
-            seen = "" if online == "1" else self._fmt_seen(off)
-            for col, text in enumerate((name, level, _group(power), status, seen)):
+        for r, row in enumerate(rows, start=1):
+            online = bool(row.get("online"))
+            status = self.rt.t("alliance.online" if online else "alliance.offline")
+            seen = "" if online else self._fmt_seen(row.get("off"))
+            for col, text in enumerate((row.get("name") or "?",
+                                        row.get("level") or "",
+                                        _group(row.get("power")), status, seen)):
                 ttk.Label(self._scroll, text=text).grid(
                     row=r, column=col, sticky="w", padx=(0, 16), pady=1)
         self._status_var.set(self.rt.t("alliance.count", n=len(rows)))

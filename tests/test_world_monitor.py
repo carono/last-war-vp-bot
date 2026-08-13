@@ -187,11 +187,17 @@ def test_the_world_listener_keeps_all_three_kinds_off_the_hooks_it_is_given():
     index.on_response("push.world.march.world.get.new",
                       {"serverMarchArr": [{"marchInfos": [_march(_truck_train()),
                                                           _march(_alliance_train())]}]})
-    assert index.counts() == {"mines": 1, "trucks": 1, "trains": 1, "players": 0}
+    # The lorry's OWNER is a player we have just been told about (#1371) — kept with
+    # no coordinate, because a truck on the road says nothing about where its owner's
+    # base is.
+    assert index.counts() == {"mines": 1, "trucks": 1, "trains": 1, "players": 1}
     records = index.records()
     assert records["mines"][0]["resource"] == "iron"
     assert records["trucks"][0]["cargo"] == 1500
     assert records["trains"][0]["seats"] == 2
+    owner = records["players"][0]
+    assert (owner["uid"], owner["name"]) == ("1000000000000003", "Player1")
+    assert owner["x"] is None and owner["y"] is None
     # …and every record is stamped with when it was seen, which is what the panel ages
     # a mine out on: a mine has no other clock at all.
     assert all(row["seen_at"] for rows in records.values() for row in rows)
@@ -266,7 +272,7 @@ def test_the_task_capture_forwards_every_hook_to_the_world_listener():
     index.on_blocks(_blocks(_mine_tile(24024, 110)), (), time.time())
     index.on_response("push.world.march.new", _march(_truck_train()))
     assert index.world.counts() == {"mines": 1, "trucks": 1, "trains": 0,
-                                    "players": 0}
+                                    "players": 1}      # the lorry's owner (#1371)
 
 
 def test_a_task_index_built_without_one_is_still_a_task_index():

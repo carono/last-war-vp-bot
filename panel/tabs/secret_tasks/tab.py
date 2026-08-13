@@ -95,6 +95,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
+from ...runtime import players
 from ...widgets import NumericEntry, tk_stringvar, font as ui_font
 from ..base import PanelTab, TriggerSpec
 from . import grid
@@ -2090,7 +2091,37 @@ class SecretTasksTab(PanelTab):
             rows, ok = dispatch_tasks.alliance_roster(self.rt.game.evaluator()), True
         except Exception:                     # noqa: BLE001 — no daemon, no game, no list
             rows, ok = [], False
+        if ok:
+            self._register_owners(rows)
         self.after(lambda: self._roster_landed(rows, ok))
+
+    def _register_owners(self, rows) -> None:
+        """The owners of the alliance's tasks, into the register of players (#1371).
+
+        This read has already happened — it is what fills the table below — and it
+        carries the one thing the raid read does not: a uid beside a nickname.
+
+        NOT THE COORDINATE. A task's tile is somewhere out on the map, nowhere near the
+        owner's base, so writing it as that player's position would move everybody in
+        the alliance onto their own dispatch points. The store refuses it anyway (the
+        tile source may not write `x`/`y`) — this is why.
+        """
+        seen = {}
+        for row in rows or ():
+            uid = str((row or {}).get("owner_uid") or "").strip()
+            if not uid.isdigit():
+                continue
+            seen[uid] = {"uid": uid,
+                         "name": (row.get("owner_name") or "").strip() or None,
+                         "alliance_abbr": (row.get("alliance_abbr") or "").strip()
+                         or None,
+                         "server_id": row.get("server")}
+        if not seen:
+            return
+        try:
+            self.rt.players.sighted(seen.values(), source=players.SRC_TILE)
+        except Exception as exc:                                        # noqa: BLE001
+            self.rt.dbg("secret").warning("players.sighted failed: %s", exc)
 
     def _roster_landed(self, rows, ok: bool) -> None:
         """Hand the read to the table below — but only a read that WORKED.

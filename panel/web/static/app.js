@@ -794,22 +794,13 @@ function renderItem(item) {
     pill.className = 'pill';
     pill.textContent = item.pill ? T(item.pill) : '';
     foot.appendChild(pill);
-    for (const action of item.actions || []) {
-      const button = document.createElement('button');
-      button.className = 'go';
-      button.textContent = T(action.label);
-      button.addEventListener('click', async () => {
-        button.disabled = true;
-        try {
-          const answer = await post('/api/screen/press',
-                                    { id: SCREEN, action: action.id,
-                                      args: action.args || {} });
-          toast(pressWord(answer));
-          setTimeout(() => drawScreen(true), 900);
-        } finally { button.disabled = false; }
-      });
-      foot.appendChild(button);
-    }
+    /* THE SAME BUTTON AS A CARD'S (#1371) — `pressButton`, not a second copy of it.
+     * There were two, and the copy here did not know about `prompt`: every «Метка» on
+     * a player arrived with no text, the panel read that as an empty note, cleared the
+     * mark and answered «готово». Live that was a register of 4 259 players with not
+     * one mark on any of them, and nothing anywhere said why. A press is a press
+     * wherever it is drawn. */
+    for (const action of item.actions || []) foot.appendChild(pressButton(action));
     line.appendChild(foot);
   }
   return line;
