@@ -129,6 +129,14 @@ class PlayersTab(PanelTab):
     NEEDS = frozenset({"daemon"})
     PREFERRED_SIZE = "1040x640"
     WEB_SCREEN = True
+    #: EAGER, and this is the one thing about the tab that had to be measured live: the
+    #: capture's checkpoint holds a sighting for fifteen minutes, so a lap driven by the
+    #: schedule at three in the morning is gone long before anybody clicks this page. A
+    #: register that only collects while somebody is watching it is not a register. What
+    #: `ensure_loaded` starts is therefore something that has to be RUNNING — the merge —
+    #: and it reads a file on a worker thread and never the game, which is the bar the
+    #: contract test holds an EAGER tab to.
+    EAGER = True
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
