@@ -76,8 +76,12 @@ def _keys_in(view: dict) -> list:
                 found.append(fact.get("label", ""))
             for action in item.get("actions") or ():
                 found.append(action.get("label", ""))
+                # A press that asks for a WORD (#1335) names the box's title the same
+                # way it names its own label — a key, said by the browser.
+                found.append(action.get("prompt", ""))
     for action in view.get("actions") or ():
         found.append(action.get("label", ""))
+        found.append(action.get("prompt", ""))
     return [k for k in found if k]
 
 

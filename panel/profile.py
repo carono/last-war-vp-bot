@@ -119,6 +119,14 @@ WORLD_JSON = "world_map.json"
 #: handing one page's checkpoint to another's reader is the mix-up the separate files
 #: above already exist to prevent.
 WORLD_STATE = "world_state_%s.json"
+#: The REGISTER OF PLAYERS this account has swept past (#1335) — one row per uid, kept
+#: for good. Not the same file as WORLD_JSON above, and the difference is the whole
+#: point: that one is what the capture can see RIGHT NOW and is rewritten every tick
+#: with the stale rows evicted, while this one only ever grows and gives a row up for
+#: one reason, which is a person asking (`panel/kept.py`, PERSON_ASKED). A lap that
+#: collected nothing, a client that was not logged in, a capture that was not running —
+#: none of them may take a name off this list.
+PLAYERS_STATE = "players.json"
 # The profile's own timer catalogue and the record of when each of them last ran
 # (panel/timers.py). Both per profile: one account's schedule is not the other's,
 # and neither is its clock. A profile with no catalogue yet is seeded from the
@@ -830,6 +838,14 @@ class ProfileManager:
         read once per client — see `tools/lib/world_index.py`.
         """
         return os.path.join(self.dir(name), WORLD_JSON)
+
+    def players_json(self, name: str | None = None) -> str:
+        """This profile's REGISTER of players — everyone its laps have seen (#1335).
+
+        Per profile because a register belongs to an ACCOUNT: its own server, its own
+        neighbours, its own marks. Fed from `world_json` and never emptied by it.
+        """
+        return os.path.join(self.dir(name), PLAYERS_STATE)
 
     def world_state_json(self, page: str, name: str | None = None) -> str:
         """Where ONE world page checkpoints its OWN gathered list (#1289).

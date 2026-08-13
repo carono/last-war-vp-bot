@@ -2656,6 +2656,55 @@ def player_remarks(payload: dict):
 
 
 # --------------------------------------------------------------------------
+# Alliance names: the one thing a base tile does NOT say about its alliance
+# --------------------------------------------------------------------------
+#
+# A player's base (`f2 = 6`) carries the alliance's uuid and its ABBREVIATION
+# — the three or four letters drawn in brackets beside the name — and nothing
+# else. The alliance's full name is on the tiles the alliance itself owns:
+#
+#     f2 = 25   alliance city       f101: f7 uuid, f5 abbr, f10 name
+#     f2 = 35   named facility      f101: f10 uuid, f9 abbr, f11 name
+#
+# Joined by the UUID rather than by the abbreviation, which is not unique and
+# is not even guaranteed to be spelled the same case twice.
+#
+# **Coverage is partial and that is a property of the game, not of this
+# decoder.** Over one recorded whole-server lap the base tiles named 107
+# distinct alliances while the city and facility tiles named 20, of which 11
+# were alliances that also had a base on the map — most alliances simply own
+# no city. So an alliance name is a bonus a sweep sometimes brings and never
+# something to gate a row on.
+ALLIANCE_CITY_TILE_TYPE = 25
+ALLIANCE_FACILITY_TILE_TYPE = 35
+
+
+def alliance_names(payload: dict):
+    """Yield `(alliance_id, abbr, name)` for every alliance a response names.
+
+    Both tile kinds spell the same three things in different fields, so this
+    is one generator rather than two: what a caller wants is the mapping, not
+    which sort of building it came off.
+    """
+    for block in payload.get("serverPointArr") or ():
+        for point in block.get("points") or ():
+            tile = (point or {}).get("_protobuf") or {}
+            kind = tile.get("f2")
+            if kind == ALLIANCE_CITY_TILE_TYPE:
+                detail = tile.get("f101") or {}
+                uuid, abbr, name = (detail.get("f7"), detail.get("f5"),
+                                    detail.get("f10"))
+            elif kind == ALLIANCE_FACILITY_TILE_TYPE:
+                detail = tile.get("f101") or {}
+                uuid, abbr, name = (detail.get("f10"), detail.get("f9"),
+                                    detail.get("f11"))
+            else:
+                continue
+            if uuid and name:
+                yield (str(uuid), abbr or None, name)
+
+
+# --------------------------------------------------------------------------
 # Leaderboards: the ranking screens, as the server sends them
 # --------------------------------------------------------------------------
 #

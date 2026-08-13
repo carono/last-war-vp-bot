@@ -194,6 +194,7 @@ TABS: tuple = (
             in_development=True),
     TabSpec("stats",     "panel.tabs.stats",     "StatsTab",     order=250,
             in_development=True),
+    TabSpec("players",   "panel.tabs.players",   "PlayersTab",   order=260),
     TabSpec("rally",     "panel.tabs.rally",     "RallyTab",     order=300),
     TabSpec("secret_tasks", "panel.tabs.secret_tasks", "SecretTasksTab",
             order=310),

@@ -710,16 +710,31 @@ function pressWord(answer) {
   return why ? T('web.ui.refused.why', { why: T(why) }) : T('web.ui.refused');
 }
 
+/* A press that needs a WORD from the person — the register's own mark on a player is
+ * the first of them (#1335). Without this the phone could read a note and never write
+ * one, and the window would have a control the phone has not: exactly the divergence
+ * CLAUDE.md forbids, arrived at by way of «the renderer cannot type».
+ *
+ * `prompt` is a LOCALE KEY like every other word in a view; `value` is the text the
+ * box opens with (data — somebody's note). What comes back travels as `args.text`, so
+ * a tab reads it beside the id the action already carried. Cancelling presses nothing
+ * at all, which is the one thing a prompt must get right. */
 function pressButton(action) {
   const button = document.createElement('button');
   button.className = 'go';
   button.textContent = T(action.label);
   button.addEventListener('click', async () => {
+    let args = action.args || {};
+    if (action.prompt) {
+      const typed = window.prompt(T(action.prompt), action.value || '');
+      if (typed === null) return;
+      args = Object.assign({}, args, { text: typed });
+    }
     button.disabled = true;
     try {
       const answer = await post('/api/screen/press',
                                 { id: SCREEN, action: action.id,
-                                  args: action.args || {} });
+                                  args: args });
       toast(pressWord(answer));
       setTimeout(() => drawScreen(true), 900);
     } finally { button.disabled = false; }

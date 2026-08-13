@@ -187,7 +187,7 @@ def test_the_world_listener_keeps_all_three_kinds_off_the_hooks_it_is_given():
     index.on_response("push.world.march.world.get.new",
                       {"serverMarchArr": [{"marchInfos": [_march(_truck_train()),
                                                           _march(_alliance_train())]}]})
-    assert index.counts() == {"mines": 1, "trucks": 1, "trains": 1}
+    assert index.counts() == {"mines": 1, "trucks": 1, "trains": 1, "players": 0}
     records = index.records()
     assert records["mines"][0]["resource"] == "iron"
     assert records["trucks"][0]["cargo"] == 1500
@@ -198,9 +198,15 @@ def test_the_world_listener_keeps_all_three_kinds_off_the_hooks_it_is_given():
 
 
 def test_a_command_the_listener_was_never_told_about_costs_a_lookup():
-    """`on_response` sees most of the traffic, so an unlisted name must decode nothing."""
+    """`on_response` sees most of the traffic, so an unlisted name must decode nothing.
+
+    The example used to be `get.user.info.multi`, which the listener now DOES read —
+    that reply is where a player's power comes from (#1335) — so it has been swapped
+    for one nothing here has ever heard of. The point is unchanged: a name off the list
+    must not be decoded because the payload happens to look decodable.
+    """
     index = world_index.WorldIndex()
-    index.on_response("get.user.info.multi", {"marchInfos": [_march(_truck_train())]})
+    index.on_response("no.such.command.ever", {"marchInfos": [_march(_truck_train())]})
     assert index.counts()["trucks"] == 0
 
 
@@ -259,7 +265,8 @@ def test_the_task_capture_forwards_every_hook_to_the_world_listener():
 
     index.on_blocks(_blocks(_mine_tile(24024, 110)), (), time.time())
     index.on_response("push.world.march.new", _march(_truck_train()))
-    assert index.world.counts() == {"mines": 1, "trucks": 1, "trains": 0}
+    assert index.world.counts() == {"mines": 1, "trucks": 1, "trains": 0,
+                                    "players": 0}
 
 
 def test_a_task_index_built_without_one_is_still_a_task_index():

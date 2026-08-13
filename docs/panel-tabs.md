@@ -797,6 +797,14 @@ the i18n test only reads `t()` calls in `.py`, so a sentence written into a dict
 sail past it. `tests/test_panel_web_screens.py` reads the views instead and fails on a
 label that is not a key.
 
+**A press may ask for a WORD** (#1335). An action with `prompt` — a locale key — opens
+the phone's own text box before it fires, filled with whatever `value` the action
+carried (data: somebody's note), and what is typed arrives as `args.text`. Cancelling
+presses nothing at all. It exists because the renderer could otherwise only ever READ a
+free-text field and never write one, which would have made every such field a
+window-only control — an omission dressed as a divergence. The register's own mark on a
+player is the first of them.
+
 **A picture is a LINK, never bytes.** An item may carry `avatar` — a URL into the
 panel's own picture route, `"/api/avatar?face=<file name>"` — and the browser draws it
 before the title and drops it silently if it will not load (#1324, «Ралли» draws the

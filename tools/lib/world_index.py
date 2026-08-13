@@ -25,6 +25,18 @@ whole-server lap at height 600 (`results/lv_a600.jsonl`, 244 map responses):
 * **alliance trains** — the same march shape with `train.type = 2`, which the
   truck decoder deliberately skips. Rare: 3 in every recording on disk.
   `lastwar_proto.trains`.
+* **players** — the `f2 = 6` base tiles, 6 723 of them in that same lap
+  (#1335). `lastwar_proto.player_bases`, plus the two things a base tile does
+  NOT carry and this listener folds in as they arrive: the combat numbers off a
+  `get.user.info.multi` reply (a click on a base, or the alliance roster the
+  client fetches at login) and the note the account has written on that player
+  (`user.remark.list`, also login-time). The alliance's full NAME comes off the
+  alliance's own city tiles the same lap drives past.
+
+  **This checkpoint is a LIVE VIEW and not the register.** It ages out and it is
+  capped like every other kind here; what keeps a player for good is the panel's
+  own per-profile list, which merges this and never removes a row for a read
+  that came back empty (`panel/tabs/players/`, `panel/kept.py`).
 
 **Monsters are NOT here, and that is not an omission.** Nothing on the wire
 names one — checked across incremental pans, a full district load, the login
@@ -55,6 +67,14 @@ STALE_AFTER_SECONDS = proto.TASK_FRESH_SECONDS
 #: are what survive — and the capture SAYS how many it dropped, because a silent
 #: truncation reads as «that is all there was».
 DEFAULT_MAX_PER_KIND = 5000
+
+#: …and how many PLAYERS, which needs a bigger number than the rest: one recorded
+#: whole-server lap held 6 723 base tiles and they all arrive inside about three
+#: seconds, so the ordinary cap would throw away a quarter of a lap before the
+#: panel's register ever saw it. The cost is a checkpoint of a couple of megabytes
+#: that lives fifteen minutes; the register on the other side of it is what keeps
+#: them, and it keeps them for good.
+DEFAULT_MAX_PLAYERS = 20000
 
 
 def _mine_rank(record: dict) -> tuple:
@@ -94,33 +114,146 @@ class WorldIndex:
     MARCH_GONE = "push.world.march.del"
 
     def __init__(self, stale_after: float = STALE_AFTER_SECONDS,
-                 max_per_kind: int = DEFAULT_MAX_PER_KIND) -> None:
+                 max_per_kind: int = DEFAULT_MAX_PER_KIND,
+                 max_players: int = DEFAULT_MAX_PLAYERS) -> None:
         self.stale_after = stale_after
         self.max_per_kind = max_per_kind
+        self.max_players = max_players
         self._lock = threading.RLock()
         #: kind -> {key: record}, each record already `as_dict()`-ed and stamped
         #: with `seen_at`, because that is exactly what the checkpoint carries.
-        self._kinds: dict = {"mines": {}, "trucks": {}, "trains": {}}
+        self._kinds: dict = {"mines": {}, "trucks": {}, "trains": {}, "players": {}}
         #: How many records the last `records()` had to drop to the cap, per kind.
-        self.dropped: dict = {"mines": 0, "trucks": 0, "trains": 0}
+        self.dropped: dict = {"mines": 0, "trucks": 0, "trains": 0, "players": 0}
         #: Counters, so «nothing found» and «nothing arrived» stay different
         #: answers — the same reason `MapIndex` counts its blocks.
         self.mines_seen = 0
         self.trucks_seen = 0
         self.trains_seen = 0
+        self.players_seen = 0
+        #: How many `get.user.info.multi` entries were folded onto a player, and
+        #: how many notes the account's own list turned out to hold. Both are the
+        #: same distinction the counters above are for: «none arrived» is not
+        #: «none matched».
+        self.profiles_seen = 0
+        self.remarks_known = 0
+        #: alliance uuid -> full name, off the alliance's own city tiles. Held
+        #: rather than merged once, because a base tile and its alliance's city
+        #: arrive in no particular order — and stamped both ways, so whichever
+        #: comes second fills the other in.
+        self._alliances: dict = {}
+        #: uid -> the note THIS ACCOUNT has written on that player, from
+        #: `user.remark.list`. It arrives once, at login, before any map data, so
+        #: the same holding-and-stamping applies with more force.
+        self._remarks: dict = {}
 
     # -- the two hooks the capture forwards --------------------------------
     def on_blocks(self, payload, blocks, now: float) -> None:
-        """Map tiles: the mines among them."""
+        """Map tiles: the mines and the player bases among them."""
+        learned = False
+        for uuid, _abbr, name in proto.alliance_names(payload):
+            with self._lock:
+                learned = learned or self._alliances.get(uuid) != name
+                self._alliances[uuid] = name
+        if learned:
+            # An alliance's city and its members' bases arrive in whatever order the
+            # camera drove over them, so a name learned now has to reach the rows that
+            # came first. Only when something was actually learned: a lap re-sends the
+            # same city tile dozens of times.
+            with self._lock:
+                for record in self._kinds["players"].values():
+                    self._stamp(record)
         for mine in proto.mines(payload):
             record = mine.as_dict()
             record["seen_at"] = int(now)
             with self._lock:
                 self._kinds["mines"][mine.uuid] = record
                 self.mines_seen += 1
+        for base in proto.player_bases(payload):
+            record = base.as_dict()
+            record["seen_at"] = int(now)
+            with self._lock:
+                # A tile knows nothing about power, so it must never write the
+                # numbers a profile reply left here — the merge goes the other
+                # way round (`PlayerBase.merged_with`, `_take_profiles`).
+                held = self._kinds["players"].get(base.uid) or {}
+                for field in ("power", "army_power", "army_kill", "svip_level",
+                              "profile_seen_at"):
+                    if held.get(field) is not None:
+                        record[field] = held[field]
+                self._kinds["players"][base.uid] = self._stamp(record)
+                self.players_seen += 1
+
+    def _stamp(self, record: dict) -> dict:
+        """Write on `record` the two things no base tile carries.
+
+        The alliance's full name and the note this account has written on that
+        player. Mutates and returns the same dict so it can be dropped into an
+        assignment. Callers hold `_lock`.
+        """
+        name = self._alliances.get(record.get("alliance_id"))
+        if name:
+            record["alliance_name"] = name
+        remark = self._remarks.get(str(record.get("uid")))
+        if remark is not None:
+            record["remark"] = remark
+        return record
+
+    def _take_profiles(self, payload) -> None:
+        """Fold a `get.user.info.multi` reply onto the players already held.
+
+        The reply carries what no tile does — power, army power, lifetime kills,
+        SVIP level — and it arrives because somebody opened a player, or because
+        the client fetched the alliance roster at login. Both are equally real.
+
+        A player nobody has swept past is kept all the same, with no coordinates:
+        the numbers are the point of the lookup, and the register on the other
+        side of this checkpoint has a row for them the moment a lap goes by.
+        """
+        now = time.time()
+        for profile in proto.player_profiles(payload):
+            with self._lock:
+                held = self._kinds["players"].get(profile.uid)
+                if held is not None:
+                    base = proto.PlayerBase.from_dict(held).merged_with(profile)
+                    record = base.as_dict()
+                    record["seen_at"] = held.get("seen_at") or int(now)
+                else:
+                    record = profile.as_base().as_dict()
+                    record["seen_at"] = int(now)
+                record["profile_seen_at"] = int(now)
+                self._kinds["players"][profile.uid] = self._stamp(record)
+                self.profiles_seen += 1
+
+    def _take_remarks(self, payload) -> None:
+        """Take this account's own notes on other players (`user.remark.list`).
+
+        Kept by uid alone — a note follows the player and not their base — and
+        stamped onto what is already held as well as onto whatever arrives next.
+        An entry with no text is a note that was deleted, and clears the field
+        rather than leaving stale words on the row.
+        """
+        with self._lock:
+            for uid, remark, _updated in proto.player_remarks(payload):
+                if remark is None:
+                    self._remarks.pop(uid, None)
+                    held = self._kinds["players"].get(uid)
+                    if held is not None:
+                        held["remark"] = None
+                else:
+                    self._remarks[uid] = remark
+            self.remarks_known = len(self._remarks)
+            for record in self._kinds["players"].values():
+                self._stamp(record)
 
     def on_response(self, command, payload) -> None:
         """Everything else the server says: the march stream, and its removals."""
+        if command == proto.PROFILE_COMMAND and isinstance(payload, dict):
+            self._take_profiles(payload)
+            return
+        if command == proto.REMARK_COMMAND and isinstance(payload, dict):
+            self._take_remarks(payload)
+            return
         if command == self.MARCH_GONE:
             self._forget_march(payload)
             return
@@ -165,6 +298,15 @@ class WorldIndex:
         """
         with self._lock:
             for kind, records in self._kinds.items():
+                # PLAYERS ARE NOT DROPPED, and that is the difference between a
+                # place and a thing that moves. A truck goes on being walked down
+                # a route it may have left and a mine goes on claiming to be free,
+                # on a map nobody is looking at — but a base does not stop being
+                # where it was because the camera went to another server, and a
+                # lap across two servers is a thing people do on purpose
+                # (`tools/scan_players.py` keeps them for the same reason).
+                if kind == "players":
+                    continue
                 for key, record in list(records.items()):
                     if record.get("server_id") != current:
                         records.pop(key, None)
@@ -178,20 +320,22 @@ class WorldIndex:
                     records.pop(key, None)
 
     def records(self) -> dict:
-        """`{"mines": [...], "trucks": [...], "trains": [...]}`, fresh and capped.
+        """`{"mines": […], "trucks": […], "trains": […], "players": […]}`, fresh and capped.
 
         Eviction runs here, so the file never carries a sighting already past the
         window, and the cap is applied on a ranking that keeps what is worth
         keeping (see `_mine_rank`) rather than on dict order.
         """
-        ranks = {"mines": _mine_rank, "trucks": _cargo_rank, "trains": _fresh_rank}
+        ranks = {"mines": _mine_rank, "trucks": _cargo_rank, "trains": _fresh_rank,
+                 "players": _fresh_rank}
         out = {}
         with self._lock:
             self._evict(time.time())
             for kind, records in self._kinds.items():
+                cap = self.max_players if kind == "players" else self.max_per_kind
                 rows = sorted(records.values(), key=ranks[kind])
-                self.dropped[kind] = max(len(rows) - self.max_per_kind, 0)
-                out[kind] = rows[:self.max_per_kind]
+                self.dropped[kind] = max(len(rows) - cap, 0)
+                out[kind] = rows[:cap]
         return out
 
     def counts(self) -> dict:

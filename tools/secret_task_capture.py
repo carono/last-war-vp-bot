@@ -406,7 +406,8 @@ def main() -> int:
                                         for k, n in world.dropped.items() if n)
                         print(f"{C_DIM}  world: {held['mines']} mine(s), "
                               f"{held['trucks']} truck(s), "
-                              f"{held['trains']} train(s)"
+                              f"{held['trains']} train(s), "
+                              f"{held['players']} player(s)"
                               f"{' — ' + cut if cut else ''}{C_RESET}")
                 if index.transcript is not None:
                     # Flushed here rather than per frame, so a reader tailing
@@ -505,8 +506,9 @@ def main() -> int:
     if world is not None:
         held = world.counts()
         if dump_tasks(world.records(), args.world_json):
-            print(f"{C_OK}wrote {held['mines']} mine(s), {held['trucks']} truck(s) "
-                  f"and {held['trains']} train(s) to {args.world_json}{C_RESET}")
+            print(f"{C_OK}wrote {held['mines']} mine(s), {held['trucks']} truck(s), "
+                  f"{held['trains']} train(s) and {held['players']} player(s) to "
+                  f"{args.world_json}{C_RESET}")
         else:
             print(f"{C_ERR}could not write {args.world_json} — the file is held "
                   f"by another process.{C_RESET}")
