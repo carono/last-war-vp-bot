@@ -170,8 +170,8 @@ def _rows() -> list:
     ]
 
 
-def _found(f, home=None) -> set:
-    return {r["uid"] for r in reg.apply_filter(_rows(), f, now=NOW, home_server=home)}
+def _found(f) -> set:
+    return {r["uid"] for r in reg.apply_filter(_rows(), f, now=NOW)}
 
 
 def test_one_box_searches_name_alliance_and_coordinate():
@@ -191,12 +191,16 @@ def test_the_ranges_are_inclusive_and_an_unknown_is_not_in_one():
     assert _found({"power_min": 10_000_000}) == {"1"}
 
 
-def test_own_server_and_other_servers():
-    assert _found({"server": "home"}, home=100) == {"1", "3"}
-    assert _found({"server": "other"}, home=100) == {"2"}
-    # …and with no home server known the clause cannot be applied, rather than hiding
-    # everything: «свой сервер» is a question the register cannot answer by itself.
-    assert _found({"server": "home"}) == {"1", "2", "3"}
+def test_the_server_is_picked_by_number_and_never_asked_of_the_game():
+    """«Свой / чужой» would have meant reading the client to find out which is «свой».
+
+    The rows carry the server their tile was on, so the box offers those and the page
+    asks the game nothing — the rule this whole tab is built on.
+    """
+    assert _found({"server": "100"}) == {"1", "3"}
+    assert _found({"server": "200"}) == {"2"}
+    assert _found({"server": ""}) == {"1", "2", "3"}
+    assert _found({"server": "999"}) == set()
 
 
 def test_a_rectangle_and_a_radius():
@@ -347,17 +351,14 @@ class _Rt:
 
 
 def _bare_tab(tmp):
-    from panel.tabs.players.tab import PlayersTab
+    from panel.tabs.players.tab import BLANK_FILTER as PlayersTab_BLANK, PlayersTab
 
     tab = PlayersTab.__new__(PlayersTab)
     tab.rt = _Rt()
     tab._registry = _store(tmp)
     tab._sort = reg.DEFAULT_SORT
     tab._home_server = None
-    tab._filter = {"text": "", "level_min": None, "level_max": None,
-                   "power_min": None, "power_max": None, "alliance": "",
-                   "server": "any", "rect": None, "circle": None,
-                   "seen": "any", "noted": False}
+    tab._filter = dict(PlayersTab_BLANK)
     tab._built = False
     tab._merging = False
     tab._armed_forget = (None, 0.0)
@@ -398,14 +399,16 @@ def test_the_phone_says_only_keys_that_exist_and_offers_only_answered_presses():
 def test_a_press_from_the_phone_moves_the_same_filter_the_window_shows():
     with tempfile.TemporaryDirectory() as tmp:
         tab = _bare_tab(tmp)
+        # The server steps come out of the register, so it needs a row to have any.
+        tab._registry.absorb([_swept(server_id=100)], now=time.time())
         tab.web_press("server", {})
-        assert tab._filter["server"] == "home"
+        assert tab._filter["server"] == "100", "the register's own server, not a table"
         tab.web_press("noted", {})
         assert tab._filter["noted"] is True
         tab.web_press("level", {})
         assert tab._filter["level_min"] == 20
         tab.web_press("reset", {})
-        assert tab._filter["server"] == "any" and tab._filter["level_min"] is None
+        assert tab._filter["server"] == "" and tab._filter["level_min"] is None
 
 
 def test_forgetting_from_the_phone_asks_once_before_it_does_it():
@@ -417,6 +420,26 @@ def test_forgetting_from_the_phone_asks_once_before_it_does_it():
         assert len(tab._registry) == 1, "the first press must not remove anything"
         assert tab.web_press("forget", {"uid": "1000000000000001"})["ok"] is True
         assert len(tab._registry) == 0
+
+
+def test_nothing_on_this_tab_can_reach_the_game():
+    """The rule the whole page rests on, read off its own source.
+
+    «Собираем ровно то, что и так приходит с обхода» — so no path here may top a row
+    up: not opening the tab, not a filter, not a sort, not a selected row. A field the
+    map did not carry stays empty and SAYS so. The one read that used to be here asked
+    which server this account is on, for the «свой / чужой» filter; the filter picks a
+    number out of the register instead.
+    """
+    for name in ("tab.py", "registry.py"):
+        source = (ROOT / "panel" / "tabs" / "players" / name).read_text(encoding="utf-8")
+        code = "\n".join(line for line in source.splitlines()
+                          if not line.lstrip().startswith("#"))
+        # `rt.game` is the whole surface: evaluator(), client, up(), claim(), jump(),
+        # current_server(). None of it belongs on this tab.
+        assert "rt.game" not in code, f"{name} reaches the game"
+        assert "play_async" not in code and "rt.actions" not in code, (
+            f"{name} runs a scenario — this page reads a file and nothing else")
 
 
 def _main() -> int:

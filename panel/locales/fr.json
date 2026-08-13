@@ -1645,8 +1645,6 @@
   "players.filter.seen": "Vu",
   "players.filter.noted": "Marqués seulement",
   "players.server.any": "n'importe quel serveur",
-  "players.server.home": "serveur d'origine",
-  "players.server.other": "autres serveurs",
   "players.seen.any": "n'importe quand",
   "players.seen.hour": "dans l'heure",
   "players.seen.day": "dans la journée",

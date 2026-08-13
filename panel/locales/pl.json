@@ -1645,8 +1645,6 @@
   "players.filter.seen": "Widziany",
   "players.filter.noted": "Tylko oznaczeni",
   "players.server.any": "dowolny serwer",
-  "players.server.home": "własny serwer",
-  "players.server.other": "inne serwery",
   "players.seen.any": "kiedykolwiek",
   "players.seen.hour": "w ciągu godziny",
   "players.seen.day": "w ciągu doby",

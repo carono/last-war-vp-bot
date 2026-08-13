@@ -1645,8 +1645,6 @@
   "players.filter.seen": "Görülme",
   "players.filter.noted": "Sadece işaretliler",
   "players.server.any": "herhangi bir sunucu",
-  "players.server.home": "kendi sunucusu",
-  "players.server.other": "diğer sunucular",
   "players.seen.any": "herhangi bir zaman",
   "players.seen.hour": "son bir saatte",
   "players.seen.day": "son bir günde",

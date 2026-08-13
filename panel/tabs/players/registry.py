@@ -30,6 +30,23 @@ showing a row, never a way of removing one.
 Keeping them apart is what stops the panel keeping a second version of a truth the game
 already owns: nothing here ever writes into a field a sweep fills.
 
+## Nothing here ever asks the game anything
+
+**The register takes what a lap already brings and never goes back for more.** Not on
+opening the page, not on a filter, not on a sort, not for one row somebody selected. A
+sweep sees thousands of players and a top-up per player would be thousands of requests
+the game never asked for — so a field the map did not carry stays empty, and the page
+SAYS it is empty rather than fetching it.
+
+That is why the server filter picks a NUMBER rather than «свой / чужой»: which server is
+this account's is a question only the client can answer, and asking it would have been
+exactly the read this rule forbids. Every row already carries the server its tile was
+on, so the box offers those.
+
+The combat numbers are the same bargain from the other side: they arrive only when the
+person opens a player IN THE GAME, or when the client fetches the alliance roster at
+login. The register keeps them when they pass by and never sends for them.
+
 ## Why a sweep may not write None
 
 A base tile carries no combat numbers and a capture that has just started has heard no
@@ -219,7 +236,7 @@ def _in_range(value, low, high) -> bool:
     return True
 
 
-def matches(row: dict, f: dict, now: float, home_server=None) -> bool:
+def matches(row: dict, f: dict, now: float) -> bool:
     """Does one row pass the whole filter? Every clause is an «and».
 
     `f` is the filter as the page holds it — every key optional, and a missing or empty
@@ -239,16 +256,15 @@ def matches(row: dict, f: dict, now: float, home_server=None) -> bool:
     if tag and (row.get("alliance_abbr") or "").casefold() != tag:
         return False
 
-    # «Свой сервер» is a question the register cannot answer by itself: which server is
-    # THIS account's is the runtime's business, so an unknown home server means the
-    # clause cannot be applied rather than that it fails everything.
-    server = f.get("server") or "any"
-    if server != "any" and home_server is not None:
-        home = row.get("server_id") == home_server
-        if server == "home" and not home:
-            return False
-        if server == "other" and home:
-            return False
+    # THE SERVER IS PICKED BY NUMBER, not as «own / other» — and that is a decision
+    # rather than a simplification. «Свой» is a question only the game can answer, so
+    # the page would have had to ask the client which server it is on the first time
+    # anybody opened it: a read of the game for a filter, on a tab whose whole point is
+    # that it costs a sweep nothing. The numbers are in the register already (every row
+    # carries the server its tile was on), so the box offers exactly those.
+    server = str(f.get("server") or "").strip()
+    if server and str(row.get("server_id")) != server:
+        return False
 
     x, y = row.get("x"), row.get("y")
     box = f.get("rect")
@@ -284,10 +300,10 @@ def matches(row: dict, f: dict, now: float, home_server=None) -> bool:
     return True
 
 
-def apply_filter(rows, f: dict, now: float | None = None, home_server=None) -> list:
+def apply_filter(rows, f: dict, now: float | None = None) -> list:
     """The rows a filter keeps, in the order they were given."""
     now = time.time() if now is None else now
-    return [r for r in rows if matches(r, f, now, home_server)]
+    return [r for r in rows if matches(r, f, now)]
 
 
 #: How each column is ordered, and the tie-break every one of them ends with: without

@@ -1645,8 +1645,6 @@
   "players.filter.seen": "Zuletzt gesehen",
   "players.filter.noted": "Nur markierte",
   "players.server.any": "beliebiger Server",
-  "players.server.home": "eigener Server",
-  "players.server.other": "andere Server",
   "players.seen.any": "jederzeit",
   "players.seen.hour": "in der letzten Stunde",
   "players.seen.day": "am letzten Tag",

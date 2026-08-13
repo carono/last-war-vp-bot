@@ -48,7 +48,14 @@ equally real (`docs/research/protocol.md` §7).
 So the register folds them in **when they happen to arrive** and asks for nothing: a lap
 sees seven thousand players, and seven thousand lookups is not a sweep. A row that has
 never been opened carries `power = null`, which is «never looked up» and deliberately
-not zero — the filters treat the two differently.
+not zero — the filters treat the two differently, and the table draws «—».
+
+**This is a rule and not a shortcut.** No path on the page may top a row up: not opening
+the tab, not a filter, not a sort, not a selected row. The one game read that did exist
+asked which server this account is on, so that «свой / чужой сервер» could mean
+something — and it was taken out: the server filter picks a NUMBER from the servers the
+register already holds. `tests/test_players_registry.py` reads the tab's own source and
+fails on the day anything there reaches for `rt.game`.
 
 **No alliance NAME.** Only the tag. The full name is on the alliance's own tiles, which
 the same lap drives past:

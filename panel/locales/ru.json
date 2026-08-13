@@ -1645,8 +1645,6 @@
   "players.filter.seen": "Виден",
   "players.filter.noted": "Только с меткой",
   "players.server.any": "любой сервер",
-  "players.server.home": "свой сервер",
-  "players.server.other": "чужие серверы",
   "players.seen.any": "когда угодно",
   "players.seen.hour": "за час",
   "players.seen.day": "за сутки",

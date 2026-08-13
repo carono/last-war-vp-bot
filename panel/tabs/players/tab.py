@@ -9,6 +9,12 @@ no npcap handle and no game read to a sweep. The second listener inside that cap
 (`tools/lib/world_index.py`) keeps what it hears in the profile's `world_map.json`, and
 this page merges from there on a slow tick.
 
+**And it asks the game for nothing, ever** — that is the second half of the bargain.
+Not on opening the page, not behind a filter, not behind a sort, not for the row
+somebody selected. A sweep sees thousands of players and a top-up per player would be
+thousands of requests nobody asked for, so an empty field stays empty and the page says
+«нет данных» rather than sending for it.
+
 What a base tile carries, measured over one recorded whole-server lap of 6 723 of them:
 the player's uid, name, HQ level, country, coordinates, server and the tile's uuid on
 every single one; their alliance's uuid and TAG on the quarter of them who are in an
@@ -94,8 +100,17 @@ COLUMNS = (
 LEVEL_STEPS = (None, 20, 25, 30, 35)
 #: …and the same for power, in millions.
 POWER_STEPS = (None, 1_000_000, 10_000_000, 50_000_000, 100_000_000)
-SERVER_STEPS = ("any", "home", "other")
+#: The server filter's steps are the servers the REGISTER holds — worked out when the
+#: press is made, never a table here. `""` is «any».
 SEEN_STEPS = ("any", "hour", "day", "week", "stale")
+
+#: Every filter at «any» — the one spelling of it, used to make the state and to
+#: reset it. Two spellings disagreed about what «any server» is within an hour of
+#: existing.
+BLANK_FILTER = {"text": "", "level_min": None, "level_max": None,
+                "power_min": None, "power_max": None, "alliance": "",
+                "server": "", "rect": None, "circle": None,
+                "seen": "any", "noted": False}
 
 #: How long a «Забыть» press from the phone stays armed. Long enough to press twice on
 #: purpose, short enough that a phone left in a pocket disarms itself.
@@ -123,10 +138,12 @@ class PlayersTab(PanelTab):
     TITLE_KEY = "tab.players"
     ORDER = 260
     LOCALE_NS = ("players",)
-    #: The register itself needs nothing — it is fed by the capture the «Секретки» tab
-    #: already runs, and read off a file. The daemon is asked ONE question, once: which
-    #: server is this account's, so «свой / чужой» can mean something.
-    NEEDS = frozenset({"daemon"})
+    #: NOTHING. The register is fed by the capture the «Секретки» tab already runs and
+    #: read off a file; this page never speaks to the game at all — not on opening, not
+    #: behind a filter, not behind a sort, not for a selected row. A field the map did
+    #: not carry stays empty and says so, and `tests/test_players_registry.py` fails on
+    #: the day something here reaches for `rt.game`.
+    NEEDS = frozenset()
     PREFERRED_SIZE = "1040x640"
     WEB_SCREEN = True
     #: EAGER, and this is the one thing about the tab that had to be measured live: the
@@ -144,18 +161,13 @@ class PlayersTab(PanelTab):
         # phone can open this screen without the window ever having drawn the tab.
         self._registry = reg.PlayerRegistry(self.rt.profiles.players_json())
         self._sort = reg.DEFAULT_SORT
-        self._home_server = None
-        self._home_asked = False
         self._shown = 0
         self._hidden = 0
         self._merging = False
         self._armed_forget = (None, 0.0)
         # The filter, as ONE dict the window's variables write into and the phone's
         # presses move. Two front-ends, one state (`docs/panel-tabs.md`).
-        self._filter = {"text": "", "level_min": None, "level_max": None,
-                        "power_min": None, "power_max": None, "alliance": "",
-                        "server": "any", "rect": None, "circle": None,
-                        "seen": "any", "noted": False}
+        self._filter = dict(BLANK_FILTER)
         self._tree = None
         self._vars = {}
 
@@ -216,13 +228,13 @@ class PlayersTab(PanelTab):
         self._alliance_box.pack(side="left", padx=(0, 10))
 
         self.tr(ttk.Label(line), "players.filter.server").pack(side="left")
+        # Filled from the register on every repaint (`_render`): the numbers are in the
+        # rows already, so the box can offer them without asking the client anything.
         self._server_box = ttk.Combobox(line, width=10, state="readonly",
-                                        values=[self.t("players.server." + s)
-                                                for s in SERVER_STEPS])
+                                        values=[self.t("players.server.any")])
         self._server_box.current(0)
         self._server_box.bind("<<ComboboxSelected>>",
-                              lambda _e: self._on_choice("server", SERVER_STEPS,
-                                                         self._server_box.current()))
+                              lambda _e: self._pick_server(self._server_box.current()))
         self._server_box.pack(side="left")
 
         line2 = ttk.Frame(box)
@@ -297,16 +309,17 @@ class PlayersTab(PanelTab):
         self._tick()
 
     def on_show(self) -> None:
+        """Somebody is looking: merge what the capture has, and NOTHING else.
+
+        No read of the game lives on this tab at all — not here, not behind a filter,
+        not behind a sort, not for a selected row. See `registry`, «Nothing here ever
+        asks the game anything».
+        """
         self._merge_async()
-        if not self._home_asked:
-            self._home_asked = True
-            threading.Thread(target=self._read_home_server, daemon=True).start()
 
     def on_language_change(self) -> None:
         self._label_headings()
         if self._tree is not None:
-            self._server_box.configure(values=[self.t("players.server." + s)
-                                               for s in SERVER_STEPS])
             self._seen_box.configure(values=[self.t("players.seen." + s)
                                              for s in SEEN_STEPS])
             self._render()
@@ -320,27 +333,6 @@ class PlayersTab(PanelTab):
         self.rt.tick.arm("players.merge", MERGE_EVERY_MS, self._tick)
 
     # -- the feed -----------------------------------------------------------
-    def _read_home_server(self) -> None:
-        """Which server is THIS account's — the one question the register cannot answer.
-
-        Off the Tk thread, once, and only if the client is up: «свой / чужой сервер» is
-        a filter and not a reason to wake a daemon. When the game will not say, the
-        clause simply cannot be applied (`registry.matches`), which is the honest
-        answer rather than a guess that quietly hides half the map.
-        """
-        try:
-            if not self.rt.game.up():
-                return
-            server = self.rt.game.current_server()
-        except Exception:                                   # noqa: BLE001
-            return
-        if str(server).isdigit():
-            self.post(lambda: self._set_home(int(server)))
-
-    def _set_home(self, server: int) -> None:
-        self._home_server = server
-        self._render()
-
     def refresh(self) -> bool:
         """«Обновить» — merge now rather than on the next slow tick."""
         self._merge_async()
@@ -401,21 +393,41 @@ class PlayersTab(PanelTab):
         self._filter[key] = steps[max(index, 0)]
         self._render()
 
+    def server_steps(self) -> list:
+        """«Any», then every server the REGISTER holds — never a list written here.
+
+        Which servers matter is a property of where the laps have been, and the rows
+        already say. Both front-ends step through this same list, so the box and the
+        phone's button can never offer different servers.
+        """
+        return [""] + [str(s) for s in self._registry.servers()]
+
+    def _pick_server(self, index: int) -> None:
+        steps = self.server_steps()
+        self._filter["server"] = steps[max(index, 0)] if index < len(steps) else ""
+        self._render()
+
     def _reset_filters(self) -> None:
+        """Every filter back to «any» — ONE definition, whether the tab is drawn or not.
+
+        The phone can press «Сбросить» on a tab nobody has ever opened, so the state is
+        cleared first and the widgets follow only if there are any. It was written the
+        other way round once, with the undrawn case spelling the defaults out a second
+        time, and the two spellings promptly disagreed about what «any server» is.
+        """
+        self._filter.update(BLANK_FILTER)
+        if not self.built:
+            return
         for var in self._vars.values():
             var.set("")
         self._noted.set(False)
-        self._filter.update({"server": "any", "seen": "any", "rect": None,
-                             "circle": None})
-        if self._tree is not None:
-            self._server_box.current(0)
-            self._seen_box.current(0)
+        self._server_box.current(0)
+        self._seen_box.current(0)
         self._render()
 
     def visible(self) -> list:
         """The rows the filter keeps, sorted — what BOTH front-ends draw from."""
-        rows = reg.apply_filter(self._registry.rows(), self._filter,
-                                home_server=self._home_server)
+        rows = reg.apply_filter(self._registry.rows(), self._filter)
         return reg.sort_rows(rows, self._sort)
 
     def _sort_by(self, column: str) -> None:
@@ -441,8 +453,12 @@ class PlayersTab(PanelTab):
                               values=self._cells(row, now))
         self._count.set(self.t("players.counter", shown=self._shown,
                                hidden=max(self._hidden, 0)))
-        tags = self._registry.alliances()
-        self._alliance_box.configure(values=[""] + tags)
+        self._alliance_box.configure(values=[""] + self._registry.alliances())
+        steps = self.server_steps()
+        self._server_box.configure(
+            values=[self.t("players.server.any")] + steps[1:])
+        chosen = self._filter.get("server") or ""
+        self._server_box.current(steps.index(chosen) if chosen in steps else 0)
 
     def _cells(self, row: dict, now: float) -> tuple:
         return (row.get("name") or "—",
@@ -559,7 +575,9 @@ class PlayersTab(PanelTab):
             for i, name in enumerate(names):
                 self._vars[name].set("" if not group else str(group[i]))
         self._noted.set(bool(self._filter.get("noted")))
-        self._server_box.current(SERVER_STEPS.index(self._filter.get("server", "any")))
+        steps = self.server_steps()
+        chosen = self._filter.get("server") or ""
+        self._server_box.current(steps.index(chosen) if chosen in steps else 0)
         self._seen_box.current(SEEN_STEPS.index(self._filter.get("seen", "any")))
 
     def persist_vars(self) -> list:
@@ -582,7 +600,7 @@ class PlayersTab(PanelTab):
 
         The filters are presses that STEP through the same lists the window's boxes
         hold, and they move the very same `self._filter`: one state, two views
-        (`docs/panel-tabs.md`). A phone that narrows to «35, свой сервер» leaves the
+        (`docs/panel-tabs.md`). A phone that narrows to «35, server 100» leaves the
         window's boxes reading exactly that.
         """
         rows = self.visible()
@@ -615,7 +633,8 @@ class PlayersTab(PanelTab):
             {"label": "players.filter.power",
              "value": human_power(self._filter.get("power_min"))},
             {"label": "players.filter.server",
-             "value": self.t("players.server." + (self._filter.get("server") or "any"))},
+             "value": (self._filter.get("server")
+                       or self.t("players.server.any"))},
             {"label": "players.filter.seen",
              "value": self.t("players.seen." + (self._filter.get("seen") or "any"))},
             {"label": "players.filter.noted",
@@ -670,11 +689,7 @@ class PlayersTab(PanelTab):
         if action == "refresh":
             return {"ok": self.refresh()}
         if action == "reset":
-            self._reset_filters() if self.built else self._filter.update(
-                {"text": "", "level_min": None, "level_max": None,
-                 "power_min": None, "power_max": None, "alliance": "",
-                 "server": "any", "rect": None, "circle": None, "seen": "any",
-                 "noted": False})
+            self._reset_filters()
             return {"ok": True}
         if action in ("level", "power", "server", "seen", "noted"):
             return {"ok": self._step_filter(action)}
@@ -696,8 +711,9 @@ class PlayersTab(PanelTab):
                 self._noted.set(self._filter["noted"])
             return True
         if which in ("server", "seen"):
-            steps = SERVER_STEPS if which == "server" else SEEN_STEPS
-            index = (steps.index(self._filter.get(which, "any")) + 1) % len(steps)
+            steps = self.server_steps() if which == "server" else list(SEEN_STEPS)
+            here = self._filter.get(which) or ("" if which == "server" else "any")
+            index = ((steps.index(here) + 1) % len(steps)) if here in steps else 0
             self._filter[which] = steps[index]
             if self.built:
                 box = self._server_box if which == "server" else self._seen_box
