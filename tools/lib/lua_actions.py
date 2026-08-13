@@ -7549,6 +7549,13 @@ def kick_tip() -> str:
 #
 # docs/research/march-hotkeys.md is the write-up.
 
+#: How long a send waits before it leaves. It has to leave from the GAME's own thread —
+#: one made on the hijack thread is created and dropped — so it is handed to the game's
+#: timer, and this is the delay that buys. A third of a second was the first number tried
+#: and it was never measured; on a key press it is a quarter of the whole budget, so it is
+#: one tick now. What matters is the thread, not the wait (#1328).
+_SEND_TICK = "0.05"
+
 _MACRO = "local p = DataCenter.__lw_macro or {} "
 _MACRO_LAST = "local m = DataCenter.__lw_macro_last or {} "
 
@@ -7877,17 +7884,18 @@ def macro_send() -> str:
         "if p.prev ~= nil then p.say = p.say .. ' (previous press: ' .. "
         "(p.prev >= 1 and 'a march went out' or 'no march appeared') .. ')' end "
         # THE SEND CARRIES ITS OWN COPY, and that is not tidiness. `p` IS
-        # `DataCenter.__lw_macro`, one table shared by every press, and the send is a third
-        # of a second late on purpose (a cold one is created and dropped). Three keys in a
-        # row on one boss — the thing this recipe is FOR — would otherwise have the second
-        # press overwrite the squad the first one was about to march with.
+        # `DataCenter.__lw_macro`, one table shared by every press, and the send is late
+        # by a tick on purpose (a cold one, made on the hijack thread, is created and
+        # dropped — it has to leave from the game's own). Three keys in a row on one boss —
+        # the thing this recipe is FOR — would otherwise have the second press overwrite
+        # the squad the first one was about to march with.
         "local _f, _t, _pt, _tg, _sv = p.formation, p.type, p.point, p.target, p.server "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(_f, _t, _pt, _tg, 1, 1, false, _sv, nil) end) "
         'CS.UnityEngine.Debug.LogError("ACT macro_send pinned ok="..tostring(ok)'
         '.." err="..tostring(err)) '
-        "end, 0.3) "
+        "end, %(tick)s) "
         "pcall(function() local pop = _findpopup() "
         "if pop ~= nil and pop.Ctrl and pop.Ctrl.CloseSelf then pop.Ctrl:CloseSelf() end end) "
         "p.result = 2 "
@@ -7900,7 +7908,7 @@ def macro_send() -> str:
         '.." kind="..tostring(p.kind).." age="..tostring(p.age)'
         '.." formation="..tostring(p.formation).." marches="..tostring(p.before)'
         '.." err="..tostring(p.err))'
-        % {"count": own_march_count()}
+        % {"count": own_march_count(), "tick": _SEND_TICK}
     )
 
 
@@ -7981,20 +7989,31 @@ def macro_repeat() -> str:
         "local rally = false "
         "pcall(function() rally = MarchUtil.IsRallyMarch(m.type) and true or false end) "
         "if rally then m.result = -1 return end "
+        # WHAT THE LAST REPEAT ACHIEVED, read here rather than waited for there — the same
+        # deferral the clicked path makes, and for the same measured reason (#1328). The
+        # recipe used to stand and count marches for three and a half seconds after this
+        # send, holding the game claim: measured live, `TAP=+0.08 … end=+3.42`, of which
+        # everything past `+0.2` was the poll. That is the whole of the «CapsLock reacts
+        # after three seconds» the person felt, and the next press waited behind it too.
+        "local _was = m.before "
         "m.before = %(count)s "
+        "if _was ~= nil then m.prev = m.before - _was end "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(m.formation, m.type, m.point, m.target, "
         "m.timeIndex or 1, m.back or 1, false, m.server, nil) end) "
         'CS.UnityEngine.Debug.LogError("ACT macro_repeat ok="..tostring(ok).." err="..tostring(err)) '
-        "end, 0.3) "
+        "end, %(tick)s) "
         "m.result = 1 "
         "end)() "
+        "m.say = tostring(m.squad) "
+        "if m.prev ~= nil then m.say = m.say .. ' (previous press: ' .. "
+        "(m.prev >= 1 and 'a march went out' or 'no march appeared') .. ')' end "
         "DataCenter.__lw_macro_last = m "
         'CS.UnityEngine.Debug.LogError("ACT macro_repeat scheduled squad="..tostring(m.squad)'
         '.." result="..tostring(m.result).." type="..tostring(m.type)'
         '.." target="..tostring(m.target).." marches="..tostring(m.before))'
-        % {"count": own_march_count()}
+        % {"count": own_march_count(), "tick": _SEND_TICK}
     )
 
 
@@ -8003,8 +8022,21 @@ def macro_repeat_result() -> str:
     return "(tonumber((DataCenter.__lw_macro_last or {}).result) or 0)"
 
 
+def macro_repeat_say() -> str:
+    """Lua *expression* -> the squad CapsLock just sent, and how the previous one went.
+
+    The verdict on a repeat arrives with the NEXT press rather than being waited for: a
+    run holds the game claim, and the three and a half seconds this used to spend counting
+    marches were three and a half seconds of «занят» for the key behind it (#1328).
+    """
+    return "tostring((DataCenter.__lw_macro_last or {}).say or '-')"
+
+
 def macro_repeat_sent() -> str:
-    """Lua *expression* -> marches gained since `macro_repeat()` scheduled its send."""
+    """Lua *expression* -> marches gained since `macro_repeat()` scheduled its send.
+
+    Kept for a caller that wants to ASK — the recipe does not, any more (see
+    :func:`macro_repeat_say`)."""
     return ("((%s) - ((DataCenter.__lw_macro_last or {}).before or 0))"
             % own_march_count())
 

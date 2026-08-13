@@ -470,6 +470,42 @@ that own the two halves:
   not a WHAT — the run is unchanged, and the worker's queue keeps the presses in the order
   they were made. A claim that never frees still ends in the honest «занят».
 
+### And the same tail, measured, on CapsLock
+
+The clicked path stopped waiting; `march_repeat_last` did not, and a person felt it as
+«CapsLock reacts after three seconds». Timed off the live log, per press, from the run's
+own start:
+
+```
+start=+0.00  TAP=+0.08  ready=+0.14  poll1=+0.21 … end=+3.42
+start=+0.00  TAP=+0.08  ready=+0.16  poll1=+0.22 … end=+3.90
+start=+0.01  TAP=+0.23  ready=+0.28  poll1=+0.34 … end=+3.50
+```
+
+Everything past `+0.2` is the march-count poll, and the claim is held for all of it. The
+same deferral fixes it, and the same measurement proves it — the whole run, live, after:
+
+```
++0.000  > action: march_repeat_last
++0.067    TAP repeat the last macro march
++0.123    READ_LUA ready = 1
++0.171    READ_LUA squad = '1 (previous press: a march went out)'
++0.173  < action: march_repeat_last OK
+```
+
+**3.42–4.37 s → 0.173 s**, and the deferred verdict is in the line the person reads.
+
+Two other numbers from the same session, so nobody has to guess again: the press chunk
+itself costs **122–173 ms** in the VM against a **83 ms** bare round trip, and the send's
+own wait — `TimerManager:DelayInvoke`, which exists so the send leaves from the GAME's
+thread rather than the hijack one — was **0.3 s** for no measured reason and is **0.05 s**
+now. What matters there is the thread, not the wait.
+
+**It is not a CapsLock-specific fault**, which was worth ruling out: the hook queues on
+`WM_KEYDOWN` only, there is no debounce and no waiting on the key's state, and the log
+puts the run's start **0–26 ms** after the key's own line. The key was fine; the tail was
+not.
+
 ### The two paths, in order
 
 `macro_send` tries the **open squad screen first** and the pin second. A person who opened

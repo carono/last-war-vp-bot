@@ -49,13 +49,15 @@ IF ready == 0
 IF ready == -1
     FAIL "the last march was a rally — a banner is raised through its own screen, not repeated"
 
-READ_LUA ((function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)()) - ((DataCenter.__lw_macro_last or {}).before or 0) INTO sent
+# AND IT DOES NOT STAND HERE COUNTING (#1328). A run holds the game claim for its whole
+# length, and this recipe used to spend three and a half seconds after the send proving a
+# march appeared — measured live, `TAP=+0.08 … end=+3.42`, of which everything past +0.2
+# was the poll. That is exactly the «CapsLock reacts after three seconds» a person feels,
+# and the next key waited behind it as well.
+#
+# The verdict is not dropped, it is DEFERRED: the next press reads the march count this
+# one wrote down and says whether this one really marched. So a repeat that quietly
+# achieved nothing is still reported — one press later, at no cost to either.
+READ_LUA tostring((DataCenter.__lw_macro_last or {}).say or '-') INTO squad
 
-WHILE sent < 1 LIMIT 12
-    WAIT 0.2
-    READ_LUA ((function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)()) - ((DataCenter.__lw_macro_last or {}).before or 0) INTO sent
-
-IF sent < 1
-    FAIL "the send went out and no march appeared — the squad is probably still out on the last one, or the target is gone"
-
-LOG "The same squad is on its way to the same target"
+LOG "Squad {squad} is on its way to the same target"

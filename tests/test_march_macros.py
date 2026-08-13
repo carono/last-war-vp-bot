@@ -132,15 +132,42 @@ def test_the_repeat_recipe_takes_no_arguments():
     assert "ARGS " not in body, "«the same again» is the whole ability"
     assert "IF ready == 0" in text
     assert "IF ready == -1" in text
-    assert "IF sent < 1" in text
 
 
-def test_both_recipes_prove_themselves_by_the_march_count():
-    """A press that returned cleanly proves the call ran, never that a march went out."""
+def test_neither_key_stands_and_counts_after_it_has_sent():
+    """The tail was the whole of «CapsLock reacts after three seconds» (#1328).
+
+    Measured live before the fix: `TAP=+0.08 ready=+0.14 … end=+3.42` — everything past
+    +0.2 s was the march-count poll, and the run holds the game claim for all of it, so
+    the next key waited behind it too. Both keys press and end now; the verdict on a send
+    is read by the NEXT press off the count this one wrote down.
+    """
     for path in (SEND, REPEAT):
-        text = path.read_text(encoding="utf-8")
-        assert "GetOwnerMarches" in text, path.name
-        assert "INTO sent" in text, path.name
+        body = [l.strip() for l in path.read_text(encoding="utf-8").splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+        # …up to the open-screen branch, which MAY still wait: nobody presses a second key
+        # at a screen they opened by hand.
+        hot = body[:next((i for i, l in enumerate(body)
+                          if l.startswith("IF sent_ok == 1")), len(body))]
+        for slow in ("WHILE", "WAIT "):
+            assert not any(l.startswith(slow) for l in hot), (
+                f"{path.name} stands still on the hot path — the next key pays for it")
+
+
+def test_a_send_leaves_on_the_next_tick_not_a_third_of_a_second_later():
+    """It has to leave from the GAME's thread; how long it waits for one is a budget."""
+    for chunk in (lua_actions.macro_send(), lua_actions.macro_repeat()):
+        assert "DelayInvoke" in chunk
+        assert "end, 0.05)" in chunk
+        assert "end, 0.3)" not in chunk
+
+
+def test_the_send_still_writes_down_the_count_it_will_be_judged_by():
+    """Deferred is not dropped — both keys record `before`, and both report `prev`."""
+    for chunk in (lua_actions.macro_send(), lua_actions.macro_repeat()):
+        assert "GetOwnerMarches" in chunk
+        assert ".prev" in chunk and ".say" in chunk
+        assert "previous press: " in chunk
 
 
 # ---------------------------------------------------------------------------
