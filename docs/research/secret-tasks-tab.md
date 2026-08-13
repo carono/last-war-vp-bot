@@ -89,6 +89,7 @@ Alliance page rows are replaced whole by each roster read; ghost pages by each g
 | **Скрывать со своего сервера** | save, render | nothing | hides rows on the account's own server (nothing if it is unreadable) | «скрыто своего сервера: K» | `tab.py:_on_hide_own_change`, `_hidden_at_home` |
 | **Минимальный уровень** (Автолут) | save, redraw the rule line, debounce 1.5 s → re-spawn the listener | nothing | aims robberies only; hides no row | rule line under the box | `tab.py:_on_level_filter_change`, `autoloot.py:range_changed` |
 | **UR / Звезда** (alliance page) | save, refilter | nothing | hides rows on that page only | count on that page | `alliance.py:narrow` |
+| **Звезда** (each ghost page) | save, refilter | nothing | hides the unstarred squads on THAT page only; the star is the event config's answer on the record, never cfgId arithmetic | count on that page — **live:** a map lap's 892 rows became 85, all ⭐ | `ghost.py:narrow` |
 | **Обновить** | checkpoint merge + VM snapshot + alliance roster + ghost read, four independent flags | 3 reads | adds rows; reconciles restored rows against the VM read | «загрузка…» then counts | `tab.py:refresh_both` |
 | **event: push `alliance.share.mission.add`** | shared wire ear → `refresh_live()` → checkpoint merge + VM snapshot | 1 read | new rows may appear | rows appear | `tab.py:TRIGGERS`, `refresh_live` |
 | **event: push `push.ghost.recon.alliance.single`** | re-read the client's local ghost list | 1 read, no server request | ghost-allies page redrawn | that page changes | `tab.py:refresh_ghost_allies` |
