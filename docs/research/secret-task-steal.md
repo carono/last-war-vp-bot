@@ -389,6 +389,7 @@ two producers and they write the same file:
 |---|---|---|
 | the tab (`_share_done`) | the panel's «Поделиться» succeeded | `via = "panel"` |
 | `tools/secret_task_capture.py` («Мониторинг») | `push.alliance.share.mission.add` **and** the `get.alliance.share.mission.list` backlog | `via = "game"`, `uid = shareUid` |
+| `tools/dev/secret_mission_capture.py` (the ghost monitor) | the same two commands — it hears them on the same stream, whatever it indexes | `via = "game"`, `uid = shareUid` |
 | `tools/secret_share_autoloot.py` (the auto-loot listener) | every `…mission.add` it decodes, **before** the level rule | `via = "game"`, `uid = shareUid` |
 
 That is what covers the half the panel cannot see by itself: a share pressed in the
