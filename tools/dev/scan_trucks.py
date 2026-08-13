@@ -65,7 +65,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
-    MapIndex, add_capture_arguments, check_platform, diagnose,
+    MapIndex, ProgressTicker, add_capture_arguments, check_platform, diagnose,
     dump_records, human_size, level_set, start_capture,
 )
 
@@ -299,6 +299,9 @@ def main() -> int:
     # One timer for the whole periodic tick — the progress line and the
     # checkpoint flush both hang off it, so --interval moves both together.
     last_tick = time.time()
+    # …and the line only when the numbers moved, plus a rare heartbeat, so an
+    # idle stretch is not one identical sentence per tick (#1332).
+    ticker = ProgressTicker()
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
@@ -318,18 +321,21 @@ def main() -> int:
                     reported.clear()
             if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
-                left = (f"…{int(deadline - time.time())}s left"
-                        if deadline is not None else "…running")
-                where = (f"server {index.current_server}"
-                         if index.current_server is not None
-                         else "server unknown yet")
                 current = index.current_trucks
                 robbable = sum(1 for t in current if t.can_loot)
-                print(f"{C_DIM}  {left} — {where}, "
-                      f"{index.marches_seen} march response(s), "
-                      f"{index.blocks_seen} map response(s), "
-                      f"{len(current)} truck(s), "
-                      f"{robbable} robbable{C_RESET}")
+                changed = ticker.due((index.current_server, index.marches_seen,
+                                      index.blocks_seen, len(current), robbable))
+                if changed:
+                    left = (f"…{int(deadline - time.time())}s left"
+                            if deadline is not None else "…running")
+                    where = (f"server {index.current_server}"
+                             if index.current_server is not None
+                             else "server unknown yet")
+                    print(f"{C_DIM}  {left} — {where}, "
+                          f"{index.marches_seen} march response(s), "
+                          f"{index.blocks_seen} map response(s), "
+                          f"{len(current)} truck(s), "
+                          f"{robbable} robbable{C_RESET}")
                 if args.json and not dump_records(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
@@ -338,9 +344,10 @@ def main() -> int:
                     # the transcript is one tick behind at worst and the
                     # sniffer thread is never blocked on the disk.
                     index.transcript.flush()
-                    print(f"{C_DIM}  transcript: "
-                          f"{index.transcript.frames} frame(s), "
-                          f"{human_size(index.transcript.size())}{C_RESET}")
+                    if changed:
+                        print(f"{C_DIM}  transcript: "
+                              f"{index.transcript.frames} frame(s), "
+                              f"{human_size(index.transcript.size())}{C_RESET}")
             for truck in index.find(types=args.type, level=args.level,
                                     can_loot=args.can_loot,
                                     exclude_alliance=args.not_alliance):

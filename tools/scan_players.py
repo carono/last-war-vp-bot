@@ -110,8 +110,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
-    MapIndex, add_capture_arguments, check_platform, diagnose, dump_records,
-    human_size, level_set, start_capture,
+    MapIndex, ProgressTicker, add_capture_arguments, check_platform, diagnose,
+    dump_records, human_size, level_set, start_capture,
 )
 
 
@@ -444,6 +444,10 @@ def main() -> int:
     # not having one.
     deadline = time.time() + args.seconds if args.seconds else None
     last_tick = time.time()
+    # One sentence per tick is one sentence too many once the panning stops:
+    # the line prints when its own numbers move, and on a rare heartbeat in
+    # between (#1332). The checkpoint flush below keeps its own beat.
+    ticker = ProgressTicker()
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
@@ -457,19 +461,25 @@ def main() -> int:
                           f"collected on {old} are kept\n")
             if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
-                left = (f"…{int(deadline - time.time())}s left"
-                        if deadline is not None else "…running")
-                where = (f"server {index.current_server}"
-                         if index.current_server is not None
-                         else "server unknown yet")
-                print(f"{C_DIM}  {left} — {where}, "
-                      f"{index.blocks_seen} map response(s), "
-                      f"{index.tiles_seen} tile(s), "
-                      f"{len(index.bases)} base(s) collected "
-                      f"({len(index.current_bases)} here), "
-                      f"{index.profiles_merged + index.profiles_added} "
-                      f"profile(s) looked up, "
-                      f"{index.remarked} noted{C_RESET}")
+                changed = ticker.due((index.current_server, index.blocks_seen,
+                                      index.tiles_seen, len(index.bases),
+                                      len(index.current_bases),
+                                      index.profiles_merged + index.profiles_added,
+                                      index.remarked))
+                if changed:
+                    left = (f"…{int(deadline - time.time())}s left"
+                            if deadline is not None else "…running")
+                    where = (f"server {index.current_server}"
+                             if index.current_server is not None
+                             else "server unknown yet")
+                    print(f"{C_DIM}  {left} — {where}, "
+                          f"{index.blocks_seen} map response(s), "
+                          f"{index.tiles_seen} tile(s), "
+                          f"{len(index.bases)} base(s) collected "
+                          f"({len(index.current_bases)} here), "
+                          f"{index.profiles_merged + index.profiles_added} "
+                          f"profile(s) looked up, "
+                          f"{index.remarked} noted{C_RESET}")
                 if args.json and not dump_records(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
@@ -478,9 +488,10 @@ def main() -> int:
                     # the transcript is one tick behind at worst and the
                     # sniffer thread is never blocked on the disk.
                     index.transcript.flush()
-                    print(f"{C_DIM}  transcript: "
-                          f"{index.transcript.frames} frame(s), "
-                          f"{human_size(index.transcript.size())}{C_RESET}")
+                    if changed:
+                        print(f"{C_DIM}  transcript: "
+                              f"{index.transcript.frames} frame(s), "
+                              f"{human_size(index.transcript.size())}{C_RESET}")
             for base in index.take_new():
                 tag = f"[{base.alliance_abbr}]" if base.alliance_abbr else ""
                 # A base known only from a click has no coordinates, so the

@@ -73,7 +73,7 @@ import share_marks  # noqa: E402  (the «already shared» mark this capture also
 import world_index  # noqa: E402  (the second listener, in this process — see --world-json)
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
-    MapIndex, add_capture_arguments, check_platform, diagnose,
+    MapIndex, ProgressTicker, add_capture_arguments, check_platform, diagnose,
     dump_records as dump_tasks, human_size, level_set, start_capture,
 )
 
@@ -345,10 +345,11 @@ def main() -> int:
     # The progress line repeats every tick even when nothing moved, which is
     # pure noise in a log (and floods the panel). Print it only when the data
     # it reports actually changed — the countdown is deliberately NOT part of
-    # the signature, since it changes every tick and would defeat the dedup.
-    # The checkpoint/transcript flushes below still run every tick regardless;
-    # only the console line is suppressed.
-    last_progress_sig = None
+    # the signature, since it changes every tick and would defeat the dedup —
+    # plus the rare heartbeat `ProgressTicker` keeps, so an idle capture is
+    # alive rather than silent. The checkpoint/transcript flushes below still
+    # run every tick regardless; only the console line is suppressed.
+    ticker = ProgressTicker()
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
@@ -370,11 +371,9 @@ def main() -> int:
                 last_tick = time.time()
                 # Signature of the reported data, sans the countdown, so an
                 # unchanged tick stays silent.
-                sig = (index.current_server, index.blocks_seen,
-                       index.tiles_seen, len(index.current_tasks),
-                       index.starred_awaiting, index.shares_marked)
-                changed = sig != last_progress_sig
-                last_progress_sig = sig
+                changed = ticker.due((index.current_server, index.blocks_seen,
+                                      index.tiles_seen, len(index.current_tasks),
+                                      index.starred_awaiting, index.shares_marked))
                 if changed:
                     left = (f"…{int(deadline - time.time())}s left"
                             if deadline is not None else "…running")

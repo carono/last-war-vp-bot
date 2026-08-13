@@ -85,7 +85,7 @@ import lastwar_proto as proto  # noqa: E402
 import share_marks  # noqa: E402  (the «already shared» mark this capture also writes)
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
-    MapIndex, add_capture_arguments, check_platform, diagnose,
+    MapIndex, ProgressTicker, add_capture_arguments, check_platform, diagnose,
     dump_records as dump_missions, human_size, level_set, start_capture,
 )
 
@@ -377,6 +377,12 @@ def main() -> int:
     # checkpoint flush both fire on the period the user set, never on a
     # hardcoded one.
     last_tick = time.time()
+    # …and the line itself only when the numbers moved (#1332). Panning stops
+    # long before the capture does, and with a short --interval the panel's log
+    # carried the same sentence once a second for hours. The signature leaves
+    # the countdown out on purpose; the heartbeat inside the ticker is what
+    # keeps an idle capture visibly alive.
+    ticker = ProgressTicker()
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
@@ -396,21 +402,27 @@ def main() -> int:
                     reported.clear()
             if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
-                left = (f"…{int(deadline - time.time())}s left"
-                        if deadline is not None else "…running")
-                where = (f"server {index.current_server}"
-                         if index.current_server is not None
-                         else "server unknown yet")
-                # The share tally is only ever mentioned once there is one: a
-                # capture run without --shared-json must read exactly as it
-                # always did.
-                shares = (f", {index.shares_marked} share(s) marked"
-                          if index.shares_marked else "")
-                print(f"{C_DIM}  {left} — {where}, "
-                      f"{index.blocks_seen} map response(s), "
-                      f"{index.tiles_seen} tile(s), "
-                      f"{len(index.current_missions)} mission(s), "
-                      f"{index.lootable_count} lootable{shares}{C_RESET}")
+                changed = ticker.due((index.current_server, index.blocks_seen,
+                                      index.tiles_seen,
+                                      len(index.current_missions),
+                                      index.lootable_count,
+                                      index.shares_marked))
+                if changed:
+                    left = (f"…{int(deadline - time.time())}s left"
+                            if deadline is not None else "…running")
+                    where = (f"server {index.current_server}"
+                             if index.current_server is not None
+                             else "server unknown yet")
+                    # The share tally is only ever mentioned once there is one:
+                    # a capture run without --shared-json must read exactly as
+                    # it always did.
+                    shares = (f", {index.shares_marked} share(s) marked"
+                              if index.shares_marked else "")
+                    print(f"{C_DIM}  {left} — {where}, "
+                          f"{index.blocks_seen} map response(s), "
+                          f"{index.tiles_seen} tile(s), "
+                          f"{len(index.current_missions)} mission(s), "
+                          f"{index.lootable_count} lootable{shares}{C_RESET}")
                 if args.json and not dump_missions(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
@@ -419,9 +431,12 @@ def main() -> int:
                     # the transcript is one tick behind at worst and the
                     # sniffer thread is never blocked on the disk.
                     index.transcript.flush()
-                    print(f"{C_DIM}  transcript: "
-                          f"{index.transcript.frames} frame(s), "
-                          f"{human_size(index.transcript.size())}{C_RESET}")
+                    # On the same beat as the progress line, so a quiet capture
+                    # stays quiet — as in the secret-task one.
+                    if changed:
+                        print(f"{C_DIM}  transcript: "
+                              f"{index.transcript.frames} frame(s), "
+                              f"{human_size(index.transcript.size())}{C_RESET}")
             for m in index.find(level=args.level, family=args.family,
                                 star_only=args.star, state=args.state,
                                 server=args.server, can_loot=args.done,

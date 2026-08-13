@@ -392,6 +392,13 @@ def watch_tasks(args) -> int:
     reported: set = set()
     deadline = time.time() + args.seconds
     heartbeat = time.time()
+    # Same rule as every scapy capture (#1332): the progress line speaks when
+    # its numbers move, and on a rare heartbeat while they stand still. The
+    # ten-second beat below is what a panning operator wants; repeating the
+    # same sentence at it once the panning stops is what nobody wants.
+    from map_capture import ProgressTicker      # noqa: PLC0415 — CLI path only
+
+    ticker = ProgressTicker()
     try:
         while time.time() < deadline:
             time.sleep(1.0)
@@ -400,10 +407,12 @@ def watch_tasks(args) -> int:
             # producing anything.
             if time.time() - heartbeat >= 10:
                 heartbeat = time.time()
-                left = int(deadline - time.time())
-                print(f"{C_DIM}  …{left}s left — {listener.blocks_seen} map "
-                      f"response(s), {listener.tiles_seen} tile(s), "
-                      f"{len(listener.tasks)} task(s){C_RESET}")
+                if ticker.due((listener.blocks_seen, listener.tiles_seen,
+                               len(listener.tasks))):
+                    left = int(deadline - time.time())
+                    print(f"{C_DIM}  …{left}s left — {listener.blocks_seen} map "
+                          f"response(s), {listener.tiles_seen} tile(s), "
+                          f"{len(listener.tasks)} task(s){C_RESET}")
                 # Checkpoint on the same beat. A long run used to hold every
                 # task in memory until it ended, so killing it — the usual way
                 # an hour-long capture is cut short — threw away the lot.

@@ -112,8 +112,8 @@ import lastwar_proto as proto  # noqa: E402
 import leaderboard_store  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
-    MapIndex, add_capture_arguments, check_platform, dump_records, human_size,
-    start_capture,
+    MapIndex, ProgressTicker, add_capture_arguments, check_platform,
+    dump_records, human_size, start_capture,
 )
 
 #: The one line `--quiet` prints on a tick, for a parent to read instead of the
@@ -380,6 +380,11 @@ def main() -> int:
     # not having one.
     deadline = time.time() + args.seconds if args.seconds else None
     last_tick = time.time()
+    # The human progress line follows the same rule as every other capture's:
+    # on change, plus a rare heartbeat (#1332). The `--quiet` marker below is
+    # NOT gated on it — the parent counts snapshots off every tick, and it is
+    # the parent that decides how often it says anything (#1293).
+    ticker = ProgressTicker()
     announced: set = set()
     try:
         while deadline is None or time.time() < deadline:
@@ -388,7 +393,8 @@ def main() -> int:
                 last_tick = time.time()
                 left = (f"…{int(deadline - time.time())}s left"
                         if deadline is not None else "…running")
-                if not args.quiet:
+                changed = ticker.due((len(index.boards_seen), len(index.rows)))
+                if not args.quiet and changed:
                     print(f"{C_DIM}  {left} — {len(index.boards_seen)} board(s) "
                           f"opened, {len(index.rows)} row(s) collected{C_RESET}")
                 if args.json and not dump_records(index.records(), args.json):
@@ -400,7 +406,7 @@ def main() -> int:
                     # the transcript is one tick behind at worst and the
                     # sniffer thread is never blocked on the disk.
                     index.transcript.flush()
-                    if not args.quiet:
+                    if not args.quiet and changed:
                         print(f"{C_DIM}  transcript: "
                               f"{index.transcript.frames} frame(s), "
                               f"{human_size(index.transcript.size())}{C_RESET}")

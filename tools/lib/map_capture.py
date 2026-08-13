@@ -885,6 +885,67 @@ def start_capture(index: MapIndex, args) -> tuple:
     return stop, bpf
 
 
+#: How long a capture may go without saying anything while its numbers stand
+#: still. The progress line is printed on CHANGE; this is the heartbeat that
+#: keeps «the capture is still alive» readable when the map has not moved.
+#: Five minutes: rare enough that an idle overnight run adds a dozen lines to
+#: the panel's log, often enough that a person watching a stalled capture is
+#: never left wondering for long.
+PROGRESS_HEARTBEAT_SEC = 300.0
+
+
+class ProgressTicker:
+    """Whether THIS tick's progress line is worth printing (#1332).
+
+    Every passive capture prints one progress line per `--interval`, and with a
+    short interval an idle map means the same sentence over and over: a live
+    panel log carried «…running — server N, 246 map response(s), …» once a
+    second for hours, identical to the character. It is the same noise the
+    leaderboard collector was cured of in #1293, so the rule is one rule and
+    lives here rather than being re-invented per scanner:
+
+      * the line prints when the numbers MOVED — the caller passes a signature
+        of exactly the values the line reports, with the countdown deliberately
+        left out (it changes every tick and would defeat the whole thing);
+      * it prints the first time regardless, so a capture that has found
+        nothing yet still says so once;
+      * and it prints again after :data:`PROGRESS_HEARTBEAT_SEC` of standing
+        still, so a capture nobody is panning for is alive rather than silent.
+
+    Nothing about the line itself changes — same text, same order, same fields —
+    so anything reading these lines (the panel's own filter, a person's eye)
+    reads exactly what it always did, only less often.
+
+    The checkpoint flush is NOT gated on this: the file has to keep up with the
+    map whether or not the console says so. Only the console line is dropped.
+    """
+
+    def __init__(self, heartbeat: float = PROGRESS_HEARTBEAT_SEC) -> None:
+        self.heartbeat = heartbeat
+        self._sig = None
+        self._said = 0.0
+        #: How many ticks were swallowed since the last line — for a caller that
+        #: wants to say so, and for tests.
+        self.silent = 0
+
+    def due(self, sig, now: float = None) -> bool:
+        """True when this tick should print. `sig` is the reported data, sans clock."""
+        moment = time.time() if now is None else now
+        if self._sig is None or sig != self._sig or moment - self._said >= self.heartbeat:
+            self._sig, self._said, self.silent = sig, moment, 0
+            return True
+        self.silent += 1
+        return False
+
+    def reset(self) -> None:
+        """Forget what was said — the next tick speaks whatever it holds.
+
+        For a state change big enough that a repeat is news again: a server
+        switch that empties the index, a capture restarted in place.
+        """
+        self._sig, self._said, self.silent = None, 0.0, 0
+
+
 def diagnose(index: MapIndex, found: int, empty_hint: str) -> None:
     """Explain a thin result, so "nothing found" is never ambiguous."""
     if index.delivered and not index.packets:

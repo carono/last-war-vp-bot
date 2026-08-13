@@ -60,8 +60,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
-    MapIndex, add_capture_arguments, block_servers, check_platform,
-    dump_records, human_size, start_capture,
+    MapIndex, ProgressTicker, add_capture_arguments, block_servers,
+    check_platform, dump_records, human_size, start_capture,
 )
 
 # Kinds we already have a decoder/name for (protocol.md §"Object types"). A tile
@@ -396,6 +396,7 @@ def main() -> int:
     reported: set = set()
     deadline = time.time() + args.seconds if args.seconds else None
     last_tick = time.time()
+    ticker = ProgressTicker()
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
@@ -419,13 +420,19 @@ def main() -> int:
 
             if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
-                left = (f"…{int(deadline - time.time())}s left"
-                        if deadline is not None else "…running")
                 kinds = Counter()
                 for t in index.tiles:
                     kinds[t["f2"]] += 1
                 unknown = {k: v for k, v in kinds.items()
                            if k not in KNOWN_KINDS}
+                # Nothing said while nothing moves, bar the rare heartbeat — the
+                # whole tick, since every line under it reports the same tiles
+                # (#1332).
+                if not ticker.due((index.blocks_seen, len(index.tiles),
+                                   len(index.missions), len(reported))):
+                    continue
+                left = (f"…{int(deadline - time.time())}s left"
+                        if deadline is not None else "…running")
                 print(f"{C_DIM}  {left} — {index.blocks_seen} map response(s), "
                       f"{len(index.tiles)} distinct tile(s), "
                       f"{len(index.missions)} ghost mission(s) learned, "
