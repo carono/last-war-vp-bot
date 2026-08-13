@@ -258,7 +258,44 @@ settings still have no page. Both front-ends read one table
 (`panel/runtime/panel_control.py`) exactly as they do for the client's lifecycle, both
 ask the same question first, and the shell registers the one thing that can carry it
 out. Anything else a screenless corner of the panel needs on the move goes the same
-way.
+way. **And it is not only a convenience: pressing it is MANDATORY after every fix —
+see «A fix that has not restarted the panel has not been delivered» below.**
+
+## A fix that has not restarted the panel has not been delivered
+
+**Also binding, on every agent, with no exceptions, and it is not a suggestion.** The
+panel reads the scenarios, `tools/lib/lua_actions.py` and `panel/…` once, at import. A
+running panel therefore keeps playing the code it was started with, however many commits
+land afterwards. **A committed fix that has not been followed by a restart does not exist
+for the live game**, and nothing in the window or the log says so — the panel goes on
+reporting success against the old behaviour.
+
+That is not a hypothesis. #1322 fixed the per-kind budget; the panel ran the previous
+code for seven hours after the commit, every report in that window lacked the line the
+fix prints, and the bug was reported again as «не работает вообще» while the fix sat in
+`master` doing nothing.
+
+So the rule is one sentence: **after ANY bug fix, restart the panel — immediately, as
+part of the same piece of work, without asking whether it is worth it.** Not «if the
+change looks like it matters», not «the next restart will pick it up». It applies to a
+one-line edit as much as to a new module, because the cost of an unnecessary restart is
+seconds and the cost of a skipped one is a fix that silently is not there.
+
+How, and how not:
+
+* Press **«⟳ Перезапустить панель»** on «Состояние», or `POST /api/panel` with
+  `{"action": "restart"}` on the web port — the same table
+  (`panel/runtime/panel_control.py`) from either front-end.
+* **Never `taskkill`, never kill the process by hand.** The user has forbidden it: the
+  orderly restart takes every open profile down and brings them back, and a killed panel
+  leaves locks, children and a client nobody let go of.
+* Then **read the log and say what you saw**. A restart is claimed when a line proves it —
+  a new pid in `panel_alive.json`, the boot lines in the profile's log, and, where the fix
+  prints something the old code could not, that line appearing in a run. «Перезапустил» on
+  its own is a sentence, not evidence.
+
+The Lua daemon is a separate process and does NOT need this — it is the panel's own
+Python that is frozen at import time.
 
 ### Definition of done
 
@@ -274,6 +311,9 @@ tracker — until:
   edit is not done while the window is missing what the phone now has. A deliberate
   difference is agreed with the person first and written down, never left silent;
 - nothing it adds is true of this machine only (below);
+- **the live panel has been restarted since the fix was committed, and the log says so**
+  — a running panel plays the code it was imported with, so a fix nobody restarted into
+  is not delivered, whatever the diff says (above);
 - **not one identifier of a real account is anywhere in what it adds** — no nickname,
   Windows login, uid, uuid, alliance id or tag, device id, account-bound server number,
   base coordinate, IP or user-named path, in code, tests, fixtures, docs, comments or
