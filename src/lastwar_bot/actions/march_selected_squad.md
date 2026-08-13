@@ -98,25 +98,32 @@ IF sent_ok == -8
 IF sent_ok == -9
     FAIL "that point was opened by the panel, not clicked by you — click the target yourself"
 
-# --- 3. Let the GAME say whether a march went out ---------------------------------
-# The proof is a march of ours appearing, not the send returning cleanly: the server owns
-# that list, and a squad the game refuses to send leaves it where it was.
-#
-# The poll is short and repeated rather than long and patient: the claim on the client is
-# held until this loop ends, so every tenth of a second spent here is a tenth in which the
-# NEXT key press answers «занят». The direct send is scheduled a third of a second out (a
-# cold send is created and dropped), which this window covers.
-READ_LUA ((function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)()) - ((DataCenter.__lw_macro or {}).before or 0) INTO sent
-
-WHILE sent < 1 LIMIT 14
-    WAIT 0.2
+# --- 3a. The open screen: stand and watch for the march ----------------------------
+# The proof is a march of ours appearing, not the press returning cleanly: the server owns
+# that list, and a squad the game refuses to send leaves it where it was. This path can
+# afford to wait — a person who opened the squad screen is not about to press a second key
+# a third of a second later.
+IF sent_ok == 1
     READ_LUA ((function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)()) - ((DataCenter.__lw_macro or {}).before or 0) INTO sent
+    WHILE sent < 1 LIMIT 14
+        WAIT 0.2
+        READ_LUA ((function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)()) - ((DataCenter.__lw_macro or {}).before or 0) INTO sent
+    IF sent < 1
+        FAIL "the launch was pressed and no march went out — the game refused it, or the client is no longer talking to the server"
+    READ_LUA tostring((DataCenter.__lw_macro or {}).desc or '-') INTO target
+    LOG "The squad is on its way"
 
-IF sent < 1
-    FAIL "the launch was pressed and no march went out — the game refused it, or the client is no longer talking to the server"
-
-# The target is named only once the march is real, and only then is the round trip free:
-# the squad is already on its way while this is read.
-READ_LUA tostring((DataCenter.__lw_macro or {}).desc or '-') INTO target
-
-LOG "The squad is on its way to {target}"
+# --- 3b. The clicked target: say what happened and GET OUT OF THE WAY ---------------
+# THE RUN MUST NOT STAND HERE COUNTING (#1328, and it cost the whole ability once). The
+# game claim is held for as long as the run lasts, and a key pressed while it is held is
+# refused with «занят» — so the seven seconds this used to spend proving the first march
+# were seven seconds in which the second and third keys did nothing at all. «Three keys in
+# a row put three squads on one boss» is the ability; a proof that eats it is not a proof
+# of anything worth having.
+#
+# The verdict is not dropped, it is DEFERRED: the next press reads the march count the
+# last one wrote down and says whether that one really marched. So a send that quietly
+# achieved nothing is still reported — one press later, at no cost to either.
+IF sent_ok == 2
+    READ_LUA tostring((DataCenter.__lw_macro or {}).say or '-') INTO target
+    LOG "Squad {squad} is on its way to {target}"

@@ -294,6 +294,30 @@ was looking at rather than on the one they clicked. **This is not hypothetical: 
 first pin this watcher ever caught, minutes after being armed on a live client, came from
 the panel's own scan and not from a finger.**
 
+**And the first fix for it was the wrong one, which the first live session showed in
+ninety seconds.** Recording an errand's popup and refusing it at press time reads fine in a
+test: the pin is honest, the refusal is named, nothing marches at the wrong tile. In a
+game it destroyed the ability. The panel opens a world-point popup every few seconds — a
+treasure sweep, a secret-task scan, a rally hunt — so a person's click survived about ten
+seconds before an errand overwrote it, and from then on every key answered «эту точку
+открыла панель». **One press worked and nothing after it.** Read live, ten seconds after a
+press:
+
+```
+PIN kind=DispatchTask script=1 age=10 desc=DispatchTask @[<x>,<y>|<server>]
+```
+
+— a secret-task tile on another server, standing where the person's monster had been. So
+the pin BELONGS to the person: an errand's sightseeing is not recorded at all, and only a
+click may write it.
+
+**The keeping lives in the reader, not in the wrapper**, and that is a deployment fact
+rather than a taste: a wrapper is installed once and stays for the life of the client, so a
+correction inside it never reaches a client wrapped by yesterday's panel — and re-wrapping
+only puts the old body underneath the new one, still overwriting. The reader is re-assigned
+by every arming, so it is the half a fix can land in. (Verified on the client that was
+already wrapped: a scripted open now leaves the pin alone.)
+
 The stack tells them apart. A scripted open runs inside a chunk this repository sent, and
 a chunk compiled from a string reports `short_src = [string "…"]`, while the game's own Lua
 reports its file path:
@@ -313,6 +337,34 @@ called straight from a chunk reports `script=1`; the same reader inside a real p
 The one place this is deliberately overridden is the on-the-spot read of an already-open
 popup: nothing is being opened there, and a popup standing open at the moment of the key
 press is the best evidence of what is chosen there is.
+
+### The second half of «works once»: the run holds the client
+
+A run holds the game claim for its whole length, and a press that finds the client claimed
+by something of equal standing is refused — «занят», in the log, and nothing started. The
+first version of this recipe then stood for up to **seven seconds** after a send, counting
+marches to prove one went out. Live, that read as:
+
+```
+12:20:57  CapsLock: повторяю последний марш
+12:21:02  клавиша 1: отправляю отряд 1 на кликнутую цель
+12:21:02  занят — дождись завершения текущего действия      <- the key is gone
+12:21:06  … WHILE -> LIMIT 12 reached, giving up
+```
+
+So «three keys in a row put three squads on one boss» was impossible by construction: the
+proof of the first march ate the second and third presses. Two changes, in the two places
+that own the two halves:
+
+* **the clicked path does not wait.** It presses and ends. The verdict is not dropped, it
+  is DEFERRED — every press reads the march count the PREVIOUS one wrote down and says
+  whether that one really marched, so a send that quietly achieved nothing is still
+  reported, one press later and at no cost. The open-screen path still waits: nobody
+  presses a second key at a screen;
+* **a key waits for its turn** rather than being thrown away. `panel/runtime/hotkeys.py`
+  holds a queued press for a few seconds while the client is claimed, which is a WHEN and
+  not a WHAT — the run is unchanged, and the worker's queue keeps the presses in the order
+  they were made. A claim that never frees still ends in the honest «занят».
 
 ### The two paths, in order
 
@@ -423,7 +475,13 @@ age=356`, which is the staleness gate refusing on a real client with a real read
 **Proven: a scripted open is told from a click.** The reader called straight from a chunk
 reports `script=1`, which is the refusal above.
 
-**Not proven yet: the whole ability under a finger** — a real tap on a monster followed by
-a real `1`, ending in a march. The client was in the middle of two map sweeps when this
-was written, and a camera-moving test would have spoiled them. It is one press to check:
-click a monster, press `1`, and the log says which target it hit.
+**Proven live, and then DISPROVED by the person playing** — the first session found the
+macro «works once and then nothing», and both halves of that are written up above: the
+errand-overwritten pin (`sent_ok = -9` on every press after the first) and the seven-second
+poll that answered the next key with «занят». Both are fixed; a scripted open leaving the
+pin alone was verified on the client that was already wrapped, and a press with a human pin
+now walks every gate and stops only where it was told to (`result=-1`, «no such squad»,
+with squad 0 deliberately parked).
+
+**Still not proven under a finger:** a real tap on a monster followed by a real `1`, `2`,
+`3`, ending in three marches. That is the one check the person makes.

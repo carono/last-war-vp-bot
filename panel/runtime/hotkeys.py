@@ -40,6 +40,7 @@ import ctypes
 import queue
 import sys
 import threading
+import time
 
 from . import paths as _paths       # noqa: F401 — puts tools/lib on sys.path
 
@@ -52,6 +53,13 @@ REPEAT_ACTION = "march_repeat_last"
 
 #: The tag every line of this lands under in the panel's log.
 TAG = "macro"
+
+#: How long a queued press waits for the client to come free before it is offered anyway
+#: (and refused, honestly, if it still cannot have it). Two runs of the macro back to back
+#: is the case this exists for; a person's second key must not be thrown away because the
+#: first one is still finishing. See :meth:`HotkeyListener._wait_its_turn`.
+TURN_WAIT_SEC = 4.0
+TURN_POLL_SEC = 0.05
 
 #: Virtual-key codes. The digit row and the numeric keypad both count — a person with
 #: a full keyboard reaches for whichever is under their hand.
@@ -235,6 +243,30 @@ class HotkeyListener:
                 if rt is not None:
                     rt.dbg("hotkeys").error("macro press failed", exc_info=True)
 
+    def _wait_its_turn(self, rt) -> None:
+        """Let whatever is driving the game finish, for a couple of seconds (#1328).
+
+        A press is refused outright when the client is already claimed by something of
+        equal standing, and one macro run IS something of equal standing — so a person
+        pressing 1, then 2, then 3 at a boss had the second and third keys answer
+        «занят» while the first was still finishing. That is «the macro works once» from
+        the panel's side, and it is exactly the thing the ability is for.
+
+        So the worker holds the key back rather than throwing it away. This is a WHEN,
+        not a WHAT: the run itself is unchanged, and the queue behind this thread keeps
+        the presses in the order they were made. The wait is short on purpose — a key
+        held back longer than a breath is a key the person has given up on, and by then
+        the honest answer is the «занят» line they were going to get anyway.
+        """
+        deadline = time.monotonic() + TURN_WAIT_SEC
+        while time.monotonic() < deadline:
+            try:
+                if not rt.game.claimed_by():
+                    return
+            except Exception:             # noqa: BLE001 — no reading, no waiting
+                return
+            time.sleep(TURN_POLL_SEC)
+
     def _press(self, vk: int) -> None:
         """One key, one scenario, and a line in the log whatever happens."""
         rt = self._resolve()
@@ -242,8 +274,10 @@ class HotkeyListener:
             return
         if vk == _VK_CAPITAL:
             rt.say(TAG, "log.macro.repeat")
+            self._wait_its_turn(rt)
             rt.play_async(REPEAT_ACTION, tag=TAG)
             return
         squad = _VK_SQUAD[vk]
         rt.say(TAG, "log.macro.send", squad=squad)
+        self._wait_its_turn(rt)
         rt.play_async(SEND_ACTION, {"squad": squad}, tag=TAG)

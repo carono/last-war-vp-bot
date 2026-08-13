@@ -7643,6 +7643,12 @@ _PICK_READ = (
     "if p.point ~= nil then local _y = math.floor(p.point / 1000) "
     "p.desc = tostring(p.kindname) .. ' @[' .. tostring(p.point - _y * 1000) "
     ".. ',' .. tostring(_y) .. '|' .. tostring(p.server or p.home) .. ']' end "
+    # THE READER KEEPS THE PIN, and not the wrapper, for a reason that only shows up on a
+    # client that is already running: a wrapper is installed ONCE and stays, so a fix that
+    # lives in the wrapper never reaches a client wrapped by yesterday's panel — and
+    # re-wrapping would only put the old body underneath the new one, still overwriting.
+    # The reader is re-assigned by every arming, so this is where a correction can land.
+    "if p.script == 0 and p.point ~= nil then DataCenter.__lw_macro_pick = p end "
     "return p end "
 )
 
@@ -7666,7 +7672,14 @@ _PICK_ARM = _PICK_READ + (
     "cls.__lw_pick_orig = orig "
     "cls.InitData = function(s, ...) "
     "local r = table.pack(orig(s, ...)) "
-    "pcall(function() DataCenter.__lw_macro_pick = DataCenter.__lw_pick_read(s) end) "
+    # A SCRIPTED OPEN IS NOT RECORDED AT ALL, and the first live session is why (#1328).
+    # It used to be recorded and refused at press time, which read fine in a test and was
+    # useless in a game: the panel opens world-point popups every few seconds (a treasure
+    # sweep, a secret-task scan, a rally hunt), so a person's click survived about ten
+    # seconds before an errand overwrote it and every key from then on answered «эту точку
+    # открыла панель». One press worked and nothing after it. The pin now belongs to the
+    # person: only a click writes it, and an errand's sightseeing goes past unrecorded.
+    "pcall(function() DataCenter.__lw_pick_read(s) end) "
     "return table.unpack(r, 1, r.n) end "
     "end) "
 )
@@ -7767,7 +7780,7 @@ def macro_send() -> str:
         _MACRO + _MACRO_FIND + _PICK_FIND + _PICK_ARM +
         "p.type, p.point, p.target, p.server = nil, nil, nil, nil "
         "p.timeIndex, p.back, p.formation, p.err = nil, nil, nil, nil "
-        "p.desc, p.age, p.kind = nil, nil, nil "
+        "p.desc, p.age, p.kind, p.prev, p.say = nil, nil, nil, nil, nil "
         "p.result = 0 "
         "(function() "
         "local w = _findscreen() "
@@ -7828,9 +7841,21 @@ def macro_send() -> str:
         "p.type, p.point, p.target = q.mtt, q.point, q.target or 0 "
         "p.server, p.timeIndex, p.back = q.server or home, 1, 1 "
         "p.before = %(count)s "
+        # WHAT THE LAST PRESS ACHIEVED, read here rather than waited for there. The recipe
+        # used to stand and count marches for up to seven seconds after a send, holding
+        # the game claim — and every key pressed in that window was refused with «занят»,
+        # which is «the macro works once» from the other side (#1328, seen live). So the
+        # verdict on a send arrives with the NEXT press, off the count the previous one
+        # wrote down, and costs nothing.
+        "local _L = DataCenter.__lw_macro_last "
+        "if _L ~= nil and _L.pin == 1 and _L.before ~= nil then "
+        "p.prev = p.before - _L.before end "
         "DataCenter.__lw_macro_last = {squad = p.squad, formation = p.formation, "
         "type = p.type, point = p.point, target = p.target, server = p.server, "
-        "timeIndex = p.timeIndex, back = p.back, before = p.before} "
+        "timeIndex = p.timeIndex, back = p.back, before = p.before, pin = 1} "
+        "p.say = tostring(p.desc) "
+        "if p.prev ~= nil then p.say = p.say .. ' (previous press: ' .. "
+        "(p.prev >= 1 and 'a march went out' or 'no march appeared') .. ')' end "
         # THE SEND CARRIES ITS OWN COPY, and that is not tidiness. `p` IS
         # `DataCenter.__lw_macro`, one table shared by every press, and the send is a third
         # of a second late on purpose (a cold one is created and dropped). Three keys in a

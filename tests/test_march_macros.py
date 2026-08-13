@@ -27,6 +27,7 @@ from __future__ import annotations
 TIER = "ui"        # Tk (not a display) — see tools/run_tests.py
 
 import sys
+import time
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -281,6 +282,23 @@ def test_a_popup_the_panel_opened_is_not_a_target_anybody_chose():
     assert "q.script = 0" in lua
 
 
+def test_an_errands_popup_never_overwrites_the_persons_click():
+    """The pin belongs to the PERSON, and the first live session is why (#1328).
+
+    Recording an errand's popup and refusing it at press time read fine in a test and was
+    useless in a game: the panel opens one every few seconds, so a click survived about
+    ten seconds and every key after that answered «эту точку открыла панель». One press
+    worked and nothing after it. Only a click may write the pin now.
+    """
+    read = lua_actions.macro_pick_arm()
+    assert ("if p.script == 0 and p.point ~= nil then DataCenter.__lw_macro_pick = p end"
+            in read), "a scripted open must not touch the pin at all"
+    # …and the keeping lives in the READER, which every arming re-assigns — not in the
+    # wrapper, which is installed once and would carry yesterday's bug for ever on a
+    # client that is already running.
+    assert "pcall(function() DataCenter.__lw_pick_read(s) end)" in read
+
+
 def test_a_pin_goes_stale_by_time_scene_and_account():
     """Three ways a clicked target stops being the target, and each says which (#1328)."""
     lua = lua_actions.macro_send()
@@ -308,6 +326,45 @@ def test_a_press_does_not_spend_the_click():
     tail = lua[lua.index("p.result = 2"):]
     assert "__lw_macro_pick = nil" not in lua
     assert "__lw_macro_pick" not in tail
+
+
+def _block(text: str, head: str) -> list:
+    """The indented body under `head` — the recipe's own blocks, as lines."""
+    lines = text.splitlines()
+    start = next(i for i, l in enumerate(lines) if l.strip() == head)
+    out = []
+    for l in lines[start + 1:]:
+        if l.strip() and not l.startswith(" "):
+            break
+        if l.strip() and not l.lstrip().startswith("#"):
+            out.append(l.strip())
+    return out
+
+
+def test_the_clicked_path_does_not_stand_and_wait_for_its_march():
+    """The run holds the game claim, and a key pressed while it is held is refused.
+
+    Seven seconds of counting marches after the first send is seven seconds in which the
+    second and third keys did nothing — which is «the macro works once» (#1328, live). The
+    verdict is deferred to the next press instead, off the count this one wrote down.
+    """
+    text = SEND.read_text(encoding="utf-8")
+    body = _block(text, "IF sent_ok == 2")
+    assert body, "the clicked path has no block of its own"
+    for slow in ("WHILE", "WAIT", "GetOwnerMarches"):
+        assert not any(l.startswith(slow) or slow in l for l in body), (
+            f"{slow} is in the clicked path — the next key press pays for it")
+    assert sum(1 for l in body if l.startswith("READ_LUA")) == 1
+    # …and the open-screen path may still wait: nobody presses a second key at a screen.
+    assert any("WHILE sent < 1" in l for l in _block(text, "IF sent_ok == 1"))
+
+
+def test_the_next_press_reports_what_the_last_one_achieved():
+    """Deferred is not dropped: a send that quietly did nothing is still reported."""
+    lua = lua_actions.macro_send()
+    assert "_L.pin == 1" in lua and "p.prev = p.before - _L.before" in lua
+    assert "previous press: " in lua
+    assert "(DataCenter.__lw_macro or {}).say" in SEND.read_text(encoding="utf-8")
 
 
 def test_the_delayed_send_carries_its_own_copy_of_the_arguments():
@@ -403,10 +460,23 @@ def test_the_repeat_parks_which_of_the_three_it_did():
 # ---------------------------------------------------------------------------
 # the listener
 # ---------------------------------------------------------------------------
+class _FakeGame:
+    """The claim, as a list of answers: each `claimed_by()` takes the next one."""
+
+    def __init__(self, owners=()) -> None:
+        self.owners = list(owners)
+        self.asked = 0
+
+    def claimed_by(self):
+        self.asked += 1
+        return self.owners.pop(0) if self.owners else ""
+
+
 class _FakeRuntime:
-    def __init__(self) -> None:
+    def __init__(self, owners=()) -> None:
         self.said: list[tuple] = []
         self.played: list[tuple] = []
+        self.game = _FakeGame(owners)
 
     def say(self, tag, key, **fmt):
         self.said.append((tag, key, fmt))
@@ -440,6 +510,59 @@ def test_capslock_plays_the_repeat_recipe_with_no_arguments():
     _listener(rt)._press(0x14)
     assert rt.played == [(hk.REPEAT_ACTION, None, hk.TAG)]
     assert rt.said[0][1] == "log.macro.repeat"
+
+
+def test_three_presses_in_a_row_all_reach_the_game():
+    """The ability, in one test: click once, press 1, 2, 3 — three squads go (#1328).
+
+    It did not. The first press held the client while its run stood counting marches, and
+    the panel refuses a press that finds the client claimed, so keys two and three
+    answered «занят» and nothing moved. The worker holds a key back for its turn now
+    instead of throwing it away.
+    """
+    rt = _FakeRuntime()
+    listener = _listener(rt)
+    for vk in (0x31, 0x32, 0x33):
+        listener._press(vk)
+    assert rt.played == [(hk.SEND_ACTION, {"squad": 1}, hk.TAG),
+                         (hk.SEND_ACTION, {"squad": 2}, hk.TAG),
+                         (hk.SEND_ACTION, {"squad": 3}, hk.TAG)]
+
+
+def test_a_press_waits_for_the_run_in_front_of_it_and_is_not_thrown_away():
+    rt = _FakeRuntime(owners=["macro", "macro", "macro"])   # busy, busy, busy, then free
+    listener = _listener(rt)
+    listener._press(0x32)
+    assert rt.game.asked >= 4, "the press gave up without waiting for its turn"
+    assert rt.played == [(hk.SEND_ACTION, {"squad": 2}, hk.TAG)]
+
+
+def test_a_press_gives_up_waiting_rather_than_hanging_on_a_stuck_claim():
+    """A key held longer than a breath is a key the person has given up on."""
+    held = ["someone"] * 10_000
+    rt = _FakeRuntime(owners=held)
+    listener = _listener(rt)
+    was, hk.TURN_WAIT_SEC = hk.TURN_WAIT_SEC, 0.2
+    try:
+        started = time.monotonic()
+        listener._press(0x31)
+        waited = time.monotonic() - started
+    finally:
+        hk.TURN_WAIT_SEC = was
+    assert waited < 2.0, f"waited {waited:.1f}s on a claim that never frees"
+    # …and the press is still MADE — refusing it is the runtime's answer to give, in the
+    # log, not something this thread decides by dropping the key silently.
+    assert rt.played == [(hk.SEND_ACTION, {"squad": 1}, hk.TAG)]
+
+
+def test_a_runtime_with_no_claim_to_read_is_not_a_reason_to_wait():
+    class _Bare(_FakeRuntime):
+        def __init__(self):
+            super().__init__()
+            del self.game
+    rt = _Bare()
+    _listener(rt)._press(0x31)
+    assert rt.played == [(hk.SEND_ACTION, {"squad": 1}, hk.TAG)]
 
 
 def test_only_capslock_is_taken_away_from_the_game():
