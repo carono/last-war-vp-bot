@@ -1,12 +1,26 @@
 # The keyboard macros: where a chosen target is kept, and how a squad is sent at it
 
-Task #1283. Five keys: **1 2 3 4** send that squad at whatever the game is currently
-asking a squad for, and **CapsLock** sends the last one again with nothing on screen at
-all. Everything below was read out of a live client through the Lua VM
-(`tools/lib/lua_client.py`).
+Task #1283, then #1328. Five keys: **1 2 3 4** send that squad at the target the person
+CLICKED — with no «Атака» pressed and no squad screen opened at all — and **CapsLock**
+sends the last one again with nothing on screen either. Everything below was read out of
+a live client through the Lua VM (`tools/lib/lua_client.py`).
 
 Every identifier in this file is invented. The shapes are real — a 19-digit uuid, a
 six-digit tile index, a three-digit server — the digits are not (`CLAUDE.md`).
+
+---
+
+## What #1328 changed, and why the old answer was only half of one
+
+#1283 read the target off the **squad-selection screen**, which meant the key was only
+worth pressing once the person had already clicked the target AND pressed «Атака» AND had
+a window in front of them. Three actions to save one. The ability people actually wanted
+is one earlier and one window fewer: **click the target, press the key, the squad goes.**
+
+That needs the client to answer a different question — not «what is this screen marching
+on», which it holds obligingly, but «what did the person just click», which nothing was
+keeping. The rest of this file is the old answer (still live: an open screen still wins,
+see below) followed by the new one.
 
 ---
 
@@ -176,6 +190,141 @@ the client had been up for hours and the launcher was running beside it — but 
 plus «the client restarted while it ran» is not something to keep pointing at somebody's
 account.
 
+## The click itself: `UIWorldPointCtrl:InitData` (#1328)
+
+A tap on the map opens **`UIWorldPoint`**, and the popup's controller is where the click
+lands. `string.dump` on its `InitData` — the class table is reachable from the window
+config with no window open, the same trick that found the squad screen's fields — names
+exactly what the click brought in:
+
+```
+InitData :: … LuaEntry Player GetCurWorldId GetCurServerId … uuid tonumber pointId
+             ownerUid type isAlliance buildId desertId isArrow byDetect … serverId …
+```
+
+So `Ctrl.pointId`, `Ctrl.uuid`, `Ctrl.serverId`, `Ctrl.ownerUid` and `Ctrl.type` are the
+click, complete. **`Ctrl.type` is `WorldPointUIType`** — the popup's own idea of what kind
+of thing was tapped — and NOT a `MarchTargetType`; the two are separate enums that share
+some small numbers, which is exactly the sort of coincidence that turns a gather into an
+attack. Both were dumped live:
+
+```
+WorldPointUIType   Monster=1 Boss=2 City=3 Build=4 CollectPoint=5 CollectArmy=6 Road=7
+                   … AllianceCity=13 Ruin=34 Ghostrecon=43 …  (85 entries)
+MarchTargetType    ATTACK_MONSTER=1 COLLECT=2 JOIN_RALLY=6 RALLY_FOR_BOSS=7
+                   ATTACK_ARMY_COLLECT=10 ATTACK_CITY=11 SCOUT_CITY=17 …
+```
+
+### Catching the click without polling anything
+
+`UIManager.Instance.windowsConfig[UIWindowNames.UIWorldPoint].Ctrl` is the CLASS table and
+every popup instance indexes into it, so wrapping `InitData` **once** catches every click
+there is — a finger on the map, a scripted `GoToUtil.OnClickWorldPoint`, a jump out of the
+magnifier — with no timer left running in somebody's game and no round trip per second:
+
+```lua
+cls.__lw_pick_orig = cls.InitData
+cls.InitData = function(s, ...)
+  local r = table.pack(orig(s, ...))                      -- the game's own, FIRST
+  pcall(function() DataCenter.__lw_macro_pick = DataCenter.__lw_pick_read(s) end)
+  return table.unpack(r, 1, r.n)
+end
+```
+
+The original runs first and unprotected: a popup that opened blank because a macro was
+listening would be a far worse bug than any this fixes. Everything of ours is inside a
+`pcall`, and `InitData`'s own return values are handed back untouched. Arming is
+idempotent (`rawget(cls, '__lw_pick_orig')` is both the saved original and the flag) and
+happens inside the key's own chunk, so a client that restarted between two presses is
+watched again at no extra call.
+
+### Which march a clicked point becomes
+
+Read out of the two enums BY NAME, so a season that renumbers them changes nothing:
+
+| clicked | becomes | why |
+|---|---|---|
+| `Monster` / `Boss` with `canAttack == 1` | `ATTACK_MONSTER` | the game's own «this one can be soloed» |
+| `Monster` / `Boss` with `canAttack == 0` | **refused** | a banner is raised through its own screen, never by a key — the same refusal `macro_repeat` has made since #1283 |
+| `City`, somebody else's | `ATTACK_CITY` | |
+| `City`, the player's own | **refused** | |
+| `CollectPoint` | `COLLECT` | a resource tile has `uuid = 0` and addresses by tile |
+| `CollectArmy` | `ATTACK_ARMY_COLLECT` | somebody else's squad, mid-gather |
+| anything else | **refused, by name** | the log says which kind, so the next one can be added on purpose |
+
+`GetMonsterData` is asked **with the uuid** — called bare it answers a one-field stub whose
+`canAttack` is `0`, and every monster in the game would read as rally-only
+([`world-monsters.md`](world-monsters.md), Finding 8). It is asked at CLICK time, because
+the popup's controller is the only thing that can answer it and it is long gone by the time
+a key is pressed.
+
+Verified live against a running client, feeding the reader hand-made controllers of the
+right shape (nothing on screen was touched, nothing was sent):
+
+```
+monster-solo  = Monster/mtt=1/can=1        mine     = CollectPoint/mtt=2
+monster-rally = Boss/mtt=nil/can=0         gatherer = CollectArmy/mtt=10
+other-base    = City/mtt=11                own-base = City/mtt=nil
+road          = Road/mtt=nil
+```
+
+### What ends a pin
+
+Never the panel's own bookkeeping — a press does NOT spend the click, so three keys in a
+row put three squads on one target, which is what clicking a boss is usually for. What ends
+it is the world:
+
+* **time.** `stale`, 180 s by default, measured on the GAME's clock
+  (`UITimeManager:GetInstance():GetServerSeconds()`, never the PC's —
+  [`game-clock.md`](game-clock.md));
+* **the scene.** Walking off the world map drops it (`SceneUtils.GetIsInWorld()`);
+* **the account.** The pin records `LuaEntry.Player.uid` and `.serverId` as they were at
+  the click, and a press from another account or another home server refuses rather than
+  marching somebody else's squad at somebody else's tile.
+
+Each of the three is its own refusal in the log, so «ничего не отправилось» always says
+which of them it was.
+
+### The one that had to be found the hard way: the panel clicks too
+
+The bot opens `UIWorldPoint` popups all day of its own accord — a rally hunt, a treasure
+sweep, a jump to coordinates — and every one of them goes through the same `InitData`. A
+macro that simply took the newest pin would put somebody's squad on the tile an automation
+was looking at rather than on the one they clicked. **This is not hypothetical: the very
+first pin this watcher ever caught, minutes after being armed on a live client, came from
+the panel's own scan and not from a finger.**
+
+The stack tells them apart. A scripted open runs inside a chunk this repository sent, and
+a chunk compiled from a string reports `short_src = [string "…"]`, while the game's own Lua
+reports its file path:
+
+```
+lvl=1 what=Lua   src=chunk   short_src=[string "chunk"]      <- ours
+lvl=2 what=C     src=[C]
+lvl=3 what=main  src=chunk   short_src=[string "chunk"]
+```
+
+(`short_src`, not `source`: the raw source of a `SafeDoString` chunk is only its name.) So
+the pin records `script = 1` when any frame of the stack is a string chunk, and a press on
+a pin like that refuses — «эту точку открыла панель, а не ты». Verified live: the reader
+called straight from a chunk reports `script=1`; the same reader inside a real popup's
+`InitData` does not.
+
+The one place this is deliberately overridden is the on-the-spot read of an already-open
+popup: nothing is being opened there, and a popup standing open at the moment of the key
+press is the best evidence of what is chosen there is.
+
+### The two paths, in order
+
+`macro_send` tries the **open squad screen first** and the pin second. A person who opened
+that screen went that way on purpose, its target is fresher, and it carries a rally's wait
+slot which a tile does not — so #1283's ability is intact and nothing about it changed. The
+pin is what answers when there is no screen, which is now the ordinary case.
+
+If nothing is pinned but the popup is still open, it is read on the spot through the same
+reader. That covers the very first press after a client restart, when the watcher was armed
+a moment too late to have seen the click.
+
 ## The keys themselves
 
 `panel/runtime/hotkeys.py`, a `WH_KEYBOARD_LL` hook on a thread of its own.
@@ -214,6 +363,7 @@ desktop, so the press always belongs to the profile whose page is showing.
 | CapsLock | `src/lastwar_bot/actions/march_repeat_last.md` |
 | the presses | `tools/lib/game_buttons.py`, `macro_send` / `macro_repeat` |
 | the Lua | `tools/lib/lua_actions.py`, `macro_*` |
+| the click watcher | `tools/lib/lua_actions.py`, `_PICK_READ` / `_PICK_ARM` / `macro_pick_arm` |
 | the listener | `panel/runtime/hotkeys.py`, started by the shell |
 | the tests | `tests/test_march_macros.py` |
 
@@ -239,3 +389,41 @@ synthetic `3` produced `log.macro.send squad=3` and a play of `march_selected_sq
 working. `stop()` takes the hook down and the keyboard goes back to Windows.
 
 **Not proven: a rally repeat**, and it is refused rather than left to chance (above).
+
+### #1328, on a live client
+
+**Proven: the watcher catches a real popup.** Armed on a running client
+(`wrapped=true`, `reader=function`), left alone, and a minute later the pin had filled
+itself in off a popup the session opened by itself:
+
+```
+PIN false nil          mtt=nil
+PIN true  CollectPoint @[<x>,<y>|<server>]  mtt=2   <- the wrapper fired, unprompted
+```
+
+Nothing polled it and nothing asked for it — `InitData` ran, the reader ran inside it, and
+the pin was there to be read afterwards. That is the whole mechanism, end to end.
+
+**Proven: the reading, on every kind the macro supports.** The reader was fed hand-made
+controllers of the right shape against the live enums — nothing on screen was touched and
+nothing was sent:
+
+```
+monster-solo  = Monster/mtt=1/can=1        mine     = CollectPoint/mtt=2
+monster-rally = Boss/mtt=nil/can=0         gatherer = CollectArmy/mtt=10
+other-base    = City/mtt=11                own-base = City/mtt=nil
+road          = Road/mtt=nil
+```
+
+**Proven: the press is honest with nothing to press.** `macro_send` run with no squad
+screen and no pin answered `result=0 screen=0 … marches=nil` and sent nothing; run again
+once that first pin had aged past its window it answered `result=-4 kind=CollectPoint
+age=356`, which is the staleness gate refusing on a real client with a real reading.
+
+**Proven: a scripted open is told from a click.** The reader called straight from a chunk
+reports `script=1`, which is the refusal above.
+
+**Not proven yet: the whole ability under a finger** — a real tap on a monster followed by
+a real `1`, ending in a march. The client was in the middle of two map sweeps when this
+was written, and a camera-moving test would have spoiled them. It is one press to check:
+click a monster, press `1`, and the log says which target it hit.

@@ -5,6 +5,11 @@ a scenario. That is the whole of it — the abilities live in
 `src/lastwar_bot/actions/march_selected_squad.md` and `march_repeat_last.md`, and this
 module knows nothing about marches, targets or squads beyond the number it passes.
 
+WHAT THE KEY MEANS, since #1328: «send that squad at the target I clicked». The click is
+the input and the key is the trigger — no «Атака», no squad-selection screen, no window
+of any kind. Which target that is, and how the game is asked rather than guessed, is the
+recipe's business and the write-up is docs/research/march-hotkeys.md.
+
 WHY A LOW-LEVEL HOOK AND NOT `RegisterHotKey`. A registered hotkey is taken away from
 whatever is in front, system-wide, for as long as the panel runs: the person could no
 longer type `1` anywhere on the machine. `WH_KEYBOARD_LL` sees the press first and
@@ -13,8 +18,8 @@ decides, per press, whether to pass it on — so:
 * **1 2 3 4 pass through untouched.** They are not swallowed, ever. The game does
   nothing with a digit outside a text box, and inside one (the in-game chat) the digit
   must still be typed. The macro fires anyway and the scenario refuses in a line of the
-  log — «no target is chosen» — because it is only meaningful with the squad screen
-  open, and asking the game about that would mean a round trip inside the hook, which
+  log — «nothing is chosen» — because it is only meaningful once a target has been
+  clicked, and asking the game about that would mean a round trip inside the hook, which
   Windows gives about a quarter of a second before it drops the hook entirely.
 * **CapsLock IS swallowed**, and only while the game is in front. Otherwise every
   repeat would flip the keyboard into capitals — the one side effect that cannot be

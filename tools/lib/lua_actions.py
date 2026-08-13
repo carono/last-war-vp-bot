@@ -7568,6 +7568,145 @@ _MACRO_FIND = (
 )
 
 
+#: The click watcher (#1328). Two halves, both parked in the game's VM:
+#:
+#:   * `DataCenter.__lw_pick_read(ctrl)` — turn ONE world-point popup controller into a
+#:     pin: the tile, the uuid, whose server it stands on, what kind of point it is, and
+#:     — the part that decides everything — WHICH march the macro would send at it;
+#:   * a wrapper around `UIWorldPointCtrl:InitData`, the method the popup fills itself in
+#:     with. The class table is `UIManager.Instance.windowsConfig[UIWindowNames
+#:     .UIWorldPoint].Ctrl` and every instance indexes into it, so wrapping it once
+#:     catches every click there is — a finger on the map, `GoToUtil.OnClickWorldPoint`,
+#:     a jump out of the magnifier — without the panel polling anything.
+#:
+#: THE KIND IS READ, NEVER GUESSED. `WorldPointUIType` and `MarchTargetType` are the
+#: game's own enums, asked for BY NAME, so a season that renumbers them changes nothing
+#: here. Four kinds are supported and the rest are refused by name in the log:
+#:
+#:     Monster / Boss  -> ATTACK_MONSTER, and only when the point's own monster detail
+#:                        says `canAttack == 1`. `0` is a rally-only target, which is
+#:                        raised through its own screen and never by this macro — the
+#:                        same refusal `macro_repeat` has made since #1283;
+#:     City            -> ATTACK_CITY, unless the base is the player's own;
+#:     CollectPoint    -> COLLECT (a resource tile addresses by tile, `uuid` is 0);
+#:     CollectArmy     -> ATTACK_ARMY_COLLECT (somebody else's squad, mid-gather).
+#:
+#: `GetMonsterData` MUST be passed the uuid — called bare it answers a one-field stub
+#: with `canAttack = 0` and every monster reads as rally-only (world-monsters.md,
+#: Finding 8). It is called here, at pin time, because the popup's controller is the only
+#: thing that can answer it and it is gone by the time a key is pressed.
+_PICK_READ = (
+    "DataCenter.__lw_pick_read = function(s) "
+    "local U = WorldPointUIType or {} local M = MarchTargetType or {} "
+    "local p = {} "
+    "pcall(function() p.point = tonumber(s.pointId) end) "
+    "pcall(function() p.target = s.uuid end) "
+    "pcall(function() p.kind = tonumber(s.type) end) "
+    "pcall(function() p.server = tonumber(s.serverId) end) "
+    "pcall(function() p.at = tonumber(UITimeManager:GetInstance():GetServerSeconds()) end) "
+    "pcall(function() p.home = tonumber(LuaEntry.Player.serverId) end) "
+    "pcall(function() p.who = tostring(LuaEntry.Player.uid) end) "
+    "p.mine = 0 "
+    "pcall(function() if tostring(s.ownerUid) == tostring(LuaEntry.Player.uid) "
+    "then p.mine = 1 end end) "
+    # WHO OPENED THIS POPUP — the person, or the panel? The bot opens world-point popups
+    # of its own all day (a rally hunt, a treasure sweep, a jump to coordinates), and a
+    # macro that took the newest one would put somebody's squad on the tile an automation
+    # was looking at rather than the one they clicked. A scripted open runs INSIDE a
+    # chunk this repository sent, and a chunk compiled from a string reports
+    # `short_src = [string "…"]`, while the game's own Lua reports its file path — so the
+    # stack says which it was. (The proof it was worth doing: the very first pin caught
+    # live came from the panel's own automation, not from a finger. And `short_src`, not
+    # `source`: the raw source of a `SafeDoString` chunk is just its name.)
+    "p.script = 0 "
+    "pcall(function() for lvl = 1, 14 do local i = debug.getinfo(lvl, 'S') "
+    "if i == nil then break end "
+    "if string.sub(tostring(i.short_src or ''), 1, 7) == '[string' then "
+    "p.script = 1 break end "
+    "end end) "
+    "p.can = -1 "
+    "for n, v in pairs(U) do if tonumber(v) == p.kind then p.kindname = tostring(n) end end "
+    "if p.kind ~= nil and (p.kind == U.Monster or p.kind == U.Boss) then "
+    # A monster whose detail cannot be read at all is a monster that needs a banner, not
+    # an unknown kind of point: `0` before the call, so a failed read refuses with the
+    # sentence that fits rather than with «the macro does not march on that».
+    "p.can = 0 "
+    "pcall(function() local md = s:GetMonsterData(s.uuid) "
+    "p.can = tonumber(md and md.canAttack) or 0 end) "
+    "if p.can == 1 then p.mtt = tonumber(M.ATTACK_MONSTER) end "
+    "elseif p.kind ~= nil and p.kind == U.City then "
+    "if p.mine == 0 then p.mtt = tonumber(M.ATTACK_CITY) end "
+    "elseif p.kind ~= nil and p.kind == U.CollectPoint then "
+    "p.mtt = tonumber(M.COLLECT) "
+    "elseif p.kind ~= nil and p.kind == U.CollectArmy then "
+    "p.mtt = tonumber(M.ATTACK_ARMY_COLLECT) end "
+    "if p.point ~= nil then local _y = math.floor(p.point / 1000) "
+    "p.desc = tostring(p.kindname) .. ' @[' .. tostring(p.point - _y * 1000) "
+    ".. ',' .. tostring(_y) .. '|' .. tostring(p.server or p.home) .. ']' end "
+    "return p end "
+)
+
+#: Wrap `InitData` once and leave it wrapped. The original is kept on the class under a
+#: name of ours, which is also the flag that says it has been done — a second arming is
+#: a no-op rather than a wrapper around a wrapper. The reader above is re-assigned every
+#: time regardless, so a client that was armed by an older panel picks up a fixed one.
+#:
+#: The original runs FIRST and unprotected: `InitData` is what fills the popup in, and a
+#: popup that opened blank because a macro was listening would be a far worse bug than
+#: any this file fixes. Everything of ours is inside `pcall`, and its return values are
+#: handed back untouched.
+_PICK_ARM = _PICK_READ + (
+    "pcall(function() "
+    "local cfg = UIManager.Instance.windowsConfig[UIWindowNames.UIWorldPoint] "
+    "local cls = cfg and cfg.Ctrl "
+    "if cls == nil then return end "
+    "if rawget(cls, '__lw_pick_orig') ~= nil then return end "
+    "local orig = cls.InitData "
+    "if type(orig) ~= 'function' then return end "
+    "cls.__lw_pick_orig = orig "
+    "cls.InitData = function(s, ...) "
+    "local r = table.pack(orig(s, ...)) "
+    "pcall(function() DataCenter.__lw_macro_pick = DataCenter.__lw_pick_read(s) end) "
+    "return table.unpack(r, 1, r.n) end "
+    "end) "
+)
+
+#: The popup itself, wherever it sits — the same shape `_MACRO_FIND` uses for the squad
+#: screen, and for the same reason: a confirmation the game puts over it must not read
+#: as «there is nothing open».
+_PICK_FIND = (
+    "local function _findpopup() "
+    "local m = UIManager.Instance "
+    "local top = m:GetStackTopWindow() "
+    "if top ~= nil and top.Name == 'UIWorldPoint' then return top end "
+    "local found = nil "
+    "pcall(function() if m:IsWindowOpen('UIWorldPoint') then "
+    "found = m:GetWindow('UIWorldPoint') end end) "
+    "return found end "
+)
+
+
+def macro_pick_arm() -> str:
+    """Lua *statement* -> arm the click watcher, and say nothing if it already is.
+
+    Cheap enough to run in front of every key press, which is where it runs: `macro_send`
+    starts with it, so a client that restarted between two presses is watched again
+    without anybody noticing. See :data:`_PICK_ARM` for what it wraps and why.
+    """
+    return _PICK_ARM
+
+
+def macro_pick_result() -> str:
+    """Lua *expression* -> the pinned target's kind, as the game names it, `?` if none."""
+    return "tostring((DataCenter.__lw_macro_pick or {}).kindname or '?')"
+
+
+def macro_pick_desc() -> str:
+    """Lua *expression* -> what the last press aimed at, in words. `-` when it aimed at
+    the open squad screen instead, because that target was never a pin."""
+    return "tostring((DataCenter.__lw_macro or {}).desc or '-')"
+
+
 def own_march_count() -> str:
     """Lua *expression* -> how many marches of ours are out right now, -1 if unreadable.
 
@@ -7585,48 +7724,55 @@ def own_march_count() -> str:
 
 
 def macro_send() -> str:
-    """Read the open squad screen AND press its «Марш», in ONE call into the VM (#1290).
+    """Send the chosen squad at whatever the person last chose, in ONE call (#1290/#1328).
 
-    What `macro_arm` + `macro_armed` + `macro_launch` used to be, and the reason they are
-    not three things any more is a measurement. A key press is a whole run that ought to
-    last as long as a mouse click, and a call into the game VM costs ~90 ms: three of
-    them plus the 0.2 s the arm sat out afterwards was 0.5 s of the two seconds #1290 was
-    sent to find, and the three had to be crossed by a person's own click on the screen
-    they were all reading.
+    Two ways to a target, tried in that order inside one chunk:
 
-    That last part is the correctness half, and it is worth more than the milliseconds.
-    Reading the target, resolving the squad and pressing the launch on one thread inside
-    one frame means nothing can close the screen between the check and the press — the
-    old shape checked, went back to Python, and pressed a screen it had last seen 200 ms
-    earlier.
+    1. **The squad screen, if one is open** — the #1283 path, unchanged. Everything the
+       march needs is on that screen, the launch is the game's own `Ctrl:OnCheckTime`, and
+       the macro replaces the MOUSE and nothing else.
+    2. **The target the person CLICKED, if no screen is open** (#1328). The click watcher
+       (:data:`_PICK_ARM`) pinned it the moment the map tap opened its popup, so the send
+       goes out with no window at all — the shape `macro_repeat` has been proving since
+       #1283. If nothing is pinned but the popup is still open, it is read on the spot:
+       that covers the very first press after a client restart, when the watcher was
+       armed a moment too late to have seen the click.
+
+    The order is deliberate. A person who has opened the squad screen went that way on
+    purpose, and the screen's own target is both fresher and more complete (a rally's wait
+    slot is a field of the screen, not of the tile).
 
     WHAT IT DECIDED lands in `DataCenter.__lw_macro.result`, which the recipe reads back
-    (`macro_result`) to say WHICH refusal it was:
+    (`macro_result`) to say WHICH of the two, or WHICH refusal:
 
-    ``1`` the launch was pressed · ``0`` no squad screen is open — nothing was chosen ·
-    ``-1`` the game has no squad with that number · ``-2`` the screen is open and its
-    target could not be read · ``-3`` the screen's own launch raised.
+    ``1`` the open screen's launch was pressed · ``2`` the pinned target was marched on
+    directly · ``0`` no screen and nothing clicked · ``-1`` the game has no squad with
+    that number · ``-2`` the screen is open and its target could not be read · ``-3`` the
+    screen's own launch raised · ``-4`` the pin is older than the run allows · ``-5`` the
+    macro does not march on that kind of point · ``-6`` the pinned monster is rally-only ·
+    ``-7`` the player is not on the world map any more · ``-8`` the pin belongs to another
+    account or another home server · ``-9`` the popup was opened by the PANEL rather than
+    by the person, and a bot's own sightseeing is not a target anybody chose.
 
-    Everything else is exactly as it was, deliberately: the target is read off the
-    screen's own controller and nothing about it is guessed, the launch is the game's own
-    `Ctrl:OnCheckTime` (so every pre-check the game makes for that target type still
-    runs), the last march is written down BEFORE the press because the screen is gone by
-    the time the server answers, and the uuid is kept AS IT CAME while everything else
-    goes through `tonumber`.
+    The pin is NOT consumed by a successful send, on purpose: three keys in a row put
+    three squads on one target, which is what a person clicking a boss wants. What ends it
+    is time, the scene, and the account — never the panel's own bookkeeping.
 
     NOTHING ASKS THE SCREEN WHETHER THE MARCH NEEDS SOLDIERS. `NeedTakeArmy` called bare
     answers `true`, the send then goes out with `needSoldier = true`, and the server
-    accepts the call and creates no march — an afternoon of #1283 went into that.
+    accepts the call and creates no march — an afternoon of #1283 went into that. The
+    direct send passes `false` for the same reason, as every proven send here does.
     """
     return (
-        _MACRO + _MACRO_FIND +
+        _MACRO + _MACRO_FIND + _PICK_FIND + _PICK_ARM +
         "p.type, p.point, p.target, p.server = nil, nil, nil, nil "
         "p.timeIndex, p.back, p.formation, p.err = nil, nil, nil, nil "
+        "p.desc, p.age, p.kind = nil, nil, nil "
         "p.result = 0 "
         "(function() "
         "local w = _findscreen() "
         "p.screen = (w ~= nil) and 1 or 0 "
-        "if w == nil then return end "
+        "if w ~= nil then "
         "local c = w.Ctrl "
         "pcall(function() p.type = tonumber(c.targetType) end) "
         "pcall(function() p.point = tonumber(c.targetPoint) end) "
@@ -7647,13 +7793,66 @@ def macro_send() -> str:
         "pcall(function() w.Ctrl:SetSelectFormationUuid(p.formation) end) "
         "local ok, err = pcall(function() w.Ctrl:OnCheckTime(p.formation, nil) end) "
         "if not ok then p.result = -3 p.err = tostring(err) return end "
-        "p.result = 1 "
+        "p.result = 1 return end "
+        # --- no screen: the target the person's own click pinned ---------------
+        "local q = DataCenter.__lw_macro_pick "
+        "if q == nil or q.point == nil then "
+        "local pop = _findpopup() "
+        # Read on the spot, and NOT counted as a scripted open even though this chunk is
+        # one: nothing is being opened here, a popup that is already up is being read, and
+        # a popup standing open at the moment of the key press is the strongest evidence
+        # of what is chosen there is.
+        "if pop ~= nil then pcall(function() "
+        "q = DataCenter.__lw_pick_read(pop.Ctrl) q.script = 0 "
+        "DataCenter.__lw_macro_pick = q end) end end "
+        "if q == nil or q.point == nil then p.result = 0 return end "
+        "p.desc, p.kind = q.desc, q.kindname "
+        "local now = 0 "
+        "pcall(function() now = tonumber(UITimeManager:GetInstance():GetServerSeconds()) or 0 end) "
+        "p.age = (q.at ~= nil and now > 0) and (now - q.at) or 0 "
+        "local inworld = false "
+        "pcall(function() inworld = SceneUtils.GetIsInWorld() and true or false end) "
+        "local who = '' pcall(function() who = tostring(LuaEntry.Player.uid) end) "
+        "local home = 0 pcall(function() home = tonumber(LuaEntry.Player.serverId) or 0 end) "
+        "if (q.who ~= nil and q.who ~= who) or (q.home ~= nil and tonumber(q.home) ~= home) "
+        "then p.result = -8 return end "
+        "if not inworld then p.result = -7 return end "
+        "if q.script == 1 then p.result = -9 return end "
+        "if p.age > (tonumber(p.stale) or 180) then p.result = -4 return end "
+        "if q.can == 0 then p.result = -6 return end "
+        "if q.mtt == nil then p.result = -5 return end "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if tonumber(v.index) == tonumber(p.squad) then p.formation = v.uuid end end end) "
+        "if p.formation == nil then p.result = -1 return end "
+        "p.type, p.point, p.target = q.mtt, q.point, q.target or 0 "
+        "p.server, p.timeIndex, p.back = q.server or home, 1, 1 "
+        "p.before = %(count)s "
+        "DataCenter.__lw_macro_last = {squad = p.squad, formation = p.formation, "
+        "type = p.type, point = p.point, target = p.target, server = p.server, "
+        "timeIndex = p.timeIndex, back = p.back, before = p.before} "
+        # THE SEND CARRIES ITS OWN COPY, and that is not tidiness. `p` IS
+        # `DataCenter.__lw_macro`, one table shared by every press, and the send is a third
+        # of a second late on purpose (a cold one is created and dropped). Three keys in a
+        # row on one boss — the thing this recipe is FOR — would otherwise have the second
+        # press overwrite the squad the first one was about to march with.
+        "local _f, _t, _pt, _tg, _sv = p.formation, p.type, p.point, p.target, p.server "
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(_f, _t, _pt, _tg, 1, 1, false, _sv, nil) end) "
+        'CS.UnityEngine.Debug.LogError("ACT macro_send pinned ok="..tostring(ok)'
+        '.." err="..tostring(err)) '
+        "end, 0.3) "
+        "pcall(function() local pop = _findpopup() "
+        "if pop ~= nil and pop.Ctrl and pop.Ctrl.CloseSelf then pop.Ctrl:CloseSelf() end end) "
+        "p.result = 2 "
         "end)() "
         "DataCenter.__lw_macro = p "
         'CS.UnityEngine.Debug.LogError("ACT macro_send squad="..tostring(p.squad)'
         '.." result="..tostring(p.result).." screen="..tostring(p.screen)'
         '.." type="..tostring(p.type).." point="..tostring(p.point)'
         '.." target="..tostring(p.target).." server="..tostring(p.server)'
+        '.." kind="..tostring(p.kind).." age="..tostring(p.age)'
         '.." formation="..tostring(p.formation).." marches="..tostring(p.before)'
         '.." err="..tostring(p.err))'
         % {"count": own_march_count()}

@@ -71,12 +71,13 @@ def test_the_squad_travels_as_an_argument_and_is_parked_by_the_recipe():
     source, merged = script_engine.prepare_source(
         SEND.read_text(encoding="utf-8"), {"squad": 3})
     assert merged["squad"] == 3
-    assert "DataCenter.__lw_macro = {squad = 3}" in source
-    # …and the default is squad 1, so a bare run is still a run.
+    assert "DataCenter.__lw_macro = {squad = 3, stale = 180}" in source
+    # …and the defaults are squad 1 and three minutes, so a bare run is still a run.
     source, merged = script_engine.prepare_source(
         SEND.read_text(encoding="utf-8"), None)
     assert merged["squad"] == 1
-    assert "DataCenter.__lw_macro = {squad = 1}" in source
+    assert merged["stale"] == 180
+    assert "DataCenter.__lw_macro = {squad = 1, stale = 180}" in source
 
 
 def test_the_send_recipe_never_builds_a_target_of_its_own():
@@ -92,12 +93,18 @@ def test_the_send_recipe_never_builds_a_target_of_its_own():
         assert forbidden not in body, f"{forbidden} has no business in {SEND.name}"
 
 
-def test_the_send_recipe_refuses_every_way_the_screen_can_fail():
+def test_the_send_recipe_refuses_every_way_a_target_can_fail():
     text = SEND.read_text(encoding="utf-8")
-    assert "IF sent_ok == 0" in text        # no screen open — nothing was chosen
+    assert "IF sent_ok == 0" in text        # nothing clicked and no screen open
     assert "IF sent_ok == -1" in text       # no squad with that number
     assert "IF sent_ok == -2" in text       # screen open, target unreadable
     assert "IF sent_ok == -3" in text       # the screen's own launch raised
+    assert "IF sent_ok == -4" in text       # the click is older than `stale`
+    assert "IF sent_ok == -5" in text       # a kind the macro does not march on
+    assert "IF sent_ok == -6" in text       # a rally-only monster
+    assert "IF sent_ok == -7" in text       # no longer on the world map
+    assert "IF sent_ok == -8" in text       # another account clicked it
+    assert "IF sent_ok == -9" in text       # the panel opened it, nobody clicked it
     assert "IF sent < 1" in text            # pressed and nothing went out
 
 
@@ -171,9 +178,8 @@ def test_the_send_reads_the_screen_and_resolves_the_squad():
 
 def test_the_send_presses_the_games_own_button_in_the_same_chunk_it_read():
     lua = lua_actions.macro_send()
-    assert "OnCheckTime" in lua, "keys 1..4 replace the mouse, not the game's checks"
+    assert "OnCheckTime" in lua, "an OPEN screen is still pressed, not re-sent"
     assert "SetSelectFormationUuid" in lua
-    assert "SendCreateMarchMessage" not in lua
     # …and it writes the march down BEFORE pressing: the screen closes itself.
     assert lua.index("__lw_macro_last") < lua.index("OnCheckTime")
     # …and the reading of the screen is in the SAME chunk as the press (#1290), so
@@ -181,12 +187,145 @@ def test_the_send_presses_the_games_own_button_in_the_same_chunk_it_read():
     assert lua.index("targetUuid") < lua.index("OnCheckTime")
 
 
-def test_the_send_tells_its_four_refusals_apart():
+def test_the_screen_is_tried_before_the_clicked_target():
+    """A person who opened the squad screen went that way on purpose (#1328).
+
+    Its target is fresher than a tile's and carries a rally's wait slot, so the screen
+    wins whenever there is one; the pin is what answers when there is not.
+    """
+    lua = lua_actions.macro_send()
+    assert lua.index("_findscreen()") < lua.index("__lw_macro_pick")
+
+
+def test_the_send_tells_its_refusals_apart():
     lua = lua_actions.macro_send()
     for verdict in ("p.result = 0", "p.result = -1", "p.result = -2",
-                    "p.result = -3", "p.result = 1"):
+                    "p.result = -3", "p.result = -4", "p.result = -5",
+                    "p.result = -6", "p.result = -7", "p.result = -8",
+                    "p.result = -9", "p.result = 1", "p.result = 2"):
         assert verdict in lua, verdict
     assert "result" in lua_actions.macro_result()
+
+
+# ---------------------------------------------------------------------------
+# the click watcher (#1328)
+# ---------------------------------------------------------------------------
+def test_the_click_is_caught_by_wrapping_the_popups_own_controller():
+    """The pin is made by the CLICK, not by the panel going looking afterwards.
+
+    Wrapping `UIWorldPointCtrl:InitData` on the CLASS table catches every instance and
+    therefore every click there is — a finger on the map, `OnClickWorldPoint`, a jump out
+    of the magnifier — with nothing polled and no timer left running in somebody's game.
+    """
+    lua = lua_actions.macro_pick_arm()
+    assert "UIWindowNames.UIWorldPoint" in lua
+    assert "cls.InitData" in lua and "__lw_pick_orig" in lua
+    assert "DataCenter.__lw_macro_pick" in lua
+    # …once, and never a wrapper around a wrapper.
+    assert "rawget(cls, '__lw_pick_orig')" in lua
+    # …and the game's own method runs FIRST and unprotected: a popup that opened blank
+    # because a macro was listening would be worse than anything this fixes.
+    assert lua.index("table.pack(orig(s, ...))") < lua.index("__lw_pick_read(s)")
+    assert "table.unpack(r, 1, r.n)" in lua, "InitData's own answer is handed back"
+
+
+def test_the_watcher_is_armed_by_the_press_itself():
+    """A client that restarted between two presses is watched again, at no round trip."""
+    assert "__lw_pick_orig" in lua_actions.macro_send()
+
+
+def test_the_kind_of_target_is_read_out_of_the_games_own_enums():
+    """Never a number copied into this repository: a season renumbers them (#1328)."""
+    lua = lua_actions.macro_pick_arm()
+    assert "WorldPointUIType" in lua and "MarchTargetType" in lua
+    for name in ("U.Monster", "U.Boss", "U.City", "U.CollectPoint", "U.CollectArmy"):
+        assert name in lua, name
+    for name in ("M.ATTACK_MONSTER", "M.ATTACK_CITY", "M.COLLECT",
+                 "M.ATTACK_ARMY_COLLECT"):
+        assert name in lua, name
+
+
+def test_a_rally_only_monster_is_never_marched_on_by_a_key():
+    """`canAttack == 0` is the game's own «this one needs a banner» (world-monsters.md).
+
+    And `GetMonsterData` is asked WITH the uuid: called bare it answers a stub whose
+    `canAttack` is 0, and every monster would read as rally-only.
+    """
+    lua = lua_actions.macro_pick_arm()
+    assert "s:GetMonsterData(s.uuid)" in lua
+    assert "p.can == 1" in lua
+    assert "p.result = -6" in lua_actions.macro_send()
+
+
+def test_the_players_own_base_is_not_a_target():
+    lua = lua_actions.macro_pick_arm()
+    assert "p.mine" in lua and "ownerUid" in lua
+    assert "if p.mine == 0 then p.mtt = tonumber(M.ATTACK_CITY) end" in lua
+
+
+def test_a_popup_the_panel_opened_is_not_a_target_anybody_chose():
+    """The bot opens world-point popups all day; the newest one is not a person's click.
+
+    A scripted open runs inside a chunk compiled from a string, and `debug.getinfo` says
+    so — the game's own Lua has file paths. Caught live: the very first pin this watcher
+    made came from the panel's own automation, not from a finger.
+    """
+    read = lua_actions.macro_pick_arm()
+    assert "debug.getinfo(lvl, 'S')" in read and "short_src" in read
+    assert "'[string'" in read
+    assert "p.script = 1" in read
+    lua = lua_actions.macro_send()
+    assert "if q.script == 1 then p.result = -9 return end" in lua
+    # …and reading a popup that is ALREADY open is not an open: it happens inside our own
+    # chunk, and refusing it there would make the fallback useless.
+    assert "q.script = 0" in lua
+
+
+def test_a_pin_goes_stale_by_time_scene_and_account():
+    """Three ways a clicked target stops being the target, and each says which (#1328)."""
+    lua = lua_actions.macro_send()
+    assert "GetServerSeconds" in lua, "the GAME's clock, never the PC's"
+    assert "p.stale" in lua and "or 180" in lua
+    assert "GetIsInWorld" in lua
+    assert "LuaEntry.Player.uid" in lua and "LuaEntry.Player.serverId" in lua
+
+
+def test_the_clicked_target_is_marched_on_with_no_window_at_all():
+    lua = lua_actions.macro_send()
+    assert "SendCreateMarchMessage" in lua
+    assert "DelayInvoke" in lua, "a cold send is created and dropped"
+    assert "OpenWindow" not in lua, "the squad screen is what #1328 exists to avoid"
+    assert "OnClickStartMarch" not in lua, "that IS the squad screen, opened by hand"
+    assert ", 1, 1, false, _sv, nil)" in lua, "needSoldier=false, as every proven send"
+    # …and the popup the click opened is closed by ITS OWN controller, never by
+    # DestroyAllWindow, which takes the HUD with it and does not give it back.
+    assert "CloseSelf" in lua and "DestroyAllWindow" not in lua
+
+
+def test_a_press_does_not_spend_the_click():
+    """Three keys in a row put three squads on one target — what a boss is clicked for."""
+    lua = lua_actions.macro_send()
+    tail = lua[lua.index("p.result = 2"):]
+    assert "__lw_macro_pick = nil" not in lua
+    assert "__lw_macro_pick" not in tail
+
+
+def test_the_delayed_send_carries_its_own_copy_of_the_arguments():
+    """…and BECAUSE three keys in a row are the point, the send may not read the shared
+    table a third of a second later: press two would overwrite what press one is about to
+    march with."""
+    lua = lua_actions.macro_send()
+    assert "SendCreateMarchMessage(_f, _t, _pt, _tg, 1, 1, false, _sv, nil)" in lua
+    assert "local _f, _t, _pt, _tg, _sv = " in lua
+
+
+def test_a_pin_never_reaches_the_panels_log_with_an_account_in_it():
+    """The pin holds a uid and an ownerUid so it can tell accounts apart — and neither
+    is ever printed. What the log gets is the kind and the tile."""
+    lua = lua_actions.macro_send()
+    marker = lua[lua.index('CS.UnityEngine.Debug.LogError("ACT macro_send squad='):]
+    for secret in ("p.who", "q.who", "ownerUid", "p.mine"):
+        assert secret not in marker, secret
 
 
 def test_a_rally_is_never_repeated_by_a_plain_send():
@@ -227,7 +366,8 @@ def test_both_chunks_are_lua_a_client_would_accept():
         return
     runtime = lupa.LuaRuntime()
     for name in ("macro_send", "macro_repeat", "macro_result", "macro_repeat_result",
-                 "macro_repeat_ready", "macro_sent", "macro_repeat_sent"):
+                 "macro_repeat_ready", "macro_sent", "macro_repeat_sent",
+                 "macro_pick_arm", "macro_pick_result", "macro_pick_desc"):
         chunk = getattr(lua_actions, name)()
         # An expression-shaped helper is compiled as one; a press is a block.
         source = f"return {chunk}" if chunk.lstrip().startswith("(") else chunk

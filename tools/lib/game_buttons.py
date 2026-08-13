@@ -862,15 +862,17 @@ BUTTONS: dict[str, Button] = {
              "if w and w.Ctrl and w.Ctrl.CloseSelf then w.Ctrl:CloseSelf() end"),
         wait=0.4, label="close window",
     ),
-    # --- the keyboard macros: send the squad the game is already asking for ---
+    # --- the keyboard macros: send the squad at whatever the person chose ---
     # ONE press behind each recipe (#1283, made one call each in #1290):
     #
-    #     macro_send                     keys 1..4, with the squad screen open
+    #     macro_send                     keys 1..4 — the CLICKED target, or the open
+    #                                    squad screen when there is one (#1328)
     #     macro_repeat                   CapsLock, with no screen at all
     #
     # WHICH squad is parked in `DataCenter.__lw_macro` by the recipe, because `TAP`
-    # carries no arguments; the target is not parked by anybody — it is READ off the
-    # screen the person's own click opened. docs/research/march-hotkeys.md.
+    # carries no arguments; the target is not parked by anybody — it is the point the
+    # person's own map click pinned, or the one on the screen their click opened.
+    # docs/research/march-hotkeys.md.
     #
     # NEITHER OF THEM PAUSES AFTERWARDS, and that is the point of #1290. A `wait` is a
     # plain sleep with the game claim held, and both recipes then measure the march
@@ -878,11 +880,12 @@ BUTTONS: dict[str, Button] = {
     # somebody guessed. The two seconds each of these used to sit out were two seconds
     # of «занят» for the next key press.
     "macro_send": Button(
-        # Read the open screen's target, resolve the parked squad, press the screen's
-        # own «Марш» — one chunk, one frame, so nothing can close the screen between
-        # the reading and the press. What it decided is parked in `result`.
+        # Arm the click watcher, then take the first target there is: the open squad
+        # screen's, pressed the way #1283 pressed it, or — with no screen at all — the
+        # one the person's map click pinned, marched on directly with no window. One
+        # chunk, one frame. What it decided is parked in `result`.
         lua=_lua_actions.macro_send(),
-        wait=0.0, label="send the chosen squad at the screen's target",
+        wait=0.0, label="send the chosen squad at the chosen target",
     ),
     "macro_repeat": Button(
         # CapsLock: the same send the last launch made, made directly. No window is
