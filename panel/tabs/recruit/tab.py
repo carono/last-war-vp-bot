@@ -46,8 +46,13 @@ class RecruitTab(PanelTab):
     REFRESH_SEC = 180
     #: On being shown again, re-read anything older than this.
     STALE_SEC = 60
-    #: How often the countdown and the «прочитано N назад» line are redrawn.
-    TICK_MS = 1_000
+    #: How often the countdown and the «прочитано N назад» line are redrawn. FIFTEEN
+    #: SECONDS, not one, and the difference is not cosmetic: a repaint is ~20 Tk calls,
+    #: it happens in EVERY open profile, and the panel's press budget from the phone is
+    #: 1.5 s of the Tk thread (`panel/web/api.py`, `TK_TIMEOUT_SEC`). A tab that wakes
+    #: the event loop every second on every profile spends that budget for everybody
+    #: else. The countdown it draws is hours long, so a second's precision buys nothing.
+    TICK_MS = 15_000
     #: How long after a pull before the banners are re-read. The server answers the pull
     #: first — the scenario has already waited for the account to move — so this is the
     #: margin, not the wait.
@@ -124,6 +129,16 @@ class RecruitTab(PanelTab):
             self._refresh_status()
         self.rt.tick.arm("recruit_poll", self.TICK_MS, self._tick)
 
+    def on_hide(self) -> None:
+        """Nobody is looking: stop the clock.
+
+        A countdown redrawn behind another tab is Tk time taken from whatever the person
+        IS looking at — and from the 1.5 s a press off the phone has to be answered in.
+        `on_show` re-reads anything that went stale meanwhile, so nothing is lost by
+        going quiet.
+        """
+        self.rt.tick.disarm("recruit_poll")
+
     def on_language_change(self) -> None:
         self._render()
 
@@ -143,8 +158,15 @@ class RecruitTab(PanelTab):
 
     # -- the reading --------------------------------------------------------
     def _tick(self) -> None:
-        """Repaint the countdown every second; re-read when the reading is stale."""
+        """Repaint the countdown, and re-read when the reading has gone stale.
+
+        A tab nobody has drawn yet repaints nothing and asks the game nothing: the clock
+        is armed by `ensure_loaded`, which only runs once somebody has looked (`LAZY`,
+        docs/panel-tabs.md), and it is disarmed again the moment the tab is hidden.
+        """
         try:
+            if self._body is None:
+                return
             if not self._busy and self._age() >= self.REFRESH_SEC:
                 self.refresh()
             else:

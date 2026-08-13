@@ -2565,12 +2565,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _tabs_block(self) -> dict:
         """The profile's `tabs` block: which tabs, in what order, and their settings.
 
-        `enabled` / `order` are carried through untouched — nothing edits them yet, and
-        a save must not be what wipes a hand-written list. A tab that is not in this
-        window (switched off, or it failed to build) keeps the block that is on disk:
-        settings are collected on every save, including saves that happen before the
-        tabs exist, and one of those must not overwrite the choices about to be
-        restored.
+        `order` is carried through untouched, and `enabled` is written as the tabs this
+        profile ACTUALLY ASKED FOR — which is not the same as the list on disk the
+        moment a new tab exists (below). A tab that is not in this window (switched off,
+        or it failed to build) keeps the block that is on disk: settings are collected
+        on every save, including saves that happen before the tabs exist, and one of
+        those must not overwrite the choices about to be restored.
         """
         saved = self._settings.get("tabs")
         block = dict(saved) if isinstance(saved, dict) else {}
@@ -2586,6 +2586,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         was_known = set(block.get("known") or ())
         offered = {spec.id for spec in tabsreg.listed(
             enabled=block.get("enabled"), known=block.get("known"))}
+        # A NEW TAB IS WRITTEN INTO `enabled` BY THE SAVE THAT FIRST RECORDS IT AS
+        # OFFERED, and leaving that out is how a tab could appear exactly once and then
+        # be gone for ever (#1327). `resolve` appends a tab the profile has never heard
+        # of and builds it; the save below then put it into `known` while `enabled`
+        # still knew nothing about it — and «in known, not in enabled» is precisely how
+        # this file spells «the person unticked it». So the next start dropped it, the
+        # phone's press answered `unknown` with nothing in the log, and the window it
+        # had worked in half an hour earlier was the only evidence it had ever existed.
+        #
+        # `chosen_ids` is what the window itself built from, pre-development-gate, so
+        # this records the answer that was ACTED ON rather than a fresh opinion: a tab
+        # somebody unticked is in `known` and not in `chosen_ids`, and stays off.
+        block["enabled"] = tabsreg.chosen_ids(enabled=block.get("enabled"),
+                                              known=block.get("known"))
         block["known"] = [spec.id for spec in tabsreg.TABS
                           if spec.id in offered or spec.id in was_known]
         config = dict(block.get("config") or {})

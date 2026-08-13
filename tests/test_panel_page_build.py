@@ -570,6 +570,48 @@ def test_the_bottom_strip_says_what_is_running_and_names_the_profile() -> None:
         harness.close()
 
 
+def test_a_tab_the_profile_has_never_seen_is_written_into_its_own_list() -> None:
+    """A NEW TAB SURVIVES THE SAVE THAT FIRST RECORDS IT (#1327).
+
+    `resolve` appends a tab this profile has never been offered and the window builds
+    it. The save then writes `known` with every tab that was offered — and used to
+    leave `enabled` exactly as it found it, which spells «offered and switched off» for
+    the tab that had just been added. So a brand-new tab appeared once, vanished at the
+    next start, and the phone's press for it answered `unknown` with nothing in the log
+    to say why. Caught live on «Найм», an hour after it was added.
+
+    Both halves are asserted, because the fix must not undo what `known` is FOR: a tab
+    somebody really did untick is in `known`, is not in `chosen_ids`, and stays out.
+    """
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    try:
+        from panel import tabs as tabsreg
+
+        app, session = harness.app, harness.session
+        with app._on(session):
+            ids = [spec.id for spec in tabsreg.TABS if spec.default_enabled
+                   and not spec.in_development]
+            assert len(ids) >= 2, ids
+            fresh, declined = ids[0], ids[1]
+            # A profile that has been offered everything EXCEPT `fresh`, and has said no
+            # to `declined`.
+            app._settings["tabs"] = {
+                "enabled": [i for i in ids if i not in (fresh, declined)],
+                "known": [i for i in ids if i != fresh],
+            }
+            block = app._tabs_block()
+            assert fresh in block["enabled"], (
+                f"{fresh} was built by this window and left out of its own list — "
+                f"the next start will read it as switched off")
+            assert declined not in block["enabled"], (
+                f"{declined} was unticked and the save put it back")
+            assert fresh in block["known"] and declined in block["known"]
+    finally:
+        harness.close()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
