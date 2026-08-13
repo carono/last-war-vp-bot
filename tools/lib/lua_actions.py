@@ -7768,3 +7768,276 @@ def macro_repeat_sent() -> str:
 def macro_last_squad() -> str:
     """Lua *expression* -> the squad number of the last macro march, 0 if there is none."""
     return "(tonumber((DataCenter.__lw_macro_last or {}).squad) or 0)"
+
+
+# ---------------------------------------------------------------------------
+# «Найм» — the recruit banners: heroes and survivors, x1 / x10 / x100
+# ---------------------------------------------------------------------------
+# Two messages, both read off a live trace of the player pulling by hand (run
+# 20260813_103441, «найм героев») and then confirmed field by field in the VM:
+#
+#     --> lottery.hero.card    {id (string), isTen (int), useFree (int)}  + the cost item
+#     --> lottery.worker.card  {useFree (int), isTen (int), officerId (int)}
+#
+# `isTen` IS NOT A FLAG. The trace only ever carried 0 and 1 — a single pull and a ten —
+# so a x100 button had nothing to send. The client's own enum answers it:
+# `UIHeroMultiRecruitType = { Ten = 1, OneHundred = 2 }`, and the view picks the value
+# with it (`UIHeroRecruitView.ExecuteMultiRecruitAction`, read with `string.dump`). So
+# the field is a SIZE — 0 single, 1 ten, 2 hundred — and the hundred is derived from the
+# game's own table rather than guessed off two samples.
+#
+# THE FREE PULL IS THE GAME'S ANSWER, never a count kept here. Both banners have one and
+# they are not the same shape: a hero banner refreshes its free pull daily
+# (`LotteryInfo:IsSupportFreeRecruit()` / `:CanFreeRecruit()`, `dailyFreeNextFreshTime`),
+# and the survivors' one runs on a timer of its own
+# (`WorkerLotteryInfo:CanFreeRecruit()`, `nextFreeTime`). Both gates are CALLED rather
+# than reimplemented: the client compares its own clock its own way, and a copy of that
+# arithmetic here is one build away from disagreeing with what the person sees.
+#
+# The reverse-engineering, the fields and what each one meant live, is
+# docs/research/recruit-draw.md.
+
+#: How a count maps onto the wire's `isTen` — the client's own `UIHeroMultiRecruitType`.
+RECRUIT_SIZES = {1: 0, 10: 1, 100: 2}
+
+#: The two banners this ability knows, as the scenario spells them.
+RECRUIT_KINDS = ("hero", "worker")
+
+# The Lua that finds the hero banner to pull on. `DataCenter.__lw_recruit_lottery` names
+# one when the caller picked it; otherwise the first of the client's own current recruit
+# ids that actually resolves — the list carries ids whose banner has not been loaded, and
+# those answer `nil` rather than an empty banner.
+_RECRUIT_HERO_INFO = (
+    "local function heroInfo() "
+    "local M = DataCenter.LotteryDataManager "
+    "local want = tostring(DataCenter.__lw_recruit_lottery or '') "
+    "if want ~= '' then "
+    "local ok, v = pcall(function() return M:GetLotteryDataById(want) end) "
+    "if ok and v ~= nil then return v, want end "
+    "ok, v = pcall(function() return M:GetLotteryDataById(tonumber(want)) end) "
+    "if ok and v ~= nil then return v, want end "
+    "return nil, want end "
+    "for _, id in pairs(M.curRecruitIdList or {}) do "
+    "local ok, v = pcall(function() return M:GetLotteryDataById(id) end) "
+    "if ok and v ~= nil then return v, tostring(id) end end "
+    "return nil, '' end "
+)
+
+# …and the survivors' one, which the client keeps as a single banner: the config row in
+# `LotteryDataManager` (the officer id the message carries) and the account's own data
+# (`WorkerLotteryDataManager`) with the free timer on it.
+_RECRUIT_WORKER_INFO = (
+    "local function workerInfo() "
+    "local M = DataCenter.LotteryDataManager "
+    "local cfg, wl = nil, nil "
+    "pcall(function() cfg = M:GetOnlyWorkerLotteryData() end) "
+    "pcall(function() wl = DataCenter.WorkerLotteryDataManager:GetWorkerLotteryData() end) "
+    "return wl, cfg end "
+)
+
+# A cost is a pair {itemId, itemNum}: `GetCostItems()` holds the single and the ten,
+# `recruit100CostInfo` the hundred. Everything is wrapped, so a banner that is missing a
+# hundred costs one zero rather than the whole reading.
+_RECRUIT_COST = (
+    # THE TICKET ID IS A STRING AND STAYS ONE. The client keeps `itemId` as text and the
+    # message puts it on the wire with `PutUtfString`, so a `tonumber()` on the way past
+    # — the obvious tidy-up — makes the client's own serializer throw «attempt to get
+    # length of a number value» and NOTHING leaves. Caught on the first live pull; the
+    # same value read back as a string sent cleanly. `GetItemById` takes it either way.
+    "local function costOf(info, size) "
+    "local id, num = '', 0 "
+    "pcall(function() "
+    "if size == 2 then local c = info:GetHundredCost() "
+    "if c ~= nil then id = c.itemId num = tonumber(c.itemNum) or 0 end "
+    "else local list = info:GetCostItems() or {} local c = list[size + 1] "
+    "if c ~= nil then id = c.itemId num = tonumber(c.itemNum) or 0 end end "
+    "end) return id, num end "
+    "local function have(itemId) local n = 0 "
+    "pcall(function() local it = DataCenter.ItemData:GetItemById(itemId) "
+    "n = tonumber(it and it.count) or 0 end) return n end "
+)
+
+# The free pull, asked of the game and normalised. `free` is the client's own answer,
+# `next` is when it comes back — in epoch SECONDS whichever unit the banner keeps it in
+# (the hero one counts seconds, the survivors' one milliseconds).
+_RECRUIT_FREE = (
+    "local function secs(v) local n = tonumber(v) or 0 "
+    "if n > 100000000000 then n = n / 1000 end return math.floor(n) end "
+)
+
+
+def recruit_state() -> str:
+    """Lua *expression* -> one line saying what both banners can do right now.
+
+    ``now=<server seconds> | hero id=… support=1 free=0 next=… item=… have=… c1=1
+    c10=10 c100=100 total=… limit=… | worker id=… support=1 free=1 next=0 item=…
+    have=… c1=1 c10=10 c100=100``
+
+    * ``support`` — has this banner a free pull at all (a hero banner may not);
+    * ``free``    — is it available THIS MOMENT, the client's own gate;
+    * ``next``    — when it comes back, epoch seconds; ``0`` when it is available now;
+    * ``item`` / ``have`` — the ticket the pulls are paid in and how many are held;
+    * ``c1`` / ``c10`` / ``c100`` — what one, ten and a hundred cost in that ticket;
+    * ``total`` / ``limit`` — pulls made on the hero banner and its ceiling, ``0`` when
+      the banner does not keep one.
+
+    A banner the client cannot answer for is left out of the line entirely, which is how
+    «the client is not logged in» tells itself apart from «no free pull today».
+    """
+    return (
+        "(function() "
+        + _RECRUIT_HERO_INFO + _RECRUIT_WORKER_INFO + _RECRUIT_COST + _RECRUIT_FREE +
+        "local out = {} "
+        "local now = 0 pcall(function() now = math.floor(tonumber("
+        "UITimeManager:GetInstance():GetServerSeconds()) or 0) end) "
+        "out[#out+1] = 'now='..now "
+        "local hi, hid = heroInfo() "
+        "if hi ~= nil then "
+        "local sup, free = 0, 0 "
+        "pcall(function() sup = hi:IsSupportFreeRecruit() and 1 or 0 end) "
+        "pcall(function() free = hi:CanFreeRecruit() and 1 or 0 end) "
+        "local nxt = 0 if free == 0 and sup == 1 then nxt = secs(hi.dailyFreeNextFreshTime) end "
+        "local id1, n1 = costOf(hi, 0) local _, n10 = costOf(hi, 1) local _, n100 = costOf(hi, 2) "
+        "local total, limit = 0, 0 "
+        "pcall(function() total = math.floor(tonumber(hi.totalLottery) or 0) end) "
+        "pcall(function() limit = math.floor(tonumber(hi.totalLotteryLimit) or 0) end) "
+        "out[#out+1] = 'hero id='..hid..' support='..sup..' free='..free..' next='..nxt"
+        "..' item='..id1..' have='..have(id1)..' c1='..n1..' c10='..n10..' c100='..n100"
+        "..' total='..total..' limit='..limit end "
+        "local wl, wcfg = workerInfo() "
+        "if wl ~= nil then "
+        "local free = 0 pcall(function() free = wl:CanFreeRecruit() and 1 or 0 end) "
+        "local nxt = 0 if free == 0 then nxt = secs(wl.nextFreeTime) end "
+        "local id1, n1 = costOf(wl, 0) local _, n10 = costOf(wl, 1) "
+        "local n100 = 0 "
+        "pcall(function() local c = wcfg and wcfg.recruit100CostInfo "
+        "if c ~= nil then n100 = tonumber(c.itemNum) or 0 end end) "
+        "local wid = 0 pcall(function() wid = math.floor(tonumber(wcfg and wcfg.id) or 0) end) "
+        "out[#out+1] = 'worker id='..wid..' support=1 free='..free..' next='..nxt"
+        "..' item='..id1..' have='..have(id1)..' c1='..n1..' c10='..n10..' c100='..n100 end "
+        "return table.concat(out, ' | ') end)()"
+    )
+
+
+def recruit_draw() -> str:
+    """Pull on the banner parked in ``DataCenter.__lw_recruit_*`` — one message, no window.
+
+    The caller parks three things first (``recruit_draw.md`` does it in one `LUA` line,
+    the way `join_rally.md` parks its squads — a `TAP` carries no arguments of its own):
+
+    * ``__lw_recruit_kind``    — ``hero`` or ``worker``;
+    * ``__lw_recruit_count``   — ``1``, ``10`` or ``100``;
+    * ``__lw_recruit_free``    — ``auto`` (spend the free pull when there is one and the
+      count is 1), ``no`` (never), ``only`` (send NOTHING unless the pull is free);
+    * ``__lw_recruit_lottery`` — which hero banner, empty for the one the client shows.
+
+    **Every refusal is loud** (`docs/skills/sniff.md` §8.0a): the ticket count is checked
+    against the game's own cost before anything leaves, and a pull that cannot be paid
+    for writes why into ``__lw_recruit_report`` and sends nothing, rather than being
+    refused by the server in a tip nobody reads.
+    """
+    return (
+        _RECRUIT_HERO_INFO + _RECRUIT_WORKER_INFO + _RECRUIT_COST +
+        "DataCenter.__lw_recruit_sent = 0 "
+        "DataCenter.__lw_recruit_report = '' "
+        "DataCenter.__lw_recruit_before = nil "
+        "local kind = tostring(DataCenter.__lw_recruit_kind or 'hero') "
+        "local count = math.floor(tonumber(DataCenter.__lw_recruit_count) or 1) "
+        "local want = tostring(DataCenter.__lw_recruit_free or 'auto') "
+        "local sizes = {[1] = 0, [10] = 1, [100] = 2} "
+        "local size = sizes[count] "
+        "if size == nil then "
+        "DataCenter.__lw_recruit_report = 'count='..count..' is not 1, 10 or 100 — nothing sent' "
+        "return end "
+        "local info, cfg, id = nil, nil, '' "
+        "if kind == 'worker' then info, cfg = workerInfo() "
+        "if cfg ~= nil then pcall(function() id = tostring(math.floor(tonumber(cfg.id) or 0)) end) end "
+        "else info, id = heroInfo() end "
+        "if info == nil then "
+        "DataCenter.__lw_recruit_report = 'kind='..kind..' — the client has no such banner "
+        "loaded (not logged in, or the recruit screen has never been opened) — nothing sent' "
+        "return end "
+        "local free = 0 pcall(function() free = info:CanFreeRecruit() and 1 or 0 end) "
+        "local useFree = 0 "
+        "if want ~= 'no' and free == 1 and count == 1 then useFree = 1 end "
+        "if want == 'only' and useFree == 0 then "
+        "DataCenter.__lw_recruit_report = 'kind='..kind..' count='..count..' — the free pull is "
+        "not available and «only free» was asked for — nothing sent' "
+        "return end "
+        "local itemId, itemNum = costOf(info, size) "
+        "if kind == 'worker' and size == 2 then "
+        "pcall(function() local c = cfg and cfg.recruit100CostInfo "
+        "if c ~= nil then itemId = c.itemId itemNum = tonumber(c.itemNum) or 0 end end) end "
+        "local held = have(itemId) "
+        "if useFree == 0 and (itemNum <= 0 or held < itemNum) then "
+        "DataCenter.__lw_recruit_report = 'kind='..kind..' count='..count..' cost='..itemNum"
+        "..' of item '..itemId..' have='..held..' — not enough tickets, nothing sent' "
+        "return end "
+        # WHAT THE PULL IS MEASURED AGAINST, taken before the send: the tickets held
+        # with the free pull's own gate under them. A pull that is refused by the
+        # server returns just as cleanly as one it takes, so the recipe waits for THIS
+        # number to move and calls the run failed when it never does.
+        "local free_before = 0 pcall(function() free_before = info:CanFreeRecruit() and 1 or 0 end) "
+        "DataCenter.__lw_recruit_before = have(itemId) * 2 + free_before "
+        "local ok, err = pcall(function() "
+        "if kind == 'worker' then "
+        "SFSNetwork.SendMessage(MsgDefines.LotteryWorkerCard, useFree, size, math.floor(tonumber(id) or 0)) "
+        "else "
+        "SFSNetwork.SendMessage(MsgDefines.LotteryHeroCard, id, size, useFree, itemId) end end) "
+        "if ok then DataCenter.__lw_recruit_sent = 1 end "
+        "DataCenter.__lw_recruit_report = 'kind='..kind..' banner='..id..' count='..count"
+        "..' isTen='..size..' useFree='..useFree..' cost='..(useFree == 1 and 0 or itemNum)"
+        "..' item='..itemId..' have='..held..' sent='..tostring(ok)..' err='..tostring(err) "
+        'CS.UnityEngine.Debug.LogError("ACT recruit_draw "..DataCenter.__lw_recruit_report)'
+    )
+
+
+def recruit_report() -> str:
+    """Lua *expression* -> what :func:`recruit_draw` did, in its own words."""
+    return ("(DataCenter.__lw_recruit_report or "
+            "'the pull left no report — the press did not run')")
+
+
+def recruit_sent() -> str:
+    """Lua *expression* -> ``1`` when a pull actually left, ``0`` when it was refused."""
+    return "(tonumber(DataCenter.__lw_recruit_sent) or 0)"
+
+
+def recruit_verify() -> str:
+    """Lua *expression* -> a number that MOVES when a pull really happened.
+
+    Two things can pay for a pull and only one of them is tickets, so the proof has to
+    cover both: the ticket count halves the number and the free pull's own gate is the
+    unit under it. A paid pull drops the tickets, a free one flips
+    ``CanFreeRecruit()`` from 1 to 0 — either way this value is different afterwards,
+    and a press the server ignored leaves it exactly where it was.
+
+    It is NOT the button's `verify_lua`, and that is deliberate: a press that decided on
+    purpose to send nothing — no free pull with «only free» asked for, not enough
+    tickets — moves nothing either, and a button-level check reports that as «pressed
+    and nothing moved» over a refusal the recipe has already explained in words. So the
+    recipe reads :func:`recruit_sent` first and only then waits on this.
+    """
+    return (
+        "(function() "
+        + _RECRUIT_HERO_INFO + _RECRUIT_WORKER_INFO + _RECRUIT_COST +
+        "local kind = tostring(DataCenter.__lw_recruit_kind or 'hero') "
+        "local info = nil "
+        "if kind == 'worker' then info = (workerInfo()) else info = (heroInfo()) end "
+        "if info == nil then return -1 end "
+        "local itemId = 0 pcall(function() itemId = (costOf(info, 0)) end) "
+        "local free = 0 pcall(function() free = info:CanFreeRecruit() and 1 or 0 end) "
+        "return have(itemId) * 2 + free end)()"
+    )
+
+
+def recruit_moved() -> str:
+    """Lua *expression* -> ``1`` once the game has caught up with a pull that was sent.
+
+    The difference against the reading :func:`recruit_draw` took before the send. `0`
+    while the server has not answered yet, so a recipe polls it for a second or two —
+    and a `0` that never becomes `1` is the one honest way to say «it went out and
+    nothing came of it».
+    """
+    return ("((DataCenter.__lw_recruit_before ~= nil and "
+            "(%s) ~= DataCenter.__lw_recruit_before) and 1 or 0)" % recruit_verify())

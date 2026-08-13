@@ -189,6 +189,7 @@ TABS: tuple = (
             in_development=True),
     TabSpec("heroes",    "panel.tabs.heroes",    "HeroesTab",    order=230,
             in_development=True),
+    TabSpec("recruit",   "panel.tabs.recruit",   "RecruitTab",   order=235),
     TabSpec("accounts",  "panel.tabs.accounts",  "AccountsTab",  order=240,
             in_development=True),
     TabSpec("stats",     "panel.tabs.stats",     "StatsTab",     order=250,

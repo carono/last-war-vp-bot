@@ -915,6 +915,26 @@ for _pid, (_slug, _en, _ru) in _lua_actions.MINISTRY_POSTS.items():
     )
 
 
+# --- «Найм» -> one pull on a recruit banner, heroes or survivors -----------
+# The size and the banner are PARKED by the recipe before this fires
+# (`DataCenter.__lw_recruit_*`), exactly as `rally_join_all` takes its squads: a `TAP`
+# carries no arguments of its own, and a recipe that names its own banner is what
+# `ARGS` is for. The wire is one message either way — `lottery.hero.card` /
+# `lottery.worker.card`, both read off run 20260813_103441 and confirmed in the VM —
+# so nothing is opened and nothing is clicked.
+BUTTONS["recruit_draw"] = Button(
+    lua=_lua_actions.recruit_draw(),
+    wait=0.4, label="Recruit: one pull on the parked banner",
+    # NO `verify_lua` HERE, on purpose. The press may decide to send nothing — no free
+    # pull with «only free» asked for, not enough tickets — and a button-level check
+    # would report that as «pressed and nothing moved», burying a refusal the press has
+    # already explained in words. The proof lives in `recruit_draw.md` instead: it reads
+    # `recruit_sent` first, and only a pull that really left is waited on
+    # (`recruit_moved`).
+    max_taps=1,
+)
+
+
 # `heal_units` is an alias of `heal_all` — the task tracker refers to the ability by
 # that name, so both resolve to the one hospital.cure press.
 BUTTONS["heal_units"] = BUTTONS["heal_all"]

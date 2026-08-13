@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **33%** — 43 of 132
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥  **32%** — 43 of 133
 
-🟩 43 done · 🟨 47 partly · 🟥 42 not automated
+🟩 43 done · 🟨 49 partly · 🟥 41 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -216,7 +216,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Heroes
 
 - 🟡 Seeing your heroes in the panel — a tab lists every hero with its picture, level, star count and which squad (1/2/3) it stands in, sorted the way the in-game hero screen is. It reads them straight from the game with no window opened, and lazily, only when the tab is first opened; the reading has not been checked against a real roster yet, and the weapon column is left blank for later. **Development mode only for now:** the page is still being worked on, so an ordinary panel does not show it — switch «Разработка» on in the tab list to get it back
-- ❌ Free survivor and hero tickets
+- 🟡 Recruiting heroes and survivors from the panel — a «Найм» tab with both banners side by side and three presses each: x1, x10 and x100. Beside them it shows what the game says, and only what the game says: whether the free pull is waiting or how long until the next one, how many tickets are held, and what one, ten and a hundred pulls cost. A pull you cannot pay for is greyed out rather than hidden, so «this banner has no hundred» and «you are nine tickets short» are both readable at a glance, and nothing on the tab can be ticked by hand — press, and the numbers move because the game moved them. The same board and the same six presses are on the phone. One press by hand, both banners, was made against the live game; the free pull was not free at that moment, and the hundred has not been spent yet
+- 🟡 Spending only the FREE pull — the recruit run can be told «only if it is free», in which case it sends nothing at all on a banner whose free pull has not come back, and says so instead of quietly paying in tickets. Proven live on the survivors' banner; a run that actually caught a free pull has not been seen yet
 - ❌ Levelling heroes, raising their rank, levelling skills
 
 ### General
