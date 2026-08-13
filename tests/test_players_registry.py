@@ -130,6 +130,25 @@ def test_first_seen_is_written_once_and_last_seen_moves():
         assert row["last_seen"] == int(NOW) + 3600
 
 
+def test_a_checkpoint_that_says_the_same_thing_twice_changes_nothing():
+    """The capture re-lists a sighting every tick for as long as it is fresh.
+
+    Live that counted as a change every twenty seconds — `Kept.merge` compares the row
+    it is HANDED against the row it HOLDS, and the held one carries `first_seen` and
+    the person's own mark besides, so the two are never equal. A register that rewrites
+    its file and says «карта добавила или обновила 103» over an unchanged map is a
+    register nobody can read the log of.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(tmp)
+        assert store.absorb([_swept()], now=NOW) == 1
+        assert store.absorb([_swept()], now=NOW) == 0
+        assert store.absorb([_swept()], now=NOW + 300) == 0, (
+            "the wall clock is not what changed — the sighting did not move")
+        # …and a sighting that DID move is still news.
+        assert store.absorb([_swept(seen_at=int(NOW) + 300)], now=NOW + 300) == 1
+
+
 def test_a_mark_on_a_player_nobody_has_seen_is_refused():
     with tempfile.TemporaryDirectory() as tmp:
         assert _store(tmp).set_note("1000000000000009", "?") is False

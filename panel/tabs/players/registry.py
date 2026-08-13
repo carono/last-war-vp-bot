@@ -133,10 +133,20 @@ class PlayerRegistry:
             row = incoming(record, now)
             if not row:
                 continue
-            # `first_seen` is written once and never again — the merge below updates a
-            # row field by field, so writing it every time would move it forward.
-            if self._kept.get(row["uid"]) is None:
+            held = self._kept.get(row["uid"])
+            if held is None:
+                # `first_seen` is written once and never again — the merge updates a row
+                # field by field, so writing it every time would move it forward.
                 row["first_seen"] = row["last_seen"]
+            elif all(held.get(field) == value for field, value in row.items()):
+                # NOTHING NEW ABOUT THIS PLAYER, so nothing is merged and the file is
+                # not rewritten. The checkpoint re-lists the same sighting every tick
+                # for as long as it is fresh, and `Kept.merge` compares a row it is
+                # GIVEN against the row it HOLDS — which carries `first_seen` and the
+                # person's own mark besides, so the two are never equal and every
+                # single tick counted as a change. Live that was «карта добавила или
+                # обновила 103» every twenty seconds, for ever, over an unchanged map.
+                continue
             fresh.append(row)
         return self._kept.merge(fresh)
 
