@@ -555,6 +555,15 @@ class PlayersTab(PanelTab):
             for key in self._filter:
                 if key in saved:
                     self._filter[key] = saved[key]
+        # A SAVED FILTER IS NOT TRUSTED, and this is not hypothetical: a profile
+        # written by yesterday's build held `server = "any"`, which today means «only
+        # the server literally called any» — and the page came up showing «показано 0 ·
+        # скрыто 4259» with no way to tell an empty register from a filter nobody could
+        # see. A restored value the code cannot mean is the blank one.
+        server = str(self._filter.get("server") or "").strip()
+        self._filter["server"] = server if server.isdigit() else ""
+        if self._filter.get("seen") not in SEEN_STEPS:
+            self._filter["seen"] = "any"
         sort = (raw or {}).get("sort")
         if isinstance(sort, (list, tuple)) and len(sort) == 2:
             self._sort = (str(sort[0]), bool(sort[1]))

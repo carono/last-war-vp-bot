@@ -422,6 +422,24 @@ def test_forgetting_from_the_phone_asks_once_before_it_does_it():
         assert len(tab._registry) == 0
 
 
+def test_a_saved_filter_the_code_cannot_mean_comes_back_blank():
+    """A profile written by an older build held `server = "any"`.
+
+    Today that means «only the server literally called any», so the page opened on
+    «показано 0 · скрыто 4259» — an invisible filter looks exactly like an empty
+    register, and there is nothing on screen that could tell the two apart.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tab = _bare_tab(tmp)
+        tab.apply_config({"filter": {"server": "any", "seen": "sometimes",
+                                     "level_min": 30}})
+        assert tab._filter["server"] == ""
+        assert tab._filter["seen"] == "any"
+        assert tab._filter["level_min"] == 30, "a value that IS meant survives"
+        tab.apply_config({"filter": {"server": "100"}})
+        assert tab._filter["server"] == "100"
+
+
 def test_nothing_on_this_tab_can_reach_the_game():
     """The rule the whole page rests on, read off its own source.
 
