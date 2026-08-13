@@ -143,6 +143,20 @@ class ColdGameLink:
         self.asked.append("claim")
         return False
 
+    def reserve(self, owner="panel", priority: int = 0) -> bool:
+        """The local half of the claim (#1331) — recorded as a claim, because it is one.
+
+        `play_async` takes the claim in two pieces now, so a link that only knew the
+        whole of it would let a press through on a cold runtime and the contract test
+        would stop seeing the touch it exists to see.
+        """
+        self.asked.append("claim")
+        return False
+
+    def lease(self, owner="panel") -> bool:
+        self.asked.append("claim")
+        return False
+
     def claim_soon(self, owner="panel", priority: int = 2, timeout: float = 0.0,
                    poll: float = 0.0) -> bool:
         """The waiting form (#1288) — a cold link has nobody to wait for either."""

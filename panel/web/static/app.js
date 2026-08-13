@@ -625,7 +625,8 @@ async function drawScreen(keep) {
     button.addEventListener('click', async () => {
       button.disabled = true;
       try {
-        await post('/api/screen/press', { id: SCREEN, action: action.id });
+        toast(pressWord(await post('/api/screen/press',
+                                   { id: SCREEN, action: action.id })));
         setTimeout(() => drawScreen(true), 900);  // the tab reads on its own thread
       } finally { button.disabled = false; }
     });
@@ -690,6 +691,25 @@ function renderCard(card, needle) {
   return box;
 }
 
+/* WHAT ONE PRESS CAME TO, in the four words it can come to (#1331). A press is not a
+ * yes-or-no: it may be done, it may be ACCEPTED and still running — a scenario takes
+ * seconds and the panel answers before it ends — it may be refused for a reason the tab
+ * knows, or it may name something this panel has no press for. They were all drawn as
+ * «занято» once, and the accepted one was drawn as an error while the scenario it
+ * started ran perfectly well, which is the one thing a panel must never say: the person
+ * presses it again.
+ *
+ * `reason` is a locale KEY when the tab has one and plain words when it is quoting the
+ * game; T() hands back anything it does not know, so both read correctly. */
+function pressWord(answer) {
+  if (!answer) return T('web.ui.refused');
+  if (answer.pending) return T('web.ui.accepted');
+  if (answer.ok) return T('web.ui.done');
+  if (answer.error === 'unknown') return T('web.ui.unknown');
+  const why = answer.reason || answer.detail || '';
+  return why ? T('web.ui.refused.why', { why: T(why) }) : T('web.ui.refused');
+}
+
 function pressButton(action) {
   const button = document.createElement('button');
   button.className = 'go';
@@ -700,7 +720,7 @@ function pressButton(action) {
       const answer = await post('/api/screen/press',
                                 { id: SCREEN, action: action.id,
                                   args: action.args || {} });
-      toast(answer.ok ? T('web.ui.done') : T('web.ui.refused'));
+      toast(pressWord(answer));
       setTimeout(() => drawScreen(true), 900);
     } finally { button.disabled = false; }
   });
@@ -769,7 +789,7 @@ function renderItem(item) {
           const answer = await post('/api/screen/press',
                                     { id: SCREEN, action: action.id,
                                       args: action.args || {} });
-          toast(answer.ok ? T('web.ui.done') : T('web.ui.refused'));
+          toast(pressWord(answer));
           setTimeout(() => drawScreen(true), 900);
         } finally { button.disabled = false; }
       });

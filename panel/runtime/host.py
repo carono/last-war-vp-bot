@@ -432,6 +432,17 @@ class PanelRuntime:
         thread never waits: it learns only that the run has been accepted, which is
         what «нажал — действие» has to mean from the window's side (#1288).
 
+        NOT ONE BYTE OF I/O HAPPENS ON THE CALLING THREAD (#1331). The claim is taken in
+        two halves — :meth:`~panel.runtime.daemon.GameLink.reserve` here, which is two
+        dictionaries under two locks, and the daemon's lease on the worker below, which
+        is a round trip to another process and was measured at 6–28 s against a busy
+        daemon. It used to be one call on this thread, and since a press from the phone
+        is answered by handing this to the Tk thread and waiting a second and a half for
+        it, the phone was told the press was «unknown» while the scenario it started ran
+        perfectly well. A lease refused therefore arrives the way a refused
+        :meth:`claim_soon` already did: «занято» in the log and a failed
+        :class:`~panel.runtime.actions.Outcome` to ``on_result``, not a ``False`` here.
+
         ``on_result`` is for the caller that wants what the scenario *found*, not just
         that it finished: it is handed the :class:`~panel.runtime.actions.Outcome`, on
         the TK thread, before ``on_done``. A scenario built out of ``READ_LUA … INTO x``
@@ -456,7 +467,7 @@ class PanelRuntime:
         if not self._relaunch_lock(name, tag):
             return False
 
-        held = self.game.claim(tag, priority)
+        held = self.game.reserve(tag, priority)
         if not held and not self.game.outranks(priority):
             # Nothing to be done: whoever has the client is at least as urgent as this
             # press, and asking them to step aside for an equal would only shuffle the
@@ -475,10 +486,17 @@ class PanelRuntime:
         def work() -> None:
             outcome = None
             raised = ""
-            if not held and not self.game.claim_soon(tag, priority):
-                # The run holding the client never reached a moment it could park at —
-                # it is inside a call into the game. Refusing is what the press did
-                # before this existed, and it is still the honest answer.
+            # The rest of the claim, HERE rather than on the thread that pressed: the
+            # lease is a round trip and this thread is the one that may afford to wait
+            # for it (#1331). `reserve` already took the two local locks, so this only
+            # asks the daemon; a run that did not reserve asks for the lot and waits for
+            # whoever is holding it to park.
+            got = self.game.lease(tag) if held else self.game.claim_soon(tag, priority)
+            if not got:
+                # Either the run holding the client never reached a moment it could park
+                # at — it is inside a call into the game — or the daemon's lease belongs
+                # to somebody else. Refusing is what the press did before this existed,
+                # and it is still the honest answer.
                 self.log.say(tag, "busy")
                 # Nothing was played, so the lock is given back WITHOUT a settle — there
                 # is no client starting up to wait for.

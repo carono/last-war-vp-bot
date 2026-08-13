@@ -30,6 +30,7 @@ import re
 import ssl
 import sys
 import tempfile
+import threading
 import time
 import types
 import urllib.error
@@ -1491,6 +1492,234 @@ def test_a_tab_still_being_written_hands_the_phone_no_screen():
         every = [s.id for s in tabsreg.TABS]
         rt.tabs.live = _stand_ins(tabsreg.resolve(enabled=every, known=every))
         assert {s["id"] for s in api.screens()["screens"]} & wip
+
+
+class _TkThread:
+    """One thread draining posted work — the whole of the window the press path needs.
+
+    `panel/web/api.py` hands a press over with `rt.tick.post` and never makes a Tk call
+    itself (panel/runtime/tick.py), so this is a faithful stand-in AND, unlike a real
+    root, it can be held busy on purpose. Which is the whole of #1331: a press that the
+    event loop is slow to get to must not be reported as a press the panel does not have.
+    """
+
+    def __init__(self) -> None:
+        import queue
+
+        self.q: "queue.Queue" = queue.Queue()
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self._pump, daemon=True)
+        self.thread.start()
+
+    def post(self, func) -> None:
+        self.q.put(func)
+
+    def stop(self) -> None:
+        self.stopped.set()
+        self.thread.join(2.0)
+
+    def _pump(self) -> None:
+        import queue
+
+        while not self.stopped.is_set():
+            try:
+                func = self.q.get(timeout=0.02)
+            except queue.Empty:
+                continue
+            try:
+                func()
+            except Exception:                        # noqa: BLE001 — as Tk would
+                pass
+
+
+def _off_thread(call, timeout: float = 10.0):
+    """Run `call` on a worker and hand back what it returned.
+
+    Everything in `panel/web/api.py` is reached from an HTTP worker, and the press path
+    short-circuits on the main thread — so a test that calls it directly would exercise
+    the branch that never happens live.
+    """
+    box: dict = {}
+    done = threading.Event()
+
+    def go() -> None:
+        try:
+            box["out"] = call()
+        except Exception as exc:                     # noqa: BLE001
+            box["raised"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=go, daemon=True).start()
+    assert done.wait(timeout), "the call never came back"
+    if "raised" in box:
+        raise box["raised"]
+    return box["out"]
+
+
+class _SlowScreen(_Screen):
+    """A tab whose press takes longer than the phone's budget for an answer."""
+
+    def __init__(self, hold: float) -> None:
+        super().__init__()
+        self.hold = hold
+        self.started = threading.Event()
+        self.finished = threading.Event()
+
+    def web_press(self, action, args) -> dict:
+        self.started.set()
+        time.sleep(self.hold)
+        self.pressed.append((action, args))
+        self.finished.set()
+        return {"ok": True}
+
+
+def test_a_press_the_window_is_slow_to_run_is_accepted_and_never_unknown():
+    """#1331 — the lie that made people press twice.
+
+    The press was run on the Tk thread and waited 1.5 s for it; anything slower fell out
+    of the wait with an empty box and was answered `{"error": "unknown"}`, which is a 404
+    and reads on the phone as «панель не знает такого нажатия». Measured live at 6–28 s
+    per press, because `play_async` took the daemon's lease on the calling thread. The
+    scenario then ran perfectly well — so the person was told their press had failed
+    about a press that was working, and pressed it again.
+
+    Nothing about the wait is the fix's point: a press may legitimately be slow. What it
+    must never do is come back as an unknown action.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        tk_thread = _TkThread()
+        rt.root = object()                 # there IS a window, so the press is handed over
+        rt.tick = tk_thread
+        # Longer than the READ budget (`TK_TIMEOUT_SEC`, 1.5 s) on purpose: that is the
+        # wait the old press inherited, and anything past it came back as a 404.
+        screen = _SlowScreen(hold=2.0)
+        rt.tabs.live = [screen]
+        rt.tabs.get = lambda tab_id: screen if tab_id == "demo" else None
+        was = apimod.PRESS_TIMEOUT_SEC
+        apimod.PRESS_TIMEOUT_SEC = 0.2
+        try:
+            answer = _off_thread(lambda: api.press("demo", "refresh", {}))
+            assert answer.get("pending") is True, answer
+            assert answer.get("ok") is True, answer
+            assert "error" not in answer, answer
+            # …and the ROUTE agrees: this is a 200, not the 404 an unknown press is.
+            status, payload = _off_thread(
+                lambda: api.dispatch("POST", "/api/screen/press",
+                                     {}, {"id": "demo", "action": "refresh"}))
+            assert status == 200, (status, payload)
+            # The press was not cancelled by the answer — it was accepted, and it ran.
+            assert screen.finished.wait(5.0), "the press was dropped, not deferred"
+        finally:
+            apimod.PRESS_TIMEOUT_SEC = was
+            tk_thread.stop()
+
+
+def test_the_three_answers_a_press_can_have_stay_three():
+    """Done, refused-with-a-reason, and «there is no such press» — never merged (#1331).
+
+    The last of them is the only 404. A tab that could not carry a press out says so
+    with `ok: False` and its own words; a phone that is told `unknown` about that would
+    be told the panel has no such button, which is a different fault with a different
+    cure.
+    """
+    class _Choosy(_Screen):
+        def web_press(self, action, args) -> dict:
+            if action == "refresh":
+                return {"ok": True}
+            if action == "run":
+                return {"ok": False, "reason": "web.ui.refused"}
+            return {"error": "unknown"}
+
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        screen = _Choosy()
+        rt.tabs.live = [screen]
+        rt.tabs.get = lambda tab_id: screen if tab_id == "demo" else None
+
+        def route(action):
+            return api.dispatch("POST", "/api/screen/press", {},
+                                {"id": "demo", "action": action})
+
+        assert route("refresh") == (200, {"ok": True})
+        status, payload = route("run")
+        assert status == 200 and payload["ok"] is False and payload["reason"], payload
+        status, payload = route("nonsense")
+        assert status == 404 and payload["error"] == "unknown", (status, payload)
+        # …and a screen this profile does not have is the same 404, carrying what was
+        # asked for, so a phone that is a version behind says which screen it meant.
+        status, payload = api.dispatch("POST", "/api/screen/press", {},
+                                       {"id": "nope", "action": "refresh"})
+        assert status == 404 and payload.get("detail") == "nope", payload
+
+
+def test_the_thread_that_pressed_never_waits_for_the_daemons_lease():
+    """The other half of #1331, and the half that was making the presses slow.
+
+    `play_async` took the WHOLE claim on the calling thread, and its third lock is the
+    daemon's lease — another process, over a socket, measured at 6–28 s while that daemon
+    was busy. Since every press is handed to the Tk thread, one press froze the event
+    loop of every open profile for that long and then answered «unknown».
+
+    So the claim comes in two halves: `reserve` here (two dictionaries under two locks)
+    and `lease` on the worker. Pinned against the REAL `play_async`, with a lease that
+    takes a second — the press must be accepted long before it returns, and the scenario
+    must still run under it.
+    """
+    try:
+        import tkinter as tk
+
+        sys.path.insert(0, str(_REPO / "tests"))
+        import fake_runtime
+
+        root = tk.Tk()
+        root.withdraw()
+        rt = fake_runtime.cold_runtime(root)
+    except Exception as exc:                         # noqa: BLE001 — headless
+        print(f"    (skipped: {type(exc).__name__}: {exc})")
+        return
+    try:
+        asked = threading.Event()
+        played: list = []
+
+        def lease(owner="panel") -> bool:
+            asked.set()
+            time.sleep(1.0)                          # a daemon with its hands full
+            return True
+
+        rt.game.reserve = lambda owner="panel", priority=0: True
+        rt.game.lease = lease
+        rt.game.release = lambda: None
+        rt.game.on_settled = lambda: None
+        rt.actions.run = lambda name, args=None, **kw: played.append(name) or True
+
+        at = time.monotonic()
+        assert rt.play_async("collect_base_resources", tag="web") is True
+        took = time.monotonic() - at
+        assert took < 0.3, f"the press waited {took:.2f}s for the lease"
+        assert asked.wait(3.0), "nothing ever took the lease — the run was dropped"
+        for _ in range(60):
+            if played:
+                break
+            time.sleep(0.05)
+        assert played == ["collect_base_resources"], played
+    finally:
+        root.destroy()
+
+
+def test_the_page_has_a_word_for_each_of_the_three():
+    """The phone must be able to SAY them — one toast per answer, all of them keys."""
+    js = (Path(apimod.static_dir()) / "app.js").read_text(encoding="utf-8")
+    assert "function pressWord(" in js, "the page has no way to name a press's outcome"
+    english = i18nmod.load_locale("en")
+    for key in ("web.ui.accepted", "web.ui.unknown", "web.ui.refused.why",
+                "web.ui.done", "web.ui.refused"):
+        assert f"T('{key}'" in js, f"{key} is in the locales and nothing says it"
+        assert key in english, key
+    # …and no press site left drawing an answer by hand, which is how the three merged.
+    assert "answer.ok ? T('web.ui.done')" not in js, (
+        "a press is still drawn as done-or-refused — «принято, идёт» has nowhere to go")
 
 
 def test_a_screen_is_handed_over_as_data_and_a_press_reaches_the_tab():

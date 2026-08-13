@@ -714,6 +714,25 @@ class GameLink:
         it — a free client is taken by whoever asks first, whatever they said. What it
         decides is what happens to a run ALREADY holding it when somebody more urgent
         turns up: see :meth:`demand` and :meth:`park`.
+
+        IT BLOCKS, because the third lock is a round trip to another process. Whoever
+        cannot afford that takes the two halves separately — :meth:`reserve` here and
+        :meth:`lease` on a worker thread — which is what every press does now (#1331).
+        """
+        return self.reserve(owner, priority) and self.lease(owner)
+
+    def reserve(self, owner: str = "panel", priority: int = claims.BACKGROUND) -> bool:
+        """The first two locks — this link's flag and the process-wide registry.
+
+        NO INPUT AND NO OUTPUT: two dictionaries under two locks, microseconds, safe on
+        the Tk thread. It answers the whole of «is another run of this panel driving
+        this client», which is what a press has to know before it starts a thread.
+
+        What it does NOT answer is whether the DAEMON's lease is free — that is
+        :meth:`lease`, and it costs a socket. A reservation that is never followed by
+        one is a client nobody else can take, so every caller pairs them: :meth:`claim`
+        does both here, `panel/runtime/host.py::play_async` does the second on its
+        worker.
         """
         owner = self._owned(owner)
         with self._busy_lock:
@@ -724,6 +743,22 @@ class GameLink:
             with self._busy_lock:
                 self._busy = False
             return False
+        self._level = int(priority)
+        return True
+
+    def lease(self, owner: str = "panel") -> bool:
+        """The third lock — the daemon's lease. **A ROUND TRIP: never on the Tk thread.**
+
+        This is the half that can take seconds: the daemon is another process (and for a
+        second account, in another Windows session), and asking it anything costs a
+        connect and an answer. It used to sit inside :meth:`claim` on the calling thread,
+        which is how a press from the phone spent 6–28 s of the event loop waiting for a
+        busy daemon and then got told the press was «unknown» (#1331).
+
+        A refusal undoes the reservation, so the pair leaves the link exactly as
+        :meth:`claim` used to on the same failure — nothing half-held.
+        """
+        owner = self._owned(owner)
         if not self._claim_lease(owner):
             self._drop_client()
             with self._busy_lock:
@@ -731,7 +766,6 @@ class GameLink:
             return False
         # The game was taken, so the next time it is not, that is news again.
         self._said_busy = None
-        self._level = int(priority)
         return True
 
     # -- priorities: «нажал — действие» (#1288) ------------------------------

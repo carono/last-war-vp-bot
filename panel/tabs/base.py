@@ -302,6 +302,20 @@ class PanelTab:
         command post do, and it is written down as debt in `CLAUDE.md`) offers the
         phone the READING and not the press until that ability is a scenario — a second
         copy of the debt is not an improvement.
+
+        THREE ANSWERS, AND ``unknown`` IS ONLY ONE OF THEM (#1331). ``{"ok": True}`` is
+        «done or started», ``{"ok": False}`` is «refused» — add ``reason`` when the tab
+        knows why, a locale key or the game's own words, and the phone shows it — and
+        ``{"error": "unknown"}`` means THIS TAB HAS NO SUCH PRESS and answers a 404.
+        Never use the last one for a press that was merely not carried out: the page
+        draws it as «панель не знает такого нажатия», and telling somebody that about a
+        press that worked is how a press gets made twice.
+
+        It runs on the Tk thread, so it may read widgets; it need not be quick. A press
+        that outlasts `panel/web/api.py::PRESS_TIMEOUT_SEC` is answered «принято, идёт»
+        and goes on running — but everything slow inside it still sits on the thread that
+        draws every open profile, so the work itself belongs on `rt.play_async`'s worker
+        exactly as it does for the window's own button.
         """
         return {"error": "unknown"}
 

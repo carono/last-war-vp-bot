@@ -765,6 +765,19 @@ def web_press(self, action: str, args: dict) -> dict:
     return {"ok": True} if action == "refresh" else {"error": "unknown"}
 ```
 
+**A press has THREE answers and `unknown` is only one of them** (#1331). `{"ok": True}`
+is «сделано или запущено»; `{"ok": False}` is «отказано», and add `reason` — a locale key
+or the game's own words — when the tab knows why; `{"error": "unknown"}` means **this tab
+has no such press** and is answered as a 404, which the page draws as «панель не знает
+такого нажатия». Never use the last one for a press that merely did not happen: the panel
+would be telling somebody their button does not exist, and the first thing anybody does
+about that is press it again. There is a fourth answer the tab never writes — the panel
+adds `pending` by itself when the press outlives `panel/web/api.py::PRESS_TIMEOUT_SEC`,
+and the page says «принято — выполняется». Nothing is cancelled by that: `web_press` runs
+on the Tk thread and is allowed to be slow, but everything slow inside it still sits on
+the thread that draws every open profile, so the work belongs on `rt.play_async`'s worker
+exactly as it does for the window's own button.
+
 **A press can belong to a card or to an item, not only to the screen.** `actions` at the
 top level is the screen's own row of buttons; the same list ON A CARD is drawn as that
 card's footer, and on an ITEM beside that row. Pick by what the press belongs to:

@@ -57,6 +57,14 @@ class _WarmLink(fake_runtime.ColdGameLink):
         self.asked.append("claim")
         return True
 
+    def reserve(self, owner="panel", priority: int = 0) -> bool:
+        self.asked.append("claim")
+        return True
+
+    def lease(self, owner="panel") -> bool:
+        self.asked.append("claim")
+        return True
+
     def claim_soon(self, owner="panel", priority: int = 2, timeout: float = 0.0,
                    poll: float = 0.0) -> bool:
         self.asked.append("claim")

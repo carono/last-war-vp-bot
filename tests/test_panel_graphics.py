@@ -339,6 +339,12 @@ def test_a_result_callback_can_start_the_next_scenario():
         rt.actions.run = lambda name, args=None, **kw: played.append(name) or True
         # A link that grants one claim at a time, which is what the real one does.
         held = {"busy": False}
+        # TWO HALVES since #1331: `play_async` reserves on the calling thread and takes
+        # the daemon's lease on its worker, so a double that only knows the whole of the
+        # claim would refuse every press here.
+        rt.game.reserve = lambda owner="panel", priority=0: (
+            False if held["busy"] else (held.update(busy=True) or True))
+        rt.game.lease = lambda owner="panel": True
         rt.game.claim = lambda owner="panel", priority=0: (
             False if held["busy"] else (held.update(busy=True) or True))
         # A press that finds the client held outranks nobody here — this double
@@ -458,6 +464,8 @@ def test_a_run_that_raised_reports_what_raised():
             raise RuntimeError("lease lost — it expired or was taken by nobody")
 
         rt.actions.play = boom
+        rt.game.reserve = lambda owner="panel", priority=0: True
+        rt.game.lease = lambda owner="panel": True
         rt.game.claim = lambda owner="panel", priority=0: True
         rt.game.release = lambda: None
         rt.game.on_settled = lambda: None

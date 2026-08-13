@@ -73,6 +73,14 @@ TAIL_LINES = 400
 #: keystroke behind.
 TK_TIMEOUT_SEC = 1.5
 
+#: How long a PRESS waits for the Tk thread before answering «принято, идёт» (#1331).
+#: A read that is late may fall back to the file; a press has no fallback — it has
+#: already been handed over and is going to happen — so running out of patience here
+#: says what is true and never that the press was not understood. Longer than the read
+#: above because the answer is worth a moment's wait when it is quick, and unbounded
+#: only in the sense that the press itself is not cancelled by it.
+PRESS_TIMEOUT_SEC = 2.5
+
 
 class _Feed:
     """One profile's log: a ring of numbered lines, and the tap filling it.
@@ -693,12 +701,30 @@ class WebApi:
 
     def press(self, screen_id: str, action: str, args: dict,
               profile: str | None = None) -> dict:
-        """One press on a tab's screen, on the Tk thread — the tab's own handler."""
+        """One press on a tab's screen, on the Tk thread — the tab's own handler.
+
+        THREE ANSWERS, AND THEY ARE NOT THE SAME THING (#1331). A press may have been
+        carried out (``ok``), may have been refused for a reason the tab knows (``ok``
+        false, with what it said), or may name something this panel has no press for
+        (``error: unknown``, a 404). It used to be able to answer the last of those to
+        the first of the cases: the handler was run on the Tk thread and waited for
+        1.5 s, and a press that took longer — measured at 6–28 s while `play_async`
+        still took the daemon's lease on the calling thread — fell out of the wait with
+        an empty box and was reported as an unknown action. The scenario then ran. A
+        panel that says «ошибка» about a press that worked is worse than one that says
+        nothing, because the person presses it again.
+
+        So the hand-over does not decide the answer any more. The press is POSTED to the
+        Tk thread and this waits :data:`PRESS_TIMEOUT_SEC` for it; running out means
+        «принято, идёт» — the press is on the queue and the page says so — never that
+        the panel did not understand it. Nothing is cancelled by the wait ending.
+        """
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
-            return {"error": "unknown"}
+            return {"error": "unknown", "detail": screen_id}
         box: dict = {}
+        done = threading.Event()
 
         def go() -> None:
             try:
@@ -706,9 +732,19 @@ class WebApi:
                 box["result"] = tab.web_press(action, args or {})
             except Exception as exc:     # noqa: BLE001
                 box["result"] = {"error": "failed", "detail": str(exc)}
+            finally:
+                done.set()
 
-        self._on_tk(rt, go)
-        return box.get("result") or {"error": "unknown"}
+        self._hand_over(rt, go)
+        if not done.wait(PRESS_TIMEOUT_SEC):
+            return {"ok": True, "pending": True}
+        result = box.get("result")
+        if not isinstance(result, dict):
+            # A handler that answered nothing at all did still run. «Ok» is the honest
+            # reading of that, and a tab owes the phone a better one — never a 404, which
+            # would mean the press does not exist.
+            return {"ok": True}
+        return result
 
     def resume(self, profile: str | None = None) -> dict:
         """«Включить обратно» from the phone — the shell's own press, asked for politely.
@@ -844,6 +880,26 @@ class WebApi:
             return box["exe"], box.get("user")
         saved = _Saved(rt.settings)
         return saved.opt_str("game_exe"), game_process.profile_user(saved)
+
+    @staticmethod
+    def _hand_over(rt, func) -> None:
+        """Put ``func`` on the Tk thread WITHOUT waiting for it — or run it here.
+
+        The press half of :meth:`_on_tk`. The caller does its own waiting, so it can
+        tell «it finished» from «it is still going» — which :meth:`_on_tk` cannot,
+        because a timeout there is indistinguishable from a call that never ran.
+
+        A press is never dropped: with no window (a tab launched on its own, a test) or
+        on the Tk thread already, it happens here and now.
+        """
+        root = getattr(rt, "root", None)
+        if root is None or threading.current_thread() is threading.main_thread():
+            func()
+            return
+        try:
+            rt.tick.post(func)
+        except Exception:                    # noqa: BLE001 — the window is going away
+            func()
 
     @staticmethod
     def _on_tk(rt, func) -> None:
