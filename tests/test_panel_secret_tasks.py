@@ -3636,6 +3636,93 @@ def test_both_captures_are_told_where_to_record_a_share():
         assert "--client-own-session" in cmd or "--client-user" in cmd, cmd
 
 
+def test_both_captures_accept_the_command_line_the_panel_spawns():
+    """The other half of the test above — what the CHILD accepts (#1326).
+
+    The spawn was checked, the tool was not, and the ghost monitor died on its own
+    command line: «secret_mission_capture.py: error: unrecognized arguments:
+    --shared-json». Nothing in the panel said so — a capture that exits at once reads
+    exactly like one that hears nothing. So the real parsers are built here and given
+    the real command line, `--seed-server` included (added by `_launch` once the game
+    answers).
+    """
+    import argparse
+    import types
+    from panel.runtime import captures as capturemod
+    from panel.runtime.paths import TOOLS
+    from panel.tabs.secret_tasks import capture as cap
+
+    sys.path.insert(0, str(Path(TOOLS) / "lib"))
+    sys.path.insert(0, str(Path(TOOLS) / "dev"))
+    import secret_task_capture                        # noqa: E402
+    import secret_mission_capture                     # noqa: E402
+
+    rt = types.SimpleNamespace(
+        children=types.SimpleNamespace(python=lambda: "python"),
+        settings=types.SimpleNamespace(opt_bool=lambda _k: False,
+                                       opt_str=lambda _k: ""),
+        profiles=_FakeProfiles(_state_path()))
+    made = cap.Capture.__new__(cap.Capture)
+    made.rt, made.interval = rt, _Var("1")
+
+    for script, module in ((capturemod.SECRET_TASK_CAPTURE, secret_task_capture),
+                           (capturemod.CAPTURE_OPTIONS[1]["script"],
+                            secret_mission_capture)):
+        # The tail of the spawn: everything after `python -u <script>`.
+        argv = made.command(script)[3:] + ["--seed-server", "100"]
+        parser = module.build_parser()
+        try:
+            parsed = parser.parse_args(argv)
+        except SystemExit as exc:                     # argparse's own «unrecognized»
+            raise AssertionError(f"{script} refuses the panel's command line: "
+                                 f"{argv}") from exc
+        assert isinstance(parser, argparse.ArgumentParser)
+        # …and the flag lands where the capture reads it, not merely parsed and dropped.
+        assert parsed.shared_json == rt.profiles.secret_shared_json()
+
+
+def test_the_ghost_capture_records_a_share_it_hears():
+    """A share is decoded off the stream BOTH captures read, so both record it (#1280).
+
+    Written into the file the caller named — the profile's own, never a shared global —
+    and a capture given no path records nothing at all.
+    """
+    import tempfile
+    import types
+    from panel.runtime.paths import TOOLS
+
+    sys.path.insert(0, str(Path(TOOLS) / "lib"))
+    sys.path.insert(0, str(Path(TOOLS) / "dev"))
+    import lastwar_proto as proto                     # noqa: E402
+    import secret_mission_capture as smc              # noqa: E402
+
+    command = proto.SHARE_MISSION_COMMANDS[0]
+    marked = []
+    real_marks, real_missions = smc.share_marks, proto.share_missions
+    smc.share_marks = types.SimpleNamespace(
+        mark_missions=lambda path, missions: (
+            marked.append((path, list(missions))) or len(missions)))
+    proto.share_missions = lambda _cmd, _payload: [
+        {"uuid": 1000000000000001, "uid": "1000000000000002"}]
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "secret_shared.jsonl")
+            index = smc.MissionIndex(shared_json=path)
+            index.on_response(command, object())
+            assert index.shares_marked == 1
+            assert marked and marked[0][0] == path
+
+            # No path, no record — and no crash either.
+            quiet = smc.MissionIndex()
+            quiet.on_response(command, object())
+            assert quiet.shares_marked == 0
+            assert len(marked) == 1
+            # A share is not a tile: nothing the scan indexes is touched by one.
+            assert index.records() == []
+    finally:
+        smc.share_marks, proto.share_missions = real_marks, real_missions
+
+
 def test_every_page_filters_by_its_own_level_range():
     """One range on top of the tab narrowed lists it had nothing to do with: ghost
     squads are levels 3-5 where secret tasks run 1-7 (#1251)."""

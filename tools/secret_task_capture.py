@@ -241,7 +241,14 @@ class TaskIndex(MapIndex):
                    if task.starred and task.awaiting)
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """This capture's command line, on its own — so it can be read without running.
+
+    A separate function because the panel spawns this child and the two sides drift:
+    #1326 was a whole monitor that never started, because the caller had learned a flag
+    the tool had not (`--shared-json`, on the ghost twin). A parser a test can build is
+    what lets the spawn be checked against what the child really accepts.
+    """
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -283,7 +290,11 @@ def main() -> int:
                          f"(default {world_index.DEFAULT_MAX_PER_KIND}); a whole-"
                          f"server lap finds about nine thousand mines. What is "
                          f"dropped is reported, never silently cut")
-    args = ap.parse_args()
+    return ap
+
+
+def main() -> int:
+    args = build_parser().parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter
     # rather than refused by a check about capturing packets.
     check_platform()

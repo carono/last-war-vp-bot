@@ -45,6 +45,10 @@ the different id it attacks.
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --level 4,5 only those levels (from cfgId)
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991,992
                                                                            only missions vs 991 or 992
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --shared-json shared.jsonl
+                                                                           also record every «уже
+                                                                           поделились» the alliance
+                                                                           broadcasts (see below)
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --dump traffic.jsonl  record every
                                                                            decoded frame as JSONL too
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --list-ifaces   interfaces, then exit
@@ -78,6 +82,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "lib"))
 sys.path.insert(0, _HERE)
 
 import lastwar_proto as proto  # noqa: E402
+import share_marks  # noqa: E402  (the «already shared» mark this capture also writes)
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
     MapIndex, add_capture_arguments, check_platform, diagnose,
@@ -158,13 +163,18 @@ class MissionIndex(MapIndex):
     map nobody is looking at any more, exactly as the secret-task scan does.
     """
 
-    def __init__(self, stale_after: float = STALE_AFTER_SECONDS) -> None:
+    def __init__(self, stale_after: float = STALE_AFTER_SECONDS,
+                 shared_json: str | None = None) -> None:
         super().__init__()
         self.stale_after = stale_after
         self._missions: dict[tuple, proto.GhostReconMission] = {}
         # Wall-clock of the last time the map re-sent each tile, so stale ones
         # can be evicted rather than served as if still live.
         self._seen_at: dict[tuple, float] = {}
+        # Where to record «this secret task has already been shared with the
+        # alliance» (#1245), or None to record nothing. See `on_response`.
+        self._shared_json = shared_json
+        self.shares_marked = 0
 
     # -- harvest -----------------------------------------------------------
 
@@ -175,6 +185,26 @@ class MissionIndex(MapIndex):
             key = (mission.owner_server, mission.uuid)
             self._missions[key] = mission
             self._seen_at[key] = now
+
+    def on_response(self, command, payload) -> None:
+        """Every non-map answer — which is where the game announces a share.
+
+        The share broadcast is about SECRET TASKS, not about ghost-recon squads
+        (`push.alliance.share.mission.add` / `get.alliance.share.mission.list`),
+        and this scan indexes neither of them into its own list. It records them
+        anyway, because a share is decoded off the very stream this capture is
+        already reading and the mark belongs to the profile, not to whichever of
+        its two captures happens to be running (#1245, #1280): a profile watching
+        only the ghost map must still see «уже поделились» on the secret-task
+        table. The twin capture writes the same file; `share_marks` deduplicates
+        the appends.
+
+        `_index_lock` is held; the write is one appended line.
+        """
+        if not self._shared_json or command not in proto.SHARE_MISSION_COMMANDS:
+            return
+        self.shares_marked += share_marks.mark_missions(
+            self._shared_json, proto.share_missions(command, payload))
 
     def on_server_left(self, server: int) -> None:
         """Drop everything indexed for the map nobody is looking at any more.
@@ -257,7 +287,14 @@ class MissionIndex(MapIndex):
         return out
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """This capture's command line, on its own — so it can be read without running.
+
+    See the twin in `secret_task_capture.py`: the panel spawns this child, and #1326 was
+    this very scan refusing to start («unrecognized arguments: --shared-json») because
+    the caller had grown a flag the tool never had. A parser a test can build is what
+    stops the two drifting apart again.
+    """
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -269,6 +306,11 @@ def main() -> int:
                     help="seconds between processing ticks — each one prints "
                          "the progress line and rewrites --json if given "
                          "(default 15; lower it for tests)")
+    ap.add_argument("--shared-json", default=None, metavar="PATH",
+                    help="append «this secret task has already been shared with "
+                         "the alliance» to this file for every share the game "
+                         "broadcasts on the stream this capture is reading "
+                         "(default: record nothing)")
     ap.add_argument("--level", type=level_set, metavar="N[,N...]",
                     help="only missions of this level (from cfgId); a "
                          "comma-separated list matches any (--level 4,5)")
@@ -292,7 +334,11 @@ def main() -> int:
                     help="only alliance-visible dispatched missions an ally can "
                          "help (a squad is out, slot not empty); combine with "
                          "--done for either")
-    args = ap.parse_args()
+    return ap
+
+
+def main() -> int:
+    args = build_parser().parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter
     # rather than refused by a check about capturing packets.
     check_platform()
@@ -304,7 +350,7 @@ def main() -> int:
     except Exception:
         pass
 
-    index = MissionIndex()
+    index = MissionIndex(shared_json=args.shared_json)
     stop, bpf = start_capture(index, args)
 
     print("Last War direct capture — scapy/npcap, no dumpcap")
@@ -355,11 +401,16 @@ def main() -> int:
                 where = (f"server {index.current_server}"
                          if index.current_server is not None
                          else "server unknown yet")
+                # The share tally is only ever mentioned once there is one: a
+                # capture run without --shared-json must read exactly as it
+                # always did.
+                shares = (f", {index.shares_marked} share(s) marked"
+                          if index.shares_marked else "")
                 print(f"{C_DIM}  {left} — {where}, "
                       f"{index.blocks_seen} map response(s), "
                       f"{index.tiles_seen} tile(s), "
                       f"{len(index.current_missions)} mission(s), "
-                      f"{index.lootable_count} lootable{C_RESET}")
+                      f"{index.lootable_count} lootable{shares}{C_RESET}")
                 if args.json and not dump_missions(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
