@@ -54,6 +54,18 @@ ROWS = 8
 #: The urgency levels, as locale keys — `claims.BACKGROUND` / `EXPRESS` / `HUMAN`.
 LEVELS = {0: "busy.level.background", 1: "busy.level.express", 2: "busy.level.human"}
 
+#: How much of a DSL step is shown. A step is the line as the recipe wrote it, and a
+#: `READ_LUA` step is a whole Lua chunk — measured live at 1 700 characters, which is
+#: forty lines of the block for one row and every other section pushed off the screen.
+#: What identifies the step is its beginning, so the beginning is what is kept.
+STEP_CHARS = 110
+
+
+def _step(text: str) -> str:
+    """One step, short enough to read beside the others. Data, so it is cut, not said."""
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= STEP_CHARS else text[:STEP_CHARS - 1] + "…"
+
 
 class BusyView:
     """The «Занятость» block: a header row, a text panel, and a refresh on a tick.
@@ -178,7 +190,7 @@ class BusyView:
         for run in snap["runs"]:
             key = "busy.run.stopping" if run.get("asked") else "busy.run"
             runs.append(t(key, name=run["name"], who=run["tag"] or "?",
-                          secs=int(run["secs"]), step=run["step"] or "—"))
+                          secs=int(run["secs"]), step=_step(run["step"]) or "—"))
         for step in snap["steps"]:
             runs.append(t("busy.step", what=t(step["key"], **step["fmt"]),
                           secs=int(step["secs"])))
@@ -254,7 +266,7 @@ class BusyView:
         rows = [t("busy.slow.run", name=row["name"], who=row.get("tag") or "?",
                   secs=int(row.get("secs", 0)))
                 for row in snap["slowest"]]
-        rows += [t("busy.slow.step", name=row["name"], step=row["step"],
+        rows += [t("busy.slow.step", name=row["name"], step=_step(row["step"]),
                    secs=int(row["secs"]))
                  for row in self._steps.top()]
         return rows

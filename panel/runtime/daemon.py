@@ -702,7 +702,8 @@ class GameLink:
             return False
 
     # -- the claim ----------------------------------------------------------
-    def claim(self, owner: str = "panel", priority: int = claims.BACKGROUND) -> bool:
+    def claim(self, owner: str = "panel", priority: int = claims.BACKGROUND,
+              count: bool = True) -> bool:
         """Take the right to drive the game, or say it is already taken.
 
         THREE LOCKS NOW, not two, and the middle one is the whole of #1226's half of
@@ -719,9 +720,10 @@ class GameLink:
         cannot afford that takes the two halves separately — :meth:`reserve` here and
         :meth:`lease` on a worker thread — which is what every press does now (#1331).
         """
-        return self.reserve(owner, priority) and self.lease(owner)
+        return self.reserve(owner, priority, count) and self.lease(owner)
 
-    def reserve(self, owner: str = "panel", priority: int = claims.BACKGROUND) -> bool:
+    def reserve(self, owner: str = "panel", priority: int = claims.BACKGROUND,
+                count: bool = True) -> bool:
         """The first two locks — this link's flag and the process-wide registry.
 
         NO INPUT AND NO OUTPUT: two dictionaries under two locks, microseconds, safe on
@@ -737,9 +739,16 @@ class GameLink:
         owner = self._owned(owner)
         with self._busy_lock:
             if self._busy:
+                # Counted, because nothing else can count it: this profile's own runs
+                # never reach the registry's `acquire` — the flag turns them away first —
+                # so «сколько нажатий ждало» read zero for the commonest refusal there is
+                # (#1392, `panel/runtime/claims.py::note_refused`). `count` is what keeps
+                # it a count of PRESSES: `claim_soon` asks again every 50 ms.
+                if count:
+                    claims.note_refused(self.endpoint())
                 return False
             self._busy = True
-        if not self._claim_client(owner, priority):
+        if not self._claim_client(owner, priority, count=count):
             with self._busy_lock:
                 self._busy = False
             return False
@@ -789,9 +798,14 @@ class GameLink:
         token = claims.demand(key, priority, self._owned(owner))
         try:
             deadline = time.monotonic() + max(0.0, float(timeout))
+            first = True
             while True:
-                if self.claim(owner, priority):
+                # Only the FIRST attempt is a press being turned away; the twenty a
+                # second after it are the same press still waiting, and counting them
+                # made the debugger read «41 отказ» for one button (#1392).
+                if self.claim(owner, priority, count=first):
                     return True
+                first = False
                 if time.monotonic() >= deadline:
                     return False
                 time.sleep(poll)
@@ -840,9 +854,13 @@ class GameLink:
         deadline = time.monotonic() + max(0.0, float(timeout))
         while claims.wanted(key, level) is not None and time.monotonic() < deadline:
             time.sleep(0.05)
+        first = True
         while True:
-            if self.claim(owner, level):
+            # As in `claim_soon`: taking the claim BACK is one run resuming, not a stream
+            # of presses, so only the first attempt is counted (#1392).
+            if self.claim(owner, level, count=first):
                 return True
+            first = False
             if time.monotonic() >= deadline:
                 return False
             time.sleep(0.05)
@@ -894,7 +912,8 @@ class GameLink:
         """
         return (lua_client.HOST, self.port())
 
-    def _claim_client(self, owner: str, priority: int = claims.BACKGROUND) -> bool:
+    def _claim_client(self, owner: str, priority: int = claims.BACKGROUND,
+                      count: bool = True) -> bool:
         """Take the process-wide claim on this client. ``False`` if a profile holds it.
 
         THE HOLE THIS CLOSES. `_claim_lease` answers ``True`` when the daemon cannot be
@@ -907,7 +926,7 @@ class GameLink:
         take turns and two links on two ports do not wait for each other at all.
         """
         key = self.endpoint()
-        held = claims.acquire(key, owner, priority)
+        held = claims.acquire(key, owner, priority, count=count)
         if held is not None:
             self._say_busy(held, 0)
             return False

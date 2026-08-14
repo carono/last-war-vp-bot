@@ -354,6 +354,30 @@ def test_every_line_the_block_draws_is_a_locale_key() -> None:
     assert all(key.startswith(("busy.", "activity.")) for key in tab.asked), tab.asked
 
 
+def test_a_lua_step_cannot_flood_the_block() -> None:
+    """A `READ_LUA` step is a whole Lua chunk — 1 700 characters, measured live."""
+    from panel.tabs.develop_busy import STEP_CHARS, _step
+
+    chunk = "READ_LUA (function() " + "local x = 1 " * 200 + "end)() INTO squads"
+    short = _step(chunk)
+    assert len(short) == STEP_CHARS and short.endswith("…"), len(short)
+    assert short.startswith("READ_LUA (function()")
+    assert _step("TAP heal_all xall") == "TAP heal_all xall"      # left alone
+
+
+def test_a_wait_is_one_press_and_not_twenty_a_second() -> None:
+    """`claim_soon` polls; counting each poll read «41 отказ» for one button (#1392)."""
+    claims.clear()
+    try:
+        claims.acquire("k", "alice/timer")
+        assert claims.acquire("k", "bob/action") == "alice/timer"     # the press
+        for _ in range(20):                                           # …still waiting
+            claims.acquire("k", "bob/action", count=False)
+        assert claims.state()["held"][0]["refused"] == 1
+    finally:
+        claims.clear()
+
+
 def test_the_words_are_in_every_shipped_locale() -> None:
     """A key missing from one of the eleven falls back to English in silence."""
     langs = sorted(p.stem for p in (_REPO / "panel" / "locales").glob("*.json"))

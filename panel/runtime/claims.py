@@ -73,7 +73,8 @@ EXPRESS = 1        #: an errand whose catalogue entry says «сразу» — it
 HUMAN = 2          #: somebody is at a button, in the window or on the phone
 
 
-def acquire(key, owner: str, urgency: int = BACKGROUND) -> "str | None":
+def acquire(key, owner: str, urgency: int = BACKGROUND,
+            count: bool = True) -> "str | None":
     """Take ``key`` for ``owner``. ``None`` when it was taken; else who is holding it.
 
     Deliberately inverted — ``None`` means success — because the interesting answer is
@@ -83,14 +84,35 @@ def acquire(key, owner: str, urgency: int = BACKGROUND) -> "str | None":
     against: it says how hard it would be to justify making this holder wait. Named so
     rather than ``level`` because :func:`level` reads it back, and a parameter that
     shadows the function answering it is a trap for the next edit.
+
+    ``count=False`` says «this is a RETRY, not a new press»: `claim_soon` asks twenty
+    times a second while it waits, and counting each of those turned «одно нажатие
+    ждало» into «41 отказа» in the debugger (#1392). Only the first attempt of a wait is
+    a press being turned away.
     """
     with _lock:
         held = _held.get(key)
         if held is not None:
-            _refused[key] = _refused.get(key, 0) + 1
+            if count:
+                _refused[key] = _refused.get(key, 0) + 1
             return held[0]
         _held[key] = (str(owner or "?"), int(urgency), time.monotonic())
         return None
+
+
+def note_refused(key) -> None:
+    """Somebody was turned away from ``key`` by a lock this registry did not take.
+
+    The count above only sees the claims that reach :func:`acquire`, and one of them
+    never does: a second run of the SAME profile is refused by the link's own flag
+    (`panel/runtime/daemon.py::reserve`) before the registry is asked. That is the most
+    common refusal there is — a press arriving while this profile's own errand is going —
+    and leaving it out made «сколько нажатий ждало» read as zero exactly when it mattered
+    (#1392). So the holder of the flag says so here, and only for a FIRST attempt: a
+    retry inside a wait is the same press, not another one.
+    """
+    with _lock:
+        _refused[key] = _refused.get(key, 0) + 1
 
 
 def release(key) -> None:
