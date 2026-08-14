@@ -186,6 +186,74 @@ MIGRATIONS: tuple = (
         "CREATE INDEX ix_players_level     ON players(level)",
         "CREATE INDEX ix_players_power     ON players(power)",
     ),
+    # -- v3: repair the two shapes v2 shipped in -------------------------------------
+    #
+    # THIS IS THE RULE ABOVE, DEMONSTRATED. v2 was written with `uuid TEXT`, run on a
+    # live profile, then corrected to a typeless column and run on another — and an hour
+    # later there were two databases both calling themselves version 2, one storing a
+    # tile's uuid as the integer it arrived as and one silently converting it to text.
+    # That is not cosmetic: the merge compares what it just read against what is held,
+    # so 111 never equals '111', every sighting looks like news, and the register
+    # rewrites those rows on every tick of every lap — the exact cost the move was made
+    # to remove.
+    #
+    # The repair is a new version rather than another edit, because that is the only
+    # thing that can reach a database which has already run the wrong one. It rebuilds
+    # the table with the intended column and carries an all-digit text uuid back to the
+    # integer it was; a database that was already right is rebuilt into the same shape,
+    # which costs one pass and settles the question for both.
+    (
+        "ALTER TABLE players RENAME TO players_v2",
+        """CREATE TABLE players (
+               uid             TEXT PRIMARY KEY,
+               name            TEXT,
+               level           INTEGER,
+               server_id       INTEGER,
+               x               INTEGER,
+               y               INTEGER,
+               uuid,
+               country         TEXT,
+               alliance_id     TEXT,
+               alliance_abbr   TEXT,
+               alliance_name   TEXT,
+               power           INTEGER,
+               army_power      INTEGER,
+               army_kill       INTEGER,
+               svip_level      INTEGER,
+               head            TEXT,
+               march_power     INTEGER,
+               online          INTEGER,
+               remark          TEXT,
+               note            TEXT,
+               first_seen      INTEGER,
+               last_seen       INTEGER,
+               profile_seen_at INTEGER,
+               src             TEXT,
+               search_text     TEXT,
+               name_fold       TEXT,
+               alliance_fold   TEXT,
+               note_fold       TEXT
+           )""",
+        """INSERT INTO players
+           SELECT uid, name, level, server_id, x, y,
+                  CASE WHEN uuid IS NULL THEN NULL
+                       WHEN typeof(uuid) = 'text' AND uuid <> ''
+                            AND uuid NOT GLOB '*[^0-9]*' THEN CAST(uuid AS INTEGER)
+                       ELSE uuid END,
+                  country, alliance_id, alliance_abbr, alliance_name,
+                  power, army_power, army_kill, svip_level,
+                  head, march_power, online, remark, note,
+                  first_seen, last_seen, profile_seen_at, src,
+                  search_text, name_fold, alliance_fold, note_fold
+             FROM players_v2""",
+        "DROP TABLE players_v2",
+        "CREATE INDEX ix_players_last_seen ON players(last_seen)",
+        "CREATE INDEX ix_players_name      ON players(name_fold)",
+        "CREATE INDEX ix_players_alliance  ON players(alliance_fold)",
+        "CREATE INDEX ix_players_server    ON players(server_id)",
+        "CREATE INDEX ix_players_level     ON players(level)",
+        "CREATE INDEX ix_players_power     ON players(power)",
+    ),
 )
 
 #: What the code in this checkout expects. A database above it was written by a NEWER

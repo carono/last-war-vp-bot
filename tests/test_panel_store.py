@@ -123,6 +123,51 @@ def test_a_migration_runs_once_however_many_threads_open_it() -> None:
     assert not errors, f"opening one database eight times over raised: {errors}"
 
 
+def test_the_real_schema_repairs_the_two_shapes_v2_shipped_in() -> None:
+    """v2 ran on a live profile as `uuid TEXT`, was corrected, and ran elsewhere without
+    one — two databases at version 2 with different columns, which is precisely what the
+    append-only rule exists to prevent. v3 is the repair, and this is what it has to do:
+    a text uuid of digits comes back an integer, and everything else is untouched.
+
+    It matters because the merge compares what it read against what is held: 111 is not
+    '111', so every sighting looked like news and the register rewrote those rows on
+    every tick — the cost the whole move was made to remove.
+    """
+    from panel.runtime.store import MIGRATIONS
+    tmp = tempfile.mkdtemp()
+    path = str(Path(tmp) / "panel.db")
+    # A database exactly as the FIRST form of v2 left it.
+    old = list(MIGRATIONS[:2])
+    old[1] = tuple(st.replace("               uuid,", "               uuid TEXT,")
+                   for st in MIGRATIONS[1])
+    was = Store(path, migrations=tuple(old))
+    with was.write() as conn:
+        conn.executemany(
+            "INSERT INTO players(uid, name, uuid, level) VALUES(?, ?, ?, ?)",
+            [("1", "Player1", 111, 30),          # …stored as '111' by the TEXT column
+             ("2", "Player2", None, 20),
+             ("3", "Player3", "not-a-number", 25)])
+    assert was.read().execute(
+        "SELECT typeof(uuid) t FROM players WHERE uid = '1'").fetchone()["t"] == "text"
+    was.close()
+
+    now = Store(path)                                    # the panel, with v3 in it
+    assert now.version() == len(MIGRATIONS)
+    rows = {r["uid"]: r for r in now.read().execute("SELECT * FROM players")}
+    assert len(rows) == 3, "the rebuild lost a row"
+    assert rows["1"]["uuid"] == 111 and \
+        now.read().execute("SELECT typeof(uuid) t FROM players WHERE uid='1'"
+                           ).fetchone()["t"] == "integer"
+    assert rows["2"]["uuid"] is None, "an empty uuid became something"
+    assert rows["3"]["uuid"] == "not-a-number", "a uuid that is not digits was mangled"
+    assert rows["1"]["name"] == "Player1" and rows["1"]["level"] == 30
+    # …and the indexes came back with the table.
+    names = {r["name"] for r in now.read().execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert "ix_players_last_seen" in names, f"the rebuild dropped the indexes: {names}"
+    now.close()
+
+
 # ---------------------------------------------------------------------------
 # several writers, and none of them «database is locked»
 # ---------------------------------------------------------------------------
