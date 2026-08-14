@@ -2828,16 +2828,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         # A PAGE WITH NOTHING BELOW THIS LINE (`LW_PANEL_BARE=1`) — the floor of a
         # bisection. Switching a tab off takes that tab out of the page; this takes the
-        # whole of «Главная» with it — the control blocks, the update block, the log
-        # widget and the command line — leaving the profile strip, the row above (the
-        # game and daemon indicators, which the status poll writes into every eight
-        # seconds and which would raise without them) and the runtime behind the page:
-        # the schedule, the wire listeners, the daemon, the poll itself. Whatever a
-        # freeze still costs with this set is the shell's own; whatever it stops costing
-        # belongs to what was removed. Off by default, never written into a profile —
-        # a switch for one run rather than a setting.
+        # whole of «Главная» with it — the control blocks, the update block and the
+        # command line — leaving the profile strip, the row above (the game and daemon
+        # indicators, which the status poll writes into every eight seconds and which
+        # would raise without them) and the runtime behind the page: the schedule, the
+        # wire listeners, the daemon, the poll itself. Whatever a freeze still costs
+        # with this set is the shell's own; whatever it stops costing belongs to what
+        # was removed. Off by default, never written into a profile — a switch for one
+        # run rather than a setting.
         if bare:
-            self._log = None                 # no widget; the lines still reach panel.log
             self._dbg.info("bare page: «Главная» is not in the notebook at all")
             self._stage(self._session(),
                         [functools.partial(self._finish_tabs, nb, frames, done)], staged)
