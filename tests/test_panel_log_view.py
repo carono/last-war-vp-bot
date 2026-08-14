@@ -167,6 +167,72 @@ def test_take_hands_over_one_line_at_a_time():
     assert bus.take() is None
 
 
+# -- the widget itself, on a real Tk root -------------------------------------
+
+class _Rt:
+    """The four things `LogPane` asks of a runtime, and nothing else."""
+
+    def __init__(self, root, spool) -> None:
+        self.root = root
+        self.log_spool = spool
+        self.i18n = self
+        self.said: list = []
+
+    def t(self, key: str, **fmt) -> str:
+        return key
+
+    def tr(self, widget, key: str, option: str = "text", **fmt):
+        widget.configure(**{option: key})
+        return widget
+
+    def hook(self, func, key=None) -> None:
+        pass
+
+    def say(self, tag: str, key: str, **fmt) -> None:
+        self.said.append((tag, key, fmt))
+
+
+def test_the_pane_draws_what_is_pumped_and_the_filter_narrows_it():
+    """The widget half, end to end: spool → pane → the Text a person reads."""
+    import tkinter as tk
+
+    try:
+        root = tk.Tk()
+    except Exception:                        # noqa: BLE001 — no display: nothing to draw
+        return
+    root.withdraw()
+    try:
+        from panel.runtime.log_view import LogPane
+
+        bus = _bus()
+        spool = LogSpool(bus)
+        pane = LogPane(root, _Rt(root, spool), height=4)
+        pane.frame.pack()
+
+        bus.put("[secret] a tile")
+        bus.put("[rally] a banner")
+        spool.pump()
+        root.update()
+        shown = pane.text.get("1.0", "end")
+        assert "a tile" in shown and "a banner" in shown, shown
+
+        # …and narrowing to one producer redraws from the spool, not from the widget.
+        pane.filter_var.set("secret")
+        pane.redraw()
+        shown = pane.text.get("1.0", "end")
+        assert "a tile" in shown and "a banner" not in shown, shown
+
+        # Clear empties both, and `panel.log` is untouched by it (it is the record).
+        pane.clear()
+        assert len(spool) == 0
+        assert pane.text.get("1.0", "end").strip() == ""
+
+        pane.destroy()
+        assert spool.pane is None, "a destroyed pane is still on the spool"
+    finally:
+        root.destroy()
+
+
 # -- where the log now lives --------------------------------------------------
 
 def _source(*parts: str) -> str:
