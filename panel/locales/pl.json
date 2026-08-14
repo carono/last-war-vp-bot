@@ -237,6 +237,8 @@
   "interrupt.stopping": "przerywam…",
   "interrupt.toast": "zażądano zatrzymania: {count}",
   "language.name": "Polski",
+  "lease.gone": "demon zrestartował się, a dzierżawa gry należy teraz do kogoś innego — ten przebieg się kończy",
+  "lease.regained": "demon zrestartował się — dzierżawa gry wzięta ponownie, kontynuuję",
   "log.autoassist.failed": "przebieg wsparcia nie powiódł się: {reason}",
   "log.autoassist.helped": "wsparto tajne zadania: {n}",
   "log.autoassist.no_star": "żadna gwiazda nie nadchodzi — wsparłem UR: {n}",

@@ -237,6 +237,8 @@
   "interrupt.stopping": "прерываю…",
   "interrupt.toast": "остановка запрошена: {count}",
   "language.name": "Русский",
+  "lease.gone": "демон перезапустился, и лиза на игру теперь не наша — прогон останавливается",
+  "lease.regained": "демон перезапустился — лиза взята заново, продолжаю",
   "log.autoassist.failed": "заход помощи не удался: {reason}",
   "log.autoassist.helped": "помог с секретками: {n}",
   "log.autoassist.no_star": "звёзд нет — беру UR: {n}",

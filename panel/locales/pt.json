@@ -237,6 +237,8 @@
   "interrupt.stopping": "interrompendo…",
   "interrupt.toast": "parada pedida: {count}",
   "language.name": "Português",
+  "lease.gone": "o daemon reiniciou e a concessão do jogo agora é de outro — esta execução para",
+  "lease.regained": "o daemon reiniciou — a concessão do jogo foi retomada, seguindo em frente",
   "log.autoassist.failed": "a passagem de ajuda falhou: {reason}",
   "log.autoassist.helped": "ajudei em {n} tarefa(s) secreta(s)",
   "log.autoassist.no_star": "nenhuma estrela a caminho — ajudei em UR: {n}",

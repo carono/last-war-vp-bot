@@ -237,6 +237,8 @@
   "interrupt.stopping": "đang ngắt…",
   "interrupt.toast": "đã yêu cầu dừng: {count}",
   "language.name": "Tiếng Việt",
+  "lease.gone": "daemon đã khởi động lại và quyền thuê trò chơi giờ thuộc về người khác — lượt chạy này dừng lại",
+  "lease.regained": "daemon đã khởi động lại — đã lấy lại quyền thuê trò chơi, tiếp tục chạy",
   "log.autoassist.failed": "lượt hỗ trợ thất bại: {reason}",
   "log.autoassist.helped": "đã hỗ trợ {n} nhiệm vụ bí mật",
   "log.autoassist.no_star": "không có sao nào sắp xong — đã hỗ trợ UR: {n}",

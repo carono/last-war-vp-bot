@@ -237,6 +237,8 @@
   "interrupt.stopping": "interruption…",
   "interrupt.toast": "arrêt demandé : {count}",
   "language.name": "Français",
+  "lease.gone": "le démon a redémarré et le bail sur le jeu appartient maintenant à quelqu'un d'autre — cette exécution s'arrête",
+  "lease.regained": "le démon a redémarré — le bail sur le jeu a été repris, on continue",
   "log.autoassist.failed": "échec du passage d'assistance : {reason}",
   "log.autoassist.helped": "{n} tâche(s) secrète(s) assistée(s)",
   "log.autoassist.no_star": "aucune étoile en vue — assisté des UR : {n}",

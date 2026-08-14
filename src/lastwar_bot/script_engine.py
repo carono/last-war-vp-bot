@@ -952,6 +952,24 @@ class Context:
     # callable (`panel/runtime/host.py`, `panel/runtime/schedule.py`) and decides what
     # «more urgent» means; the DSL only offers the moment (#1288).
     yield_to: Any = None
+    # Optional LEASE-REGAIN hook — a callable handed THIS context, answering whether the
+    # run may carry on. Called when the daemon refuses a chunk with `LeaseLost`, which is
+    # what a run hears when the daemon RESTARTED underneath it: the new daemon starts
+    # with no lease at all and the token this context was granted names one that no
+    # longer exists.
+    #
+    # Without it the run is deaf for the rest of its life (#1411). `game_token` is read
+    # ONCE, when the context is built, and every call after the restart is refused —
+    # silently, because `_eval_lua_value` reads a refusal as «could not ask». That is how
+    # `launch_game` sat out its last ten seconds against a daemon that had been warm for
+    # three of them.
+    #
+    # `yield_to` already had to solve the same problem for the parking case, and it
+    # solves it the same way: the hook takes a fresh lease, writes it here and drops the
+    # evaluator that was built with the old one. This one only answers `True`/`False`,
+    # because a lease that cannot be regained is a run that must stop rather than one
+    # that must raise from inside a hook.
+    regain: Any = None
     # Has the server link been read for this run yet? The gate on the driving
     # primitives (`_require_link`) is once per context, not once per press: a recipe
     # that taps thirty times must not walk the socket table thirty times, and a
@@ -1567,8 +1585,61 @@ class Interpreter:
         and a half a step used to sit out (#1230). Waiting for the GAME rather than for
         the answer is the DSL's own job and always has been: that is what `WAIT` is for,
         and what the recipes already use after a scene switch or a request.
+
+        **A LOST LEASE IS RETRIED ONCE, NEVER MORE** (#1411). The one refusal that says
+        nothing about the chunk is `LeaseLost`: the daemon that granted this run's token
+        went and came back, and the new one holds no lease at all. Everything else about
+        the run is still true — the client, the port, the scenario's place in itself — so
+        the honest answer is to take a lease again and send the same chunk, not to fail a
+        recipe halfway through. Once, because a second refusal means somebody ELSE now
+        holds the game, and going on pressing beside them is the one thing the lease
+        exists to prevent.
+
+        A run with no :attr:`Context.regain` (a script from a shell, a test) is exactly
+        as it was: the refusal is raised and the caller decides.
         """
+        try:
+            return self._evaluator().run(chunk, marker, settle, early=early)
+        except Exception as exc:               # noqa: BLE001 — re-raised unless it is the one
+            if not (self._lease_lost(exc) and self._regain_lease()):
+                raise
         return self._evaluator().run(chunk, marker, settle, early=early)
+
+    @staticmethod
+    def _lease_lost(exc: Exception) -> bool:
+        """Is this the daemon saying «that token is not the live lease»?
+
+        Asked by TYPE rather than by wording: `lua_client.LeaseLost` is raised for exactly
+        this and nothing else, while the text is a sentence the daemon composes — and a
+        matcher on it would also catch a chunk that happened to print it.
+        """
+        try:
+            import lua_client
+        except ImportError:                    # no bridge on the path, no lease to lose
+            return False
+        return isinstance(exc, lua_client.LeaseLost)
+
+    def _regain_lease(self) -> bool:
+        """Ask the caller for a lease again. ``False`` leaves the refusal to be raised.
+
+        The hook is the panel's (`panel/runtime/host.py::regain_hook`) and it writes the
+        new token onto the context. The evaluator is dropped HERE as well as there,
+        because this side is the one that knows a retry is about to happen and a cached
+        connection would carry the dead token straight back into the daemon.
+
+        A hook that raises is treated as a hook that said no: the original `LeaseLost` is
+        the failure worth reporting, and it is already on its way up.
+        """
+        hook = self.ctx.regain
+        if hook is None:
+            return False
+        try:
+            ok = bool(hook(self.ctx))
+        except Exception:                      # noqa: BLE001 — the refusal is the report
+            return False
+        if ok:
+            self.ctx.evaluator = None
+        return ok
 
     def _do_game_scene(self, stmt: GameSceneStmt) -> None:
         self._tools_lib_on_path()
@@ -2624,6 +2695,7 @@ def new_context(
     game_token: str | None = None,
     game_user: str | None = None,
     yield_to: Any = None,
+    regain: Any = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -2642,7 +2714,7 @@ def new_context(
     """
     ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
                   cancel=cancel, game_port=game_port, game_token=game_token,
-                  game_user=game_user, yield_to=yield_to)
+                  game_user=game_user, yield_to=yield_to, regain=regain)
     if variables:
         ctx.vars.update(variables)
     return ctx
@@ -2660,6 +2732,7 @@ def run_action(
     game_token: str | None = None,
     game_user: str | None = None,
     yield_to: Any = None,
+    regain: Any = None,
 ) -> bool:
     """Convenience: parse and execute the named action.
 
@@ -2674,7 +2747,7 @@ def run_action(
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token, game_user, yield_to)
+                          game_port, game_token, game_user, yield_to, regain)
     return Interpreter(ctx).run_action(name)
 
 
@@ -2691,6 +2764,7 @@ def run_text(
     game_token: str | None = None,
     game_user: str | None = None,
     yield_to: Any = None,
+    regain: Any = None,
 ) -> bool:
     """Execute DSL source given as text — the same language as an action file.
 
@@ -2704,7 +2778,7 @@ def run_text(
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token, game_user, yield_to)
+                          game_port, game_token, game_user, yield_to, regain)
     interp = Interpreter(ctx)
     interp._log(f"> {label}")
     interp._depth += 1

@@ -75,10 +75,16 @@ class ActionRunner:
     """Runs scenarios, checks them, and reads them back for the editor."""
 
     def __init__(self, log, claim=None, release=None, target=None,
-                 activity=None, interrupts=None) -> None:
+                 activity=None, interrupts=None, regain=None) -> None:
         self._log = log                   # the LogBus
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
+        # callable(ctx) -> bool — «the daemon refused this run's token; get a lease
+        # again». Every context built here carries it, because the case it answers is
+        # not the caller's: a daemon that restarts mid-run leaves the token the context
+        # was built with naming a lease that no longer exists, and a run that cannot
+        # re-read it is deaf until it ends (#1411, `panel/runtime/host.py::regain_hook`).
+        self._regain = regain
         # callable() -> {"game_port": int, "game_token": str, "game_user": str} —
         # WHICH client this runner's scenarios drive, under whose lease, and in which
         # Windows session it lives. See :meth:`_target_kw`.
@@ -135,6 +141,8 @@ class ActionRunner:
         from lastwar_bot import script_engine
         for key, value in self._target_kw().items():
             kw.setdefault(key, value)
+        if self._regain is not None:
+            kw.setdefault("regain", self._regain)
         kw["cancel"] = Stop(kw.get("cancel"))
         return script_engine.new_context(
             on_event=on_event if on_event is not None else self._log.put, **kw)

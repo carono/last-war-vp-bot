@@ -237,6 +237,8 @@
   "interrupt.stopping": "kesiliyor…",
   "interrupt.toast": "durdurma istendi: {count}",
   "language.name": "Türkçe",
+  "lease.gone": "arka plan süreci yeniden başladı ve oyunun kirası artık başkasında — bu çalışma duruyor",
+  "lease.regained": "arka plan süreci yeniden başladı — oyunun kirası yeniden alındı, devam ediliyor",
   "log.autoassist.failed": "yardım turu başarısız: {reason}",
   "log.autoassist.helped": "{n} gizli göreve yardım edildi",
   "log.autoassist.no_star": "yıldız gelmiyor — UR'lere yardım edildi: {n}",

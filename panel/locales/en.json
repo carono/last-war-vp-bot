@@ -237,6 +237,8 @@
   "interrupt.stopping": "interrupting…",
   "interrupt.toast": "stop asked for: {count}",
   "language.name": "English",
+  "lease.gone": "the daemon restarted and the game's lease belongs to somebody else now — this run stops",
+  "lease.regained": "the daemon restarted — took the game's lease again, carrying on",
   "log.autoassist.failed": "the assist run failed: {reason}",
   "log.autoassist.helped": "assisted {n} secret task(s)",
   "log.autoassist.no_star": "no star is coming — helped with URs: {n}",

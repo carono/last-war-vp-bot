@@ -827,6 +827,52 @@ class GameLink:
         self._said_busy = None
         return True
 
+    def regain(self, owner: str = "panel") -> bool:
+        """Take a lease again after the DAEMON went and came back (#1411).
+
+        NOT a claim: the two local locks are already held by the run asking for this, and
+        they stay held. What has gone is the third one — the daemon's lease — and it went
+        without anybody letting go of it: a restarted daemon starts with no lease at all,
+        so the token this link is carrying names one that does not exist. Every `run` made
+        with it is refused as «lease lost», for the rest of the run's life, and the run
+        hears that as the game having gone deaf.
+
+        The dead token is dropped before asking, so the daemon is asked for a NEW lease
+        rather than being handed a re-claim of one it has never heard of. If somebody else
+        got in first, the old token is put BACK, dead as it is: an empty token is not «no
+        lease», it is «unleased», and an unleased run is let straight through the gate to
+        drive the game beside its new owner (`tools/lib/game_lease.py::check_run`). A
+        refusal that goes on being a refusal is the only safe answer here.
+
+        ``False`` for every «could not» — no daemon on the port, a connect that failed, a
+        lease that belongs to somebody else — and the caller stops, which is what a run
+        that cannot hold the client has to do.
+        """
+        client = self.client
+        if client is None or not hasattr(client, "acquire"):
+            return False
+        # FRESH, and for once the cost is right: this is asked at most once per refused
+        # chunk, and the cached answer here is from before whatever just happened.
+        self.forget_up()
+        if not self.up(fresh=True):
+            return False
+        old = getattr(client, "token", "") or ""
+        client.token = ""
+        try:
+            token = client.acquire(self._owned(owner), ttl=LEASE_TTL_SEC)
+        except OSError:
+            client.token = old
+            return False
+        if not token:
+            client.token = old
+            try:
+                held = client.lease_state()
+            except OSError:                           # noqa: BLE001 — a diagnostic
+                held = {}
+            self._say_busy(held.get("owner", "?"), held.get("held_sec", 0) or 0)
+            return False
+        return True
+
     # -- priorities: «нажал — действие» (#1288) ------------------------------
     def claim_soon(self, owner: str = "panel", priority: int = claims.HUMAN,
                    timeout: float = YIELD_WAIT_SEC, poll: float = 0.05) -> bool:

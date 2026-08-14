@@ -210,7 +210,13 @@ class PanelRuntime:
             name=lambda: self.profiles.active)
         self.actions = ActionRunner(log=self.log, target=self.game_target,
                                     activity=self.activity,
-                                    interrupts=self.interrupts)
+                                    interrupts=self.interrupts,
+                                    # …and how a run gets its lease back when the daemon
+                                    # restarts underneath it (#1411). On the RUNNER
+                                    # rather than on the callers, because it has to reach
+                                    # every context there is: a press, a timer's errand,
+                                    # an auto-order on its own worker.
+                                    regain=self.regain_hook())
         self._schedule = None           # built on first ask (see the property below)
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
@@ -441,6 +447,42 @@ class PanelRuntime:
             self.log.say(tag, "priority.resumed", owner=who)
 
         return step_aside
+
+    # -- getting the lease back after the daemon restarted (#1411) -----------
+    def regain_hook(self, tag: str = "action"):
+        """A lease-regain callable for a run — `Context.regain`, played on a refusal.
+
+        THE OTHER WAY A LEASE GOES, and until #1411 only one of them was answered. A run
+        that PARKS knows it let the lease go, and `yield_hook` above hands it a new one on
+        the way back. A run whose DAEMON restarted underneath it knows nothing at all: the
+        token it was granted when its context was built is one the new daemon never issued,
+        so every call from that moment on is refused as «lease lost» — for the rest of the
+        run, because a token is read once and nothing ever re-read it.
+
+        Nothing said so, either. `_eval_lua_value` reads a refused chunk as «could not
+        ask», which is the right answer for a client that is still booting and the wrong
+        one here: on 2026-08-14 an autoassist run went deaf mid-recipe and `launch_game`
+        spent the last ten seconds of its cap failing to read a scene off a daemon that
+        had been warm for three of them.
+
+        So the run says so ONCE, in the log, and carries on — «продолжаю» is the honest
+        report, because everything else about the run is still true. A lease that cannot
+        be regained is said too and answered `False`, and then the interpreter raises the
+        refusal it was holding: a run that does not hold the client may not press it.
+        """
+        def regain(ctx=None) -> bool:
+            if not self.game.regain(tag):
+                self.log.say(tag, "lease.gone")
+                return False
+            # THE SAME TWO LINES `step_aside` ENDS ON, and for the same reason: the token
+            # on the context and the evaluator built with it are both the old lease.
+            if ctx is not None:
+                ctx.game_token = self.game.token
+                ctx.evaluator = None
+            self.log.say(tag, "lease.regained")
+            return True
+
+        return regain
 
     # -- pressing a scenario in the background ------------------------------
     def _relaunch_lock(self, name: str, tag: str) -> bool:

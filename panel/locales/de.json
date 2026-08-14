@@ -237,6 +237,8 @@
   "interrupt.stopping": "breche ab…",
   "interrupt.toast": "Stopp angefordert: {count}",
   "language.name": "Deutsch",
+  "lease.gone": "der Daemon wurde neu gestartet und die Lease auf das Spiel gehört jetzt jemand anderem — dieser Lauf hört auf",
+  "lease.regained": "der Daemon wurde neu gestartet — die Lease auf das Spiel wurde erneut genommen, es geht weiter",
   "log.autoassist.failed": "Hilfe-Durchgang fehlgeschlagen: {reason}",
   "log.autoassist.helped": "bei {n} geheimen Missionen geholfen",
   "log.autoassist.no_star": "kein Stern in Sicht — mit URs geholfen: {n}",

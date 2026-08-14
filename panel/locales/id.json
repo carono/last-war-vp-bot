@@ -237,6 +237,8 @@
   "interrupt.stopping": "menghentikan…",
   "interrupt.toast": "penghentian diminta: {count}",
   "language.name": "Bahasa Indonesia",
+  "lease.gone": "daemon dimulai ulang dan sewa permainan kini milik orang lain — jalannya dihentikan",
+  "lease.regained": "daemon dimulai ulang — sewa permainan diambil lagi, dilanjutkan",
   "log.autoassist.failed": "putaran bantuan gagal: {reason}",
   "log.autoassist.helped": "membantu {n} tugas rahasia",
   "log.autoassist.no_star": "tidak ada bintang yang datang — membantu UR: {n}",

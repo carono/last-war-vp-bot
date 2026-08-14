@@ -237,6 +237,8 @@
   "interrupt.stopping": "interrumpiendo…",
   "interrupt.toast": "parada solicitada: {count}",
   "language.name": "Español",
+  "lease.gone": "el demonio se reinició y el arriendo del juego ahora es de otro — esta ejecución se detiene",
+  "lease.regained": "el demonio se reinició — se volvió a tomar el arriendo del juego, se continúa",
   "log.autoassist.failed": "falló la pasada de ayuda: {reason}",
   "log.autoassist.helped": "ayudé con {n} tarea(s) secreta(s)",
   "log.autoassist.no_star": "no viene ninguna estrella: ayudé con UR: {n}",

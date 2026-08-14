@@ -237,6 +237,8 @@
   "interrupt.stopping": "interrompo…",
   "interrupt.toast": "arresto richiesto: {count}",
   "language.name": "Italiano",
+  "lease.gone": "il demone è stato riavviato e la concessione sul gioco ora è di un altro — questa esecuzione si ferma",
+  "lease.regained": "il demone è stato riavviato — la concessione sul gioco è stata ripresa, si continua",
   "log.autoassist.failed": "il giro di assistenza è fallito: {reason}",
   "log.autoassist.helped": "assistite {n} attività segrete",
   "log.autoassist.no_star": "nessuna stella in arrivo — assistiti UR: {n}",

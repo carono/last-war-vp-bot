@@ -574,3 +574,64 @@ the relaunch lock, once.
 
 Pinned by `tests/test_panel_daemon_gate.py`, plus the two cases added to
 `tests/test_panel_recovery.py` and the poll case in `tests/test_panel_triggers.py`.
+
+# 12. A run outlives the daemon that leased it (#1411)
+
+## 12.1 What was wrong
+
+A scenario is granted the game's lease ONCE. `PanelRuntime.game_target` is read when the
+run's context is built, `Context.game_token` keeps the answer, and every chunk carries it
+(`Interpreter._evaluator`). That is exactly right for a run whose daemon lives as long as
+it does — and there are three routine ways it does not: `ensure()` restarting a STALE
+daemon (§2.2), `restart()` off the recovery verdict, and a person's press.
+
+A restarted daemon starts holding **no lease at all**. The token on the context therefore
+names one that does not exist, and `game_lease.check_run` answers every call with
+
+    lease lost — it expired or was taken by nobody
+
+Nothing re-read the token, so the refusal was not a moment — it was the rest of the run.
+And nothing said so either: `_eval_lua_value` turns a refused chunk into `None`, which
+every caller reads as «could not ask», which is the honest reading of a client that is
+still booting. Live on 2026-08-14 23:32:43 an autoassist run went deaf mid-recipe, and in
+the same window `launch_game` failed to read a scene for the last ten seconds before its
+cap — over a daemon that had come back at 23:32:40.
+
+The parking case had been solved a task earlier and looks identical from the inside:
+`GameLink.park` lets the lease go deliberately, and `PanelRuntime.yield_hook` hands the
+context a fresh token and drops the evaluator on the way back (#1288). The difference is
+only who decided — and a run cannot tell the two apart from the refusal, which is why the
+answer has to be the same one.
+
+## 12.2 What replaced it
+
+Three pieces, one per layer, and none of them knows about the others:
+
+* `Interpreter._run_lua` catches `lua_client.LeaseLost` — a TYPE, not a wording — asks the
+  context for a lease, and sends the same chunk again. **Once.** A second refusal means
+  somebody else now holds the game, and pressing beside them is what the lease exists to
+  prevent, so it is raised.
+* `GameLink.regain` drops the dead token and asks the daemon for a NEW lease. The two
+  local locks are untouched: the run still holds the claim and the registry entry, and
+  only the daemon's half went. If the answer is no, the dead token is put **back** —
+  an empty token is not «no lease», it is «unleased», and `check_run` lets an unleased
+  run straight through to drive the game beside its new owner.
+* `PanelRuntime.regain_hook` writes the new token onto the context, drops the evaluator
+  built with the old one, and says which of the two happened: `lease.regained` when the
+  run carries on, `lease.gone` when it stops.
+
+The hook is hung on the `ActionRunner` rather than on the callers, so every context the
+panel builds carries it — a press, a timer's errand, an auto-order on its own worker. A
+run with no hook (a script from a shell, a test) is exactly as it was: the refusal is
+raised and the caller decides.
+
+## 12.3 What it costs
+
+Nothing on the ordinary path: a chunk that is not refused never reaches the handler. A
+refused one pays one `{"op":"ping"}` (a fraction of a millisecond) and one `acquire` — the
+same round trip a claim already makes — and then the chunk it was going to send anyway.
+
+Pinned by `tests/test_panel_lease_regain.py`: the retry happens once, only for this one
+refusal, a hook that raises leaves the original refusal to be reported, a lease that is
+somebody else's leaves the dead token in place, and every context the runner builds
+carries the hook.
