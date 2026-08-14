@@ -45,6 +45,7 @@ from panel import i18n as i18nmod          # noqa: E402
 from panel import tabs as tabsreg          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
+from panel.runtime import gate as gatemod           # noqa: E402
 from panel.runtime import health as healthmod       # noqa: E402
 from panel.runtime import interrupt as interruptmod  # noqa: E402
 from panel.runtime import day_reset as dayresetmod  # noqa: E402
@@ -201,6 +202,10 @@ class _Runtime:
         # …and the same for «Включить обратно»: `/api/state` reads `panic.state(now)`
         # and `/api/panel` gates the resume on `panic.stopped`.
         self.panic = panicmod.Panic()
+        # …and the gate, for the same reason (#1393): `/api/state` sends the phone
+        # whether anything may run at all, and the real object is pure state — it reads
+        # the light above and this runtime's `game.up()`, and probes nothing until asked.
+        self.gate = gatemod.DaemonGate(self)
         # …and the profile's one light, for the same reason: `/api/profiles` draws the
         # phone's copy of the tab strip out of the LAST verdict the window's status poll
         # made (#1299), and a fake would pin a shape this file invented.

@@ -27,6 +27,7 @@ from .bus import EventBus
 from .children import ChildFactory
 from .daemon import GameLink
 from .day_reset import DayReset
+from .gate import DaemonGate
 from .health import ProfileHealth
 from .i18n import Translator
 from .interrupt import Interrupts
@@ -137,6 +138,15 @@ class PanelRuntime:
         # phone on the profile picker — out of one object. It is born amber: nothing has
         # read this profile yet, and «нечего сказать» may never be painted green.
         self.health = ProfileHealth()
+        # …AND WHETHER ANYTHING AUTOMATIC MAY RUN AT ALL (panel/runtime/gate.py, #1393).
+        # One question — «is this profile's daemon alive» — asked by the schedule in
+        # front of every timer and every trigger, by the watchdog before it puts a client
+        # back and by the recovery before it acts. It reads the light above rather than
+        # probing for itself, so a tick costs a dict lookup; it is here rather than on
+        # the schedule because the schedule is not the only thing that acts by itself,
+        # and three detectors with three ideas of «may I» is how «Стоп всё» used to be
+        # undone eight seconds after it was pressed.
+        self.gate = DaemonGate(self)
         # …AND WHEN THIS PROFILE'S WARZONE STARTS A NEW DAY (panel/runtime/day_reset.py).
         # Everything the game hands out once a day comes back at the server's own 00:00,
         # which is neither this machine's midnight nor the same on every warzone — so the

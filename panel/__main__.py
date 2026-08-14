@@ -2825,6 +2825,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._panic_lbl = ttk.Label(top, textvariable=self._panic_var,
                                     foreground="#c33", font=ui_font(weight="bold"))
         self._panic_lbl.pack(side="right", padx=(0, 6))
+        # …AND WHY NOTHING IS HAPPENING, which is a different sentence (#1393). The mark
+        # above says somebody pressed a button; this one says the state that button — or
+        # a daemon that died on its own — has left the profile in: no timer, no trigger,
+        # no watchdog, nothing. Without it a stopped panel and an idle one are the same
+        # silence, which is the fault #1262 fixed once and this task could have brought
+        # straight back.
+        self._gate_var = tk.StringVar(value="")
+        self._gate_lbl = ttk.Label(top, textvariable=self._gate_var, foreground="#c33")
+        self._gate_lbl.pack(side="right", padx=(0, 6))
 
         # A PAGE WITH NOTHING BELOW THIS LINE (`LW_PANEL_BARE=1`) — the floor of a
         # bisection. Switching a tab off takes that tab out of the page; this takes the
@@ -3162,6 +3171,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         if self._busy:
             return
+        # Nothing may run: the daemon is down (#1393). Asked before `ready()` because the
+        # gate answers off the status poll's own reading and `ready()` is a round trip —
+        # which against a dead port is a connect timeout, every half-minute, for as long
+        # as the panel stays stopped.
+        if not self._rt.gate.alive():
+            return
         # A READING THAT HAS TO REACH THE GAME asks whether one can, not whether a port
         # answers (#1287): thirteen readings drawn off a daemon whose client had gone
         # are thirteen yesterday's numbers on a dashboard that looks fine.
@@ -3486,8 +3501,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         return self._game.ensure()
 
     def _restart_daemon(self) -> None:
-        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back."""
-        threading.Thread(target=self._game.restart, daemon=True).start()
+        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back.
+
+        The gate is told either way (#1393): whoever changes a daemon's existence says
+        so, or the schedule spends up to a status poll's period acting on the verdict it
+        was given before the change — which is how an errand comes to call `ensure()`
+        against a daemon somebody has just stopped on purpose.
+        """
+        def work() -> None:
+            try:
+                self._game.restart()
+            finally:
+                self._rt.gate.changed()
+
+        threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _daemon_state(self, state: str, ok) -> None:
         """Paint the daemon indicator from the link, whichever thread reports it.
@@ -3583,6 +3610,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # touched until the hand-over below.
             self._rt.health.update(found, warm=warm, stale=stale,
                                    session=session, kicked=kicked)
+            # …and THE GATE, asked here on the worker rather than in the paint below.
+            # It reads the verdict written one line up, so it costs a dict lookup — but
+            # right after a daemon has been started or stopped it asks the port instead,
+            # and a socket probe belongs on this thread and not on the one that draws
+            # (panel/runtime/gate.py). Asked every poll on purpose: the schedule only
+            # asks when an errand comes due, and the mark on screen must not wait for one.
+            self._rt.gate.alive()
             self._later(0, lambda: (
                 self._set_status_msg(found.message),
                 self._status_lbl.configure(
@@ -3601,6 +3635,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._announce_link(found),
                 self._recovery_check(found, kicked, stale),
                 self._paint_panic(),
+                self._paint_gate(),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
 
@@ -3723,6 +3758,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._say("game", key, **fmt)
             return
         if not self._opt_bool("watchdog"):
+            return
+        # A CURE THAT NEEDS THE PANEL RUNNING (#1393). Putting the client back is the one
+        # act that would undo «Стоп всё» on its own — its two acts end the client and the
+        # daemon, and this would have the client back on the next poll. So it asks the
+        # same gate the schedule asks, and says nothing: the gate has already said, once,
+        # that nothing may run, and a second sentence per poll is what this is here to
+        # stop. Restarting the DAEMON is deliberately below the gate rather than behind
+        # it — a stale daemon holds the gate, and a cure behind the gate it is the cure
+        # for is a state nothing can leave.
+        if key in runtime.recovery.RESTARTS and not self._rt.gate.alive():
+            self._dbg.info("recovery %s held: nothing may run right now", key)
             return
         self._say("game", key, **fmt)
         if key in runtime.recovery.RESTARTS:
@@ -3907,6 +3953,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if self._game_gone == WATCHDOG_STRIKES and self._game_was_up:
             self._say("game", "log.game.gone")
         if not self._opt_bool("watchdog"):
+            return
+        # …AND NOT WHILE THE PANEL IS STOPPED (#1393). The client going away is exactly
+        # what «Стоп всё» has just arranged, and a watchdog that has never heard of the
+        # press is how the client used to be back eight seconds after it. The crash is
+        # still ANNOUNCED above — knowing the client went is worth a line whatever is
+        # allowed to act on it — and only the relaunch is held.
+        if not self._rt.gate.alive():
+            self._dbg.info("watchdog held: nothing may run right now")
             return
         # SAID ONCE, ASKED EVERY POLL — and the two used to be the same `return`. This
         # method acted on the EXACT strike (`!= WATCHDOG_STRIKES`), so a client that
@@ -4294,57 +4348,36 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
     # -- one control that stops everything ----------------------------------
     def _panic(self) -> None:
-        """«Стоп всё» — every monitor, watcher, sweep, scenario and the schedule.
+        """«Стоп всё» — close the client, stop the daemon. Two acts, and no others.
 
-        The moment you want this is the moment the game is misbehaving, and until now
-        it was five separate clicks across three tabs. The schedule is stopped too:
-        leaving it running would have a timer fire into whatever went wrong a few
-        seconds later.
+        It used to stop the schedule, every plugin tab's monitors, every child, the
+        scenario in flight and the activity strip as well — and then went on putting the
+        client back, because the watchdog and the recovery had never heard of it. Five
+        things switched off, each to be put back by hand, and the one thing that mattered
+        not stopped at all (#1393).
 
-        A scenario in flight is ASKED to stop (it halts at its next step) rather than
-        killed, so nothing is left half-sent to the game — the same press the footer's
-        «Прервать» makes, over the same register (panel/runtime/interrupt.py).
+        What ends the rest is a consequence rather than a press: with this profile's
+        daemon down there is nothing for a timer, a trigger, the watchdog or the recovery
+        to press THROUGH, and `panel/runtime/gate.py` turns that into «and so they do not
+        try» — no scenario, no read, no relaunch, no retry, and no line every few seconds
+        saying that none of it worked.
 
-        EVERY open profile, not the one being looked at. It is the emergency button:
-        the moment you want it is the moment you do not want to find out that the other
+        EVERY open profile, not the one being looked at. It is the emergency button: the
+        moment you want it is the moment you do not want to find out that the other
         account carried on pressing.
         """
         self._workspace.each(self._panic_session)
 
     def _panic_session(self, session) -> None:
         with self._on(session):
-            self._say("panel", "panic.log")
-            # …and each plugin tab stops whatever it holds — one loop, so a tab added
-            # later cannot be the one «Стоп всё» quietly does not reach. A tab nobody
-            # has opened holds nothing: it was never drawn and never loaded, so there is
-            # nothing in it to stop (#1215).
-            for tab in getattr(self, "_plugin_tabs", {}).values():
-                if tab.built:
-                    tab.panic()
-            self._schedule.stop()
-            # …and then whatever is STILL running, whoever started it. Each tab has just
-            # stopped what it holds, but «Стоп всё» is pressed when something has gone
-            # wrong, and that is precisely when a child nobody is holding any more is
-            # the one still sniffing (#1212).
-            stopped = self._rt.children.stop_all()
-            if stopped:
-                self._say("panel", "log.children.stopped", count=stopped)
-            # …AND THE SCENARIO IN FLIGHT, which this docstring has been promising since
-            # it was written while in fact reaching only the one tab that kept a stop flag
-            # of its own. Every run is on the register now, whoever started it
-            # (panel/runtime/interrupt.py, #1300), so the promise is kept: a recipe playing
-            # for a timer, for the checklist or for the phone halts at its next step.
-            interruptmod.stop_one(self._rt)
-            # Nothing is being done any more, so nothing may be left saying it is: a
-            # step whose thread was asked to stop mid-way would otherwise sit on the
-            # bottom strip for the rest of the session.
-            self._rt.activity.clear()
-            self._rt.panic.mark(time.time())
+            # The acts themselves live in the runtime, not here: the phone presses the
+            # same two (panel/runtime/panic.py), and a shell that spelled them out for
+            # itself is how the two front-ends end up stopping different amounts.
+            panicmod.stop(self._rt)
             self._paint_panic()
-            self._say("panel", "panic.done")
 
     def _resume(self) -> None:
-        """«Включить обратно» — put back exactly what «Стоп всё» switched off.
+        """«Включить обратно» — bring each profile's daemon back, and let it go on.
 
         Every open profile, like its opposite: the emergency button stops them all, so
         the one that brings them back has to reach all of them or half the machine stays
@@ -4354,16 +4387,22 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
     def _resume_session(self, session) -> None:
         with self._on(session):
-            # Each tab puts back what IT switched off, and only what was on — the tab
-            # owns the switch, so the tab is the only place that snapshot can live
-            # without drifting from it (panel/runtime/panic.py). An undrawn tab was not
-            # asked to stop anything, so there is nothing of its to put back.
-            for tab in getattr(self, "_plugin_tabs", {}).values():
-                if tab.built:
-                    tab.resume()
-            self._rt.panic.clear()
+            # Nothing to put back: the stop switched nobody's boxes off, so a watcher the
+            # person had left off stays off and one they had left on comes back with the
+            # daemon. The gate opens by itself the moment it is up.
+            panicmod.resume(self._rt)
             self._paint_panic()
-            self._say("panel", "panic.resumed")
+
+    def _paint_gate(self) -> None:
+        """Say on screen that nothing may run, and for how long (#1393).
+
+        Draws the ANSWER the status poll's worker has already taken (`DaemonGate.state`)
+        and never asks for a fresh one: a paint that probes a socket is a paint that
+        freezes the window, and this one runs on every poll and after every press.
+        """
+        st = self._rt.gate.state()
+        self._gate_var.set(self._t("gate.held", mins=st["for_sec"] // 60)
+                           if st["held"] else "")
 
     def _paint_panic(self) -> None:
         """The mark, and the button that only exists while there is something to undo."""

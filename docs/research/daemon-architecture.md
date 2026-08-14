@@ -496,3 +496,81 @@ Everything else came back as #1258 promises: three profiles, eight timers and si
 triggers on the account that has them, the watchdog on, the secret-task auto-loot exactly
 as the person had left it, and the daemon holding the client that is running
 (`last_ok_age` 3.1 s, `verdict=live`, `ready()` true, fourteen dashboard readings since).
+
+# 11. The daemon as the ONE gate on everything automatic (#1393)
+
+## 11.1 What was wrong
+
+«Стоп всё» stopped five things — the schedule, every plugin tab's monitors, every child,
+the scenario in flight, the activity strip — and did not stop the one that mattered. The
+process watchdog and the recovery had never heard of the press: they read a client that
+was down, which is exactly the state they exist to cure, and put it back on the next
+status poll. Eight seconds, and the emergency button had been undone.
+
+The schedule had the same hole from the other side. Its gate asks «is the game running»
+and deliberately exempts the errands that PUT IT BACK (§#1259) — so `restart_game` was
+free to fire into a panel somebody had just stopped. And with the daemon down, everything
+else tried anyway: each due errand claimed, called `ensure()`, failed, was written down
+as a failure and sat out a retry hold, printing a line every few seconds for hours.
+
+## 11.2 What replaced it
+
+Two acts, and one gate.
+
+* **The press is two acts and only two** — close the client (`quit_game`, the scenario),
+  then stop this profile's daemon (`GameLink.stop`, sharing `_shutdown` with `restart`).
+  Nothing else is switched off, so nothing else has to be switched back on: the tabs'
+  boxes, the schedule's threads and the children are exactly where the person left them.
+* **`panel/runtime/gate.py` — `DaemonGate`, one per profile, on `PanelRuntime.gate`.**
+  «Is this profile's daemon alive» is asked in front of every timer (`Schedule.gate`, now
+  the FIRST check and with no exemption — the recovery errands are the cure for a client
+  that died, not for a panel that was stopped), every trigger fire (`Schedule.submit`),
+  every poll trigger (`Schedule.poll`), the process watchdog, the recovery's client cures
+  and the dashboard's reading loop.
+
+Everything else follows from those two: with no daemon there is nothing to press through,
+and the gate is what turns that fact into «and so nothing tries».
+
+## 11.3 What it costs to ask
+
+Nothing, on almost every call. The status poll already probes the daemon every eight
+seconds and leaves the verdict on `rt.health` (§#1299); the gate reads THAT, so a timer
+tick, a trigger fire and a paint pay a dict lookup rather than a round trip. Two rules
+keep it a fact rather than a belief:
+
+* a verdict older than `FRESH_SEC` (30 s — three of the poll's turns) is not used, and
+  the port is asked instead. A runtime with no window behind it has nobody polling, and
+  «nobody has looked» may never read as «alive»;
+* `DaemonGate.changed()` rules out every verdict taken before a daemon was started or
+  stopped. Without it the eight seconds after «Стоп всё» still read «warm» — and an
+  errand that believes that calls `ensure()`, which starts the daemon the press has just
+  stopped. Whoever changes a daemon's existence says so: the press, the ⭮ button, the
+  undo.
+
+The verdict is the three-state one, not `up()`: a daemon answering its port for a client
+that has gone (§10) lands nothing, so **stale is not alive**. Restarting a stale daemon is
+deliberately NOT behind the gate — a cure behind the gate it is the cure for is a state
+nothing can leave.
+
+## 11.4 What the person sees
+
+A stopped panel and an idle one used to be the same silence (§#1262). Now:
+
+* the EDGE is said once in the profile's log — `gate.log.held` when it closes,
+  `gate.log.free` when it opens — and never per tick;
+* the STATE is a mark that cannot scroll away: `gate.held` on the window's top strip and
+  on the phone's «Состояние» card, out of `DaemonGate.state()` in both front-ends;
+* a trigger that fires into a stopped panel says nothing at all in the person's log (it
+  goes to `debug.log`). A busy alliance sends a push a second, and a rolled-up «пропуск»
+  for each of them is the noise this whole task was about.
+
+## 11.5 Coming back
+
+Nothing accumulates while the gate is closed: it refuses BEFORE anything is queued and
+never touches an errand's clock, so the first tick after the daemon is back finds each
+errand due exactly once — the rule daily errands already keep (#1333). «Включить обратно»
+is therefore one act, `ensure()`, and the client comes back by the ordinary route, under
+the relaunch lock, once.
+
+Pinned by `tests/test_panel_daemon_gate.py`, plus the two cases added to
+`tests/test_panel_recovery.py` and the poll case in `tests/test_panel_triggers.py`.

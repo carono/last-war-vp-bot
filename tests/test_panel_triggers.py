@@ -780,9 +780,24 @@ class _Link:
         return self._ev
 
 
+class _Gate:
+    """`DaemonGate` as the poll sees it: one question, and whether it was asked."""
+
+    def __init__(self, open_: bool = True):
+        self.open = open_
+        self.asked = 0
+
+    def alive(self) -> bool:
+        self.asked += 1
+        return self.open
+
+
 class _Rt:
-    def __init__(self, link):
+    def __init__(self, link, gate=None):
         self.game = link
+        # Nothing automatic runs while this profile's daemon is down (#1393) — a poll
+        # least of all, since its check is a round trip into the game every ten seconds.
+        self.gate = gate if gate is not None else _Gate()
 
 
 class _PollHost:
@@ -793,11 +808,11 @@ class _PollHost:
     with the bug it is here to catch.
     """
 
-    def __init__(self, answers, ready=True):
+    def __init__(self, answers, ready=True, gate=None):
         from panel.runtime.schedule import Schedule    # noqa: PLC0415 — Tk at import
 
         self.ev = _Evaluator(answers)
-        self.rt = _Rt(_Link(self.ev, ready=ready))
+        self.rt = _Rt(_Link(self.ev, ready=ready), gate=gate)
         self._poll_seen = {}
         self._dbg = _Say()
         self._poll = Schedule.poll.__get__(self)
@@ -812,6 +827,21 @@ class _PollHost:
 def _poll_trigger(name="probe"):
     return triggersmod.Trigger(name=name, kind=triggersmod.KIND_POLL,
                                check="1 == 1", scenario=("noop",))
+
+
+def test_a_poll_asks_the_gate_before_it_asks_the_game():
+    """A stopped panel polls nothing at all (#1393).
+
+    The check is a chunk sent into the game every `interval_sec`, and against a daemon
+    that is not there every one of them is a connect timeout for an answer that was known
+    before it was asked. Asked through the gate rather than probed here, so «is anything
+    allowed to run» has ONE answer for the whole profile.
+    """
+    gate = _Gate(open_=False)
+    host = _PollHost([["TRIGCHK=true"]], gate=gate)
+    assert host.poll(_poll_trigger()) is False, "a poll fired with the daemon down"
+    assert gate.asked == 1, "the gate was not asked"
+    assert host.ev.asked == [], "the game was asked anyway"
 
 
 def test_a_poll_reads_the_games_own_yes():

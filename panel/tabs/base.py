@@ -228,7 +228,19 @@ class PanelTab:
     def on_profile_switch(self) -> None: ...
     def on_language_change(self) -> None: ...
     def panic(self) -> None:
-        """What «Стоп всё» has to stop here.
+        """What a «hold still» has to stop here — **and nothing calls it today (#1393)**.
+
+        «Стоп всё» used to run this on every built tab. It is two acts now — close the
+        client, stop this profile's daemon — and everything else holds still as a
+        CONSEQUENCE: with no daemon there is nothing for a timer, a trigger, the watchdog
+        or the recovery to press through, and `panel/runtime/gate.py` turns that fact into
+        «and so they do not try». Five switches to put back by hand became none to put
+        back at all, which is the version of that promise that cannot be got wrong.
+
+        The pair is kept because it is the right SHAPE for the day something asks a tab
+        to hold still again, and `tests/test_panel_panic_resume.py` still pins it. Until
+        then, overriding it is writing code nobody runs — do not reach for it, and do not
+        wire the emergency button back into it.
 
         Whatever is switched off here should be REMEMBERED here too, so :meth:`resume`
         can put back what was actually on rather than everything the tab has. The tab
@@ -237,7 +249,7 @@ class PanelTab:
         """
 
     def resume(self) -> None:
-        """«Включить обратно»: undo this tab's :meth:`panic`, and nothing else.
+        """Undo this tab's :meth:`panic`, and nothing else — **also uncalled** (#1393).
 
         The half that was missing until #1262. «Стоп всё» is pressed when something has
         gone wrong, and the state it leaves — every monitor down, the schedule off —

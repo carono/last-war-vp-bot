@@ -1055,6 +1055,15 @@ class TriggerWatcher:
         "refired": "triggers.log.fire_again",
     }
 
+    #: …and the outcome that is said to NOBODY. The panel is stopped — this profile's
+    #: daemon is down — so the push could not be acted on by anything, and there is
+    #: nothing for a person to do about this particular one (#1393). Saying it would put a
+    #: line in the log per push for as long as the stop lasts, which is exactly the
+    #: «не удалось» every few seconds that the stop is supposed to end. The state is on
+    #: screen the whole time instead (`panel/runtime/gate.py::state`), the edge is said
+    #: once, and the fire itself goes to `debug.log` where a lost push can still be found.
+    _QUIET = frozenset({"held"})
+
     def _fire(self, trigger) -> None:
         """The trigger's moment came — put the scenario on the shared queue.
 
@@ -1076,6 +1085,9 @@ class TriggerWatcher:
             return
         self._dbg.info("fire %s on %s", trigger.name, trigger.signal())
         outcome = self._submit(trigger)
+        if outcome in self._QUIET:
+            self._dbg.info("held %s: nothing may run right now", trigger.name)
+            return
         key = self._FIRE_WORDS.get(outcome, "triggers.log.fire")
         self._note_fire(trigger, key)
 

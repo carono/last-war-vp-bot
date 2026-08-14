@@ -54,6 +54,11 @@
         <p id="game-text" class="muted small"></p>
         <p id="game-recovery" class="muted small"></p>
         <p id="panic-mark" class="small"></p>
+        <!-- WHY NOTHING IS HAPPENING — a different sentence from the mark above it
+             (#1393). That one says somebody pressed «Стоп всё»; this one says the state
+             it left: this profile's daemon is down, so no timer, no trigger and no
+             watchdog will try anything until it is back. -->
+        <p id="gate-mark" class="small"></p>
         <div id="panic-controls" class="controls"></div>
         <!-- Start it, close it, put it back. The three the window has, drawn from
              /api/state so the phone never decides for itself which of them applies. -->

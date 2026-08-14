@@ -233,9 +233,16 @@ happened.
 
 The rest of the lifecycle: `on_hide`, `on_profile_switch` (a different account — bounce
 children, re-read files), `on_language_change` (only for what `tr` cannot re-render),
-`panic` («Стоп всё» — stop what you hold and untick the boxes that say so), `shutdown`
-(the window is closing — children, listeners, `rt.tick.disarm(...)`, bus
+`shutdown` (the window is closing — children, listeners, `rt.tick.disarm(...)`, bus
 unsubscribes).
+
+`panic` / `resume` are still on the base class **and nothing calls them** (#1393).
+«Стоп всё» is two acts now — close the client, stop this profile's daemon — and
+everything else holds still as a consequence: with no daemon there is nothing for a
+timer, a trigger, the watchdog or the recovery to press through, and
+`panel/runtime/gate.py` turns that fact into «and so they do not try». The pair is kept
+because it is the right shape for the day something asks a tab to hold still again;
+until then, overriding it is writing code nobody runs.
 
 ---
 

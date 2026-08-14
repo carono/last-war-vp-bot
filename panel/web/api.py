@@ -366,6 +366,14 @@ class WebApi:
             # is something to undo, and only where somebody can carry it out.
             "panic": {**rt.panic.state(time.time()),
                       "can_resume": panicmod.available()},
+            # …AND WHETHER ANYTHING MAY RUN AT ALL (#1393). The press above is one way to
+            # arrive here and a daemon dying on its own is the other, so this is drawn
+            # from its own object rather than from the mark: a profile whose daemon has
+            # gone in the night is exactly as stopped as one somebody stopped on purpose,
+            # and nothing else on this page says so. The LAST answer, never a fresh one —
+            # a page that polls every two seconds must not probe a socket per request
+            # (`panel/runtime/gate.py::state`).
+            "gate": rt.gate.state(),
             # WHAT IS PLAYING, AND THE PRESS THAT ENDS IT (#1300). The phone's copy of the
             # button beside the window's status strip, and the same press: it reaches every
             # open profile, because a window holds several accounts and the run that has to

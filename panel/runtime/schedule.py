@@ -151,7 +151,8 @@ class Schedule:
             catalogue=lambda: self.trigger_catalogue,
             config=self.trigger_config,
             spawn=self.spawn_listener,
-            submit=self.timers.submit,
+            # …through the gate rather than straight onto the queue (:meth:`submit`).
+            submit=self.submit,
             poll=self.poll,
             log=lambda key, **fmt: rt.put("[trigger] " + rt.t(key, **fmt)),
             debug=rt.dbg("triggers"),
@@ -337,7 +338,22 @@ class Schedule:
 
         ``name`` is the errand's, and ``None`` keeps the old blanket meaning for any
         caller that has no particular errand in mind.
+
+        **THE DAEMON COMES FIRST, AND NOTHING IS EXEMPT FROM IT** (#1393). Everything
+        below this line is about which errand and what the game is doing; this one is
+        about whether the panel is running at all. With no daemon there is nothing to
+        press through — a recipe would fail, be written down as a failure and sit out a
+        retry hold for nothing — so the errand does not start, no client is put back, and
+        the reason is said once by the gate rather than per tick by every caller
+        (`panel/runtime/gate.py`). The recovery errands are gated too, deliberately: they
+        are the exception to «the game is not running» because they are its cure, and
+        they are NOT an exception to «the panel has been stopped». That is what makes
+        «Стоп всё» hold — its two acts end the client and the daemon, and the client would
+        otherwise be back within eight seconds, put there by the very errand this gate now
+        holds.
         """
+        if not self.rt.gate.alive():
+            return "timers.log.skip_daemon"
         if name is not None and self._is_recovery(name):
             # …EXCEPT WHILE A KICK IS BEING WAITED OUT (#1291). The exemption above
             # exists because these errands are the answer to «the client is down»; a
@@ -410,6 +426,25 @@ class Schedule:
         if timer is None:
             return False
         return getattr(timer, "scenario", None) in self._RECOVERY
+
+    # -- a trigger's fire ----------------------------------------------------
+    def submit(self, trigger):
+        """A push landed: put its scenario on the queue — unless the panel is stopped.
+
+        The same gate the clock asks (:meth:`gate`), asked here rather than one layer
+        down, because a fire that reaches the queue has already cost something: a name
+        claimed, a slot taken, and — when it comes off — a skip line with a count on it.
+        Dropped here it costs a dict lookup and a line in `debug.log`, which is where a
+        push nobody could act on belongs (#1393). A busy alliance sends a push a second;
+        a rolled-up «пропуск» for each of them is the noise this task exists to remove.
+
+        ``"held"`` is a fourth outcome beside the three
+        :meth:`~panel.timers.TimerScheduler.submit` already answers, and the watcher says
+        nothing out loud about it — see `panel/triggers.py::_FIRE_WORDS`.
+        """
+        if not self.rt.gate.alive():
+            return "held"
+        return self.timers.submit(trigger)
 
     # -- running one errand --------------------------------------------------
     def run_errand(self, errand) -> bool:
@@ -687,6 +722,14 @@ class Schedule:
           * the two silent endings by name: the game not being ready, and a read that
             threw.
         """
+        # THE GATE FIRST, and it is what makes a stopped panel quiet (#1393). A poll runs
+        # every ten seconds and its check is a round trip into the game; with the daemon
+        # down that round trip is a connect timeout per poll per trigger, and the answer
+        # was known before it was made. Asked through the gate rather than by probing
+        # here, so «is anything allowed to run» has one answer for the whole profile.
+        if not self.rt.gate.alive():
+            self._poll_note(trigger, "skipped", "the daemon is stopped")
+            return False
         # `ready`, not `up`: this runs a CHUNK, and a port that answers is not a link
         # that carries one (#1287). A daemon holding a client that has gone would let
         # every poll through and every check would fail as «the game said nothing».

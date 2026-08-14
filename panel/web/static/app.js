@@ -191,6 +191,14 @@ function paintState(state) {
     ? T('panic.mark', { mins: Math.floor((pan.for_sec || 0) / 60) }) : '';
   $('panic-mark').className = 'small' + (pan.stopped ? ' bad' : '');
   paintPanicControls(pan);
+  /* …and the state that press leaves behind, which a daemon dying on its own leaves too
+   * (#1393): nothing automatic runs while this profile's daemon is down, and a phone
+   * showing an idle-looking account with no explanation is the same silence the mark
+   * above exists to break. */
+  const gate = state.gate || {};
+  $('gate-mark').textContent = gate.held
+    ? T('gate.held', { mins: Math.floor((gate.for_sec || 0) / 60) }) : '';
+  $('gate-mark').className = 'small' + (gate.held ? ' bad' : '');
 
   /* THREE STATES, the same three the window's indicator draws (#1286). A daemon holding
    * a client that has gone still answers its port, so «работает» was what the phone said

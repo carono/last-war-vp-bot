@@ -422,7 +422,12 @@ class _Watchdog:
 
     STRIKES = 2
 
-    def __init__(self, hold_left=lambda now: 0, cooldown=300.0):
+    def __init__(self, hold_left=lambda now: 0, cooldown=300.0, gate_open=True):
+        # WHETHER ANYTHING MAY RUN AT ALL (#1393). The client going away is exactly what
+        # «Стоп всё» arranges, and a watchdog that had never heard of the press used to
+        # put it back on the next poll. Open by default: every case below is about a
+        # panel that is running.
+        self._gate_open = gate_open
         self._game_gone = 0
         self._game_was_up = True
         self._watchdog_last = 0.0
@@ -462,6 +467,20 @@ class _Watchdog:
     @property
     def recovery(self):
         return self
+
+    @property
+    def gate(self):                                # `self._rt.gate.alive()`
+        return self
+
+    def alive(self) -> bool:
+        return self._gate_open
+
+    @property
+    def _dbg(self):                                # the held branch says so in debug.log
+        return self
+
+    def info(self, *args, **kw) -> None:
+        pass
 
     def poll(self, running: bool = False, step: float = 8.0) -> None:
         self.check(running)
@@ -738,7 +757,12 @@ def test_every_act_that_means_a_restart_is_in_the_set():
 class _Press:
     """The shell, reduced to what `_recovery_check` touches. Records what it played."""
 
-    def __init__(self, watchdog=True):
+    def __init__(self, watchdog=True, gate_open=True):
+        # …and whether anything may run at all (#1393). A client cure is held while this
+        # profile's daemon is down — the state «Стоп всё» leaves — and the daemon cure
+        # deliberately is not, or a stale daemon would hold the gate that holds its own
+        # cure. Open by default: these cases are about a panel that is running.
+        self._gate_open = gate_open
         self.played, self.said = [], []
         #: Daemon restarts asked for — the second cure, which has no recipe and so
         #: cannot show up in `played` (#1268).
@@ -770,6 +794,20 @@ class _Press:
     def _restart_daemon(self):            # noqa: D102 — the OTHER cure
         self.daemons += 1
 
+    @property
+    def gate(self):                       # `self._rt.gate.alive()` inside `_act_on`
+        return self
+
+    def alive(self) -> bool:              # noqa: D102
+        return self._gate_open
+
+    @property
+    def _dbg(self):                       # the held branch says so in debug.log
+        return self
+
+    def info(self, *args, **kw) -> None:  # noqa: D102
+        pass
+
     def _act_on(self, said):              # noqa: D102 — the real one, borrowed below
         raise AssertionError("replaced by the real Panel._act_on in _drive")
 
@@ -779,7 +817,8 @@ class _Found:
         self.link, self.running, self.pid = link, True, pid
 
 
-def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None):
+def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
+           gate_open=True):
     """Run the SHELL's own `_recovery_check` over a run of readings, unbound.
 
     The wiring is what is being pinned, not the decision — «`ACT_KICK` was announced and
@@ -788,7 +827,7 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None)
     """
     import panel.__main__ as pm            # by name: safe, and what the other tests do
 
-    app = _Press(watchdog=watchdog)
+    app = _Press(watchdog=watchdog, gate_open=gate_open)
     app.recovery = rec.Recovery()
     app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
@@ -799,6 +838,32 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None)
     finally:
         pm.game_link.idle_sec = real_idle
     return app
+
+
+def test_a_client_cure_is_held_while_the_panel_is_stopped():
+    """«Стоп всё» is two acts, and this is what makes the second one hold (#1393).
+
+    The press closes the client and stops this profile's daemon. A recovery that had
+    never heard of it sees a client that is down — which is precisely what it is FOR —
+    and puts it straight back, undoing the press within a poll. So the client cures ask
+    the same gate the schedule asks, and say nothing while it is closed: the gate has
+    already said, once, that nothing may run.
+    """
+    app = _drive(LOST, kicked=True, gate_open=False)
+    assert app.played == [], f"the client was put back with no daemon: {app.played}"
+    assert rec.ACT_KICK not in app.said, f"…and it was announced anyway: {app.said}"
+
+
+def test_the_daemon_cure_is_not_held_by_the_gate_it_would_open():
+    """A stale daemon holds the gate — so the cure for one cannot be behind it.
+
+    The gate reads «warm AND on the running client» (#1286), so a daemon answering for a
+    client that is gone closes it. If the restart of that daemon were gated too, the only
+    thing that could clear the state would be a person, which is the shape of a deadlock
+    rather than of a recovery.
+    """
+    app = _drive(ONLINE, kicked=False, stale=True, gate_open=False)
+    assert app.daemons >= 1, "a stale daemon was left to hold its own gate"
 
 
 def test_a_kick_is_actually_restarted_and_not_only_announced():

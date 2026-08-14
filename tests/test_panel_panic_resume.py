@@ -9,6 +9,13 @@ On 2026-08-06 that cost seven hours. «Стоп всё» was pressed at 12:44; t
 its server at 18:58, died at 20:02, and was still dead two hours later with the panel
 open in front of somebody the whole time.
 
+WHAT THE PRESS DOES changed in #1393 and this file did not: it is two acts now — close
+the client, stop this profile's daemon — and everything else stops as a CONSEQUENCE,
+because a schedule with no daemon under it may not try anything
+(`tests/test_panel_daemon_gate.py`). So the tab-level `panic`/`resume` pair below is no
+longer driven by the button; it is pinned here as the tab contract it still is, and the
+day something asks a tab to hold still again it will already be right.
+
 Three things are pinned here, and the second is the one with teeth:
 
   * the mark exists and carries a NUMBER — «остановлено» is ignorable, «остановлено 47
@@ -170,7 +177,13 @@ def test_both_front_ends_read_one_object_and_offer_the_same_press():
     assert "panicmod.set_handler(self._resume)" in shell, "the shell never says how"
     assert '"panic.resume"' in shell, "the window has no button"
     assert "_paint_panic" in shell, "the window never draws the mark"
-    assert "self._rt.panic.mark(" in shell, "«Стоп всё» never marks the profile"
+    # THE ACTS THEMSELVES MOVED (#1393). The press is two of them — close the client,
+    # stop the daemon — and both front-ends play the SAME two out of the runtime, so the
+    # shell asks for them rather than spelling them out (and marks the profile in there).
+    assert "panicmod.stop(self._rt)" in shell, "«Стоп всё» does not press the two acts"
+    assert "panicmod.resume(self._rt)" in shell, "the undo does not bring the daemon back"
+    panic_src = (ROOT / "panel" / "runtime" / "panic.py").read_text(encoding="utf-8")
+    assert "rt.panic.mark(" in panic_src, "the press never marks the profile"
 
     api = (ROOT / "panel" / "web" / "api.py").read_text(encoding="utf-8")
     assert "rt.panic.state(" in api, "the phone is not sent the mark"

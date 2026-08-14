@@ -641,26 +641,76 @@ class GameLink:
         self._log.say("daemon", "log.daemon.restarting")
         self.on_state("starting", None)
         with self._activity.step("activity.daemon.restart", port=self.port()):
-            # Asked BEFORE the shutdown: a daemon that has gone answers nothing, and
-            # this is the only place its own pid can still be had.
-            doomed = self.daemon_pid()
-            try:
-                self.client.shutdown()
-            except Exception as exc:                  # noqa: BLE001
-                self._log.say("daemon", "log.daemon.shutdown_failed", error=exc)
-            if not self._wait_free():
-                self._kill(doomed)
-                if not self._wait_free():
-                    self._log.say("daemon", "log.daemon.wont_die", port=self.port())
-                    self._note_warn("port %s is still held after a kill — not starting "
-                                    "a second daemon that cannot bind it", self.port())
-                    self.on_state("error", False)
-                    return False
-            # No token carried over: the daemon that granted it is gone, so the lease
-            # died with it. A fresh one starts unleased rather than waving a dead token
-            # about.
-            self.client = lua_client.DaemonClient(port=self.port(), token="")
+            if not self._shutdown():
+                return False
             return self._start()
+
+    def stop(self) -> bool:
+        """End this profile's daemon and LEAVE IT DOWN. Blocks; call off the Tk thread.
+
+        Half of «Стоп всё», which is two acts and only two: close the client, stop the
+        daemon (#1393). Everything else that used to be switched off by that press is
+        switched off by consequence — with no daemon there is nothing for a timer or a
+        trigger to run through, and `panel/runtime/gate.py` is what turns that fact into
+        «and so they do not try».
+
+        The same shutdown :meth:`restart` uses, without the start that follows it, so
+        there is exactly one description in this file of how a daemon is ended: politely
+        first, from outside if the port stays bound, and the PORT is the verdict either
+        way. ``False`` means the port is still held by something that would not die —
+        which is worth knowing, because a gate reading that port will go on saying the
+        daemon is alive.
+
+        The state is announced as `none` rather than `error` on success: a daemon that
+        was asked to go and went is not a fault, and the indicator saying «ошибка» over a
+        press somebody made deliberately is how a person learns to distrust the strip.
+        """
+        self._log.say("daemon", "log.daemon.stopping")
+        with self._activity.step("activity.daemon.stop", port=self.port()):
+            if not self._shutdown():
+                return False
+        self._log.say("daemon", "log.daemon.stopped")
+        self._note("stopped on port %s", self.port())
+        self.on_state("none", False)
+        return True
+
+    def _shutdown(self) -> bool:
+        """Get rid of the daemon on this port. ``False`` if the port is still held.
+
+        Shared by :meth:`restart` and :meth:`stop`, because «how a daemon is ended» is
+        one piece of knowledge and it was learned the hard way: the shutdown is asked for
+        politely (the daemon answers the op and exits), and THE ANSWER IS NOT THE ACT.
+        That is what turned a stale daemon into a permanent one on 2026-08-07: the daemon
+        replies `{"ok":true}` before it closes its evaluator, closing takes the run lock,
+        and the lock was held by a call wedged against a client that had gone — so it
+        acknowledged the shutdown and never exited. The port stayed bound, the wait below
+        expired in silence, and `ensure` read the corpse's socket as «already warm»
+        (#1286).
+
+        So the port is the verdict, never the reply: if it is still held, the process the
+        ping named is ended from outside, and only a port that has actually come free
+        counts as a daemon that is gone.
+        """
+        # Asked BEFORE the shutdown: a daemon that has gone answers nothing, and
+        # this is the only place its own pid can still be had.
+        doomed = self.daemon_pid()
+        try:
+            self.client.shutdown()
+        except Exception as exc:                  # noqa: BLE001
+            self._log.say("daemon", "log.daemon.shutdown_failed", error=exc)
+        if not self._wait_free():
+            self._kill(doomed)
+            if not self._wait_free():
+                self._log.say("daemon", "log.daemon.wont_die", port=self.port())
+                self._note_warn("port %s is still held after a kill — nothing else can "
+                                "bind it", self.port())
+                self.on_state("error", False)
+                return False
+        # No token carried over: the daemon that granted it is gone, so the lease
+        # died with it. A fresh one starts unleased rather than waving a dead token
+        # about.
+        self.client = lua_client.DaemonClient(port=self.port(), token="")
+        return True
 
     def _wait_free(self) -> bool:
         """Has the port come free? Waits up to FREE_TRIES × FREE_WAIT for it."""
