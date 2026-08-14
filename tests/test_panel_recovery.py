@@ -647,6 +647,7 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
     st = r.state(1000.0 + 60)
     assert set(st) == {"deaf_for", "strikes", "restarts", "kicks", "cooldown_left",
                        "held_by", "blame", "daemon_stale", "daemon_strikes",
+                       "daemon_down", "down_strikes",
                        "daemon_restarts", "daemon_cooldown_left", "fruitless",
                        "barren", "barren_of", "kick_hold_left", "kick_hold_of"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
@@ -741,16 +742,18 @@ def test_the_daemons_cure_is_the_daemons_own_restart():
 def test_every_act_that_means_a_restart_is_in_the_set():
     """A new `ACT_*` is a new press. A set is how a caller finds out about it.
 
-    There are two sets now — one cure per thing that can be broken (#1268) — and the
-    check is that every act belongs to EXACTLY one. An act in neither is announced and
-    never done, which is the 2026-08-06 bug; an act in both is a client and a daemon
-    restarted for one reading, which is the same carelessness pointing the other way.
+    There are three sets now — one act family per thing that can be done (#1268, #1410)
+    — and the check is that every act belongs to EXACTLY one. An act in none is
+    announced and never done, which is the 2026-08-06 bug; an act in two is a client and
+    a daemon touched for one reading, which is the same carelessness pointing the other
+    way.
     """
     acts = {name for name in vars(rec)
             if name == "ACT" or name.startswith("ACT_")}
     for name in sorted(acts):
         key = getattr(rec, name)
-        homes = [s for s in ("RESTARTS", "DAEMON_RESTARTS") if key in getattr(rec, s)]
+        homes = [s for s in ("RESTARTS", "DAEMON_RESTARTS", "DAEMON_STARTS")
+                 if key in getattr(rec, s)]
         assert len(homes) == 1, f"{name} is in {homes or 'no set'}, expected exactly one"
 
 
@@ -767,8 +770,14 @@ class _Press:
         #: Daemon restarts asked for — the second cure, which has no recipe and so
         #: cannot show up in `played` (#1268).
         self.daemons = 0
+        #: Daemon STARTS asked for — the third act family (#1410). Counted apart from
+        #: `daemons` on purpose: a daemon that is down is started, and a restart over an
+        #: empty port is the wrong act with the wrong sentence.
+        self.starts = 0
         self._watchdog = watchdog
         self._rt = self
+        #: «Стоп всё». A stopped profile's daemon is down BECAUSE it was stopped.
+        self.panic = _Panic()
 
     # -- the runtime half
     recovery = None                       # set per case, below
@@ -794,6 +803,10 @@ class _Press:
     def _restart_daemon(self):            # noqa: D102 — the OTHER cure
         self.daemons += 1
 
+    def _start_daemon(self) -> bool:      # noqa: D102 — the THIRD one (#1410)
+        self.starts += 1
+        return True
+
     @property
     def gate(self):                       # `self._rt.gate.alive()` inside `_act_on`
         return self
@@ -812,13 +825,20 @@ class _Press:
         raise AssertionError("replaced by the real Panel._act_on in _drive")
 
 
+class _Panic:
+    """`rt.panic`, reduced to the one thing `_recovery_check` asks it (#1393)."""
+
+    def __init__(self, stopped: bool = False) -> None:
+        self.stopped = stopped
+
+
 class _Found:
     def __init__(self, link, pid=4242):
         self.link, self.running, self.pid = link, True, pid
 
 
 def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
-           gate_open=True):
+           gate_open=True, warm=True, stopped=False):
     """Run the SHELL's own `_recovery_check` over a run of readings, unbound.
 
     The wiring is what is being pinned, not the decision — «`ACT_KICK` was announced and
@@ -829,12 +849,13 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
 
     app = _Press(watchdog=watchdog, gate_open=gate_open)
     app.recovery = rec.Recovery()
+    app.panic = _Panic(stopped)
     app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
     pm.game_link.idle_sec = lambda: idle   # nobody at the machine, deterministically
     try:
         for _ in range(rounds if rounds is not None else rec.STRIKES):
-            pm.Panel._recovery_check(app, _Found(link), kicked, stale)
+            pm.Panel._recovery_check(app, _Found(link), kicked, stale, warm)
     finally:
         pm.game_link.idle_sec = real_idle
     return app
@@ -964,6 +985,121 @@ def test_a_daemon_that_stays_stale_is_restarted_again_after_the_cooldown():
                 acts += 1
         now += rec.DAEMON_COOLDOWN_SEC + 1
     assert acts >= 5, f"a permanently stale daemon was restarted {acts}× in six rounds"
+
+
+# ---------------------------------------------------------------------------
+# #1410 — a daemon that is DOWN had nobody to put it back
+#
+# The branch above is about a daemon that ANSWERS for the wrong client. The other half —
+# nothing answers the port at all — was nobody's business in a running panel: `ensure()`
+# is called from the errand path and the gate holds every errand while the daemon is
+# down, so the cure sat behind the gate that was waiting for it. Live on 2026-08-15 that
+# left a daemon down for ten minutes over a client that was already playing, and only a
+# restart of the panel itself brought it back.
+# ---------------------------------------------------------------------------
+def test_one_dead_port_reading_is_not_a_reason():
+    """A daemon somebody is already starting is down for the seconds that takes."""
+    r = rec.Recovery()
+    assert r.note_daemon_down(True, 1000.0) is None
+    assert r.state(1000.0)["daemon_restarts"] == 0
+
+
+def test_a_run_of_them_starts_a_daemon_and_touches_nothing_else():
+    r = rec.Recovery()
+    said = [r.note_daemon_down(True, 1000.0 + i * 8) for i in range(rec.DOWN_STRIKES)]
+    key, _fmt = said[-1]
+    assert key == rec.ACT_DAEMON_DOWN
+    assert key in rec.DAEMON_STARTS, "the act nobody wired is the act nobody performs"
+    assert key not in rec.RESTARTS and key not in rec.DAEMON_RESTARTS, \
+        "a port nothing answers is started, never restarted — there is nothing to stop"
+
+
+def test_a_port_that_answers_says_nothing_and_clears_the_run():
+    r = rec.Recovery()
+    r.note_daemon_down(True, 1000.0)
+    assert r.note_daemon_down(False, 1008.0) is None
+    assert r.state(1008.0)["daemon_down"] == 0
+    assert r.state(1008.0)["blame"] == ""
+
+
+def test_a_second_start_waits_out_the_daemons_own_cooldown_and_says_so_once():
+    """One daemon, one clock: «it was touched two minutes ago» is one fact."""
+    r = rec.Recovery()
+    for i in range(rec.DOWN_STRIKES):
+        r.note_daemon_down(True, 1000.0 + i * 8)
+    said = [r.note_daemon_down(True, 1050.0 + i * 8) for i in range(rec.DOWN_STRIKES + 2)]
+    holds = [s for s in said if s and s[0] == rec.HOLD_DAEMON_DOWN]
+    assert len(holds) == 1, f"the wait must be said once, not per reading: {said}"
+    assert r.state(1050.0)["daemon_restarts"] == 1
+
+
+def test_a_daemon_that_will_not_start_is_tried_again_after_every_cooldown():
+    """The 2026-08-06 shape, in the newest branch: a cure tried once and then abandoned
+    is a profile that spends the night doing nothing while the panel thinks it acted."""
+    r = rec.Recovery()
+    now, acts = 1000.0, 0
+    for _ in range(6):
+        for i in range(rec.DOWN_STRIKES):
+            said = r.note_daemon_down(True, now + i * 8)
+            if said and said[0] == rec.ACT_DAEMON_DOWN:
+                acts += 1
+        now += rec.DAEMON_COOLDOWN_SEC + 1
+    assert acts >= 5, f"a port that stays dead was started {acts}× in six rounds"
+
+
+def test_the_dead_port_is_cured_while_the_client_plays_perfectly():
+    """THE LIVE SHAPE (#1410): the client back in the game at 00:22:16, the daemon down
+    for the next ten minutes, and nothing in the panel able to notice."""
+    app = _drive(ONLINE, kicked=False, warm=False, rounds=rec.DOWN_STRIKES)
+    assert app.starts == 1, f"the daemon was never started: {app.starts}"
+    assert app.daemons == 0, "a daemon that is not there cannot be restarted"
+    assert app.played == [], f"the client must not be touched: {app.played}"
+    assert rec.ACT_DAEMON_DOWN in app.said
+
+
+def test_the_cure_is_not_held_by_the_gate_that_is_waiting_for_it():
+    """THE CIRCLE ITSELF. The gate is shut BECAUSE this daemon is down, so a cure behind
+    it is a state nothing can leave — the same reason the stale cure is in front of it."""
+    app = _drive(ONLINE, kicked=False, warm=False, gate_open=False,
+                 rounds=rec.DOWN_STRIKES)
+    assert app.starts == 1, "the daemon was left to hold the gate that holds its cure"
+
+
+def test_the_switch_that_governs_the_game_does_not_govern_the_daemon():
+    """«Поднимать игру при падении» is about the GAME. The panel's own daemon comes up
+    at boot whatever that switch says, and with the port dead nothing in the profile
+    works at all — not a timer, not a trigger, and not the client's own relaunch."""
+    app = _drive(ONLINE, kicked=False, warm=False, watchdog=False,
+                 rounds=rec.DOWN_STRIKES)
+    assert app.starts == 1, "a stopped panel with the watchdog off can never recover"
+
+
+def test_nothing_starts_a_daemon_somebody_has_just_stopped():
+    """«Стоп всё» is two acts and one of them is stopping this daemon (#1393). A cure
+    that puts it back within a poll is the press undone, so the reading never even
+    becomes a run: `_recovery_check` feeds `down=False` while the profile is stopped."""
+    app = _drive(ONLINE, kicked=False, warm=False, stopped=True,
+                 rounds=rec.DOWN_STRIKES + 4)
+    assert (app.starts, app.said) == (0, []), (app.starts, app.said)
+
+
+def test_the_start_is_ensure_and_the_two_daemon_cures_are_distinct_presses():
+    """`ensure()`, never `restart()`: there is nothing to shut down, and «перезапускаю»
+    over an empty port sends the next reader looking for a process that never ran.
+
+    Pinned in the shell, because this is exactly the gap `ACT_KICK` fell through: the
+    decision was right and the wiring reached for one of the two.
+    """
+    body = _shell_method("_act_on")
+    assert "recovery.DAEMON_STARTS" in body, "the third act family is never wired"
+    assert "_start_daemon(" in body, body[-400:]
+    start = _shell_method("_start_daemon")
+    assert "_ensure_daemon" in start, start
+    assert "_game.restart" not in start, \
+        "a daemon that is down must be started, not restarted"
+    check = _shell_method("_recovery_check")
+    assert "note_daemon_down(" in check, "the reading never reaches the decision"
+    assert "panic.stopped" in check, "«Стоп всё» would be undone within a poll (#1393)"
 
 
 def _cures(r, rounds, t0=1000.0):

@@ -115,6 +115,34 @@ down. A hold only one of them respects is not a hold, so the deadline is a READI
 count of errands that tried to press and pressed nothing. It is the only thing in that
 morning's log that was ever true, and nothing was counting it.
 
+THE SEVENTH (#1410): **a daemon that is DOWN had nobody to put it back.**
+
+The branch above is about a daemon that ANSWERS while holding a client that has gone.
+The other half — nothing answers the port at all — was nobody's business in a running
+panel, and the reason is a circle: `GameLink.ensure()` is called from the errand path
+(`panel/runtime/schedule.py`, `daemon.py`), and the gate (#1393) holds every errand
+while the daemon is down. The one thing that would start it sits behind the gate that is
+waiting for it. `note_daemon` cannot help either — its fault is a daemon that is UP.
+
+Live on 2026-08-15 the client was relaunched at 00:21:42 and was back in the game by
+00:22:16; the daemon stayed down for the next ten minutes and only came back when the
+panel itself was restarted, and then in sixty seconds. The day before, the same hole was
+2 min 42 s. Nothing was broken in the meantime — the timers did not fire, the triggers
+did not poll, and the profile simply did not farm
+(`docs/research/game-launch-and-scene-control.md` §6.2).
+
+So :meth:`Recovery.note_daemon_down` is the third daemon reading, on its own run
+(:data:`DOWN_STRIKES`) and the same cooldown as the other one, and its act is a START
+rather than a restart — there is nothing there to shut down. It is deliberately NOT
+asked about the client: a daemon binds its port whether or not a game is running (it
+re-aims itself at one that appears), and «no client» is precisely the state where the
+gate has to be open so the watchdog can put the client back.
+
+WHAT MAY NOT START ONE is «Стоп всё»: stopping this profile's daemon is half of that
+press, and a cure that undoes it eight seconds later is the bug #1393 exists to stop.
+The caller feeds `down=False` while the profile is stopped — the same shape as the
+kick's wait, where the state that must not be acted on never reaches the run at all.
+
 WHAT IT DOES **NOT** DO. It does not pause the schedule, because the schedule already
 pauses itself: while the client is not running, `Schedule.gate` holds every errand and
 says `timers.log.skip_game`, and since #1259 it holds them PER ERRAND so the recovery
@@ -165,6 +193,14 @@ PLAYER_QUIET_SEC = 300.0
 #: replaced. The poll is eight seconds, so two is the shortest patience that survives
 #: that and nothing more.
 DAEMON_STRIKES = 2
+
+#: Consecutive readings of «nothing answers this profile's port» before a daemon is
+#: STARTED. Two, for the same reason as :data:`DAEMON_STRIKES` and one more of its own: a
+#: daemon somebody else is already bringing up — the boot's own `ensure`, the «⭮» button,
+#: «Включить обратно» — is down for the seconds that takes, and a start racing a start is
+#: a second process that cannot bind the port. Two readings is sixteen seconds of the
+#: status poll, which is longer than any of those needs to get the port bound.
+DOWN_STRIKES = 2
 
 #: Seconds between two restarts of the same daemon. Two minutes rather than the client's
 #: ten: a daemon comes back in under a second and takes nothing away from anybody, so the
@@ -248,7 +284,8 @@ class Recovery:
     """
 
     __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks",
-                 "_stale_run", "_daemon_last", "_daemon_restarts", "_daemon_held",
+                 "_stale_run", "_down_run",
+                 "_daemon_last", "_daemon_restarts", "_daemon_held",
                  "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said",
                  "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held",
                  "_kick_wait", "_kick_acted")
@@ -270,6 +307,10 @@ class Recovery:
         self._kicks = 0
         #: Consecutive readings of «the daemon names a client that is not running».
         self._stale_run = 0
+        #: Consecutive readings of «nothing answers this profile's port» (#1410). Its own
+        #: run, because it is the OTHER daemon fault and the two are never true at once:
+        #: a daemon cannot both answer for the wrong client and not answer at all.
+        self._down_run = 0
         #: When the daemon was last restarted, or 0.0 for never.
         self._daemon_last = 0.0
         #: How many daemon restarts this profile has had. Drawn beside the client's, so
@@ -372,6 +413,12 @@ class Recovery:
                 "blame": self._blame,
                 "daemon_stale": self._stale_run,
                 "daemon_strikes": DAEMON_STRIKES,
+                # …and the other daemon fault, which has to be its own number on both
+                # front-ends: «держит не тот клиент» and «не отвечает вовсе» are drawn
+                # off `blame == daemon` alike, and a strip that says the first while the
+                # second is true sends a person looking for a process that is not there.
+                "daemon_down": self._down_run,
+                "down_strikes": DOWN_STRIKES,
                 "daemon_restarts": self._daemon_restarts,
                 "daemon_cooldown_left": daemon_left,
                 # …and how long the account is being left to whoever took it. Drawn on
@@ -725,6 +772,62 @@ class Recovery:
         self._why = ""
         return (ACT_DAEMON, {})
 
+    def note_daemon_down(self, down: bool, now: float) -> "tuple | None":
+        """Feed one reading of «does anything answer this profile's port at all?» (#1410)
+
+        ``down`` is a FACT the caller established by probing the port, with one thing
+        already decided for it: a profile somebody has stopped with «Стоп всё» feeds
+        ``False``, because its daemon is down BECAUSE it was stopped, and putting it back
+        is undoing the press rather than curing a fault.
+
+        Returns `(locale_key, fmt)` or ``None``, exactly like :meth:`note_daemon`; the
+        caller STARTS a daemon when the key is in :data:`DAEMON_STARTS` — never restarts
+        one, because there is nothing there to shut down and the log would say so.
+
+        Deliberately blind to the client. A daemon binds its port whether or not a game
+        is running and re-aims itself at one that appears, and «no client» is exactly the
+        state where the port has to answer: with it dead the gate holds every errand, and
+        the watchdog's own relaunch is one of them.
+
+        On the SAME cooldown as the other daemon cure, and on purpose: there is one
+        daemon per profile, so «it was touched two minutes ago» is one fact about one
+        thing. A start that does not take — a Windows session nobody is logged into, an
+        interpreter that is not there — is therefore retried every
+        :data:`DAEMON_COOLDOWN_SEC` for as long as it keeps failing, with a line each
+        time. That is the same promise the client's cure makes, for the same reason: a
+        cure that is tried once and then abandoned is how a profile spends a night doing
+        nothing while the panel believes it has done its part.
+        """
+        if not down:
+            self._down_run = 0
+            self._daemon_held = False
+            if self._why.startswith("daemon"):
+                self._why = ""
+            if self._blame == "daemon" and not self._stale_run:
+                self._blame = ""
+            return None
+
+        self._down_run += 1
+        self._blame = "daemon"
+        if self._down_run < DOWN_STRIKES:
+            return None
+
+        since = now - self._daemon_last if self._daemon_last else None
+        if since is not None and since < DAEMON_COOLDOWN_SEC:
+            self._why = "daemon_cooldown"
+            if self._daemon_held:
+                return None
+            self._daemon_held = True
+            return (HOLD_DAEMON_DOWN,
+                    {"mins": int((DAEMON_COOLDOWN_SEC - since) // 60) + 1})
+
+        self._daemon_last = now
+        self._daemon_restarts += 1
+        self._down_run = 0
+        self._daemon_held = False
+        self._why = ""
+        return (ACT_DAEMON_DOWN, {})
+
 
 #: The panel says this and then plays `restart_game`.
 ACT = "log.game.deaf_restart"
@@ -754,6 +857,17 @@ ACT_DAEMON_STUCK = "log.game.daemon_after_restarts"
 #: …and the daemon's own «too soon», so its wait is never silent either.
 HOLD_DAEMON = "log.game.daemon_hold"
 
+#: NOTHING answers the port — the other daemon fault, and the one a running panel had no
+#: cure for at all (#1410). The act is a START: `ensure()`, not `restart()`, because there
+#: is no daemon there to be shut down and a «перезапускаю» over an empty port is a
+#: sentence that sends the next reader looking for a process that never existed.
+ACT_DAEMON_DOWN = "log.game.daemon_down"
+#: …and its own «too soon». Its own key rather than :data:`HOLD_DAEMON`, because the two
+#: waits are in front of different acts: one is a restart held, this one is a start held,
+#: and a person reading «недавно уже перезапускался» over a daemon that has not been
+#: running at all is being told something that did not happen.
+HOLD_DAEMON_DOWN = "log.game.daemon_down_hold"
+
 #: Errands keep succeeding at nothing. Says the count and NOTHING ELSE — see
 #: :meth:`Recovery.note_run` for why this one may not become an act.
 SAY_BARREN = "log.game.barren"
@@ -780,9 +894,17 @@ KICK_ACTS = frozenset({ACT_KICK})
 #: it, which is precisely the bug this file already carries a paragraph about.
 DAEMON_RESTARTS = frozenset({ACT_DAEMON, ACT_DAEMON_STUCK})
 
-#: …and the answers that are only ever SAID. A third set rather than «everything not in
-#: the other two», so that adding an act and forgetting to wire it fails loudly instead
+#: …and every answer that means «START a daemon now» — a third family, because it is a
+#: third ACT and not a third way of saying one of the two above. A daemon that is down is
+#: started (`GameLink.ensure`), never restarted: `restart` shuts one down first, and over
+#: an empty port that is a shutdown that fails, a line saying so, and a start that would
+#: have happened anyway. Its own set for the reason the other two have one — a caller
+#: asks which family a key is in, so a fourth act cannot end up announced and never done.
+DAEMON_STARTS = frozenset({ACT_DAEMON_DOWN})
+
+#: …and the answers that are only ever SAID. A set of its own rather than «everything not
+#: in the others», so that adding an act and forgetting to wire it fails loudly instead
 #: of quietly becoming a sentence — which is exactly how `ACT_KICK` spent a night being
-#: announced and never performed. A key in none of the three sets is a bug, and
+#: announced and never performed. A key in none of the four sets is a bug, and
 #: `tests/test_panel_recovery.py` says so.
 SAYINGS = frozenset({SAY_BARREN})

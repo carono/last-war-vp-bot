@@ -155,6 +155,15 @@ function paintState(state) {
   } else if (rec.held_by === 'daemon_cooldown') {
     recEl.textContent = T('web.ui.recovery.daemon_wait',
                           { mins: Math.ceil((rec.daemon_cooldown_left || 0) / 60) });
+  } else if (rec.daemon_down) {
+    /* NOTHING answers the port. The other daemon fault, and the one nobody in a running
+     * panel used to cure: `ensure()` sat behind the gate that was waiting for the very
+     * daemon it would have started, so a profile could stop farming for ten minutes with
+     * a client that was playing perfectly (#1410). Drawn before the stale line because
+     * both arrive as `blame === 'daemon'`. */
+    recEl.textContent = T('web.ui.recovery.daemon_down',
+                          { n: rec.daemon_down, of: rec.down_strikes || 0,
+                            done: rec.daemon_restarts || 0 });
   } else if (rec.blame === 'daemon') {
     /* WHICH thing is being restarted. A client restart and a daemon restart are both
      * «панель что-то перезапускает» from here, and they mean opposite things about

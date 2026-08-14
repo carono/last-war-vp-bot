@@ -483,7 +483,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_main_nb", "_main_controls", "_lazy_tabs", "_plugin_tabs",
         "_shown_tab",
         # the two strips
-        "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_recovery_var",
+        "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_daemon_busy",
+        "_recovery_var",
         "_panic_var", "_panic_lbl", "_resume_btn",
         "_daemon_var", "_daemon_lbl",
         # the account summary
@@ -1313,6 +1314,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # is not also announced every poll — the act and the sentence are separate.
         self._wd_held = ""
         self._status_busy = False     # one status reading in flight at a time
+        # …and ONE start or restart of this profile's daemon at a time (#1410). Three
+        # things reach for it — the «⭮» button, «Включить обратно» and the status poll's
+        # own cure for a port nothing answers — and a start racing a start is a second
+        # process that cannot bind the port, prints a line nobody reads and exits.
+        self._daemon_busy = threading.Lock()
         # How many consecutive polls have found the server connection gone, so only
         # the edges reach the log rather than every eight seconds of it
         # (see `_announce_link`).
@@ -3500,21 +3506,50 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """Make sure this profile's daemon is up (panel/runtime/daemon.py). Blocks."""
         return self._game.ensure()
 
-    def _restart_daemon(self) -> None:
-        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back.
+    def _daemon_act(self, act) -> bool:
+        """Run ONE start or restart of this profile's daemon, off the Tk thread.
 
-        The gate is told either way (#1393): whoever changes a daemon's existence says
-        so, or the schedule spends up to a status poll's period acting on the verdict it
-        was given before the change — which is how an errand comes to call `ensure()`
-        against a daemon somebody has just stopped on purpose.
+        Both cures come through here, and so does the gate's notification (#1393):
+        whoever changes a daemon's existence says so, or the schedule spends up to a
+        status poll's period acting on the verdict it was given before the change —
+        which is how an errand comes to call `ensure()` against a daemon somebody has
+        just stopped on purpose.
+
+        ONE AT A TIME (#1410). The «⭮» button, «Включить обратно» and the status poll's
+        own cure for a dead port all reach for the same port, and each of them blocks for
+        up to half a minute — so without this a poll firing mid-restart would Popen a
+        second daemon, which cannot bind, prints to a console nobody has and exits.
+        ``False`` means one was already in flight and this press did nothing.
         """
+        if not self._daemon_busy.acquire(blocking=False):
+            self._dbg.info("daemon act skipped: one is already in flight")
+            return False
+
         def work() -> None:
             try:
-                self._game.restart()
+                act()
             finally:
+                self._daemon_busy.release()
                 self._rt.gate.changed()
 
         threading.Thread(target=self._bound(work), daemon=True).start()
+        return True
+
+    def _restart_daemon(self) -> None:
+        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back."""
+        self._daemon_act(self._game.restart)
+
+    def _start_daemon(self) -> bool:
+        """Start a daemon that is DOWN — the cure a running panel did not have (#1410).
+
+        `ensure()`, never `restart()`: nothing answers the port, so there is nothing to
+        shut down, and `restart` would say «перезапускаю» over a process that has not
+        been running — a sentence that sends the next reader looking for it.
+
+        ``False`` when a start or restart is already in flight, so the caller can hold
+        its tongue instead of announcing one that is not happening.
+        """
+        return self._daemon_act(self._ensure_daemon)
 
     def _daemon_state(self, state: str, ok) -> None:
         """Paint the daemon indicator from the link, whichever thread reports it.
@@ -3633,7 +3668,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._dbg_status(ok, warm, found.link, stale),
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
-                self._recovery_check(found, kicked, stale),
+                self._recovery_check(found, kicked, stale, warm),
                 self._paint_panic(),
                 self._paint_gate(),
                 self._watchdog_check(ok)))
@@ -3701,7 +3736,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         return self._rt.game.health(found.pid) == runtime.daemon.DAEMON_STALE
 
     def _recovery_check(self, found, kicked: bool = False,
-                        stale: bool = False) -> None:
+                        stale: bool = False, warm: bool = True) -> None:
         """Restart a client the server has stopped hearing — the other half of a crash.
 
         The watchdog below notices the PROCESS going away. This notices the account
@@ -3732,6 +3767,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # had live, and the reason a decision hung off `link == lost` would never have
         # been asked at all (#1268).
         self._act_on(self._rt.recovery.note_daemon(stale, now))
+        # …AND THE OTHER DAEMON FAULT: nothing answers the port at all (#1410). Nobody in
+        # a running panel used to put THAT one back — `ensure()` is called from the errand
+        # path and the gate holds every errand while the daemon is down, so the cure sat
+        # behind the gate that was waiting for it. Live that left a daemon down for ten
+        # minutes after the client was already playing, and the profile farmed nothing
+        # until the panel itself was restarted.
+        #
+        # «Стоп всё» is answered HERE rather than in the decision: stopping this profile's
+        # daemon is half of that press, so while the profile is stopped the reading is
+        # simply not a fault and no run of them accumulates (#1393). The client is
+        # deliberately not asked about — see `Recovery.note_daemon_down`.
+        self._act_on(self._rt.recovery.note_daemon_down(
+            not warm and not self._rt.panic.stopped, now))
         # «Is somebody at the machine» — the gate that stops this closing a window
         # a person is playing in, which it did once (#1259).
         self._act_on(self._rt.recovery.note(found.link, now,
@@ -3756,6 +3804,21 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # who has to be told that their errands are pressing nothing, since nothing
             # is going to act on it for them.
             self._say("game", key, **fmt)
+            return
+        if key in runtime.recovery.DAEMON_STARTS:
+            # A DAEMON THAT IS DOWN, AND THE ONE CURE THAT IS NOT THE WATCHDOG'S (#1410).
+            # In front of the switch on purpose: `watchdog` is «поднимать ИГРУ при
+            # падении», the boot brings this profile's daemon up whatever it is set to,
+            # and with the port dead nothing in the profile works at all — no timer, no
+            # trigger, no reading on screen, and no relaunch of the client either, since
+            # the gate holds that too. Behind the gate is where it must NOT be: the gate
+            # is shut precisely because this daemon is down.
+            #
+            # Said only if a start was actually begun. One start at a time — the boot's
+            # own `ensure`, the «⭮» button and this share a lock — and a press that found
+            # one already in flight has nothing to announce.
+            if self._start_daemon():
+                self._say("game", key, **fmt)
             return
         if not self._opt_bool("watchdog"):
             return
@@ -3897,6 +3960,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
         elif why == "daemon_cooldown":
             text = self._t("status.recovery.daemon_wait",
                            mins=int(st.get("daemon_cooldown_left", 0) // 60) + 1)
+        elif st.get("daemon_down"):
+            # NOTHING ANSWERS THE PORT — the other daemon fault, and it must not be drawn
+            # as the first one (#1410). «Держит не тот клиент» and «не отвечает вовсе»
+            # both arrive as `blame == daemon`, and a strip saying the first over a
+            # process that is not there sends a person hunting for it.
+            text = self._t("status.recovery.daemon_down",
+                           n=st.get("daemon_down", 0),
+                           of=st.get("down_strikes", 0),
+                           done=st.get("daemon_restarts", 0))
         elif st.get("blame") == "daemon":
             # WHAT is being restarted, not just that something is. A person watching the
             # strip during the six pointless restarts had no way to learn that the panel

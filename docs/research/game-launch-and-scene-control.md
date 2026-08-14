@@ -200,13 +200,27 @@ can be asked anything» was:
 * 2026-08-15 00:21 — daemon still down **ten minutes** after the client came back, and
   it only returned when the panel itself was restarted.
 
-The second one is a hole of its own and is written up as a finding rather than fixed
-here: nothing in a running panel starts a daemon that is **down** (as opposed to stale).
-`GameLink.ensure()` is called from the errand path, and the daemon gate (#1393) stops
-errands while the daemon is down — so the thing that would start it is behind the gate
-that is waiting for it. The recovery's daemon branch only fires on a daemon that is UP
-and holding a dead client (`DAEMON_STRIKES`, `recovery.py::note_stale`), which this is
-not.
+The second one was a hole of its own: nothing in a running panel started a daemon that
+was **down** (as opposed to stale). `GameLink.ensure()` is called from the errand path,
+and the daemon gate (#1393) stops errands while the daemon is down — so the thing that
+would start it was behind the gate that was waiting for it. The recovery's daemon branch
+only fires on a daemon that is UP and holding a dead client (`DAEMON_STRIKES`,
+`recovery.py::note_daemon`), which this is not.
+
+**Closed in #1410.** `Recovery.note_daemon_down` is the third daemon reading — two
+consecutive polls of «nothing answers the port» (16 s), the same cooldown as the other
+daemon cure, and an act of its own family (`DAEMON_STARTS`) that the panel carries out
+with `ensure()` rather than `restart()`, since there is nothing there to shut down. It
+sits in front of the watchdog switch, which is about the GAME, and in front of the gate,
+which is shut precisely because this daemon is down. Two things it deliberately does not
+ask about:
+
+* **the client.** A daemon binds its port with no game running and re-aims itself at one
+  that appears, and «no client» is the state where the port MUST answer — the watchdog's
+  own relaunch of the client is an errand behind the same gate;
+* **anything but «Стоп всё»**, which is answered by the caller: a stopped profile's
+  daemon is down because it was stopped, so `panel/__main__.py::_recovery_check` feeds
+  `down=False` while `rt.panic.stopped` and no run of readings accumulates.
 
 ### 6.3 What that did to the launch
 
