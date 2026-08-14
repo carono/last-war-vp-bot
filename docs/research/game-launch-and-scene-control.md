@@ -222,6 +222,14 @@ ask about:
   daemon is down because it was stopped, so `panel/__main__.py::_recovery_check` feeds
   `down=False` while `rt.panic.stopped` and no run of readings accumulates.
 
+The first live run found the other half of it. A profile whose client lives in a Windows
+session nobody is logged into fails the start in a fraction of a second («nobody is
+logged on as …») and does it for ever, so the wait between two starts doubles while they
+keep failing — 2, 4, 8 … up to 30 minutes — and the first reading of a daemon that
+answers puts it back to two. The same run showed the hold being said every eight seconds:
+the «said once» flag was shared with the stale branch, which is fed on every poll and
+clears it whenever the daemon is not stale — and a daemon that is down is never stale.
+
 ### 6.3 What that did to the launch
 
 `launch_game` waited on `WAIT scene != unknown`, and the scene is a Lua read. So for the

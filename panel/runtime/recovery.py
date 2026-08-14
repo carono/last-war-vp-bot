@@ -202,6 +202,20 @@ DAEMON_STRIKES = 2
 #: status poll, which is longer than any of those needs to get the port bound.
 DOWN_STRIKES = 2
 
+#: How far the wait between two STARTS of a daemon may grow, in seconds. Half an hour.
+#:
+#: The first wait is :data:`DAEMON_COOLDOWN_SEC` and it doubles for as long as the starts
+#: do not take, because some of them never will: a profile whose client lives in a
+#: Windows session nobody is logged into answers «nobody is logged on as …» in a fraction
+#: of a second, for ever. Live on 2026-08-15 that was one act, two `[daemon]` lines and a
+#: hold, every two minutes, in a profile that could not have a daemon at all.
+#:
+#: A ceiling and not an abandonment: half an hour is still fifty attempts a day, and the
+#: first reading of a daemon that answers puts the wait back to the ordinary one — so the
+#: profile whose session comes back at lunchtime is farming again within the half hour,
+#: with the log of the morning it could not costing thirty lines instead of seven hundred.
+DOWN_WAIT_MAX_SEC = 1800.0
+
 #: Seconds between two restarts of the same daemon. Two minutes rather than the client's
 #: ten: a daemon comes back in under a second and takes nothing away from anybody, so the
 #: cost of trying again soon is a log line — where a client restart costs a login and,
@@ -284,7 +298,7 @@ class Recovery:
     """
 
     __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks",
-                 "_stale_run", "_down_run",
+                 "_stale_run", "_down_run", "_down_last", "_down_wait", "_down_held",
                  "_daemon_last", "_daemon_restarts", "_daemon_held",
                  "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said",
                  "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held",
@@ -311,6 +325,15 @@ class Recovery:
         #: run, because it is the OTHER daemon fault and the two are never true at once:
         #: a daemon cannot both answer for the wrong client and not answer at all.
         self._down_run = 0
+        #: When a daemon was last STARTED, and how long until another may be. Its own
+        #: clock and its own wait, because this wait GROWS while the starts do not take
+        #: — see :meth:`note_daemon_down`.
+        self._down_last = 0.0
+        self._down_wait = 0.0
+        #: Whether the current wait has already been said. Its own flag for the same
+        #: reason: `_daemon_held` is cleared by the stale branch on every poll, and a
+        #: down daemon is never stale, so sharing it said the line every eight seconds.
+        self._down_held = False
         #: When the daemon was last restarted, or 0.0 for never.
         self._daemon_last = 0.0
         #: How many daemon restarts this profile has had. Drawn beside the client's, so
@@ -399,6 +422,10 @@ class Recovery:
         daemon_left = 0
         if self._daemon_last:
             daemon_left = max(0, int(self._daemon_last + DAEMON_COOLDOWN_SEC - now))
+        # …and the start's own wait, which is a different clock and can be far longer
+        # (#1410). ONE number on the strip, because from outside there is one daemon and
+        # one «сколько ещё ждать» — the larger of the two is the honest answer.
+        daemon_left = max(daemon_left, int(self.down_wait_left(now)))
         return {"deaf_for": self._run, "strikes": STRIKES,
                 "restarts": self._restarts, "kicks": self._kicks,
                 "cooldown_left": left,
@@ -800,7 +827,10 @@ class Recovery:
         """
         if not down:
             self._down_run = 0
-            self._daemon_held = False
+            self._down_held = False
+            # …and the growth is spent: a port that answers is the only evidence there is
+            # that a start took, so the NEXT incident begins at the ordinary wait again.
+            self._down_wait = 0.0
             if self._why.startswith("daemon"):
                 self._why = ""
             if self._blame == "daemon" and not self._stale_run:
@@ -812,21 +842,44 @@ class Recovery:
         if self._down_run < DOWN_STRIKES:
             return None
 
-        since = now - self._daemon_last if self._daemon_last else None
-        if since is not None and since < DAEMON_COOLDOWN_SEC:
+        left = self.down_wait_left(now)
+        if left > 0:
+            # ITS OWN «said once», and that is not tidiness (#1410). `_daemon_held`
+            # belongs to the stale branch, which is fed on every poll too and clears the
+            # flag whenever the daemon is not stale — a daemon that is DOWN is never
+            # stale, so the two together said this line every eight seconds. Live for a
+            # minute and a half before it was noticed.
             self._why = "daemon_cooldown"
-            if self._daemon_held:
+            if self._down_held:
                 return None
-            self._daemon_held = True
-            return (HOLD_DAEMON_DOWN,
-                    {"mins": int((DAEMON_COOLDOWN_SEC - since) // 60) + 1})
+            self._down_held = True
+            return (HOLD_DAEMON_DOWN, {"mins": int(left // 60) + 1})
 
-        self._daemon_last = now
+        # THE PREVIOUS START DID NOT TAKE, and this is the only place that can tell:
+        # the daemon is down and one was already asked for. Some of them never will —
+        # a profile whose client lives in a Windows session nobody is logged into fails
+        # in a fraction of a second, every time, for ever — so the wait doubles rather
+        # than the panel repeating the same two minutes all night. It is still never
+        # abandoned: :data:`DOWN_WAIT_MAX_SEC` is the ceiling, and the first reading of a
+        # daemon that answers puts it back to the ordinary wait.
+        # A zero wait means the last start TOOK — or that there has not been one. Either
+        # way this is a fresh incident and gets the ordinary two minutes; anything else
+        # is the same incident going round again.
+        self._down_wait = (min(self._down_wait * 2, DOWN_WAIT_MAX_SEC)
+                           if self._down_wait else DAEMON_COOLDOWN_SEC)
+        self._down_last = now
         self._daemon_restarts += 1
         self._down_run = 0
-        self._daemon_held = False
+        self._down_held = False
         self._why = ""
         return (ACT_DAEMON_DOWN, {})
+
+    def down_wait_left(self, now: float) -> float:
+        """Seconds before another daemon may be STARTED — 0.0 when one may be now."""
+        if not self._down_last:
+            return 0.0
+        wait = self._down_wait or DAEMON_COOLDOWN_SEC
+        return max(0.0, self._down_last + wait - now)
 
 
 #: The panel says this and then plays `restart_game`.

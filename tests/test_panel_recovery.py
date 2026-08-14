@@ -1022,29 +1022,66 @@ def test_a_port_that_answers_says_nothing_and_clears_the_run():
     assert r.state(1008.0)["blame"] == ""
 
 
-def test_a_second_start_waits_out_the_daemons_own_cooldown_and_says_so_once():
-    """One daemon, one clock: «it was touched two minutes ago» is one fact."""
+def test_a_second_start_waits_and_says_so_once_however_many_polls_it_takes():
+    """SAID ONCE, and the flag has to be its own (#1410).
+
+    `_daemon_held` belongs to the stale branch, which is fed on every poll and clears it
+    whenever the daemon is not stale — and a daemon that is DOWN is never stale. Sharing
+    it put this line in the log every eight seconds, which is what the live panel did for
+    a minute and a half before anybody looked.
+    """
     r = rec.Recovery()
     for i in range(rec.DOWN_STRIKES):
         r.note_daemon_down(True, 1000.0 + i * 8)
-    said = [r.note_daemon_down(True, 1050.0 + i * 8) for i in range(rec.DOWN_STRIKES + 2)]
+    said = []
+    for i in range(8):                        # a minute of polls, inside one wait
+        r.note_daemon(False, 1050.0 + i * 8)  # …fed exactly as the shell feeds it
+        said.append(r.note_daemon_down(True, 1050.0 + i * 8))
     holds = [s for s in said if s and s[0] == rec.HOLD_DAEMON_DOWN]
     assert len(holds) == 1, f"the wait must be said once, not per reading: {said}"
     assert r.state(1050.0)["daemon_restarts"] == 1
 
 
-def test_a_daemon_that_will_not_start_is_tried_again_after_every_cooldown():
-    """The 2026-08-06 shape, in the newest branch: a cure tried once and then abandoned
-    is a profile that spends the night doing nothing while the panel thinks it acted."""
-    r = rec.Recovery()
-    now, acts = 1000.0, 0
-    for _ in range(6):
+def _down_acts(r, rounds, t0=1000.0):
+    """When each start was asked for, driving the clock by the wait it is owed."""
+    at, now = [], t0
+    for _ in range(rounds):
         for i in range(rec.DOWN_STRIKES):
             said = r.note_daemon_down(True, now + i * 8)
             if said and said[0] == rec.ACT_DAEMON_DOWN:
-                acts += 1
-        now += rec.DAEMON_COOLDOWN_SEC + 1
-    assert acts >= 5, f"a port that stays dead was started {acts}× in six rounds"
+                at.append(now + i * 8)
+        now += max(r.down_wait_left(now), 1.0) + 1
+    return at
+
+
+def test_a_daemon_that_will_not_start_is_tried_again_and_again_more_slowly():
+    """Never abandoned, never every two minutes for ever.
+
+    Live on 2026-08-15 one profile's client lives in a Windows session nobody is logged
+    into: every start fails in a fraction of a second with «nobody is logged on as …».
+    The cure must keep trying — the session may come back at lunchtime — while the log of
+    a morning it cannot costs tens of lines rather than hundreds.
+    """
+    r = rec.Recovery()
+    at = _down_acts(r, 8)
+    assert len(at) == 8, f"a port that stays dead was started {len(at)}× in eight rounds"
+    gaps = [round(b - a) for a, b in zip(at, at[1:])]
+    assert gaps == sorted(gaps), f"the wait must not shrink while nothing works: {gaps}"
+    assert gaps[0] >= rec.DAEMON_COOLDOWN_SEC, gaps
+    assert max(gaps) <= rec.DOWN_WAIT_MAX_SEC + 60, f"the wait ran away: {gaps}"
+
+
+def test_a_daemon_that_answers_forgets_the_grown_wait():
+    """A port that answers is the only evidence a start took — so the next incident
+    begins at the ordinary two minutes and not at half an hour."""
+    r = rec.Recovery()
+    at = _down_acts(r, 4)
+    assert r.note_daemon_down(False, at[-1] + 8) is None
+    assert r.down_wait_left(at[-1] + 8) <= rec.DAEMON_COOLDOWN_SEC, \
+        "the grown wait outlived the daemon coming back"
+    again = _down_acts(r, 3, t0=at[-1] + 16)
+    assert round(again[-1] - again[-2]) <= rec.DAEMON_COOLDOWN_SEC + 60, \
+        "the growth outlived the incident that earned it"
 
 
 def test_the_dead_port_is_cured_while_the_client_plays_perfectly():
