@@ -194,6 +194,12 @@ QUIT_TIMEOUT_SEC = 30.0
 #: recipe's own `WAIT scene == city` is what says the base is up. Generous because a
 #: cold start behind a launcher update is minutes.
 START_TIMEOUT_SEC = 300.0
+#: How long the socket verdict behind `client == ready` is reused before it is walked
+#: again (#1399). A `WAIT` polls three times a second and the walk is the machine's whole
+#: TCP table, so this is what keeps the CHEAP rung of the readiness ladder cheap. Two
+#: seconds is `game_link.MACHINE_TTL_SEC` — the same answer the panel's own status poll
+#: is content to be that far behind.
+LINK_READ_TTL = 2.0
 _READ_TEXT_RE = re.compile(
     rf"^READ_TEXT\s+\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)"
     rf"\s+INTO\s+profile\.({_IDENT})\s*$",
@@ -276,6 +282,13 @@ _SCREEN_CHECK_RE = re.compile(
 # `scene == city` / `scene == world` / `scene == unknown`. Preferred over `screen`.
 _SCENE_CHECK_RE = re.compile(
     r"^scene\s*(==|!=)\s*(city|world|unknown)\s*$", re.IGNORECASE,
+)
+# "Is the client up and in play?" — the readiness sign a LAUNCH waits on, and the one
+# reading in the DSL that survives the Lua VM being unreachable. See
+# Interpreter._client_ready() for the ladder and why a launch may not stand on `scene`
+# alone (#1399).
+_CLIENT_CHECK_RE = re.compile(
+    r"^client\s*(==|!=)\s*(ready)\s*$", re.IGNORECASE,
 )
 _FIND_COND_RE = re.compile(
     rf"^FIND\s+({_IDENT}\.png)\s*$", re.IGNORECASE,
@@ -978,6 +991,12 @@ class Interpreter:
     def __init__(self, ctx: Context) -> None:
         self.ctx = ctx
         self._depth = 0
+        #: Why the last `client == ready` reading said what it said, in words. A wait
+        #: that runs out puts it in the failure, so «it did not come up» is never the
+        #: whole of what the log gets to say (#1399).
+        self._ready_why: "str | None" = None
+        #: `(good until, state)` — the socket verdict, throttled (:meth:`_client_link`).
+        self._link_read: "tuple[float, str] | None" = None
 
     def _log(self, msg: str) -> None:
         self.ctx.on_event("  " * self._depth + msg)
@@ -1206,6 +1225,11 @@ class Interpreter:
             wanted = m.group(2).lower()
             current = self._current_scene()
             return (current == wanted) if op == "==" else (current != wanted)
+
+        m = _CLIENT_CHECK_RE.match(cond)
+        if m:
+            ready = self._client_ready()
+            return ready if m.group(1) == "==" else not ready
 
         m = _SCREEN_CHECK_RE.match(cond)
         if m:
@@ -2071,6 +2095,23 @@ class Interpreter:
         the freshly-launched process) also reads 'unknown', so the caller just keeps
         polling; the daemon auto-rebuilds its LuaEval on a stale handle, so this recovers
         by itself across a restart. No screenshots, no SIFT.
+
+        THE TWO KINDS OF 'unknown' ARE FOLDED TOGETHER HERE ON PURPOSE — «the client is
+        loading» and «nobody could be asked» read the same, which is what every `scene`
+        condition wants. What must NOT fold them is a launch: see :meth:`_scene_reading`.
+        """
+        return self._scene_reading() or "unknown"
+
+    def _scene_reading(self) -> "str | None":
+        """The scene, or ``None`` when the VM could not be asked at all (#1399).
+
+        The same round trip :meth:`_current_scene` makes, with the one distinction that
+        method deliberately throws away: `'unknown'` is the CLIENT saying it is in no
+        scene yet, and `None` is nobody having answered — no daemon, no client, a read
+        that raised. A launch has to tell those apart, because «could not ask» is
+        precisely the state a freshly relaunched client is in while its daemon is being
+        rebuilt, and treating it as «not ready» is what made `launch_game` sit out its
+        whole 180 s cap over a client that had been playable for two minutes.
         """
         expr = (
             "(function() "
@@ -2083,9 +2124,114 @@ class Interpreter:
         )
         try:
             val = self._eval_lua_value(expr)
-        except Exception:  # noqa: BLE001 — any VM hiccup is just "unknown, poll again"
-            return "unknown"
+        except Exception:  # noqa: BLE001 — any VM hiccup is just "could not ask"
+            return None
+        if val is None:
+            return None
         return val if val in ("city", "world") else "unknown"
+
+    def _vm_reachable(self) -> bool:
+        """Is there a WARM Lua daemon to ask, right now?
+
+        The same rule :meth:`_session_confirmed` and :meth:`_kicked` already keep, and
+        for a sharper reason here: with no daemon `_evaluator()` builds a LOCAL
+        `LuaEval`, which is an il2cpp enumeration through a thread hijack — seconds of
+        work, against a client that is still booting, repeated on every poll of a wait
+        that may run for three minutes. A readiness poll may not be the most expensive
+        thing on the machine, so when the port does not answer this says so and the
+        ladder falls back to a reading that costs a socket table.
+
+        An evaluator already built and cached on the context counts: the run has one, so
+        asking is free whatever the port says.
+        """
+        if self.ctx.evaluator is not None:
+            return True
+        try:
+            self._tools_lib_on_path()
+            import lua_client
+
+            port = self.ctx.game_port
+            port = int(port) if port is not None else lua_client.PORT
+            return bool(lua_client.is_running(port=port, timeout=0.3))
+        except Exception:                    # noqa: BLE001 — cannot even ask the port
+            return False
+
+    def _client_link(self) -> str:
+        """This profile's client as the OPERATING SYSTEM sees it: online/lost/unknown/offline.
+
+        `tools/lib/game_link.py`, the same reading the panel's status line prints and the
+        run gate (:meth:`_link_lost`) judges by — not a second opinion invented for the
+        launch. It needs no Lua, no daemon and no screenshot, which is the whole reason
+        the ladder can lean on it while the VM is being rebuilt.
+
+        Held for :data:`LINK_READ_TTL` between walks. `sockets_of` is an uncached walk of
+        the machine's whole TCP table, and a `WAIT` polls three times a second: without
+        this the cheap rung of the ladder would be the expensive thing on the box.
+        """
+        now = time.monotonic()
+        if self._link_read is not None and now < self._link_read[0]:
+            return self._link_read[1]
+        state = self._read_client_link()
+        self._link_read = (now + LINK_READ_TTL, state)
+        return state
+
+    def _read_client_link(self) -> str:
+        """:meth:`_client_link` without the throttle — one walk of the socket table."""
+        try:
+            self._tools_lib_on_path()
+            import game_client
+            import game_link
+
+            pid = game_client.target_pid(port=self._game_port(),
+                                         user=(self.ctx.game_user or "").strip() or None,
+                                         log=lambda _msg: None)
+            return game_link.state_of([pid] if pid else [])
+        except Exception:                    # noqa: BLE001 — cannot tell is not a verdict
+            return "unknown"
+
+    def _client_ready(self) -> bool:
+        """«The client is up and a person could play» — the LAUNCH sign, as a ladder (#1399).
+
+        THE BUG THIS EXISTS FOR. `launch_game` waited on `scene != unknown`, and the
+        scene can only be read through the Lua VM — which, after a relaunch, is the one
+        thing on the machine that is down: the daemon is pinned to the process that just
+        died and the panel is rebuilding it. Live on 2026-08-14 the client's process was
+        back 8 s after `START_GAME` and its conversation with the game server 32 s after
+        it, while the daemon stayed down until 170 s — so the wait sat out its whole
+        180 s cap and reported a FAILED launch, twelve times in one evening, over a
+        client that the very next scenario read as `scene == city`.
+
+        So the sign is a ladder, strongest first, and every rung is a reading the
+        repository already had:
+
+        1. **The scene**, when there is a warm daemon to ask (:meth:`_vm_reachable`).
+           A named scene is the whole answer — the client is interactive. A client that
+           answers `'unknown'` is loading, and THAT is a real «not yet»: it is the game
+           itself saying so, so the ladder stops here rather than falling through to a
+           weaker rung that would overrule it.
+        2. **The socket**, when nobody could be asked at all. `game_link` ONLINE means
+           the client holds an established conversation with the game server — it got
+           through the launcher, the update check and the login. It is a weaker sign
+           than a scene (docs/research/server-link-status.md: «на связи» arrives before
+           «готов играть»), which is exactly why it is only ever consulted when the
+           stronger one is unavailable, and why the errand gate goes on making every
+           scenario prove the session for itself.
+
+        Nothing here starts a daemon, a client or a scenario: it is a reading, and the
+        daemon gate (#1393) stays the only thing that decides whether anything may run.
+        """
+        scene = self._scene_reading() if self._vm_reachable() else None
+        if scene is not None:
+            self._ready_why = ("the game says it is in no scene yet (still loading)"
+                               if scene == "unknown" else f"scene {scene}")
+            return scene != "unknown"
+        link = self._client_link()
+        self._ready_why = {
+            "online": "no daemon to ask, but the client's link to the game server is up",
+            "lost": "no daemon to ask, and the client's sockets say the server hung up",
+            "offline": "no daemon to ask, and no client process is running",
+        }.get(link, "no daemon to ask, and the client's sockets make no verdict yet")
+        return link == "online"
 
     def _do_lua(self, stmt: LuaStmt) -> None:
         """Run one raw Lua chunk in the game VM, verbatim.
@@ -2440,16 +2586,31 @@ class Interpreter:
             self._nap(seconds)               # …and stoppable while it waits (see _nap)
             return
 
-        # Otherwise, poll the condition until True or timeout.
-        deadline = time.monotonic() + stmt.timeout
+        # Otherwise, poll the condition until True or timeout. THE TIMEOUT IS A CAP AND
+        # NOT A DURATION: the loop leaves the moment the sign is there, and `WITHIN` only
+        # decides how long a sign that never arrives is waited for.
+        started = time.monotonic()
+        deadline = started + stmt.timeout
+        self._ready_why = None
+        said: "str | None" = None
         while time.monotonic() < deadline:
             self._check_cancel()
             if self.eval_condition(stmt.condition, stmt.line_no):
-                self._log(f"WAIT {stmt.condition} -> matched")
+                self._log(f"WAIT {stmt.condition} -> matched after "
+                          f"{time.monotonic() - started:.1f}s"
+                          + (f" ({self._ready_why})" if self._ready_why else ""))
                 return
+            # The steps of a long wait, as they happen — a launch that takes two minutes
+            # should say WHERE those two minutes went, not just that they passed. Only
+            # when the reading itself changes, so a three-minute wait writes four lines.
+            if self._ready_why and self._ready_why != said:
+                said = self._ready_why
+                self._log(f"WAIT {stmt.condition} — {said} "
+                          f"({time.monotonic() - started:.1f}s)")
             time.sleep(0.3)
         raise ScriptRuntimeError(
             f"line {stmt.line_no}: WAIT {stmt.condition} timed out after {stmt.timeout:.1f}s"
+            + (f" — {self._ready_why}" if self._ready_why else "")
         )
 
 

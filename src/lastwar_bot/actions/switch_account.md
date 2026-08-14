@@ -79,8 +79,15 @@ WHILE playing != {server} LIMIT 40
 IF playing != {server}
     FAIL "the client did not come back on server {server} — it may still be reconnecting"
 
-# The player record is restored a few seconds before the base finishes drawing, so
-# "done" waits for the base too — otherwise whatever runs next arrives mid-load.
-WAIT scene == city WITHIN 180s
+# The player record is restored a few seconds before the scene finishes drawing, so
+# "done" waits for that too — otherwise whatever runs next arrives mid-load.
+#
+# A SCENE, not the base (#1399, the lesson of #1281 applied here). The switch reconnects
+# on the other character's LAST scene, and a character left standing on the world map
+# never reaches `city` — so this waited out its whole 180 s and failed a switch that had
+# worked. `scene != unknown` is «the client is drawing something a person could play»,
+# which is all this line was ever for. The daemon lives through the relog (same process),
+# so the scene is readable throughout and there is nothing weaker to fall back to.
+WAIT scene != unknown WITHIN 180s
 
 LOG "now playing the character on server {server}"

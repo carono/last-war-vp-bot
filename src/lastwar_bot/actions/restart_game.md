@@ -47,7 +47,12 @@ ATTACH_GAME WITHIN 120s
 # session that came back on the world map is a session that came back (#1281). Asking
 # for the city here failed a restart that had worked, purely because of where the
 # player happened to be standing.
-IF scene == unknown
+#
+# And it asks `client`, not `scene`, for the reason launch_game gives at length (#1399):
+# a daemon that has not finished coming back cannot be asked about the scene at all, and
+# «nobody could ask» is not «nothing is in play». Where there IS a daemon — which, after
+# the ATTACH_GAME above, is the ordinary case — this is the scene reading it always was.
+IF client != ready
     FAIL "the client is up and the game link answers, but nothing is in play"
 
 LOG "Client restarted — the session is back in play."

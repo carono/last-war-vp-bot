@@ -332,7 +332,7 @@ Two routes, picked by whether a session is named:
 
 - **no session — this desktop.** Exactly what `LAUNCH` does: spawn the
   launcher as a detached child, return at once. Nothing is waited for;
-  the readiness test is the `WAIT scene == city` that follows.
+  the readiness test is the `WAIT client == ready` that follows.
 - **a session — that session,** through `tools/session_launch.py`, which
   starts the launcher under the token that is *already* that session's
   interactive logon. That is the only arrangement the game's anti-cheat
@@ -394,7 +394,7 @@ launch goes into it unchanged.
 
 ```
 START_GAME
-WAIT scene == city WITHIN 300s
+WAIT client == ready WITHIN 180s
 ```
 
 That is `actions/launch_game.md`, which the panel's «Запустить игру»
@@ -810,6 +810,29 @@ Allowed in `IF` and `WAIT`:
   WAIT scene == city WITHIN 300s
   IF scene == world
       LOG "on the map"
+  ```
+- `client == ready` / `client != ready` — **is the client up and could a person play
+  right now.** The readiness sign a *launch* waits on, and the only one in the DSL that
+  survives the Lua VM being unreachable. A ladder, strongest rung first:
+  1. **the scene**, when there is a warm daemon to ask. A named scene is the answer; a
+     client that answers `unknown` is the game itself saying «still loading», and the
+     ladder stops there rather than letting a weaker rung overrule it;
+  2. **the client's link to the game server** (`tools/lib/game_link.py`, the reading the
+     panel's status line prints), when nobody could be asked at all.
+
+  Why the second rung exists: after a relaunch the daemon is the one thing on the machine
+  that is down — it was pinned to the process that just died. Live on 2026-08-14 the
+  client's process was back 8 s after `START_GAME` and its link to the server 32 s after
+  it, while the daemon stayed down for 170 s, so a wait on `scene` alone sat out its whole
+  cap and reported a failed launch over a playable client (#1399).
+
+  It never builds a local `LuaEval` to answer (that is an il2cpp attach, seconds per poll
+  against a booting client), it starts nothing, and the socket walk behind rung 2 is held
+  for `LINK_READ_TTL`. A `WAIT` on it logs each rung as it lands and, if the cap runs out,
+  says which one it was stuck on.
+  ```
+  START_GAME
+  WAIT client == ready WITHIN 180s
   ```
 - `screen == base` / `screen != base` — **legacy SIFT vision** (screenshots the
   window and feature-matches templates). Needs `cv2` + the game window; only the

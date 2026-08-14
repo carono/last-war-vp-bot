@@ -1172,8 +1172,12 @@ def test_restart_recipe_closes_relaunches_and_re_attaches():
     #
     # IN PLAY, NOT AT THE BASE. Asking for the city here failed restarts that had
     # worked, purely because of where the player was standing when it happened (#1281).
+    #
+    # …and it asks `client`, not `scene` (#1399): a daemon that has not finished coming
+    # back cannot be asked about the scene at all, and «nobody could ask» is not
+    # «nothing is in play». See tests/test_launch_readiness.py for the ladder itself.
     guard = se.parse_text(body)[4]
-    assert guard.condition == "scene == unknown", guard.condition
+    assert guard.condition == "client != ready", guard.condition
     assert type(guard.then_block[0]).__name__ == "FailStmt", guard.then_block
 
 
@@ -1271,8 +1275,13 @@ def test_launch_recipe_starts_the_game_where_the_profile_lives():
     # world map answers 'world' for ever, so waiting for the city sat out the whole
     # timeout after a launch that had already succeeded — holding the panel's
     # single-file queue, and closing the client again on the errand's next turn.
+    #
+    # …AND IT MAY NOT STAND ON THE SCENE ALONE (#1399). The scene is readable only
+    # through the Lua daemon, which is precisely what a relaunch takes down — so the same
+    # whole-cap failure came back, this time over a client that was up in 32 s. The
+    # ladder behind `client == ready` is pinned in tests/test_launch_readiness.py.
     wait = se.parse_text(body)[1]
-    assert wait.condition == "scene != unknown", wait.condition
+    assert wait.condition == "client == ready", wait.condition
     assert wait.timeout <= 180.0, ("the wait is also a CAP on how long the queue can be "
                                    "held: %r" % wait.timeout)
 

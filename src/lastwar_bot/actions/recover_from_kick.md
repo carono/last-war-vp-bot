@@ -13,12 +13,19 @@
 # what dismisses the modal. This is the headless replacement for the pixel-based
 # actions/dev/watchdog.md, which only closed the game and halted the bot.
 #
-# The path uses %LOCALAPPDATA% so it resolves under any Windows user; edit the
-# LAUNCH line if the launcher lives elsewhere. Readiness is checked by STATE, not
-# pixels: `scene == city` asks the game's own Lua VM whether the base is up. Cold
-# relaunches normally finish in 1-2 minutes; WITHIN 300s leaves a safety margin.
+# WHICH launcher, and what "ready" means, are NOT spelled out here any more (#1399).
+# They were, and both were wrong in the same way. The path was a literal — right on the
+# machine it was written on, and a folder that cannot exist for a profile whose client
+# lives in another Windows session. Readiness was `scene == city`, which fails a recovery
+# that landed on the world map (#1281) and, worse, cannot be read at all while the Lua
+# daemon is being rebuilt around the new process — so a recovery that had WORKED sat out
+# its whole 300 s and reported failure.
+#
+# One source of truth for «start the client and wait until it is up»: launch_game. It
+# starts the client where THIS profile's client lives, and its `client == ready` ladder
+# asks the game's own scene when there is a daemon to ask and the client's link to the
+# game server when there is not.
 
 LOG "Session kicked (logged in on another device) — relaunching the client."
-LAUNCH "%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
-WAIT scene == city WITHIN 300s
-LOG "Recovered: back at the home base."
+CALL launch_game
+LOG "Recovered: the client is back in play."
