@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 
 #: How often the shared pump looks for work handed over from a worker thread. Small
 #: enough that a repaint is not visibly late, large enough that an idle window with four
@@ -196,7 +197,13 @@ class Ticker:
 
     def __init__(self, widget) -> None:
         self._w = widget
+        #: ``name -> job id``. What Tk needs to cancel a chain, and nothing else.
         self._loops: dict = {}
+        #: ``name -> (delay_ms, armed_at)`` beside it, for the busy debugger: a chain
+        #: that is armed says nothing about WHEN it fires, and «какой следующий срок» is
+        #: half of what a timer view is for (#1392). Kept apart from `_loops` so the
+        #: cancel path stays exactly what it was.
+        self._armed_at: dict = {}
         # The window's shared pump, armed here because a runtime is always built on the
         # Tk thread — so the drain is running before the first worker has anything to
         # hand over, and no worker is ever the one to arm it.
@@ -209,14 +216,17 @@ class Ticker:
         self.disarm(name)
         try:
             self._loops[name] = self._w.after(int(delay_ms), func)
+            self._armed_at[name] = (int(delay_ms), time.monotonic())
         except (tk.TclError, RuntimeError, AttributeError):   # the window is going away
             self._loops.pop(name, None)
+            self._armed_at.pop(name, None)
 
     def disarm(self, name: str) -> None:
         """Cancel the pending callback under ``name``, if there is one."""
         import tkinter as tk
 
         job = self._loops.pop(name, None)
+        self._armed_at.pop(name, None)
         if job is None:
             return
         try:
@@ -231,6 +241,25 @@ class Ticker:
     def armed(self) -> int:
         """How many chains are pending (what the health snapshot watches)."""
         return len(self._loops)
+
+    def pending(self) -> list:
+        """Every armed chain: ``{name, delay_ms, secs, due_in}``, soonest first.
+
+        `secs` is how long it has been armed and `due_in` how long until it fires — a
+        NEGATIVE `due_in` is the interesting one: the chain's moment has passed and the
+        event loop has not got to it, which is what a Tk-thread jam looks like from the
+        outside (#1392). Plain arithmetic over a dict, so the debugger's refresh costs
+        nothing worth measuring.
+        """
+        now = time.monotonic()
+        rows = []
+        for name in list(self._loops):
+            delay_ms, at = self._armed_at.get(name, (0, now))
+            waited = max(0.0, now - at)
+            rows.append({"name": name, "delay_ms": int(delay_ms), "secs": waited,
+                         "due_in": delay_ms / 1000.0 - waited})
+        rows.sort(key=lambda row: row["due_in"])
+        return rows
 
     # -- getting onto the Tk thread -----------------------------------------
     def post(self, func) -> None:

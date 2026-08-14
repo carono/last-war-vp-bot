@@ -1182,7 +1182,7 @@ class TimerScheduler:
     def __init__(self, *, store: LastRunStore, catalogue, config, runner, log,
                  gate=None, tick: float = TICK_SEC,
                  busy_retry: float = BUSY_RETRY_SEC, debug=None,
-                 translate=None, day=None) -> None:
+                 translate=None, day=None, label: str = "") -> None:
         # `debug` is the OWNING RUNTIME's technical logger (`rt.dbg("timers")`), so two
         # open profiles keep two debug.logs (#1206). The module-level one is the
         # fallback for a scheduler built without a runtime, which is what the tests do.
@@ -1201,6 +1201,12 @@ class TimerScheduler:
         # for a scheduler built without a runtime. A period of whole days is anchored to
         # it instead of being counted off the last run — see :func:`next_after`.
         self._day = day
+        # WHOSE scheduler this is, written into the names of the threads it starts
+        # (#1392). One window holds four profiles and four schedulers, and a thread list
+        # in which all four are called `panel-timers` cannot say which account's errand
+        # is the one that has been running for six minutes. Empty for a scheduler built
+        # without a runtime — a test — which keeps the plain name it always had.
+        self._label = str(label or "")
         self._gate = gate
         self._tick = tick
         self._busy_retry = busy_retry
@@ -1213,6 +1219,11 @@ class TimerScheduler:
         # row for no reason.
         self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
         self._queued: set[str] = set()
+        # WHEN each of those names was lined up, on the monotonic clock. A queue that
+        # says only WHAT is waiting cannot say what a jam is: three errands behind one
+        # slow run and three errands that arrived this second look identical (#1392).
+        # Filled wherever a name enters `_queued`, emptied wherever it leaves.
+        self._queued_at: dict[str, float] = {}
         # Errands NOT in the catalogue that were handed to the queue directly —
         # a trigger's scenario (panel/triggers.py). They share the one worker and the
         # dedup set, but the worker cannot look them up in `catalogue()`, so it keeps
@@ -1226,6 +1237,8 @@ class TimerScheduler:
         # running (a claim covers both), and `cancel` has to: one is cancellable and
         # the other is not.
         self._running: str | None = None
+        #: …and since when, so «идёт» can say for how long (:meth:`queue_state`).
+        self._running_since = 0.0
         # …and the errands marked «сразу», which do NOT run on the worker and so cannot
         # be that one name (#1288). A set, because several of them may be in flight at
         # once — each on its own thread, each taking its turn on the client through the
@@ -1261,8 +1274,8 @@ class TimerScheduler:
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True,
-                                        name="panel-timers")
+        name = "panel-timers" + (f":{self._label}" if self._label else "")
+        self._thread = threading.Thread(target=self._loop, daemon=True, name=name)
         self._thread.start()
         self._dbg.info("scheduler started")
 
@@ -1319,6 +1332,7 @@ class TimerScheduler:
             self._adhoc[errand.name] = errand
             if not express:
                 self._queued.add(errand.name)
+                self._queued_at[errand.name] = time.monotonic()
         if express:
             # Outside the lock: `_express` takes it to claim the name for itself, and
             # re-checks there, so the gap above cannot let two runs through.
@@ -1383,6 +1397,7 @@ class TimerScheduler:
                     self._refire.add(name)
                 return False
             self._queued.add(name)
+            self._queued_at[name] = time.monotonic()
             self._express_running.add(name)
 
         def work() -> None:
@@ -1406,7 +1421,8 @@ class TimerScheduler:
                 else:
                     self._release(name)
 
-        self._spawn(work, f"panel-timer-{name}")
+        self._spawn(work, f"panel-timer:{self._label}:{name}" if self._label
+                    else f"panel-timer-{name}")
         return True
 
     @staticmethod
@@ -1420,6 +1436,7 @@ class TimerScheduler:
             if name in self._queued:
                 return False
             self._queued.add(name)
+            self._queued_at[name] = time.monotonic()
         self._queue.put((name, scheduled, by))
         return True
 
@@ -1442,6 +1459,7 @@ class TimerScheduler:
             self._refire.discard(name)
             if not refire:
                 self._queued.discard(name)
+                self._queued_at.pop(name, None)
                 self._adhoc.pop(name, None)   # a submitted trigger errand is done with
                 # The cancel mark goes with the claim. A cancel that arrived while the
                 # errand was already running is refused (see `cancel`), but a mark left
@@ -1457,6 +1475,7 @@ class TimerScheduler:
         if self._is_immediate(name):
             with self._queue_lock:
                 self._queued.discard(name)     # `_express` claims the name itself
+                self._queued_at.pop(name, None)
             if not self._express(name, False, refire=True, by=BY_TRIGGER):
                 with self._queue_lock:
                     self._adhoc.pop(name, None)
@@ -1467,6 +1486,44 @@ class TimerScheduler:
         """Names currently queued or being run — for tests and the row painter."""
         with self._queue_lock:
             return set(self._queued)
+
+    def queue_state(self) -> dict:
+        """The queue as data: what runs, what waits, how long, and what is held (#1392).
+
+        The one reading a jam is diagnosed from. `running` is the errand on the single
+        worker and `express` the ones that skipped the queue and are taking their turn on
+        the CLIENT instead; `waiting` is everything else lined up, longest wait first —
+        which is the order they came, so «кто за кем» is the list. `held` names the
+        errands parked because the panel was busy and `hold_secs` how much of that hold
+        is left.
+
+        One pass under the queue's own lock and no I/O: this is read by a debugger that
+        refreshes once a second and must never be the reason the queue is slow.
+        """
+        now = time.monotonic()
+        with self._queue_lock:
+            running, since = self._running, self._running_since
+            express = sorted(self._express_running)
+            waiting = [(name, self._queued_at.get(name, now))
+                       for name in self._queued
+                       if name != running and name not in self._express_running]
+            held = sorted(self._busy_held)
+            refire = sorted(self._refire)
+            cancelled = sorted(self._cancelled)
+        waiting = [{"name": name, "secs": max(0.0, now - at)}
+                   for name, at in waiting]
+        waiting.sort(key=lambda row: row["secs"], reverse=True)
+        return {
+            "running": running or "",
+            "running_secs": max(0.0, now - since) if running else 0.0,
+            "express": express,
+            "waiting": waiting,
+            "held": held,
+            "hold_secs": max(0.0, self._hold_until - time.time()),
+            "refire": refire,
+            "cancelled": cancelled,
+            "alive": self.running,
+        }
 
     def cancel(self, name: str) -> bool:
         """Take a WAITING errand back off the queue. ``False`` if there is none.
@@ -1596,6 +1653,7 @@ class TimerScheduler:
         # two would see neither a running errand nor a free queue and be dropped.
         with self._queue_lock:
             self._running = name
+            self._running_since = time.monotonic()
         try:
             ok, busy = self.run_one(timer, scheduled=scheduled, by=by)
         finally:

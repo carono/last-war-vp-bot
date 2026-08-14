@@ -37,12 +37,19 @@ separates those. This is one process, several profiles.
 from __future__ import annotations
 
 import threading
+import time
 
-#: ``key -> (owner, level)`` for every claim currently held in this process.
+#: ``key -> (owner, level, since)`` for every claim currently held in this process.
+#: ``since`` is `time.monotonic()` and exists for the debugger: «кто держит игровой
+#: замок дольше обычного» is the first question a jam raises, and a holder without a
+#: start time cannot answer it (#1392).
 _held: dict = {}
-#: ``key -> {token: (level, owner)}`` — everybody WAITING for a key they outrank the
-#: holder of. See :func:`demand`.
+#: ``key -> {token: (level, owner, since)}`` — everybody WAITING for a key they outrank
+#: the holder of. See :func:`demand`.
 _wanted: dict = {}
+#: ``key -> how many claims this key has turned away`` — «сколько нажатий ждало», the
+#: count that turns «панель тормозит» into a number. Never reset except by :func:`clear`.
+_refused: dict = {}
 _lock = threading.Lock()
 #: Ever-increasing, so two demands from two threads are never the same token.
 _serial = 0
@@ -80,8 +87,9 @@ def acquire(key, owner: str, urgency: int = BACKGROUND) -> "str | None":
     with _lock:
         held = _held.get(key)
         if held is not None:
+            _refused[key] = _refused.get(key, 0) + 1
             return held[0]
-        _held[key] = (str(owner or "?"), int(urgency))
+        _held[key] = (str(owner or "?"), int(urgency), time.monotonic())
         return None
 
 
@@ -117,11 +125,40 @@ def held() -> dict:
         return {key: entry[0] for key, entry in _held.items()}
 
 
+def state() -> dict:
+    """The whole registry as data, for the busy debugger (#1392).
+
+    Everything a jam is read off: who holds what and for how long, who is queued behind
+    them at what urgency and since when, and how many claims each key has turned away.
+    Numbers and names — never words; whoever draws it says them
+    (`panel/runtime/busy.py`).
+
+    One pass under the one lock, so a snapshot cannot catch the registry half-changed
+    and cannot be the reason a claim is slow.
+    """
+    now = time.monotonic()
+    with _lock:
+        holders = [{"key": key, "owner": entry[0], "level": entry[1],
+                    "secs": max(0.0, now - entry[2]), "refused": _refused.get(key, 0)}
+                   for key, entry in _held.items()]
+        waiting = [{"key": key, "owner": owner, "level": lvl,
+                    "secs": max(0.0, now - since)}
+                   for key, queue in _wanted.items()
+                   for lvl, owner, since in queue.values()]
+    holders.sort(key=lambda row: row["secs"], reverse=True)
+    # The most urgent first, then the one that has waited longest: that IS the order
+    # they will get in, so «кто за кем» is the list as it stands.
+    waiting.sort(key=lambda row: (-row["level"], -row["secs"]))
+    return {"held": holders, "waiting": waiting,
+            "refused": {key: n for key, n in _refused.items()}}
+
+
 def clear() -> None:
     """Forget every claim, and every demand. A test between cases; never the panel."""
     with _lock:
         _held.clear()
         _wanted.clear()
+        _refused.clear()
 
 
 # -- «step aside, this one matters more» (#1288) ----------------------------------
@@ -146,7 +183,8 @@ def demand(key, urgency: int, owner: str):
     with _lock:
         _serial += 1
         token = _serial
-        _wanted.setdefault(key, {})[token] = (int(urgency), str(owner or "?"))
+        _wanted.setdefault(key, {})[token] = (int(urgency), str(owner or "?"),
+                                              time.monotonic())
         return token
 
 

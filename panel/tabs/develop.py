@@ -85,6 +85,7 @@ from ..runtime import ActionRunner, list_actions
 from ..runtime.paths import TOOLS, TOOLS_LIB, repo_rel
 from ..widgets import font as ui_font, numeric_spinbox
 from .base import PanelTab
+from .develop_busy import BusyView
 
 import lua_client       # noqa: E402  (the warm daemon, to unwrap the tracer's hooks)
 import lua_trace        # noqa: E402  (RESTORE_CHUNK)
@@ -135,7 +136,7 @@ class DevelopTab(PanelTab):
     #: the other tabs already do that without it.
     DEFAULT_ENABLED = False
     PREFERRED_SIZE = "860x900"
-    LOCALE_NS = ("develop", "trace", "sniff", "scenarios", "cmd")
+    LOCALE_NS = ("develop", "trace", "sniff", "scenarios", "cmd", "busy")
     NEEDS = frozenset({"daemon", "children", "actions"})
     LEGACY_KEYS = {k: k for k in ("scenario_selected", "scenario_args",
                                   "scenario_interval")}
@@ -155,6 +156,8 @@ class DevelopTab(PanelTab):
         self._status_var = tk.StringVar(master=rt.root, value="")
         # -- the scenario runner --
         self._cancel = None            # threading.Event of the run in flight, else None
+        # -- the busy debugger (#1392), drawn by its own module --
+        self._busy = BusyView(self)
 
     # -- UI -------------------------------------------------------------------
     def build(self) -> None:
@@ -176,6 +179,10 @@ class DevelopTab(PanelTab):
             anchor="w", padx=10, pady=(0, 10))
 
         self._build_update_channel()
+        # WHAT THE PANEL IS BUSY WITH, above the scenario list: it is read while
+        # something else is running, and a block that has to be scrolled past the
+        # editor to reach is one nobody looks at during the minute it would explain.
+        self._busy.build(self.parent)
         self._build_scenarios()
 
     # -- which updates this panel takes (#1274) --------------------------------
@@ -366,10 +373,18 @@ class DevelopTab(PanelTab):
             self._was_sniffing = False
             self._sniff_var.set(True)
 
+    def on_show(self) -> None:
+        """Somebody is looking: the busy block starts reading (and only then, #1392)."""
+        self._busy.on_show()
+
+    def on_hide(self) -> None:
+        self._busy.on_hide()
+
     def shutdown(self) -> None:
         # A debounced edit is still pending for up to a second — write it before the
         # window goes, or the last thing typed is the thing that is lost.
         self.flush_save()
+        self._busy.shutdown()
         self._stop_scenario_loop()
         self._stop_sniff()
         for name in ("sniff_ready", "sniff_flush"):
@@ -377,6 +392,7 @@ class DevelopTab(PanelTab):
 
     def on_language_change(self) -> None:
         self._refresh_actions()
+        self._busy.on_language_change()
 
     # -- persistence ----------------------------------------------------------
     def config(self) -> dict:

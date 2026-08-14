@@ -566,7 +566,13 @@ class PanelRuntime:
                     self._on_tk(on_done)
                 self.game.on_settled()
 
-        threading.Thread(target=work, daemon=True).start()
+        # NAMED, and named with the PROFILE (#1392). A thread list is the last resort of
+        # every jam diagnosis, and `Thread-14` in a window holding four accounts says
+        # neither what it is doing nor whose it is — which is exactly the confusion
+        # profile isolation exists to prevent. Trimmed, because a thread name is carried
+        # by the OS on some platforms.
+        threading.Thread(target=work, daemon=True,
+                         name=f"lw:{self.profiles.active}:{tag}:{name}"[:60]).start()
         return True
 
     def post(self, call) -> None:

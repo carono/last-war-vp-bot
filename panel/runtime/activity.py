@@ -41,6 +41,7 @@ from __future__ import annotations
 import contextlib
 import itertools
 import threading
+import time
 
 #: Global ordering across every activity in the process. The window shows the newest
 #: live step of ALL its open profiles, so «newest» has to mean something between two
@@ -51,12 +52,16 @@ _SEQ = itertools.count(1)
 class Step:
     """One thing being done: a locale key, its arguments, and who is doing it."""
 
-    __slots__ = ("seq", "key", "fmt", "owner")
+    __slots__ = ("seq", "key", "fmt", "owner", "started")
 
     def __init__(self, key: str, fmt: dict, owner) -> None:
         self.seq = next(_SEQ)
         self.key = key
         self.fmt = fmt
+        #: When it began, on the monotonic clock. The strip shows what is running; the
+        #: busy debugger has to show how LONG it has been running, and a step with no
+        #: start time cannot say (#1392).
+        self.started = time.monotonic()
         #: The :class:`Activity` this step belongs to — so a painter that watches
         #: several of them can say WHOSE step it is showing.
         self.owner = owner
@@ -117,6 +122,16 @@ class Activity:
             if not self._live:
                 return None
             return self._live[max(self._live)]
+
+    def live(self) -> list:
+        """Every step still running, oldest first — what the busy debugger draws.
+
+        The strip wants ONE step (`current`); a debugger wants all of them, because two
+        things in flight at once is the state it exists to explain. Oldest first so the
+        one that has been going longest — the one a jam is usually about — is at the top.
+        """
+        with self._lock:
+            return sorted(self._live.values(), key=lambda step: step.seq)
 
     def busy(self) -> bool:
         with self._lock:

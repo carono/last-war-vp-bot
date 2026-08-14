@@ -47,6 +47,7 @@ from __future__ import annotations
 import itertools
 import threading
 import time
+from collections import deque
 
 #: The reason the interpreter writes on a run the operator ended. Spelled here as well
 #: because both front-ends have to be able to tell «прервали» from a scenario's own
@@ -148,13 +149,19 @@ class Interrupts:
     scenario fails — it exists to describe and to stop runs, not to run them.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, history: int = 40) -> None:
         self._live: dict = {}
         self._lock = threading.RLock()
         self._listeners: list = []
         #: How many times this session, so «нажали один раз» and «жмут не переставая»
         #: do not look the same in a bug report.
         self.presses = 0
+        #: THE RUNS THAT HAVE ENDED, newest last — the mini-top of «what took the
+        #: longest recently» the busy debugger shows (#1392). A jam is read backwards:
+        #: the run holding the client now is visible to anybody, the one that held it
+        #: for four minutes ten minutes ago is not, and it is usually the answer.
+        #: A ring, because this is a diagnostic and not a record — the log is the record.
+        self._done: deque = deque(maxlen=int(history))
 
     # -- the register --------------------------------------------------------
     def enter(self, name: str, tag: str, ctx, flag: "Stop") -> "Run":
@@ -172,7 +179,20 @@ class Interrupts:
         with self._lock:
             if self._live.pop(run.seq, None) is None:
                 return
+            # Written down as it goes: what a jam is diagnosed from is the run that has
+            # ALREADY finished, and by the time anybody opens the debugger it is gone
+            # from the register. `state()` is taken here, while the context is still the
+            # run's own — reading `run.step` afterwards would report whatever the
+            # interpreter left on a context nothing is using.
+            self._done.append(dict(run.state(), ended=time.monotonic()))
         self._changed()
+
+    def history(self) -> list:
+        """The runs that have ended, LONGEST first — the mini-top (:attr:`_done`)."""
+        with self._lock:
+            rows = list(self._done)
+        rows.sort(key=lambda row: row.get("secs", 0), reverse=True)
+        return rows
 
     # -- the press ----------------------------------------------------------
     def stop(self) -> list:

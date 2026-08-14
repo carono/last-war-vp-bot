@@ -143,6 +143,9 @@ class Schedule:
             # 00:00 and not «twenty-four hours after whenever it last happened».
             day=rt.day,
             debug=rt.dbg("timers"),
+            # …and whose schedule this is, so the threads it starts say which profile's
+            # errand they are running (#1392, `panel/runtime/busy.py`).
+            label=rt.profiles.active,
         )
         self.triggers = triggersmod.TriggerWatcher(
             catalogue=lambda: self.trigger_catalogue,
