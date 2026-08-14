@@ -166,3 +166,74 @@ kicked** by a concurrent login on the account. The modal was left untouched
 (dismissing an account-security prompt is a user decision, not an autonomous one).
 Takeaway: this is a strict single-session client — drive it on a throwaway account,
 and expect a kick if the account is used elsewhere.
+
+## 6. When a launch is DONE, and why the scene alone cannot say (#1399)
+
+Measured on the live client, 2026-08-14/15, one machine, one account.
+
+### 6.1 What a launch actually costs, step by step
+
+Pressing «Перезапустить игру» plays `actions/restart_game.md`. Wall-clock, from the log
+of a real press:
+
+| step | elapsed |
+|---|---|
+| `QUIT_GAME` — force-close, waited until the process is gone | 14 s |
+| `WAIT 3` — a breath before the launcher looks at the files | 3 s |
+| `START_GAME` → the client's **process** exists again | 8 s |
+| … → its sockets say anything at all | ~20 s |
+| … → **ESTABLISHED to the game server** (`game_link` ONLINE) | **33.7 s** |
+| `ATTACH_GAME` + the final readiness gate | 2 s |
+| **whole restart** | **53 s** |
+
+The client's own conversation with the server is therefore up about half a minute after
+the launcher is spawned, and that is the earliest honest «it is up».
+
+### 6.2 The daemon is NOT up at that moment, and stays down for minutes
+
+The Lua daemon is pinned to a process id, so the client it was driving dying takes it
+with it. On the same machine the gap between «the client is playable» and «the daemon
+can be asked anything» was:
+
+* 2026-08-14 23:29 — daemon down from 23:29:58 to 23:32:40, **2 min 42 s**, while the
+  client had been link-online since 23:30:22;
+* 2026-08-15 00:21 — daemon still down **ten minutes** after the client came back, and
+  it only returned when the panel itself was restarted.
+
+The second one is a hole of its own and is written up as a finding rather than fixed
+here: nothing in a running panel starts a daemon that is **down** (as opposed to stale).
+`GameLink.ensure()` is called from the errand path, and the daemon gate (#1393) stops
+errands while the daemon is down — so the thing that would start it is behind the gate
+that is waiting for it. The recovery's daemon branch only fires on a daemon that is UP
+and holding a dead client (`DAEMON_STRIKES`, `recovery.py::note_stale`), which this is
+not.
+
+### 6.3 What that did to the launch
+
+`launch_game` waited on `WAIT scene != unknown`, and the scene is a Lua read. So for the
+whole of the window above the wait could not observe anything, sat out its 180 s cap and
+reported a FAILED launch. On the evening of 2026-08-14 that happened **twelve times in a
+row**, and the client it was failing over was read as `scene == city` by the very next
+scenario, one second after the failure.
+
+### 6.4 The ladder, and what each rung costs
+
+`client == ready` (`docs/dsl.md`, `Interpreter._client_ready`) asks the strongest reading
+that can be taken right now:
+
+| rung | cost, warm | what it proves |
+|---|---|---|
+| daemon port probe | 1 ms | whether rung 1 can be asked at all |
+| `scene` through the daemon | 61 ms | the client is interactive |
+| socket walk (`game_link`) | 32 ms | the client is talking to the game server |
+| the whole ladder | 77 ms | — |
+
+A client that ANSWERS `unknown` is the game saying «still loading» and stops the ladder
+there; only «nobody could be asked» falls through to the socket. So with a warm daemon the
+wait matches on its first poll — 0.08 s against the 180 s the old sign spent failing — and
+with no daemon at all it matches when the link comes up, 33.7 s live.
+
+The socket rung is deliberately weaker than the errand gate's (`_link_lost`, which makes
+every scenario prove the session for itself with the game's own clock). That asymmetry is
+the point: a launch may end as soon as the client is up, and what to do with a client that
+is up is somebody else's question.
