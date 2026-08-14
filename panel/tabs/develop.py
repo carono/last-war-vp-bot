@@ -61,6 +61,14 @@ on already says that (`panel/tabs/__init__.py::DEV_TAB` — the mode has one swi
 two). The answer is panel-wide, not the profile's: one checkout serves every profile in
 the window. `docs/panel-updates.md` says how a release is cut.
 
+**The LOG** (#1391), along the bottom. It was the shell's, taking the lower half of
+«Главная» behind a sash, in every profile whether or not the person in front of it had
+ever read a `[trigger]` line — and it is the same kind of thing this page already is:
+what you read while working ON the bot rather than while playing with it. The record is
+untouched by the move (`panel.log` is written by the spool, whoever is drawing), the
+phone's «Лог» screen is the front-end's own and is unchanged, and a profile without this
+tab simply has no log WIDGET. `panel/runtime/log_view.py` holds both halves.
+
 The `TAP` reference is opened here but drawn by the shell — the dialog drops its choice
 into the DSL command line on «Главная», which is not this tab's to write to
 (docs/research/panel-tabs-refactor.md §7). So the button publishes and the shell listens.
@@ -82,6 +90,7 @@ from tkinter.scrolledtext import ScrolledText
 # the three bare-name modules below live there.
 from .. import profile as profilemod
 from ..runtime import ActionRunner, list_actions
+from ..runtime.log_view import LogPane
 from ..runtime.paths import TOOLS, TOOLS_LIB, repo_rel
 from ..widgets import font as ui_font, numeric_spinbox
 from .base import PanelTab
@@ -136,10 +145,12 @@ class DevelopTab(PanelTab):
     #: the other tabs already do that without it.
     DEFAULT_ENABLED = False
     PREFERRED_SIZE = "860x900"
-    LOCALE_NS = ("develop", "trace", "sniff", "scenarios", "cmd", "busy")
+    LOCALE_NS = ("develop", "trace", "sniff", "scenarios", "cmd", "busy", "log")
     NEEDS = frozenset({"daemon", "children", "actions"})
     LEGACY_KEYS = {k: k for k in ("scenario_selected", "scenario_args",
-                                  "scenario_interval")}
+                                  "scenario_interval",
+                                  # the log filter, while the log was the shell's (#1391)
+                                  "log_filter")}
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
@@ -158,6 +169,11 @@ class DevelopTab(PanelTab):
         self._cancel = None            # threading.Event of the run in flight, else None
         # -- the busy debugger (#1392), drawn by its own module --
         self._busy = BusyView(self)
+        # -- the log pane (#1391), drawn by `build` --
+        self._log = None
+        #: The filter this profile was saved with, kept until there is a pane to put it
+        #: in: the block arrives before anybody has looked at the tab (`PanelTab.LAZY`).
+        self._log_filter = ""
 
     # -- UI -------------------------------------------------------------------
     def build(self) -> None:
@@ -184,6 +200,39 @@ class DevelopTab(PanelTab):
         # editor to reach is one nobody looks at during the minute it would explain.
         self._busy.build(self.parent)
         self._build_scenarios()
+        self._build_log()
+
+    # -- THE LOG (#1391) ------------------------------------------------------
+    def _build_log(self) -> None:
+        """This profile's log, along the bottom of the page.
+
+        WHY IT IS HERE AND NOT ON «Главная», where it lived for the whole life of the
+        panel: a log is the tool you read while WORKING ON the bot. The person farming
+        with an unmodified set of actions is told what happened by the tabs — the
+        checklist's ticks, the timers' «когда следующий», the status strip, the tab's own
+        light — and gave half of «Главная» to a stream of `[trigger]` lines they never
+        read. That is the same argument that put the sniffers and the `actions/*.md`
+        editor on this page, so the log joins them.
+
+        NOTHING IS LOST BY THE TAB BEING OFF. The record is `panel.log`, written by the
+        spool whether or not anybody is drawing (`panel/runtime/log_view.py`); the phone
+        has its own «Лог» screen, which is the front-end's and not this tab's, so it is
+        unchanged and still shows every profile's lines. What a profile without
+        «Разработка» loses is the WIDGET, and it is a widget for reading a bot that is
+        being changed.
+
+        PACKED LAST AND ALONG THE BOTTOM, so the scenario list above keeps the space it
+        expands into and the log keeps the rows it asks for.
+        """
+        frame = self.tr(ttk.LabelFrame(self.parent, padding=4), "log.frame")
+        frame.pack(side="bottom", fill="both", padx=10, pady=(4, 8))
+        self._log = LogPane(frame, self.rt, height=12)
+        self._log.frame.pack(fill="both", expand=True)
+        # The filter the profile was saved with — the block reached `apply_config`
+        # before there were any widgets to put it in (`PanelTab.LAZY`).
+        if self._log_filter:
+            self._log.filter_var.set(self._log_filter)
+            self._log.redraw()
 
     # -- which updates this panel takes (#1274) --------------------------------
     def _build_update_channel(self) -> None:
@@ -402,6 +451,11 @@ class DevelopTab(PanelTab):
             "scenario_selected": self._scn_editor_name or "",
             "scenario_args": self._scn_args_var.get(),
             "scenario_interval": self._scn_interval_var.get(),
+            # …and which producer the log pane is narrowed to. It was a top-level
+            # `log_filter` while the log was the shell's (#1391); `LEGACY_KEYS` above
+            # carries an older profile's answer into this block.
+            "log_filter": (self._log.filter_var.get() if self._log is not None
+                           else self._log_filter),
         }
 
     def apply_config(self, raw) -> None:
@@ -409,9 +463,16 @@ class DevelopTab(PanelTab):
         self._scn_args_var.set(raw.get("scenario_args", ""))
         self._scn_interval_var.set(str(raw.get("scenario_interval", "60")))
         self._select_saved_scenario(raw.get("scenario_selected"))
+        self._log_filter = str(raw.get("log_filter") or "")
+        if self._log is not None and self._log_filter:
+            self._log.filter_var.set(self._log_filter)
+            self._log.redraw()
 
     def persist_vars(self) -> list:
-        return [self._scn_args_var, self._scn_interval_var]
+        out = [self._scn_args_var, self._scn_interval_var]
+        if self._log is not None:
+            out.append(self._log.filter_var)
+        return out
 
     def _sniff_timeout(self) -> float:
         return self.rt.settings.opt_float("sniff_ready_timeout", low=1.0, high=600.0)

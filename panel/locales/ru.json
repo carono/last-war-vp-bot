@@ -15,7 +15,6 @@
   "activity.profile.close": "закрываю профиль «{name}»…",
   "activity.profile.delete": "удаляю профиль «{name}»…",
   "activity.profile.open": "открываю профиль «{name}»…",
-  "activity.scoped": "{profile}: {what}",
   "activity.tab.build": "строю вкладку «{tab}»…",
   "activity.tab.load": "открываю вкладку «{tab}»…",
   "activity.update.check": "проверяю обновления…",

@@ -252,6 +252,35 @@ descend from `Exception`, so it walked past the guard and took the whole report 
 The docstring said «no client is an answer, not an error» and the code disagreed; it only
 showed up the first time the report was run against a client that had been kicked.
 
+## 5c. The status strip drew every open profile's step — **fixed** (#1391)
+
+The one line along the bottom of the window that says what is happening RIGHT NOW. It
+read the newest live step of the window's own activity **and of every open profile's**
+(`panel/runtime/activity.py`), gluing the owner's name in front when more than one was
+open — deliberately, when it was written for one window and one profile (#1208), and a
+leak the moment a window held four.
+
+Why it was worse than it looks:
+
+* the strip keeps the **newest** step, and a background profile bringing a daemon up or
+  playing a sweep produces steps constantly, so it painted over the foreground one's.
+  The line was least trustworthy exactly when the profile being watched was busiest;
+* it is the ONE place in the window that describes the present tense. A log line says
+  what happened and carries its own profile's context; this said «поднимаю демон» about
+  an account whose page was not on screen;
+* it also fed the SPLASH during the boot, so a profile opening slowly was described by
+  whichever other profile happened to report a step first.
+
+The fix is `Panel._activities()`: the window's own activity, and the activity of
+`_current_session` — «the page on screen», never `_session()` («the session this thread
+is acting for»), because the repaint is handed over from the very worker thread of the
+profile that reported the step. Every open profile is still LISTENED to, because the
+listener only means «look again»; only one of them is ever drawn. With nobody else's
+step to name, `activity.scoped` went out of the eleven locales with it.
+
+**«Прервать», beside the strip, did not narrow** — see §7. The reading is an account's;
+the press is the machine's.
+
 ## 6. Named, and left alone
 
 * **`game_clock`'s offset is process-wide.** Every client's offset is a drift between

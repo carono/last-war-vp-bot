@@ -15,7 +15,6 @@
   "activity.profile.close": "đang đóng hồ sơ «{name}»…",
   "activity.profile.delete": "đang xoá hồ sơ «{name}»…",
   "activity.profile.open": "đang mở hồ sơ «{name}»…",
-  "activity.scoped": "{profile}: {what}",
   "activity.tab.build": "đang dựng thẻ «{tab}»…",
   "activity.tab.load": "đang mở thẻ «{tab}»…",
   "activity.update.check": "đang kiểm tra bản cập nhật…",

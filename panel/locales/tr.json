@@ -15,7 +15,6 @@
   "activity.profile.close": "«{name}» profili kapatılıyor…",
   "activity.profile.delete": "«{name}» profili siliniyor…",
   "activity.profile.open": "«{name}» profili açılıyor…",
-  "activity.scoped": "{profile}: {what}",
   "activity.tab.build": "«{tab}» sekmesi oluşturuluyor…",
   "activity.tab.load": "«{tab}» sekmesi açılıyor…",
   "activity.update.check": "güncellemeler denetleniyor…",

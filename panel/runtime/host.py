@@ -31,6 +31,7 @@ from .health import ProfileHealth
 from .i18n import Translator
 from .interrupt import Interrupts
 from .log import LogBus
+from .log_view import LogSpool
 from .paths import LUA_DAEMON, REPO
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
@@ -103,6 +104,13 @@ class PanelRuntime:
         self.log = LogBus(translate=self.i18n.t,
                           debug_logger=self.dbg("ui"), echo=echo_log)
         self.log.open_file(self.profiles.panel_log())
+        # …AND WHO DRAINS IT (panel/runtime/log_view.py, #1391). The queue is emptied by
+        # the spool and not by a widget: the pane lives on «Разработка» now, which most
+        # profiles do not have and none of them has before somebody opens it — and a
+        # queue nobody drains grows without bound while a `panel.log` nobody writes is a
+        # session with no record of itself. The shell pumps this per profile on its own
+        # clock; a pane, when there is one, attaches and draws the history it finds.
+        self.log_spool = LogSpool(self.log)
         # Said only now: the log is what it is said into, and it needs the translator.
         if unknown_lang:
             self.log.say("panel", "log.lang.unknown",

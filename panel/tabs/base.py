@@ -402,8 +402,10 @@ def _parse(argv, cls) -> argparse.Namespace:
 def run_tab(cls, argv=None) -> int:
     """Open a window with just ``cls`` in it. The same six steps the shell takes.
 
-    There is no log pane: «Главная» keeps the log, in the container. The lines still go
-    to the profile's panel.log and debug.log, and to this console.
+    A LOG PANE ONLY IF THE TAB DRAWS ONE — «Разработка» does, since #1391. Every other
+    tab says its lines into the profile's panel.log and debug.log and into this console,
+    exactly as it did; what this harness owes them either way is the PUMP, because the
+    drain is what writes panel.log and what keeps the queue from growing for ever.
     """
     import tkinter as tk
     from tkinter import ttk
@@ -447,6 +449,19 @@ def run_tab(cls, argv=None) -> int:
     rt.settings.on_change = _persist
     for var in tab.persist_vars():
         var.trace_add("write", lambda *_a: rt.settings.changed())
+
+    # The log spool, on the clock the shell keeps it on (panel/runtime/log_view.py).
+    # It remembers the line, writes it to `panel.log` and hands it to a pane if the tab
+    # drew one — so a window holding one tab leaves the same record a whole panel does.
+    def _pump_log() -> None:
+        try:
+            rt.log_spool.pump(cap=rt.settings.opt_int("log_max_lines",
+                                                      low=200, high=200000))
+        except Exception:                # noqa: BLE001 — the log, never the window
+            rt.dbg("log").error("log pump failed", exc_info=True)
+        rt.tick.arm("log", 120, _pump_log)
+
+    _pump_log()
 
     def _close() -> None:
         from ..runtime import tick as tickmod

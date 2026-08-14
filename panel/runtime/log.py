@@ -4,15 +4,19 @@ Six producers write into one log — the panel itself, the captures, the timers,
 triggers, the robberies, the chat reader — and every one of them can be running while
 nobody is looking at a window. So the sink is separate from any widget:
 
-    line ──> LogBus.put ──┬──> the profile's panel.log   (the record)
-                          ├──> the profile's debug.log   (at its severity, under `ui`)
+    line ──> LogBus.put ──┬──> the profile's debug.log   (at its severity, under `ui`)
                           ├──> stdout                     (a standalone tab's console)
-                          └──> the queue, drained by whoever is drawing (the shell)
+                          ├──> whoever is tapping         (the phone's feed)
+                          └──> the queue ──> LogSpool.pump ──┬──> panel.log (the record)
+                                             (the Tk thread) ├──> the history
+                                                             └──> a LogPane, if drawn
 
-The widget is deliberately NOT here. «Главная» keeps it, in the container, and a tab
-launched on its own has no log pane at all — it shows its own content and leaves the
-same record behind in the two files (docs/research/panel-tabs-refactor.md §4.4). A tab
-therefore calls `rt.say(...)` without ever knowing which of the two it is running in.
+The widget is deliberately NOT here — nor, since #1391, anywhere the shell can reach.
+The pane and the stamped history live in `panel/runtime/log_view.py` and are drawn by
+the «Разработка» tab; a profile without it, and a tab launched on its own, keep the
+whole of the record in the two files and simply have nothing on screen. Which is why
+the queue is drained by the SPOOL and not by a widget: a session with nobody looking
+must still write its log and must not grow a queue for ever.
 
 Severity is decided by KEYWORD, not by a level the producer passes in: half the lines
 are a child process's own output, so there is nobody to ask. The word lists live here
@@ -150,6 +154,19 @@ class LogBus:
                 func(line)
             except Exception:           # noqa: BLE001 — a reader, never the producer
                 pass
+
+    def take(self) -> "str | None":
+        """The oldest line waiting, or ``None``. What the spool pumps with.
+
+        One line at a time rather than :meth:`drain`'s whole list, because the caller
+        writes each of them to three places as it goes (`panel/runtime/log_view.py`) and
+        a list handed over in one piece is a list that is lost if the pump raises
+        halfway down it.
+        """
+        try:
+            return self.q.get_nowait()
+        except queue.Empty:
+            return None
 
     def drain(self) -> list:
         """Every line waiting, oldest first. The drawing side calls this."""

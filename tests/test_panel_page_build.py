@@ -172,12 +172,15 @@ def _built(harness: "_Harness") -> None:
         lazy = app._lazy_tabs
         assert len(lazy) == len(tabs), (len(lazy), len(tabs))
         assert set(lazy.values()) == set(tabs.values())
-        # «Главная» is whole.
-        assert app._log is not None, "the log pane was not built"
+        # «Главная» is whole — and has no log pane in it any more (#1391): the widget
+        # is «Разработка»'s, while the spool that drains the queue and writes panel.log
+        # belongs to the runtime and is here whether or not that tab is switched on.
+        assert not hasattr(app, "_log"), "the log widget is back on «Главная»"
+        assert session.rt.log_spool is not None, "nothing would drain this profile's log"
         assert app._status_var.get(), "the game status strip was not built"
         assert app._daemon_var.get(), "the daemon indicator was not built"
         assert app._cmd_var.get() == "", "the command line was not built"
-        assert app._main_nb is not None and app._main_split is not None
+        assert app._main_nb is not None and app._main_controls is not None
         # …and the settings were applied to it, with auto-save armed afterwards.
         assert app._loading is False, "the page was left in its loading state"
         # The account strip belongs to the «Аккаунты» tab and comes AFTER it, so it
@@ -341,7 +344,7 @@ def test_a_staged_page_reaches_exactly_the_same_place() -> None:
         with harness.app._on(harness.session):
             # The shell's own half is whole before the first tab is touched — that is
             # the half a person can already read and use while the rest fills in.
-            assert harness.app._log is not None, \
+            assert harness.app._cmd_var.get() == "", \
                 "the shell's own half must be there before the first turn"
             assert not hasattr(harness.app, "_lazy_tabs"), \
                 "the tabs were all built straight away after all"
@@ -377,24 +380,27 @@ def test_a_page_cannot_be_stolen_by_a_profile_switch_halfway_through() -> None:
         # per-step binding already covers it, and the test would pass either way.
         stolen: list = []
 
-        original = app._install_log_copy
+        # Mid-«Главная», between the control blocks and the command line. It used to be
+        # the log pane's copy hook; the log left the shell (#1391) and the update block
+        # is the next thing built at the same point.
+        original = app._build_update_block
 
-        def steal(widget) -> None:
+        def steal(parent) -> None:
             stolen.append(True)
             app._show(first)                      # …the page on screen is now the other
-            original(widget)
+            original(parent)
 
-        app._install_log_copy = steal
+        app._build_update_block = steal
         try:
             app._open_session_page(second)
         finally:
-            del app._install_log_copy
-        assert stolen, "the build never reached the log pane — the test proves nothing"
+            del app._build_update_block
+        assert stolen, "the build never reached the update block — the test proves nothing"
         # Every routed name of the SECOND page must have landed on the second session.
-        for name in ("_log", "_main_nb", "_status_var", "_lazy_tabs", "_plugin_tabs"):
+        for name in ("_cmd_var", "_main_nb", "_status_var", "_lazy_tabs", "_plugin_tabs"):
             assert name in second.state, f"{name} was recorded against the wrong profile"
-        assert second.state["_log"] is not first.state["_log"], \
-            "the two pages share one log widget"
+        assert second.state["_status_var"] is not first.state["_status_var"], \
+            "the two pages share one status strip"
         assert second.state["_plugin_tabs"], "the second page built no tabs at all"
         # …and the first profile's page is untouched by any of it.
         assert first.state["_main_nb"] is not second.state["_main_nb"]
@@ -439,38 +445,12 @@ def test_a_maximised_window_is_remembered_as_maximised_not_as_a_rectangle() -> N
         harness.close()
 
 
-def test_every_page_gets_its_own_remembered_sash_when_it_is_shown() -> None:
-    """The log pane's position is per profile, and every page must get ITS one.
-
-    The window places the sash once, at boot, from whichever profile was in front —
-    so with two profiles open the second one's log pane sat where the pane happened to
-    leave it, and the position that profile had remembered was never applied to
-    anything.
-    """
-    harness = _open(staged=False)
-    if harness is None:
-        return
-    try:
-        app, first = harness.app, harness.session
-        second = app._workspace.open("other")
-        second.rt.start_heartbeat = lambda: None
-        app._open_session_page(second)
-        app.deiconify()
-        app.geometry("900x700")
-        app.update()
-        with app._on(second):
-            app._binder.values["log_sash"] = 90
-        # …the way a person does it: pick the profile's tab, and let the notebook's
-        # own handler run (`_on_session_tab_changed` → `_show`).
-        app._outer.select(second.page)
-        app.update()
-        with app._on(second):
-            got = app._current_sash()
-        # Bounded from above by what the blocks ask for (see `_apply_sash`), so a
-        # modest number is the one that survives unchanged.
-        assert abs(got - 90) <= 8, f"the page was shown with the sash at {got}"
-    finally:
-        harness.close()
+# `test_every_page_gets_its_own_remembered_sash_when_it_is_shown` went with the sash it
+# was about (#1391). «Главная» had one because the log took the bottom half of it; the
+# log is «Разработка»'s pane now, there is nothing left to divide, and `log_sash` is a
+# key an old profile may still carry and nothing reads. What the test was really
+# guarding — that a page brought to the front is laid out and DRAWN as its own — is
+# `test_showing_a_page_works_before_the_window_is_finished` below.
 
 
 def test_showing_a_page_works_before_the_window_is_finished() -> None:
@@ -548,8 +528,15 @@ def test_the_splash_commentary_does_not_pump_the_event_loop() -> None:
     assert [c[0] for c in calls] == ["label", "idle"], calls
 
 
-def test_the_bottom_strip_says_what_is_running_and_names_the_profile() -> None:
-    """The window's strip: idle by default, the newest step otherwise."""
+def test_the_bottom_strip_says_what_this_profile_is_doing_and_nothing_else() -> None:
+    """The window's strip: idle by default, the newest step of THIS page otherwise.
+
+    The second half is #1391: it used to draw the newest step of every open profile,
+    named — so the person reading one account was told what another was doing, and
+    since the strip keeps the newest step, a busy background profile painted over the
+    foreground one's. The press beside it («Прервать») is deliberately not narrowed;
+    that half is pinned in `tests/test_profile_isolation.py`.
+    """
     harness = _open(staged=False)
     if harness is None:
         return
@@ -559,13 +546,23 @@ def test_the_bottom_strip_says_what_is_running_and_names_the_profile() -> None:
         with session.rt.activity.step("activity.daemon.start", port=47654):
             said = app._activity_text()
             assert "47654" in said, said
-            # One profile open — the strip does not repeat its name at every step.
+            # Never named: the only profile it can be is the page being looked at.
             assert session.name not in said, said
         assert app._activity_text() == app._t("activity.idle")
         # The window's own steps are shown too, and outrank an older profile step.
         with session.rt.activity.step("activity.dashboard"):
             with app._activity.step("activity.update.check"):
                 assert app._activity_text() == app._t("activity.update.check")
+
+        # …and a SECOND profile, working away behind this page, says nothing at all.
+        second = app._workspace.open("other")
+        second.rt.start_heartbeat = lambda: None
+        app._open_session_page(second)
+        app._show(session)                       # the first profile is the one in front
+        with second.rt.activity.step("activity.daemon.start", port=47655):
+            said = app._activity_text()
+            assert "47655" not in said, f"another account's step reached the strip: {said}"
+            assert said == app._t("activity.idle"), said
     finally:
         harness.close()
 

@@ -15,7 +15,6 @@
   "activity.profile.close": "menutup profil «{name}»…",
   "activity.profile.delete": "menghapus profil «{name}»…",
   "activity.profile.open": "membuka profil «{name}»…",
-  "activity.scoped": "{profile}: {what}",
   "activity.tab.build": "membangun tab «{tab}»…",
   "activity.tab.load": "membuka tab «{tab}»…",
   "activity.update.check": "memeriksa pembaruan…",

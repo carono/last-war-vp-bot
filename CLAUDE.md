@@ -128,9 +128,17 @@ makes the state and `build()` only draws it: the saved block, a trigger the tab
 declared and the phone's screen all reach a tab nobody has opened, and the contract
 says how each of them answers.
 
-Nothing new goes into `panel/__main__.py`. It is the shell: window, notebook, log,
-menu, «Главная». If a change needs something from it, move that something into
+Nothing new goes into `panel/__main__.py`. It is the shell: window, notebook, menu,
+«Главная». If a change needs something from it, move that something into
 `panel/runtime/` first and use it from there.
+
+**The log is the worked example** (#1391). It had been the shell's since the panel had
+one page — the widget, its filter, its colours, its history, its sash — and it is a tab's
+now: the pane and the stamped spool behind it moved into `panel/runtime/log_view.py`, the
+«Разработка» tab draws one, and what the shell kept is the clock that pumps the queue,
+because the drain is what writes `panel.log` and most profiles have no pane at all. That
+is the shape every such move takes: the thing goes to `panel/runtime/`, the tab draws it,
+and the shell keeps only what has to happen whether or not anybody is looking.
 
 ## An edit travels between the window and the web, in BOTH directions, at once
 

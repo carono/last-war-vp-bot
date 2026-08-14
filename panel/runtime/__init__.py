@@ -47,6 +47,7 @@ from . import game_process
 from .host import PanelRuntime, standalone
 from .i18n import Translator
 from .log import LogBus
+from .log_view import LogPane, LogSpool
 from . import provision
 from . import panic
 from . import recovery
@@ -64,6 +65,7 @@ from . import updates
 __all__ = ["paths", "provision", "reads", "diag", "game_process", "recovery", "panic", "claims", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Activity", "Step",
            "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
+           "LogPane", "LogSpool",
            "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "TkPost",
            "Translator",
            "squads", "Squad", "SquadReader", "SquadState",

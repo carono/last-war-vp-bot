@@ -147,36 +147,15 @@ NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 DETACHED = 0x00000008         # DETACHED_PROCESS
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
-# -- the log widget ---------------------------------------------------------
-# How many lines the widget keeps. An overnight session with a tracer running
-# writes tens of thousands of them, and a Text widget that large makes every
-# subsequent insert visibly slow — the panel froze once for exactly this reason.
-# The on-disk mirror (panel.log) is NOT trimmed: the widget is a window onto the
-# session, the file is the record.
-LOG_MAX_LINES = 4000
-# Trimming a line at a time would run on every insert; drop a block instead, so
-# the cost is paid once every LOG_TRIM_BLOCK lines.
-LOG_TRIM_BLOCK = 500
-# Every producer that writes a `[tag]` into the log, in the order the filter
-# offers them. Adding a producer without adding it here costs nothing — its lines
-# are always shown, and only "show just this one" cannot single it out.
-LOG_TAGS = ("panel", "action", "timer", "trigger", "secret", "autoloot", "ghost",
-            "sweep", "rally", "help", "chat", "coord", "scene", "server", "game",
-            "daemon", "profile", "traffic", "trace", "sniff", "dash", "cmd",
-            "debug")
-# The filter's "show everything" entry. A sentinel rather than the empty string so
-# the combobox has something to display.
-LOG_FILTER_ALL = "*"
-# Severity colours, on the log's dark background.
-LOG_COLOURS = {"sev_error": "#ff6b6b", "sev_warn": "#e8c069", "sev_ok": "#7bd88f",
-               "stamp": "#6a6a6a"}
-# How much of the main tab the log keeps when the panel places the sash itself:
-# the control blocks above it are given the height they ask for, but never so much
-# that the log below is left with nothing to show.
-LOG_MIN_HEIGHT = 150
-# Severity colouring and the producer tag both live in panel/runtime/log.py now — the
-# classifier and the word lists belong with the sink that applies them, and a tab
-# launched on its own colours its lines by the very same rules.
+# -- the log ----------------------------------------------------------------
+# THE SHELL NO LONGER HAS ONE (#1391). The pane, its filter, its colours, its history
+# and its caps all live in `panel/runtime/log_view.py` and are drawn by the
+# «Разработка» tab; what is left here is the clock that pumps the queue, because the
+# spool must run for a profile that never opens that tab — see `_pump_log`.
+#
+# Severity colouring and the producer tag are `panel/runtime/log.py`'s: the classifier
+# and the word lists belong with the sink that applies them, and a tab launched on its
+# own colours its lines by the very same rules.
 LOG_SEVERITY_WORDS = runtime.log.SEVERITY_WORDS
 
 # -- the boot ---------------------------------------------------------------
@@ -473,7 +452,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
     """The window, and the profiles it has open.
 
     ONE WINDOW, SEVERAL PROFILES (#1206). Everything below that reads `self._rt`,
-    `self._log`, `self._game` means «the profile whose page is showing» — which is what
+    `self._logbus`, `self._game` means «the profile whose page is showing» — which is what
     those names always meant; there is simply more than one profile for them to mean it
     about now. `SESSION_ATTRS` is the list of names that work that way and
     `panel/runtime/session.py::SessionScoped` is how, in fifty lines with a test.
@@ -497,10 +476,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_game", "_actions", "_schedule", "_timers", "_triggers", "_timer_store",
         # the technical loggers
         "_dbg", "_dbg_ui", "_dbg_status_prev",
-        # the log pane
-        "_log", "_log_lines", "_log_kept", "_log_menu", "_log_filter_var",
+        # …and NOT the log pane. It is «Разработка»'s widget now (#1391) and its
+        # stamped history is the runtime's (`rt.log_spool`), so the shell keeps nothing
+        # of it but the clock that pumps it — see `_pump_log`.
         # the tab area
-        "_main_nb", "_main_split", "_main_controls", "_lazy_tabs", "_plugin_tabs",
+        "_main_nb", "_main_controls", "_lazy_tabs", "_plugin_tabs",
         "_shown_tab",
         # the two strips
         "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_recovery_var",
@@ -855,18 +835,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._resume_painting()
         self._current_session = session
         self._profile_var.set(session.name)
-        # EVERY PAGE GETS ITS OWN SASH, not just the first. `_restore_geometry` places
-        # it once, for the window, out of whichever profile was in front at boot — so
-        # the log pane of every other open profile sat wherever the pane happened to
-        # leave it, and the position the operator dragged there was remembered and
-        # never applied. It is a per-profile setting; this is where a page finds out
-        # its own.
+        # The sash this used to place per page went with the log pane it divided
+        # (#1391); what is left is the drawing, which every page still needs.
         try:
             if getattr(session, "page", None) is not None:
-                # The pane has to have been laid out before a sash position means
-                # anything, so this one `update_idletasks` stays.
                 session.page.update_idletasks()
-                self._apply_sash(self._saved_sash())
                 # …and DRAW IT, rather than trusting that it drew itself. A page built
                 # while another profile was in front is laid out here for the first
                 # time, and whatever Tk painted while it was doing so may never have
@@ -1002,10 +975,24 @@ class Panel(runtime.SessionScoped, tk.Tk):
     # this strip can see, and none of it happens where the operator can. A log line is
     # written afterwards and says what HAPPENED; this says what is happening.
     #
-    # It shows the newest live step of the window's own activity and of every open
-    # profile's (panel/runtime/activity.py), so a background profile bringing its daemon
-    # up is visible while another profile's page is the one on screen — named, in that
-    # case, because «поднимаю демон» is a different sentence when it is not this page's.
+    # IT SHOWS TWO THINGS AND NOT A THIRD (#1391). The window's OWN steps — opening a
+    # profile, pulling an update, restarting itself, all of which are the process's and
+    # belong to whoever is looking at it — and the steps of THE PROFILE WHOSE PAGE IS ON
+    # SCREEN. Never another profile's.
+    #
+    # It used to show every open profile's, newest wins, with the owner's name glued in
+    # front when more than one was open. That is precisely the failure «профиль — это
+    # полностью независимый инстанс панели» exists to stop: a person reading one account's
+    # page was told, in the one line of the window that describes what is happening NOW,
+    # what a different account was doing — and since the strip keeps the NEWEST step, a
+    # busy background profile simply painted over the foreground one's, so the line was
+    # most misleading exactly when the profile being watched was working hardest.
+    # `docs/research/profile-isolation.md` has the rest of the family.
+    #
+    # «Прервать», beside it, stays the press it was — every open profile — and that is
+    # not an oversight: it is one of the two presses pinned as deliberately SHARED in
+    # `tests/test_profile_isolation.py`, because it is about the PROCESS. The reading is
+    # an account's; the press is the machine's.
     def _build_status_line(self) -> None:
         ttk.Separator(self, orient="horizontal").pack(side="bottom", fill="x")
         bar = ttk.Frame(self, padding=(8, 2))
@@ -1040,10 +1027,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
         interruptmod.set_handler(self._interrupt_all)
 
     def _watch_activity(self, session) -> None:
-        """Have one open profile's steps painted on the strip too.
+        """Wake the strip when this profile moves — it is painted only while in front.
+
+        EVERY open profile is listened to and only ONE of them is ever drawn (#1391):
+        the listener is «something changed, look again», and `_paint_activity` asks
+        `_activities()` which is narrowed to the page on screen. Subscribing only the
+        current profile instead would mean a profile brought to the front by a click
+        stayed silent until its next step, which is the wrong half of the bargain.
 
         No unsubscribe is kept: the listener is stopped by the runtime going away with
-        the session, and `_paint_activity` reads the workspace afresh every time — so a
+        the session, and `_paint_activity` reads the window afresh every time — so a
         step reported by a profile that has just been closed paints nothing at all.
         """
         try:
@@ -1104,27 +1097,32 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._splash = None
 
     def _activity_text(self) -> str:
-        newest, owner = None, None
-        for who, activity in self._activities():
+        newest = None
+        for activity in self._activities():
             step = activity.current()
             if step is not None and (newest is None or step.seq > newest.seq):
-                newest, owner = step, who
+                newest = step
         if newest is None:
             return self._t("activity.idle")
-        said = self._t(newest.key, **newest.fmt)
-        # Named only when the name adds something: one profile open, or the step is
-        # this window's own, and «who» is not in question.
-        if owner and len(self._workspace) > 1:
-            return self._t("activity.scoped", profile=owner, what=said)
-        return said
+        # NOT NAMED any more, because there is nobody else it could be: what is left is
+        # the window's own work and the work of the page in front of the person reading
+        # the line. A name would only ever repeat the tab that is already selected.
+        return self._t(newest.key, **newest.fmt)
 
     def _activities(self) -> list:
-        """``(profile name or None, Activity)`` for the window and every open profile."""
-        out = [(None, self._activity)]
-        for session in self._workspace.sessions:
-            activity = getattr(session.rt, "activity", None)
-            if activity is not None:
-                out.append((session.name, activity))
+        """The activities this strip may draw: the WINDOW's, and the page on screen's.
+
+        NOT every open profile (#1391) — see the block comment above `_build_status_line`.
+        `_current_session` and not `_session()`: this is «what is on the glass», which is
+        the window's own idea of the front page and not the thread's idea of whom it is
+        acting for. A repaint handed over from a background profile's worker thread would
+        otherwise put that profile's step on screen through the back door.
+        """
+        out = [self._activity]
+        session = self._current_session
+        activity = getattr(session.rt, "activity", None) if session is not None else None
+        if activity is not None:
+            out.append(activity)
         return out
 
     # -- «Прервать»: end whatever is playing, now (#1300) ---------------------
@@ -1287,12 +1285,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
                        self._profiles.active, runtime.updates.version_text(),
                        self._update_channel())
         # Everything the panel says goes through one sink (panel/runtime/log.py): the
-        # queue this page drains, the profile's panel.log, and the debug log. The
-        # WIDGET is this page's — a tab launched on its own has none, and says the
-        # same lines into the same two files.
-        self._log = None              # the widget, built by _build_ui
-        self._log_lines = 0           # lines in the widget, for the retention cap
-        self._log_kept: list = []     # every line this session, for a filter redraw
+        # queue `_pump_log` drains into this profile's spool, its panel.log, and the
+        # debug log. NO WIDGET IS MADE HERE any more (#1391) — the pane is «Разработка»'s
+        # and most profiles do not have it, which changes nothing about the record.
         # An action letting go of the game is when the status strip is stale — the link
         # says so, and only a window that HAS a strip does anything about it. Both of
         # these are called from the link's own thread, so both are BOUND: the indicator
@@ -2526,10 +2521,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # `_migrate_autohelp` flips that on once for a profile that had it set.
             # The Scenarios tab used to forget all three on every restart, so a
             # launch always started on the first row with an empty args box.
-            "log_filter": self._log_filter_var.get(),
+            # `log_filter` and `log_sash` are no longer written either (#1391): the
+            # filter is the «Разработка» pane's and travels in that tab's block, and
+            # there is no sash left to remember now that «Главная» has no log under it.
             "window_geometry": self._current_geometry(),
             "window_zoomed": self._is_zoomed(),
-            "log_sash": self._current_sash(),
             # The «Командный пункт» tab: the shared-mission robbery rule and the
             # treasure page's digging squad, a block per page.
             # The schedule is NOT here: a timer's switch and period live in the
@@ -2616,7 +2612,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         s = self._settings
         self._loading = True
         try:
-            self._log_filter_var.set(s.get("log_filter") or LOG_FILTER_ALL)
             for key, default in SETTINGS_DEFAULTS.items():
                 var = self._opt_vars.get(key)
                 if var is not None:
@@ -2649,8 +2644,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
-        for var in (self._log_filter_var,):
-            var.trace_add("write", lambda *a: self._save_settings())
+        # The shell has no bound variable of its own left to trace: the log filter, its
+        # last one, went to «Разработка» with the pane (#1391) and is traced below with
+        # every other tab's.
         # Every plugin tab's own settings, traced from here like any other bound
         # setting, so a tab stays free of the profile machinery.
         #
@@ -2850,27 +2846,23 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # The account summary strip that used to hang here now opens the «Аккаунты»
         # tab (built above, beside the character list it belongs with).
 
-        # Everything above the log is fixed-height and the log used to get whatever
-        # was left — a few lines at the 640×500 minimum. A sash makes that the
-        # operator's choice, and its position is remembered per profile.
-        split = ttk.PanedWindow(main, orient="vertical")
-        split.pack(fill="both", expand=True)
-        self._main_split = split
-        upper = ttk.Frame(split)
-        lower = ttk.Frame(split)
-        split.add(upper, weight=0)
-        split.add(lower, weight=1)
-        # The blocks in the top pane scroll. Stacked they ask for more height than
-        # the pane ever gets — the window opens 760×600 and the strip alone wants
-        # some 550 px — and `pack` answers that by collapsing whatever crosses the
-        # bottom edge to a single pixel. «Автолут секреток» and «Автолут Призрака»
-        # sat right at that edge and showed a caption with nothing under it, with
-        # no hint that anything was missing (#1153). Inside a scroll area every
-        # block keeps the height it asks for, wherever the sash ends up.
-        controls = ScrollableFrame(upper)
+        # …and so does the LOG, which used to take the bottom half of this page behind a
+        # sash (#1391). It is the «Разработка» tab's now — one pane, drawing this
+        # profile's own spool (`panel/runtime/log_view.py`). What is left here needs no
+        # split at all: the control blocks take the page and the command line sits under
+        # them.
+        lower = ttk.Frame(main)
+        lower.pack(side="bottom", fill="x")
+        # The blocks scroll. Stacked they ask for more height than the page ever gets —
+        # the window opens 760×600 and the strip alone wants some 550 px — and `pack`
+        # answers that by collapsing whatever crosses the bottom edge to a single pixel.
+        # «Автолут секреток» and «Автолут Призрака» sat right at that edge and showed a
+        # caption with nothing under it, with no hint that anything was missing (#1153).
+        # Inside a scroll area every block keeps the height it asks for.
+        controls = ScrollableFrame(main)
         controls.pack(fill="both", expand=True)
         self._main_controls = controls
-        main = controls               # the control blocks below fill the top pane
+        main = controls               # the control blocks below fill the page
 
         game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
@@ -2909,7 +2901,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # Jumping itself did NOT go: `_jump` is still here and still the only way a
         # coordinate is walked to. What used to aim it now aims it from where the
         # coordinate already is — a `#2305 X:568 Y:371` in the log is clickable
-        # (`_bind_coord_links` → `_on_coord_click`), the «Командный пункт» tab jumps to
+        # (`panel/runtime/log_view.py::LogPane`), the «Командный пункт» tab jumps to
         # the tile a row is about, and a scenario's `JUMP` names its own.
         #
         # Two buttons read the deleted fields and were re-sourced rather than left
@@ -2941,43 +2933,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # driven standing order — answer «Помочь всем» the instant a request lands —
         # which is exactly a *trigger*, so it moved to the Timers tab's «Триггеры»
         # group (panel/timers.py, panel/triggers.py) and this frame went away.
-
-        logframe = self._tr(ttk.LabelFrame(lower, padding=4), "log.frame")
-        logframe.pack(fill="both", expand=True, padx=8, pady=(4, 4))
-
-        # The strip above the log: which producer to show, and Clear. Six producers
-        # write into one widget, so "давно ли пришёл этот запрос помощи" used to mean
-        # reading past everything else that happened meanwhile.
-        strip = ttk.Frame(logframe)
-        strip.pack(fill="x", pady=(0, 3))
-        self._tr(ttk.Label(strip), "log.filter").pack(side="left")
-        self._log_filter_var = tk.StringVar(value=LOG_FILTER_ALL)
-        filt = ttk.Combobox(strip, textvariable=self._log_filter_var, state="readonly",
-                            width=10, values=(LOG_FILTER_ALL,) + LOG_TAGS)
-        filt.pack(side="left", padx=(4, 8))
-        filt.bind("<<ComboboxSelected>>", lambda _e: self._redraw_log())
-        self._tr(ttk.Button(strip, command=self._clear_log),
-                 "log.clear").pack(side="left")
-        self._tr(ttk.Label(strip, foreground="#888"),
-                 "log.filter_hint").pack(side="left", padx=(10, 0))
-
-        # Plain native Text widget: state="normal" (never toggled to "disabled",
-        # which would block interactive selection). The log stays technically
-        # editable, but stray typed edits to a log are harmless. Mouse selection
-        # comes for free from Tk's Text defaults; copy needs help, though — Tk's
-        # built-in <Control-c> binding matches only the Latin 'c' keysym, so with
-        # a non-Latin keyboard layout (e.g. Cyrillic) Ctrl+C never fires. We add
-        # layout-independent copy/select-all: explicit key bindings that cover the
-        # Cyrillic keysyms plus a right-click context menu (Copy / Select All).
-        self._log = ScrolledText(logframe, wrap="word", height=16,
-                                              font=("Consolas", 9),
-                                              background="#111", foreground="#ddd")
-        self._log.pack(fill="both", expand=True)
-        self._log.tag_config("coordlink", foreground="#5cf", underline=True)
-        self._bind_coord_links(self._log)
-        for tag, colour in LOG_COLOURS.items():
-            self._log.tag_config(tag, foreground=colour)
-        self._install_log_copy(self._log)
 
         # -- one DSL line, run through the same interpreter a recipe runs on ------
         #
@@ -3263,70 +3218,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except tk.TclError:
             pass                        # the tab is gone (panel closing)
 
-    # -- log copy support ---------------------------------------------------
-    def _install_log_copy(self, widget: tk.Text) -> None:
-        """Make the log copyable regardless of keyboard layout.
-
-        Tk's default Text bindings copy on the Latin ``<Control-c>`` only, so a
-        Cyrillic (or any non-Latin) layout leaves Ctrl+C dead. We add explicit
-        bindings for the Cyrillic keysyms and a right-click context menu, which
-        is fully layout-independent. Handlers return ``"break"`` so the default
-        binding (when it does fire) doesn't run twice.
-        """
-        # One dispatcher for all Ctrl+<letter> presses. It matches on the
-        # physical key (Windows VK code — layout-invariant: C=67, A=65) first,
-        # then falls back to the keysym so Latin and named Cyrillic keysyms work
-        # cross-platform. This is what makes copy work under a Cyrillic layout,
-        # where Tk's default <Control-c> (Latin-only) never fires.
-        widget.bind("<Control-KeyPress>", self._on_log_ctrl_key)
-
-        menu = tk.Menu(widget, tearoff=0)
-        menu.add_command(command=self._copy_log_selection)        # idx 0: Copy
-        menu.add_command(command=self._select_all_log)            # idx 1: Select All
-        self._log_menu = menu
-        self._retranslate_log_menu()
-        self._hook(self._retranslate_log_menu)
-        # Button-3 is right-click on Windows/X11; Button-2 covers macOS.
-        widget.bind("<Button-3>", self._popup_log_menu)
-        widget.bind("<Button-2>", self._popup_log_menu)
-
-    def _retranslate_log_menu(self) -> None:
-        self._log_menu.entryconfigure(0, label=self._t("log.copy"))
-        self._log_menu.entryconfigure(1, label=self._t("log.select_all"))
-
-    def _on_log_ctrl_key(self, event):
-        """Route Ctrl+C / Ctrl+A independently of keyboard layout."""
-        keysym = (event.keysym or "").lower()
-        # keycode: Windows VK code (physical key). Cyrillic_es/ef cover X11.
-        if event.keycode == 67 or keysym in ("c", "cyrillic_es"):
-            return self._copy_log_selection()
-        if event.keycode == 65 or keysym in ("a", "cyrillic_ef"):
-            return self._select_all_log()
-        return None                        # let other Ctrl+combos pass through
-
-    def _copy_log_selection(self, _event=None) -> str:
-        try:
-            sel = self._log.get("sel.first", "sel.last")
-        except tk.TclError:
-            return "break"                 # nothing selected
-        if sel:
-            self.clipboard_clear()
-            self.clipboard_append(sel)
-        return "break"
-
-    def _select_all_log(self, _event=None) -> str:
-        self._log.tag_remove("sel", "1.0", "end")
-        self._log.tag_add("sel", "1.0", "end-1c")
-        return "break"
-
-    def _popup_log_menu(self, event) -> str:
-        try:
-            self._log_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self._log_menu.grab_release()
-        return "break"
-
-    # -- logging (panel/runtime/log.py holds the sink; the widget is this file's) --
+    # -- logging (panel/runtime/log.py holds the sink, log_view.py the pane) --
     def _log_put(self, line: str) -> None:
         self._logbus.put(line)
 
@@ -3435,31 +3327,18 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._logbus.say(tag, key, **fmt)
 
     def _pump_log(self) -> None:
-        drawn = False
+        """Empty this profile's log queue, once a tick. The shell's whole part in it.
+
+        The work is `panel/runtime/log_view.py`'s: remember the line, mirror it into
+        `panel.log`, and hand it to the «Разработка» pane if this profile has one drawn.
+        WHETHER OR NOT IT HAS is why the clock stayed here — a profile with the tab
+        switched off still has a queue that must not grow and a record that must be
+        written, and the pane comes and goes underneath this without it noticing.
+        """
         try:
-            while True:
-                line = self._logbus.q.get_nowait()
-                stamp = time.strftime("%H:%M:%S")
-                self._log_kept.append((stamp, line))
-                if len(self._log_kept) > self._log_cap() * 2:
-                    # The filter redraws from this list, so it is kept — but not
-                    # without bound. Twice the widget's cap means a re-filter still
-                    # has more history than the widget ever showed.
-                    del self._log_kept[:len(self._log_kept) - self._log_cap()]
-                if self._log_shown(line):
-                    # One scroll for the whole drain, below — a tracer streaming a
-                    # thousand lines a second must not make Tk chase the tail a
-                    # thousand times in the same tick.
-                    self._insert_line(stamp, line, scroll=False)
-                    drawn = True
-                self._append_log(line)
-        except queue.Empty:
-            pass
-        if drawn:
-            try:
-                self._log.see("end")
-            except tk.TclError:
-                pass
+            self._rt.log_spool.pump(cap=self._log_cap())
+        except Exception:                  # noqa: BLE001 — the log, never the panel
+            self._dbg.error("log pump failed", exc_info=True)
         self._arm("log", 120, self._pump_log)
 
     # -- the on-disk mirror (panel/runtime/log.py) --------------------------
@@ -3472,127 +3351,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _append_log(self, line: str) -> None:
         self._logbus.append_file(line)
 
-    # -- severity, filtering, retention -------------------------------------
-    _log_tag = staticmethod(runtime.log.tag_of)
-    _log_severity = staticmethod(runtime.log.severity_of)
-
+    # -- retention -----------------------------------------------------------
     def _log_cap(self) -> int:
         return self._opt_int("log_max_lines", low=200, high=200000)
 
-    def _log_shown(self, line: str) -> bool:
-        """Does the filter let this line through?
-
-        The filter is display-only: everything is still written to panel.log and
-        still kept for a redraw, so narrowing to `[secret]` and back loses nothing.
-        """
-        want = getattr(self, "_log_filter_var", None)
-        if want is None:
-            return True
-        chosen = want.get()
-        if not chosen or chosen == LOG_FILTER_ALL:
-            return True
-        return self._log_tag(line) == chosen
-
-    def _insert_line(self, stamp: str, text: str, scroll: bool = True) -> None:
-        """Insert one stamped log line: clock, severity colour, clickable coordinates.
-
-        The clock is the thing that was missed every single session — "когда
-        собралась база?" used to mean opening panel.log, because the widget carried
-        no time at all while the file did.
-
-        ``scroll=False`` skips the follow-the-tail scroll — a caller writing a whole
-        batch (a drained queue, a filter redraw) scrolls once at the end instead of
-        once per line, which is the difference between a tracer's burst arriving in
-        a blink and the panel visibly stuttering through it.
-        """
-        if self._log is None:            # a page built without one (`LW_PANEL_BARE`)
-            return
-        clean = _ANSI.sub("", text)
-        level = self._log_severity(clean)
-        body_tags = (f"sev_{level}",) if level else ()
-        self._log.insert("end", stamp + " ", ("stamp",))
-        pos = 0
-        for (s, e, _x, _y, _srv) in coords.parse(clean):
-            if s > pos:
-                self._log.insert("end", clean[pos:s], body_tags)
-            self._insert_coord_link(self._log, clean[s:e])
-            pos = e
-        if pos < len(clean):
-            self._log.insert("end", clean[pos:], body_tags)
-        self._log.insert("end", "\n", body_tags)
-        self._log_lines += 1
-        self._trim_log()
-        if scroll:
-            self._log.see("end")
-
-    # -- clickable coordinates: ONE binding per widget, not one per link -------
-    #
-    # A coordinate used to be written with a tag of its own (`c0`, `c1`, …) carrying
-    # three fresh callbacks that closed over its x/y/server. Nothing ever took them
-    # off again: `_trim_log` drops the TEXT, and a chat rebuild clears the view, but
-    # a Tk tag and its bindings outlive the characters they were laid over. A panel
-    # left running for a night therefore accumulated a tag, three Tcl commands and
-    # three Python closures per coordinate it had ever printed — the "нарастающие
-    # Tk-колбэки" behind the slow-down.
-    #
-    # The link needs no state of its own: the tagged text IS the coordinate, and
-    # `coords.parse` reads it back. So the shared `coordlink` tag is bound once per
-    # widget and the click resolves what was clicked from the range under the mouse.
-    def _bind_coord_links(self, widget) -> None:
-        """Make this widget's coordinate links clickable (panel/widgets.py owns them).
-
-        Shared by the log and the chat views, which is why the mechanics are in
-        `widgets` and only "where a click goes" is here.
-        """
-        widgets.bind_coord_links(widget, self._on_coord_click)
-
-    def _insert_coord_link(self, widget, text: str) -> None:
-        widgets.insert_coord_link(widget, text)
-
-    def _trim_log(self) -> None:
-        """Keep the widget bounded — drop the oldest block when it overflows.
-
-        A block at a time, not a line: trimming per insert would run the delete on
-        every single line once the cap is reached, which is the cost this is here to
-        avoid in the first place.
-        """
-        cap = self._log_cap()
-        if self._log_lines <= cap + LOG_TRIM_BLOCK:
-            return
-        drop = self._log_lines - cap
-        try:
-            self._log.delete("1.0", f"{drop + 1}.0")
-        except tk.TclError:
-            return
-        self._log_lines -= drop
-
-    def _redraw_log(self) -> None:
-        """Repaint the widget from the kept lines — after a filter change.
-
-        Only the last `cap` matching lines: a session that has scrolled far past the
-        cap must not become slow the moment somebody narrows the filter.
-        """
-        try:
-            self._log.delete("1.0", "end")
-        except tk.TclError:
-            return
-        self._log_lines = 0
-        shown = [(s, ln) for s, ln in self._log_kept if self._log_shown(ln)]
-        for stamp, line in shown[-self._log_cap():]:
-            self._insert_line(stamp, line, scroll=False)
-        try:
-            self._log.see("end")
-        except tk.TclError:
-            pass
-
-    def _clear_log(self) -> None:
-        """Empty the widget (and the history behind it). panel.log is untouched."""
-        self._log_kept.clear()
-        try:
-            self._log.delete("1.0", "end")
-        except tk.TclError:
-            pass
-        self._log_lines = 0
+    # The filter, the stamped insert, the trim, the redraw, the Clear and the clickable
+    # coordinate all went to `panel/runtime/log_view.py` with the pane itself (#1391).
+    # They were the shell's only because the widget was, and every one of them is about
+    # a Text this file no longer owns.
 
     # -- daemon lifecycle ---------------------------------------------------
     def _startup(self) -> None:
@@ -3686,9 +3452,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
             "after": pending,
             "threads": threading.active_count(),
             "tr": self._i18n.registry_size(),
-            "log_tags": self._tag_count(getattr(self, "_log", None)),
-            "log_lines": self._log_lines,
-            "log_kept": len(self._log_kept),
+            # The pane is «Разработка»'s now (#1391), so the widget's own tag and line
+            # counts are counted where it is; what is still the shell's business is the
+            # spool it pumps, which grows whether or not anybody is drawing it.
+            "log_kept": len(self._rt.log_spool),
             "links": widgets.coord_link_count(),
         }
         # INFO on the first snapshot and whenever something moved; the steady state
@@ -4673,9 +4440,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         return self._game.jump(x, y, server, quiet=quiet)
 
-    def _on_coord_click(self, x: int, y: int, server) -> None:
-        self._say("coord", "log.coord.clicked", where=coords.fmt(x, y, server))
-        self._jump(x, y, server)
+    # `_on_coord_click` went with the log pane (#1391): the click is the pane's own now
+    # (`panel/runtime/log_view.py::LogPane._jump`), said and walked through the RUNTIME's
+    # link, so a pane in a tab launched on its own follows a coordinate exactly as the
+    # one in the window does.
 
     # `_goto_coord` (the «Перейти» button), the «куда ходил» history and its
     # `_remember_jump` / `_set_jump_history` / `_on_jump_history` went with the
@@ -4965,23 +4733,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except tk.TclError:
             return ""
 
-    def _current_sash(self) -> int:
-        """Where the operator left the log's sash, in pixels from the top."""
-        split = getattr(self, "_main_split", None)
-        if split is None:
-            return 0
-        try:
-            return int(split.sashpos(0))
-        except (tk.TclError, IndexError):
-            return 0
+    # THE LOG'S SASH IS GONE with the log it divided (#1391). «Главная» is one scrolling
+    # column of control blocks now, so there is nothing left to place, nothing to
+    # remember per profile and nothing to re-apply when a page is brought to the front:
+    # `_current_sash`, `_saved_sash` and `_apply_sash` went with it, and `log_sash` is a
+    # key an old profile may still carry and nothing reads.
 
     def _restore_geometry(self) -> None:
-        """Put the window and the sash back where they were.
-
-        The sash needs the window to have been laid out first (its position is in
-        pixels and there are none before the first idle pass), which is why this is
-        an `after` rather than a call.
-        """
+        """Put the window back where it was."""
         geom = str(self._settings.get("window_geometry") or "").strip()
         if geom:
             try:
@@ -4996,51 +4755,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self.state("zoomed")
             except tk.TclError:
                 pass
-        sash = self._settings.get("log_sash")
-        try:
-            sash = max(int(sash), 0)
-        except (TypeError, ValueError):
-            sash = 0
-        self._later(200, lambda: self._apply_sash(sash))
-
-    def _saved_sash(self) -> int:
-        """Where this profile last left the log's sash (0 = «wherever the blocks end»)."""
-        try:
-            return max(int(self._settings.get("log_sash")), 0)
-        except (TypeError, ValueError):
-            return 0
-
-    def _apply_sash(self, sash: int = 0) -> None:
-        """Put the main tab's sash ``sash`` px from the top — or, with 0, where the
-        control blocks naturally end.
-
-        Bounded at both ends, because a remembered pixel count is a poor answer on
-        any window it was not measured on. The top pane never gets more than the
-        blocks ask for (the surplus would be dead space above the sash), and never
-        so much that the log below is squeezed out of sight — which is what a
-        window too short for both used to do to «Автолут секреток» and «Автолут
-        Призрака» (#1153). The blocks scroll now, so bounding the pane costs
-        nothing: what does not fit is reachable rather than cut off.
-        """
-        split = getattr(self, "_main_split", None)
-        controls = getattr(self, "_main_controls", None)
-        if split is None:
-            return
-        try:
-            self.update_idletasks()
-            want = int(controls.winfo_reqheight()) if controls is not None else 0
-            total = int(split.winfo_height())
-            if want > 0:
-                sash = want if sash <= 0 else min(sash, want)
-            if total > 0:
-                # Half the pane is the floor's own floor: on a window too short for
-                # both there is no split that pleases anybody, and an even one at
-                # least leaves each side something to show.
-                sash = min(sash, max(total - LOG_MIN_HEIGHT, total // 2))
-            if sash > 0:
-                split.sashpos(0, sash)
-        except (tk.TclError, IndexError, ValueError):
-            pass
 
     # -- resizing the window ------------------------------------------------
 

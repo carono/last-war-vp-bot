@@ -471,6 +471,102 @@ def test_a_profile_with_its_own_desktop_does_not_queue_for_the_foreground():
         claims.clear()
 
 
+# -- the status strip along the bottom (#1391) --------------------------------
+#
+# The one line in the window that says what is happening NOW was showing the newest
+# step of EVERY open profile, with the owner's name glued in front. So a person reading
+# one account's page was told what a different account was doing — and because the strip
+# keeps the newest step, a busy background profile painted over the foreground one's,
+# which made the line least trustworthy exactly when the profile being watched was
+# working hardest.
+
+def _strip(front, behind, window):
+    """A stand-in for the window: the three activities the strip can reach."""
+    import panel.__main__ as pm
+
+    fake = types.SimpleNamespace(
+        _activity=window,
+        _current_session=types.SimpleNamespace(
+            name="front", rt=types.SimpleNamespace(activity=front)),
+        _workspace=[object(), object()],           # two profiles open, `len()` is all
+        _t=lambda key, **fmt: key)
+    fake._activities = lambda: pm.Panel._activities(fake)
+    fake._activity_text = lambda: pm.Panel._activity_text(fake)
+    fake._behind = behind
+    return fake
+
+
+def test_the_status_strip_never_draws_another_profiles_step():
+    """Two profiles open, the other one busier: the strip stays on this one."""
+    from panel.runtime.activity import Activity
+
+    window, front, behind = Activity(), Activity("front"), Activity("behind")
+    strip = _strip(front, behind, window)
+
+    front.begin("activity.tab.build", name="rally")
+    behind.begin("activity.daemon.start", port=47655)      # newer, and NOT ours
+    assert behind not in strip._activities(), "another account's activity is reachable"
+    assert strip._activity_text() == "activity.tab.build", (
+        "the strip drew the profile that is not on screen")
+
+    # …and with nothing of our own running, a busy neighbour still says nothing.
+    front.clear()
+    assert strip._activity_text() == "activity.idle", (
+        "an idle page reported another account's work as its own")
+
+
+def test_the_windows_own_steps_are_still_drawn():
+    """Opening a profile, pulling an update, restarting: the PROCESS's, and shown.
+
+    The narrowing must not take these with it — they are what the strip is for while a
+    page is being built, and they belong to whoever is looking at the window.
+    """
+    from panel.runtime.activity import Activity
+
+    window, front, behind = Activity(), Activity("front"), Activity("behind")
+    strip = _strip(front, behind, window)
+    window.begin("activity.profile.open", name="other")
+    assert strip._activity_text() == "activity.profile.open"
+
+
+def test_the_strip_asks_the_page_on_screen_not_the_thread_it_is_on():
+    """`_current_session`, never `_session()` (the thread's) or the whole workspace.
+
+    A repaint is handed over from the worker thread of whichever profile reported a
+    step, so «the session this thread is acting for» is the BACKGROUND one precisely
+    when it matters — that is the same back door, one level down.
+    """
+    import inspect
+
+    import panel.__main__ as pm
+
+    body = inspect.getsource(pm.Panel._activities)
+    assert "_current_session" in body, "the strip stopped asking what is on screen"
+    assert "self._workspace.sessions" not in body, (
+        "the strip walks every open profile again")
+    assert "self._session()" not in body, (
+        "the strip follows the thread instead of the glass")
+
+
+def test_interrupt_is_still_every_profile_and_is_meant_to_be():
+    """The press beside the strip did NOT narrow with the reading, and that is the rule.
+
+    «Прервать» is one of the two presses about the PROCESS (with «перезапустить
+    панель»): a window holds several accounts and the run that has to be stopped is not
+    reliably the one being looked at. The READING is an account's, the PRESS is the
+    machine's — so this is pinned from both sides rather than left to look like an
+    oversight in whichever direction the next reader is going.
+    """
+    import inspect
+
+    import panel.__main__ as pm
+
+    for method in (pm.Panel._interrupt_all, pm.Panel._runs_live):
+        body = inspect.getsource(method)
+        assert "self._workspace.sessions" in body, (
+            f"{method.__name__} stopped reaching every open profile")
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

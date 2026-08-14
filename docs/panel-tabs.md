@@ -1,8 +1,9 @@
 # Adding a tab to the panel
 
 **Every new tab is a plugin. There is no other kind.** The shell (`panel/__main__.py`)
-is a window with a notebook, a log and a menu; it does not know what any tab does, and
-nothing you add may make it know.
+is a window with a notebook and a menu; it does not know what any tab does, and nothing
+you add may make it know. (It used to hold the log as well — that pane is «Разработка»'s
+now, out of `panel/runtime/log_view.py`, #1391.)
 
 This is the how-to. The reasoning behind it is
 [`docs/research/panel-tabs-refactor.md`](research/panel-tabs-refactor.md); read that
@@ -246,7 +247,7 @@ and standalone, which is what makes a tab launchable at all.
 | | |
 |---|---|
 | `rt.t(key, **fmt)` / `rt.tr(widget, key)` | words; `self.t` / `self.tr` are the same |
-| `rt.say(tag, key)` / `rt.put(line)` | the log sink (no widget — «Главная» owns the view) |
+| `rt.say(tag, key)` / `rt.put(line)` | the log sink. **No widget of your own**: the line goes to `panel.log`, to the debug log and to the phone's «Лог» whether or not anybody is drawing, and the one pane there is belongs to «Разработка» (`rt.log_spool`, `panel/runtime/log_view.py`) |
 | `rt.profiles` | the active profile's paths. **A file your tab wants to keep is asked for HERE, never built** — everything the panel stores is under `<project>/profiles/<name>/`, one file per thing, listed in [`panel-storage.md`](panel-storage.md). Needs a kind of file that is not there yet? Add the accessor to `panel/profile.py` beside its siblings; a path assembled in a tab is how the store came to mean two places at once (#1276) |
 | `rt.settings` | knobs: `opt_int` / `opt_str` / `opt_bool` / `opt_float`, `vars[key]` (one Tk variable per knob, made by the runtime before any tab is built), and `changed()`. **Three of them are not knobs**: `launcher`, `game_exe` and `win_python` are `runtime.settings.MACHINE_KEYS` — one answer per machine, from `tools/lib/game_paths.py`, so a value in a profile's file is ignored and never written back (#1252). Read them the same way; do not offer a box for one. The daemon port is not typed either — `panel/runtime/provision.py` hands it out with the Windows session, one client per profile. |
 | `rt.game` | `evaluator()`, `client`, `up()`, `claim()` / `release()`, `jump()`, `port()` |

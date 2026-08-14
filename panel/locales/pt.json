@@ -15,7 +15,6 @@
   "activity.profile.close": "fechando o perfil «{name}»…",
   "activity.profile.delete": "a apagar o perfil «{name}»…",
   "activity.profile.open": "abrindo o perfil «{name}»…",
-  "activity.scoped": "{profile}: {what}",
   "activity.tab.build": "montando a aba «{tab}»…",
   "activity.tab.load": "abrindo a aba «{tab}»…",
   "activity.update.check": "verificando atualizações…",
