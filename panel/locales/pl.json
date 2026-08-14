@@ -276,6 +276,7 @@
   "log.children.orphan": "monitor z poprzedniego uruchomienia wciąż działał — {name} (pid {pid}); zatrzymany",
   "log.children.reaped": "zostały z poprzedniego uruchomienia i zostały zatrzymane: {count}",
   "log.children.stopped": "zatrzymane procesy w tle: {count}",
+  "log.store.imported": "«{name}» przeniesione do bazy: {count} wierszy; stary plik zostaje obok",
   "log.clear": "Wyczyść",
   "log.coord.bad_xy": "X i Y muszą być liczbami całkowitymi",
   "log.coord.clicked": "kliknięcie → {where}",

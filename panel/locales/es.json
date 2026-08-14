@@ -276,6 +276,7 @@
   "log.children.orphan": "un monitor del arranque anterior seguía funcionando — {name} (pid {pid}); detenido",
   "log.children.reaped": "quedaban del arranque anterior y se han detenido: {count}",
   "log.children.stopped": "procesos en segundo plano detenidos: {count}",
+  "log.store.imported": "«{name}» trasladado a la base de datos: {count} filas; el archivo antiguo se conserva al lado",
   "log.clear": "Vaciar",
   "log.coord.bad_xy": "X e Y tienen que ser números enteros",
   "log.coord.clicked": "clic → {where}",

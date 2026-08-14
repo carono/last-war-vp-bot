@@ -276,6 +276,7 @@
   "log.children.orphan": "от прошлого запуска остался работающий монитор — {name} (pid {pid}); остановлен",
   "log.children.reaped": "осталось от прошлого запуска и остановлено: {count}",
   "log.children.stopped": "фоновых процессов остановлено: {count}",
+  "log.store.imported": "«{name}» переехали в базу: {count} строк; старый файл сохранён рядом",
   "log.clear": "Очистить",
   "log.coord.bad_xy": "X и Y должны быть целыми числами",
   "log.coord.clicked": "клик → {where}",

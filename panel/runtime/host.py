@@ -248,6 +248,26 @@ class PanelRuntime:
             self.children.reap()
         except Exception:                 # noqa: BLE001 — housekeeping, never the panel
             self.dbg("children").error("reap failed", exc_info=True)
+        self._warm()
+
+    def _warm(self) -> None:
+        """Do the one-off work a profile owes, HERE rather than on the Tk thread (#1398).
+
+        Bringing `players.json` into the database is a second or two once in the life of
+        a profile — 11.5 MB parsed and 17 374 rows written on the largest live one. It
+        happens on whichever thread first asks for the register, and doing it here means
+        that thread is never the one drawing the window.
+
+        Nothing waits for it and nothing depends on it: a tab that asks first simply does
+        the import itself, and one that asks second finds it done.
+        """
+        try:
+            moved = self.players.ensure_imported()
+        except Exception:                 # noqa: BLE001 — the register still works
+            self.dbg("store").error("importing players.json failed", exc_info=True)
+            return
+        if moved:
+            self.log.say("panel", "log.store.imported", name="players", count=moved)
 
     @property
     def schedule(self):
@@ -329,7 +349,9 @@ class PanelRuntime:
         """
         if self._players is None:
             from .players import PlayerBook
-            self._players = PlayerBook(self.profiles.players_json())
+            # THIS PROFILE'S DATABASE, and the old file so the first run can bring it
+            # in — once, keeping the file (#1398, `panel/runtime/store.py`).
+            self._players = PlayerBook(self.store, self.profiles.players_json())
         return self._players
 
     @property

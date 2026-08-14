@@ -276,6 +276,7 @@
   "log.children.orphan": "un monitor dell'avvio precedente era ancora attivo — {name} (pid {pid}); fermato",
   "log.children.reaped": "rimasti dall'avvio precedente e fermati: {count}",
   "log.children.stopped": "processi in background fermati: {count}",
+  "log.store.imported": "«{name}» spostati nel database: {count} righe; il vecchio file resta accanto",
   "log.clear": "Svuota",
   "log.coord.bad_xy": "X e Y devono essere numeri interi",
   "log.coord.clicked": "clic → {where}",

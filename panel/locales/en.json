@@ -276,6 +276,7 @@
   "log.children.orphan": "a monitor from a previous run was still going — {name} (pid {pid}); stopped",
   "log.children.reaped": "left over from a previous run and stopped: {count}",
   "log.children.stopped": "background processes stopped: {count}",
+  "log.store.imported": "«{name}» moved into the database: {count} rows; the old file is kept beside it",
   "log.clear": "Clear",
   "log.coord.bad_xy": "X and Y have to be whole numbers",
   "log.coord.clicked": "click → {where}",

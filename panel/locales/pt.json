@@ -276,6 +276,7 @@
   "log.children.orphan": "um monitor da execução anterior ainda estava rodando — {name} (pid {pid}); parado",
   "log.children.reaped": "sobraram da execução anterior e foram parados: {count}",
   "log.children.stopped": "processos em segundo plano parados: {count}",
+  "log.store.imported": "«{name}» movido para a base de dados: {count} linhas; o ficheiro antigo fica ao lado",
   "log.clear": "Limpar",
   "log.coord.bad_xy": "X e Y têm de ser números inteiros",
   "log.coord.clicked": "clique → {where}",

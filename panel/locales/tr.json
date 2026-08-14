@@ -276,6 +276,7 @@
   "log.children.orphan": "önceki çalıştırmadan kalan bir izleyici hâlâ çalışıyordu — {name} (pid {pid}); durduruldu",
   "log.children.reaped": "önceki çalıştırmadan kalıp durdurulanlar: {count}",
   "log.children.stopped": "durdurulan arka plan süreçleri: {count}",
+  "log.store.imported": "«{name}» veritabanına taşındı: {count} satır; eski dosya yanında saklanıyor",
   "log.clear": "Temizle",
   "log.coord.bad_xy": "X ve Y tam sayı olmalı",
   "log.coord.clicked": "tıklama → {where}",

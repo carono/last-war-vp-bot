@@ -276,6 +276,7 @@
   "log.children.orphan": "monitor dari jalannya sesi sebelumnya masih berjalan — {name} (pid {pid}); dihentikan",
   "log.children.reaped": "tersisa dari sesi sebelumnya dan dihentikan: {count}",
   "log.children.stopped": "proses latar yang dihentikan: {count}",
+  "log.store.imported": "«{name}» dipindahkan ke basis data: {count} baris; berkas lama disimpan di sebelahnya",
   "log.clear": "Bersihkan",
   "log.coord.bad_xy": "X dan Y harus bilangan bulat",
   "log.coord.clicked": "klik → {where}",

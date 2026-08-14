@@ -276,6 +276,7 @@
   "log.children.orphan": "ein Monitor vom letzten Start lief noch — {name} (PID {pid}); beendet",
   "log.children.reaped": "vom letzten Start übrig geblieben und beendet: {count}",
   "log.children.stopped": "beendete Hintergrundprozesse: {count}",
+  "log.store.imported": "«{name}» in die Datenbank übernommen: {count} Zeilen; die alte Datei bleibt daneben liegen",
   "log.clear": "Leeren",
   "log.coord.bad_xy": "X und Y müssen ganze Zahlen sein",
   "log.coord.clicked": "Klick → {where}",

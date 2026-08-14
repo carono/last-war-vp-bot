@@ -37,14 +37,29 @@ sys.path.insert(0, str(ROOT / "tools" / "lib"))
 
 import lastwar_proto as proto                        # noqa: E402
 import world_index                                   # noqa: E402
-from panel.kept import EXPIRED, GAME_SAID_GONE       # noqa: E402
+from panel.runtime import players as playersmod      # noqa: E402
+from panel.runtime.store import Store                # noqa: E402
 from panel.tabs.players import registry as reg       # noqa: E402
 
 NOW = 1_700_000_000.0
 
 
-def _store(tmp) -> reg.PlayerBook:
-    return reg.PlayerBook(str(Path(tmp) / "players.json"))
+#: Every store a test opened, closed by the runner between tests. Windows will not
+#: delete a directory holding an open file, and a `TemporaryDirectory` that cannot clean
+#: up raises INSTEAD OF the assertion the test was about — so the cleanup is told to let
+#: it go, and the handles are closed here where it is deliberate rather than incidental.
+_OPENED: list = []
+
+
+def _tmpdir():
+    return tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+
+
+def _store(tmp, legacy: str = "") -> reg.PlayerBook:
+    """A register on a database of its own — one per profile, as the panel builds it."""
+    store = Store(str(Path(tmp) / "panel.db"))
+    _OPENED.append(store)
+    return reg.PlayerBook(store, legacy)
 
 
 def _swept_into(store, records, now=None) -> int:
@@ -68,7 +83,7 @@ def _swept(uid="1000000000000001", **over) -> dict:
 # the rule of the list
 # ---------------------------------------------------------------------------
 def test_an_empty_read_takes_nothing_away():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept()], now=NOW)
         assert len(store) == 1
@@ -79,35 +94,57 @@ def test_an_empty_read_takes_nothing_away():
         assert len(store) == 1
 
 
+def _book(path: str) -> reg.PlayerBook:
+    store = Store(path)
+    _OPENED.append(store)
+    return reg.PlayerBook(store)
+
+
 def test_the_list_survives_a_restart():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = str(Path(tmp) / "players.json")
-        _swept_into(reg.PlayerBook(path), [_swept()], now=NOW)
-        again = reg.PlayerBook(path)          # a fresh panel, same profile
+    with _tmpdir() as tmp:
+        path = str(Path(tmp) / "panel.db")
+        _swept_into(_book(path), [_swept()], now=NOW)
+        again = _book(path)   # a fresh panel, same profile
         assert len(again) == 1
         assert again.rows()[0]["name"] == "Player1"
 
 
 def test_a_row_leaves_only_when_a_person_asks():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept()], now=NOW)
-        for reason in (EXPIRED, GAME_SAID_GONE):
-            try:
-                store._kept.drop("1000000000000001", reason)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"the register gave a row up for {reason}")
         assert store.forget("1000000000000001") is True
         assert len(store) == 0
+
+
+def test_there_is_exactly_one_way_a_row_can_leave():
+    """The invariant `panel/kept.py` used to give the register by construction (#1398).
+
+    The list is a TABLE now, so «no `clear()` and one removal that names a reason» has to
+    be stated where the SQL is written. It is stated as: one `DELETE`, in `forget`, and
+    no statement anywhere that could empty or blank the table wholesale. The next person
+    to add a «prune the stale rows» does it in a diff a reviewer can see.
+    """
+    source = Path(playersmod.__file__).read_text(encoding="utf-8")
+    body = source[source.index("class PlayerBook"):]
+    deletes = [line.strip() for line in body.splitlines()
+               if "DELETE FROM" in line.upper()]
+    assert len(deletes) == 1, f"more than one way a row leaves: {deletes}"
+    assert "WHERE uid = ?" in deletes[0], \
+        f"the one DELETE is not aimed at a single row a person named: {deletes[0]}"
+    assert "forget" in body[:body.index(deletes[0].split('"')[0].strip() or "DELETE")] \
+        or "def forget" in body, "the DELETE moved out of `forget`"
+    for forbidden in ("clear", "wipe", "reset", "empty", "truncate", "set_rows",
+                      "replace", "__setitem__", "prune", "purge"):
+        assert not hasattr(reg.PlayerBook, forbidden), \
+            f"PlayerBook grew a {forbidden}() — that is the hole this rule closes"
 
 
 # ---------------------------------------------------------------------------
 # what a lap may and may not write
 # ---------------------------------------------------------------------------
 def test_a_lap_never_touches_the_persons_own_mark():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept()], now=NOW)
         store.set_note("1000000000000001", "farm")
@@ -118,7 +155,7 @@ def test_a_lap_never_touches_the_persons_own_mark():
 
 
 def test_a_tile_does_not_erase_the_numbers_only_a_profile_carries():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept(power=12_000_000, army_power=9_000_000)], now=NOW)
         # …and then an ordinary lap goes past, whose tile knows no power at all.
@@ -127,7 +164,7 @@ def test_a_tile_does_not_erase_the_numbers_only_a_profile_carries():
 
 
 def test_first_seen_is_written_once_and_last_seen_moves():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept(seen_at=int(NOW))], now=NOW)
         _swept_into(store, [_swept(seen_at=int(NOW) + 3600)], now=NOW + 3600)
@@ -145,7 +182,7 @@ def test_a_checkpoint_that_says_the_same_thing_twice_changes_nothing():
     its file and says «карта добавила или обновила 103» over an unchanged map is a
     register nobody can read the log of.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         assert _swept_into(store, [_swept()], now=NOW) == 1
         assert _swept_into(store, [_swept()], now=NOW) == 0
@@ -156,7 +193,7 @@ def test_a_checkpoint_that_says_the_same_thing_twice_changes_nothing():
 
 
 def test_a_mark_on_a_player_nobody_has_seen_is_refused():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         assert _store(tmp).set_note("1000000000000009", "?") is False
 
 
@@ -234,6 +271,127 @@ def test_sorting_is_stable_and_every_column_has_an_order():
     # Nothing is dropped by a column half the rows have no value for.
     for column in reg.SORT_KEYS:
         assert len(reg.sort_rows(rows, (column, True))) == 3, column
+
+
+def test_the_sql_filter_and_the_readable_one_never_disagree():
+    """Two definitions of one filter, and this is the price of keeping them (#1398).
+
+    `registry.matches` walks one row and is what a person argues with; `where_of` is
+    what seventeen thousand rows can afford. They are run over the same rows and the
+    same filters here, and the first disagreement fails — including the ones that are
+    easy to get wrong in SQL: an unknown is not inside a range, a Cyrillic name has to
+    match case-insensitively, and «давно не виден» is the other side of «виден за
+    неделю».
+    """
+    filters = [
+        {}, {"text": "player1"}, {"text": "AL2"}, {"text": "alliance one"},
+        {"text": "500,600"}, {"text": "farm"}, {"text": "ИГРОК"}, {"text": "игрок"},
+        {"level_min": 30}, {"level_min": 20, "level_max": 30}, {"power_min": 1},
+        {"power_min": 10_000_000}, {"alliance": "AL1"}, {"alliance": "al1"},
+        {"server": "100"}, {"server": "999"}, {"rect": (490, 590, 520, 620)},
+        {"circle": (500, 600, 10)}, {"circle": (500, 600, 2)},
+        {"seen": "hour"}, {"seen": "day"}, {"seen": "week"}, {"seen": "stale"},
+        {"noted": True}, {"noted": True, "level_min": 30},
+        {"text": "player", "server": "100", "level_min": 30},
+    ]
+    rows = _rows() + [{"uid": "4", "name": "Игрок", "level": 40, "server_id": 100,
+                       "alliance_abbr": "АЛ1", "x": 10, "y": 20, "last_seen": NOW}]
+    with _tmpdir() as tmp:
+        book = _store(tmp)
+        book.sighted([dict(r, seen_at=r["last_seen"]) for r in rows],
+                     source=reg.SRC_MAP, now=NOW)
+        # …and the notes, which no map source may write.
+        for row in rows:
+            if row.get("note"):
+                book.set_note(row["uid"], row["note"])
+        for f in filters:
+            in_python = {r["uid"] for r in reg.apply_filter(rows, f, now=NOW)}
+            in_sql = {r["uid"] for r in book.search(f, now=NOW)}
+            assert in_python == in_sql, (
+                f"filter {f}: the readable one says {sorted(in_python)}, "
+                f"the SQL one says {sorted(in_sql)}")
+
+
+def test_every_column_sorts_the_same_way_in_both():
+    with _tmpdir() as tmp:
+        rows = _rows()
+        book = _store(tmp)
+        book.sighted([dict(r, seen_at=r["last_seen"]) for r in rows],
+                     source=reg.SRC_MAP, now=NOW)
+        # The marks go in the way a PERSON writes them — no map source may (#1371), and
+        # a book without them would be sorting a column it has no values in.
+        for row in rows:
+            if row.get("note"):
+                book.set_note(row["uid"], row["note"])
+        for column in reg.SORT_KEYS:
+            for down in (True, False):
+                in_python = [r["uid"] for r in reg.sort_rows(rows, (column, down))]
+                in_sql = [r["uid"] for r in book.search({}, (column, down), now=NOW)]
+                assert in_python == in_sql, f"sorting by {column} (desc={down})"
+
+
+# ---------------------------------------------------------------------------
+# the move out of players.json
+# ---------------------------------------------------------------------------
+def test_the_old_file_comes_across_whole_and_stays_on_disk():
+    """The register the operator has is the reason this has to be exact (#1398).
+
+    Every row, every field, every provenance stamp and the person's own marks — and the
+    file itself still there afterwards, because an import that misread something is
+    answered by opening it and a delete is answered by nothing.
+    """
+    with _tmpdir() as tmp:
+        legacy = Path(tmp) / "players.json"
+        old = [{"uid": str(1000000000000000 + i), "name": f"Player{i}",
+                "level": 20 + (i % 15), "server_id": 100 + (i % 3),
+                "x": 500 + i, "y": 600 - i, "alliance_abbr": "AL1",
+                "power": 1_000_000 * i if i % 2 else None,
+                "note": "farm" if i % 5 == 0 else None,
+                "first_seen": int(NOW) - i, "last_seen": int(NOW),
+                "src": {"name": ["map", int(NOW)]}}
+               for i in range(1, 501)]
+        legacy.write_text(json.dumps(old, ensure_ascii=False), encoding="utf-8")
+
+        book = _store(tmp, str(legacy))
+        assert book.ensure_imported() == 500
+        assert len(book) == 500, "the import did not bring every row"
+        for want in (old[0], old[249], old[-1]):
+            got = book.get(want["uid"])
+            for field, value in want.items():
+                assert got[field] == value, (want["uid"], field, got[field], value)
+        assert not legacy.exists(), "the file was left where a re-import could find it"
+        kept = Path(str(legacy) + ".imported")
+        assert kept.exists(), "THE OLD FILE WAS DELETED — it is the only insurance there is"
+        assert json.loads(kept.read_text(encoding="utf-8")) == old
+
+
+def test_a_second_start_does_not_re_import_over_what_a_person_has_done():
+    with _tmpdir() as tmp:
+        legacy = Path(tmp) / "players.json"
+        legacy.write_text(json.dumps([_swept(last_seen=int(NOW))]), encoding="utf-8")
+        book = _store(tmp, str(legacy))
+        assert book.ensure_imported() == 1
+        book.set_note("1000000000000001", "farm")
+        book.forget("1000000000000009")            # a row that is not there
+        # The file comes back — a restored backup, or a copy somebody put next to it.
+        legacy.write_text(json.dumps([_swept(last_seen=int(NOW))]), encoding="utf-8")
+
+        again = reg.PlayerBook(book.store, str(legacy))
+        assert again.ensure_imported() == 0, "the import ran a second time"
+        assert again.get("1000000000000001")["note"] == "farm"
+
+
+def test_a_person_forgetting_a_row_survives_the_file_being_there():
+    """The one removal there is, against the one thing that could undo it."""
+    with _tmpdir() as tmp:
+        legacy = Path(tmp) / "players.json"
+        legacy.write_text(json.dumps([_swept()]), encoding="utf-8")
+        book = _store(tmp, str(legacy))
+        book.ensure_imported()
+        assert book.forget("1000000000000001") is True
+        legacy.write_text(json.dumps([_swept()]), encoding="utf-8")
+        assert reg.PlayerBook(book.store, str(legacy)).ensure_imported() == 0
+        assert len(book) == 0, "a row a person forgot came back from the old file"
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +483,7 @@ def test_a_server_change_keeps_the_players_and_drops_the_things_that_move():
 
 
 def test_the_checkpoint_reader_survives_anything_on_disk():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         missing = str(Path(tmp) / "nope.json")
         assert reg.load_checkpoint(missing) == []
         half = Path(tmp) / "half.json"
@@ -385,7 +543,7 @@ def _bare_tab(tmp):
 
 
 def test_the_phone_says_only_keys_that_exist_and_offers_only_answered_presses():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         _swept_into(tab._registry, [_swept()], now=time.time())
         view = tab.web_view()
@@ -416,7 +574,7 @@ def test_the_phone_says_only_keys_that_exist_and_offers_only_answered_presses():
 
 
 def test_a_press_from_the_phone_moves_the_same_filter_the_window_shows():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         # The server steps come out of the register, so it needs a row to have any.
         _swept_into(tab._registry, [_swept(server_id=100)], now=time.time())
@@ -431,7 +589,7 @@ def test_a_press_from_the_phone_moves_the_same_filter_the_window_shows():
 
 
 def test_forgetting_from_the_phone_asks_once_before_it_does_it():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         _swept_into(tab._registry, [_swept()], now=time.time())
         first = tab.web_press("forget", {"uid": "1000000000000001"})
@@ -448,7 +606,7 @@ def test_a_saved_filter_the_code_cannot_mean_comes_back_blank():
     «показано 0 · скрыто 4259» — an invisible filter looks exactly like an empty
     register, and there is nothing on screen that could tell the two apart.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         tab.apply_config({"filter": {"server": "any", "seen": "sometimes",
                                      "level_min": 30}})
@@ -497,7 +655,7 @@ def test_a_source_may_only_write_the_fields_it_can_actually_know():
     overwrite a real profile reading — so the rally source cannot write `power` at all,
     however its records are spelled.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept(power=12_000_000)], now=NOW)
         store.sighted([{"uid": "1000000000000001", "power": 900_000,
@@ -514,7 +672,7 @@ def test_a_tile_may_not_move_a_player_onto_their_own_task():
     Its coordinate says where the TASK is; writing it as the player's would put every
     alliancemate on their own dispatch point.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept(x=500, y=600)], now=NOW)
         store.sighted([{"uid": "1000000000000001", "x": 12, "y": 34,
@@ -525,7 +683,7 @@ def test_a_tile_may_not_move_a_player_onto_their_own_task():
 
 
 def test_a_source_nobody_declared_is_refused_where_it_is_written():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         try:
             _store(tmp).sighted([_swept()], source="whatever", now=NOW)
         except ValueError:
@@ -534,7 +692,7 @@ def test_a_source_nobody_declared_is_refused_where_it_is_written():
 
 
 def test_every_field_remembers_who_said_it_and_when():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept(power=12_000_000, remark="theirs")], now=NOW)
         src = store.get("1000000000000001")["src"]
@@ -556,7 +714,7 @@ def test_a_field_merely_confirmed_again_is_not_restamped():
     A stamp answers «since when has it been this, and who said so»; «when was the row
     last confirmed at all» is `last_seen`, which is what the «Виден» column shows.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept()], now=NOW)
         _swept_into(store, [_swept(seen_at=int(NOW) + 3600)], now=NOW + 3600)
@@ -566,7 +724,7 @@ def test_a_field_merely_confirmed_again_is_not_restamped():
 
 
 def test_no_source_may_touch_the_persons_own_mark():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         store = _store(tmp)
         _swept_into(store, [_swept()], now=NOW)
         store.set_note("1000000000000001", "farm")
@@ -598,7 +756,7 @@ def test_what_the_chat_hands_over_is_the_speaker_and_never_ourselves():
 # ---------------------------------------------------------------------------
 def test_a_coordinate_press_goes_through_the_panels_one_mechanism():
     """The cell holds the canonical token, `coords.parse` reads it, `jump` does it."""
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         _swept_into(tab._registry, [_swept(x=500, y=600, server_id=100)], now=NOW)
         row = tab._registry.get("1000000000000001")
@@ -619,7 +777,7 @@ def test_a_press_from_the_phone_that_carries_no_text_does_not_wipe_a_mark():
     cleared the mark and answered «готово» — a register of 4 259 players with not one
     mark on any of them, and nothing anywhere saying why.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         _swept_into(tab._registry, [_swept()], now=NOW)
         assert tab.web_press("note", {"uid": "1000000000000001",
@@ -633,7 +791,7 @@ def test_a_press_from_the_phone_that_carries_no_text_does_not_wipe_a_mark():
 
 
 def test_the_phones_details_card_says_the_same_lines_as_the_windows_dialog():
-    with tempfile.TemporaryDirectory() as tmp:
+    with _tmpdir() as tmp:
         tab = _bare_tab(tmp)
         _swept_into(tab._registry, [_swept(power=12_000_000)], now=time.time())
         assert tab._web_detail_card() is None, "nothing is open until it is pressed"
@@ -681,6 +839,9 @@ def _main() -> int:
         except Exception as exc:                        # noqa: BLE001
             failed += 1
             print(f"  FAIL {test.__name__}: {type(exc).__name__}: {exc}")
+        finally:
+            while _OPENED:
+                _OPENED.pop().close()
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     return 1 if failed else 0
 

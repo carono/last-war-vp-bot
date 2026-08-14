@@ -133,6 +133,59 @@ MIGRATIONS: tuple = (
                value TEXT NOT NULL
            )""",
     ),
+    # -- v2: the register of players (`panel/runtime/players.py`, was players.json) --
+    (
+        """CREATE TABLE players (
+               uid             TEXT PRIMARY KEY,
+               name            TEXT,
+               level           INTEGER,
+               server_id       INTEGER,
+               x               INTEGER,
+               y               INTEGER,
+               -- NO TYPE, and that is deliberate: a tile's uuid arrives as an integer
+               -- and other sources spell one as text, and a TEXT column would quietly
+               -- store 111 as '111' — so the row read back would differ from the row
+               -- just written, every sighting would look like news, and the register
+               -- would rewrite itself on every tick of a lap. BLOB affinity keeps a
+               -- value exactly as it was handed over.
+               uuid,
+               country         TEXT,
+               alliance_id     TEXT,
+               alliance_abbr   TEXT,
+               alliance_name   TEXT,
+               power           INTEGER,
+               army_power      INTEGER,
+               army_kill       INTEGER,
+               svip_level      INTEGER,
+               head            TEXT,
+               march_power     INTEGER,
+               online          INTEGER,
+               remark          TEXT,
+               note            TEXT,
+               first_seen      INTEGER,
+               last_seen       INTEGER,
+               profile_seen_at INTEGER,
+               -- The provenance map, `{field: [source, when]}`. JSON because it is read
+               -- for ONE row at a time (the detail card) and never searched by.
+               src             TEXT,
+               -- Derived, written with the row and never by hand: the case-folded
+               -- haystack the text box searches, and the case-folded sort keys. SQLite's
+               -- own LOWER() is ASCII-only, so a Cyrillic nickname would sort and match
+               -- by its raw code points — which is most of this register.
+               search_text     TEXT,
+               name_fold       TEXT,
+               alliance_fold   TEXT,
+               note_fold       TEXT
+           )""",
+        # What the page actually orders and narrows by. `last_seen` first because the
+        # table opens on it (the freshest sighting), and every sort ends on `uid`.
+        "CREATE INDEX ix_players_last_seen ON players(last_seen)",
+        "CREATE INDEX ix_players_name      ON players(name_fold)",
+        "CREATE INDEX ix_players_alliance  ON players(alliance_fold)",
+        "CREATE INDEX ix_players_server    ON players(server_id)",
+        "CREATE INDEX ix_players_level     ON players(level)",
+        "CREATE INDEX ix_players_power     ON players(power)",
+    ),
 )
 
 #: What the code in this checkout expects. A database above it was written by a NEWER

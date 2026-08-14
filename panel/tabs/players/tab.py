@@ -507,10 +507,17 @@ class PlayersTab(PanelTab):
         self._seen_box.current(0)
         self._render()
 
-    def visible(self) -> list:
-        """The rows the filter keeps, sorted — what BOTH front-ends draw from."""
-        rows = reg.apply_filter(self._registry.rows(), self._filter)
-        return reg.sort_rows(rows, self._sort)
+    def visible(self, limit: int = MAX_SHOWN) -> list:
+        """The rows the filter keeps, sorted, at most `limit` — what BOTH front-ends draw.
+
+        **Narrowed and sorted in the database** (#1398). It used to be
+        `apply_filter(book.rows())` and then `sort_rows`, which on the live register
+        meant seventeen thousand dicts built, walked and sorted in Python — on the Tk
+        thread, for every keystroke in the search box. The filter itself did not change:
+        `registry.matches` is still the readable definition of it, and
+        `tests/test_players_registry.py` fails the moment it and the SQL disagree.
+        """
+        return self._registry.search(self._filter, self._sort, limit=limit)
 
     def _sort_by(self, column: str) -> None:
         if column not in reg.SORT_KEYS:
@@ -777,8 +784,7 @@ class PlayersTab(PanelTab):
         (`docs/panel-tabs.md`). A phone that narrows to «35, server 100» leaves the
         window's boxes reading exactly that.
         """
-        rows = self.visible()
-        shown = rows[:MAX_WEB]
+        shown = self.visible(limit=MAX_WEB)
         now = time.time()
         items = [self._web_item(row, now) for row in shown]
         head = {"title": "tab.players",

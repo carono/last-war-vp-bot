@@ -276,6 +276,7 @@
   "log.children.orphan": "một trình theo dõi từ lần chạy trước vẫn còn chạy — {name} (pid {pid}); đã dừng",
   "log.children.reaped": "còn sót lại từ lần chạy trước và đã được dừng: {count}",
   "log.children.stopped": "số tiến trình nền đã dừng: {count}",
+  "log.store.imported": "«{name}» đã chuyển vào cơ sở dữ liệu: {count} dòng; tệp cũ vẫn được giữ bên cạnh",
   "log.clear": "Xóa sạch",
   "log.coord.bad_xy": "X và Y phải là số nguyên",
   "log.coord.clicked": "bấm → {where}",
