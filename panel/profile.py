@@ -151,6 +151,13 @@ RESOURCE_STATS_STATE = "resource_stats.json"
 # The accumulating SQLite history of ranking-board snapshots (tools/lib/leaderboard_store.py),
 # filled by the «leaderboard_collect» trigger.
 LEADERBOARD_DB = "leaderboard_history.db"
+# THIS PROFILE'S DATABASE (#1398, panel/runtime/store.py). One per profile, in the
+# profile's own directory, holding what the panel used to keep as whole-file JSON — the
+# register of players, the ★ list, the counters and the tallies. Not the settings
+# (`config.json`, the timer and trigger catalogues, `rally_limits.json`), which a person
+# edits by hand; not the logs; and not the checkpoints a capture child writes for the
+# panel to read. `docs/panel-storage.md` is the inventory and the reasoning.
+STORE_DB = "panel.db"
 # The three files the autostart uses (panel/runtime/autostart.py). ALIVE_FILE is the heartbeat
 # the open panel rewrites once a minute from its Tk event loop — the hourly scheduled
 # check reads it to tell a live panel from a wedged one. AUTOSTART_STATE is what that
@@ -798,6 +805,15 @@ class ProfileManager:
     def leaderboard_db(self, name: str | None = None) -> str:
         """This profile's ranking-board history SQLite (tools/lib/leaderboard_store.py)."""
         return os.path.join(self.dir(name), LEADERBOARD_DB)
+
+    def store_db(self, name: str | None = None) -> str:
+        """THIS PROFILE'S DATABASE (#1398, panel/runtime/store.py).
+
+        Reached through `rt.store`, never opened by a caller: a store belongs to a
+        profile, and one opened wherever it was needed belongs to whichever profile
+        happened to ask first.
+        """
+        return os.path.join(self.dir(name), STORE_DB)
 
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)

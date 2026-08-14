@@ -48,8 +48,13 @@ the bottom).
 
 ### What the tabs keep between runs
 
+**These are moving into `panel.db` one at a time (#1398)** — see «The profile's database»
+below for which, why, and what is deliberately staying a file. A row in this table is
+where the data lives *today*; the entry for `panel.db` says where it is going.
+
 | File | What it is |
 |---|---|
+| `panel.db` | **THIS PROFILE'S DATABASE** (#1398, `panel/runtime/store.py`). One per profile, in the profile's own directory, reached through `rt.store` and opened nowhere else. Holds what the panel used to keep as whole-file JSON — the register of players first, then the ★ list, the counters and the tallies. Its schema is a HISTORY (`MIGRATIONS`, `PRAGMA user_version`), not a `CREATE TABLE` written wherever somebody needed one |
 | `secret_tasks.json` | what the secret-task scan currently sees on the map (rewritten every tick) |
 | `secret_tasks_state.json` | the «Секретки» tab's OWN list — the starred tiles it is showing, with their countdowns (#1242) |
 | `secret_tasks_log.jsonl` | append-log of secret-task findings |
@@ -75,6 +80,7 @@ the bottom).
 | `timers_last_run.json` | when each scheduled errand last ran, and — since #1333 — when it BEGAN (`began_at`). A daily errand's next turn is measured from the start rather than from the finish, so a run that straddles the server's midnight is charged to the day it actually spent. A file written before that has no `began_at` and falls back to the finish |
 | `day_reset.json` | when THIS profile's warzone starts a new day — the client's own `GetTomorrowZero()`, re-read at most four times a day and kept so a fresh panel starts knowing it. Per profile because two accounts can be on two warzones, and every «раз в сутки» errand is anchored to the reset of its own. Never read → the measured 02:00 UTC stands in |
 | `triggers.json` | this profile's wire- and poll-driven errands |
+| `timers_seen.json` | every errand name this profile has ever been OFFERED (`panel/timers.py`, `adopt_new_errands`). It is what carries «this update learnt a new errand» into a profile that already has a catalogue of its own, **and** what keeps an errand the operator deleted deleted. Settings, not data — it belongs beside `timers.json` and stays a file. An earlier revision of this page called it a leftover nobody reads; that was wrong, and #1398 checked before believing it |
 
 ### Session bookkeeping
 
@@ -84,9 +90,6 @@ the bottom).
 | `panel_alive.json` | the heartbeat the open panel rewrites once a minute |
 | `autostart.json` | what the hourly check last made of that heartbeat |
 | `children-<pid>.json` | which child processes that panel process started, so a crashed panel's children can be cleaned up |
-
-A profile directory may also hold `timers_seen.json` — written by an older version, read
-by nothing now. Harmless; delete it if you like.
 
 ## Beside the profiles — `profiles/`
 
@@ -145,6 +148,86 @@ will not move a tree it has a file open in, and a running panel has several — 
 start cannot put stale files back over fresher ones. **Nothing is ever deleted**, and an
 existing file in the new place is never overwritten. If both exist, the new one wins and
 the old one stays on disk for you to look at.
+
+## The profile's database — `panel.db`
+
+**One database per PROFILE, in that profile's own directory** (#1398,
+`panel/runtime/store.py`). Not one per window and never «the first profile that opened»:
+a register of players, a ★ list and a day's counters belong to an ACCOUNT, and a store
+held in a module global belongs to whichever profile imported first — which is what
+`docs/research/profile-isolation.md` is a list of. A caller asks `rt.store`; nothing
+opens the file for itself.
+
+### Why, in one measurement
+
+On a live profile `players.json` was 11.5 MB and 17 374 rows. `json.load` took 0.97 s,
+`json.dump` took 1.45 s, and the whole file was rewritten on **every change** — which,
+while a lap of the map is running, is almost every tick. The «Игроки» page then read all
+of it into memory to filter and sort it in Python. None of that is a bug in
+`panel/kept.py`; it is what a whole-file JSON list costs once it stops being small.
+
+### What is in it, and what is deliberately not
+
+| | |
+|---|---|
+| **In** — data | the register of players, the ★ tile list and the book of what has been robbed, the ghost and world page lists, the daily rally counts, the resource tally, the last-run clock, the day boundary |
+| **Out** — settings | `config.json`, `timers.json`, `triggers.json`, `timers_seen.json` and **`rally_limits.json`**. A person edits these by hand, and «copy the folder and your panel comes with you» has to keep meaning something |
+| **Out** — logs and session | `panel.log`, `debug.log*`, `autostart.log`, `panel.lock`, `panel_alive.json`, `autostart.json`, `children-<pid>.json` |
+| **Out** — a capture's checkpoint | `secret_tasks.json`, `ghost_recon_tiles.json`, `world_treasures.json`, `world_map.json`. A capture CHILD writes them and the panel reads them: they are a channel between two processes, rewritten whole every fifteen seconds, and worth nothing after a restart. The gathered half of each — what a page has kept — is a different thing and does go in |
+
+**The rally pair splits down that line and stays split**: `rally_limits.json` is a
+SETTING (the per-kind caps a person edits) and remains a file; `rally_counts.json` is a
+COUNTER (what today has spent) and goes into the database. Agreed with the operator
+in #1398 — please do not re-litigate it in passing.
+
+### The schema is a history
+
+`MIGRATIONS` in `panel/runtime/store.py` is every version of the schema in order, and a
+database carries how far it has got in `PRAGMA user_version`. Adding a column is
+**appending** a migration; editing one that has shipped is not allowed, because it has
+already run on somebody's live profile and would leave two databases both calling
+themselves version N. A database from a NEWER panel is refused (`StoreTooNew`) rather
+than migrated backwards — running against a schema we do not know silently ignores what
+the newer version wrote, and migrating down deletes it.
+
+The two databases that predate this — `leaderboard_history.db` and
+`chat_history_<uid>.db` — are being brought under the same layer: one way to open a
+connection, one place the schema is written down. Their data is not rewritten.
+
+### Several threads, and several processes
+
+Both are real. The panel writes from the capture reader's thread, the banner block, the
+chat poll and the Tk thread; a standalone tab (`python -m panel.tabs.players`) is a
+second PROCESS on the same directory. What answers it:
+
+* **WAL** — readers never block the writer and the writer never blocks readers, across
+  processes as well as threads;
+* **a busy timeout of 15 s** — a second writer waits instead of raising «database is
+  locked» at whoever pressed first;
+* **short transactions** — `store.write()` is `BEGIN IMMEDIATE … COMMIT` and nothing
+  inside it reads a widget, asks the game or sleeps;
+* **one connection per thread**, in thread-local storage.
+
+### Nothing writes on the Tk thread
+
+`store.submit(job)` hands the write to this store's writer thread, which drains
+everything queued within 10 ms into **one** transaction. A sweep that sees four thousand
+players is one commit rather than four thousand: the cost of a burst is the number of
+COMMITs, not the number of rows.
+
+### Moving a file in loses nothing, and keeps the file
+
+`import_once` reads the old JSON and writes the rows **in the same transaction as the
+mark that says it has been done** — so a panel killed halfway leaves neither, and the
+next start imports cleanly instead of half-again. Only then is the file renamed to
+`<name>.imported` and **kept beside the database**. It is insurance: an import that
+turns out to have misread a field is answered by opening the file, and a delete is
+answered by nothing. The mark is also what stops a restored backup or a stale copy from
+overwriting, months later, what a person has since edited.
+
+`tests/test_panel_store.py` pins all of it: the migrations, the refusal, the concurrent
+writers in threads and in a separate process, the batching, the rollback, and the four
+promises the import makes.
 
 ## A list whose removals name a reason — `panel/kept.py`
 

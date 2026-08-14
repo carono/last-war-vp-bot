@@ -216,6 +216,7 @@ class PanelRuntime:
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
         self._banners = None            # …and what it heard about the banners out
         self._players = None            # …and the register every source writes into
+        self._store = None              # …and this profile's database (#1398)
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         self._lock = None               # this profile's instance lock, held open
         self._lock_on = None            # …and which profile it is holding
@@ -330,6 +331,34 @@ class PanelRuntime:
             from .players import PlayerBook
             self._players = PlayerBook(self.profiles.players_json())
         return self._players
+
+    @property
+    def store(self):
+        """THIS PROFILE'S DATABASE (#1398, panel/runtime/store.py).
+
+        One per profile, in the profile's own directory. Built on first ask and
+        **re-checked against the profile on every ask**: the runtime outlives a profile
+        switch, and a store that did not follow would go on writing the previous
+        account's register — the failure `docs/research/profile-isolation.md` is a list
+        of. The check is a string compare; the store is only rebuilt when the path has
+        actually moved, and the one being left is closed rather than leaked.
+        """
+        want = self.profiles.store_db()
+        if self._store is not None and self._store.path != want:
+            try:
+                self._store.close()
+            except Exception:                                       # noqa: BLE001
+                self.dbg("store").exception("could not close the previous store")
+            self._store = None
+        if self._store is None:
+            from .store import Store
+            store = Store(want)
+            # A background write has nobody waiting on it, so a job that fails alone
+            # would fail in silence. It says so in THIS profile's debug log.
+            store._failed = lambda job: self.dbg("store").exception(   # noqa: SLF001
+                "a store job failed: %r", job)
+            self._store = store
+        return self._store
 
     # -- the shorthands every tab uses constantly ---------------------------
     def dbg(self, component: str = "panel"):
@@ -702,6 +731,15 @@ class PanelRuntime:
         if stopped:
             self.log.say("panel", "log.children.stopped", count=stopped)
         self.game.release()
+        # LAST, and after the children: whatever they were feeding has had its chance to
+        # be queued, and `close()` waits for the writer to run what is still in hand.
+        # A store nobody ever asked for was never opened, and closing it is not a reason
+        # to open one.
+        if self._store is not None:
+            try:
+                self._store.close()
+            except Exception:                                       # noqa: BLE001
+                self.dbg("store").exception("could not close the store")
         self.log.close_file()
 
 
