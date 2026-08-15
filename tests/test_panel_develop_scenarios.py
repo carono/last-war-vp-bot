@@ -68,6 +68,7 @@ def _tab(tmp: Path):
     root = tk.Tk()          # the panel is a plain tkinter/ttk app
     root.withdraw()
     rt = fake_runtime.cold_runtime(root)
+
     # The claim is the real one minus the daemon: there is none here, and the lease
     # half passes when it cannot reach one — which is exactly this case.
     rt.game = rtmod.GameLink(port=lambda: 47999, python=lambda: "python",
@@ -75,6 +76,9 @@ def _tab(tmp: Path):
                              daemon_script="", debug=None)
     tab = DevelopTab(rt, ttk.Frame(root))
     tab.build()
+    # The list and the editor are one page of the tab now, and a page is drawn when
+    # somebody opens it (#1415) — which is what a test doing these things IS.
+    tab.show_page("scenarios")
     tab.logs = rt.log.lines
     return root, tab, dev
 

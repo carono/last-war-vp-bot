@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} istek geri çevrildi",
   "busy.jam.timer": "{name} {secs} sn gecikmiş (toplam gecikmiş: {count})",
   "busy.jam.tick": "pencerenin {name} zamanlayıcısı {secs} sn gecikti",
-  "busy.jam.posted": "{count} yeniden çizim pencereyi bekliyor"
+  "busy.jam.posted": "{count} yeniden çizim pencereyi bekliyor",
+  "develop.page.log": "Günlük",
+  "develop.page.busy": "Meşguliyet",
+  "develop.page.scenarios": "Betikler",
+  "develop.page.sniff": "Dinleyiciler"
 }

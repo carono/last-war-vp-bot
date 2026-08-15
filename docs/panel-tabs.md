@@ -212,6 +212,31 @@ how 2.3 seconds got in. Building a tab in a throwaway Tk root and timing
 `build()` + `update_idletasks()` over twenty rounds takes ten minutes to write and is the
 only thing that tells a layout change from a layout accident.
 
+### A column of blocks silently eats the last one
+
+**`pack` hands out the cavity in PACKING ORDER, and a widget packed after it has run out
+gets a height of one pixel and is never mapped.** Not clipped, not scrolled off: absent,
+with no error and nothing in the log. `side="bottom"` does not save it either — the side
+says where in what is LEFT, not who is served first.
+
+That is how «Разработка» lost its log (#1415). Five blocks packed one under the other —
+the sniffers, the update tick, «Занятость», the scenario list with its editor, the log —
+asked for **1382 px** on a page that had 620, the two `expand=True` blocks in the middle
+took the remainder, and the log, packed last, was drawn and invisible at every window
+size. The person reading it saw an empty half of a tab and reasonably concluded the code
+had never been written.
+
+So: **if a tab holds more than one screenful of separate things, it is a `ttk.Notebook`,
+not a column.** A scrollbar is the other answer and is usually the worse one — hunting
+for the log past a twelve-row editor is the same fault in a slower form. And the same
+laziness applies one level down: **build a page the first time it is SHOWN, and let only
+the visible one work.** `panel/tabs/develop.py` is the worked example — one `_sync_page`
+that builds, shows and hides, `BusyView`'s once-a-second read armed only while its page
+is on top, the log pane taken off the spool while it is not, and the open page remembered
+in the tab's own block (`config()["page"]`). What that asks of you is what `LAZY` already
+asks: **the state goes in `__init__`, the page only draws it** — otherwise a saved block,
+a timer's run or the Stop button reaches a widget nobody has made yet.
+
 ---
 
 ## `ensure_loaded` vs `on_show` — the one that bites

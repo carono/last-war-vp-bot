@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} lượt nhấn đã bị từ chối",
   "busy.jam.timer": "{name} trễ {secs} giây (tổng số trễ: {count})",
   "busy.jam.tick": "hẹn giờ {name} của cửa sổ trễ {secs} giây",
-  "busy.jam.posted": "{count} lượt vẽ lại đang chờ cửa sổ"
+  "busy.jam.posted": "{count} lượt vẽ lại đang chờ cửa sổ",
+  "develop.page.log": "Nhật ký",
+  "develop.page.busy": "Bận rộn",
+  "develop.page.scenarios": "Kịch bản",
+  "develop.page.sniff": "Bộ ghi"
 }

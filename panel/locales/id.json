@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} penekanan ditolak",
   "busy.jam.timer": "{name} terlambat {secs} d (total terlambat: {count})",
   "busy.jam.tick": "pewaktu jendela {name} terlambat {secs} d",
-  "busy.jam.posted": "{count} penggambaran ulang menunggu jendela"
+  "busy.jam.posted": "{count} penggambaran ulang menunggu jendela",
+  "develop.page.log": "Catatan",
+  "develop.page.busy": "Kesibukan",
+  "develop.page.scenarios": "Skrip",
+  "develop.page.sniff": "Penyadap"
 }

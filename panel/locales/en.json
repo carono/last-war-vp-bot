@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} presses were turned away",
   "busy.jam.timer": "{name} is {secs} s overdue ({count} overdue in all)",
   "busy.jam.tick": "the window's own timer {name} is {secs} s late",
-  "busy.jam.posted": "{count} repaints are waiting for the window"
+  "busy.jam.posted": "{count} repaints are waiting for the window",
+  "develop.page.log": "Log",
+  "develop.page.busy": "Busy",
+  "develop.page.scenarios": "Scripts",
+  "develop.page.sniff": "Sniffers"
 }

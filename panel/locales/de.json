@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} Anforderungen wurden abgewiesen",
   "busy.jam.timer": "{name} ist {secs} s überfällig (insgesamt überfällig: {count})",
   "busy.jam.tick": "der Zeitgeber {name} des Fensters ist {secs} s zu spät",
-  "busy.jam.posted": "{count} Neuzeichnungen warten auf das Fenster"
+  "busy.jam.posted": "{count} Neuzeichnungen warten auf das Fenster",
+  "develop.page.log": "Protokoll",
+  "develop.page.busy": "Auslastung",
+  "develop.page.scenarios": "Skripte",
+  "develop.page.sniff": "Sniffer"
 }

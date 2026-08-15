@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "нажатий отклонено: {count}",
   "busy.jam.timer": "{name} просрочен на {secs} с (всего просрочено: {count})",
   "busy.jam.tick": "таймер окна {name} опаздывает на {secs} с",
-  "busy.jam.posted": "перерисовок ждут окна: {count}"
+  "busy.jam.posted": "перерисовок ждут окна: {count}",
+  "develop.page.log": "Лог",
+  "develop.page.busy": "Занятость",
+  "develop.page.scenarios": "Сценарии",
+  "develop.page.sniff": "Снифферы"
 }

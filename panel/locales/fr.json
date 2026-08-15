@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} demandes ont été refusées",
   "busy.jam.timer": "{name} est en retard de {secs} s ({count} en retard au total)",
   "busy.jam.tick": "la minuterie {name} de la fenêtre a {secs} s de retard",
-  "busy.jam.posted": "{count} rafraîchissements attendent la fenêtre"
+  "busy.jam.posted": "{count} rafraîchissements attendent la fenêtre",
+  "develop.page.log": "Journal",
+  "develop.page.busy": "Occupation",
+  "develop.page.scenarios": "Scripts",
+  "develop.page.sniff": "Sniffers"
 }

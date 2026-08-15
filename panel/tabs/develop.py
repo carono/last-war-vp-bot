@@ -69,6 +69,29 @@ untouched by the move (`panel.log` is written by the spool, whoever is drawing),
 phone's «Лог» screen is the front-end's own and is unchanged, and a profile without this
 tab simply has no log WIDGET. `panel/runtime/log_view.py` holds both halves.
 
+**FOUR INNER PAGES, and they are what makes any of the above readable** (#1415). Every
+block above used to be packed one under the other into a single column: the sniffers, the
+update tick, «Занятость», the scenario list with its editor, and the log along the bottom.
+Measured on the page the panel actually gives this tab, that column ASKS FOR 1382 pixels
+of height — and `pack` hands out the cavity in PACKING ORDER, so the two `expand=True`
+blocks in the middle take what is left and everything after them is allotted a height of
+one pixel and never mapped. The log was therefore invisible at EVERY window size, not
+merely at small ones (`side="bottom"` does not save a widget that is packed last), and the
+scenario editor and «Занятость» went the same way as the window got shorter.
+
+A scrollbar would have been the other answer and is the wrong one: what is on this page is
+four separate things a person looks at one at a time, and hunting for the log by scrolling
+past a 12-row editor is the same fault in a slower form. So the page is a `ttk.Notebook`
+of «Лог» · «Занятость» · «Сценарии» · «Снифферы», each of which is one screenful and none
+of which competes for height with the others.
+
+**A page is built the first time it is LOOKED AT, and only the visible one works.** The
+same rule the tab itself obeys (`PanelTab.LAZY`), one level down: opening «Разработка» on
+the log costs the log, `BusyView`'s once-a-second read is armed only while its page is on
+top, and the log pane is taken off the spool the moment another page is. Nothing is lost
+by either — the spool keeps the history whether or not a pane is drawing it, and the tab
+remembers which page was open (`config()["page"]`).
+
 The `TAP` reference is opened here but drawn by the shell — the dialog drops its choice
 into the DSL command line on «Главная», which is not this tab's to write to
 (docs/research/panel-tabs-refactor.md §7). So the button publishes and the shell listens.
@@ -133,6 +156,14 @@ RUNNING_MARK = "▶"
 #: Marks a row that came out of actions/dev/ — experimental, shown only on request.
 DEV_MARK = "⚙ "
 
+#: The inner pages, in the order they are offered (#1415). Each is ONE thing to look at,
+#: and each gets the whole page rather than a slice of a column that does not fit — see
+#: the module docstring for what the column cost.
+PAGES = ("log", "busy", "scenarios", "sniff")
+#: Which one a profile that has never opened the tab lands on. The log: it is what is
+#: read while something is going wrong, and it is what was invisible.
+DEFAULT_PAGE = "log"
+
 
 class DevelopTab(PanelTab):
     """Record the sniffer pair, and list/edit/run/repeat the `actions/*.md` scripts."""
@@ -166,45 +197,180 @@ class DevelopTab(PanelTab):
         self._sniff_var = tk.BooleanVar(master=rt.root, value=False)
         self._status_var = tk.StringVar(master=rt.root, value="")
         # -- the scenario runner --
+        # Its STATE lives here rather than in `_build_scenarios`, because the page it is
+        # drawn on is built when somebody looks at it and the profile's block arrives
+        # long before that (`PanelTab.LAZY`, one level down — see the module docstring).
         self._cancel = None            # threading.Event of the run in flight, else None
+        self._scn_loop_stop = threading.Event()
+        self._scn_loop_thread: threading.Thread | None = None
+        self._scn_running: str | None = None
+        self._scn_editor_name: str | None = None
+        self._scn_editor_path: str | None = None
+        self._scn_save_job = None
+        self._scn_loading = False
+        self._scn_actions: list[dict] = []
+        #: Which script the profile was last using — kept for the page that is not drawn
+        #: yet, so a profile saved before anybody opened «Сценарии» keeps its choice.
+        self._scn_saved_name = ""
+        self._scn_args_var = tk.StringVar(master=rt.root)
+        self._scn_interval_var = tk.StringVar(master=rt.root, value="60")
+        self._scn_loop_var = tk.BooleanVar(master=rt.root, value=False)
+        self._scn_dev_var = tk.BooleanVar(master=rt.root, value=False)
         # -- the busy debugger (#1392), drawn by its own module --
         self._busy = BusyView(self)
-        # -- the log pane (#1391), drawn by `build` --
+        # -- the log pane (#1391), drawn with its page --
         self._log = None
         #: The filter this profile was saved with, kept until there is a pane to put it
         #: in: the block arrives before anybody has looked at the tab (`PanelTab.LAZY`).
         self._log_filter = ""
+        # -- the inner pages (#1415) --
+        self._nb = None
+        self._frames: dict = {}        # page key -> its frame
+        self._page_of: dict = {}       # Tk widget path -> page key
+        self._page_built: set = set()
+        self._live: str | None = None  # the page currently being LOOKED at, if any
+        self._shown = False            # is the tab itself on screen?
+        #: Which page to open on. A variable, so switching page is written to the
+        #: profile by the same trace every other control on the panel uses.
+        self._page_var = tk.StringVar(master=rt.root, value=DEFAULT_PAGE)
 
     # -- UI -------------------------------------------------------------------
     def build(self) -> None:
-        """The sniffer pair's toggle, then the scenario list/editor/runner below it."""
+        """The title, and the four pages — none of which is drawn until it is opened."""
         bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
         self.tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
                 "tab.develop").pack(side="left")
 
-        box = self.tr(ttk.LabelFrame(self.parent, padding=8), "develop.sniff.frame")
-        box.pack(fill="x", padx=10, pady=(0, 8))
+        nb = ttk.Notebook(self.parent)
+        nb.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self._nb = nb
+        for key in PAGES:
+            frame = ttk.Frame(nb)
+            nb.add(frame, text=self.t(f"develop.page.{key}"))
+            self._frames[key] = frame
+            self._page_of[str(frame)] = key
+        self.rt.i18n.hook(self._retranslate_pages, key="develop-page-labels")
+        nb.bind("<<NotebookTabChanged>>", self._on_page_changed)
+        # Adding the first page already selected it; put the profile's own choice on top
+        # instead. Nothing is BUILT by this — the tab is not being looked at yet.
+        self._select_page(self._page_var.get())
+
+    # -- the four pages (#1415) ----------------------------------------------
+    def _select_page(self, key: str) -> None:
+        """Put `key` on top, if there is such a page."""
+        frame = self._frames.get(key)
+        if frame is None or self._nb is None:
+            return
+        try:
+            self._nb.select(frame)
+        except tk.TclError:
+            pass
+
+    def _current_page(self) -> "str | None":
+        try:
+            return self._page_of.get(str(self._nb.select())) if self._nb else None
+        except tk.TclError:
+            return None
+
+    def _sync_page(self) -> None:
+        """Whatever page is on top now is the one that is drawn and the one that works.
+
+        The only place a page is built, shown or hidden — the tab's `on_show` / `on_hide`
+        and the notebook's own event both come through here, so «that page is live» can
+        never be true of two of them or of a page nobody is looking at.
+        """
+        key = self._current_page()
+        if not self._shown or key is None or key == self._live:
+            return
+        if self._live is not None:
+            self._hide_page(self._live)
+        self._live = key
+        self._page_var.set(key)
+        self._realize_page(key)
+        self._show_page(key)
+
+    def _realize_page(self, key: str) -> None:
+        """Draw a page — once, the first time it is looked at."""
+        if key in self._page_built:
+            return
+        self._page_built.add(key)
+        {"log": self._build_log, "busy": self._build_busy,
+         "scenarios": self._build_scenarios, "sniff": self._build_sniff}[key]()
+
+    def _show_page(self, key: str) -> None:
+        """Start whatever this page costs while it is being read, and nothing else."""
+        if key == "busy":
+            self._busy.on_show()
+        elif key == "log" and self._log is not None:
+            # Back onto the spool, and repaint from the history it kept meanwhile —
+            # a log that was closed for an hour opens on that hour.
+            self._log.spool.attach(self._log)
+            self._log.redraw()
+
+    def _hide_page(self, key: str) -> None:
+        """…and stop paying for it the moment somebody looks somewhere else."""
+        if key == "busy":
+            self._busy.on_hide()
+        elif key == "log" and self._log is not None:
+            self._log.spool.detach(self._log)
+
+    def _on_page_changed(self, _event=None) -> None:
+        self._sync_page()
+
+    def _retranslate_pages(self) -> None:
+        if self._nb is None:
+            return
+        for key in PAGES:
+            frame = self._frames.get(key)
+            if frame is None:
+                continue
+            try:
+                self._nb.tab(frame, text=self.t(f"develop.page.{key}"))
+            except tk.TclError:
+                return                      # the page went with the window
+
+    def show_page(self, key: str) -> None:
+        """Open a page as if it had been clicked, and count as looking at it.
+
+        Opening a page IS looking at the tab, so this is also what makes an otherwise
+        hidden tab live — which is what a test wants and what a harness holding one page
+        means. Everything else goes through `_sync_page` exactly as a click does.
+        """
+        self._shown = True
+        self._select_page(key)
+        self._sync_page()
+
+    # -- THE SNIFFERS, and what this checkout updates to ----------------------
+    def _build_sniff(self) -> None:
+        """The recording pair's one toggle, its readiness line, and the update channel.
+
+        The two knobs on one page because both are about the BOT rather than about the
+        game: what a session records, and whether this checkout follows the releases or
+        the branch. Each is small enough that a page of its own would be a page with one
+        checkbox on it.
+        """
+        page = self._frames["sniff"]
+        box = self.tr(ttk.LabelFrame(page, padding=8), "develop.sniff.frame")
+        box.pack(fill="x", padx=10, pady=(10, 8))
         self.tr(ttk.Checkbutton(box, variable=self._sniff_var,
                                 command=self._toggle_sniff),
                 "develop.sniff.toggle").pack(anchor="w")
         ttk.Label(box, textvariable=self._status_var, foreground="#888").pack(
             anchor="w", pady=(6, 0))
-        self.tr(ttk.Label(self.parent, foreground="#888", wraplength=660,
+        self.tr(ttk.Label(page, foreground="#888", wraplength=660,
                           justify="left"), "develop.hint").pack(
             anchor="w", padx=10, pady=(0, 10))
-
         self._build_update_channel()
-        # WHAT THE PANEL IS BUSY WITH, above the scenario list: it is read while
-        # something else is running, and a block that has to be scrolled past the
-        # editor to reach is one nobody looks at during the minute it would explain.
-        self._busy.build(self.parent)
-        self._build_scenarios()
-        self._build_log()
+
+    # -- WHAT THE PANEL IS BUSY WITH (#1392) ----------------------------------
+    def _build_busy(self) -> None:
+        """The busy debugger, on its own page — it reads only while it is looked at."""
+        self._busy.build(self._frames["busy"], framed=False)
 
     # -- THE LOG (#1391) ------------------------------------------------------
     def _build_log(self) -> None:
-        """This profile's log, along the bottom of the page.
+        """This profile's log, as one whole page of «Разработка».
 
         WHY IT IS HERE AND NOT ON «Главная», where it lived for the whole life of the
         panel: a log is the tool you read while WORKING ON the bot. The person farming
@@ -221,18 +387,23 @@ class DevelopTab(PanelTab):
         «Разработка» loses is the WIDGET, and it is a widget for reading a bot that is
         being changed.
 
-        PACKED LAST AND ALONG THE BOTTOM, so the scenario list above keeps the space it
-        expands into and the log keeps the rows it asks for.
+        A WHOLE PAGE, not a strip along the bottom (#1415). It was packed last into a
+        column that had already given its height away, so `pack` allotted it one pixel
+        and never mapped it — the log was invisible at every window size. On its own page
+        it has the height of the tab and competes with nothing.
         """
-        frame = self.tr(ttk.LabelFrame(self.parent, padding=4), "log.frame")
-        frame.pack(side="bottom", fill="both", padx=10, pady=(4, 8))
-        self._log = LogPane(frame, self.rt, height=12)
-        self._log.frame.pack(fill="both", expand=True)
+        page = self._frames["log"]
+        self._log = LogPane(page, self.rt, height=12)
+        self._log.frame.pack(fill="both", expand=True, padx=8, pady=8)
         # The filter the profile was saved with — the block reached `apply_config`
         # before there were any widgets to put it in (`PanelTab.LAZY`).
         if self._log_filter:
             self._log.filter_var.set(self._log_filter)
             self._log.redraw()
+        # Made an hour after the tab was drawn, so the shell's one pass over
+        # `persist_vars` is long past: this variable traces itself.
+        self._log.filter_var.trace_add(
+            "write", lambda *_a: self.rt.settings.changed())
 
     # -- which updates this panel takes (#1274) --------------------------------
     def _build_update_channel(self) -> None:
@@ -256,7 +427,8 @@ class DevelopTab(PanelTab):
         version line on «Состояние» carries the `+N-dev` mark, so a checkout following
         the branch says so wherever it is read.
         """
-        box = self.tr(ttk.LabelFrame(self.parent, padding=8), "develop.updates.frame")
+        box = self.tr(ttk.LabelFrame(self._frames["sniff"], padding=8),
+                      "develop.updates.frame")
         box.pack(fill="x", padx=10, pady=(0, 8))
         self._dev_updates_var = tk.BooleanVar(master=self.rt.root,
                                               value=profilemod.dev_updates())
@@ -297,23 +469,14 @@ class DevelopTab(PanelTab):
         one script at a time, and it is visible WHICH one. Stop asks the
         interpreter to halt at its next step (a flag it checks between statements),
         rather than killing the thread in the middle of a call into the game.
-        """
-        self._scn_loop_stop = threading.Event()
-        self._scn_loop_thread: threading.Thread | None = None
-        # Which script is running right now, and the flag that asks it to stop.
-        # Both live here rather than in the worker so the Stop button, the row
-        # marker and the lock all read the same truth.
-        self._scn_running: str | None = None
-        self._cancel: threading.Event | None = None
-        # Editor state: which file is loaded (name and the path it came from —
-        # the two are not interchangeable, a script may live in actions/dev/), and
-        # the pending debounced save.
-        self._scn_editor_name: str | None = None
-        self._scn_editor_path: str | None = None
-        self._scn_save_job = None
-        self._scn_loading = False
 
-        frame = self.tr(ttk.LabelFrame(self.parent, padding=8), "scenarios.actions")
+        WIDGETS ONLY. What the run and the editor keep — which script is loaded, which
+        one is running, the flag that asks it to stop — is made in ``__init__``: this
+        page is drawn when somebody opens it, and the profile's saved block reaches the
+        tab long before that (#1415).
+        """
+        frame = self.tr(ttk.LabelFrame(self._frames["scenarios"], padding=8),
+                        "scenarios.actions")
         frame.pack(fill="both", expand=True, padx=8, pady=8)
 
         listwrap = ttk.Frame(frame)
@@ -338,12 +501,10 @@ class DevelopTab(PanelTab):
         self._scn_stop_btn = self.tr(ttk.Button(controls, command=self._stop_scenario,
                                                  state="disabled"), "scenarios.stop")
         self._scn_stop_btn.pack(side="left", padx=(0, 4), ipady=2)
-        self._scn_loop_var = tk.BooleanVar(value=False)
         self.tr(ttk.Checkbutton(controls, variable=self._scn_loop_var,
                                  command=self._toggle_scenario_loop),
                  "scenarios.loop").pack(side="left", padx=(8, 2))
         self.tr(ttk.Label(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
-        self._scn_interval_var = tk.StringVar(value="60")
         numeric_spinbox(controls, from_=5, to=86400, width=6,
                     textvariable=self._scn_interval_var).pack(side="left")
         self.tr(ttk.Button(controls, command=self._refresh_actions),
@@ -351,7 +512,6 @@ class DevelopTab(PanelTab):
         # actions/dev/ is deliberately hidden from the picker — but it also hid
         # work_treasure and collect_trucks, and reaching those meant a code change.
         # A checkbox is the right size for "show the experimental ones too".
-        self._scn_dev_var = tk.BooleanVar(value=False)
         self.tr(ttk.Checkbutton(controls, variable=self._scn_dev_var,
                                  command=self._refresh_actions),
                  "scenarios.show_dev").pack(side="right", padx=(0, 8))
@@ -364,7 +524,6 @@ class DevelopTab(PanelTab):
         argrow = ttk.Frame(frame)
         argrow.pack(fill="x", pady=(6, 0))
         self.tr(ttk.Label(argrow), "scenarios.args").pack(side="left", padx=(0, 4))
-        self._scn_args_var = tk.StringVar()
         ttk.Entry(argrow, textvariable=self._scn_args_var).pack(side="left", fill="x",
                                                                 expand=True)
 
@@ -394,9 +553,12 @@ class DevelopTab(PanelTab):
         self.tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
                  "scenarios.hint").pack(anchor="w", pady=(8, 0))
 
-        self._scn_actions: list[dict] = []
         self._refresh_actions()
-        self._load_scenario_into_editor(self._selected_action_name())
+        # The profile's own choice, if this page is being opened for the first time in
+        # this run — otherwise the first row, as before.
+        self._select_saved_scenario(self._scn_saved_name)
+        if self._scn_editor_name is None:
+            self._load_scenario_into_editor(self._selected_action_name())
 
     # -- lifecycle -------------------------------------------------------------
     def panic(self) -> None:
@@ -423,23 +585,38 @@ class DevelopTab(PanelTab):
             self._sniff_var.set(True)
 
     def on_show(self) -> None:
-        """Somebody is looking: the busy block starts reading (and only then, #1392)."""
-        self._busy.on_show()
+        """Somebody is looking: the page on top is drawn, and starts reading (#1392).
+
+        Only that page. «Занятость» arms its once-a-second read here and the log goes
+        back onto the spool here, and both stop again the moment another page is on top
+        or the tab is left (#1415).
+        """
+        self._shown = True
+        self._sync_page()
 
     def on_hide(self) -> None:
-        self._busy.on_hide()
+        self._shown = False
+        if self._live is not None:
+            self._hide_page(self._live)
+            self._live = None
 
     def shutdown(self) -> None:
         # A debounced edit is still pending for up to a second — write it before the
         # window goes, or the last thing typed is the thing that is lost.
         self.flush_save()
         self._busy.shutdown()
+        # Off the spool before the widgets go, so a pump landing between here and the
+        # page's teardown does not write into a Text that is on its way out.
+        if self._log is not None:
+            self._log.destroy()
+            self._log = None
         self._stop_scenario_loop()
         self._stop_sniff()
         for name in ("sniff_ready", "sniff_flush"):
             self.rt.tick.disarm(name)
 
     def on_language_change(self) -> None:
+        self._retranslate_pages()
         self._refresh_actions()
         self._busy.on_language_change()
 
@@ -447,8 +624,10 @@ class DevelopTab(PanelTab):
     def config(self) -> dict:
         return {
             # The tab used to forget all three on every restart, so a launch always
-            # started on the first row with an empty args box.
-            "scenario_selected": self._scn_editor_name or "",
+            # started on the first row with an empty args box. A page nobody opened in
+            # this run answers with what the profile was read with, never with a blank:
+            # an inner page is drawn as late as the tab is (#1415).
+            "scenario_selected": self._scn_editor_name or self._scn_saved_name or "",
             "scenario_args": self._scn_args_var.get(),
             "scenario_interval": self._scn_interval_var.get(),
             # …and which producer the log pane is narrowed to. It was a top-level
@@ -456,23 +635,30 @@ class DevelopTab(PanelTab):
             # carries an older profile's answer into this block.
             "log_filter": (self._log.filter_var.get() if self._log is not None
                            else self._log_filter),
+            # …and which of the four pages was open, so the tab opens where it was left.
+            "page": self._page_var.get(),
         }
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self._scn_args_var.set(raw.get("scenario_args", ""))
         self._scn_interval_var.set(str(raw.get("scenario_interval", "60")))
-        self._select_saved_scenario(raw.get("scenario_selected"))
+        self._scn_saved_name = str(raw.get("scenario_selected") or "")
+        self._select_saved_scenario(self._scn_saved_name)
         self._log_filter = str(raw.get("log_filter") or "")
         if self._log is not None and self._log_filter:
             self._log.filter_var.set(self._log_filter)
             self._log.redraw()
+        page = str(raw.get("page") or "")
+        if page in PAGES:
+            self._page_var.set(page)
+            self._select_page(page)
 
     def persist_vars(self) -> list:
-        out = [self._scn_args_var, self._scn_interval_var]
-        if self._log is not None:
-            out.append(self._log.filter_var)
-        return out
+        # The log's filter is NOT here: its pane is made when its page is first opened,
+        # which is long after the shell's one pass over this list, so it traces itself
+        # (see `_build_log`).
+        return [self._scn_args_var, self._scn_interval_var, self._page_var]
 
     def _sniff_timeout(self) -> float:
         return self.rt.settings.opt_float("sniff_ready_timeout", low=1.0, high=600.0)
@@ -937,7 +1123,13 @@ class DevelopTab(PanelTab):
         self.rt.bus.publish("cmd.reference")
 
     def _refresh_actions(self) -> None:
-        """(Re)load the action list into the listbox, keeping the selection if possible."""
+        """(Re)load the action list into the listbox, keeping the selection if possible.
+
+        Nothing to do while «Сценарии» is unopened: there is no list to fill, and the
+        page reads the catalogue for itself when it is drawn (#1415).
+        """
+        if getattr(self, "_scn_list", None) is None:
+            return
         prev = self._selected_action_name()
         self._scn_actions = list_actions(
             include_dev=bool(getattr(self, "_scn_dev_var", None)
@@ -959,8 +1151,9 @@ class DevelopTab(PanelTab):
         first row with an empty args box.
         """
         name = str(name or "").strip()
-        if not name or not getattr(self, "_scn_actions", None):
-            return
+        if (not name or not getattr(self, "_scn_actions", None)
+                or getattr(self, "_scn_list", None) is None):
+            return                          # no page drawn yet — `_build_scenarios` asks
         idx = next((i for i, a in enumerate(self._scn_actions) if a["name"] == name), None)
         if idx is None:
             return
@@ -993,7 +1186,8 @@ class DevelopTab(PanelTab):
         self._scn_list.configure(state=keep)
 
     def _selected_action_name(self) -> str | None:
-        sel = self._scn_list.curselection() if hasattr(self, "_scn_list") else ()
+        sel = (self._scn_list.curselection()
+               if getattr(self, "_scn_list", None) is not None else ())
         if not sel:
             return None
         return self._scn_actions[sel[0]]["name"]
@@ -1065,6 +1259,8 @@ class DevelopTab(PanelTab):
             # The run is over: Stop has nothing left to ask, and a stale flag would
             # make the button say «останавливаю» at a script that already finished.
             self._cancel = None
+        if getattr(self, "_scn_list", None) is None:
+            return                          # the page is not drawn — nothing to mark
         try:
             self._paint_action_rows()
             self._scn_list.configure(state="disabled" if running else "normal")
@@ -1101,7 +1297,7 @@ class DevelopTab(PanelTab):
 
     def _load_scenario_into_editor(self, name: str | None) -> None:
         """Read a script into the editor and start its undo history fresh."""
-        if name is None:
+        if name is None or getattr(self, "_scn_editor", None) is None:
             return
         resolved = self.rt.actions.resolve(name)
         if resolved is None:

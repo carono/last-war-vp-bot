@@ -253,7 +253,10 @@ def test_the_shell_keeps_no_log_widget():
 def test_the_develop_tab_draws_it():
     src = _source("panel", "tabs", "develop.py")
     assert "from ..runtime.log_view import LogPane" in src
-    assert "def _build_log" in src and "self._build_log()" in src
+    # …on a page of its own since #1415, built when that page is first opened. The
+    # column it used to be packed into gave it a height of one pixel, so it was drawn
+    # and invisible; `tests/test_panel_develop_pages.py` pins the new shape.
+    assert "def _build_log" in src and "self._build_log," in src
     # The filter travels in the tab's block now, with the flat key an older profile
     # was written with named as legacy so nobody's choice is lost.
     assert '"log_filter"' in src and "LEGACY_KEYS" in src

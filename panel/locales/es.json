@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} pulsaciones fueron rechazadas",
   "busy.jam.timer": "{name} lleva {secs} s de retraso ({count} con retraso en total)",
   "busy.jam.tick": "el temporizador {name} de la ventana lleva {secs} s de retraso",
-  "busy.jam.posted": "{count} redibujados esperan a la ventana"
+  "busy.jam.posted": "{count} redibujados esperan a la ventana",
+  "develop.page.log": "Registro",
+  "develop.page.busy": "Ocupación",
+  "develop.page.scenarios": "Guiones",
+  "develop.page.sniff": "Rastreadores"
 }

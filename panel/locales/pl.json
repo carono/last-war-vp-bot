@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "odrzucono naciśnięć: {count}",
   "busy.jam.timer": "{name} spóźniony o {secs} s (spóźnionych łącznie: {count})",
   "busy.jam.tick": "licznik okna {name} spóźnia się o {secs} s",
-  "busy.jam.posted": "{count} odrysowań czeka na okno"
+  "busy.jam.posted": "{count} odrysowań czeka na okno",
+  "develop.page.log": "Dziennik",
+  "develop.page.busy": "Obciążenie",
+  "develop.page.scenarios": "Skrypty",
+  "develop.page.sniff": "Sniffery"
 }

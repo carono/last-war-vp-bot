@@ -84,8 +84,16 @@ class BusyView:
         self._visible = False
 
     # -- drawing --------------------------------------------------------------
-    def build(self, parent) -> None:
-        box = self.tab.tr(ttk.LabelFrame(parent, padding=8), "busy.frame")
+    def build(self, parent, framed: bool = True) -> None:
+        """Draw the block into ``parent``.
+
+        ``framed`` puts the titled box back around it — it is what the block wore while
+        it shared a column with everything else on «Разработка». On a page of its own the
+        page's own name already says «Занятость», and a second copy of the word costs a
+        row of a debugger that is read in a hurry (#1415).
+        """
+        box = (self.tab.tr(ttk.LabelFrame(parent, padding=8), "busy.frame") if framed
+               else ttk.Frame(parent, padding=8))
         box.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
         bar = ttk.Frame(box)

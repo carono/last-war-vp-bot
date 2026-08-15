@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} richieste sono state rifiutate",
   "busy.jam.timer": "{name} è in ritardo di {secs} s ({count} in ritardo in tutto)",
   "busy.jam.tick": "il timer {name} della finestra è in ritardo di {secs} s",
-  "busy.jam.posted": "{count} ridisegni attendono la finestra"
+  "busy.jam.posted": "{count} ridisegni attendono la finestra",
+  "develop.page.log": "Registro",
+  "develop.page.busy": "Occupazione",
+  "develop.page.scenarios": "Script",
+  "develop.page.sniff": "Sniffer"
 }

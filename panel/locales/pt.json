@@ -1792,5 +1792,9 @@
   "busy.jam.refused": "{count} pedidos foram recusados",
   "busy.jam.timer": "{name} está {secs} s atrasado ({count} atrasados no total)",
   "busy.jam.tick": "o temporizador {name} da janela está {secs} s atrasado",
-  "busy.jam.posted": "{count} redesenhos esperam pela janela"
+  "busy.jam.posted": "{count} redesenhos esperam pela janela",
+  "develop.page.log": "Registro",
+  "develop.page.busy": "Ocupação",
+  "develop.page.scenarios": "Roteiros",
+  "develop.page.sniff": "Rastreadores"
 }
