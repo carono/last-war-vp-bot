@@ -8317,3 +8317,103 @@ def recruit_moved() -> str:
     """
     return ("((DataCenter.__lw_recruit_before ~= nil and "
             "(%s) ~= DataCenter.__lw_recruit_before) and 1 or 0)" % recruit_verify())
+
+
+# ---------------------------------------------------------------------------
+# Радар — the detect-event board (#1414)
+# ---------------------------------------------------------------------------
+# The radar hands out a board of small errands ("detect events"): kill a Doom Legion
+# camp, gather a mine, run an errand for an ally. Each one is a `DetectEventInfo` with
+# its own `uuid`; a finished one pays out, an unfinished one has to be carried out.
+#
+# Every press below is one message, and every one of them is taken verbatim off the
+# recording `results/traces/20260815_080129_радар_trace.log` (#1414) — the payload
+# shapes are the `SFSObject.Put*` lines beside each `SFSNetwork.SendMessage`:
+#
+#   get.detect.info                 {openWnd: bool}          — read the board
+#   receive.detect.event.reward     {uuid: long}             — claim ONE finished errand
+#   detect.event.help.start         {uuid: long, eventType}  — begin carrying one out
+#   detect.event.help.end           {uuid: long, eventType}  — report it finished
+#   detect.event.put.point.in.world {uuid: long}             — drop its target on the map
+#
+# «Получить все» IS the per-errand claim. The in-game button is a client-side loop:
+# the recording shows `arrayV2.iterator` and then eleven separate
+# `receive.detect.event.reward` sends in a row, one per finished errand, matching the
+# red badge of 11. There is no "claim all" command, so the recipe's `xall` reproduces
+# exactly what the button does — which is also why a single errand can be claimed on
+# its own with the same primitive.
+
+# The `eventType` the recording carried on both help messages. It is a property of the
+# errand, not a constant of the feature, so `radar_help_start`/`radar_help_end` take it
+# — this is only the fallback for a caller that has not read one off the board.
+RADAR_HELP_EVENT_TYPE = 18
+
+
+def radar_fetch_board(open_window: bool = True) -> str:
+    """Ask the server for the radar board — `get.detect.info`.
+
+    The reply is what fills the client's own list, so this is the read that has to
+    happen before anything below can name a `uuid`. Give it a settle (~0.6 s) and read
+    the board afterwards, never in the same chunk.
+
+    `open_window` is the message's only field. The recording only ever carried `true`
+    (the client sends it as `openWnd` even when the Lua argument was `nil`), so `false`
+    is untested: it may refresh silently, or it may be ignored.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage("get.detect.info", %s) end) '
+            'CS.UnityEngine.Debug.LogError("ACT radar_board_requested openWnd=%s")'
+            % ("true" if open_window else "false", "true" if open_window else "false"))
+
+
+def radar_claim(uuid: str) -> str:
+    """Claim ONE finished radar errand — `receive.detect.event.reward {uuid}`.
+
+    This is the whole of the in-game «Получить» on a single card, and eleven of these
+    in a row are the whole of «Получить все» (see the section comment). Nothing else is
+    sent: no window is opened, no card is tapped.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage("receive.detect.event.reward", %s) end) '
+            'CS.UnityEngine.Debug.LogError("ACT radar_claim_sent uuid=%s")'
+            % (uuid, uuid))
+
+
+def radar_help_start(uuid: str, event_type: int = RADAR_HELP_EVENT_TYPE) -> str:
+    """Set an errand running — `detect.event.help.start {uuid, eventType}`.
+
+    The in-game «Быстро выполнить» (`BtnCompleteOnClick`) fires one of these per
+    eligible errand — three at once in the recording — and each one takes time: the
+    client computes `Mathf.Min(3000, <distance from the home tile>)` right before the
+    send, so the wait is the travel distance, capped. The finish is reported separately
+    with :func:`radar_help_end`.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage("detect.event.help.start", %s, %d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT radar_help_start uuid=%s type=%d")'
+            % (uuid, int(event_type), uuid, int(event_type)))
+
+
+def radar_help_end(uuid: str, event_type: int = RADAR_HELP_EVENT_TYPE) -> str:
+    """Report an errand finished — `detect.event.help.end {uuid, eventType}`.
+
+    The client sends this itself when its own timer runs out, so a recipe that started
+    one with :func:`radar_help_start` must either wait for the client to do it or send
+    it once the errand's timer has actually elapsed. Sending it early is the server's
+    decision to refuse, not ours to make.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage("detect.event.help.end", %s, %d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT radar_help_end uuid=%s type=%d")'
+            % (uuid, int(event_type), uuid, int(event_type)))
+
+
+def radar_put_point(uuid: str) -> str:
+    """Drop an errand's target onto the world map — `detect.event.put.point.in.world`.
+
+    The in-game «Перейти» (`Detect_Event_Info_Goto_Btn`). The server answers by placing
+    the tile and broadcasting event 2454 with the same uuid; the client then knows the
+    point index and moves there (`GoToUtil.MoveToWorldPointAndOpen(<point>, nil, uuid,
+    <server>)`). Only after that does an ordinary march start — attacking the camp or
+    gathering the mine is `MarchUtil.OnClickStartMarch`, the same call every other
+    target uses, and none of it is part of this message.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage("detect.event.put.point.in.world", %s) end) '
+            'CS.UnityEngine.Debug.LogError("ACT radar_point_requested uuid=%s")'
+            % (uuid, uuid))

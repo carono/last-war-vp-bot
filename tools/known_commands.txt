@@ -262,6 +262,9 @@ up custom.daily.package.preview
 up daily.must.list
 up daily.quest.ls
 up detect.event.get.card.box.list
+up detect.event.help.end
+up detect.event.help.start
+up detect.event.put.point.in.world
 up dragon.activity.info
 up dragon.assign.player.info
 up exchange.info
@@ -341,6 +344,7 @@ up player.pay.tag.info
 up quarantine.act.info
 up quarantine.act.player.list
 up quarantine.commander.list
+up receive.detect.event.reward
 up redPackets.rvd.id
 up reward.recover.param
 up rq.world.effect.alter.info
