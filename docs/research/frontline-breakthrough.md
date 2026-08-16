@@ -73,37 +73,60 @@ units (`hp` 90–126) arrive.
 
 ## What was measured
 
-Two accounts, one lane held for the whole stage, soldiers standing at the end:
+**209 stages played on two accounts, 130 of them cleared.** Every row below is that log,
+not an impression; `lane` is what the recipe held for the whole stage, and «policy» rows
+are the steering described under the table.
 
-| Stage | lane 31.5 | lane 36 (spawn) | lane 40.5 | «feed, lean to the middle» (-2) | «feed, eager» (-5) |
-|---|---|---|---|---|---|
-| 20451 | wiped, peak 24 | **cleared: 254…377**, seven times of eight | — | cleared: 254 / 269 / 276 / 294 / 306 | cleared 3 of 6: 159 / 285 |
-| 20452 | wiped, peak 16 | wiped, peak 13–23 | wiped, peak 10 | wiped, peak 35 | **cleared once, 3 left** |
-| 20453 | — | — | — | — | **cleared once, 3 left** |
-| 20454 | — | — | — | — | wiped, peak 6 |
+| Stage | what was held | runs | cleared | most soldiers left |
+|---|---|---:|---:|---:|
+| 20451 | **middle (36)** | 70 | **64** | **415** |
+| 20451 | feed, lean middle (-2) | 9 | 8 | 306 |
+| 20451 | feed, eager (-5) | 5 | 2 | 285 |
+| 20451 | left (31.5) · avoid-heaviest (-1) · hold-middle-dodge (-3) | 3 | 0 | — |
+| 20452 | **feed, lean middle (-2)** | 39 | **22** | **407** |
+| 20452 | feed, eager (-5) | 20 | 5 | 438 |
+| 20452 | any lane held flat (31.5 / 36 / 40.5) | 6 | 0 | — |
+| 20453 | **right (40.5)** | 14 | **14** | 5 |
+| 20453 | left (31.5) | 4 | 4 | 2 |
+| 20453 | the policies (-2 / -5) | 9 | 3 | 3 |
+| 20454 | **left (31.5)** | 10 | **8** | 17 |
+| 20454 | right (40.5) · the policies | 11 | 0 | — |
+| 20455 | middle · left · right · (-2) · (-8) | 8 | **0** | — |
 
-The two steering policies live in `frontline_breakthrough_stage.md` and score each lane
-over the units within 18 of the squad: a unit of 5 hp or less is worth +1 (it is what
-the squad grows on), 6–20 hp is worth nothing, and anything heavier is worth −hp/10. The
-difference between them is one number — `-2` adds a point to the middle lane and needs a
-1.5 margin before it moves, `-5` neither leans nor waits.
+So four of the five stages fall, each to a different answer, and **stage 20455 has not
+fallen to anything tried**. It always ends the same way: the squad peaks at 7–12 (29 in
+the middle, the least bad of them) and is wiped inside ten seconds. What is missing there
+is soldiers arriving, not a better dodge — and soldiers do not carry between stages
+(every stage starts at its own `expect_num = 30`; a stage 2 that ended with 407 is
+followed by a stage 3 that peaks at 22, exactly like one that ended with 4).
 
-What that buys, measured: leaning at the middle keeps stage 1's harvest (≈280 soldiers
-against ≈330 for simply standing there) and dies on stage 2 like everything else; not
-leaning halves stage 1's harvest and is the ONLY thing that has ever cleared stages 2
-and 3 — arriving at each with three soldiers standing. Both are far from the event's own
-criteria (stage 5, 2 000 soldiers).
+The steering policies score each lane over the units within 18 of the squad: a unit of
+5 hp or less is worth +1 (it is what the squad grows on), 6–20 hp is worth nothing, and
+anything heavier is worth −hp/10. `-2` adds a point to the middle lane and needs a 1.5
+margin before it moves; `-5` neither leans nor waits; `-8` ignores lanes and aims at the
+weighted middle of the weak units, stepping 4.5 aside when a heavy one shares that spot.
+`-1` and `-3` avoid threat instead of chasing food, and both are worse than standing
+still — **running away from the heavy lane loses stage 1 outright**, because the squad
+grows on what walks into it.
 
-Stage 20452 wipes the squad within 6–10 seconds whenever the squad stands still, in any
-lane. The human player on the account with the best record never cleared it either
-(`maxS` = 20452 means the chain reached it, not that it was beaten).
+**A cleared stage is worth at most sixty units** (`special_stage_tips_01`). Stage 1 alone
+pays that full sixty in about forty seconds, while stage 3 leaves five soldiers standing
+after a minute — so depth is worth having for the event's ranking and stage 1 is where
+the units are.
+
+**The runs are far more deterministic than they look.** Stage 20454 held in the left lane
+ended with exactly 17 soldiers on every one of its eight clears; stage 20453 in the right
+lane with 1 or 5. The variance that looked like luck early on was the policy changing
+under the measurement, plus two client-side accidents worth knowing: a kicked client
+(the account was played elsewhere) and a panel restart, both of which end a session
+mid-`WHILE` with no error line in the log.
 
 **The two clients do not run at the same speed, and it does not decide the run.** The
 same cleared stage 20451 is 570–650 frames of `OnUpdate` on the profile whose client sits
-in a disconnected Windows session and 5 200 on the one with a desktop — ten frames a
-second against sixty. Both clear it; the soldiers at the end are the same order (285 and
-351). So a slow client is not a reason to distrust a measurement here, and the frame
-count is a fine clock for «how long did that stage last».
+in a disconnected Windows session and 4 000–5 900 on the one with a desktop — ten frames
+a second against sixty. Both clear it, with the same order of soldiers (285 and 351), so
+a slow client is not a reason to distrust a measurement here and the frame count is a
+fine clock for «how long did that stage last».
 
 ## Traps that cost time here
 
