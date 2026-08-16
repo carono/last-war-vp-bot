@@ -32,6 +32,17 @@ import coords                                        # noqa: E402  (see above)
 #: tick prints a burst of findings and a single merge covers them all.
 NUDGE_MS = 800
 
+#: The machine line the capture prints per tile — the EVENT the list is built from
+#: (#1416). It MUST match `TILE_MARKER` in `tools/secret_task_capture.py`.
+#:
+#: WHAT IT REPLACES, and why the operator asked for it: «увидели секретку — записали в
+#: базу, это должен быть небольшой хук и не должен тратить ресурсы». A find used to reach
+#: the list the long way round — the child rewrote its whole checkpoint, the panel saw a
+#: human line, waited out a debounce, then re-read the entire file AND asked the game VM
+#: about the star. Per find. The tile is in the line now, so the hook is: parse, hand
+#: over, return.
+TILE_MARKER = "##TILE##"
+
 #: The `family NNNN` token the capture prints on every finding, and the leading ` *` it
 #: marks a starred one with. The family is what the rule is actually made of; the star
 #: glyph is the fallback for a line shape that ever stops carrying it.
@@ -285,6 +296,26 @@ class Capture:
             return False
         return True
 
+    def on_tile(self, line: str) -> bool:
+        """One TILE event: hand it to the list and get out of the way (#1416).
+
+        The whole hook, and it is meant to read like one — a JSON parse, a dict, a call
+        that appends to a buffer. No file is read, no game is asked, nothing waits. It
+        runs on the child's reader thread, which must never be blocked: whatever the
+        panel decides to do about the tile happens on the Tk thread, in one pass over
+        whatever has arrived (`SecretTasksTab.tiles_seen`).
+
+        Returns `False` so the reader swallows the line: it is machinery, and the human
+        line for the same tile is printed right after it.
+        """
+        try:
+            record = json.loads(line[len(TILE_MARKER):].strip())
+        except ValueError:
+            return False                # a torn line is not worth a word
+        if isinstance(record, dict):
+            self.tab.tile_seen(record)
+        return False
+
     def on_line(self, line: str) -> bool:
         """One capture line: log it if the display filter lets it through, record a real
         finding into the profile's own log, and nudge the list to re-merge the
@@ -296,8 +327,15 @@ class Capture:
         (no coordinate of its own, but it marks a checkpoint flush). Called on the child's
         reader thread, so it marshals onto the Tk thread, where the merge is debounced.
         """
+        if line.startswith(TILE_MARKER):
+            return self.on_tile(line)
         is_finding = bool(coords.parse(line))
-        if is_finding or "on timer" in line:
+        # THE CHECKPOINT MERGE IS THE FALLBACK NOW, not the feed (#1416). The tiles
+        # arrive as their own events above; this keeps the old path alive for what the
+        # events cannot carry — a capture built before the marker, and the progress line
+        # that marks a flush after a restart, when the list starts empty and the file is
+        # the only thing that remembers.
+        if "on timer" in line:
             self.tab.after(self._nudge)
         if not self.passes(line):
             return False                # filtered out — handled, do not log

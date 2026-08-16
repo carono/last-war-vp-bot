@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "ralliements d'alliance : qui les lance et qui rejoint",
   "busy.listener.leaderboard": "classements — instantanés pour l'historique",
   "busy.listener.chat": "chat : messages d'alliance et privés",
-  "busy.listener.map": "cases de la carte"
+  "busy.listener.map": "cases de la carte",
+  "timers.log.gate_expired": "{name} : abandonné — {secs} s d'attente du jeu, le moment concerné est passé",
+  "busy.status.gated": "attend le jeu",
+  "busy.queue.gated": "reporté jusqu'à ce que le jeu soit prêt : {name} — {secs} s"
 }

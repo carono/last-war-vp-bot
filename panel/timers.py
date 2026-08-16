@@ -127,6 +127,20 @@ RETRY_HOLD_SEC = 300.0
 # in a tight loop while a person's own button press runs its course.
 BUSY_RETRY_SEC = 5.0
 
+# How often a fire the GATE turned away is offered again (#1416). A push is not a
+# clock: nothing brings it back by itself, so an errand refused because the game was
+# not up, the daemon was down or the panel was stopped used to be thrown away — and
+# «пропускаются события» is exactly what that looks like from outside. It waits here
+# instead and is re-offered on this beat until the gate opens or its patience runs out.
+GATE_RETRY_SEC = 10.0
+
+# How long a fire may wait for its gate before it is given up as stale. A push is about
+# a moment in the game — a rally that is out, a request that is open, a balance that
+# just moved — and re-running it a quarter of an hour later presses at something that is
+# no longer there. Long enough to outlast a restart of the client (measured at a median
+# 184 s, `restart_game`), short enough that nothing acts on last hour's news.
+GATE_KEEP_SEC = 600.0
+
 # How often ONE errand may repeat the same reason for being skipped. A skip has to be
 # said — «тихо не поехали» is exactly what #1281 was about, and a wire trigger can be
 # refused hundreds of times an hour (a profile whose client is down heard 10 035 rally
@@ -1261,6 +1275,14 @@ class TimerScheduler:
         # queue re-offers them every `BUSY_RETRY_SEC` and only the first offer is
         # worth a «стартую» line. Emptied the moment one of them actually runs.
         self._busy_held: set[str] = set()
+        # FIRES WAITING FOR THEIR GATE (#1416): `name -> (errand, scheduled, by, since,
+        # last offer)`. A clock brings a timer back by itself; a push has nothing to
+        # bring it back, so a gate refusal used to be the end of it — the event was
+        # dropped and nothing but a rolled-up skip line said so. They wait here and are
+        # re-offered every `GATE_RETRY_SEC` until the gate opens (`_retry_gated`), and
+        # are given up only when they are older than `GATE_KEEP_SEC` — said out loud,
+        # because an event nobody could act on is news whichever way it ends.
+        self._gated: dict = {}
         # Repeated skips, rolled up: name -> [reason, count, last-said-monotonic].
         self._skips: dict = {}
         self._queue_lock = threading.Lock()
@@ -1385,6 +1407,11 @@ class TimerScheduler:
             if reason:
                 self.note_skip(name, reason)
                 self._gate_said = reason
+                # …AND IT WAITS RATHER THAN DYING (#1416). This is a PUSH: nothing in
+                # the panel will bring it back, so a gate refusal here used to be an
+                # event silently thrown away — the very «пропускаются событий» this
+                # was reported as. Parked, and re-offered when the gate opens.
+                self._park_gated(name, errand, scheduled, by)
                 return False
         with self._queue_lock:
             if name in self._queued:
@@ -1439,6 +1466,93 @@ class TimerScheduler:
             self._queued_at[name] = time.monotonic()
         self._queue.put((name, scheduled, by))
         return True
+
+    def park_gated(self, errand) -> None:
+        """Hold a fire that never reached the queue at all — the panel was stopped.
+
+        `Schedule.submit` asks its own gate before this scheduler is involved (a fire
+        that reaches the queue has already cost a name and a slot), so the refusal
+        happened one layer up and the errand has to be handed in from there.
+        """
+        name = str(getattr(errand, "name", "") or "")
+        if name:
+            self._park_gated(name, errand, False, BY_TRIGGER)
+
+    def _park_gated(self, name: str, errand, scheduled: bool, by: str) -> None:
+        """Keep a fire the gate turned away, so it can be offered again (#1416).
+
+        THE GUARANTEE THIS EXISTS FOR: a listener either acts on an event at once or
+        queues it, but the event is acted on. Being busy may DELAY the work; it may not
+        cancel it. Everything else in this scheduler already honours that — a busy panel
+        re-queues, a run in flight re-fires — and the gate was the one door that simply
+        dropped what came through it.
+
+        One entry per NAME, and a second fire of the same name refreshes it rather than
+        stacking: the errand re-reads the game when it finally runs, so two parked copies
+        would be one press made twice. That is the same coalescing `submit` already does
+        for a name waiting in the queue.
+
+        Its own age is kept from the FIRST fire, not the last, so a push that keeps
+        arriving cannot hold a stale errand alive for ever.
+        """
+        if errand is None:
+            return
+        with self._queue_lock:
+            old = self._gated.get(name)
+            since = old[3] if old else time.monotonic()
+            self._gated[name] = (errand, bool(scheduled), by, since, 0.0)
+            self._adhoc.setdefault(name, errand)
+        self._dbg.info("parked %s behind the gate", name)
+
+    def _retry_gated(self) -> list:
+        """Offer every parked fire again, and give up the ones that have gone stale.
+
+        Called from the tick, so it runs on the scheduler's own thread and costs a dict
+        walk. The GATE is asked per name, exactly as `enqueue_due` asks it: the errand
+        that puts the client back must not be held behind the client being down.
+
+        Returns the names it re-queued — what the tests read.
+        """
+        if not self._gated:
+            return []
+        now = time.monotonic()
+        out, dropped = [], []
+        with self._queue_lock:
+            parked = list(self._gated.items())
+        for name, (errand, scheduled, by, since, last) in parked:
+            if now - since >= GATE_KEEP_SEC:
+                dropped.append(name)
+                continue
+            if last and now - last < GATE_RETRY_SEC:
+                continue
+            reason = self._gate(name) if self._gate is not None else None
+            if reason:
+                with self._queue_lock:
+                    if name in self._gated:
+                        self._gated[name] = (errand, scheduled, by, since, now)
+                continue
+            with self._queue_lock:
+                self._gated.pop(name, None)
+            if self._enqueue(name, scheduled, by):
+                out.append(name)
+        for name in dropped:
+            with self._queue_lock:
+                self._gated.pop(name, None)
+            # SAID OUT LOUD. An event given up on is the thing the operator was told
+            # would never happen, so it is never silent — even though giving it up is
+            # the right answer once its moment has passed.
+            self._log("timers.log.gate_expired", name=name,
+                      secs=int(GATE_KEEP_SEC))
+            self._dbg.warning("gave up %s — %.0fs behind the gate", name, GATE_KEEP_SEC)
+        return out
+
+    def gated(self) -> list:
+        """The fires waiting for their gate, oldest first — for «Занятость» (#1416)."""
+        now = time.monotonic()
+        with self._queue_lock:
+            rows = [{"name": name, "secs": max(0.0, now - since)}
+                    for name, (_e, _s, _b, since, _l) in self._gated.items()]
+        return sorted(rows, key=lambda row: -row["secs"])
 
     def _requeue(self, name: str, scheduled: bool, by: str = BY_HAND) -> None:
         """Put a turned-down errand back on the queue, still claimed.
@@ -1522,6 +1636,10 @@ class TimerScheduler:
             "hold_secs": max(0.0, self._hold_until - time.time()),
             "refire": refire,
             "cancelled": cancelled,
+            # …and the fires waiting for a door rather than for a worker (#1416). They
+            # are not «в очереди» — the queue would run them — and a reading that left
+            # them out is what made a delayed event look like a dropped one.
+            "gated": self.gated(),
             "alive": self.running,
         }
 
@@ -1585,13 +1703,18 @@ class TimerScheduler:
                 self._stop.wait(self._tick)
 
     def enqueue_due(self, now: float | None = None) -> list[str]:
-        """Queue every errand that has come due. Returns the names it queued."""
+        """Queue every errand that has come due. Returns the names it queued.
+
+        …and, FIRST, whatever is waiting behind the gate (#1416): a push has no clock of
+        its own, so this beat is what brings it back once the game is up again.
+        """
+        queued = self._retry_gated()
         now = time.time() if now is None else now
         catalogue = self._catalogue()
         config = catalogue.normalize_config(self._config())
         pending = catalogue.due_names(config, self._store.records(), now, self._day)
         if not pending:
-            return []
+            return queued
         if self._gate is not None:
             # PER ERRAND, not per tick. The gate that matters is «the game is not
             # running», and the errand that PUTS IT BACK is on this very list: a
@@ -1611,10 +1734,10 @@ class TimerScheduler:
                 self._log(refused)
                 self._gate_said = refused
             if not allowed:
-                return []
+                return queued
             pending = allowed
         self._gate_said = None
-        return [name for name in pending if self._enqueue(name, scheduled=True)]
+        return queued + [name for name in pending if self._enqueue(name, scheduled=True)]
 
     def _run_queued(self, name: str, scheduled: bool, by: str = BY_HAND) -> str:
         """Take one errand off the queue and run it.
@@ -1645,6 +1768,14 @@ class TimerScheduler:
                 self.note_skip(name, reason)
                 self._gate_said = reason
                 self._release(name)
+                # A TIMER comes back on its own clock; A FIRE DOES NOT (#1416). The
+                # comment above — «the next tick queues it again» — is true of the
+                # catalogue's errands and was never true of a trigger's: its moment
+                # was a push that has already gone. So an ad-hoc errand is parked and
+                # re-offered when the gate opens, and a catalogue timer is left to its
+                # clock exactly as before.
+                if timer is not None and self._catalogue().by_name(name) is None:
+                    self._park_gated(name, timer, scheduled, by)
                 return "skipped"
         # Mark it as running for the whole call, so `cancel` can tell "waiting in
         # the queue" (cancellable) from "in flight" (not) — and so a fire landing

@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "raduni dell'alleanza: chi li lancia e chi si unisce",
   "busy.listener.leaderboard": "classifiche — istantanee per lo storico",
   "busy.listener.chat": "chat: messaggi di alleanza e privati",
-  "busy.listener.map": "caselle della mappa"
+  "busy.listener.map": "caselle della mappa",
+  "timers.log.gate_expired": "{name}: abbandonato — {secs} s di attesa del gioco, il momento a cui si riferiva è passato",
+  "busy.status.gated": "attende il gioco",
+  "busy.queue.gated": "rinviato finché il gioco non è pronto: {name} — {secs} s"
 }

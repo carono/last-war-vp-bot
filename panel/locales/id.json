@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "penggalangan aliansi: siapa yang membuka dan siapa yang bergabung",
   "busy.listener.leaderboard": "papan peringkat — cuplikan ke riwayat",
   "busy.listener.chat": "obrolan: pesan aliansi dan pribadi",
-  "busy.listener.map": "petak peta"
+  "busy.listener.map": "petak peta",
+  "timers.log.gate_expired": "{name}: dilepas — menunggu permainan {secs} d, saat yang dimaksud sudah lewat",
+  "busy.status.gated": "menunggu permainan",
+  "busy.queue.gated": "ditahan sampai permainan siap: {name} — {secs} d"
 }

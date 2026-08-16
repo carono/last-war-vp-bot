@@ -134,6 +134,13 @@ JUMP_HISTORY_MAX = 20
 # only how often it asks.
 POLL_MS = 3_000
 
+# How long a burst of TILE events is gathered before it lands in the model (#1416). One
+# lap of the map prints thousands of them in a few seconds, so this is what keeps a lap
+# to a handful of merges instead of one per tile — and it is a quarter of the debounce
+# the checkpoint re-read used to need, because there is no file to read and no round trip
+# to make on this path any more.
+TILES_MS = 200
+
 # How often the countdowns are REDRAWN, as opposed to recomputed (#1272). «Те, что уже
 # можно грабить, должны обновляться несколько раз в секунду»: a cell rewritten once a
 # second is a second late for most of every second, and on a raidable tile that reads as
@@ -403,6 +410,21 @@ class SecretTasksTab(PanelTab):
         # means. What cannot happen any more is the checkpoint REPEATING an old sighting
         # into a row the operator has just taken off.
         self._dismissed: dict = {}
+        # TILES THAT ARRIVED AS EVENTS AND HAVE NOT REACHED THE MODEL YET (#1416).
+        # `uuid -> the capture's own record`. Written by the child's reader thread
+        # (`Capture.on_tile`, which does nothing else), drained on Tk in one pass — the
+        # split the operator asked for: «увидели секретку — записали, это должен быть
+        # небольшой хук и не должен тратить ресурсы», with everything heavy on the
+        # other side of the buffer.
+        self._tiles: dict = {}
+        self._tiles_lock = threading.Lock()
+        # …and what the GAME says a template really is, cached (#1416). The capture reads
+        # a level and a star off the cfgId's digits, which lie for one family (#1267), so
+        # the client's own row is asked for — but ONCE PER TEMPLATE and off the hook: a
+        # handful of ids on a map, against a round trip that used to be made per merge.
+        self._cfg_rank: dict = {}
+        self._cfg_asked: set = set()
+        self._cfg_asking = False
         # …and the uuids with a press already in flight (#1272). A press made inside the
         # ten-second window waits out the remainder before sending, and the row keeps
         # offering «Собрать» throughout — it is still counting down — so without this a
@@ -2506,6 +2528,131 @@ class SecretTasksTab(PanelTab):
         """
         self._busy = False
         self._merge(tasks)
+
+    # -- tiles as events (#1416) ------------------------------------------------
+    def tile_seen(self, record: dict) -> None:
+        """One tile off the capture — THE WHOLE HOOK. Any thread, no I/O, no game.
+
+        A dict write and a wake-up, because that is all a listener is allowed to cost:
+        the game itself moves a hundred times this traffic without noticing, and the
+        panel's own reception has to be of that order. Everything that costs anything —
+        the star the client has to be asked about, the home-server rule, the merge into
+        the model, the checkpoint — happens on the Tk thread, once, over whatever has
+        piled up (:meth:`_tiles_land`).
+        """
+        uuid = str(record.get("uuid") or "").strip()
+        if not uuid:
+            return
+        with self._tiles_lock:
+            first = not self._tiles
+            self._tiles[uuid] = record
+        if first:
+            self.after(self._tiles_soon)
+
+    def _tiles_soon(self) -> None:
+        """Arm the one pass that lands them (Tk thread). A burst is still one merge."""
+        if not self.loaded:
+            # Nothing is drawn yet, and the buffer is not lost: `on_show` reads the
+            # checkpoint, which the capture is still writing, and the next tile that
+            # arrives after that arms this again.
+            return
+        self.rt.tick.arm("secret_tiles", TILES_MS, self._tiles_land)
+
+    def _tiles_land(self) -> None:
+        """Everything heard since the last pass, into the model — no file, no round trip.
+
+        The old path for the same information was: the child rewrites its whole
+        checkpoint, the panel notices a line, waits 800 ms, reads the file back, asks the
+        game VM about every distinct template on it, and merges the lot. Per burst of
+        finds. This is the same merge over the tiles themselves, with the template ranks
+        taken from a cache that is filled in the background.
+        """
+        import lastwar_proto as proto
+
+        with self._tiles_lock:
+            records, self._tiles = self._tiles, {}
+        if not records:
+            return
+        tasks, unknown = [], set()
+        for record in records.values():
+            cfg = int(record.get("cfg") or 0)
+            rank = self._cfg_rank.get(cfg)
+            if rank is None and cfg:
+                unknown.add(cfg)
+            level, starred = self._rank_of(record, rank)
+            if not starred:
+                continue                 # both feeds of this list are starred-only
+            tasks.append(proto.SecretTask(
+                uuid=int(record.get("uuid") or 0),
+                server_id=int(record.get("server") or 0),
+                x=int(record.get("x") or 0), y=int(record.get("y") or 0),
+                level=level, cfg_id=cfg, family=str(record.get("family") or ""),
+                looted_by=tuple("?" for _ in range(int(record.get("loot") or 0))),
+                owner_uid=None, alliance_id=None,
+                expires_at=record.get("expires_at"),
+                completed_at=record.get("completed_at"),
+                starred_cfg=None if rank is None else bool(rank[1]),
+                seen_at=time.time()))
+        if unknown:
+            self._ask_cfg_rank(unknown)
+        if tasks:
+            self._merge(self._abroad_only(tasks))
+
+    def _rank_of(self, record: dict, rank) -> tuple:
+        """`(level, starred)` for one tile — the client's word where there is one.
+
+        `rank` is what the game answered for this template (`level, is_special`), or
+        `None` while nobody has asked yet, in which case the capture's own reading stands.
+        That is the documented fallback and it is what the whole list ran on before the
+        cache existed; the difference is that a wrong star now corrects itself on the next
+        tile of the same template rather than on the next full merge.
+        """
+        import lastwar_proto as proto
+
+        if rank and rank[0]:
+            _family, level, starred = proto.task_rank(record.get("cfg"), rank[0], rank[1])
+            return level, starred
+        return int(record.get("level") or 0), bool(record.get("starred"))
+
+    def _ask_cfg_rank(self, ids: set) -> None:
+        """Ask the client what these TEMPLATES are — once each, off the hook (#1416).
+
+        One chunk for the lot, on a worker, and never more than one in flight. A template
+        that has been asked about is not asked again even when the client could not
+        answer: an id the game has no row for answers `0/0` for ever, and re-asking it
+        per tile is the round trip this cache exists to remove.
+        """
+        fresh = {int(cfg) for cfg in ids if cfg} - self._cfg_asked
+        if not fresh or self._cfg_asking:
+            return
+        self._cfg_asking = True
+        self._cfg_asked |= fresh
+
+        def work() -> None:
+            ranks = {}
+            try:
+                import lua_actions
+                import steal_secret_task as stealer
+                ev = self.rt.game.evaluator()
+                for line in ev.run(lua_actions.dispatch_task_cfg_rank(sorted(fresh)),
+                                   stealer.MARKER, 1.0) or ():
+                    if " CFG cfg=" not in line:
+                        continue
+                    cfg = stealer._num(line, "cfg")
+                    if cfg:
+                        ranks[cfg] = (stealer._num(line, "lvl"),
+                                      stealer._num(line, "spec"))
+            except Exception:            # noqa: BLE001 — no daemon, no game: keep digits
+                ranks = {}
+            self.after(lambda: self._cfg_landed(ranks))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _cfg_landed(self, ranks: dict) -> None:
+        """The templates the client answered for (Tk thread)."""
+        self._cfg_asking = False
+        if ranks:
+            self._cfg_rank.update(ranks)
 
     def _fetch_scan(self) -> list:
         """Everything the capture has checkpointed — the wire feed into OUR list.

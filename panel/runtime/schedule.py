@@ -443,6 +443,15 @@ class Schedule:
         nothing out loud about it — see `panel/triggers.py::_FIRE_WORDS`.
         """
         if not self.rt.gate.alive():
+            # …AND IT IS KEPT, NOT DROPPED (#1416). «Событие либо обрабатывается сразу,
+            # либо кладётся в очередь, но обработано быть обязано.» A daemon that is
+            # down is the commonest reason this door shuts, and it is exactly the
+            # minute in which a push must not be thrown away: the client comes back a
+            # few seconds later and the request, the banner or the balance change is
+            # still there to act on. The scheduler holds it behind its gate and offers
+            # it again on its own beat (`TimerScheduler._retry_gated`), giving up only
+            # once the moment it was about has certainly passed.
+            self.timers.park_gated(trigger)
             return "held"
         return self.timers.submit(trigger)
 

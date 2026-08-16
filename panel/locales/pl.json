@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "zbiórki sojuszu: kto je wystawił i kto dołączył",
   "busy.listener.leaderboard": "rankingi — migawki do historii",
   "busy.listener.chat": "czat: wiadomości sojuszu i prywatne",
-  "busy.listener.map": "pola mapy"
+  "busy.listener.map": "pola mapy",
+  "timers.log.gate_expired": "{name}: porzucone — {secs} s czekania na grę, chwila, której dotyczyło, minęła",
+  "busy.status.gated": "czeka na grę",
+  "busy.queue.gated": "wstrzymane do gotowości gry: {name} — {secs} s"
 }

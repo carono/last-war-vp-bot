@@ -172,6 +172,40 @@ def test_the_snapshot_carries_the_section():
     assert [row["what"] for row in snap["listeners"]] == ["rank"]
 
 
+def test_the_tile_marker_is_one_string_in_two_processes():
+    """The capture and the panel agree on it and on nothing else (#1416).
+
+    A find reaches the list as an EVENT now — the child prints the tile, the panel's hook
+    parses it and hands it over. Both halves spell the marker for themselves, so a rename
+    on one side would leave the other silently reading nothing: exactly the failure the
+    whole task is about, and the cheapest possible test for it.
+    """
+    tool = (_REPO / "tools" / "secret_task_capture.py").read_text(encoding="utf-8")
+    hook = (_REPO / "panel" / "tabs" / "secret_tasks" / "capture.py").read_text(
+        encoding="utf-8")
+    assert 'TILE_MARKER = "##TILE##"' in tool, "the capture no longer speaks tiles"
+    assert 'TILE_MARKER = "##TILE##"' in hook, "the panel no longer listens for them"
+    assert "TILE_MARKER + " in tool, "the marker is defined and never printed"
+
+
+def test_the_tile_line_carries_no_owner():
+    """A tile is a place on the map; whose base it is stays out of the stream (#1293).
+
+    Everything this child prints lands in `panel.log`, which is a file people send each
+    other when something goes wrong.
+    """
+    tool = (_REPO / "tools" / "secret_task_capture.py").read_text(encoding="utf-8")
+    line = tool[tool.index("TILE_MARKER + "):]
+    line = line[:line.index("ensure_ascii")]
+    # `uuid` is the TILE's own id and is wanted; `uid` on its own is a PLAYER's, and
+    # so is a name or an alliance. The keys of the object are what is checked, not the
+    # prose around it.
+    import re as _re
+    fields = set(_re.findall(r'"(\w+)":', line))
+    for banned in ("owner_uid", "alliance_id", "uid", "ownerUid", "name", "owner"):
+        assert banned not in fields, f"the tile event carries {banned}: {sorted(fields)}"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

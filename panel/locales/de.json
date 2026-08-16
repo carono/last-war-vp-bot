@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "Bündnis-Sammlungen: wer sie gestartet hat und wer beitrat",
   "busy.listener.leaderboard": "Bestenlisten — Momentaufnahmen für die Historie",
   "busy.listener.chat": "Chat: Bündnis- und Privatnachrichten",
-  "busy.listener.map": "Kartenfelder"
+  "busy.listener.map": "Kartenfelder",
+  "timers.log.gate_expired": "{name}: aufgegeben — {secs} s auf das Spiel gewartet, der Moment dafür ist vorbei",
+  "busy.status.gated": "wartet auf das Spiel",
+  "busy.queue.gated": "zurückgestellt, bis das Spiel bereit ist: {name} — {secs} s"
 }

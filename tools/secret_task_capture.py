@@ -56,6 +56,7 @@ running and go on announcing raids on a map nobody is looking at.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import sys
@@ -72,6 +73,12 @@ import lastwar_proto as proto  # noqa: E402
 import share_marks  # noqa: E402  (the «already shared» mark this capture also writes)
 import world_index  # noqa: E402  (the second listener, in this process — see --world-json)
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
+
+#: The machine line this capture prints for every tile it has something new to say
+#: about — the EVENT the panel's list is built from (#1416). It MUST match
+#: `panel/tabs/secret_tasks/capture.py::TILE_MARKER`: the two processes agree on this
+#: string and on the JSON object after the tab, and on nothing else.
+TILE_MARKER = "##TILE##"
 from map_capture import (  # noqa: E402
     MapIndex, ProgressTicker, add_capture_arguments, check_platform, diagnose,
     dump_records as dump_tasks, human_size, level_set, start_capture,
@@ -464,6 +471,27 @@ def main() -> int:
                     tag = f"  {C_OK}LOOTABLE{C_RESET}"
                 else:
                     tag = ""
+                # THE MACHINE LINE FIRST — the tile as an EVENT (#1416). The panel's
+                # list used to learn about a find the long way round: this child wrote
+                # its whole checkpoint, the panel noticed a human line, waited out a
+                # debounce and then re-read the entire file (and asked the game VM about
+                # the star on top). That is the «увидели секретку — записали в базу»
+                # this is supposed to be, done as a file poll. The tile is right here, so
+                # it is handed over right here, and reading the file goes back to being
+                # what it is for: filling an empty list after a restart.
+                #
+                # NOBODY IS ON THIS LINE. The owner's uid and the alliance id are decoded
+                # and go into the checkpoint, which is the panel's own file — they may not
+                # go into a stream that lands in `panel.log` (#1293). What travels is the
+                # TILE: where it is, what it is, and its two clocks.
+                print(TILE_MARKER + "\t" + json.dumps({
+                    "uuid": str(task.uuid), "server": task.server_id,
+                    "x": task.x, "y": task.y, "level": task.level,
+                    "cfg": task.cfg_id, "family": task.family,
+                    "loot": task.loot_count, "starred": bool(task.starred),
+                    "completed_at": task.completed_at,
+                    "expires_at": task.expires_at,
+                }, ensure_ascii=False), flush=True)
                 print(f"{star} lvl {task.level:>2}  {coords.fmt(task.x, task.y, task.server_id)}"
                       f"  steal {task.loot_count}/3"
                       f"  family {task.family}  cfg {task.cfg_id}{tag}")

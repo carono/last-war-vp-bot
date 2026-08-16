@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "стяги альянса: кто выставил и кто присоединился",
   "busy.listener.leaderboard": "таблицы лидеров — снимки в историю",
   "busy.listener.chat": "чат: сообщения альянса и личные",
-  "busy.listener.map": "тайлы карты"
+  "busy.listener.map": "тайлы карты",
+  "timers.log.gate_expired": "{name}: отменено — {secs} с ждали игру, момент, ради которого пришло событие, прошёл",
+  "busy.status.gated": "ждёт игру",
+  "busy.queue.gated": "отложено до готовности игры: {name} — {secs} с"
 }

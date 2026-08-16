@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "tập hợp liên minh: ai dựng cờ và ai tham gia",
   "busy.listener.leaderboard": "bảng xếp hạng — ảnh chụp vào lịch sử",
   "busy.listener.chat": "trò chuyện: tin nhắn liên minh và riêng tư",
-  "busy.listener.map": "ô bản đồ"
+  "busy.listener.map": "ô bản đồ",
+  "timers.log.gate_expired": "{name}: bỏ qua — đã chờ trò chơi {secs} giây, thời điểm liên quan đã trôi qua",
+  "busy.status.gated": "đang chờ trò chơi",
+  "busy.queue.gated": "hoãn đến khi trò chơi sẵn sàng: {name} — {secs} giây"
 }

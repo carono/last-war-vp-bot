@@ -1826,5 +1826,8 @@
   "busy.listener.rally": "ittifak toplanmaları: kimin açtığı ve kimin katıldığı",
   "busy.listener.leaderboard": "liderlik tabloları — geçmişe anlık kayıtlar",
   "busy.listener.chat": "sohbet: ittifak ve özel mesajlar",
-  "busy.listener.map": "harita kareleri"
+  "busy.listener.map": "harita kareleri",
+  "timers.log.gate_expired": "{name}: vazgeçildi — oyun için {secs} sn beklendi, ilgili an geçti",
+  "busy.status.gated": "oyunu bekliyor",
+  "busy.queue.gated": "oyun hazır olana kadar bekletildi: {name} — {secs} sn"
 }
