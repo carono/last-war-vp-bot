@@ -379,13 +379,18 @@ def undated(data: dict) -> list:
 #: The columns of the window's grid, in order: the locale key of the heading, the row's
 #: field, the width in pixels, and whether it sorts as a number.
 COLUMNS = (("servers.col.id", "id", 65, True),
-           ("servers.col.name", "name", 120, False),
-           ("servers.col.kind", "kind", 80, False),
-           ("servers.col.opened", "opened", 105, False),
-           ("servers.col.day", "day", 60, True),
-           ("servers.col.season", "step", 70, False),
-           ("servers.col.stage", "stage", 110, False),
-           ("servers.col.until", "until", 105, False))
+           ("servers.col.name", "name", 110, False),
+           ("servers.col.kind", "kind", 70, False),
+           ("servers.col.opened", "opened", 95, False),
+           ("servers.col.day", "day", 55, True),
+           ("servers.col.season", "step", 60, False),
+           ("servers.col.stage", "stage", 100, False),
+           ("servers.col.until", "until", 95, False),
+           # The star-secret-task day (#1467) — a state of its own next to the season's,
+           # because it answers a different question on a different cycle: what the
+           # warzone is doing TODAY rather than which month of the season it is in.
+           ("servers.col.secret", "secret", 105, False),
+           ("servers.col.secret_until", "secret_until", 95, False))
 
 
 def kind_key(kind) -> str:

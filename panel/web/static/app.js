@@ -795,11 +795,15 @@ function renderItem(item) {
     line.appendChild(note);
   }
   /* Facts are a KEY and a value side by side — «Уровень 12 · Слоты 0/3» — so the words
-   * stay in the locale table and only the numbers come off the panel. */
+   * stay in the locale table and only the numbers come off the panel. A fact whose VALUE
+   * is a word rather than a number (a state, a source) sends a key too and says so with
+   * `translate` — the alternative is the panel translating it before it sends it, which
+   * would put the phone's language in the hands of whichever profile answered. */
   if ((item.facts || []).length || item.until) {
     const facts = document.createElement('p');
     facts.className = 'muted small';
-    const bits = (item.facts || []).map((f) => T(f.label) + ' ' + f.value);
+    const bits = (item.facts || []).map(
+      (f) => T(f.label) + ' ' + (f.translate && f.value ? T(f.value) : f.value));
     if (item.until) bits.push(when(item.until, SCREEN_NOW || item.until));
     facts.textContent = bits.join(' · ');
     line.appendChild(facts);

@@ -709,7 +709,7 @@ class WebApi:
         a phone left on a screen would then poll the game for as long as it is awake.
         """
         if screen_id == SERVERS_SCREEN:
-            return self._servers_view()
+            return self._servers_view(profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
@@ -736,12 +736,17 @@ class WebApi:
         return view
 
     # -- «Серверы»: the screen with no tab behind it -------------------------
-    def _servers_view(self) -> dict:
+    def _servers_view(self, profile: str | None = None) -> dict:
         """Every warzone the game has, as the phone's cards — the window's own model.
 
         Read off the machine's list (`cache/servers.json`) and never off the game: the
         contract for a screen is that opening it costs no round trip (`panel/tabs/base.py`),
         and here it costs one file read. Filling that file is the two presses below.
+
+        THE STAR-SECRET-TASK DAY comes from the profile's own book (#1467) — the list of
+        warzones is the machine's, but what any of them was doing on a day is derived
+        from THIS account's readings, so the screen is drawn for the profile the phone is
+        looking at, exactly as the window's grid is drawn for the one on screen.
         """
         from ..runtime.paths import ensure
 
@@ -754,6 +759,11 @@ class WebApi:
         # The GAME's clock decides the stage — the same one the window's grid judges by.
         rows = model.view_rows(data, self._servers_needle, self._servers_undated,
                                now_ms=game_clock.now_ms())
+        rt = self._runtime(profile)
+        book = None if rt is None else rt.secret_days
+        shown = rows[:SERVERS_PAGE]
+        if book is not None:
+            shown = book.decorate(shown)
         items = [{"text": "%s · %s" % (row["id"], row["name"]),
                   "detail": row["opened"],
                   "facts": [{"label": "servers.col.day",
@@ -761,9 +771,20 @@ class WebApi:
                             {"label": "servers.col.season",
                              "value": row["step"] or "—"},
                             {"label": "servers.col.until",
-                             "value": row["until"]}],
+                             "value": row["until"]},
+                            # The window shows these two as their own columns; on the
+                            # phone the same two readings are facts on the card.
+                            {"label": "servers.col.secret",
+                             "value": row.get("secret_state_key", ""),
+                             "translate": True},
+                            {"label": "servers.secret.source",
+                             "value": row.get("secret_source_key", ""),
+                             "translate": True},
+                            {"label": "servers.col.secret_until",
+                             "value": row.get("secret_until") or "—"}],
                   "pill": row["stage_key"]}
-                 for row in rows[:SERVERS_PAGE]]
+                 for row in shown]
+        graph = {} if book is None else book.summary()
         head = {"title": "servers.title",
                 "rows": [{"label": "servers.total", "value": str(totals["total"])},
                          {"label": "servers.dated", "value": str(totals["dated"])},
@@ -772,7 +793,15 @@ class WebApi:
                          {"label": "servers.shown",
                           "value": "%d / %d" % (min(len(rows), SERVERS_PAGE), len(rows))},
                          {"label": "servers.filter",
-                          "value": self._servers_needle or "—"}]}
+                          "value": self._servers_needle or "—"},
+                         # The graph's own health, the same line the window's grid shows
+                         # under its buttons: how much has been seen, and how much of it
+                         # the cycle contradicts.
+                         {"label": "servers.secret.graph",
+                          "value": "%s/%s/%s · %s · ✗%s" % (
+                              graph.get("observations", 0), graph.get("servers", 0),
+                              graph.get("days", 0),
+                              graph.get("period") or "—", graph.get("conflicts", 0))}]}
         return {"id": SERVERS_SCREEN, "title": "servers.title",
                 "cards": [head, {"rows": [], "items": items, "empty": "servers.empty"}],
                 "actions": [
@@ -780,7 +809,17 @@ class WebApi:
                      "prompt": "servers.search", "value": self._servers_needle},
                     {"id": "undated", "label": "servers.only_undated"},
                     {"id": "refresh", "label": "servers.refresh"},
-                    {"id": "dates", "label": "servers.fetch_dates"}]}
+                    {"id": "dates", "label": "servers.fetch_dates"},
+                    # The window marks the SELECTED row; a phone has no selection, so
+                    # each of the three asks which warzone it is about. Same three
+                    # observations, same book, same press behind them.
+                    {"id": "secret_read", "label": "servers.secret.read"},
+                    {"id": "mark_day", "label": "servers.secret.state.day",
+                     "prompt": "servers.secret.mark.prompt", "value": ""},
+                    {"id": "mark_post", "label": "servers.secret.state.post",
+                     "prompt": "servers.secret.mark.prompt", "value": ""},
+                    {"id": "mark_plain", "label": "servers.secret.state.plain",
+                     "prompt": "servers.secret.mark.prompt", "value": ""}]}
 
     def _servers_press(self, action: str, args: dict, profile: str | None) -> dict:
         """The same four presses the window's grid has, and nothing it has not.
@@ -800,6 +839,8 @@ class WebApi:
         if action == "undated":
             self._servers_undated = not self._servers_undated
             return {"ok": True}
+        if action.startswith("mark_") or action == "secret_read":
+            return self._secret_press(action, args, profile)
         if action not in ("refresh", "dates"):
             return {"error": "unknown", "detail": action}
         rt = self._runtime(profile)
@@ -812,6 +853,45 @@ class WebApi:
         started = rt.play_async("read_server_list", tag="servers",
                                 args={"store": "", "dates": missing if action == "dates" else 0})
         return {"ok": bool(started)} if started else {"ok": False, "reason": "servers.busy"}
+
+    def _secret_press(self, action: str, args: dict, profile: str | None) -> dict:
+        """The phone's half of the star-day book (#1467) — the window's three marks and
+        its «прочитать из игры», with the warzone typed instead of selected.
+
+        Nothing here is a tick: a mark is an OBSERVATION of what a warzone was doing, and
+        the schedule is re-derived from all of them. The reading press plays the same
+        scenario the window plays and writes down what came back, through the book's own
+        `take_reading` — one parser, so the two front-ends cannot drift apart on what a
+        scenario's line meant.
+        """
+        rt = self._runtime(profile)
+        if rt is None:
+            return {"error": "unknown", "detail": "no profile"}
+        book = rt.secret_days
+        if action == "secret_read":
+            def done(outcome=None) -> None:
+                got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+                written = book.take_reading(got)
+                rt.say("servers", "servers.secret.log.recorded", count=written)
+
+            rt.say("servers", "servers.secret.log.read")
+            started = rt.play_async("read_secret_day", args={"server": 0},
+                                    tag="servers", on_done=done)
+            return {"ok": bool(started)} if started else {"ok": False,
+                                                          "reason": "servers.busy"}
+        state = action.split("_", 1)[1]
+        if state not in ("day", "post", "plain"):
+            return {"error": "unknown", "detail": action}
+        try:
+            server = int(str(args.get("text") or "").strip())
+        except ValueError:
+            return {"ok": False, "reason": "servers.secret.no_row"}
+        if server <= 0:
+            return {"ok": False, "reason": "servers.secret.no_row"}
+        book.record(server, book.today(), state, source="observed")
+        rt.say("servers", "servers.secret.log.marked", server=server,
+               state=rt.i18n.t("servers.secret.state.%s" % state))
+        return {"ok": True}
 
     def press(self, screen_id: str, action: str, args: dict,
               profile: str | None = None) -> dict:

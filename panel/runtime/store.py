@@ -278,6 +278,39 @@ MIGRATIONS: tuple = (
                updated_at INTEGER NOT NULL
            )""",
     ),
+    # -- v5: what a warzone did on a day, so a cycle can be DERIVED from it (#1467) ---
+    #
+    # A table of its own rather than a name in `blobs`, and the rule above is the reason:
+    # this one IS searched by a `WHERE` clause — by warzone, by day, and by both — every
+    # time the «Серверы» grid draws a row or the phone opens the screen, and the fit walks
+    # it whole. `blobs` is for a list read and written whole and never queried; this is
+    # the other kind (`docs/panel-storage.md`).
+    #
+    # The primary key carries the SOURCE on purpose. A person's own reading and a map
+    # lap's count of the same warzone on the same day may disagree, and that disagreement
+    # is the most useful row in the table — collapsing them onto one key would let the
+    # later write silently become the truth. Nothing here is ever overwritten by a
+    # PREDICTION: the schedule is computed from these rows and never written back into
+    # them (`tools/lib/secret_day.py`).
+    (
+        """CREATE TABLE secret_days (
+               server   INTEGER NOT NULL,
+               -- The game-day INDEX, counted off the game's own reset moment rather
+               -- than any midnight — `secret_day.day_index`, and the reset is the
+               -- client's `GetTomorrowZero` (docs/research/game-clock.md).
+               day      INTEGER NOT NULL,
+               -- One of `day` / `post` / `plain`, or `unknown` when only the counts
+               -- below were recorded and no calibration had labelled them yet.
+               state    TEXT NOT NULL,
+               -- `game` / `observed` / `lap` — where the row came from, in its own words.
+               source   TEXT NOT NULL,
+               stars    INTEGER,
+               tiles    INTEGER,
+               seen_at  INTEGER NOT NULL,
+               PRIMARY KEY (server, day, source)
+           )""",
+        "CREATE INDEX ix_secret_days_day ON secret_days(day)",
+    ),
 )
 
 #: What the code in this checkout expects. A database above it was written by a NEWER

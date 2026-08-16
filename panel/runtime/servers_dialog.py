@@ -108,6 +108,26 @@ class _Grid:
         ttk.Button(bar, text=t("servers.fetch_dates"),
                    command=self.fetch_dates).pack(side="right", padx=6)
 
+        # THE STAR-SECRET-TASK DAY (#1467). The game ships no plan for it, so the panel
+        # keeps a book of what was seen and derives the cycle from it — these are the two
+        # ways the book grows: read the client's own counts, or write down what the
+        # selected warzone is doing today. Neither marks anything «done»: a row here is
+        # an OBSERVATION, and the schedule is recomputed from all of them
+        # (`panel/runtime/secret_day.py`, `CLAUDE.md`).
+        star = ttk.Frame(win, padding=(10, 0, 10, 6))
+        star.pack(fill="x")
+        ttk.Label(star, text=t("servers.secret.mark")).pack(side="left")
+        for state, key in (("day", "servers.secret.state.day"),
+                           ("post", "servers.secret.state.post"),
+                           ("plain", "servers.secret.state.plain")):
+            ttk.Button(star, text=t(key), width=12,
+                       command=lambda s=state: self.mark(s)).pack(side="left", padx=(6, 0))
+        ttk.Button(star, text=t("servers.secret.read"),
+                   command=self.read_secret).pack(side="right")
+        self.secret_line = tk.StringVar()
+        ttk.Label(star, textvariable=self.secret_line,
+                  foreground="#888").pack(side="right", padx=8)
+
         # THE FOOT IS PACKED BEFORE THE GRID, and that is not a style choice: `pack`
         # hands out what is left over in the order it is called, so a grid that says
         # `expand=True` first takes the whole middle and the status line underneath it
@@ -136,7 +156,31 @@ class _Grid:
         # wrong one is the same class of bug as a countdown that disagrees with the game.
         rows = model.view_rows(self.data, self.needle.get(),
                                self.only_undated.get(), now_ms=game_clock.now_ms())
+        rows = self.with_secret(rows)
         return model.sorted_rows(rows, self.sort_field, self.sort_down)
+
+    def book(self):
+        """The star-day book of the profile ON SCREEN, or None when there is none.
+
+        Per profile, exactly like the presses below: this dialog belongs to the window
+        and the book belongs to an account, because what it is derived from is that
+        account's laps and readings (`panel/runtime/secret_day.py`).
+        """
+        rt = self.rt_get()
+        return None if rt is None else rt.secret_days
+
+    def with_secret(self, rows) -> list:
+        """The star-day answer on every row, or an empty one when no profile is open."""
+        book = self.book()
+        if book is None:
+            return [dict(row, secret="—", secret_until="—") for row in rows]
+        out = []
+        for row in book.decorate(rows):
+            row["secret"] = self.t("servers.secret.cell",
+                                   state=self.t(row["secret_state_key"]),
+                                   source=self.t(row["secret_source_key"]))
+            out.append(row)
+        return out
 
     def repaint(self, reset: bool = False) -> None:
         if reset:
@@ -147,11 +191,26 @@ class _Grid:
             self.tree.insert("", "end", values=(
                 row["id"], row["name"], self.t(row["kind_key"]),
                 row["opened"], "—" if row["day"] is None else row["day"],
-                row["step"] or "—", self.t(row["stage_key"]), row["until"]))
+                row["step"] or "—", self.t(row["stage_key"]), row["until"],
+                row.get("secret") or "—", row.get("secret_until") or "—"))
         shown = min(len(rows), self.offset + PAGE)
         totals = model.summary(self.data)
         self.status.set(self.t("servers.status", shown=shown, found=len(rows),
                                total=totals["total"], dated=totals["dated"]))
+        self.repaint_secret()
+
+    def repaint_secret(self) -> None:
+        """The one line that says how much the derived schedule is worth right now."""
+        book = self.book()
+        if book is None:
+            self.secret_line.set("")
+            return
+        facts = book.summary()
+        self.secret_line.set(self.t(
+            "servers.secret.status", seen=facts["observations"],
+            servers=facts["servers"], days=facts["days"],
+            period="—" if facts["period"] is None else facts["period"],
+            clash=facts["conflicts"]))
 
     def more(self) -> None:
         self.offset += PAGE
@@ -178,6 +237,70 @@ class _Grid:
             self.status.set(self.t("servers.all_dated"))
             return
         self.play({"store": "", "dates": missing}, "servers.log.dates")
+
+    # -- the star-secret-task day -------------------------------------------
+    def selected_server(self) -> int:
+        """The warzone of the row the person has selected, or 0 if none is."""
+        chosen = self.tree.selection()
+        if not chosen:
+            return 0
+        try:
+            return int(self.tree.item(chosen[0], "values")[0])
+        except (IndexError, TypeError, ValueError):
+            return 0
+
+    def mark(self, state: str) -> None:
+        """Write down what the selected warzone is doing TODAY.
+
+        An observation, not a tick: nothing here says a job was done, and the schedule
+        stays derived from every row rather than from this one (`CLAUDE.md` — a press may
+        start something, and may never mark something the game is the authority on; the
+        game is not the authority on this, it never says it).
+        """
+        book = self.book()
+        server = self.selected_server()
+        if book is None or not server:
+            self.status.set(self.t("servers.secret.no_row"))
+            return
+        book.record(server, book.today(), state, source="observed",
+                    seen_at=game_clock.now_ms())
+        rt = self.rt_get()
+        if rt is not None:
+            rt.say("servers", "servers.secret.log.marked", server=server,
+                   state=self.t("servers.secret.state.%s" % state))
+        self.repaint()
+
+    def read_secret(self) -> None:
+        """Play `read_secret_day.md` and write down what the client was holding.
+
+        The counts are evidence rather than a verdict — how many of the alliance's live
+        dispatch tasks on each warzone are starred — and they become a state only once
+        labelled days exist to calibrate them against (`tools/lib/secret_day.py`).
+        """
+        rt = self.rt_get()
+        book = self.book()
+        if rt is None or book is None or self.busy:
+            return
+        self.busy = True
+        self.status.set(self.t("servers.working"))
+        rt.say("servers", "servers.secret.log.read")
+
+        def done(outcome=None) -> None:
+            self.busy = False
+            got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+            written = book.take_reading(got)
+            if rt is not None:
+                rt.say("servers", "servers.secret.log.recorded", count=written)
+            try:
+                self.repaint()
+            except tk.TclError:                 # the dialog was closed while it ran
+                pass
+
+        started = rt.play_async("read_secret_day", args={"server": 0}, tag="servers",
+                                on_done=done)
+        if not started:
+            self.busy = False
+            self.status.set(self.t("servers.busy"))
 
     def play(self, args: dict, log_key: str) -> None:
         rt = self.rt_get()

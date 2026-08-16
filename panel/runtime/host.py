@@ -222,6 +222,7 @@ class PanelRuntime:
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
         self._banners = None            # …and what it heard about the banners out
         self._players = None            # …and the register every source writes into
+        self._secret_days = None        # …and the book of star-secret-task days (#1467)
         self._store = None              # …and this profile's database (#1398)
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         self._lock = None               # this profile's instance lock, held open
@@ -359,6 +360,23 @@ class PanelRuntime:
             # in — once, keeping the file (#1398, `panel/runtime/store.py`).
             self._players = PlayerBook(self.store, self.profiles.players_json())
         return self._players
+
+    @property
+    def secret_days(self):
+        """THIS PROFILE'S BOOK of star-secret-task days (#1467, `secret_day.py`).
+
+        What a warzone did on a day, written down as it was seen, and the cycle derived
+        from it. Built on first ask and rebuilt when the profile's database moves, for
+        the same reason `players` is: a book that did not follow a profile switch would
+        answer about the account it was opened under.
+        """
+        store = self.store
+        if self._secret_days is not None and self._secret_days.store is not store:
+            self._secret_days = None
+        if self._secret_days is None:
+            from .secret_day import SecretDayBook
+            self._secret_days = SecretDayBook(store)
+        return self._secret_days
 
     @property
     def store(self):
