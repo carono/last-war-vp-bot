@@ -448,11 +448,13 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         # (push.resource.item.update). On each one the panel reads the current balance
         # and writes down what went UP since the last read — a daily tally of what was
         # taken in (panel/resource_stats.py, the «Статистика» tab). Records, does not
-        # act; the work is a Python handler (`_track_resources`), not a DSL scenario,
-        # so `scenario` is a nominal placeholder the runner intercepts. Opt-in.
+        # act; the work is a Python handler (the «Статистика» tab's `track`), not a DSL
+        # scenario, so `scenario` is a sentinel the runner intercepts — spelled
+        # `__<name>__` like every other one, which it was not until #1416 and which cost
+        # this trigger every run it ever made.
         kind=KIND_WIRE,
         event_pattern="push.resource.item.update",
-        scenario=("track_resources",),
+        scenario=("__resource_tracker__",),
         enabled=False,
         label_key="triggers.item.resource_tracker",
     ),
@@ -608,6 +610,32 @@ def _as_scenario(raw) -> tuple[str, ...]:
     return tuple(step for step in (s.strip() for s in steps) if step)
 
 
+#: A step name a catalogue on disk may still carry, and what it is called now (#1416).
+#:
+#: A trigger whose work is a PYTHON HANDLER names a sentinel step the runner intercepts,
+#: and the sentinel is spelled `__<trigger name>__` — that is what `PanelTab.TriggerSpec`
+#: writes and what `Schedule.offered` recognises («starts with `__`»). One entry predated
+#: the convention and was left spelled as a bare word: `resource_tracker` asked for
+#: `track_resources`, which is not a sentinel and is not an `actions/*.md` either. So
+#: every profile that had ever ticked it played a scenario that does not exist, on every
+#: single balance-changed push — **1850 failed runs in one live day**, each one queued,
+#: claimed and logged:
+#:
+#:     [timer] resource_tracker: < track_resources FAILED — line 1: unrecognised
+#:                                statement: 'track_resources'
+#:
+#: Renaming the built-in alone would not have reached them: the FILE owns the list, so a
+#: profile's own entry keeps whatever it was written with. The rename therefore happens
+#: on the way IN, once, for every catalogue that is read — and `save_catalogue` writes
+#: the new spelling back the next time anything touches the file.
+_RENAMED_SCENARIOS = {"track_resources": "__resource_tracker__"}
+
+
+def _rename_scenarios(steps: "tuple[str, ...]") -> "tuple[str, ...]":
+    """Bring a catalogue's step names up to date. See :data:`_RENAMED_SCENARIOS`."""
+    return tuple(_RENAMED_SCENARIOS.get(step, step) for step in steps)
+
+
 def _as_interval(raw, fallback: int) -> int:
     """A poll cadence in seconds, floored so a hand-edited file cannot ask for a
     check every fraction of a second."""
@@ -739,7 +767,7 @@ def parse_catalogue(data, path: str | None = None,
                                   f"{name}: unknown kind '{kind}' — skipped",
                                   name=name, kind=kind))
             continue
-        scenario = _as_scenario(raw.get("scenario"))
+        scenario = _rename_scenarios(_as_scenario(raw.get("scenario")))
         if not scenario:
             scenario = base.scenario if base else ()
         if not scenario:

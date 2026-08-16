@@ -136,6 +136,37 @@ def test_the_builtin_resource_tracker_trigger_ships():
     assert not rt.enabled                       # opt-in — it records, it does not act
 
 
+def test_every_handler_trigger_names_a_sentinel_step():
+    """A Python-handler trigger's step must be `__<name>__`, or it is played as DSL.
+
+    `Schedule.offered` recognises a handler's trigger by that spelling and by nothing
+    else, so an entry spelled as a bare word is offered even where no tab has registered
+    a handler for it — and then the runner plays the word as a scenario. That is what
+    `resource_tracker` did with `track_resources`: 1850 runs in one live day, every one
+    of them «unrecognised statement», one per balance-changed push (#1416).
+    """
+    handlers = {"resource_tracker", "inventory_refresh", "leaderboard_collect",
+                "secret_task_share", "ghost_recon_alliance"}
+    for trigger in triggersmod.default_catalogue():
+        if trigger.name not in handlers:
+            continue
+        assert trigger.scenario == (f"__{trigger.name}__",), \
+            f"{trigger.name}: a handler's step is a sentinel, not {trigger.scenario}"
+
+
+def test_a_catalogue_written_before_the_rename_is_brought_up_to_date():
+    """…and a profile that has one on disk is migrated as it is read (#1416).
+
+    The FILE owns the list, so renaming the built-in reaches nobody who has ever ticked
+    the row: their own entry keeps the spelling it was written with, for ever.
+    """
+    old = [{"name": "resource_tracker", "scenario": "track_resources",
+            "enabled": True, "event_pattern": "push.resource.item.update"}]
+    trigger = triggersmod.parse_catalogue(old).by_name("resource_tracker")
+    assert trigger.scenario == ("__resource_tracker__",), trigger.scenario
+    assert trigger.enabled, "the migration must not disturb the operator's switch"
+
+
 def test_the_builtin_leaderboard_collect_trigger_ships():
     lc = triggersmod.default_catalogue().by_name("leaderboard_collect")
     assert lc is not None
