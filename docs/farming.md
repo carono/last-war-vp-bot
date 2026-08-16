@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **32%** — 44 of 137
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **32%** — 44 of 138
 
-🟩 44 done · 🟨 52 partly · 🟥 41 not automated
+🟩 44 done · 🟨 53 partly · 🟥 41 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -116,6 +116,16 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot runs it by
   itself; it does not hold a distance past about 1000 m.
+- 🟡 Frontline Breakthrough («Прорыв обороны», the Sunday minigame) — one press plays it
+  by itself, chain after chain: it enters the stage the event offers, steers the squad
+  between the three lanes for the whole run, waits for the verdict and goes straight into
+  the next one, so a sitting of twenty stages needs nobody. Attempts are not limited, and
+  a cleared stage turns the soldiers still standing into real units, so a session is worth
+  running whenever the event is open. It also claims the three soldier boxes, which unlock
+  on the whole warzone's tally rather than the account's and therefore sit there with the
+  red dot unlit. Stage 1 is cleared with about 300 soldiers, over and over; stage 2 has
+  been cleared once and stages 3 and above are still beyond it, so «five in a row» is not
+  there yet.
 
 ### Arms Race
 
