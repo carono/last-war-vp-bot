@@ -812,6 +812,37 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
     return out
 
 
+def load_checkpoint(path):
+    """Read a capture checkpoint as JSON, looking again at a torn one (#1416).
+
+    THE ONE READER FOR EVERY CHECKPOINT A CAPTURE WRITES. `map_capture.dump_records`
+    rewrites its target in place — deliberately, because on Windows `os.replace` over a
+    file anything else holds open costs the whole capture session — so a poller catches a
+    half-written file every so often. `load_fresh_tasks` has looked again since #1227;
+    the world checkpoint (`world_map.json`, the mines / trains / trucks pages) had no
+    such reader and paid for it: measured on a live panel's log over 5.6 hours, **73 of
+    192 reads (38%) came back «чекпойнт карты не прочитан»** and those three pages simply
+    did not move.
+
+    The writer finishes in milliseconds, so the retries are a blink nobody sees; a file
+    still broken after them is a real fault and the error is raised, as it always was.
+
+    Raises `OSError` for a file that is not there — «no capture has ever written it» is a
+    different answer and its own sentence in every caller.
+    """
+    data = None
+    for attempt in range(CHECKPOINT_TRIES):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            break
+        except json.JSONDecodeError:
+            if attempt == CHECKPOINT_TRIES - 1:
+                raise
+            time.sleep(CHECKPOINT_RETRY_PAUSE)
+    return data
+
+
 def load_fresh_tasks(path, max_age_seconds: "float | None" = TASK_FRESH_SECONDS,
                      now: float | None = None) -> list:
     """Load a capture checkpoint, keeping only tiles re-seen this scan window.
@@ -845,16 +876,7 @@ def load_fresh_tasks(path, max_age_seconds: "float | None" = TASK_FRESH_SECONDS,
     them is a real one, and that still raises.
     """
     now = time.time() if now is None else now
-    data = None
-    for attempt in range(CHECKPOINT_TRIES):
-        try:
-            with open(path, encoding="utf-8") as fh:
-                data = json.load(fh)
-            break
-        except json.JSONDecodeError:
-            if attempt == CHECKPOINT_TRIES - 1:
-                raise
-            time.sleep(CHECKPOINT_RETRY_PAUSE)
+    data = load_checkpoint(path)
     records = data.get("tasks") if isinstance(data, dict) else data
     fresh = []
     for record in records or ():

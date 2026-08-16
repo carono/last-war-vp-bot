@@ -538,6 +538,11 @@ class MapIndex(LiveDecoder):
         # Until when _elect() is held shut after a declared jump; see
         # SERVER_JUMP_GRACE_SECONDS.
         self._jump_grace_until = 0.0
+        # The server the client has ANNOUNCED it is moving to and that the map
+        # has not confirmed yet (`_note_jump` → `_confirm_declared`), or None.
+        # A jump makes several announcements in one burst; only the last of them
+        # survives here, so the burst costs one switch and one eviction.
+        self._declared: int | None = None
         # A zero result is ambiguous without these: no map data at all reads
         # exactly like map data that held nothing of interest, and the two call
         # for opposite responses from whoever is running the scan.
@@ -595,6 +600,10 @@ class MapIndex(LiveDecoder):
             # sweep listens here for `get.user.info.multi`, which is how a
             # click on a base answers with numbers no tile carries.
             with self._index_lock:
+                # …and it is the OTHER clock a declared jump runs on: a minimap
+                # click asks for no block at all, so its grace window has to be
+                # able to run out against traffic that is not the map's (#1416).
+                self._confirm_declared((), time.time())
                 self.on_response(command, proto.envelope_payload(env))
             return
         payload = proto.envelope_payload(env)
@@ -610,6 +619,10 @@ class MapIndex(LiveDecoder):
             self.tiles_seen += sum(kinds.values())
             self.tile_kinds.update(kinds)
             now = time.time()
+            # A declared jump is applied here, on the map's own word, and before
+            # the ballots below — so the response that confirms it is counted for
+            # the server it actually belongs to (#1416).
+            self._confirm_declared(servers, now)
             if now < self._jump_grace_until:
                 # Responses the old server was already sending. Holding the
                 # election shut is not enough on its own — these would sit in
@@ -649,7 +662,7 @@ class MapIndex(LiveDecoder):
     # -- which server is on screen -----------------------------------------
 
     def _note_jump(self, payload) -> None:
-        """Take the client at its word about which server it just moved to.
+        """Take the client at its word about which server it is moving to — as INTENT.
 
         Weight of traffic (see _elect) can only follow the map, so it needs
         the map to keep talking: dragging re-requests a region every frame and
@@ -665,19 +678,66 @@ class MapIndex(LiveDecoder):
         request that follows, and it never once named a server the client did
         not then go to. That makes it a statement of intent rather than
         evidence to be weighed, so it overrules the tally outright.
+
+        WHY IT IS NO LONGER APPLIED HERE (#1416). A switch is not free: the
+        secret-task index drops everything filed under the server being left
+        (`on_server_left`), and that is right once the map really has moved.
+        But ONE jump is not one announcement. Measured on a live panel's log,
+        a single «переход в #938» produced four of these in the same second —
+        937 → 938 → 1032 → 976 → 938 — so the index was emptied four times and
+        the list the operator had paid a lap of the map for went from 1565
+        tasks and 101 stars to `0 task(s), 0 star(s)`. That is «обход карты не
+        сработал с первого раза» and «секретки не обновляются», both of them,
+        from one line of code.
+
+        So the announcement is REMEMBERED and applied when the map confirms it:
+        the first block that arrives for the declared server switches, once
+        (`_confirm_declared`). An announcement that nothing confirms is still
+        honoured — the minimap click this exists for asks for no block at all —
+        but only after the grace window, and by then the burst has settled on
+        the one server the client actually went to.
         """
         server = payload.get("targetServerId")
         if not server:
             return
         with self._index_lock:
             if server == self.current_server:
+                # …and an announcement that names where we already are cancels a
+                # pending one: the client changed its mind back mid-burst.
+                self._declared = None
                 return
             # The tally describes the map being left. Carried across, it is a
             # head start for the wrong server; the grace window then keeps the
             # in-flight stragglers from rebuilding it.
             self._votes.clear()
             self._jump_grace_until = time.time() + SERVER_JUMP_GRACE_SECONDS
-            self._switch_to(server)
+            self._declared = int(server)
+
+    def _confirm_declared(self, servers, now: float) -> None:
+        """Apply a declared jump — on the map's word, or on the clock. Lock held.
+
+        Called on every map response, before the ballots are counted, and it is
+        the only place a declared jump reaches :meth:`_switch_to`:
+
+        * a response carrying the declared server IS the map having moved, so the
+          switch happens then and there, and the grace window closes with it;
+        * a declaration nothing has confirmed by the end of its grace window is
+          taken at its word anyway — that is the minimap click, which lands on
+          cached ground and asks the server for nothing.
+
+        Either way the burst of announcements a single jump makes costs ONE
+        switch, and therefore one eviction, rather than one per announcement.
+        """
+        declared = self._declared
+        if declared is None:
+            return
+        if declared in servers or now >= self._jump_grace_until:
+            self._declared = None
+            # The grace window is NOT closed by the confirmation. It belongs to the
+            # jump, not to the wait: the map we left goes on answering for a moment
+            # afterwards, and those stragglers are exactly enough ballots to hand the
+            # screen straight back if the election reopens the instant we arrive.
+            self._switch_to(declared)
 
     def _switch_to(self, server: int) -> None:
         """Make `server` the map on screen. Callers hold `_index_lock`."""

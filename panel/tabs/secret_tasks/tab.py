@@ -2240,14 +2240,20 @@ class SecretTasksTab(PanelTab):
             return
 
         def work() -> None:
+            import lastwar_proto as proto
+
             path = self.rt.profiles.world_json()
             try:
-                with open(path, encoding="utf-8") as fh:
-                    data = json.load(fh)
+                # …through the one reader that looks again at a torn checkpoint
+                # (#1416). The capture rewrites this file in place every tick, and
+                # reading it once caught the flush in 73 of 192 tries over one live
+                # afternoon — three pages that stood still for no reason anybody could
+                # see. What is still torn after the retries says so, exactly as before.
+                data = proto.load_checkpoint(path)
             except OSError as exc:             # no capture has ever written it
                 self._say_world(("nofile",), "log.world.no_file", error=exc)
                 return
-            except ValueError as exc:          # …or it was read mid-write
+            except ValueError as exc:          # …or it was read mid-write, three times
                 self._say_world(("torn",), "log.world.unreadable", error=exc)
                 return
             if not isinstance(data, dict):
