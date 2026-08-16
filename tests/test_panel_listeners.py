@@ -206,6 +206,26 @@ def test_the_tile_line_carries_no_owner():
         assert banned not in fields, f"the tile event carries {banned}: {sorted(fields)}"
 
 
+def test_a_tile_is_never_dropped_because_the_tab_is_not_open():
+    """The buffer is not a place an event may die (#1416).
+
+    A tab nobody has looked at has no model to merge into. The tiles have arrived all
+    the same — the capture is a standing order, not something a tab switches on — so the
+    landing pass keeps them and comes back, rather than emptying the buffer into
+    nothing. Read off the source, because building a tab needs Tk and this rule is one
+    branch.
+    """
+    src = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(
+        encoding="utf-8")
+    body = src[src.index("def _tiles_land"):]
+    body = body[:body.index("def _rank_of")]
+    guard = body[body.index("if not self.loaded"):]
+    guard = guard[:guard.index("return") + len("return")]
+    assert "arm(" in guard, "an unopened tab must re-arm the pass, not swallow the tiles"
+    assert body.index("if not self.loaded") < body.index("self._tiles, {}"), \
+        "the buffer must not be emptied before the tab is known to be there"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

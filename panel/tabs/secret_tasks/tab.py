@@ -141,6 +141,12 @@ POLL_MS = 3_000
 # to make on this path any more.
 TILES_MS = 200
 
+# …and how long it waits when the tab has not been built yet. The tiles are kept, not
+# dropped — a listener that throws an event away because nobody is looking at the tab is
+# the fault this whole task is about — so the pass simply comes round again until there
+# is a model to merge them into (#1416).
+TILES_WAIT_MS = 3_000
+
 # How often the countdowns are REDRAWN, as opposed to recomputed (#1272). «Те, что уже
 # можно грабить, должны обновляться несколько раз в секунду»: a cell rewritten once a
 # second is a second late for most of every second, and on a raidable tile that reads as
@@ -2551,11 +2557,6 @@ class SecretTasksTab(PanelTab):
 
     def _tiles_soon(self) -> None:
         """Arm the one pass that lands them (Tk thread). A burst is still one merge."""
-        if not self.loaded:
-            # Nothing is drawn yet, and the buffer is not lost: `on_show` reads the
-            # checkpoint, which the capture is still writing, and the next tile that
-            # arrives after that arms this again.
-            return
         self.rt.tick.arm("secret_tiles", TILES_MS, self._tiles_land)
 
     def _tiles_land(self) -> None:
@@ -2569,6 +2570,14 @@ class SecretTasksTab(PanelTab):
         """
         import lastwar_proto as proto
 
+        if not self.loaded:
+            # THE BUFFER IS NEVER THE PLACE AN EVENT DIES (#1416). A tab nobody has
+            # opened yet has no model to merge into — but the tiles have already
+            # arrived, and dropping them here would be the very «мы их не слышим» this
+            # is meant to end. They keep, and this comes back for them; `ensure_loaded`
+            # is what a first look does, and it is one Tk pass away.
+            self.rt.tick.arm("secret_tiles", TILES_WAIT_MS, self._tiles_land)
+            return
         with self._tiles_lock:
             records, self._tiles = self._tiles, {}
         if not records:
