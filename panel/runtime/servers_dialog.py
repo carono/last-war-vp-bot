@@ -285,19 +285,24 @@ class _Grid:
         self.status.set(self.t("servers.working"))
         rt.say("servers", "servers.secret.log.read")
 
-        def done(outcome=None) -> None:
-            self.busy = False
+        def landed(outcome=None) -> None:
+            # WHAT THE SCENARIO READ arrives on `on_result` and nowhere else: `on_done`
+            # is handed nothing, so writing the reading down there recorded an empty
+            # dictionary — «записано: серверов 0» about counts that had just come back.
             got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
             written = book.take_reading(got)
             if rt is not None:
                 rt.say("servers", "servers.secret.log.recorded", count=written)
+
+        def done(_outcome=None) -> None:
+            self.busy = False
             try:
                 self.repaint()
             except tk.TclError:                 # the dialog was closed while it ran
                 pass
 
         started = rt.play_async("read_secret_day", args={"server": 0}, tag="servers",
-                                on_done=done)
+                                on_result=landed, on_done=done)
         if not started:
             self.busy = False
             self.status.set(self.t("servers.busy"))

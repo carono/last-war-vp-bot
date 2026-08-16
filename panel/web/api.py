@@ -869,14 +869,18 @@ class WebApi:
             return {"error": "unknown", "detail": "no profile"}
         book = rt.secret_days
         if action == "secret_read":
-            def done(outcome=None) -> None:
+            # `on_result`, not `on_done`: what the scenario READ travels on the Outcome,
+            # and `on_done` is handed nothing at all — which is how the first live run
+            # of this press said «записано: серверов 0» about a reading that had just
+            # come back with counts in it.
+            def landed(outcome=None) -> None:
                 got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
                 written = book.take_reading(got)
                 rt.say("servers", "servers.secret.log.recorded", count=written)
 
             rt.say("servers", "servers.secret.log.read")
             started = rt.play_async("read_secret_day", args={"server": 0},
-                                    tag="servers", on_done=done)
+                                    tag="servers", on_result=landed)
             return {"ok": bool(started)} if started else {"ok": False,
                                                           "reason": "servers.busy"}
         state = action.split("_", 1)[1]
