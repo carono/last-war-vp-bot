@@ -178,6 +178,32 @@ a second against sixty. Both clear it, with the same order of soldiers (285 and 
 a slow client is not a reason to distrust a measurement here and the frame count is a
 fine clock for «how long did that stage last».
 
+## The ranking counts SOLDIERS, so the deep stages are a trap
+
+The player settled the open question: the board ranks by the number of soldiers, not by
+how far the chain went. That turns «five in a row» from the goal into one possible means,
+and an hour of the log answers whether it is a good one. Sixty minutes of chain-playing,
+counted per stage:
+
+| Stage | runs | soldiers banked | per run |
+|---|---:|---:|---:|
+| 20451 | 60 | **6 650** | 111 |
+| 20452 | 25 | 686 | 27 |
+| 20453 | 6 | 6 | 1 |
+| 20454 | 6 | 68 | 11 |
+| 20455 | 4 | 0 | 0 |
+
+**Stage 1 is ninety per cent of the harvest**, stage 2 is a distant second, and stages
+3–5 pay 74 soldiers for sixteen runs — about ten minutes an hour spent for nothing. They
+are only worth playing for the event's own «stage 5» criterion, which is not what the
+board counts.
+
+So the session now fails them on purpose: policy `-98` steers INTO the heaviest thing it
+can find, which ends the stage in a few seconds and puts the chain back at stage 1 (a
+chain cannot be abandoned any faster — leaving it alone resets it only after minutes).
+Measured straight after the change: **254 soldiers a minute against 124** with everything
+else the same.
+
 ## The track is fixed for the day — but the run is not
 
 The player's account of the event: the layout is drawn once a WEEK and does not move all
