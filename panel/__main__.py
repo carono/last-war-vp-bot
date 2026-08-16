@@ -1689,6 +1689,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # …and beside it the OTHER thing that belongs to the window rather than to an
         # account: one server, one port, one token for every profile open here (#1313).
         menubar.add_command(label=self._t("menu.web"), command=self._open_web_dialog)
+        # …and the third thing that belongs to the window: which warzones the GAME has.
+        # 2 558 of them the day it was written, and more every week, so it is a reading
+        # kept once per machine rather than a copy per profile (#1418).
+        menubar.add_command(label=self._t("menu.servers"),
+                            command=self._open_servers_dialog)
         menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
         self.config(menu=menubar)
@@ -1708,6 +1713,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         moment of the press rather than at the moment the dialog opened.
         """
         webdlg.open_dialog(self, lambda: self._rt, self._t)
+
+    def _open_servers_dialog(self) -> None:
+        """Menu → «Серверы»: every warzone the game has, in one grid.
+
+        Everything it does is `panel/runtime/servers_dialog.py` — the shell only says
+        which profile's client should play the reading when a button in it is pressed,
+        and that is the one on screen at the moment of the press.
+        """
+        from .runtime import servers_dialog as srvdlg
+
+        srvdlg.open_dialog(self, lambda: self._rt, self._t)
 
     def _show_about(self) -> None:
         win = tk.Toplevel(self)

@@ -81,6 +81,16 @@ TK_TIMEOUT_SEC = 1.5
 #: only in the sense that the press itself is not cancelled by it.
 PRESS_TIMEOUT_SEC = 2.5
 
+#: The screen that is not a tab: every warzone the game has. It is a menu modal in the
+#: window because the list belongs to the GAME rather than to an account
+#: (`panel/runtime/servers_dialog.py`), and the phone gets it here so that neither
+#: front-end knows something the other does not (`CLAUDE.md`).
+SERVERS_SCREEN = "servers"
+
+#: How many warzones one screenful carries. There are thousands, and a phone that is
+#: handed all of them scrolls a list nobody reads; the search box is what narrows it.
+SERVERS_PAGE = 150
+
 
 class _Feed:
     """One profile's log: a ring of numbered lines, and the tap filling it.
@@ -144,6 +154,11 @@ class WebApi:
         self._status: dict = {}          # profile -> (read at, running, link, label)
         self._shared: dict = {}          # profile -> (read at, [other profiles on its client])
         self._attached = False
+        #: What «Серверы» is filtered by on the phone. The WINDOW's, like the list
+        #: itself — one server per window, one filter, whichever profile is being looked
+        #: at (`panel/runtime/servers_dialog.py`).
+        self._servers_needle = ""
+        self._servers_undated = False
 
     # -- which profiles there are -------------------------------------------
     def sessions(self) -> list:
@@ -678,6 +693,12 @@ class WebApi:
             if not getattr(type(tab), "WEB_SCREEN", False):
                 continue
             out.append({"id": tab.ID, "title": type(tab).TITLE_KEY})
+        # …and the one screen that is not a tab. «Серверы» is the window's menu entry
+        # (`panel/runtime/servers_dialog.py`): the list of warzones belongs to the GAME
+        # and not to an account, so it is a menu modal in the window rather than a page
+        # inside one profile — and the phone still gets it, because a reading the person
+        # at the machine has is a reading the phone must have too (`CLAUDE.md`).
+        out.append({"id": SERVERS_SCREEN, "title": "servers.title"})
         return {"screens": out}
 
     def screen(self, screen_id: str, profile: str | None = None) -> dict:
@@ -687,6 +708,8 @@ class WebApi:
         so this costs a hop and a dictionary. What it must NOT do is read the client:
         a phone left on a screen would then poll the game for as long as it is awake.
         """
+        if screen_id == SERVERS_SCREEN:
+            return self._servers_view()
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
@@ -712,6 +735,75 @@ class WebApi:
         view["title"] = view.get("title") or type(tab).TITLE_KEY
         return view
 
+    # -- «Серверы»: the screen with no tab behind it -------------------------
+    def _servers_view(self) -> dict:
+        """Every warzone the game has, as the phone's cards — the window's own model.
+
+        Read off the machine's list (`cache/servers.json`) and never off the game: the
+        contract for a screen is that opening it costs no round trip (`panel/tabs/base.py`),
+        and here it costs one file read. Filling that file is the two presses below.
+        """
+        from ..runtime.paths import ensure
+
+        ensure()
+        import server_list as model
+
+        data = model.load()
+        totals = model.summary(data)
+        rows = model.view_rows(data, self._servers_needle, self._servers_undated)
+        items = [{"text": "%s · %s" % (row["id"], row["name"]),
+                  "detail": row["opened"],
+                  "facts": [{"label": "servers.col.day",
+                             "value": "—" if row["day"] is None else str(row["day"])}],
+                  "pill": row["kind_key"]}
+                 for row in rows[:SERVERS_PAGE]]
+        head = {"title": "servers.title",
+                "rows": [{"label": "servers.total", "value": str(totals["total"])},
+                         {"label": "servers.dated", "value": str(totals["dated"])},
+                         {"label": "servers.shown",
+                          "value": "%d / %d" % (min(len(rows), SERVERS_PAGE), len(rows))},
+                         {"label": "servers.filter",
+                          "value": self._servers_needle or "—"}]}
+        return {"id": SERVERS_SCREEN, "title": "servers.title",
+                "cards": [head, {"rows": [], "items": items, "empty": "servers.empty"}],
+                "actions": [
+                    {"id": "search", "label": "servers.search",
+                     "prompt": "servers.search", "value": self._servers_needle},
+                    {"id": "undated", "label": "servers.only_undated"},
+                    {"id": "refresh", "label": "servers.refresh"},
+                    {"id": "dates", "label": "servers.fetch_dates"}]}
+
+    def _servers_press(self, action: str, args: dict, profile: str | None) -> dict:
+        """The same four presses the window's grid has, and nothing it has not.
+
+        The two that touch the game play the same scenario the window plays, in the
+        profile the phone is looking at — a list is the game's, but a client belongs to
+        an account, and the press has to go through one of them.
+        """
+        from ..runtime.paths import ensure
+
+        ensure()
+        import server_list as model
+
+        if action == "search":
+            self._servers_needle = str(args.get("text") or "").strip()
+            return {"ok": True}
+        if action == "undated":
+            self._servers_undated = not self._servers_undated
+            return {"ok": True}
+        if action not in ("refresh", "dates"):
+            return {"error": "unknown", "detail": action}
+        rt = self._runtime(profile)
+        if rt is None:
+            return {"error": "unknown", "detail": "no profile"}
+        missing = len(model.undated(model.load()))
+        if action == "dates" and not missing:
+            return {"ok": False, "reason": "servers.all_dated"}
+        rt.say("servers", "servers.log.dates" if action == "dates" else "servers.log.list")
+        started = rt.play_async("read_server_list", tag="servers",
+                                args={"store": "", "dates": missing if action == "dates" else 0})
+        return {"ok": bool(started)} if started else {"ok": False, "reason": "servers.busy"}
+
     def press(self, screen_id: str, action: str, args: dict,
               profile: str | None = None) -> dict:
         """One press on a tab's screen, on the Tk thread — the tab's own handler.
@@ -732,6 +824,8 @@ class WebApi:
         «принято, идёт» — the press is on the queue and the page says so — never that
         the panel did not understand it. Nothing is cancelled by the wait ending.
         """
+        if screen_id == SERVERS_SCREEN:
+            return self._servers_press(action, args or {}, profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):

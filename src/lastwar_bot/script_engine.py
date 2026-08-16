@@ -221,6 +221,14 @@ _SCAN_OPT_RE = re.compile(
 _COLLECT_VS_RE = re.compile(r"^COLLECT_VS_DUEL\b(.*)$", re.IGNORECASE)
 _COLLECT_VS_STORE_RE = re.compile(r"\bSTORE\s+(\"[^\"]*\"|'[^']*'|\S+)", re.IGNORECASE)
 
+# COLLECT_SERVER_LIST [STORE "<path>"] [NO_FETCH] [DATES [N]]
+# Every warzone the game has, written into the machine's own list. The game opens them
+# continuously, so the list is re-read rather than shipped; DATES additionally asks when
+# each of them opened, in batches, which is thousands of messages and therefore never
+# implicit. STORE names the file, so a caller can keep a list of its own.
+_COLLECT_SERVERS_RE = re.compile(r"^COLLECT_SERVER_LIST\b(.*)$", re.IGNORECASE)
+_COLLECT_SERVERS_DATES_RE = re.compile(r"\bDATES(?:\s+(\d+))?\b", re.IGNORECASE)
+
 # ---- Game-VM primitives (Lua daemon bridge) --------------------------------
 # These drive the game through its own Lua VM (the warm daemon, tools/lua_daemon.py),
 # not through pixels — so they need no hwnd. See docs/dsl.md "Game primitives".
@@ -420,6 +428,20 @@ class CollectVsDuelStmt(_Stmt):
     """
     store: str = ""
     fetch: bool = True
+
+
+@dataclass(slots=True)
+class CollectServerListStmt(_Stmt):
+    """Read every warzone the game has and write the list down.
+
+    `store` names the file (empty = the machine's own, `server_list.cache_path()`);
+    `fetch` sends the cross-server screen's own request first; `dates` is how many
+    warzones may additionally be asked for an opening moment this run — 0 means «none»,
+    which is the default, because asking about all of them is thousands of messages.
+    """
+    store: str = ""
+    fetch: bool = True
+    dates: int = 0
 
 
 @dataclass(slots=True)
@@ -693,6 +715,21 @@ def _parse_one(lines, i, indent):
             text=text, line_no=ln,
             store=(store.group(1).strip("\"'") if store else ""),
             fetch="NO_FETCH" not in rest.upper(),
+        ), i + 1
+
+    m = _COLLECT_SERVERS_RE.match(text)
+    if m:
+        rest = m.group(1)
+        store = _COLLECT_VS_STORE_RE.search(rest)
+        dates = _COLLECT_SERVERS_DATES_RE.search(rest)
+        return CollectServerListStmt(
+            text=text, line_no=ln,
+            store=(store.group(1).strip("\"'") if store else ""),
+            fetch="NO_FETCH" not in rest.upper(),
+            # `DATES` with no number means «as many as are missing» — the recipe that
+            # wants a ceiling says one, and the cap is what keeps a run interruptible.
+            dates=(int(dates.group(1)) if dates and dates.group(1) else
+                   (10 ** 6 if dates else 0)),
         ), i + 1
 
     m = _GAME_SCENE_RE.match(text)
@@ -1225,6 +1262,12 @@ class Interpreter:
             case CollectVsDuelStmt():
                 self._require_link(stmt)
                 self._do_collect_vs_duel(stmt)
+            # Gated for the same reason as the duel above: it ASKS the server for the
+            # list before reading it back, so a deaf link would write down whatever the
+            # client happened to be holding — or, on a fresh client, nothing at all.
+            case CollectServerListStmt():
+                self._require_link(stmt)
+                self._do_collect_server_list(stmt)
             case ReadLuaStmt():
                 self._do_read_lua(stmt)
 
@@ -2434,6 +2477,103 @@ class Interpreter:
         self._log(f"COLLECT_VS_DUEL — {len(state.get('sides', []))} side(s), "
                   f"{len(days)} day(s), {len(players)} row(s), "
                   f"{sum(saved.values())} stored")
+
+    def _do_collect_server_list(self, stmt: CollectServerListStmt) -> None:
+        """Read every warzone the game has, and write the list down.
+
+        Three registers come back for a recipe to gate on — `SERVERS_TOTAL` (how many the
+        game says there are), `SERVERS_READ` (how many came back this run) and
+        `SERVERS_DATED` (how many opening moments are on file afterwards).
+
+        NOTHING KNOWN IS FORGOTTEN. The read is paged, so an interrupted one brings back
+        a prefix rather than the lot — and a prefix written over the file would lose every
+        warzone past it until somebody read the whole thing again. `server_list.merge`
+        folds instead of replacing, which is also what lets the dates arrive over several
+        runs (they are asked for in batches of a few hundred).
+        """
+        self._tools_lib_on_path()
+        try:
+            import server_list
+        except ImportError as exc:               # pragma: no cover — a broken checkout
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: COLLECT_SERVER_LIST needs tools/lib — {exc}"
+            ) from exc
+
+        path = stmt.store or server_list.cache_path()
+        # The reply is not kept by the client, so the catcher goes on FIRST and the
+        # request second; a client that already has the wrapper keeps the one it has.
+        self._run_lua(server_list.install_chunk(), marker=server_list.MARKER, settle=1.0)
+        if stmt.fetch:
+            self._run_lua(server_list.fetch_chunk(), marker=server_list.MARKER, settle=1.0)
+            self._nap(1.5)                       # the list travels; nothing to poll for
+
+        found: list = []
+        total = -1
+        offset = 0
+        while True:
+            lines = self._run_lua(server_list.read_chunk(offset, server_list.BATCH),
+                                  marker=server_list.MARKER, settle=2.0, early=False)
+            if total < 0:
+                total = server_list.total(lines)
+            page = server_list.parse_page(lines)
+            found.extend(page)
+            offset += len(page)
+            if not page or total <= 0 or offset >= total:
+                break
+            self._check_cancel()
+
+        saved = server_list.merge(server_list.load(path), servers=found)
+        dated = 0
+        if stmt.dates:
+            dated = self._ask_server_dates(server_list, saved, path, stmt.dates)
+            saved = server_list.load(path)
+        else:
+            server_list.save(saved, path)
+
+        on_file = sum(1 for row in server_list.rows(saved) if row.get("open_ms"))
+        self.ctx.vars["SERVERS_TOTAL"] = total if total > 0 else len(found)
+        self.ctx.vars["SERVERS_READ"] = len(found)
+        self.ctx.vars["SERVERS_DATED"] = on_file
+        self._log(f"COLLECT_SERVER_LIST — {len(found)} of {total} warzone(s) read, "
+                  f"{on_file} dated ({dated} asked for this run), stored in {path}")
+
+    def _ask_server_dates(self, server_list, saved: dict, path: str, cap: int) -> int:
+        """Ask for the opening moments still missing, in batches, and keep each batch.
+
+        Kept AS IT GOES rather than at the end: this is thousands of messages on a full
+        list, and a run somebody interrupts half way through should leave half the dates
+        on file instead of none.
+        """
+        wanted = server_list.undated(saved)[:max(0, int(cap))]
+        if not wanted:
+            server_list.save(saved, path)
+            return 0
+        asked = 0
+        for start in range(0, len(wanted), server_list.ASK_BATCH):
+            batch = wanted[start:start + server_list.ASK_BATCH]
+            self._run_lua(server_list.ask_dates_chunk(batch),
+                          marker=server_list.MARKER, settle=1.0)
+            asked += len(batch)
+            self._nap(3.0)                       # measured: 300 answers land inside 3 s
+            dates: dict = {}
+            offset = 0
+            while True:
+                # NARROWED TO THIS BATCH on purpose: the client's dictionary keeps
+                # everything every earlier batch put in it, so re-reading all of it after
+                # each one turns a sweep of thousands into a quadratic crawl.
+                lines = self._run_lua(
+                    server_list.read_dates_chunk(batch, offset, server_list.BATCH),
+                    marker=server_list.MARKER, settle=2.0, early=False)
+                page = server_list.parse_dates(lines)
+                dates.update(page)
+                offset += len(page)
+                if len(page) < server_list.BATCH:
+                    break
+                self._check_cancel()
+            saved = server_list.merge(server_list.load(path), dates=dates)
+            server_list.save(saved, path)
+            self._check_cancel()
+        return asked
 
     def _do_call(self, stmt: CallStmt) -> None:
         self._log(f"CALL {stmt.action_name}")

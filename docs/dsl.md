@@ -796,6 +796,41 @@ Three registers come back to gate on: `VS_SIDES`, `VS_DAYS` (days with rows) and
 - Rows land under the game's own board ids with `source = "game"`, beside whatever the
   passive collector caught off the wire. Details in `docs/research/vs-rankings.md`.
 
+### `COLLECT_SERVER_LIST [STORE "<path>"] [NO_FETCH] [DATES [n]]`
+
+Write down **every warzone the game has** — its number, its name, its kind and whether
+the game calls it «hot». One request (`cross.server.ls`, the cross-server screen's own),
+read back in pages. The client that this was written against knew of 2 558 of them and
+the game opens more every week, which is why this is a reading and not a table in the
+repository.
+
+```
+ARGS store = ""
+ARGS dates = 0
+COLLECT_SERVER_LIST STORE "{store}" DATES {dates}
+IF SERVERS_READ == 0
+    FAIL "nothing came back"
+```
+
+| Part | Effect |
+|---|---|
+| `STORE "<path>"` | the JSON list to fold into. Left out, the machine's own (`cache/servers.json`) — which warzones exist is a fact about the GAME, identical for every profile, so it is not kept per account |
+| `NO_FETCH` | send nothing: read back whatever reply the client already caught |
+| `DATES [n]` | additionally ask **when** the still-undated warzones opened, at most `n` of them (`DATES` with no number means all that are missing). Each is one `get.other.server.info`, so a full sweep is thousands of messages — measured live at 300 answers inside three seconds, sent in batches, every batch written down as it lands |
+
+Three registers come back: `SERVERS_TOTAL` (what the game says it has), `SERVERS_READ`
+(what this run brought back) and `SERVERS_DATED` (how many opening moments are on file
+afterwards — this run's and every earlier run's).
+
+- **Nothing on file is forgotten.** The read is paged, so an interrupted one brings back
+  a prefix; folded in rather than written over, which is also how the dates accumulate
+  across runs.
+- **The reply is not kept by the client**, so the primitive installs a one-per-client
+  catcher on `SFSNetwork.HandleMessage` before asking. It is installed once and never
+  wrapped twice.
+- The same facts for ONE warzone, instantly and without the list, are
+  `actions/read_server_info.md`. Details in `docs/research/server-info.md`.
+
 ## Conditions
 
 Allowed in `IF` and `WAIT`:

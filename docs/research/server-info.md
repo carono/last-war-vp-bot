@@ -138,6 +138,48 @@ richer about somebody else's warzone — its king, its alliances, its population
 the boards (`get.king.info`, `rank.get`, `get.al.points`), each of which takes a
 `serverId` of its own and is a separate ability.
 
+## 4.5 The WHOLE list of warzones — `cross.server.ls` (#1418)
+
+The list of every warzone the game has is one more question the client already asks, for
+its own cross-server screen:
+
+```
+--> cross.server.ls   {}
+<-- cross.server.ls   {list: [{id: 3, name: "State#3", server_type: 0, hot: false}, …]}
+```
+
+**2 558 entries** on the read of 2026-08-16, and the number only goes up — which is why
+the panel keeps this as a READING and not as a table in the repository. What a row
+carries is exactly those four fields: no date, no population, no state, no alliance.
+`server_type` was `0` on 2 497 of them, `8` on 60 and `6` on one; the reply says nothing
+about what those mean and nothing here guesses. `hot` was false on every row of that read.
+
+**The client does not keep it.** The reply is drawn straight onto the screen that asked
+and nothing in `DataCenter` holds it afterwards — checked by dumping the managers. So the
+reading catches the reply on its way past (one idempotent wrapper on
+`SFSNetwork.HandleMessage`, `tools/lib/server_list.py::install_chunk`) and reads it back
+out of where the wrapper parked it. That is the same technique the treasure watcher uses
+and it is installed once per client, never stacked.
+
+**Dates for the whole list are affordable.** `get.other.server.info` (§2) is one message
+per warzone, and the client answers them in parallel: measured live, **50 answers inside
+2 s** and **300 inside 3 s**, no error, no throttling. A full sweep of 2 558 in batches of
+300 took **about two minutes** and came back with 2 468 dated — the remaining 90 are ids
+the server refuses with the anonymous `errorCode=E000000` of §2, so «no answer» is the
+only thing that can be said about them.
+
+Two commands were tried alongside and are NOT this:
+
+* `account.get.all.server` — the send fails outright from Lua (`MsgDefines.AccountGetAllServer`
+  is an account-service message, not a game-service one);
+* `get.zone.intelligence` (`MsgDefines.FetchServerInfo`) — the send fails the same way.
+
+The reading is `actions/read_server_list.md` (`COLLECT_SERVER_LIST`, `docs/dsl.md`), the
+cache is `cache/servers.json` — the MACHINE's, because which warzones exist is a fact
+about the game and not about an account — and both front-ends draw it from
+`tools/lib/server_list.py`: «Серверы» on the window's menu bar
+(`panel/runtime/servers_dialog.py`) and the `servers` screen on the phone.
+
 ## 5. What needs a jump, and what does not
 
 | reading | jump? |
