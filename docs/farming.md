@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **33%** — 44 of 135
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **32%** — 44 of 136
 
-🟩 44 done · 🟨 50 partly · 🟥 41 not automated
+🟩 44 done · 🟨 51 partly · 🟥 41 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -243,6 +243,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Separate profiles per account — own settings, filters, logs and schedule — and an interface in eleven languages: English, Russian, German, French, Spanish, Italian, Portuguese, Polish, Turkish, Indonesian and Vietnamese. The phone speaks whichever the panel is set to, and anything the game itself has a word for is copied out of the game's own table rather than translated afresh
 - 🟡 A second account in parallel. Its client is started and kept in a second Windows session in the background — the bot brings the session, the client and its own control channel up by itself, and every ability that works without the screen can be pointed at either account. What cannot reach it is anything screen-driven: clicks and screenshots only ever land on the client in front. Not yet played through a real session on the second account
 - ❌ A second account's client next to the first one *on the same screen*. Starting it as another Windows user works for any other program, but the anti-cheat kills the game a few seconds in
+- 🟡 Asking the game about any warzone — when it opened and what day of the server it is on today. The account's own, and anybody else's, without going there: no map loaded, no screen opened, one press. For the account's own it also says the warzone's name, the highest warzone the game has opened so far, and the moment the game-day turns over — the same midnight the daily quotas come back at. A warzone nobody has asked about before answers in about a second and is free to ask about again afterwards; one the game does not serve is reported as unknown instead of guessed at. Read live on the account's own warzone and on another one; not yet lived with
 
 ### Seasonal
 
