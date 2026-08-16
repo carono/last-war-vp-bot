@@ -307,7 +307,7 @@ def test_the_panel_jumps_in_one_call_and_never_reads_the_server_first():
 
         def run(self, chunk, marker=None, settle=1.2, early=False):
             self.calls.append({"chunk": chunk, "settle": settle, "early": early})
-            return ["ACT jump=561,492 srv=935"]
+            return ["ACT jump=561,492 srv=1234"]
 
         def acquire(self, owner, ttl=120.0):
             return "token"
