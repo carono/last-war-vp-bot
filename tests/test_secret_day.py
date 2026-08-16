@@ -69,9 +69,12 @@ def _runtime_module(name: str):
 storemod = _runtime_module("store")                              # noqa: E402
 bookmod = _runtime_module("secret_day")                          # noqa: E402
 
-#: An invented cycle: two star days, one post-day, four ordinary ones.
-CYCLE = (sd.STATE_DAY, sd.STATE_DAY, sd.STATE_POST,
-         sd.STATE_PLAIN, sd.STATE_PLAIN, sd.STATE_PLAIN, sd.STATE_PLAIN)
+#: An invented cycle: one star day, the post-day after it, five ordinary ones. One star
+#: day per cycle because that is what the three states MEAN — the day, the day after it,
+#: and everything else (`secret_day.with_geometry`); the length is invented, the shape is
+#: not.
+CYCLE = (sd.STATE_DAY, sd.STATE_POST, sd.STATE_PLAIN, sd.STATE_PLAIN,
+         sd.STATE_PLAIN, sd.STATE_PLAIN, sd.STATE_PLAIN)
 
 #: An invented block of warzones, each shifted one day from the one before it.
 BASE = 1200
@@ -429,6 +432,62 @@ def test_the_book_answers_a_warzone_it_has_never_seen_off_its_opening_date() -> 
     facts = book.summary()
     assert facts["dated"] == len(AGES) + 1
     assert facts["calendar_conflicts"] == 0
+    store.close()
+
+
+# -- the word completed by geometry, and the lap that feeds it ---------------
+def test_the_word_is_completed_from_the_phase_that_carries_the_star_day() -> None:
+    """Told only about star days, the cycle still answers all three states."""
+    ages = {BASE + n: 700 + n for n in range(9)}
+    star_phase = 700 % 3
+    seen = [sd.observation(server, 0, sd.STATE_DAY)
+            for server, age in ages.items() if age % 3 == star_phase]
+    seen.append(sd.observation(BASE + 1, 0, sd.STATE_PLAIN))     # one other state
+    cal = sd.with_geometry(sd.fit_calendar(seen, ages, today=0))
+    assert cal is not None and cal.period == 3
+    assert set(cal.pattern.values()) == set(sd.STATES)
+    assert cal.state(star_phase) == sd.STATE_DAY
+    # The day AFTER the star day is the post-day: a warzone one day further on in age.
+    assert cal.state(star_phase + 1) == sd.STATE_POST
+    assert cal.state(star_phase + 2) == sd.STATE_PLAIN
+
+
+def test_geometry_does_not_silence_an_observation_that_argues_with_it() -> None:
+    """Completing the word must not turn a disagreement into agreement."""
+    ages = {BASE + n: 700 + n for n in range(9)}
+    star_phase = 700 % 3
+    seen = [sd.observation(server, 0, sd.STATE_DAY)
+            for server, age in ages.items() if age % 3 == star_phase]
+    odd = next(s for s, age in ages.items() if age % 3 == (star_phase + 1) % 3)
+    seen.append(sd.observation(odd, 0, sd.STATE_PLAIN))     # geometry says «post» here
+    cal = sd.with_geometry(sd.fit_calendar(seen, ages, today=0))
+    clash = sd.calendar_conflicts(cal, seen, ages, 0)
+    assert [c["server"] for c in clash] == [odd]
+    assert (clash[0]["observed"], clash[0]["predicted"]) == (sd.STATE_PLAIN, sd.STATE_POST)
+    # …and the warzone that was actually looked at still answers what was SEEN.
+    said = sd.answer(None, seen, odd, 0, calendar=cal, ages=ages, today=0)
+    assert (said["state"], said["source"]) == (sd.STATE_PLAIN, sd.SOURCE_OBSERVED)
+
+
+def test_a_lap_adds_up_over_the_day_instead_of_replacing() -> None:
+    """A lap lands as a hundred small batches; the last one alone would say «2 of 3»."""
+    book, store = _book()
+    book.saw_tiles(BASE, 3, 40)
+    book.saw_tiles(BASE, 5, 60)
+    store.flush()
+    book._forget_cache()                      # …and it survives the round trip to SQLite
+    row = next(r for r in book.observations() if r["source"] == sd.SOURCE_LAP)
+    assert (row["stars"], row["tiles"]) == (8, 100)
+    assert row["state"] == sd.STATE_UNKNOWN   # evidence, never a verdict
+    store.close()
+
+
+def test_a_lap_that_saw_nothing_writes_nothing() -> None:
+    """An empty pass is not «zero stars today» — it is not an observation at all."""
+    book, store = _book()
+    book.saw_tiles(BASE, 0, 0)
+    store.flush()
+    assert book.observations() == []
     store.close()
 
 

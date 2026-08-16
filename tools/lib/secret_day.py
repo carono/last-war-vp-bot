@@ -73,6 +73,7 @@ STATES = (STATE_DAY, STATE_POST, STATE_PLAIN)
 #: are this module's arithmetic, and they are labelled so nothing has to guess later.
 SOURCE_GAME = "game"            # the client itself said so, about the account's warzone
 SOURCE_OBSERVED = "observed"    # somebody wrote down what that warzone did that day
+SOURCE_LAP = "lap"              # a lap of the map counted the stars among what it saw
 SOURCE_CALENDAR = "calendar"    # the cycle read off the warzone's AGE — its opening date
 SOURCE_SCHEDULE = "schedule"    # the fitted cycle, on a warzone that has observations
 SOURCE_NEIGHBOUR = "neighbour"  # …the cycle again, on a warzone borrowing a neighbour's
@@ -359,11 +360,16 @@ def fit(observations, periods=PERIODS) -> "Schedule | None":
 class Calendar:
     """A cycle read off a warzone's AGE: `period`, and a state per phase of it."""
 
-    def __init__(self, period: int, pattern: dict, agree: int = 0, clash: int = 0) -> None:
+    def __init__(self, period: int, pattern: dict, agree: int = 0, clash: int = 0,
+                 support: "dict | None" = None) -> None:
         self.period = int(period)
         self.pattern = dict(pattern)
         self.agree = int(agree)
         self.clash = int(clash)
+        #: `{phase: {state: how many observations said so}}` — what the pattern is made
+        #: of, kept so :func:`with_geometry` can tell a phase with one stray sighting
+        #: from the one the star day is actually written all over.
+        self.support = {ph: dict(counts) for ph, counts in (support or {}).items()}
 
     @property
     def score(self) -> int:
@@ -408,17 +414,58 @@ def fit_calendar(observations, ages, today, periods=PERIODS) -> "Calendar | None
         for row in rows:
             age = int(ages[int(row["server"])]) + int(row["day"]) - int(today)
             buckets.setdefault(age % period, []).append(row["state"])
-        pattern, agree, clash = {}, 0, 0
+        pattern, agree, clash, support = {}, 0, 0, {}
         for phase, states in buckets.items():
             top = max(set(states), key=states.count)
             pattern[phase] = top
+            support[phase] = {state: states.count(state) for state in set(states)}
             agree += states.count(top)
             clash += len(states) - states.count(top)
-        candidate = Calendar(period, pattern, agree, clash)
+        candidate = Calendar(period, pattern, agree, clash, support)
         key = (candidate.score, -period, candidate.coverage)
         if best is None or key > (best.score, -best.period, best.coverage):
             best = candidate
     return best
+
+
+def with_geometry(calendar) -> "Calendar | None":
+    """Fill the rest of the word from the ONE phase that is the star day.
+
+    The three states are not three independent things to be fitted separately — they are
+    DEFINED by their distance from the star day: the day itself, the day after it (still
+    handing stars out, far more rarely), and every other day. So a cycle that knows which
+    phase carries the day knows the whole word, and a book that has only ever been told
+    about star days can answer all three states instead of two unknowns.
+
+    That is a definition rather than a guess, and it is deliberately kept SEPARATE from
+    :func:`fit_calendar`, which stays a plain fit of what was actually written down. The
+    completed word is what the panel shows and what :func:`calendar_conflicts` is judged
+    against — so an observation that disagrees with the geometry (say, «ordinary» written
+    down on the day after a star day) shows up as a disagreement instead of quietly
+    rewriting the word. The observation still wins for its own warzone and its own day:
+    :func:`answer` reaches it first.
+
+    The star phase is the one the observations support most strongly; ties go to the
+    lowest phase, so the answer does not depend on dictionary order.
+    """
+    if calendar is None:
+        return None
+    days = [ph for ph, state in calendar.pattern.items() if state == STATE_DAY]
+    if not days:
+        return calendar
+    star = max(days, key=lambda ph: (calendar.support.get(ph, {}).get(STATE_DAY, 0), -ph))
+    pattern = {}
+    for phase in range(calendar.period):
+        if phase == star:
+            pattern[phase] = STATE_DAY
+        elif phase == (star + 1) % calendar.period:
+            # A warzone at this phase today was at the star phase YESTERDAY — its age is
+            # one day further on — so today is the day after its star day.
+            pattern[phase] = STATE_POST
+        else:
+            pattern[phase] = STATE_PLAIN
+    return Calendar(calendar.period, pattern, calendar.agree, calendar.clash,
+                    calendar.support)
 
 
 def calendar_conflicts(calendar, observations, ages, today) -> list:

@@ -375,7 +375,12 @@ class PanelRuntime:
             self._secret_days = None
         if self._secret_days is None:
             from .secret_day import SecretDayBook
-            self._secret_days = SecretDayBook(store)
+            # THE DAY BOUNDARY IS ASKED, NOT ASSUMED: this profile already keeps the
+            # client's own `GetTomorrowZero` across restarts (`day_reset.py`), and a book
+            # that started at UTC midnight would age every warzone opened in the small
+            # hours by a day — which is the whole basis of the star-day cycle (#1467).
+            self._secret_days = SecretDayBook(
+                store, reset=lambda: self.day.boundary_ms())
         return self._secret_days
 
     @property

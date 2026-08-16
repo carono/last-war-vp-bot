@@ -2587,12 +2587,20 @@ class SecretTasksTab(PanelTab):
         if not records:
             return
         tasks, unknown = [], set()
+        # WHAT THE LAP SAW, per warzone — the star-day book's only free source (#1467).
+        # Counted HERE rather than after the filter below, because the share of starred
+        # tiles among ALL of them is exactly what tells a star day from an ordinary one,
+        # and the list keeps only the starred ones.
+        counted: dict = {}
         for record in records.values():
             cfg = int(record.get("cfg") or 0)
             rank = self._cfg_rank.get(cfg)
             if rank is None and cfg:
                 unknown.add(cfg)
             level, starred = self._rank_of(record, rank)
+            seen = counted.setdefault(int(record.get("server") or 0), [0, 0])
+            seen[0] += 1 if starred else 0
+            seen[1] += 1
             if not starred:
                 continue                 # both feeds of this list are starred-only
             tasks.append(proto.SecretTask(
@@ -2608,6 +2616,9 @@ class SecretTasksTab(PanelTab):
                 seen_at=time.time()))
         if unknown:
             self._ask_cfg_rank(unknown)
+        for server, (stars, seen) in counted.items():
+            if server:
+                self.rt.secret_days.saw_tiles(server, stars, seen)
         if tasks:
             self._merge(self._abroad_only(tasks))
 

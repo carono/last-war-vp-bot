@@ -133,11 +133,21 @@ Fitted from the panel's own book after the chart's day-set was written down as
 observations: **period 3, zero disagreements**, one phase «day» and one «plain», the third
 phase still unknown because nothing has been written down about it yet.
 
-**What the third phase is, is the open question.** Geometrically the class whose day was
-YESTERDAY is today's post-day, and the class whose day is TOMORROW is an ordinary day. The
-player's own description of a neighbouring block labelled those two the other way round.
-Nothing here guesses: the phase stays `unknown` until an observation lands on it, and one
-mark on each of the two classes settles it for every warzone at once.
+**The third phase is settled, and it is settled by GEOMETRY.** The three states are not
+three independent things to be fitted separately — they are defined by their distance from
+the star day: the day itself, the day after it, and every other day. So a cycle that knows
+which phase carries the day knows the whole word (`with_geometry`): the class whose day was
+YESTERDAY is today's post-day, the class whose day is TOMORROW is an ordinary day. A
+player's description of a neighbouring block had those two the other way round and was
+withdrawn in favour of the chart and of the arithmetic that agreed with it.
+
+**Completing the word is not the same as silencing the book.** The completed pattern is what
+the panel draws and what `calendar_conflicts` is judged against, so an observation that
+argues with it — «ordinary», written down on a warzone whose star day was yesterday — is
+reported as a disagreement and still WINS for its own warzone on its own day
+(`answer` reaches an observation before it reaches any cycle). Live, that is exactly the
+state of the book: period 3, one warzone in disagreement, and the disagreement is a reading
+taken from the game rather than a typo.
 
 ## 5. Where it lives and what draws it
 
@@ -162,14 +172,16 @@ the game would answer, because the game does not answer this at all. That is the
 
 ## 6. What is NOT wired yet
 
-**A lap of the map does not feed the book by itself.** Everything a lap uncovers is already
-in the ★ page's own list — every tile with its warzone, its level and whether it is starred
-— so the natural next source is a roll-up of «what a lap saw on warzone X today»,
-`stars/tiles`, written down as an observation of source `lap` exactly as the alliance
-counts are written down as source `game`. The place for it is where the checkpoint is
-merged (`panel/tabs/secret/tab.py::_merge` / `capture.py::on_line`), and the book's
-`record()` takes it unchanged — nothing else has to move. Until it is there, the book grows
-by the press and by a person's three marks only.
+**A lap of the map now feeds the book by itself**, and it is the only source that costs
+nothing: every tile a capture decodes already passes through `SecretTasksTab._tiles_land`,
+so the hook is a dict tally in a loop that was running anyway plus one queued statement per
+warzone. It counts BEFORE the star filter — the share of starred tiles among all of them is
+what tells a star day from an ordinary one, and the list itself keeps only the starred ones
+— and it ACCUMULATES over the game-day (`SecretDayBook.saw_tiles`), because a lap arrives as
+a hundred small batches and the last batch alone would say «2 of 3». The rows carry counts
+and no state: they become a label only through a calibration learnt from days somebody
+named, which is what makes the age cycle checkable against a FACT rather than against
+another estimate.
 
 **A wrong mark is corrected by marking again**, not by a «forget» button: the row's key is
 (warzone, day, source), so pressing another of the three overwrites today's mark for that

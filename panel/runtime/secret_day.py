@@ -52,12 +52,21 @@ class SecretDayBook:
     once per draw, so re-fitting on every read would be paid for on every repaint.
     """
 
-    def __init__(self, store, *, reset_ms: int = 0, ages: "dict | None" = None) -> None:
+    def __init__(self, store, *, reset_ms: int = 0, ages: "dict | None" = None,
+                 reset=None) -> None:
         self.store = store
         #: When the game-day turns over — the client's own `GetTomorrowZero`, in
-        #: milliseconds. Zero until somebody tells us (`set_reset`), and then the day
-        #: index of every reading is counted off it rather than off UTC midnight.
-        self.reset_ms = int(reset_ms or 0)
+        #: milliseconds, and every reading here is counted off it rather than off UTC
+        #: midnight. `reset` is where the profile keeps that number between runs
+        #: (`panel/runtime/day_reset.py`), asked rather than remembered: a book that
+        #: started every panel at zero counted a warzone that opened between midnight
+        #: and the reset as a day older than it is, and the age is the whole basis of
+        #: the calendar cycle.
+        self._reset_ms = int(reset_ms or 0)
+        self._reset = reset
+        #: Which boundary the ages below were computed against, so a hook that starts
+        #: answering later does not leave them a day out.
+        self._ages_reset = None
         self._rows: "list | None" = None
         self._schedule = None
         self._fitted = False
@@ -68,6 +77,9 @@ class SecretDayBook:
         #: which warzones THIS machine happens to have read; read off the machine's list
         #: (:meth:`ages`) in every other caller.
         self._ages: "dict | None" = None if ages is None else dict(ages)
+        #: True when the ages were handed in (a test). Then they are used as given and
+        #: never recomputed from the machine's warzone list.
+        self._ages_given = ages is not None
         #: Rows handed to the writer thread but not necessarily committed yet. A press
         #: redraws the grid in the same tick it was made, and the writer commits a
         #: moment later — without this the row a person just wrote down would be missing
@@ -75,6 +87,26 @@ class SecretDayBook:
         self._pending: list = []
 
     # -- what the game says about its own day boundary -----------------------
+    @property
+    def reset_ms(self) -> int:
+        """The game-day boundary: what a reading told us, else what the profile keeps."""
+        if self._reset_ms:
+            return self._reset_ms
+        if self._reset is not None:
+            try:
+                asked = int(self._reset() or 0)
+            except Exception:                                   # noqa: BLE001
+                asked = 0
+            if asked:
+                return asked
+        # NOTHING READ YET is not «UTC midnight»: the panel's documented fallback for a
+        # day boundary is `game_day.DEFAULT_PHASE_MS`, measured live on a warzone, and
+        # using midnight instead ages every warzone that opened in the small hours by a
+        # day — which moved four warzones into the wrong phase on the first live run.
+        import game_day
+
+        return game_day.DEFAULT_PHASE_MS
+
     def set_reset(self, day_end_ms) -> None:
         """Remember the game's day boundary, as the client last answered it."""
         try:
@@ -82,7 +114,7 @@ class SecretDayBook:
         except (TypeError, ValueError):
             return
         if value > 0:
-            self.reset_ms = value
+            self._reset_ms = value
 
     def today(self, now_ms=None) -> int:
         """Which game-day it is now — the index every row is keyed by."""
@@ -119,6 +151,58 @@ class SecretDayBook:
                                  != (row["server"], row["day"], row["source"])]
         self._forget_cache()
         return row
+
+    def saw_tiles(self, server, stars, tiles, day=None, seen_at=None) -> None:
+        """A lap of the map counted `stars` starred tiles among `tiles` — add it up.
+
+        THE ONLY SOURCE THAT COSTS NOTHING (#1467). A lap already happens for the ★ page's
+        own reasons and every tile it decodes passes through the panel anyway, so the
+        tally is a dict and one queued statement — no game read, no extra traffic, and
+        nothing on the drawing thread.
+
+        It ACCUMULATES over the game-day rather than replacing: a lap arrives as a burst
+        of a hundred small batches, and the last batch on its own would say «2 of 3».
+        Re-seeing the same tile on a second lap counts it twice, which leaves the SHARE —
+        the only thing a calibration reads — where it was.
+
+        The state is left exactly as it stands. These rows are evidence, not a verdict:
+        they become a label only through a calibration learnt from days somebody named
+        (`tools/lib/secret_day.py`), and a lap that is told nothing stays `unknown`.
+        """
+        stars, tiles = int(stars or 0), int(tiles or 0)
+        if tiles <= 0:
+            return
+        when = self.today() if day is None else int(day)
+        stamp = int(seen_at or time.time() * 1000)
+        server = int(server)
+
+        def job(conn) -> None:
+            conn.execute(
+                "INSERT INTO secret_days"
+                "  (server, day, state, source, stars, tiles, seen_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(server, day, source) DO UPDATE SET"
+                "   stars = secret_days.stars + excluded.stars,"
+                "   tiles = secret_days.tiles + excluded.tiles,"
+                "   seen_at = excluded.seen_at",
+                (server, when, model.STATE_UNKNOWN, model.SOURCE_LAP,
+                 stars, tiles, stamp))
+
+        self.store.submit(job)
+        held = None
+        for row in self._pending:
+            if (row["server"], row["day"], row["source"]) == (server, when,
+                                                              model.SOURCE_LAP):
+                held = row
+                break
+        if held is None:
+            self._pending.append(model.observation(server, when, model.STATE_UNKNOWN,
+                                                   model.SOURCE_LAP, stars, tiles, stamp))
+        else:
+            held["stars"] = int(held.get("stars") or 0) + stars
+            held["tiles"] = int(held.get("tiles") or 0) + tiles
+            held["seen_at"] = stamp
+        self._forget_cache()
 
     def forget(self, server, day, source) -> None:
         """Drop one observation — the only DELETE here, and it is a person asking."""
@@ -162,6 +246,10 @@ class SecretDayBook:
         age (`docs/research/server-info.md`), so the count is re-derived here against the
         game's own day boundary every time.
         """
+        if self._ages_given:
+            return self._ages or {}
+        if self._ages is not None and self._ages_reset != self.reset_ms:
+            self._ages = None                    # the boundary moved under the ages
         if self._ages is None:
             from .paths import ensure
 
@@ -180,13 +268,21 @@ class SecretDayBook:
                     continue
                 out[int(row["id"])] = today - born + 1      # day 1 is opening day
             self._ages = out
+            self._ages_reset = self.reset_ms
         return self._ages
 
     def calendar(self):
         """The cycle keyed by a warzone's age, or None while it cannot be fitted."""
         if not self._calendared:
-            self._calendar = model.fit_calendar(self.observations(), self.ages(),
-                                                self.today())
+            # FITTED, then COMPLETED (#1467). The fit is a plain reading of what was
+            # written down; `with_geometry` fills the rest of the word from the phase
+            # that carries the star day, because the other two states are DEFINED by
+            # their distance from it — the day after it, and every other day. A book
+            # that has only ever been told about star days therefore answers all three
+            # instead of two «unknown»s, and an observation that argues with the
+            # completed word is reported rather than allowed to rewrite it.
+            self._calendar = model.with_geometry(
+                model.fit_calendar(self.observations(), self.ages(), self.today()))
             self._calendared = True
         return self._calendar
 
