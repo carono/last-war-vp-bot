@@ -605,8 +605,11 @@ read and written WHOLE and never queried by a `WHERE` clause, a named row in the
 `blobs` table (`store.blob_get`/`store.blob_set`), the way the ★ tile list
 (`secret_tasks_state`), the ghost map's own list (`ghost_map_state`), a world page's own
 list (`world_state_monsters`), the daily rally counts (`rally_counts`) and the daily
-resource tally (`resource_stats`) do since #1465. Either way the schema is a HISTORY —
-append a migration, never edit one that has
+resource tally (`resource_stats`) do since #1465. **Only ONE of the four world pages
+ever had a list of its own** — the mine, train and truck pages are re-read from
+`world_map.json` (the capture checkpoint named below) and were never a separate store to
+move; `world_state_monsters` is not an example missing three siblings, it is the whole
+set. Either way the schema is a HISTORY — append a migration, never edit one that has
 shipped — and an OLD file a profile still has is brought across exactly once
 (`panel.runtime.store.blob_import_once` / `import_once`) and kept beside the database as
 `<name>.imported`, never deleted: an import that turns out to have misread a field is
