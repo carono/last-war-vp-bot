@@ -5,12 +5,12 @@ A capture drops everything it has indexed for the server being left
 tile nobody is looking at any more would go on reading as raidable. That is right once
 the map really has moved, and it is what made two of this task's four symptoms:
 
-    12:54:51 [coord] переход в #938 X:500 Y:500
-    12:54:52 [secret] server 937 -> 938 — dropped everything indexed for 937
-    12:54:52 [secret] server 938 -> 1032 — dropped everything indexed for 938
-    12:54:52 [secret] server 1032 -> 976 — dropped everything indexed for 1032
-    12:54:52 [secret] server 976 -> 938 — dropped everything indexed for 976
-    12:54:52 [secret]   …running — server 938, … 0 task(s), 0 star(s)
+    12:54:51 [coord] переход в #902 X:500 Y:500
+    12:54:52 [secret] server 901 -> 902 — dropped everything indexed for 901
+    12:54:52 [secret] server 902 -> 903 — dropped everything indexed for 902
+    12:54:52 [secret] server 903 -> 904 — dropped everything indexed for 903
+    12:54:52 [secret] server 904 -> 902 — dropped everything indexed for 904
+    12:54:52 [secret]   …running — server 902, … 0 task(s), 0 star(s)
 
 One jump, four announcements, four evictions — and the 1565 tasks / 101 stars a lap of
 the map had just paid for were gone. The operator sees «обход карты не сработал с
@@ -73,65 +73,65 @@ def _blocks(index, server: int, points: int = 1) -> None:
 
 
 def test_a_burst_of_announcements_costs_one_switch():
-    """The live case, to the number: 937 → (938, 1032, 976, 938) → one eviction."""
+    """The live case, to the number: 901 → (902, 903, 904, 902) → one eviction."""
     index = _Index()
-    index.current_server = 937
-    for server in (938, 1032, 976, 938):
+    index.current_server = 901
+    for server in (902, 903, 904, 902):
         _jump(index, server)
-    assert index.current_server == 937, \
+    assert index.current_server == 901, \
         "an announcement nothing has confirmed must not move the screen yet"
     assert index.left == [], f"nothing was confirmed, so nothing may be evicted: {index.left}"
 
-    _blocks(index, 938)                      # the map arrives on the server it went to
-    assert index.current_server == 938, "the confirming response must apply the jump"
-    assert index.left == [937], \
+    _blocks(index, 902)                      # the map arrives on the server it went to
+    assert index.current_server == 902, "the confirming response must apply the jump"
+    assert index.left == [901], \
         f"one jump is one eviction, of the server actually left: {index.left}"
-    assert index.drain_server_changes() == [(937, 938)], "one switch, said once"
+    assert index.drain_server_changes() == [(901, 902)], "one switch, said once"
 
 
 def test_a_confirmed_jump_keeps_the_new_server():
     """The stragglers the old server was still sending must not take the screen back."""
     index = _Index()
-    index.current_server = 937
-    _jump(index, 938)
-    _blocks(index, 938)
+    index.current_server = 901
+    _jump(index, 902)
+    _blocks(index, 902)
     for _ in range(map_capture.SERVER_VOTE_MIN + 2):
-        _blocks(index, 937)                  # in-flight responses from the map we left
-    assert index.current_server == 938, "a settled jump must survive the old map's tail"
-    assert index.left == [937], f"and cost no further eviction: {index.left}"
+        _blocks(index, 901)                  # in-flight responses from the map we left
+    assert index.current_server == 902, "a settled jump must survive the old map's tail"
+    assert index.left == [901], f"and cost no further eviction: {index.left}"
 
 
 def test_an_unconfirmed_jump_is_honoured_when_its_grace_runs_out():
     """The minimap click: it asks for no block, so the clock is the only witness."""
     index = _Index()
-    index.current_server = 937
-    _jump(index, 1032)
+    index.current_server = 901
+    _jump(index, 903)
     with index._index_lock:                  # the grace window, expired
         index._jump_grace_until = time.time() - 1.0
         index._confirm_declared((), time.time())
-    assert index.current_server == 1032, "an unconfirmed announcement is still the truth"
-    assert index.left == [937], f"and it evicts exactly once: {index.left}"
+    assert index.current_server == 903, "an unconfirmed announcement is still the truth"
+    assert index.left == [901], f"and it evicts exactly once: {index.left}"
 
 
 def test_an_announcement_of_where_we_already_are_cancels_a_pending_one():
     """A burst that ends where it started must not move anything at all."""
     index = _Index()
-    index.current_server = 937
-    _jump(index, 938)
-    _jump(index, 937)                        # the client changed its mind mid-burst
-    _blocks(index, 937)
-    assert index.current_server == 937, "no move was made, so none may be reported"
+    index.current_server = 901
+    _jump(index, 902)
+    _jump(index, 901)                        # the client changed its mind mid-burst
+    _blocks(index, 901)
+    assert index.current_server == 901, "no move was made, so none may be reported"
     assert index.left == [], f"and nothing may be evicted: {index.left}"
 
 
 def test_the_election_still_follows_a_dragged_map():
     """Nothing above touches the ordinary path: weight of traffic still decides."""
     index = _Index()
-    index.current_server = 937
+    index.current_server = 901
     for _ in range(map_capture.SERVER_VOTE_MIN + 1):
-        _blocks(index, 940)
-    assert index.current_server == 940, "a dragged map must still take the screen"
-    assert index.left == [937]
+        _blocks(index, 905)
+    assert index.current_server == 905, "a dragged map must still take the screen"
+    assert index.left == [901]
 
 
 def _main() -> int:

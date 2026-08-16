@@ -683,8 +683,8 @@ class MapIndex(LiveDecoder):
         secret-task index drops everything filed under the server being left
         (`on_server_left`), and that is right once the map really has moved.
         But ONE jump is not one announcement. Measured on a live panel's log,
-        a single «переход в #938» produced four of these in the same second —
-        937 → 938 → 1032 → 976 → 938 — so the index was emptied four times and
+        a single «переход в #902» produced four of these in the same second —
+        901 → 902 → 903 → 904 → 902 — so the index was emptied four times and
         the list the operator had paid a lap of the map for went from 1565
         tasks and 101 stars to `0 task(s), 0 star(s)`. That is «обход карты не
         сработал с первого раза» and «секретки не обновляются», both of them,
