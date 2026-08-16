@@ -107,8 +107,65 @@ def test_the_view_is_what_both_front_ends_draw():
     # A missing day sorts last whichever way the column is turned — «unknown» is not
     # «zero», and a grid that mixes the two reads as a warzone opened today.
     assert [r["id"] for r in S.sorted_rows(rows, "day", down=True)] == [3, 40]
-    assert S.summary(data) == {"total": 2, "dated": 1, "undated": 1,
-                               "read_at": 1, "dated_at": 2}
+    assert S.summary(data) == {"total": 2, "dated": 1, "undated": 1, "seasoned": 0,
+                               "read_at": 1, "dated_at": 2, "seasoned_at": 0}
+
+
+def test_the_season_chunk_asks_by_name_and_carries_the_own_warzone():
+    """The row answers `getValue`, and the client's exact numbers ride along with it."""
+    chunk = S.season_chunk([935, 100])
+    assert "GetConfigDataByServerId" in chunk and "getValue" in chunk
+    assert "sown" in chunk and "nextSeasonStartTime" in chunk
+    assert "%(" not in chunk
+
+
+def test_the_season_plan_parses_into_four_moments():
+    plan = S.parse_seasons(["x SRVLIST spage "
+                            "935~1044~V~2026/03/23 00:00:00~2026/04/06 00:10:00"
+                            "~2026/05/25 00:00:00~2026/05/31 23:00:00"])
+    row = plan[935]
+    assert row["season_id"] == 1044 and row["step"] == "V"
+    assert row["pre_ms"] < row["start_ms"] < row["settle_ms"] < row["end_ms"]
+    # …and a row the config left blank is None rather than 1970.
+    blank = S.parse_seasons(["x SRVLIST spage 7~0~~~~~"])
+    assert blank == {} or blank[7]["pre_ms"] is None
+
+
+def test_the_stage_is_judged_by_the_four_moments():
+    row = {"pre_ms": 100, "start_ms": 200, "settle_ms": 300, "end_ms": 400}
+    assert S.stage_of(row, 50) == S.STAGE_OFF
+    assert S.stage_of(row, 150) == S.STAGE_PRE
+    assert S.stage_of(row, 250) == S.STAGE_SEASON
+    assert S.stage_of(row, 350) == S.STAGE_SETTLE
+    assert S.stage_of(row, 450) == S.STAGE_OFF
+    assert S.stage_of({}, 250) == S.STAGE_UNKNOWN
+    # No clock, no verdict — this machine's is not the game's (docs/research/game-clock.md).
+    assert S.stage_of(row, None) == S.STAGE_UNKNOWN
+
+
+def test_between_seasons_the_next_start_is_the_only_moment_left():
+    """A warzone that has finished its season has nothing ahead in its own row."""
+    row = {"pre_ms": 100, "start_ms": 200, "settle_ms": 300, "end_ms": 400}
+    assert S.next_change(row, 450) is None
+    row["next_start_ms"] = 900
+    assert S.next_change(row, 450) == 900
+    assert S.next_change(row, 250) == 300      # …and it never jumps the nearer one
+
+
+def test_the_own_warzone_numbers_beat_the_calendar_but_keep_it():
+    own = S.parse_own_season(["x SRVLIST sown 935~1775440800000~1780275600000"
+                              "~1787536800000~5~133"])
+    assert own[935]["season_no"] == 5 and own[935]["season_day"] == 133
+    data = S.merge({"read_at": 0, "dated_at": 0, "servers": {}},
+                   servers=[{"id": 935, "name": "State#935", "type": 0, "hot": False}],
+                   now=1)
+    data = S.merge(data, seasons={935: {"season_id": 1044, "step": "V", "pre_ms": 1,
+                                        "start_ms": 2, "settle_ms": 3, "end_ms": 4}}, now=2)
+    data = S.merge(data, seasons=own, now=3)
+    season = data["servers"]["935"]["season"]
+    assert season["step"] == "V" and season["pre_ms"] == 1          # kept
+    assert season["start_ms"] == 1775440800000                      # overwritten
+    assert season["next_start_ms"] == 1787536800000                 # added
 
 
 def _main() -> int:

@@ -18,9 +18,16 @@
 #                        with every batch written down as it lands. A run that is
 #                        interrupted therefore keeps what it had already got.
 #
-# Three registers come back: `SERVERS_TOTAL` (what the game says it has), `SERVERS_READ`
-# (what this run brought back) and `SERVERS_DATED` (how many opening moments are on file
-# afterwards, this run's and every earlier run's).
+# Four registers come back: `SERVERS_TOTAL` (what the game says it has), `SERVERS_READ`
+# (what this run brought back), `SERVERS_DATED` (how many opening moments are on file
+# afterwards, this run's and every earlier run's) and `SERVERS_SEASONED` (how many have a
+# season plan).
+#
+# THE SEASON PLAN COMES FOR FREE and is therefore read every run, whatever `dates` says:
+# the client ships the whole plan as a config table and answers it per warzone, so which
+# season a warzone is in — and when its pre-season, its settlement and its end fall — is
+# a table lookup and not a message (docs/research/server-events.md). It has to be re-read
+# rather than remembered: seasons end and the next one starts.
 #
 # Nothing here is forgotten: the list is folded into what is already on file rather than
 # replacing it, because warzones only ever appear and a short read is an interrupted one.
@@ -37,4 +44,4 @@ IF SERVERS_READ == 0
     LOG "the game said nothing about its warzones — is this client in a session?"
     FAIL "server list: nothing came back"
 
-LOG "warzones: {SERVERS_READ} read of {SERVERS_TOTAL}, {SERVERS_DATED} with an opening date"
+LOG "warzones: {SERVERS_READ} read of {SERVERS_TOTAL}, {SERVERS_DATED} with an opening date, {SERVERS_SEASONED} with a season plan"

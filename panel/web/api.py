@@ -746,20 +746,29 @@ class WebApi:
         from ..runtime.paths import ensure
 
         ensure()
+        import game_clock
         import server_list as model
 
         data = model.load()
         totals = model.summary(data)
-        rows = model.view_rows(data, self._servers_needle, self._servers_undated)
+        # The GAME's clock decides the stage — the same one the window's grid judges by.
+        rows = model.view_rows(data, self._servers_needle, self._servers_undated,
+                               now_ms=game_clock.now_ms())
         items = [{"text": "%s · %s" % (row["id"], row["name"]),
                   "detail": row["opened"],
                   "facts": [{"label": "servers.col.day",
-                             "value": "—" if row["day"] is None else str(row["day"])}],
-                  "pill": row["kind_key"]}
+                             "value": "—" if row["day"] is None else str(row["day"])},
+                            {"label": "servers.col.season",
+                             "value": row["step"] or "—"},
+                            {"label": "servers.col.until",
+                             "value": row["until"]}],
+                  "pill": row["stage_key"]}
                  for row in rows[:SERVERS_PAGE]]
         head = {"title": "servers.title",
                 "rows": [{"label": "servers.total", "value": str(totals["total"])},
                          {"label": "servers.dated", "value": str(totals["dated"])},
+                         {"label": "servers.seasoned",
+                          "value": str(totals.get("seasoned", 0))},
                          {"label": "servers.shown",
                           "value": "%d / %d" % (min(len(rows), SERVERS_PAGE), len(rows))},
                          {"label": "servers.filter",

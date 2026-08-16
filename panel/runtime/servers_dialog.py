@@ -33,7 +33,8 @@ from .paths import ensure
 
 ensure()
 
-import server_list as model                       # noqa: E402  (tools/lib, after ensure)
+import game_clock                                  # noqa: E402  (tools/lib, after ensure)
+import server_list as model                       # noqa: E402
 
 from server_list import COLUMNS                    # noqa: E402
 
@@ -130,8 +131,11 @@ class _Grid:
 
     # -- drawing ------------------------------------------------------------
     def rows(self) -> list:
+        # THE GAME's clock decides the stage, not this machine's: the two were eleven
+        # seconds apart when `game_clock` was written, and a stage boundary judged on the
+        # wrong one is the same class of bug as a countdown that disagrees with the game.
         rows = model.view_rows(self.data, self.needle.get(),
-                               self.only_undated.get())
+                               self.only_undated.get(), now_ms=game_clock.now_ms())
         return model.sorted_rows(rows, self.sort_field, self.sort_down)
 
     def repaint(self, reset: bool = False) -> None:
@@ -142,7 +146,8 @@ class _Grid:
         for row in rows[:self.offset + PAGE]:
             self.tree.insert("", "end", values=(
                 row["id"], row["name"], self.t(row["kind_key"]),
-                row["opened"], "—" if row["day"] is None else row["day"]))
+                row["opened"], "—" if row["day"] is None else row["day"],
+                row["step"] or "—", self.t(row["stage_key"]), row["until"]))
         shown = min(len(rows), self.offset + PAGE)
         totals = model.summary(self.data)
         self.status.set(self.t("servers.status", shown=shown, found=len(rows),

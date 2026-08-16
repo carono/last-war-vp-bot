@@ -2523,6 +2523,13 @@ class Interpreter:
             self._check_cancel()
 
         saved = server_list.merge(server_list.load(path), servers=found)
+        # THE SEASON COSTS NOTHING ON THE WIRE, so it is read every time rather than
+        # behind a switch: `SeasonTemplateManager` is a config table the client already
+        # holds and it answers per warzone, so the whole list is a few round trips to the
+        # VM and no messages at all (docs/research/server-events.md).
+        seasons = self._read_server_seasons(server_list, saved)
+        if seasons:
+            saved = server_list.merge(saved, seasons=seasons)
         dated = 0
         if stmt.dates:
             dated = self._ask_server_dates(server_list, saved, path, stmt.dates)
@@ -2531,11 +2538,37 @@ class Interpreter:
             server_list.save(saved, path)
 
         on_file = sum(1 for row in server_list.rows(saved) if row.get("open_ms"))
+        with_season = sum(1 for row in server_list.rows(saved) if row.get("season"))
         self.ctx.vars["SERVERS_TOTAL"] = total if total > 0 else len(found)
         self.ctx.vars["SERVERS_READ"] = len(found)
         self.ctx.vars["SERVERS_DATED"] = on_file
+        self.ctx.vars["SERVERS_SEASONED"] = with_season
         self._log(f"COLLECT_SERVER_LIST — {len(found)} of {total} warzone(s) read, "
-                  f"{on_file} dated ({dated} asked for this run), stored in {path}")
+                  f"{on_file} dated ({dated} asked for this run), "
+                  f"{with_season} with a season, stored in {path}")
+
+    def _read_server_seasons(self, server_list, saved: dict) -> dict:
+        """Which season each warzone on file is in, and when its stages turn over.
+
+        A table lookup per warzone inside the client — no message leaves the machine — so
+        this reads the WHOLE list every run instead of remembering which warzones were
+        asked about: a season ends, the next one starts, and a plan read a month ago would
+        show a warzone still in a season it has already left.
+        """
+        ids = [int(row["id"]) for row in server_list.rows(saved) if row.get("id")]
+        out: dict = {}
+        for start in range(0, len(ids), server_list.SEASON_BATCH):
+            batch = ids[start:start + server_list.SEASON_BATCH]
+            lines = self._run_lua(server_list.season_chunk(batch),
+                                  marker=server_list.MARKER, settle=2.0, early=False)
+            out.update(server_list.parse_seasons(lines))
+            # The own warzone's exact numbers ride along with every batch (the chunk
+            # prints them once per call); folded LAST so they beat the calendar dates.
+            own = server_list.parse_own_season(lines)
+            for server, fields in own.items():
+                out.setdefault(server, {}).update(fields)
+            self._check_cancel()
+        return out
 
     def _ask_server_dates(self, server_list, saved: dict, path: str, cap: int) -> int:
         """Ask for the opening moments still missing, in batches, and keep each batch.

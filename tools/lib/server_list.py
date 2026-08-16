@@ -285,17 +285,19 @@ def load(path: str | None = None) -> dict:
     An unreadable or missing file is an EMPTY list and never an error: the panel opens
     on a machine that has never asked, and «nothing yet» is a state it draws.
     """
+    empty = {"read_at": 0, "dated_at": 0, "seasoned_at": 0, "servers": {}}
     try:
         with open(path or cache_path(), encoding="utf-8") as handle:
             data = json.load(handle)
     except Exception:                    # noqa: BLE001
-        return {"read_at": 0, "dated_at": 0, "servers": {}}
+        return empty
     if not isinstance(data, dict) or not isinstance(data.get("servers"), dict):
-        return {"read_at": 0, "dated_at": 0, "servers": {}}
+        return empty
+    data.setdefault("seasoned_at", 0)
     return data
 
 
-def merge(saved: dict, servers=(), dates=None, now: float | None = None) -> dict:
+def merge(saved: dict, servers=(), dates=None, seasons=None, now: float | None = None) -> dict:
     """Fold a fresh reading into the saved one. Nothing known is ever forgotten.
 
     Warzones only ever appear, so a read that brought fewer than are on file is a read
@@ -307,6 +309,7 @@ def merge(saved: dict, servers=(), dates=None, now: float | None = None) -> dict
     stamp = int(now if now is not None else time.time())
     out = {"read_at": int(saved.get("read_at") or 0),
            "dated_at": int(saved.get("dated_at") or 0),
+           "seasoned_at": int(saved.get("seasoned_at") or 0),
            "servers": dict(saved.get("servers") or {})}
     for entry in servers or ():
         key = str(entry["id"])
@@ -327,6 +330,19 @@ def merge(saved: dict, servers=(), dates=None, now: float | None = None) -> dict
         out["servers"][key] = row
     if dates:
         out["dated_at"] = stamp
+    for server, fields in (seasons or {}).items():
+        key = str(server)
+        row = dict(out["servers"].get(key) or {"id": int(server), "name": "", "type": 0,
+                                               "hot": False})
+        # FOLDED, not replaced: the own-warzone read carries better numbers for three of
+        # these fields and says nothing about the rest, and a plain assignment would drop
+        # the calendar dates it does not mention.
+        season = dict(row.get("season") or {})
+        season.update(fields)
+        row["season"] = season
+        out["servers"][key] = row
+    if seasons:
+        out["seasoned_at"] = stamp
     return out
 
 
@@ -362,11 +378,14 @@ def undated(data: dict) -> list:
 
 #: The columns of the window's grid, in order: the locale key of the heading, the row's
 #: field, the width in pixels, and whether it sorts as a number.
-COLUMNS = (("servers.col.id", "id", 70, True),
-           ("servers.col.name", "name", 150, False),
-           ("servers.col.kind", "kind", 90, False),
-           ("servers.col.opened", "opened", 150, False),
-           ("servers.col.day", "day", 80, True))
+COLUMNS = (("servers.col.id", "id", 65, True),
+           ("servers.col.name", "name", 120, False),
+           ("servers.col.kind", "kind", 80, False),
+           ("servers.col.opened", "opened", 105, False),
+           ("servers.col.day", "day", 60, True),
+           ("servers.col.season", "step", 70, False),
+           ("servers.col.stage", "stage", 110, False),
+           ("servers.col.until", "until", 105, False))
 
 
 def kind_key(kind) -> str:
@@ -398,8 +417,15 @@ def stamp(ms) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(value / 1000.0))
 
 
-def view_rows(data: dict, needle: str = "", undated_only: bool = False) -> list:
-    """The cache as drawable rows — filtered, with the display fields filled in."""
+def view_rows(data: dict, needle: str = "", undated_only: bool = False,
+              now_ms=None) -> list:
+    """The cache as drawable rows — filtered, with the display fields filled in.
+
+    `now_ms` is the GAME's clock (`tools/lib/game_clock.py`), which decides which stage of
+    its season each warzone is standing in. Left out, the stage of every row reads as
+    unknown rather than being judged against this machine's clock — the two are not the
+    same clock and the panel has one place that knows the difference.
+    """
     needle = str(needle or "").strip().lower()
     out = []
     for row in rows(data):
@@ -409,11 +435,21 @@ def view_rows(data: dict, needle: str = "", undated_only: bool = False) -> list:
             hay = "%s %s" % (row.get("id"), row.get("name") or "")
             if needle not in hay.lower():
                 continue
+        season = row.get("season") or {}
+        stage = stage_of(season, now_ms) if season else STAGE_UNKNOWN
+        turns = next_change(season, now_ms) if season else None
         out.append({"id": row.get("id"), "name": row.get("name") or "",
                     "type": row.get("type", 0), "hot": bool(row.get("hot")),
                     "open_ms": row.get("open_ms"), "day": row.get("day"),
                     "opened": stamp(row.get("open_ms")),
-                    "kind_key": kind_key(row.get("type"))})
+                    "kind_key": kind_key(row.get("type")),
+                    "season_id": season.get("season_id"),
+                    "season_day": season.get("season_day"),
+                    "step": season.get("step") or None,
+                    "stage": stage,
+                    "stage_key": "servers.stage.%s" % stage,
+                    "until_ms": turns,
+                    "until": stamp(turns)})
     return out
 
 
@@ -441,6 +477,221 @@ def summary(data: dict) -> dict:
     """How many warzones are on file, how many are dated, and when it was last read."""
     known = rows(data)
     dated = sum(1 for row in known if row.get("open_ms"))
+    seasoned = sum(1 for row in known if row.get("season"))
     return {"total": len(known), "dated": dated, "undated": len(known) - dated,
+            "seasoned": seasoned,
             "read_at": int(data.get("read_at") or 0),
-            "dated_at": int(data.get("dated_at") or 0)}
+            "dated_at": int(data.get("dated_at") or 0),
+            "seasoned_at": int(data.get("seasoned_at") or 0)}
+
+
+# ---------------------------------------------------------------------------
+# THE SEASON, and which stage of it a warzone is standing in (#1419).
+#
+# The client ships the whole season plan as a config table — `LW_Season`, 1 248 rows,
+# held by `DataCenter.SeasonTemplateManager` — and it answers PER WARZONE:
+# `GetConfigDataByServerId(<id>)` returns the row that names that warzone's current
+# season, whichever warzone it is. So the seasons of every server in the list are read
+# out of the client with NO message on the wire at all, which is what makes this
+# affordable for 2 558 of them (docs/research/server-events.md).
+#
+# A row carries four moments as calendar strings — «pre_start_time», «start_time_str»,
+# «settlement_time», «end_time» — plus `season_step`, the Roman numeral the game itself
+# prints («V», «Ⅵ»), and the season's id. The four moments are what the stages are made
+# of, and they are CALENDAR DATES: the config gives them to the day, the pair
+# (`start_time` unix / `start_time_str` text) does not agree on the hour on any warzone
+# checked, and nothing here pretends to a precision the table does not have. For the
+# account's OWN warzone the client also holds exact milliseconds
+# (`SeasonDataManager:GetSeasonStartTime` and friends) and those are read beside it.
+
+#: The stages of a season, in the order a warzone passes through them.
+STAGE_PRE = "pre"          # the pre-season is on: preparation, no war yet
+STAGE_SEASON = "season"    # the season proper
+STAGE_SETTLE = "settle"    # settlement: the scores are being counted
+STAGE_OFF = "off"          # between seasons — the post-season lull
+STAGE_UNKNOWN = "unknown"  # nothing read about this warzone yet
+
+#: How many warzones are asked about in one chunk. This costs no wire traffic — it is a
+#: table lookup per warzone — so the only limit is how long one answer line may be.
+SEASON_BATCH = 100
+
+
+def season_chunk(ids) -> str:
+    """Read the season row of each of these warzones — `SRVLIST spage …` lines.
+
+    Every field is taken with `getValue`, which is the accessor the row actually answers:
+    a plain `row.pre_start_time` works on one call and is `nil` on the next, because the
+    row fills itself lazily (measured live — the first probe read it, the second did not).
+    """
+    wanted = ",".join(str(int(i)) for i in ids)
+    return (
+        "local M = DataCenter.SeasonTemplateManager "
+        "local out = {} "
+        "local function val(row, name) "
+        "  local v = nil "
+        "  local ok = pcall(function() v = row:getValue(name) end) "
+        "  if not ok or v == nil then pcall(function() v = row[name] end) end "
+        "  if v == nil or type(v) == 'table' then return '' end "
+        "  return tostring(v):gsub('[%(fs)s%(rs)s]', ' ') "
+        "end "
+        "for _, sid in ipairs({%(ids)s}) do "
+        "  local row = nil "
+        "  pcall(function() row = M:GetConfigDataByServerId(sid) end) "
+        "  if row ~= nil then "
+        "    out[#out+1] = sid .. '%(fs)s' .. tostring(val(row, 'id')) "
+        "      .. '%(fs)s' .. val(row, 'season_step') "
+        "      .. '%(fs)s' .. val(row, 'pre_start_time') "
+        "      .. '%(fs)s' .. val(row, 'start_time_str') "
+        "      .. '%(fs)s' .. val(row, 'settlement_time') "
+        "      .. '%(fs)s' .. val(row, 'end_time') "
+        "  end "
+        "end "
+        "if #out > 0 then CS.UnityEngine.Debug.LogError('%(m)s spage ' .. table.concat(out, '%(rs)s')) end "
+        # …and, for the account's OWN warzone, the exact numbers the client holds beside
+        # the plan: the config gives calendar dates, `SeasonDataManager` gives
+        # milliseconds — including the START OF THE NEXT SEASON, which the table does not
+        # carry at all (a warzone between seasons has no row for the one coming).
+        "local own = tonumber(LuaEntry.Player.serverId) or 0 "
+        "local D = DataCenter.SeasonDataManager "
+        "local function num(f) local ok, v = pcall(f) if not ok or tonumber(v) == nil then return 0 end return math.floor(tonumber(v)) end "
+        "if own > 0 then "
+        "  CS.UnityEngine.Debug.LogError('%(m)s sown ' .. own .. '%(fs)s' .. num(function() return D:GetSeasonStartTime() end) "
+        "    .. '%(fs)s' .. num(function() return D:GetSeasonEndTime() end) "
+        "    .. '%(fs)s' .. num(function() return D.nextSeasonStartTime end) "
+        "    .. '%(fs)s' .. num(function() return select(1, D:GetNowSeasonAndSeasonDay()) end) "
+        "    .. '%(fs)s' .. num(function() return select(2, D:GetNowSeasonAndSeasonDay()) end)) "
+        "end"
+        % {"m": MARKER, "ids": wanted, "fs": FIELD, "rs": RECORD}
+    )
+
+
+def parse_own_season(lines) -> dict:
+    """`{id: {…}}` for the account's own warzone — the exact numbers, not the calendar.
+
+    Four of them are milliseconds the client holds (`start_ms`, `end_ms`,
+    `next_start_ms`) and two are what the game itself prints on its season screen (which
+    season, and which day of it). They overwrite the config's calendar dates for that one
+    warzone because they are the same moments measured better.
+    """
+    out = {}
+    for payload in _payloads(lines, "sown"):
+        parts = payload.split(FIELD)
+        if len(parts) < 6:
+            continue
+        try:
+            server = int(parts[0])
+            values = [int(float(p)) for p in parts[1:6]]
+        except ValueError:
+            continue
+        start, over, nxt, number, day = values
+        row = {}
+        if start > 0:
+            row["start_ms"] = start
+        if over > 0:
+            row["end_ms"] = over
+        if nxt > 0:
+            row["next_start_ms"] = nxt
+        if number > 0:
+            row["season_no"] = number
+        if day > 0:
+            row["season_day"] = day
+        if row:
+            out[server] = row
+    return out
+
+
+def parse_seasons(lines) -> dict:
+    """`{id: {season_id, step, pre, start, settle, end}}` out of the season pages.
+
+    The four moments come back as the config's own text and are turned into epoch
+    milliseconds here — see :func:`_calendar_ms`, and the note above about precision.
+    """
+    out = {}
+    for payload in _payloads(lines, "spage"):
+        for record in payload.split(RECORD):
+            parts = record.split(FIELD)
+            if len(parts) < 7:
+                continue
+            try:
+                server = int(parts[0])
+            except ValueError:
+                continue
+            out[server] = {
+                "season_id": int(parts[1]) if parts[1].strip().isdigit() else None,
+                "step": parts[2].strip(),
+                "pre_ms": _calendar_ms(parts[3]),
+                "start_ms": _calendar_ms(parts[4]),
+                "settle_ms": _calendar_ms(parts[5]),
+                "end_ms": _calendar_ms(parts[6]),
+            }
+    return out
+
+
+def _calendar_ms(text):
+    """`2026/04/06 00:10:00` -> epoch milliseconds, or None when it is not a date.
+
+    Read as UTC, deliberately and with its reason written down: the config's own pair of
+    a unix `start_time` and a `start_time_str` disagree by a different amount on every
+    warzone checked, so there is no offset to apply that would be true for all of them.
+    A stage lasts weeks; being out by hours cannot move which one a warzone is in, and
+    claiming minutes the table does not have would be a lie that looks precise.
+    """
+    text = (text or "").strip().replace("-", "/")
+    if not text:
+        return None
+    date, _, clock = text.partition(" ")
+    bits = [p for p in date.split("/") if p]
+    if len(bits) != 3:
+        return None
+    try:
+        year, month, day = (int(b) for b in bits)
+        hour, minute, second = 0, 0, 0
+        if clock:
+            hms = (clock.split(":") + ["0", "0", "0"])[:3]
+            hour, minute, second = (int(float(p)) for p in hms)
+        import calendar as _cal
+        return int(_cal.timegm((year, month, day, hour, minute, second, 0, 0, 0)) * 1000)
+    except (TypeError, ValueError):
+        return None
+
+
+def stage_of(row: dict, now_ms) -> str:
+    """Which stage this warzone is standing in at `now_ms` — one of the `STAGE_*` words.
+
+    «Off» is both ends of the same lull: after a season has ended, and before the next
+    one's pre-season opens. The table names one season per warzone at a time, so the two
+    are the same state as far as anything here can tell, and calling the second one
+    «unknown» would paint a warzone red for the fortnight between seasons.
+    """
+    if not row or now_ms is None:
+        return STAGE_UNKNOWN
+    pre, start = row.get("pre_ms"), row.get("start_ms")
+    settle, over = row.get("settle_ms"), row.get("end_ms")
+    if not any((pre, start, settle, over)):
+        return STAGE_UNKNOWN
+    now = int(now_ms)
+    if over and now >= over:
+        return STAGE_OFF
+    if settle and now >= settle:
+        return STAGE_SETTLE
+    if start and now >= start:
+        return STAGE_SEASON
+    if pre and now >= pre:
+        return STAGE_PRE
+    return STAGE_OFF
+
+
+def next_change(row: dict, now_ms):
+    """When this warzone's stage turns over next — epoch ms, or None if nothing is known.
+
+    `next_start_ms` is in the list because a warzone BETWEEN seasons has no moment left in
+    its own row: the config names one season at a time and the next one's row does not
+    mention this warzone yet. The client knows that date for the account's own warzone and
+    for no other, so «—» in that column is «the game has not said», not «never».
+    """
+    if not row or now_ms is None:
+        return None
+    ahead = [row.get(key) for key in
+             ("pre_ms", "start_ms", "settle_ms", "end_ms", "next_start_ms")]
+    ahead = [ms for ms in ahead if ms and ms > int(now_ms)]
+    return min(ahead) if ahead else None
