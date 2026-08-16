@@ -178,6 +178,36 @@ a second against sixty. Both clear it, with the same order of soldiers (285 and 
 a slow client is not a reason to distrust a measurement here and the frame count is a
 fine clock for «how long did that stage last».
 
+## The track is fixed for the day — but the run is not
+
+The player's account of the event: the layout is drawn once a WEEK and does not move all
+day, so the same barrels stand in the same places run after run. That makes this an
+optimisation of one route rather than a reflex game, and the recipe can therefore record
+what it held and play it back: policy `-11` keeps `lane` against distance along the track
+(two units to a bucket), replays it with two mutated windows, and keeps the recording
+only when it beat that stage's best.
+
+**The decisive measurement, and it is not what the premise suggests: replaying the SAME
+route on the SAME track does not give the same result.** Six pure replays of one stage
+20451 route (`-12`, mutation off) came back **127 / 356 / 292 / 356 / 265 / 318**. Two of
+them landed on exactly 356, so there is a ceiling the route can reach — but a single run
+says almost nothing about a route's worth.
+
+That kills the cheap version of hill-climbing: comparing a mutated route against the best
+on ONE run accepts lucky mutations and throws away good ones. **A candidate route has to
+be judged on the MEAN of several runs** — three at ~35 seconds each is about two minutes
+a candidate, which an all-day event affords easily and a last hour does not.
+
+What is worth building on this before the next week's event:
+
+* a fingerprint of the layout — the sorted `monsterMetaId`/`x`/`y` of the first ~30
+  objects in `showList` — so a stored route is recognised as belonging to THIS week's
+  field, and next week's is not driven over with last week's answers;
+* the routes and their scores in `panel.db` (a table with a migration, keyed by that
+  fingerprint and the stage), because the VM loses `_G.__fb_routes` on every client
+  restart — and this client restarted four times in one evening;
+* evaluation over N runs per candidate, best-of-mean, not best-of-one.
+
 ## Traps that cost time here
 
 * **`{name}` in a sub-recipe is filled in at CALL time, not at LOG time.** A
