@@ -42,7 +42,6 @@ number the level boxes are counted into, because a person seeing «показа�
 """
 from __future__ import annotations
 
-import json
 import time
 import tkinter as tk
 from tkinter import ttk
@@ -268,15 +267,20 @@ class WorldGrid(grid.TaskGrid):
         """
         return False
 
+    #: The name this page's row is checkpointed under in `panel.db`'s `blobs` table
+    #: (`panel/runtime/store.py`, #1465) — `""` for the three pages that keep no
+    #: checkpoint of their own at all (see :meth:`state_path`).
+    STATE_BLOB = ""
+
     def persist(self) -> None:
-        """Checkpoint this page's own list, whole — the pattern every list here uses."""
-        from ...profile import _write_json
-        path = self.state_path()
-        if not path:
+        """Checkpoint this page's own list, whole — into the database, not a file."""
+        if not self.STATE_BLOB:
             return
         try:
-            _write_json(path, [{k: row.get(k) for k in self.PERSIST_KEYS}
-                               for row in self._rows.values()])
+            self.tab.rt.store.blob_set(
+                self.STATE_BLOB,
+                [{k: row.get(k) for k in self.PERSIST_KEYS}
+                 for row in self._rows.values()])
         except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
             pass
 
@@ -286,7 +290,7 @@ class WorldGrid(grid.TaskGrid):
                     "expires_at", "completed_at", "until_key")
 
     def state_path(self) -> str:
-        """Where this page's own list is checkpointed, or "" for «it already is».
+        """Where this page's OLD JSON checkpoint used to live, for the one-time import.
 
         EMPTY FOR THREE OF THE FOUR PAGES, and that is the point. The mine, truck and
         train lists come out of the capture's own checkpoint, which is written every
@@ -298,15 +302,24 @@ class WorldGrid(grid.TaskGrid):
         return ""
 
     def restore(self) -> None:
-        """Read the page's own list back — what the last session had gathered."""
-        path = self.state_path()
-        if not path:
+        """Read the page's own list back — what the last session had gathered.
+
+        Out of `panel.db`'s `blobs` table now, not a file (#1465). The first restore on
+        a profile whose database has never seen this blob brings the old JSON checkpoint
+        across, once (`store.blob_import_once`) — a page with no `STATE_BLOB` has
+        nothing to restore, same as before.
+        """
+        if not self.STATE_BLOB:
             return
-        try:
-            with open(path, encoding="utf-8") as fh:
-                records = json.load(fh)
-        except (OSError, ValueError):
-            return
+        from ...runtime.store import blob_import_once
+
+        store = self.tab.rt.store
+        records = store.blob_get(self.STATE_BLOB)
+        if records is None:
+            path = self.state_path()
+            if path:
+                blob_import_once(store, self.STATE_BLOB, path)
+                records = store.blob_get(self.STATE_BLOB)
         if not isinstance(records, list):
             return
         cutoff = time.time() - SIGHTING_TTL_SEC
@@ -462,14 +475,15 @@ class MonsterGrid(WorldGrid):
     PERSIST_KEYS = WorldGrid.PERSIST_KEYS + ("monster_type", "kind_name",
                                              "cfg_id", "source", "point_id")
 
-    def state_path(self) -> str:
-        """THE ONE PAGE THAT KEEPS ITS OWN LIST — nothing else on disk holds it.
+    #: THE ONE PAGE THAT KEEPS ITS OWN LIST — nothing else remembers it. The other three
+    #: are re-read from the capture's checkpoint; a monster read leaves nothing behind
+    #: it, so without this the page would be empty every time the panel started and
+    #: would stay empty until somebody pressed «Обновить» beside a map with monsters
+    #: on it.
+    STATE_BLOB = "world_state_monsters"
 
-        The other three are re-read from the capture's checkpoint; a monster read leaves
-        no file behind it, so without this the page would be empty every time the panel
-        started and would stay empty until somebody pressed «Обновить» beside a map with
-        monsters on it.
-        """
+    def state_path(self) -> str:
+        """Where this page's OLD JSON checkpoint used to live, for the one-time import."""
         return self.tab.rt.profiles.world_state_json(self.CONFIG_KEY)
 
     def decorate(self, row, record) -> None:

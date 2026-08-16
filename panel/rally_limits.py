@@ -5,18 +5,22 @@ Some rallies are worth a squad and some are not, and a squad spent is a squad th
 cannot go elsewhere for the march's length — so this puts a **daily cap per monster
 type** in front of it: join at most N of that type today, and 0 means "no cap".
 
-Two small files, both per profile, both plain JSON — the same shape and spirit as the
-timers/triggers catalogues:
+Two small stores, both per profile, and only one of them a file (#1465):
 
   * ``rally_limits.json`` — ``{monster_type_key: max_count}``. ``0`` = unlimited. Seeded
     from :data:`DEFAULT_RALLY_LIMITS` on first run, and edited from the «Авторалли»
-    settings page. The keys are the vocabulary of monster types the caps apply to.
-  * ``rally_counts.json`` — ``{"date": "2026-07-30", "day_end_ms": …, "counts": {key: n}}``.
-    How many of each type were joined *today*; it resets itself the first time it is read
-    on a new day, so a cap is a per-day budget, not a running total. **The day is the
-    SERVER's** (#1317): `day_end_ms` is the client's own `GetTomorrowZero()`, written by
-    whoever last recorded a join, and the roll prefers it over any date this machine can
-    work out for itself.
+    settings page. **Stays a file** — a person edits it by hand, and «copy the folder and
+    your panel comes with you» has to keep meaning something.
+  * `rally_counts` — how many of each type were joined *today*; it resets itself the
+    first time it is read on a new day, so a cap is a per-day budget, not a running
+    total. **The day is the SERVER's** (#1317): `day_end_ms` is the client's own
+    `GetTomorrowZero()`, written by whoever last recorded a join, and the roll prefers it
+    over any date this machine can work out for itself. This one IS game data — a count,
+    not a setting — so it lives in this profile's `panel.db` (`panel/runtime/store.py`,
+    the `blobs` table under the name `rally_counts`), not `rally_counts.json` any more.
+    `load_counts`/`save_counts` still take a bare path and are kept for the pre-#1465
+    file shape and for tests; every call site in the panel goes through
+    :func:`load_counts_from_store` / :func:`save_counts_to_store` instead.
 
 Nothing here imports Tk or the game or picks the day for itself in a way a test cannot
 control: :meth:`RallyCounts.allowed` / :meth:`RallyCounts.record` take the day as an
@@ -400,3 +404,38 @@ def save_counts(counts: RallyCounts, path: str | None = None) -> None:
     _write_json(path or counts.path,
                 {"v": FILE_VERSION, "date": counts.date,
                  "day_end_ms": counts.day_end_ms, "counts": dict(counts.counts)})
+
+
+#: The name this store's row lives under in `panel.db`'s `blobs` table.
+COUNTS_BLOB = "rally_counts"
+
+
+def load_counts_from_store(store, path: str, today: str | None = None) -> RallyCounts:
+    """Read today's counts out of `panel.db`, importing `path` the first time.
+
+    `path` is only ever touched here to bring an older profile's `rally_counts.json`
+    across, once (`panel.runtime.store.blob_import_once`); every read after that is the
+    database. `store` is `rt.store` — always the CALLING profile's, never a module-level
+    one (`CLAUDE.md`: a profile is a whole panel of its own).
+    """
+    from .runtime.store import blob_import_once
+    today = today or _today()
+    data = store.blob_get(COUNTS_BLOB)
+    if data is None:
+        blob_import_once(store, COUNTS_BLOB, path)
+        data = store.blob_get(COUNTS_BLOB)
+    if not isinstance(data, dict):
+        return RallyCounts(today, {}, path)
+    raw = data.get("counts") if isinstance(data.get("counts"), dict) else {}
+    kept = {str(k): v for k, v in raw.items()}
+    counts = RallyCounts(str(data.get("date") or today),
+                         kept if data.get("v") else migrate_kinds(kept, tally=True),
+                         path, data.get("day_end_ms"))
+    return counts.rolled(today)
+
+
+def save_counts_to_store(store, counts: RallyCounts) -> None:
+    """Checkpoint `counts` into `panel.db`. Async — see `Store.blob_set`."""
+    store.blob_set(COUNTS_BLOB,
+                   {"v": FILE_VERSION, "date": counts.date,
+                    "day_end_ms": counts.day_end_ms, "counts": dict(counts.counts)})

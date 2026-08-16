@@ -416,18 +416,21 @@ class GhostMapGrid(_GhostGrid):
         row["loot_count"] = record.get("loot_count")
 
 
+    #: This list's row in `panel.db`'s `blobs` table (`panel/runtime/store.py`, #1465).
+    STATE_BLOB = "ghost_map_state"
+
     # -- surviving a restart ----------------------------------------------------------
     def persist(self) -> None:            # noqa: D102 — overrides the no-op above
-        """Checkpoint this page's own list, whole — the same pattern the ★ list uses."""
-        from ...profile import _write_json
+        """Checkpoint this page's own list, whole — into the database, not a file."""
         try:
-            _write_json(self.tab.rt.profiles.ghost_map_state_json(),
-                        [{k: row.get(k) for k in
-                          ("uuid", "server", "owner_server", "target_server", "x", "y",
-                           "cfg_id", "level", "starred", "colour", "loot_max",
-                           "loot_count", "completed_at", "expires_at", "owner_uid",
-                           "alliance_id", "members", "seen_at", "ready")}
-                         for row in self._rows.values()])
+            self.tab.rt.store.blob_set(
+                self.STATE_BLOB,
+                [{k: row.get(k) for k in
+                  ("uuid", "server", "owner_server", "target_server", "x", "y",
+                   "cfg_id", "level", "starred", "colour", "loot_max",
+                   "loot_count", "completed_at", "expires_at", "owner_uid",
+                   "alliance_id", "members", "seen_at", "ready")}
+                 for row in self._rows.values()])
         except Exception:                     # noqa: BLE001 — a checkpoint, never the tab
             pass
 
@@ -435,17 +438,19 @@ class GhostMapGrid(_GhostGrid):
         """Read the page's own list back — what the last session had gathered.
 
         A row already past its own expiry is dropped here rather than drawn and then
-        dropped a second later, exactly as the ★ list does it.
+        dropped a second later, exactly as the ★ list does it. The first restore on a
+        profile whose database has never seen this blob brings its old
+        `ghost_map_state.json` across, once (`store.blob_import_once`).
         """
-        import json
-
         import game_clock
-        try:
-            with open(self.tab.rt.profiles.ghost_map_state_json(),
-                      encoding="utf-8") as fh:
-                records = json.load(fh)
-        except (OSError, ValueError):
-            return
+        from ...runtime.store import blob_import_once
+
+        store = self.tab.rt.store
+        records = store.blob_get(self.STATE_BLOB)
+        if records is None:
+            blob_import_once(store, self.STATE_BLOB,
+                             self.tab.rt.profiles.ghost_map_state_json())
+            records = store.blob_get(self.STATE_BLOB)
         if not isinstance(records, list):
             return
         now = game_clock.now_ms()

@@ -588,6 +588,70 @@ The whole inventory — what leaked, what is shared deliberately, and what was m
 is [`docs/research/profile-isolation.md`](docs/research/profile-isolation.md), and
 `tests/test_profile_isolation.py` fails when one of them comes back.
 
+## Game data lives only in the database
+
+**This rule is binding on every agent working in this repository — dispatcher, worker,
+or one-off session. No exceptions.** Anything the game told the panel — a tile, a task,
+a squad, a tally, a history of what happened — is a row in a database, never a JSON file
+somebody wrote by hand or a scenario left behind. `panel/runtime/store.py` is the one
+door for a profile's own data (`panel.db`, `rt.store`); a store opened by something
+outside a profile — a standalone collector, a report tool — keeps its own database with
+the same discipline, not a plain file either.
+
+**A new kind of game data gets a table with a migration, not a file.** Either a
+dedicated table, the way `players` earned its own columns and indexes because a lap of
+the map sorts and searches it by name, alliance, level, power — or, when the store is
+read and written WHOLE and never queried by a `WHERE` clause, a named row in the shared
+`blobs` table (`store.blob_get`/`store.blob_set`), the way the ★ tile list
+(`secret_tasks_state`), the ghost map's own list (`ghost_map_state`), a world page's own
+list (`world_state_monsters`), the daily rally counts (`rally_counts`) and the daily
+resource tally (`resource_stats`) do since #1465. Either way the schema is a HISTORY —
+append a migration, never edit one that has
+shipped — and an OLD file a profile still has is brought across exactly once
+(`panel.runtime.store.blob_import_once` / `import_once`) and kept beside the database as
+`<name>.imported`, never deleted: an import that turns out to have misread a field is
+answered by opening the file, and a delete is answered by nothing.
+
+**What counts as game data:** a tile, a task, a squad, a tally, a count, a history of
+findings — anything the SERVER said or the panel derived from what it said. **What does
+not, and stays a file a person can open and hand-edit:** a setting
+(`config.json`, `rally_limits.json`, the timer and trigger catalogues), a log
+(`panel.log`, `debug.log*`, an append-only `.jsonl` that was never rewritten whole and
+so never had the cost a database exists to remove), session bookkeeping
+(`panel.lock`, `panel_alive.json`, `children-<pid>.json`, and `timers_last_run.json` —
+the panel's own record of when ITS OWN schedule last fired, not a fact the server told
+it), or a CAPTURE CHECKPOINT — a channel between the panel and a child process it
+spawned, rewritten whole every tick and worth nothing after a restart on purpose
+(`secret_tasks.json`, `ghost_recon_tiles.json`, `world_treasures.json`,
+`world_map.json`). Moving one of those into the database would not be progress; it would
+make durable the one thing that must not be, and hide a stale reading behind the same
+trust a database's other rows have earned. `day_reset.json` is the same shape by a
+different route: one game reading (`GetTomorrowZero()`), re-askable in under a second
+and asked at most four times a day, kept only so a fresh panel does not have to ask
+before it can decide anything — nothing accumulates in it and nothing is lost by asking
+again.
+
+**Every store is per PROFILE, never per machine — with one named exception.**
+`panel.db` lives in the profile's own directory, exactly like every other per-account
+file this document already governs (`profiles/<name>/…`, «A profile is a whole panel of
+its own» above). The one thing genuinely shared is `cache/servers.json` — the list of
+warzones the game itself has, identical for every profile on the computer
+(`tools/lib/server_list.py`) — and it stays what it always was: a file, not a table,
+because it is refreshed by a person's press rather than rewritten on a tick, so the cost
+`panel.db` exists to remove was never its either. A new machine-wide store is the same
+conversation as any other exception below — asked, agreed, written down here.
+
+**Nothing here is a licence to invent new tables for their own sake.** A store still
+gets to decide it does not need one — a checkpoint, a log, a setting stays exactly what
+it is. The rule is about where GAME DATA that is meant to survive a restart and be read
+back whole may live, not a demand that every file in `profiles/<name>/` become SQL.
+
+The audit that found #1465's gap, what moved and what did not (and why), is
+[`docs/panel-storage.md`](docs/panel-storage.md) — read it, and its Russian mirror
+[`docs/panel-storage.ru.md`](docs/panel-storage.ru.md), before deciding where a new
+store belongs. Both are kept in step with the code in the same commit that changes it,
+the same rule every other doc in this file already follows.
+
 ## Feature list upkeep
 
 **This rule is binding on every agent working in this repository — dispatcher,

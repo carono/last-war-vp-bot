@@ -170,12 +170,14 @@ class _Game:
 
 
 class _Rt:
-    """Just enough runtime for the gate: a profile's two files, and a game to read."""
+    """Just enough runtime for the gate: a profile's files, its database, a game."""
 
     def __init__(self, tmp: Path, types_out, limits=None):
         self.profiles = _Profiles(tmp)
         self.game = _Game(types_out)
         self.said: list = []
+        from panel.runtime.store import Store
+        self.store = Store(str(tmp / "panel.db"))
         if limits is not None:
             rl.save_limits(limits, self.profiles.rally_limits_json())
 
@@ -227,12 +229,12 @@ def test_the_tally_is_kept_per_kind_and_reads_nothing_back():
         rt = _Rt(Path(td), ["monster"],
                  limits=rl.RallyLimits({"monster": 20, "zombie_invasion": 0}))
         gate.record_joins(rt, ["zombie_invasion", "monster", "zombie_invasion"], 3)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("monster") == 1, counts
         assert counts.count_for("zombie_invasion") == 2, counts
         # only what the game confirmed is counted, from the front of the list
         gate.record_joins(rt, ["monster", "monster", "monster"], 1)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("monster") == 2, counts
 
 
@@ -526,7 +528,7 @@ def test_the_budget_holds_at_its_edge_and_only_for_the_kind_it_belongs_to():
         limits, _counts = gate.read(rt)
 
         gate.record_joins(rt, ["general_trial_elite"] * 19, 19)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.left_for("general_trial_elite", limits) == 1
         assert counts.allowed("general_trial_elite", limits) is True
         left = dict(part.split(":") for part in gate.kind_left(rt).split(",") if part)
@@ -538,7 +540,7 @@ def test_the_budget_holds_at_its_edge_and_only_for_the_kind_it_belongs_to():
 
         # …the twentieth is the last one allowed, and after it the door is shut
         gate.record_joins(rt, ["general_trial_elite"], 1)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("general_trial_elite") == 20
         assert counts.left_for("general_trial_elite", limits) == 0
         assert counts.allowed("general_trial_elite", limits) is False
@@ -551,7 +553,7 @@ def test_the_budget_holds_at_its_edge_and_only_for_the_kind_it_belongs_to():
         # …and a twenty-first that got past the press anyway is not swallowed: the number
         # is `0` rather than `-1`, and the panel SAYS the door did not hold (#1322).
         gate.record_joins(rt, ["general_trial_elite"], 1)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("general_trial_elite") == 21
         assert counts.left_for("general_trial_elite", limits) == 0, \
             "an overspent kind must never hand the press a negative budget"
@@ -583,7 +585,7 @@ def test_the_budget_travels_on_the_run_that_changes_kind():
         assert left["general_trial_elite"] == "0" and left["doom_elite"] == "2", left
 
         # …and the day rolls both of them back together, on the SERVER's boundary
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.rolled(today="2026-08-13").count_for("general_trial_elite") == 0
 
 
@@ -640,17 +642,17 @@ def test_the_tally_never_counts_more_than_the_run_sent():
         rt = _Rt(Path(td), ["monster"])
         # One banner sent to, three joins seen: only the one this run sent is counted.
         gate.record_joins(rt, ["doom_elite"], 3)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("doom_elite") == 1, counts
         # A run that sent NOTHING records nothing, whatever difference it saw — that
         # was the actual leak: the second driver reported a join the first one had sent.
         gate.record_joins(rt, [], 2)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("doom_elite") == 1 and counts.count_for("monster") == 0, counts
 
         # …and a run that sent two and saw two counts both.
         gate.record_joins(rt, ["monster", "monster"], 2)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("monster") == 2, counts
 
 
@@ -773,7 +775,7 @@ def test_doom_elite_is_a_key_of_its_own_with_its_own_budget():
         limits = rl.load_limits(rt.profiles.rally_limits_json())
         assert "doom_elite" in limits.types(), limits.types()
         gate.record_joins(rt, ["doom_elite", "monster", "doom_elite"], 3)
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("doom_elite") == 2, counts
         assert counts.count_for("monster") == 1, counts
 
@@ -797,20 +799,20 @@ def test_one_rule_counts_a_run_whichever_driver_played_it():
         rt = _Rt(Path(td), ["monster"])
         # …one entry per squad the run sent, in the order it sent them
         assert gate.record_run(rt, _Ctx(kinds="doom_elite,monster", joined=2)) == 2
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("doom_elite") == 1, counts
         assert counts.count_for("monster") == 1, counts
 
         # NEVER MORE THAN THIS RUN SENT. `joined` is a difference, so a squad the OTHER
         # driver sent that lands mid-run falls inside both runs' differences.
         assert gate.record_run(rt, _Ctx(kinds="monster", joined=3)) == 1
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("monster") == 2, counts
 
         # …and a run that sent nothing writes nothing, whatever it saw.
         assert gate.record_run(rt, _Ctx(kinds="", joined=1)) == 0
         assert gate.record_run(rt, _Ctx(kinds="monster", joined=0)) == 0
-        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        counts = rl.load_counts_from_store(rt.store, rt.profiles.rally_counts_json())
         assert counts.count_for("monster") == 2, counts
 
         # A run whose variables never arrived is a run that did nothing, not a crash.

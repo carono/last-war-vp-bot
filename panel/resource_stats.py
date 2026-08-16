@@ -6,7 +6,10 @@ this to write down what went UP. Only increases are counted: a spend lowers the
 balance and is ignored, so the tally answers "how much did I take in today", not
 "what is my balance".
 
-One file per profile, ``resource_stats.json``, a day-keyed running total::
+A day-keyed running total, kept in `panel.db`'s `blobs` table since #1465 (it used to
+be one file per profile, ``resource_stats.json`` — a WHOLE-file rewrite on every gain,
+exactly the cost `panel.db` exists to remove, since a resource push can arrive several
+times a minute)::
 
     {
       "2026-07-30": {"food": 12000, "wood": 5000, "metal": 3000, "oil": 800, "gold": 150},
@@ -23,7 +26,9 @@ shows nothing.
 
 Nothing here reads the game or picks the day in a way a test cannot control:
 :meth:`ResourceStats.add` takes the day as an argument (defaulting to today), so the
-roll-over is a plain function.
+roll-over is a plain function. ``load_stats``/``save_stats`` still take a bare path and
+are kept for the pre-#1465 file shape and for tests; every call site in the panel goes
+through :func:`load_stats_from_store` / :func:`save_stats_to_store` instead.
 """
 from __future__ import annotations
 
@@ -139,3 +144,22 @@ def load_stats(path: str) -> ResourceStats:
 
 def save_stats(stats: ResourceStats, path: str | None = None) -> None:
     _write_json(path or stats.path, stats.as_dict())
+
+
+#: The name this store's row lives under in `panel.db`'s `blobs` table.
+STATS_BLOB = "resource_stats"
+
+
+def load_stats_from_store(store, path: str) -> ResourceStats:
+    """Read the tally out of `panel.db`, importing `path` the first time (#1465)."""
+    from .runtime.store import blob_import_once
+    data = store.blob_get(STATS_BLOB)
+    if data is None:
+        blob_import_once(store, STATS_BLOB, path)
+        data = store.blob_get(STATS_BLOB)
+    return ResourceStats(data if isinstance(data, dict) else {}, path)
+
+
+def save_stats_to_store(store, stats: ResourceStats) -> None:
+    """Checkpoint the tally into `panel.db`."""
+    store.blob_set(STATS_BLOB, stats.as_dict())

@@ -62,51 +62,59 @@ from typing import Iterable
 #: worst, so one lock for all of them costs nothing worth measuring.
 _WRITE_LOCK = threading.Lock()
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS entries (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts          INTEGER NOT NULL,
-    board_type  TEXT    NOT NULL,
-    rank        INTEGER,
-    uid         INTEGER,
-    name        TEXT,
-    score       INTEGER,
-    raw_json    TEXT,
-    day         INTEGER,
-    side        TEXT,
-    scope       TEXT,
-    alliance    TEXT,
-    alliance_id TEXT,
-    server_id   INTEGER,
-    source      TEXT,
-    payload_json TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_entries_board ON entries(board_type, ts);
-CREATE INDEX IF NOT EXISTS ix_entries_uid   ON entries(uid);
-
-CREATE TABLE IF NOT EXISTS sightings (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts          INTEGER NOT NULL,
-    command     TEXT    NOT NULL,
-    source      TEXT,
-    verdict     TEXT    NOT NULL,
-    reason      TEXT,
-    rows_seen   INTEGER,
-    rows_kept   INTEGER,
-    shape_json  TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_sightings_cmd ON sightings(command, ts);
-"""
-
-#: The columns added after #1134's original seven. A store written by the older code has
-#: the table without them, and `ALTER TABLE ADD COLUMN` is the whole migration: SQLite
-#: fills the existing rows with NULL, which is the honest answer for a row recorded
-#: before anybody was writing down its day or its side. Nothing is rewritten and nothing
-#: is dropped — an old history goes on being readable, one column poorer.
-_ADDED_COLUMNS = (
-    ("day", "INTEGER"), ("side", "TEXT"), ("scope", "TEXT"), ("alliance", "TEXT"),
-    ("alliance_id", "TEXT"), ("server_id", "INTEGER"), ("source", "TEXT"),
-    ("payload_json", "TEXT"),
+#: The schema's whole history, in order — the same discipline `panel/runtime/store.py`
+#: holds `players` to (#1465): each entry is a sequence of statements taking the
+#: database from the version before it to this one, tracked in `PRAGMA user_version`.
+#: **Append only.** This module keeps its own connection rather than going through
+#: `panel.runtime.store.Store`: it is opened by a standalone collector
+#: (`tools/scan_leaderboard.py`) and by report tools that have no panel profile to ask
+#: for one, so only the DISCIPLINE travels here, not the class.
+MIGRATIONS: tuple = (
+    # -- v1: #1134's original seven-ish columns --------------------------------------
+    (
+        """CREATE TABLE entries (
+               id          INTEGER PRIMARY KEY AUTOINCREMENT,
+               ts          INTEGER NOT NULL,
+               board_type  TEXT    NOT NULL,
+               rank        INTEGER,
+               uid         INTEGER,
+               name        TEXT,
+               score       INTEGER,
+               raw_json    TEXT
+           )""",
+        "CREATE INDEX ix_entries_board ON entries(board_type, ts)",
+        "CREATE INDEX ix_entries_uid   ON entries(uid)",
+        """CREATE TABLE sightings (
+               id          INTEGER PRIMARY KEY AUTOINCREMENT,
+               ts          INTEGER NOT NULL,
+               command     TEXT    NOT NULL,
+               source      TEXT,
+               verdict     TEXT    NOT NULL,
+               reason      TEXT,
+               rows_seen   INTEGER,
+               rows_kept   INTEGER,
+               shape_json  TEXT
+           )""",
+        "CREATE INDEX ix_sightings_cmd ON sightings(command, ts)",
+    ),
+    # -- v2: #1304's eight extra columns on `entries` --------------------------------
+    #
+    # `ALTER TABLE ADD COLUMN` rather than a rebuild: SQLite fills the existing rows
+    # with NULL, which is the honest answer for a row recorded before anybody was
+    # writing down its day or its side. Nothing is rewritten and nothing is dropped —
+    # an old history goes on being readable, one column poorer. The index is added
+    # AFTER the columns it names, in the same version, never before.
+    (
+        "ALTER TABLE entries ADD COLUMN day INTEGER",
+        "ALTER TABLE entries ADD COLUMN side TEXT",
+        "ALTER TABLE entries ADD COLUMN scope TEXT",
+        "ALTER TABLE entries ADD COLUMN alliance TEXT",
+        "ALTER TABLE entries ADD COLUMN alliance_id TEXT",
+        "ALTER TABLE entries ADD COLUMN server_id INTEGER",
+        "ALTER TABLE entries ADD COLUMN source TEXT",
+        "ALTER TABLE entries ADD COLUMN payload_json TEXT",
+        "CREATE INDEX ix_entries_day ON entries(board_type, day)",
+    ),
 )
 
 #: What `save_sighting` may be told about a message that crossed the collector.
@@ -117,22 +125,39 @@ VERDICT_EMPTY = "empty"
 VERDICT_REJECTED = "rejected"
 
 
-def connect(path: str) -> sqlite3.Connection:
-    """Open (creating) the store at ``path`` with the schema applied.
+def _migrate(conn: sqlite3.Connection, migrations: tuple = MIGRATIONS) -> None:
+    """Bring `conn` from whatever `PRAGMA user_version` it is at up to `len(migrations)`.
 
-    Also brings an OLDER store up to the current schema — see :data:`_ADDED_COLUMNS`.
+    A file written by the code before this rule never touched `user_version` and reads
+    as 0 like a brand new file — running v1's `CREATE TABLE entries(...)` on it would
+    fail on the table already being there. So a version-0 database with `entries`
+    already in it is ADOPTED rather than replayed: it is marked v1, or v2 when the
+    #1304 columns are already on it (the old code added all eight together, in one
+    `connect()` call, so their presence is all-or-nothing) — exactly the shape #1465
+    found it in.
     """
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.executescript(_SCHEMA)
-    have = {row[1] for row in conn.execute("PRAGMA table_info(entries)")}
-    for column, kind in _ADDED_COLUMNS:
-        if column not in have:
-            conn.execute(f"ALTER TABLE entries ADD COLUMN {column} {kind}")
-    # After the columns exist, never in the script above: on a store written by the
-    # older code the index would be created over a column that is not there yet, and
-    # the whole `connect` would fail on a file that is merely old.
-    conn.execute("CREATE INDEX IF NOT EXISTS ix_entries_day ON entries(board_type, day)")
+    have = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if have > len(migrations):
+        raise RuntimeError(
+            f"leaderboard history at schema {have}, this code only knows "
+            f"{len(migrations)} — update before opening this store.")
+    if have == 0 and conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='entries'"
+            ).fetchone() is not None:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(entries)")}
+        have = 2 if "day" in cols else 1
+        conn.execute(f"PRAGMA user_version = {have}")
+    for version, statements in enumerate(migrations[have:], start=have + 1):
+        for stmt in statements:
+            conn.execute(stmt)
+        conn.execute(f"PRAGMA user_version = {version}")
     conn.commit()
+
+
+def connect(path: str) -> sqlite3.Connection:
+    """Open (creating) the store at ``path`` with the schema applied, up to date."""
+    conn = sqlite3.connect(path, check_same_thread=False)
+    _migrate(conn)
     return conn
 
 

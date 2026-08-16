@@ -697,11 +697,19 @@ def _state_path() -> str:
 
 
 def _fake_rt(path: str):
-    """`rt.profiles.secret_tasks_state_json()` and `rt.root` — the only two things
-    `_persist_rows`/`_load_persisted`/`_merge` ask of the runtime; `root` is never
-    inspected once `tk_stringvar` is patched to `_Var` above, only passed through."""
+    """`rt.profiles.secret_tasks_state_json()`, `rt.store` and `rt.root` — the three
+    things `_persist_rows`/`_load_persisted`/`_merge` ask of the runtime; `root` is
+    never inspected once `tk_stringvar` is patched to `_Var` above, only passed
+    through. `store` is a REAL `Store` beside the checkpoint file (#1465) — a fresh
+    `Store` object each call, same file, exactly what a restart hands a tab: the
+    database on disk is what survives, not the Python object that opened it."""
+    import os
     import types
-    return types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+
+    from panel.runtime.store import Store
+    db_path = os.path.join(os.path.dirname(path), "panel.db")
+    return types.SimpleNamespace(profiles=_FakeProfiles(path), root=None,
+                                 store=Store(db_path))
 
 
 def test_persist_writes_a_checkpoint_load_persisted_reads_it_back():
@@ -918,7 +926,7 @@ def test_a_restored_row_is_the_captures_until_the_checkpoint_says_otherwise():
     with open(path, "w", encoding="utf-8") as fh:
         _json.dump([rec], fh)                        # …no «source» at all
     tab = _make_tab({})
-    tab.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+    tab.rt = _fake_rt(path)
 
     tab._load_persisted()
 
@@ -1584,12 +1592,11 @@ def test_the_robbed_mark_survives_a_restart():
     server has already refused us once."""
     path = _state_path()
     tab = _robbed_tab()
-    import types
-    tab.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+    tab.rt = _fake_rt(path)
     tab._persist_rows()
 
     back = _make_tab({})
-    back.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+    back.rt = _fake_rt(path)
     back._load_persisted()
 
     assert back._rows["9"]["robbed"] is True
@@ -4154,9 +4161,8 @@ def test_a_checkpoint_row_with_no_finish_time_is_not_restored():
     bad = dict(good, uuid=1, completed_at=None)
     with open(path, "w", encoding="utf-8") as fh:
         _json.dump([bad, good], fh)
-    import types
     tab = _make_tab({})
-    tab.rt = types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+    tab.rt = _fake_rt(path)
 
     restored = tab._load_persisted()
 

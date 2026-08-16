@@ -78,6 +78,7 @@ every fifteen seconds, and worth nothing after a restart.
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import sqlite3
@@ -253,6 +254,29 @@ MIGRATIONS: tuple = (
         "CREATE INDEX ix_players_server    ON players(server_id)",
         "CREATE INDEX ix_players_level     ON players(level)",
         "CREATE INDEX ix_players_power     ON players(power)",
+    ),
+    # -- v4: the shared home for a whole-list checkpoint (#1465) ---------------------
+    #
+    # Every list here (`panel/kept.py`'s ★ tiles, the ghost map's own list, a world
+    # page's own list, the rally day-counters) is read and written WHOLE — never a row
+    # at a time, never queried by a WHERE clause — which is exactly what `players` was
+    # NOT: that table earned its own columns and indexes because a lap of the map reads
+    # and sorts it by name, alliance, level, power. Nothing here is sorted or searched
+    # inside the database; the table is a place for the same whole-blob write the panel
+    # already did to a file, done through `store.write()`'s transaction instead of a
+    # tmp-file rename — same cost, same shape, and now inside the ONE place every other
+    # piece of this profile's state already lives.
+    #
+    # One table, not one per list: a NEW list-shaped store (the next ★-style page this
+    # bot grows) is a new `name` in this table, not a new migration — the same way a
+    # new PLAYER is a new row in `players`, not a new migration. `docs/panel-storage.md`
+    # says which names are in use and what each one holds.
+    (
+        """CREATE TABLE blobs (
+               name       TEXT PRIMARY KEY,
+               data       TEXT NOT NULL,
+               updated_at INTEGER NOT NULL
+           )""",
     ),
 )
 
@@ -516,6 +540,41 @@ class Store:
                          "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                          (str(key), str(value)))
 
+    # -- a whole-list checkpoint, kept as one row --------------------------------------
+    def blob_get(self, name: str):
+        """The named list/dict, decoded — or `None` when nothing has been saved yet.
+
+        Synchronous: every reader here loads once, at start or at restore, the way
+        `players.py` reads `players.json` before the writer thread exists.
+        """
+        row = self.read().execute("SELECT data FROM blobs WHERE name = ?",
+                                  (str(name),)).fetchone()
+        if row is None:
+            return None
+        try:
+            return json.loads(row["data"])
+        except ValueError:
+            return None
+
+    def blob_set(self, name: str, value) -> None:
+        """Checkpoint `value` (JSON-able) under `name`, replacing whatever was there.
+
+        Synchronous, like :meth:`meta_set` — one small `BEGIN IMMEDIATE … COMMIT`, the
+        same cost the tmp-file-then-rename it replaces always had. Every blob here is a
+        few rows to a few hundred, never the megabytes `players` was measured at
+        (`panel/runtime/store.py`'s own docstring), so there is nothing to batch: a
+        caller that returns from this call has its checkpoint on disk, exactly as it did
+        when this was a JSON file written on the same thread.
+        """
+        payload = json.dumps(value, ensure_ascii=False)
+        stamp = int(time.time())
+        with self.write() as conn:
+            conn.execute(
+                "INSERT INTO blobs(name, data, updated_at) VALUES(?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET data = excluded.data, "
+                "updated_at = excluded.updated_at",
+                (str(name), payload, stamp))
+
     # -- closing ----------------------------------------------------------------------
     def close(self) -> None:
         """Stop the writer and close every connection this store opened."""
@@ -586,3 +645,31 @@ def import_once(store: Store, mark: str, path: str, load, insert) -> int:
     except OSError:
         pass
     return count
+
+
+def blob_import_once(store: Store, name: str, path: str) -> bool:
+    """Move one whole-list checkpoint file into `blobs`, exactly once, keeping the file.
+
+    The shared way every ★-style list adopts the database: `panel/tabs/secret_tasks/
+    tab.py` (name `secret_tasks_state`), `.../ghost.py` (`ghost_map_state`), `.../
+    world.py` (`world_state_monsters`) and `panel/rally_limits.py` (`rally_counts`) all
+    call this once, at restore, before reading `store.blob_get(name)` — so a profile
+    opened by a NEWER panel for the first time carries its file across instead of
+    starting blank, and every later start finds the mark and does nothing.
+    """
+    def load(p):
+        try:
+            with open(p, encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return None
+
+    def insert(conn, value) -> int:
+        conn.execute(
+            "INSERT INTO blobs(name, data, updated_at) VALUES(?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET data = excluded.data, "
+            "updated_at = excluded.updated_at",
+            (str(name), json.dumps(value, ensure_ascii=False), int(time.time())))
+        return 1
+
+    return bool(import_once(store, f"blob:{name}", path, load, insert))

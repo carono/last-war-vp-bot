@@ -201,7 +201,8 @@ def monitor_precondition(rt):
 def read(rt):
     """This profile's caps and today's counts, as a pair."""
     return (rallylimitsmod.load_limits(rt.profiles.rally_limits_json()),
-            rallylimitsmod.load_counts(rt.profiles.rally_counts_json()))
+            rallylimitsmod.load_counts_from_store(
+                rt.store, rt.profiles.rally_counts_json()))
 
 
 def trophy_progress(rt) -> dict:
@@ -453,11 +454,11 @@ def record_joins(rt, kinds, did: int = 1) -> None:
     if did <= 0 or not kinds:
         return
     path = rt.profiles.rally_counts_json()
-    counts = rallylimitsmod.load_counts(path)
+    counts = rallylimitsmod.load_counts_from_store(rt.store, path)
     for key in kinds[:did]:
         counts = counts.record(key)
     counts = counts.with_day_end(day_end_ms(rt))
-    rallylimitsmod.save_counts(counts, path)
+    rallylimitsmod.save_counts_to_store(rt.store, counts)
     limits = rallylimitsmod.load_limits(rt.profiles.rally_limits_json())
     for key, spent, cap in over_budget(rt, counts, limits):
         if key not in kinds[:did]:
@@ -551,5 +552,5 @@ def record(rt, counts, type_key):
     re-reading the file per rally.
     """
     counts = counts.record(type_key)
-    rallylimitsmod.save_counts(counts, rt.profiles.rally_counts_json())
+    rallylimitsmod.save_counts_to_store(rt.store, counts)
     return counts

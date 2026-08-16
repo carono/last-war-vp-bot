@@ -335,6 +335,10 @@ class SecretTasksTab(PanelTab):
                             event="push.ghost.recon.alliance.single",
                             handler="refresh_ghost_allies"))
 
+    #: This tab's row in `panel.db`'s `blobs` table (`panel/runtime/store.py`, #1465) —
+    #: the rows, the robbed book and the dismissed book, checkpointed as one dict.
+    STATE_BLOB = "secret_tasks_state"
+
     ID = "secret_tasks"
     TITLE_KEY = "tab.secret_tasks"
     ORDER = 260
@@ -2917,11 +2921,12 @@ class SecretTasksTab(PanelTab):
         day's five on the server's «задание уже взято». The book outlives the row on
         purpose: it is what a later capture is checked against.
 
-        The file is a dict now; a list is the shape written before this and is still
-        read (see :meth:`_load_persisted`).
+        Checkpointed into `panel.db`'s `blobs` table now, under
+        :data:`STATE_BLOB`, not `secret_tasks_state.json` (#1465). The payload shape
+        (a dict; a bare list is the shape written before #1280 and is still read, see
+        :meth:`_load_persisted`) has not changed — only where it lands.
         """
-        from ...profile import _write_json
-        _write_json(self.rt.profiles.secret_tasks_state_json(), {
+        self.rt.store.blob_set(self.STATE_BLOB, {
             "robbed": self._robbed_book(),
             # …AND THE BOOK OF REMOVALS (#1416). It has to outlive the session for the
             # same reason the robbed one does: the capture's checkpoint survives a
@@ -3046,12 +3051,20 @@ class SecretTasksTab(PanelTab):
         Malformed or missing (no prior session, or one before #1242) reads as "nothing
         to restore" rather than raising — a checkpoint is a convenience, never a
         requirement the tab depends on to open.
+
+        Read out of `panel.db`'s `blobs` table now (#1465). A profile whose database has
+        never seen :data:`STATE_BLOB` brings its old `secret_tasks_state.json` across
+        first, once (`store.blob_import_once`) — after that the file plays no part.
         """
         import game_clock
-        try:
-            with open(self.rt.profiles.secret_tasks_state_json(), encoding="utf-8") as fh:
-                records = json.load(fh)
-        except (OSError, ValueError):
+        from ...runtime.store import blob_import_once
+
+        records = self.rt.store.blob_get(self.STATE_BLOB)
+        if records is None:
+            blob_import_once(self.rt.store, self.STATE_BLOB,
+                             self.rt.profiles.secret_tasks_state_json())
+            records = self.rt.store.blob_get(self.STATE_BLOB)
+        if records is None:
             return set()
         now = game_clock.now_ms()
         # TWO SHAPES, ONE MEANING (#1280). A dict carries the rows AND the book of what

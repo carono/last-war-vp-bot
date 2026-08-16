@@ -48,29 +48,36 @@ the bottom).
 
 ### What the tabs keep between runs
 
-**These are moving into `panel.db` one at a time (#1398)** — see «The profile's database»
-below for which, why, and what is deliberately staying a file. A row in this table is
-where the data lives *today*; the entry for `panel.db` says where it is going.
+**Every list-shaped store here now lives in `panel.db`, not a file (#1398, #1465).** A
+row below marked → `panel.db` moved; its old file is renamed `<name>.imported` the first
+time the new code opens that profile and kept beside the database for good, never
+deleted (see «The profile's database» below for the mechanics). What is left in this
+table is either a CAPTURE CHECKPOINT (a channel between two processes, rewritten whole
+every tick, deliberately worth nothing after a restart — moving it into the database
+would only make it durable, which is the one thing it must not be) or an append-only log
+(`.jsonl`), which was never the "whole file rewritten on every change" cost `panel.db`
+exists to remove in the first place.
 
 | File | What it is |
 |---|---|
-| `panel.db` | **THIS PROFILE'S DATABASE** (#1398, `panel/runtime/store.py`). One per profile, in the profile's own directory, reached through `rt.store` and opened nowhere else. Holds what the panel used to keep as whole-file JSON — the register of players first, then the ★ list, the counters and the tallies. Its schema is a HISTORY (`MIGRATIONS`, `PRAGMA user_version`), not a `CREATE TABLE` written wherever somebody needed one |
-| `secret_tasks.json` | what the secret-task scan currently sees on the map (rewritten every tick) |
-| `secret_tasks_state.json` | the «Секретки» tab's OWN list — the starred tiles it is showing, with their countdowns (#1242) |
-| `secret_tasks_log.jsonl` | append-log of secret-task findings |
-| `secret_shared.jsonl` | which secret tasks have already been shared with the alliance (#1245) |
-| `ghost_recon_tiles.json` | what the ghost-recon scan currently sees |
-| `ghost_map_state.json` | the «Призрак: карта» page's OWN list — what it has gathered and kept (#1251) |
-| `world_treasures.json` | what the treasure scan currently sees |
-| `world_map.json` | what the SECOND listener inside the secret-task capture currently sees off the same map responses (#1289, #1335) — mines, player trucks, alliance trains and now players. A live view: rewritten every tick, stale rows evicted, each kind capped |
-| `world_state_<page>.json` | each world PAGE's own gathered list, the way `ghost_map_state.json` is the ghost page's — one file per page («mines», «monsters», «trains», «trucks») |
+| `panel.db` | **THIS PROFILE'S DATABASE** (#1398, #1465, `panel/runtime/store.py`). One per profile, in the profile's own directory, reached through `rt.store` and opened nowhere else. Holds every whole-list checkpoint the panel keeps — the register of players (its own table, `players`, sorted and searched by), and everything below marked → `panel.db` (a named row in the shared `blobs` table — a new list-shaped store is a new `name`, not a new migration, the same way a new player is a new row and not a new migration). Its schema is a HISTORY (`MIGRATIONS`, `PRAGMA user_version`), not a `CREATE TABLE` written wherever somebody needed one |
+| `secret_tasks.json` | what the secret-task scan currently sees on the map (a capture checkpoint, rewritten every tick — stays a file, see above) |
+| `secret_tasks_state.json` → **`panel.db`** | the «Секретки» tab's OWN list — the starred tiles it is showing, with their countdowns, the book of what has been robbed and the book of what has been dismissed (#1242, #1280, #1416). **In the database since #1465**, under the name `secret_tasks_state` |
+| `secret_tasks_log.jsonl` | append-log of secret-task findings. Append-only, never rewritten whole — stays a file |
+| `secret_shared.jsonl` | which secret tasks have already been shared with the alliance (#1245). Append-only — stays a file |
+| `ghost_recon_tiles.json` | what the ghost-recon scan currently sees (a capture checkpoint — stays a file) |
+| `ghost_map_state.json` → **`panel.db`** | the «Призрак: карта» page's OWN list — what it has gathered and kept (#1251). **In the database since #1465**, under the name `ghost_map_state` |
+| `world_treasures.json` | what the treasure scan currently sees (a capture checkpoint — stays a file) |
+| `world_map.json` | what the SECOND listener inside the secret-task capture currently sees off the same map responses (#1289, #1335) — mines, player trucks, alliance trains and now players. A live view: rewritten every tick, stale rows evicted, each kind capped. A capture checkpoint — stays a file |
+| `world_state_monsters.json` → **`panel.db`** | the world «Monsters» page's own gathered list — the ONE of the four world pages that keeps one at all; mines, trains and trucks are re-read from `world_map.json` above and never had a file of their own. **In the database since #1465**, under the name `world_state_monsters` |
 | `players.json` → **`panel.db`** | the «Игроки» REGISTER — every player this account has met, kept for good (#1335, #1371). **In the database since #1398**; the file is imported once and then kept beside it as `players.json.imported`. Written through ONE entrance, `rt.players.sighted(records, source=…)` (`panel/runtime/players.py`), by everything that already sees a player: the map sweep's checkpoint, the live block of banners, the chat, the alliance roster and the owner of a tile. Every field carries `src[field] = [source, when]`, stamped when the VALUE changes and never on a mere re-confirmation — a lap re-lists four thousand unchanged players every twenty seconds. Not `world_map.json`: that one is what the capture can see right now, this one only ever grows and gives a row up for one reason, which is a person pressing «Забыть» (`panel/kept.py`, `PERSON_ASKED`). Holds what the map says (name, HQ level, alliance tag and name, coordinates, server, country), what a profile reply added if one ever arrived (power, army power, kills, SVIP), the note the GAME holds on that player, and the mark the PERSON wrote here — which no lap may touch |
-| `rally_log.jsonl` | rally-monitor output |
-| `rally_limits.json`, `rally_counts.json` | the per-KIND daily caps the auto-join obeys, and what the panel has counted today under each. Since #1317 the kinds are the game's own species (Doom Elite, Doom Walker, Zombie Boss, the General's Trial's two instructors, the Alliance Exercise, the Zombie Invasion) and the counts carry the client's own `day_end_ms`, so they reset on the SERVER's day. Both files carry a `v`, which is what tells a pre-rename `doom_elite` from the species of that name and whether a seed of ours that changed has been carried across (`v = 3`: the Wandering Mummy Warlord went back to the ordinary twenty, and a file still holding the old seed is moved once and rewritten). Every kind ships capped at 20 and the four Golden ones uncapped. **The total daily ceiling is NOT here** — it is one number in the tab's config block (`autorally.daily_max`), judged against the game's own count, and neither is the soldier floor (`autorally.min_soldiers`) |
-| `resource_stats.json` | day-keyed tally of resources gained |
-| `leaderboard_history.db` | accumulating snapshots of the ranking boards |
+| `rally_log.jsonl` | rally-monitor output. Append-only — stays a file |
+| `rally_limits.json` | the per-KIND daily caps the auto-join obeys — a SETTING a person edits from the «Авторалли» page, so it stays a file. Since #1317 the kinds are the game's own species (Doom Elite, Doom Walker, Zombie Boss, the General's Trial's two instructors, the Alliance Exercise, the Zombie Invasion). It carries a `v`, which is what tells a pre-rename `doom_elite` from the species of that name and whether a seed of ours that changed has been carried across (`v = 3`: the Wandering Mummy Warlord went back to the ordinary twenty, and a file still holding the old seed is moved once and rewritten). Every kind ships capped at 20 and the four Golden ones uncapped. **The total daily ceiling is NOT here** — it is one number in the tab's config block (`autorally.daily_max`), judged against the game's own count, and neither is the soldier floor (`autorally.min_soldiers`) |
+| `rally_counts.json` → **`panel.db`** | what the panel has counted today, per kind — a COUNTER, not a setting, so unlike its `rally_limits.json` neighbour it moved (#1465). The counts carry the client's own `day_end_ms`, so they reset on the SERVER's day. **In the database since #1465**, under the name `rally_counts` |
+| `resource_stats.json` → **`panel.db`** | day-keyed tally of resources gained. A push can arrive several times a minute, and the old file was rewritten whole on every one — the exact cost this migration exists to remove. **In the database since #1465**, under the name `resource_stats` |
+| `leaderboard_history.db` | accumulating snapshots of the ranking boards. Its own database, its own connection — not `panel.db`, because it is opened by a standalone collector (`tools/scan_leaderboard.py`) and by report tools that have no profile to ask for one. **Schema versioned the same way `players` is since #1465** (`tools/lib/leaderboard_store.py`'s own `MIGRATIONS`, `PRAGMA user_version`) — no more hand-added columns with no version behind them |
 | `chat_log.jsonl` | raw capture written by the chat reader |
-| `chat_history_<uid>.db` | the chat store the panel pages through — **one per character**, because one account can hold several and their chats must not mix |
+| `chat_history_<uid>.db` | the chat store the panel pages through — **one per character**, because one account can hold several and their chats must not mix. Its own database too, opened once per character on the Tk thread. **Schema versioned since #1465** (`panel/chat_history.py`'s own `MIGRATIONS`) |
 
 ### Schedule
 
@@ -170,10 +177,13 @@ of it into memory to filter and sort it in Python. None of that is a bug in
 
 | | |
 |---|---|
-| **In** — data | the register of players, the ★ tile list and the book of what has been robbed, the ghost and world page lists, the daily rally counts, the resource tally, the last-run clock, the day boundary |
+| **In** — data | the register of players (`players`, its own table), and, since #1465, in the shared `blobs` table: the ★ tile list with the book of what has been robbed and the book of what has been dismissed (`secret_tasks_state`), the ghost map's own list (`ghost_map_state`), the world monster page's own list (`world_state_monsters`), the daily rally counts (`rally_counts`) and the daily resource tally (`resource_stats`) |
 | **Out** — settings | `config.json`, `timers.json`, `triggers.json`, `timers_seen.json` and **`rally_limits.json`**. A person edits these by hand, and «copy the folder and your panel comes with you» has to keep meaning something |
 | **Out** — logs and session | `panel.log`, `debug.log*`, `autostart.log`, `panel.lock`, `panel_alive.json`, `autostart.json`, `children-<pid>.json` |
-| **Out** — a capture's checkpoint | `secret_tasks.json`, `ghost_recon_tiles.json`, `world_treasures.json`, `world_map.json`. A capture CHILD writes them and the panel reads them: they are a channel between two processes, rewritten whole every fifteen seconds, and worth nothing after a restart. The gathered half of each — what a page has kept — is a different thing and does go in |
+| **Out** — a capture's checkpoint | `secret_tasks.json`, `ghost_recon_tiles.json`, `world_treasures.json`, `world_map.json`. A capture CHILD writes them and the panel reads them: they are a channel between two processes, rewritten whole every fifteen seconds, and worth nothing after a restart — moving one into the database would make it durable, which is the one thing it must not be |
+| **Out** — append logs | `rally_log.jsonl`, `secret_tasks_log.jsonl`, `secret_shared.jsonl`. Never rewritten whole, so the cost `panel.db` exists to remove was never theirs; the JSON-file rewrite that motivated #1398 does not apply to them |
+| **Out** — schedule bookkeeping, not game data | `timers_last_run.json`. The SERVER told the panel nothing here — it is the panel's own record of when ITS OWN scheduled errands last fired, the same kind of fact as `panel_alive.json`/`autostart.json` above, not a tile or a tally |
+| **Out** — a single cheap-to-reread reading | `day_reset.json`. One timestamp (`GetTomorrowZero()`), re-askable of the game in under a second and asked at most four times a day — kept only so a fresh panel does not have to ask before it can decide anything. Nothing here accumulates and nothing is lost by asking again, which is exactly the property a capture checkpoint has and a database row does not need to buy |
 
 **The rally pair splits down that line and stays split**: `rally_limits.json` is a
 SETTING (the per-kind caps a person edits) and remains a file; `rally_counts.json` is a

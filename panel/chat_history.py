@@ -71,6 +71,69 @@ def dm_peer_uid(room: str, self_uid: str = "") -> str:
     return a
 
 
+#: The schema's whole history, in order, the same discipline `panel/runtime/store.py`
+#: holds `players` to (#1465): each entry is a sequence of statements that takes the
+#: database from the version before it to this one, and a database carries how far it
+#: has got in `PRAGMA user_version`. **Append only** — a migration that has shipped has
+#: run on somebody's live profile, and editing it would leave two databases both calling
+#: themselves version N with different columns in them. This module keeps its own
+#: connection and its own tiny runner (:func:`_migrate`) rather than going through
+#: `panel.runtime.store.Store`: a chat store is opened once per character on the Tk
+#: thread and read back a page at a time, never batched or shared across processes the
+#: way a profile's `panel.db` is, so the extra machinery buys nothing here — only the
+#: DISCIPLINE (a numbered history, not an `IF NOT EXISTS` edited in place) is shared.
+MIGRATIONS: tuple = (
+    (
+        """CREATE TABLE messages(
+               id        INTEGER PRIMARY KEY AUTOINCREMENT,
+               ts        REAL,
+               uid       TEXT,
+               name      TEXT,
+               text      TEXT,
+               room      TEXT,
+               chat_type TEXT,
+               raw_json  TEXT)""",
+        # Fast per-tab paging by time.
+        "CREATE INDEX idx_type_ts ON messages(chat_type, ts)",
+        # A message is parsed once per (room, uid, ts, text) — the identity the reader
+        # and the old JSONL loader dedupe on. A unique index makes the insert idempotent,
+        # so re-importing or a double-write cannot duplicate a row.
+        "CREATE UNIQUE INDEX idx_identity ON messages(room, uid, ts, text)",
+    ),
+)
+
+
+def _migrate(conn: sqlite3.Connection, migrations: tuple = MIGRATIONS) -> None:
+    """Bring `conn` from whatever `PRAGMA user_version` it is at up to `len(migrations)`.
+
+    A database ahead of this code (a newer panel's) is left untouched — the same refusal
+    `Store.connect` makes, for the same reason: running against a schema this code does
+    not know would silently ignore a column a newer version filled.
+
+    A file written by the code BEFORE this rule — `CREATE TABLE IF NOT EXISTS`, no
+    `PRAGMA user_version` ever set — reads as version 0 like a brand new file, and
+    running v1's `CREATE TABLE messages(...)` on it would fail on the table already
+    being there. So a version-0 database with `messages` already in it is ADOPTED: it is
+    marked version 1 without replaying the statement, exactly the shape #1465 found it
+    in. Every live `chat_history_<uid>.db` goes through this exactly once.
+    """
+    have = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if have > len(migrations):
+        raise RuntimeError(
+            f"chat history at schema {have}, this panel only knows {len(migrations)} — "
+            "update the panel before opening this profile's chat.")
+    if have == 0 and conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
+            ).fetchone() is not None:
+        conn.execute("PRAGMA user_version = 1")
+        have = 1
+    for version, statements in enumerate(migrations[have:], start=have + 1):
+        for stmt in statements:
+            conn.execute(stmt)
+        conn.execute(f"PRAGMA user_version = {version}")
+    conn.commit()
+
+
 class ChatHistoryStore:
     """A thin SQLite wrapper: append a record, read the newest page, page older."""
 
@@ -79,27 +142,7 @@ class ChatHistoryStore:
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         # check_same_thread=False is defensive; access is single-threaded in practice.
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.execute(
-            """CREATE TABLE IF NOT EXISTS messages(
-                   id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                   ts        REAL,
-                   uid       TEXT,
-                   name      TEXT,
-                   text      TEXT,
-                   room      TEXT,
-                   chat_type TEXT,
-                   raw_json  TEXT)"""
-        )
-        # Fast per-tab paging by time.
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_type_ts ON messages(chat_type, ts)")
-        # A message is parsed once per (room, uid, ts, text) — the identity the
-        # reader and the old JSONL loader dedupe on. A unique index makes the insert
-        # idempotent, so re-importing or a double-write cannot duplicate a row.
-        self._conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_identity "
-            "ON messages(room, uid, ts, text)")
-        self._conn.commit()
+        _migrate(self._conn)
         # Running total, so the panel can show "N messages" on every one-second
         # refresh without a COUNT(*) over the whole table each time. Filled on the
         # first read and kept up to date by the inserts below.

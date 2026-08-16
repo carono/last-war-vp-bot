@@ -58,7 +58,8 @@ class StatsTab(PanelTab):
 
     # -- data ---------------------------------------------------------------
     def _load(self) -> None:
-        self._stats = resourcestatsmod.load_stats(self.rt.profiles.resource_stats_json())
+        self._stats = resourcestatsmod.load_stats_from_store(
+            self.rt.store, self.rt.profiles.resource_stats_json())
 
     @property
     def stats(self):
@@ -99,10 +100,9 @@ class StatsTab(PanelTab):
         self._last = current
         if not gains:
             return
-        self._stats = (self._stats or resourcestatsmod.load_stats(
-            self.rt.profiles.resource_stats_json())).add(gains)
-        resourcestatsmod.save_stats(self._stats,
-                                    self.rt.profiles.resource_stats_json())
+        self._stats = (self._stats or resourcestatsmod.load_stats_from_store(
+            self.rt.store, self.rt.profiles.resource_stats_json())).add(gains)
+        resourcestatsmod.save_stats_to_store(self.rt.store, self._stats)
         self.say("trigger", "triggers.log.resource_gain",
                  what=", ".join(f"{k} +{v}" for k, v in gains.items()))
         self.post(self.redraw)

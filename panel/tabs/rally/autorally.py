@@ -347,7 +347,8 @@ class AutoRallyPage:
         """
         if not self._count_vars:
             return
-        counts = rallylimitsmod.load_counts(self.rt.profiles.rally_counts_json())
+        counts = rallylimitsmod.load_counts_from_store(
+            self.rt.store, self.rt.profiles.rally_counts_json())
         for key, var in self._count_vars.items():
             try:
                 var.set(str(counts.count_for(key)))
@@ -386,7 +387,8 @@ class AutoRallyPage:
 
     def counts_today(self) -> dict:
         """`{kind: joined today}` for whoever draws it — the phone included."""
-        counts = rallylimitsmod.load_counts(self.rt.profiles.rally_counts_json())
+        counts = rallylimitsmod.load_counts_from_store(
+            self.rt.store, self.rt.profiles.rally_counts_json())
         return {key: counts.count_for(key) for key in self.limit_keys()}
 
     def limit_keys(self) -> list:
