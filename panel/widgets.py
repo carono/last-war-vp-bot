@@ -92,6 +92,30 @@ def tk_stringvar(master):
     return tk.StringVar(master=master, value="")
 
 
+def var_mirror(var):
+    """A thread-safe reader for a Tk variable: ``read()`` -> its current value (#1416).
+
+    **A Tk variable may only be touched from the thread running the event loop.** Read
+    from anywhere else it raises `RuntimeError: main thread is not in main loop` whenever
+    that loop is not running — which is exactly the first moments after a start-up, and
+    exactly when the standing orders take their first look. Live, that read as
+    «rally_auto_join: ошибка — main thread is not in main loop» and «заход помощи не
+    удался: …» after every restart: the first tick of every session thrown away because a
+    checkbox could not be read.
+
+    So the value is MIRRORED. A `write` trace — which runs on the Tk thread wherever the
+    variable is set, be that the widget, the profile restore or the phone — keeps a plain
+    Python cell in step, and the returned reader hands that cell back. No lock: one
+    writer, and a stale read is one keystroke old at worst.
+
+    The seed value is taken here, which does mean this must be called from the Tk thread —
+    it is, because it is called where the variable is made.
+    """
+    cell = [var.get()]
+    var.trace_add("write", lambda *_a: cell.__setitem__(0, var.get()))
+    return lambda: cell[0]
+
+
 def font(size=None, weight=None, slant=None):
     """A font *tuple* derived from ``TkDefaultFont`` — usable as ``font=`` on any
     widget. Only the attributes given are overridden; the rest stay the default."""

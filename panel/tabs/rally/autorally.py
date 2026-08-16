@@ -54,6 +54,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ... import rally_limits as rallylimitsmod
+from ... import widgets
 from ...widgets import numeric_spinbox
 from . import limits as rallygate
 
@@ -117,6 +118,19 @@ class AutoRallyPage:
         # opened, and the reading beside it is what makes the number choosable (#1317).
         self._min_soldiers_var = tk.StringVar(master=master,
                                               value=str(MIN_SOLDIERS_DEFAULT))
+        # THE THREE THE SCHEDULE READS OFF A WORKER THREAD (#1416). `Schedule.args`
+        # builds `join_rally`'s arguments on the scheduler's own thread, and every one of
+        # these is a Tk variable: read from there while the event loop is not running it
+        # raises «main thread is not in main loop», which is the first fire after every
+        # start-up — «rally_auto_join: ошибка — main thread is not in main loop», once
+        # per restart, with the banner it was woken for gone by the time anybody looked.
+        # `var_mirror` keeps a plain cell in step from a trace that runs on the Tk thread;
+        # the widgets still bind the variables themselves.
+        self._read_squads = {s: widgets.var_mirror(v)
+                             for s, v in self._squad_vars.items()}
+        self._read_daily = widgets.var_mirror(self._daily_var)
+        self._read_min_soldiers = widgets.var_mirror(self._min_soldiers_var)
+        self._read_elite = widgets.var_mirror(self._create_elite_var)
         self._pool = None                      # soldiers in the base; None = never asked
         self._pool_var = tk.StringVar(master=master,
                                       value="%s / %s" % (DAILY_UNREAD, DAILY_UNREAD))
@@ -458,14 +472,14 @@ class AutoRallyPage:
     def create_elite_level(self) -> int:
         """The chosen elite level, clamped to the allowed range (bad input -> min)."""
         try:
-            level = int(self._create_elite_var.get())
+            level = int(self._read_elite())
         except (TypeError, ValueError):
             return RALLY_ELITE_MIN
         return max(RALLY_ELITE_MIN, min(RALLY_ELITE_MAX, level))
 
     def join_squads(self) -> list:
         """The squads a join may spend, as `join_rally` wants them."""
-        return [s for s in RALLY_SQUADS if self._squad_vars[s].get()]
+        return [s for s in RALLY_SQUADS if self._read_squads[s]()]
 
     def kind_skip(self) -> str:
         """`kind,kind,…` — the kinds of banner the auto-join must LEAVE ALONE (#1317).
@@ -499,7 +513,7 @@ class AutoRallyPage:
         A half-typed box reads as the default rather than as 0, because 0 here means «join
         for ever» and a box being edited must never quietly turn the door off.
         """
-        raw = str(self._daily_var.get()).strip()
+        raw = str(self._read_daily()).strip()
         if not raw.isdigit():
             return DAILY_MAX_DEFAULT
         return max(0, min(DAILY_MAX_TOP, int(raw)))
@@ -511,7 +525,7 @@ class AutoRallyPage:
         here means «join whatever the base holds», which is what the bot did before this
         existed, and a box being edited must never quietly TIGHTEN a door.
         """
-        raw = str(self._min_soldiers_var.get()).strip()
+        raw = str(self._read_min_soldiers()).strip()
         if not raw.isdigit():
             return MIN_SOLDIERS_DEFAULT
         return max(0, min(MIN_SOLDIERS_TOP, int(raw)))
