@@ -102,6 +102,25 @@ class BannerBook:
         self._lock = threading.Lock()
         # teamUuid -> {"content", "slots", "point", "server", "heard"}
         self._seen: dict = {}
+        # THE STATE OF EACH BANNER A JOIN HAS ALREADY BEEN MADE OVER (#1416).
+        # `teamUuid -> the seat count it had when a run last looked at it`.
+        #
+        # TWO HOOKS ON ONE EVENT IS THE DESIGN — «один собирает статистику, второй
+        # присоединяется… они делают разные вещи». What is not the design is the same
+        # WORK done twice: both drivers of the join hear the same push and both played
+        # the recipe over it, a fifth of a second apart, reading the same map and
+        # sending the same nothing. Measured over 5.6 live hours: 123 of 514 runs (24%)
+        # came back with an identical report to the run before them.
+        #
+        # SO THE KEY IS THE BANNER, NOT THE CLOCK. A second look at a banner in the
+        # state it was already looked at is the duplicate; a banner whose seats have
+        # MOVED is news — somebody joined or left, a slot opened — and it is exactly the
+        # `refresh` that produced 113 of 131 live sends, so it must go through.
+        # …PER HOOK, because there are two of them and they do different things: one
+        # collects the statistics, one joins. Sharing one book would let whichever
+        # arrived first eat the other's turn, which is losing a consumer — the opposite
+        # of what was asked. `hook -> {teamUuid: the seats it had when that hook looked}`.
+        self._weighed: dict = {}
 
     # -- writing -------------------------------------------------------------
     def note(self, fields: dict, now=None) -> bool:
@@ -131,6 +150,47 @@ class BannerBook:
             self._seen[team] = entry
             self._forget(stamp)
         return True
+
+    # -- one event, two hooks, one piece of work (#1416) ----------------------
+    def worth_a_run(self, hook: str = "join", mark: bool = False) -> bool:
+        """Is there a banner here NO run has looked at in its present state?
+
+        `False` means every banner on the book has already been weighed exactly as it
+        stands, so playing the recipe again would re-read the same map and reach the
+        same answer — which is what the other driver did a fifth of a second ago.
+
+        `mark=True` records what this run is about to look at, in one step with the
+        asking: two drivers reaching this together must not both be told «yes».
+
+        An EMPTY book answers `True`. The book is a floor under the join, not its
+        source — a profile whose ear has heard nothing still joins off the client's own
+        march table, and a silent book must never be read as «nothing to do».
+        """
+        with self._lock:
+            book = self._weighed.setdefault(str(hook or "join"), {})
+            if mark:
+                # A banner the book has forgotten (`_forget`, a quarter of an hour with
+                # nothing said about it) must not keep a record here either: the record
+                # would outlive the thing it is about, and a uuid that came back would be
+                # muted by a reading taken before it left.
+                for team in list(book):
+                    if team not in self._seen:
+                        book.pop(team, None)
+            if not self._seen:
+                return True
+            fresh = {team: str(entry.get("slots") or "")
+                     for team, entry in self._seen.items()
+                     if book.get(team) != str(entry.get("slots") or "")}
+            if not fresh:
+                return False
+            if mark:
+                book.update(fresh)
+            return True
+
+    def weighed(self, hook: str = "join") -> int:
+        """How many banners this hook has on record as weighed — for a test."""
+        with self._lock:
+            return len(self._weighed.get(str(hook or "join")) or {})
 
     def _forget(self, now: float) -> None:
         """Drop banners nothing has said anything about for a quarter of an hour."""

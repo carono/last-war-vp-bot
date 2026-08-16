@@ -1854,5 +1854,6 @@
   "busy.listener.map": "harita kareleri",
   "timers.log.gate_expired": "{name}: vazgeçildi — oyun için {secs} sn beklendi, ilgili an geçti",
   "busy.status.gated": "oyunu bekliyor",
-  "busy.queue.gated": "oyun hazır olana kadar bekletildi: {name} — {secs} sn"
+  "busy.queue.gated": "oyun hazır olana kadar bekletildi: {name} — {secs} sn",
+  "rally.skip.same_banners": "açıktaki her toplanma tam bu durumda zaten değerlendirildi — diğer kanca az önce baktı"
 }

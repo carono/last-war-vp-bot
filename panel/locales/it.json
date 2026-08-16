@@ -1854,5 +1854,6 @@
   "busy.listener.map": "caselle della mappa",
   "timers.log.gate_expired": "{name}: abbandonato — {secs} s di attesa del gioco, il momento a cui si riferiva è passato",
   "busy.status.gated": "attende il gioco",
-  "busy.queue.gated": "rinviato finché il gioco non è pronto: {name} — {secs} s"
+  "busy.queue.gated": "rinviato finché il gioco non è pronto: {name} — {secs} s",
+  "rally.skip.same_banners": "ogni raduno in corso è già stato valutato in questo stesso stato — l'altro aggancio ha appena guardato"
 }

@@ -1854,5 +1854,6 @@
   "busy.listener.map": "cases de la carte",
   "timers.log.gate_expired": "{name} : abandonné — {secs} s d'attente du jeu, le moment concerné est passé",
   "busy.status.gated": "attend le jeu",
-  "busy.queue.gated": "reporté jusqu'à ce que le jeu soit prêt : {name} — {secs} s"
+  "busy.queue.gated": "reporté jusqu'à ce que le jeu soit prêt : {name} — {secs} s",
+  "rally.skip.same_banners": "chaque ralliement sorti a déjà été évalué dans cet état précis — l'autre point d'écoute vient de regarder"
 }

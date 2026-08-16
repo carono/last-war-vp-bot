@@ -1376,6 +1376,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
             "rally_auto_join",
             self._bound(lambda rt=self._rt:
                         rallygate.join_precondition(rt, rallytab.join_squads(rt))))
+        # …AND THE STATISTICS HOOK GETS THE SAME COURTESY (#1416). Two hooks on one
+        # event is the design — one records the banners, one joins them — and what they
+        # must not do is each re-do work the other's push already covered. This one
+        # reads the game's own march table, which carries what the push does not (the
+        # leader, the target tile, every member and the squad they sent); it simply
+        # stops doing it again for a banner nothing has changed about. Its own record,
+        # so neither hook can eat the other's turn.
+        self._schedule.register_precondition(
+            "rally_monitor",
+            self._bound(lambda rt=self._rt: rallygate.monitor_precondition(rt)))
         self._build_ui(page, staged=staged,
                        done=lambda: self._finish_session_page(session, done))
 

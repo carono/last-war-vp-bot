@@ -1854,5 +1854,6 @@
   "busy.listener.map": "pola mapy",
   "timers.log.gate_expired": "{name}: porzucone — {secs} s czekania na grę, chwila, której dotyczyło, minęła",
   "busy.status.gated": "czeka na grę",
-  "busy.queue.gated": "wstrzymane do gotowości gry: {name} — {secs} s"
+  "busy.queue.gated": "wstrzymane do gotowości gry: {name} — {secs} s",
+  "rally.skip.same_banners": "każda wystawiona zbiórka została już oceniona dokładnie w tym stanie — drugi hak właśnie patrzył"
 }

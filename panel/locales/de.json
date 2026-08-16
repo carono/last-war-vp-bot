@@ -1854,5 +1854,6 @@
   "busy.listener.map": "Kartenfelder",
   "timers.log.gate_expired": "{name}: aufgegeben — {secs} s auf das Spiel gewartet, der Moment dafür ist vorbei",
   "busy.status.gated": "wartet auf das Spiel",
-  "busy.queue.gated": "zurückgestellt, bis das Spiel bereit ist: {name} — {secs} s"
+  "busy.queue.gated": "zurückgestellt, bis das Spiel bereit ist: {name} — {secs} s",
+  "rally.skip.same_banners": "jede ausstehende Sammlung wurde in genau diesem Zustand schon geprüft — der andere Haken hat gerade nachgesehen"
 }

@@ -1854,5 +1854,6 @@
   "busy.listener.map": "casas do mapa",
   "timers.log.gate_expired": "{name}: abandonado — {secs} s à espera do jogo, o momento a que dizia respeito já passou",
   "busy.status.gated": "à espera do jogo",
-  "busy.queue.gated": "adiado até o jogo estar pronto: {name} — {secs} s"
+  "busy.queue.gated": "adiado até o jogo estar pronto: {name} — {secs} s",
+  "rally.skip.same_banners": "cada reunião em curso já foi avaliada exatamente neste estado — o outro gancho acabou de olhar"
 }

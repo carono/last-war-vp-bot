@@ -147,8 +147,55 @@ def join_precondition(rt, squads=None):
     """
     free = free_squads(rt, squads)
     if free is None or free > 0:
-        return None
+        return _already_weighed(rt)
     return "rally.skip.squads_out"
+
+
+def _already_weighed(rt, hook: str = "join"):
+    """…and the OTHER reason not to start: this banner has just been weighed (#1416).
+
+    TWO HOOKS ON ONE EVENT IS THE DESIGN — one collects the statistics, one joins, «они
+    делают разные вещи». What was not the design is the same WORK twice: both drivers of
+    the JOIN hear the same push and both played the recipe over it, a fifth of a second
+    apart, reading the same map and reaching the same answer. 123 of 514 runs in 5.6 live
+    hours came back with a report identical to the one before it.
+
+    THE KEY IS THE BANNER, NOT THE CLOCK (the operator's own words: «дедуп по самому
+    ралли, а не по времени»). A banner in a state some run has already looked at is the
+    duplicate; a banner whose seats have moved is news, and it is exactly the `refresh`
+    that produced 113 of 131 live sends — so it goes through untouched.
+
+    THIS REFUSES A RUN, NOT A JOIN. Nothing here decides whether a squad may be spent:
+    the sieve inside the recipe does that, on the game's own numbers, exactly as before.
+    And a profile whose ear is silent — no book at all — always passes, because the book
+    is a floor under the join and never its source.
+    """
+    book = getattr(rt, "banners", None)
+    if book is None or not hasattr(book, "worth_a_run"):
+        return None
+    try:
+        if book.worth_a_run(hook, mark=True):
+            return None
+    except Exception:                    # noqa: BLE001 — a gate that cannot see, passes
+        return None
+    return "rally.skip.same_banners"
+
+
+def monitor_precondition(rt):
+    """Why the STATISTICS hook need not run either — the same rule, its own book (#1416).
+
+    The two hooks are meant to be two: «один собирает статистику, второй присоединяется…
+    они делают разные вещи». What neither of them needs to do is look at a banner it has
+    already looked at in the state it is in. The statistics hook reads the game's own
+    march table — the leader, the target tile, every member and the squad they sent,
+    which the push does not carry — and re-reading it for a banner nothing has changed
+    about is the 6.8% of the window this task measured: 406 runs in 5.6 hours, most of
+    them re-reading what the push had just said.
+
+    It keeps its OWN record of what it has weighed, so the join's turn is never eaten by
+    the statistics' and the other way round.
+    """
+    return _already_weighed(rt, "stats")
 
 
 def read(rt):

@@ -1854,5 +1854,6 @@
   "busy.listener.map": "ô bản đồ",
   "timers.log.gate_expired": "{name}: bỏ qua — đã chờ trò chơi {secs} giây, thời điểm liên quan đã trôi qua",
   "busy.status.gated": "đang chờ trò chơi",
-  "busy.queue.gated": "hoãn đến khi trò chơi sẵn sàng: {name} — {secs} giây"
+  "busy.queue.gated": "hoãn đến khi trò chơi sẵn sàng: {name} — {secs} giây",
+  "rally.skip.same_banners": "mọi cuộc tập hợp đang mở đều đã được cân nhắc đúng ở trạng thái này — móc còn lại vừa xem xong"
 }

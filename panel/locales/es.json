@@ -1854,5 +1854,6 @@
   "busy.listener.map": "casillas del mapa",
   "timers.log.gate_expired": "{name}: abandonado — {secs} s esperando al juego, el momento al que se refería ya pasó",
   "busy.status.gated": "espera al juego",
-  "busy.queue.gated": "aplazado hasta que el juego esté listo: {name} — {secs} s"
+  "busy.queue.gated": "aplazado hasta que el juego esté listo: {name} — {secs} s",
+  "rally.skip.same_banners": "cada concentración en curso ya fue evaluada en este mismo estado — el otro enganche acaba de mirar"
 }

@@ -1854,5 +1854,6 @@
   "busy.listener.map": "petak peta",
   "timers.log.gate_expired": "{name}: dilepas — menunggu permainan {secs} d, saat yang dimaksud sudah lewat",
   "busy.status.gated": "menunggu permainan",
-  "busy.queue.gated": "ditahan sampai permainan siap: {name} — {secs} d"
+  "busy.queue.gated": "ditahan sampai permainan siap: {name} — {secs} d",
+  "rally.skip.same_banners": "setiap penggalangan yang terbuka sudah ditimbang dalam keadaan yang persis sama — kait satunya baru saja melihat"
 }
