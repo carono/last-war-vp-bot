@@ -41,12 +41,12 @@
 # Every stage is logged as `BREAKTHROUGH stage=… lane=… win=… left=… peak=…`, one line
 # each, so a session can be counted afterwards without watching it.
 
-ARGS rounds = 20
+ARGS rounds = 40
 ARGS lane1 = 36
-ARGS lane2 = -5
-ARGS lane3 = -5
-ARGS lane4 = -5
-ARGS lane5 = -5
+ARGS lane2 = -2
+ARGS lane3 = 40.5
+ARGS lane4 = 31.5
+ARGS lane5 = 36
 
 # `{}` is filled in from `ARGS` before the file is parsed, so this is the ONE place those
 # numbers can travel from the caller into the game. `frontline_breakthrough_stage.md`
