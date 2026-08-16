@@ -510,7 +510,10 @@ class AutoAssist:
         is not a number reads as «no bound» — a half-typed entry must not silently become
         level 0, which is every level there is.
         """
-        raw = str(self.tab.assist_level_var.get()).strip()
+        # Through the tab's mirror, never the Tk variable: this runs on the
+        # watcher's own worker, and reading a variable off the event loop's
+        # thread threw away the first look of every session (#1416).
+        raw = self.tab.rule("assist_level_var").strip()
         return int(raw) if raw.isdigit() else None
 
     def star_wait_min(self) -> int:

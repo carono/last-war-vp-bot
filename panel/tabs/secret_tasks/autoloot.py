@@ -451,7 +451,10 @@ class AutoLoot:
         number reads as "no bound" — a half-typed entry must not silently become level 0,
         which is every level there is.
         """
-        raw = str(self.tab.level_min_var.get()).strip()
+        # The tab's mirror, not the Tk variable — the poll loop is a worker
+        # thread and a cross-thread read raises while the event loop is not
+        # running (#1416).
+        raw = self.tab.rule("level_min_var").strip()
         return int(raw) if raw.isdigit() else None
 
     def skip_server(self) -> "int | None":

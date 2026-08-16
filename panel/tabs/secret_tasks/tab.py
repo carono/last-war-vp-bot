@@ -489,6 +489,26 @@ class SecretTasksTab(PanelTab):
         # over — the same reasoning that moved «Автолут ★» onto the ★ page (#1271).
         self.autoassist_var = tk.BooleanVar(master=master, value=False)
         self.assist_level_var = tk_stringvar(master)
+        # THE RULES, MIRRORED OFF TK (#1416). Both standing orders run on workers of
+        # their own and both read their level bound out of a Tk variable at the moment
+        # they act — and a Tk variable read from a thread that is not the event loop's
+        # raises «main thread is not in main loop» whenever the loop is not running,
+        # which is exactly the case for the first tick after every start-up. Live, that
+        # was «заход помощи не удался: RuntimeError: main thread is not in main loop»
+        # after each of four restarts in one afternoon: the first look of every session
+        # thrown away, silently, because the bound could not be read.
+        #
+        # So the value is kept in a plain dict, written by a trace that runs ON the Tk
+        # thread (a `write` trace fires wherever the variable is set — the widget, the
+        # profile restore, the phone), and the workers read the dict. It also spares the
+        # ~9 ms a cross-thread Tk call costs with several profiles open
+        # (`docs/research/profile-isolation.md`).
+        self._rules: dict = {}
+        for _name in ("level_min_var", "assist_level_var"):
+            _var = getattr(self, _name)
+            self._rules[_name] = _var.get()
+            _var.trace_add("write",
+                           lambda *_a, n=_name, v=_var: self._rules.__setitem__(n, v.get()))
         self._assist_lbl = None
         self._assist_line = None
         self._rule_lbl = None
@@ -1782,6 +1802,17 @@ class SecretTasksTab(PanelTab):
         self._render()
         self._update_status()
         self._persist_rows()
+        if not auto:
+            # …AND THE ONE READING THIS PRESS CANNOT TAKE ITSELF (#1416). «Сколько раз
+            # уже ограбили» is not in the per-tile answer (45 fields, no stealer list)
+            # and the alliance table only covers our own alliance, so for the strangers'
+            # tiles that make up this list n/3 moves in exactly one place: the map, heard
+            # by the passive capture and written to its checkpoint. Merging that file is
+            # free — it is a read of a file the capture has already written — and without
+            # it a press could report «обновлено 0» while a fresh count sat on disk. It
+            # only ever raises the count (`_merge` takes the larger), so nothing a slower
+            # source says can walk it back.
+            self.refresh()
 
     def _sweep_once(self) -> None:
         """«Обойти карту» — and «Остановить» while one is walking (#1272).
@@ -3500,6 +3531,18 @@ class SecretTasksTab(PanelTab):
         """
         low = self.autoloot.level_min()
         return low is None or int(level or 0) >= low
+
+    def rule(self, name: str) -> str:
+        """A standing order's level bound, readable from ANY thread (#1416).
+
+        The mirror written by the trace in `__init__` — see the note there. Falls back
+        to asking the variable itself for a tab built by a fixture that never made the
+        mirror, so a test does not have to know this exists.
+        """
+        rules = getattr(self, "_rules", None)
+        if rules is not None and name in rules:
+            return str(rules[name] or "")
+        return str(getattr(self, name).get() or "")
 
     def has_rows(self) -> bool:
         """Whether OUR list holds anything at all — the watcher's «есть ли источник».
