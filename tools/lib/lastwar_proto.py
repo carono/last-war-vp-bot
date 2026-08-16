@@ -566,6 +566,16 @@ class SecretTask:
     #: «the game said no» — the two must not be the same value, or a pcap record would
     #: silently claim the config had denied the star (#1267).
     starred_cfg: "bool | None" = None
+    #: When the MAP last re-sent this tile — epoch seconds on the capture host, as the
+    #: checkpoint recorded it. `None` for a task that never came from a checkpoint.
+    #:
+    #: It is what tells «the capture is repeating what it saw an hour ago» from «the map
+    #: has just been driven over it again», and a reader that cannot tell the two apart
+    #: cannot honour a removal: the panel's list dropped a row, the very next merge of
+    #: the same unchanged checkpoint put it back, and «Очистить список» read as a button
+    #: that only wipes the drawing (#1416). The ghost missions have carried it since
+    #: #1251 for the same reason.
+    seen_at: "float | None" = None
 
     @property
     def loot_count(self) -> int:
@@ -692,6 +702,11 @@ class SecretTask:
             expires_at=record.get("expires_at"),
             completed_at=record.get("completed_at"),
             starred_cfg=record.get("starred_cfg"),
+            # Carried through, so a reader can tell a fresh sighting from the checkpoint
+            # repeating itself (#1416). It is not part of the tile — it is when the map
+            # last said the tile was there — which is why it is restored rather than
+            # recomputed like `can_loot` and `pending`.
+            seen_at=record.get("seen_at"),
         )
 
 

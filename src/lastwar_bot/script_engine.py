@@ -1753,9 +1753,11 @@ class Interpreter:
                 'CS.UnityEngine.Debug.LogError("ACT tap="..(ok and "ok" or ("ERR:"..tostring(err))))'
                 % btn.lua
             )
-            for out in self._run_lua(chunk, settle=0.1):
+            out_lines = self._run_lua(chunk, settle=0.1)
+            for out in out_lines:
                 if "ERR:" in out:
                     self._log(f"TAP {btn.label} error: {out.split('tap=', 1)[-1]}")
+            self._relay(btn, out_lines)
             return None
 
         chunk = (
@@ -1766,7 +1768,9 @@ class Interpreter:
             % (btn.verify_lua, btn.lua)
         )
         before = None
-        for out in self._run_lua(chunk, settle=0.1):
+        out_lines = self._run_lua(chunk, settle=0.1)
+        self._relay(btn, out_lines)
+        for out in out_lines:
             if "ERR:" in out and "tap=ERR" in out:
                 self._log(f"TAP {btn.label} error: {out.split('tap=', 1)[-1]}")
                 return False
@@ -1783,6 +1787,29 @@ class Interpreter:
             if time.monotonic() >= deadline:
                 return False
             time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+
+    def _relay(self, btn, lines) -> None:
+        """Say the marker lines this button DECLARED the run is entitled to hear (#1416).
+
+        Everything a chunk logs comes back from :meth:`_run_lua`; the press paths read
+        out the two or three fields they need and drop the rest, which is where a
+        button's own verdict about what the SERVER said used to end. `Button.relay`
+        names the ones that must not be dropped — the robbery's
+        `steal_done uuid=<u> how=<taken|gone|unanswered>` is the first, and the tab and
+        the standing order have both been matching it in the event stream since #1272,
+        against a stream that never carried it.
+
+        Said through :meth:`_log`, so it lands wherever the rest of the run's commentary
+        does — the profile's log, the phone, and the `on_event` callback a caller passed.
+        The `ACT ` prefix is stripped: it is the marker the evaluator keys on, not a word
+        anybody reads.
+        """
+        if not btn.relay:
+            return
+        for out in lines or ():
+            body = out[4:] if out.startswith("ACT ") else out
+            if body.startswith(tuple(btn.relay)):
+                self._log(body)
 
     def _press_gated(self, btn, cap: int) -> tuple:
         """Read the button's own count AND press, in ONE call. -> ``(left, fired)``.
@@ -1805,7 +1832,9 @@ class Interpreter:
         presses, which is what quietly recovers a press the client's throttle dropped.
         """
         left, fired = None, 0
-        for out in self._run_lua(gated_chunk(btn, cap), settle=0.35):
+        out_lines = self._run_lua(gated_chunk(btn, cap), settle=0.35)
+        self._relay(btn, out_lines)
+        for out in out_lines:
             if "gate left=" in out:
                 raw = out.split("gate left=", 1)[1].split()[0]
                 try:

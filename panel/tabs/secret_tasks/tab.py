@@ -178,6 +178,13 @@ STATE_SLICE = 20
 # passes, which is what the book normally goes by.
 ROBBED_KEEP_MS = 24 * 60 * 60 * 1000
 
+# How long a REMOVAL is remembered, in seconds — the book that stops the capture's
+# checkpoint putting a row straight back (`_dismissed`, #1416). A day, for the same
+# reason as the book above: no dispatch task lives that long, so an entry older than
+# this can only be about a uuid the map can never hand out again. The entry is dropped
+# earlier than that whenever the map re-sights the tile, which is the whole point.
+DISMISSED_KEEP_SEC = 24 * 60 * 60
+
 # How long BEFORE a tile matures «Собрать» is already offered (#1272). A star is taken
 # in the first moment it is takeable — «счёт может идти на микросекунды, потому что много
 # желающих уже кликают» — and a button that appears at the instant of readiness is one
@@ -376,6 +383,26 @@ class SecretTasksTab(PanelTab):
         # session (#1280). `_collected` answers «has this been robbed», this one answers
         # «until when is that worth remembering» — see `_robbed_book`.
         self._robbed_until: dict = {}
+        # uuid (str) -> when this list STOPPED holding that row, in capture-host epoch
+        # seconds. THE OTHER HALF OF EVERY REMOVAL (#1416).
+        #
+        # This list is fed by a checkpoint the capture child rewrites every tick, and
+        # that child forgets NOTHING: its own index keeps a tile for as long as its
+        # freshness window allows, whatever the panel does. So every removal the tab
+        # makes — «Очистить список», the server saying a tile is gone, a per-tile read
+        # answering «there is nothing there» — was undone by the very next merge of the
+        # same unchanged file, seconds later. Live, that read as three separate faults:
+        # a clear button that only wiped the drawing, rows that came back from the dead,
+        # and «состояние перечитано: … исчезло 20» printed every thirty seconds about
+        # the same twenty rows, for ever.
+        #
+        # A removal is therefore remembered WITH ITS MOMENT, and `_merge` refuses an
+        # incoming tile whose `seen_at` is not newer than it. The map is still the
+        # authority: drive over the tile again and the capture stamps a fresh `seen_at`,
+        # the entry is dropped and the row comes back — which is what «нашёл заново»
+        # means. What cannot happen any more is the checkpoint REPEATING an old sighting
+        # into a row the operator has just taken off.
+        self._dismissed: dict = {}
         # …and the uuids with a press already in flight (#1272). A press made inside the
         # ten-second window waits out the remainder before sending, and the row keeps
         # offering «Собрать» throughout — it is still counting down — so without this a
@@ -636,6 +663,9 @@ class SecretTasksTab(PanelTab):
         self._rows.clear()
         self._collected.clear()
         self._robbed_until.clear()
+        # …and the book of removals with them: those uuids are the OLD account's map,
+        # and the new profile reads its own back off its own checkpoint (#1416).
+        self._dismissed.clear()
         # …and what the standing order had already fired at belongs to that account's
         # map, not this one's (#1256). A press waiting out its ten seconds belongs to the
         # old client too (#1272): the worker will fire into whatever is there and be
@@ -1738,7 +1768,13 @@ class SecretTasksTab(PanelTab):
                 continue
             # `THE_LIST_RULE` clause 2 — asked about this tile, told there is nothing
             # there, and the control point proved the answers were arriving.
+            #
+            # …AND IT STAYS OFF (#1416). Without the book the next merge of the capture's
+            # checkpoint put every one of these back, so this line ran again half a
+            # minute later on the same rows: one live afternoon printed «проверено 20,
+            # обновлено 0, исчезло 20» every thirty seconds, and the list never changed.
             self._rows.pop(key, None)
+            self._dismiss([key])
             gone += 1
         if not auto or updated or gone:
             self.say("secret", "log.secret.state_done", checked=checked, updated=updated,
@@ -2614,8 +2650,10 @@ class SecretTasksTab(PanelTab):
                     if row.get("robbed"):
                         continue
                     # `THE_LIST_RULE` clause 2 — a read that COULD have carried this row
-                    # (`_answerable`, just above) and did not.
+                    # (`_answerable`, just above) and did not. Booked as well as removed,
+                    # or the checkpoint hands it back on the next tick (#1416).
                     self._rows.pop(key, None)
+                    self._dismiss([key])
                     continue
                 row["expires_at"] = task.expires_at
                 row["completed_at"] = task.completed_at
@@ -2646,6 +2684,8 @@ class SecretTasksTab(PanelTab):
                 row["seen_at"] = time.time()
                 continue
             if key in self._collected:
+                continue
+            if self._dismissed_still(key, t):
                 continue
             self._rows[key] = {
                 "uuid": t.uuid, "server": t.server_id, "x": t.x, "y": t.y,
@@ -2696,6 +2736,11 @@ class SecretTasksTab(PanelTab):
         from ...profile import _write_json
         _write_json(self.rt.profiles.secret_tasks_state_json(), {
             "robbed": self._robbed_book(),
+            # …AND THE BOOK OF REMOVALS (#1416). It has to outlive the session for the
+            # same reason the robbed one does: the capture's checkpoint survives a
+            # restart too, and a panel that came back having forgotten what the operator
+            # cleared would refill the list from it within the second.
+            "dismissed": self._dismissed_book(),
             "rows": [
             {"uuid": r["uuid"], "server": r["server"], "x": r["x"], "y": r["y"],
              "level": r["level"], "cfg_id": r["cfg_id"], "loot_count": r["loot_count"],
@@ -2715,6 +2760,61 @@ class SecretTasksTab(PanelTab):
              # row offering «Собрать» on a tile the server has already refused us once.
              "robbed": bool(r.get("robbed"))}
             for r in self._rows.values()]})
+
+    # -- the book of removals (#1416) -------------------------------------------
+    def _dismiss(self, keys) -> None:
+        """Remember that these rows were taken OFF the list, and when.
+
+        Every removal goes through here, whichever of `THE_LIST_RULE`'s two clauses it
+        is exercising, because the reason a row left says nothing about the problem this
+        book solves: the capture's checkpoint is a file that repeats itself, and a merge
+        of the same unchanged file is what put the row back.
+
+        The moment is capture-host wall clock, because that is the clock `seen_at` is
+        written on (`map_capture.MapIndex`, the child's own `time.time()`), and the two
+        are compared directly in :meth:`_dismissed_still`. Not the game's clock: this is
+        a fact about two processes on one machine, not about the world.
+        """
+        now = time.time()
+        for key in keys:
+            self._dismissed[str(key)] = now
+        cutoff = now - DISMISSED_KEEP_SEC
+        self._dismissed = {k: v for k, v in self._dismissed.items() if v > cutoff}
+
+    def _dismissed_still(self, key: str, task) -> bool:
+        """Is this incoming tile the checkpoint REPEATING a sighting we already dropped?
+
+        `True` — refuse it; the row was removed and nothing has been seen since.
+        `False` — let it in, and forget the removal: either the row was never dropped,
+        or the map has driven over the tile again since it was, which is a NEW find and
+        the list is for what has been found.
+
+        A record with no `seen_at` at all (a checkpoint written before #1416, or a feed
+        that does not stamp one) is let through: an unknown sighting time cannot be
+        proved older than the removal, and the failure this book exists to prevent is
+        far cheaper than the one #1272 spent a morning undoing — a list that refuses
+        rows it should be showing.
+        """
+        when = self._dismissed.get(str(key))
+        if when is None:
+            return False
+        seen = getattr(task, "seen_at", None)
+        if seen is None or float(seen) > when:
+            self._dismissed.pop(str(key), None)
+            return False
+        return True
+
+    def _dismissed_book(self) -> list:
+        """The removals worth carrying across a restart, each with its moment.
+
+        Aged here rather than only on write, so a profile left open for days does not
+        accumulate a uuid per tile it has ever dropped. The shape matches the robbed
+        book beside it — a list of small objects — because both are read back by the
+        same restore.
+        """
+        cutoff = time.time() - DISMISSED_KEEP_SEC
+        self._dismissed = {k: v for k, v in self._dismissed.items() if v > cutoff}
+        return [{"uuid": k, "at": v} for k, v in self._dismissed.items()]
 
     def _robbed_book(self) -> list:
         """The uuids we have robbed, each with the moment it stops being worth keeping.
@@ -2784,6 +2884,21 @@ class SecretTasksTab(PanelTab):
                 if until > now:
                     self._robbed_until[key] = until
                     self._collected.add(key)
+            # …and the removals, on the wall clock they were stamped on (#1416). A
+            # restart that forgot them would let the capture's checkpoint refill the
+            # list with everything the operator had cleared, which is the very fault
+            # the book exists to end.
+            cutoff = time.time() - DISMISSED_KEEP_SEC
+            for entry in records.get("dismissed") or ():
+                if not isinstance(entry, dict):
+                    continue
+                key = str(entry.get("uuid") or "")
+                try:
+                    at = float(entry.get("at"))
+                except (TypeError, ValueError):
+                    continue
+                if key and at > cutoff:
+                    self._dismissed[key] = at
             records = records.get("rows")
         if not isinstance(records, list):
             return set()
@@ -3430,7 +3545,14 @@ class SecretTasksTab(PanelTab):
         skip = self.autoloot.skip_server()
         if not skip:
             return []
-        rows = [row for key, row in self._rows.items()
+        # OVER A SNAPSHOT, because the caller is not the Tk thread (#1416). «Автолут ★»
+        # weighs this list from its own poll loop while the merges, the ticks and the
+        # state reads add and drop rows on Tk — and a dict comprehension walking the live
+        # dict raises `RuntimeError: dictionary changed size during iteration`, which
+        # costs the whole tick: 77 of them in one live day, each one a look at the map
+        # that never happened. A copy of the mapping is cheap (a list's worth of
+        # references) and the rows themselves are shared, so nothing here goes stale.
+        rows = [row for key, row in list(self._rows.items())
                 if key not in self._collected
                 and self._raidable(row)
                 and row.get("starred")
@@ -3736,6 +3858,11 @@ class SecretTasksTab(PanelTab):
                 # `THE_LIST_RULE` clause 1 — the task is over, by the game's own clock.
                 # The ONLY removal that needs no answer from anybody.
                 self._rows.pop(key, None)
+                # …and booked, like every other removal (#1416): the capture keeps the
+                # tile for its own freshness window, so without this the row came back
+                # on the next merge and expired again a second later, for as long as the
+                # checkpoint held it.
+                self._dismiss([key])
             if expired or changed:
                 self._render()
                 self._update_status()
@@ -3862,8 +3989,9 @@ class SecretTasksTab(PanelTab):
                 if row.get("robbed"):
                     continue
                 # `THE_LIST_RULE` clause 2 — same gate, same reasoning, on the poll's
-                # own thirty-times-slower clock.
+                # own thirty-times-slower clock. Booked with the rest (#1416).
                 self._rows.pop(key, None)
+                self._dismiss([key])
                 removed = True
                 continue
             row["expires_at"] = task.expires_at
@@ -3964,8 +4092,11 @@ class SecretTasksTab(PanelTab):
         if row is None or row.get("robbed"):
             return
         # `THE_LIST_RULE` clause 2 — the server answered about THIS tile and said it is
-        # not there.
+        # not there. Remembered as well as removed (#1416): the capture's checkpoint
+        # still carries the tile and would hand it back on the next merge, and then the
+        # standing order would choose the very tile the server has just refused.
         self._rows.pop(str(key), None)
+        self._dismiss([key])
         self.say("secret", "log.secret.gone")
         self._render()
         self._update_status()
@@ -4133,6 +4264,14 @@ class SecretTasksTab(PanelTab):
         worth keeping, and it has been wrong about that three times.
         """
         # `_collected` and `_robbed_until` are deliberately NOT cleared — see above.
+        #
+        # AND THE PRESS IS REMEMBERED, not just carried out (#1416). The capture's
+        # checkpoint still holds every one of these tiles, and its next merge — which
+        # the capture itself nudges within a second of any finding — put them all
+        # straight back. That is «жму очистить, через пару секунд строки снова
+        # появляются»: the button was doing exactly what it said and the file was
+        # undoing it. The rows come back when the MAP shows them again, and not before.
+        self._dismiss(self._rows)
         self._rows.clear()
         self._restore_pending = set()
         self._render()

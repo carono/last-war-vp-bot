@@ -178,6 +178,9 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     tab._collected = set()
     # The book of what we robbed, which outlives both the row and the session (#1280).
     tab._robbed_until = {}
+    # …and the book of what was taken OFF the list, which is what stops the capture's
+    # checkpoint putting it straight back (#1416).
+    tab._dismissed = {}
     # …and the unattended state re-check's own flags (#1280): a fixture never arms the
     # chain, but everything that persists or lands goes past them.
     tab._state_busy, tab._state_cursor = False, 0
@@ -674,13 +677,17 @@ class _StubTask:
     """
 
     def __init__(self, uuid, server_id=1, x=1, y=2, level=7, cfg_id=60000701,
-                loot_count=1, expires_at=999_000, completed_at=1_000, starred=True):
+                loot_count=1, expires_at=999_000, completed_at=1_000, starred=True,
+                seen_at=None):
         self.uuid = uuid
         self.server_id = server_id
         self.x, self.y, self.level, self.cfg_id = x, y, level, cfg_id
         self.loot_count = loot_count
         self.expires_at, self.completed_at = expires_at, completed_at
         self.starred = starred
+        # When the MAP last re-sent the tile (#1416). The checkpoint carries it, and it
+        # is what tells a fresh sighting from the capture repeating itself.
+        self.seen_at = seen_at
 
 
 def _state_path() -> str:
@@ -952,6 +959,82 @@ def test_clear_wipes_every_row_including_ones_not_expired():
     fresh.rt = _fake_rt(path)
     assert fresh._load_persisted() == set(), "the wipe must reach the checkpoint too"
     assert fresh._collected == {"9"}, "the book did not survive the restart"
+
+
+def test_a_cleared_list_is_not_refilled_by_the_same_checkpoint():
+    """«Очистить список» has to survive the next merge, or it only wipes the drawing.
+
+    THE FAULT, live (#1416): the press emptied the table and the rows were back within
+    a couple of seconds. Nothing was wrong with the press — the list is fed by a
+    checkpoint the capture child rewrites every tick, that child forgets nothing, and
+    its own nudge re-merges the file within a second of any finding. So the very next
+    merge of the very same unchanged file put every row back.
+
+    The rule is the map's, not the panel's: a sighting OLDER than the removal is the
+    checkpoint repeating itself and is refused; a NEWER one is the map having been
+    driven over the tile again, which is a fresh find and belongs on the list.
+    """
+    import time as _time
+
+    tab = _make_tab({"1": _row(1, 7, 120_000, 600_000)})
+    stale = _time.time() - 60                      # the capture saw it a minute ago
+    tab._clear()
+    assert tab._rows == {}
+
+    tab._merge([_StubTask(1, seen_at=stale)])
+    assert tab._rows == {}, "the checkpoint refilled a list the operator had cleared"
+
+    tab._merge([_StubTask(1, seen_at=_time.time() + 1)])
+    assert "1" in tab._rows, "a tile the map has just re-sighted must come back"
+    assert "1" not in tab._dismissed, "and the removal must be forgotten with it"
+
+
+def test_a_tile_the_server_called_gone_stays_off_the_list():
+    """The other removal that the checkpoint used to undo (#1416).
+
+    `_drop_gone` is «the server answered about THIS tile and said there is nothing
+    there» — and the capture still had it, so the standing order was handed the very
+    tile the server had just refused, over and over.
+    """
+    import time as _time
+
+    tab = _make_tab({"1": _row(1, 7, 120_000, 600_000)})
+    tab.say = lambda *a, **k: None
+    tab._drop_gone("1")
+    assert tab._rows == {}
+
+    tab._merge([_StubTask(1, seen_at=_time.time() - 5)])
+    assert tab._rows == {}, "a tile the server called gone came back from the checkpoint"
+
+
+def test_a_record_with_no_sighting_time_is_still_let_through():
+    """An unknown `seen_at` may not be treated as an old one (#1416).
+
+    A checkpoint written before the field was carried through says nothing about when
+    the tile was seen, and the expensive mistake in this tab's history is the other one:
+    a list that refuses rows it should be showing (`THE_LIST_RULE`).
+    """
+    tab = _make_tab({"1": _row(1, 7, 120_000, 600_000)})
+    tab._clear()
+    tab._merge([_StubTask(1)])                     # no seen_at at all
+    assert "1" in tab._rows
+
+
+def test_the_book_of_removals_survives_a_restart():
+    """…or the panel comes back and refills the list from the same checkpoint (#1416)."""
+    import time as _time
+
+    path = _state_path()
+    tab = _make_tab({"1": _row(1, 7, 120_000, 600_000)})
+    tab.rt = _fake_rt(path)
+    tab._clear()
+
+    fresh = _make_tab({})
+    fresh.rt = _fake_rt(path)
+    fresh._load_persisted()
+    assert "1" in fresh._dismissed, "the restart forgot what had been cleared"
+    fresh._merge([_StubTask(1, seen_at=_time.time() - 30)])
+    assert fresh._rows == {}, "and refilled the list from the capture's checkpoint"
 
 
 def test_web_press_clear_runs_the_wipe_on_the_tk_thread():

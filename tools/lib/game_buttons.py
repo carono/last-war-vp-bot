@@ -75,6 +75,25 @@ class Button:
     # counter «moves» every time and proves nothing. The obvious one for a button that
     # has it is `count_lua` — the number the press is supposed to spend.
     verify_lua: str | None = None
+    # Optional: the marker lines this button's Lua prints that the RUN is entitled to
+    # hear — «what the server answered», as opposed to the interpreter's own telemetry
+    # (#1416). Named as prefixes of the text after `ACT `, e.g. `("steal_done",)`.
+    #
+    # WHY IT HAS TO BE DECLARED. Everything a chunk logs comes back to `_run_lua`, and
+    # the interpreter reads out the two or three fields it needs (`tap=`, `fired=`,
+    # `gate left=`) and DROPS the rest — so a verdict a button was written to report
+    # reached nobody. The robbery is the case that proves it: `secret_task_queue_pop`
+    # has printed `ACT steal_done uuid=<u> how=<taken|gone|unanswered>` since #1272, and
+    # both readers of it — the «Автолут ★» watcher and the tab's own press — match that
+    # line in the event stream, which never carried it. So a tile the server called
+    # «задание уже взято» was never taken off the list and was chosen again on the next
+    # tick, for as long as it stayed on the map.
+    #
+    # A LIST RATHER THAN «RELAY EVERYTHING»: `steal_secret_task` prints `steal_sent` on
+    # every one of up to sixty presses in a spam, and a run that repeated all of them
+    # would bury its own verdict. What is relayed is what the button DECLARES worth
+    # hearing.
+    relay: tuple = ()
 
 
 # The recommended-science object is fetched fresh inside each press (it is cheap and
@@ -368,6 +387,13 @@ BUTTONS: dict[str, Button] = {
         # own press so the press can be repeated (`secret_task_queue_pop`).
         lua=_lua_actions.secret_task_queue_pop(),
         wait=0.05, label="Drop the current steal target",
+        # THE VERDICT, OUT LOUD (#1416). This is where the server's answer about the
+        # target being dropped is decided — taken, gone, or unanswered — and both
+        # readers of it live outside the game: `panel/tabs/secret_tasks/autoloot.py`
+        # takes a «gone» tile off the list, and the tab's own press does the same.
+        # Until the line was declared here it was printed into the daemon's log and
+        # dropped by the interpreter, so neither ever saw one.
+        relay=("steal_done",),
     ),
     "dismiss_steal_reward": Button(
         # A successful robbery raises `UIDispatchTaskReward` — the loot list plus the
