@@ -28,10 +28,22 @@
 #                            -5   the same as -2 with no leaning — dodges much more
 #                                 eagerly, survives deeper, grows far less
 #
-# Measured live (see docs/research/frontline-breakthrough.md): holding the middle clears
-# stage 1 with ~300–380 soldiers but never survives stage 2; the eager dodge (-5) is the
-# only thing that has ever cleared stages 2 and 3, and it arrives there with a handful of
-# soldiers. So the defaults feed on stage 1 and dodge from stage 2 on.
+# THE DEFAULTS ARE WHAT WAS MEASURED, stage by stage — and no two stages want the same
+# thing (docs/research/frontline-breakthrough.md):
+#
+#     20451  hold the middle          ~300–400 soldiers, nine wins in ten
+#     20452  feed, lean middle (-2)   cleared eight times of eleven, up to 407 left
+#     20453  hold the right lane      cleared five of six — but leaves only 1–5 standing
+#     20454  hold the left lane       cleared four of six, and always with exactly 17
+#     20455  hold the middle          NOT CLEARED by any lane or policy tried; the middle
+#                                     is merely the least bad (the squad peaks at 29
+#                                     instead of 7–12 before it is wiped)
+#
+# WHAT A SITTING IS WORTH. A cleared stage converts the soldiers left into units, sixty
+# at most — so stage 1 alone pays the full sixty in about forty seconds, and the rest of
+# the chain pays less for longer (stage 3 leaves five). Depth is therefore for the event's
+# ranking, not for the units: an account that only wants the units can set `lane2` to a
+# lane that loses quickly and spend the whole sitting on stage 1.
 #
 # It also claims what the event owes before and after the session
 # (`claim_frontline_breakthrough_rewards.md`): the three soldier boxes ride the
