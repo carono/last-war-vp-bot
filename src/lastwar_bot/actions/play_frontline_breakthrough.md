@@ -53,12 +53,12 @@
 # Every stage is logged as `BREAKTHROUGH stage=… lane=… win=… left=… peak=…`, one line
 # each, so a session can be counted afterwards without watching it.
 
-ARGS rounds = 14
-ARGS lane1 = -10
-ARGS lane2 = -10
-ARGS lane3 = -10
-ARGS lane4 = -10
-ARGS lane5 = -10
+ARGS rounds = 60
+ARGS lane1 = -11
+ARGS lane2 = -11
+ARGS lane3 = -11
+ARGS lane4 = -11
+ARGS lane5 = -11
 
 # `{}` is filled in from `ARGS` before the file is parsed, so this is the ONE place those
 # numbers can travel from the caller into the game. `frontline_breakthrough_stage.md`
@@ -80,7 +80,7 @@ READ_LUA 1 INTO fb_go
 
 WHILE fb_go == 1 LIMIT {rounds}
     CALL frontline_breakthrough_stage
-    LOG "BREAKTHROUGH stage={fb_stage} lane={fb_lane_used} win={fb_win} left={fb_left} peak={fb_peak} moves={fb_moves} frames={fb_frames} next={fb_next}"
+    LOG "BREAKTHROUGH stage={fb_stage} lane={fb_lane_used} win={fb_win} left={fb_left} peak={fb_peak} moves={fb_moves} frames={fb_frames} route={fb_route} next={fb_next}"
     LOG "BREAKTHROUGH tail {fb_tail}"
     READ_LUA (function() if tonumber(_G.__fb_stage)==20455 and tonumber(_G.__fb_won)==1 then return 0 end return 1 end)() INTO fb_go
 
