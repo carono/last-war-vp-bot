@@ -71,6 +71,44 @@ A trace of stage 20451 (one sample per 20 frames, `dz` relative to the squad):
 — the squad grows while the trash (`hp` 1–3) comes, and the run ends when the heavy
 units (`hp` 90–126) arrive.
 
+## What is actually in front of the squad — read from the client, not guessed
+
+The player described the game and every word of it is in the client:
+
+* **`logic.monsterMgr.showList`** — the whole field ahead, about 70 units of track (12
+  seconds at `moveSpeedZ = 6`), each entry a live object with `x` (the lane, 31.5 / 36 /
+  40.5), `y` (along the track), `curBlood` / `maxBlood`, `monsterMetaId`, `deathEvent`
+  and `triggerMeta`. This is the analogue of Street Run's `SurfingMonsterManager.showList`
+  and it means no pixels are needed here either. `monsterMgr` also carries `allMonster`,
+  `colliderResultList`, and the methods that make the field: `CreateFarmMonster`,
+  `CreateTriggerGate`, `CreateTriggerGoods`, `SummonTriggerItem`.
+* **What a barrel pays** — `triggerMeta` (row `lw_trigger_item` of `deathEvent`):
+  `type = 40` pays one soldier per entry in `para`, so `10001` is +1, `10001|10001` +2,
+  `10001|10001|10001` +3. **Everything else carries the number as TEXT** — item 249 is
+  `text = "+5"`, item 250 `"+10"`, item 251 `"+2"`. A reader that only understands
+  `type = 40` therefore scores the biggest pickups on the board as worth nothing, which
+  is exactly the mistake the first planner made.
+* **What an unbroken one costs** — `lw_monster` per `monsterMetaId`: `collide_radius`
+  (2, and 3 for the fat ones) and `collide_damage` (`2|2|1`, `2|2|0.6`, `2|2|0.45`,
+  `2|2|0.08` — the last number is what it takes out of the squad that walks into it).
+  `is_move = 0`, `is_attack = 0`: barrels do not chase, they simply stand there.
+* **How fast the squad can break things** — measured live off `curBlood` between frames:
+  **≈ 7.5 damage per soldier per second**. A 180-hp barrel is a second's work for 25
+  soldiers and a fifteen-second wall for three.
+
+That is the whole decision: for each lane, walk the objects in order of `y`, add up their
+hit points, and ask whether the running total can be shot away before the squad reaches
+each one — `cumulative hp ≤ 7.5 · soldiers · (y − teamY) / 6`. What clears pays its
+soldiers; what does not costs `collide_damage` of the squad. Cheap hit points per soldier
+is the whole ranking: 3 hp for +1 beats 300 hp for +1 by a hundred to one.
+
+**And that planner is NOT yet better than the measured lanes.** Made sticky (it needs a
+1.5 margin and a 2-point lean towards the middle) it matches holding the middle on stage
+1 — 349 soldiers against a 336 average — but loose it drops to ~200 and with too firm a
+margin it loses stage 1 outright at a peak of 11. On stage 2 it has not beaten the plain
+feeding policy. It ships as policy `-10` beside the others, not as the default, because
+the log says so.
+
 ## What was measured
 
 **209 stages played on two accounts, 130 of them cleared.** Every row below is that log,
