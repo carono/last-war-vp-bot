@@ -73,6 +73,7 @@ STATES = (STATE_DAY, STATE_POST, STATE_PLAIN)
 #: are this module's arithmetic, and they are labelled so nothing has to guess later.
 SOURCE_GAME = "game"            # the client itself said so, about the account's warzone
 SOURCE_OBSERVED = "observed"    # somebody wrote down what that warzone did that day
+SOURCE_CALENDAR = "calendar"    # the cycle read off the warzone's AGE — its opening date
 SOURCE_SCHEDULE = "schedule"    # the fitted cycle, on a warzone that has observations
 SOURCE_NEIGHBOUR = "neighbour"  # …the cycle again, on a warzone borrowing a neighbour's
 SOURCE_UNKNOWN = "unknown"      # nothing is known and nothing is being claimed
@@ -334,6 +335,109 @@ def fit(observations, periods=PERIODS) -> "Schedule | None":
     return best
 
 
+# ---------------------------------------------------------------------------
+# the other way to know where a warzone stands: its OWN AGE (#1467)
+# ---------------------------------------------------------------------------
+# A cycle keyed by how many days the warzone has been open, rather than by an offset
+# fitted per warzone. Two things make it worth having beside the fit above:
+#
+#   * the panel already knows the opening moment of thousands of warzones
+#     (`get.other.server.info`, docs/research/server-info.md), so a warzone nobody has
+#     ever watched gets an answer that is grounded in a reading of the GAME rather than
+#     in a neighbour's offset;
+#   * a live cross-check against a third-party cycle chart partitioned a block of
+#     neighbouring warzones into three groups by exactly this arithmetic — the panel's
+#     own opening dates reproduced the chart's own group sizes to the warzone.
+#
+# What is NOT decided here: the length of the cycle and which state each phase carries.
+# Both are FITTED from the observations, the same as everything else in this file, and a
+# book that has only ever seen ONE of the three states fits nothing at all — every period
+# explains a single-state pile perfectly, and the shortest one would then answer «day»
+# about every warzone on every date.
+
+
+class Calendar:
+    """A cycle read off a warzone's AGE: `period`, and a state per phase of it."""
+
+    def __init__(self, period: int, pattern: dict, agree: int = 0, clash: int = 0) -> None:
+        self.period = int(period)
+        self.pattern = dict(pattern)
+        self.agree = int(agree)
+        self.clash = int(clash)
+
+    @property
+    def score(self) -> int:
+        return self.agree - self.clash
+
+    @property
+    def coverage(self) -> int:
+        return len(self.pattern)
+
+    def phase(self, age: int, ahead: int = 0) -> int:
+        """Where a warzone that is `age` days old today stands `ahead` days from now."""
+        return (int(age) + int(ahead)) % self.period
+
+    def state(self, age: int, ahead: int = 0) -> str:
+        return self.pattern.get(self.phase(age, ahead), STATE_UNKNOWN)
+
+    def as_dict(self) -> dict:
+        return {"period": self.period, "pattern": dict(self.pattern),
+                "agree": self.agree, "clash": self.clash, "coverage": self.coverage}
+
+
+def fit_calendar(observations, ages, today, periods=PERIODS) -> "Calendar | None":
+    """Fit «the state follows the warzone's age» to the observations. None when it cannot.
+
+    `ages` is `{server: how many days it has been open TODAY}` and `today` is the game-day
+    the ages were taken on, so an observation from three days ago is judged against the
+    age that warzone had THEN.
+
+    Refuses two ways, both on purpose: too few observations, and observations that carry
+    only ONE of the three states — a single-state pile is explained perfectly by every
+    period there is, and accepting it would answer «star day» about the whole game.
+    """
+    rows = [row for row in labelled(with_learnt_states(observations))
+            if int(row["server"]) in ages]
+    if len(rows) < MIN_OBSERVATIONS:
+        return None
+    if len({row["state"] for row in rows}) < 2:
+        return None
+    best = None
+    for period in periods:
+        buckets: dict = {}
+        for row in rows:
+            age = int(ages[int(row["server"])]) + int(row["day"]) - int(today)
+            buckets.setdefault(age % period, []).append(row["state"])
+        pattern, agree, clash = {}, 0, 0
+        for phase, states in buckets.items():
+            top = max(set(states), key=states.count)
+            pattern[phase] = top
+            agree += states.count(top)
+            clash += len(states) - states.count(top)
+        candidate = Calendar(period, pattern, agree, clash)
+        key = (candidate.score, -period, candidate.coverage)
+        if best is None or key > (best.score, -best.period, best.coverage):
+            best = candidate
+    return best
+
+
+def calendar_conflicts(calendar, observations, ages, today) -> list:
+    """Every observation the AGE cycle contradicts — its half of the self-check."""
+    if calendar is None:
+        return []
+    out = []
+    for row in labelled(with_learnt_states(observations)):
+        server = int(row["server"])
+        if server not in ages:
+            continue
+        age = int(ages[server]) + int(row["day"]) - int(today)
+        said = calendar.state(age)
+        if said in STATES and said != row["state"]:
+            out.append({"server": server, "day": row["day"], "observed": row["state"],
+                        "predicted": said, "source": row.get("source", SOURCE_OBSERVED)})
+    return out
+
+
 def conflicts(schedule, observations) -> list:
     """Every observation the fitted cycle contradicts. The self-check, in one call.
 
@@ -356,7 +460,8 @@ def conflicts(schedule, observations) -> list:
 # ---------------------------------------------------------------------------
 # the answer for one warzone on one day
 # ---------------------------------------------------------------------------
-def answer(schedule, observations, server, day, fact=None) -> dict:
+def answer(schedule, observations, server, day, fact=None,
+           calendar=None, ages=None, today=None) -> dict:
     """What that warzone is doing that day, and how honestly it is known.
 
     The order is facts first: what the game itself said (`fact`), then what somebody
@@ -375,6 +480,14 @@ def answer(schedule, observations, server, day, fact=None) -> dict:
             return {"state": row["state"], "source": SOURCE_OBSERVED,
                     "server": server, "day": day,
                     "learnt": bool(row.get("learnt"))}
+    # THE WARZONE'S OWN AGE comes next, ahead of any fitted offset: it is arithmetic on a
+    # reading of the game (when that warzone opened) rather than on a neighbour's habits.
+    if calendar is not None and ages and server in ages and today is not None:
+        age = int(ages[server]) + int(day) - int(today)
+        said = calendar.state(age)
+        if said in STATES:
+            return {"state": said, "source": SOURCE_CALENDAR, "server": server,
+                    "day": day, "age": age, "phase": calendar.phase(age)}
     if schedule is None:
         return {"state": STATE_UNKNOWN, "source": SOURCE_UNKNOWN,
                 "server": server, "day": day}
@@ -403,20 +516,21 @@ def nearest(schedule, server) -> "int | None":
     return min(schedule.offsets, key=lambda other: (abs(int(other) - int(server)), other))
 
 
-def next_change(schedule, observations, server, day, ahead=None) -> "dict | None":
+def next_change(schedule, observations, server, day, ahead=None, **known) -> "dict | None":
     """The first day ahead on which the answer becomes something else.
 
     `None` means nothing can be said — an unknown state now, or a cycle with a gap where
     the next days fall. A caller shows «—» for that rather than a date it made up.
     """
-    if schedule is None:
+    calendar = known.get("calendar")
+    if schedule is None and calendar is None:
         return None
-    now = answer(schedule, observations, server, day)
+    now = answer(schedule, observations, server, day, **known)
     if now["state"] not in STATES:
         return None
-    span = int(ahead or schedule.period)
+    span = int(ahead or (schedule.period if schedule is not None else calendar.period))
     for step in range(1, span + 1):
-        later = answer(schedule, observations, server, day + step)
+        later = answer(schedule, observations, server, day + step, **known)
         if later["state"] in STATES and later["state"] != now["state"]:
             return {"day": day + step, "state": later["state"], "in_days": step,
                     "source": later["source"]}

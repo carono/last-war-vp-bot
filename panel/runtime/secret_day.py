@@ -52,7 +52,7 @@ class SecretDayBook:
     once per draw, so re-fitting on every read would be paid for on every repaint.
     """
 
-    def __init__(self, store, *, reset_ms: int = 0) -> None:
+    def __init__(self, store, *, reset_ms: int = 0, ages: "dict | None" = None) -> None:
         self.store = store
         #: When the game-day turns over — the client's own `GetTomorrowZero`, in
         #: milliseconds. Zero until somebody tells us (`set_reset`), and then the day
@@ -61,6 +61,13 @@ class SecretDayBook:
         self._rows: "list | None" = None
         self._schedule = None
         self._fitted = False
+        #: The age cycle and the ages behind it — the same lazy-and-thrown-away pair.
+        self._calendar = None
+        self._calendared = False
+        #: `{warzone: days open today}`. Handed in by a test that must not depend on
+        #: which warzones THIS machine happens to have read; read off the machine's list
+        #: (:meth:`ages`) in every other caller.
+        self._ages: "dict | None" = None if ages is None else dict(ages)
         #: Rows handed to the writer thread but not necessarily committed yet. A press
         #: redraws the grid in the same tick it was made, and the writer commits a
         #: moment later — without this the row a person just wrote down would be missing
@@ -145,6 +152,48 @@ class SecretDayBook:
             self._fitted = True
         return self._schedule
 
+    # -- the other cycle: the one a warzone's AGE decides ---------------------
+    def ages(self) -> dict:
+        """`{warzone: how many days it has been open today}`, off the machine's list.
+
+        Computed from the OPENING MOMENT rather than from the `day` the list happens to
+        have stored: that number was true on the day somebody pressed «Обновить», and a
+        cache a fortnight old would answer a fortnight late. The opening moment does not
+        age (`docs/research/server-info.md`), so the count is re-derived here against the
+        game's own day boundary every time.
+        """
+        if self._ages is None:
+            from .paths import ensure
+
+            ensure()
+            import server_list
+
+            out = {}
+            today = self.today()
+            for row in server_list.rows(server_list.load()):
+                opened = row.get("open_ms")
+                if not opened:
+                    continue
+                try:
+                    born = model.day_index(int(opened), self.reset_ms)
+                except (TypeError, ValueError):
+                    continue
+                out[int(row["id"])] = today - born + 1      # day 1 is opening day
+            self._ages = out
+        return self._ages
+
+    def calendar(self):
+        """The cycle keyed by a warzone's age, or None while it cannot be fitted."""
+        if not self._calendared:
+            self._calendar = model.fit_calendar(self.observations(), self.ages(),
+                                                self.today())
+            self._calendared = True
+        return self._calendar
+
+    def _known(self) -> dict:
+        """What every answer is given: the age cycle, the ages, and which day is today."""
+        return {"calendar": self.calendar(), "ages": self.ages(), "today": self.today()}
+
     def answer(self, server, day=None, fact=None) -> dict:
         """What that warzone is doing, and when it changes — one dict for both screens.
 
@@ -155,8 +204,9 @@ class SecretDayBook:
         when = self.today() if day is None else int(day)
         rows = self.observations()
         plan = self.schedule()
-        said = model.answer(plan, rows, server, when, fact=fact)
-        turn = model.next_change(plan, rows, server, when)
+        known = self._known()
+        said = model.answer(plan, rows, server, when, fact=fact, **known)
+        turn = model.next_change(plan, rows, server, when, **known)
         said["until_day"] = None if turn is None else turn["day"]
         said["until_state"] = None if turn is None else turn["state"]
         said["until_in_days"] = None if turn is None else turn["in_days"]
@@ -207,10 +257,11 @@ class SecretDayBook:
         when = self.today() if day is None else int(day)
         plan = self.schedule()
         seen = self.observations()
+        known = self._known()
         out = []
         for row in rows or ():
-            said = model.answer(plan, seen, int(row.get("id") or 0), when)
-            turn = model.next_change(plan, seen, int(row.get("id") or 0), when)
+            said = model.answer(plan, seen, int(row.get("id") or 0), when, **known)
+            turn = model.next_change(plan, seen, int(row.get("id") or 0), when, **known)
             fresh = dict(row)
             fresh["secret_state"] = said["state"]
             fresh["secret_source"] = said["source"]
@@ -229,14 +280,36 @@ class SecretDayBook:
         rows = self.observations()
         out = model.summary(self.schedule(), rows)
         out["reset_ms"] = self.reset_ms
+        # …and the age cycle beside the fitted one: its length, and how much of the book
+        # it argues with. A person judging whether to believe a cell needs both.
+        calendar = self.calendar()
+        out["calendar_period"] = None if calendar is None else calendar.period
+        out["calendar_coverage"] = 0 if calendar is None else calendar.coverage
+        out["calendar_conflicts"] = len(model.calendar_conflicts(
+            calendar, rows, self.ages(), self.today()))
+        out["dated"] = len(self.ages())
+        # WHAT THE STATUS LINE SAYS is about the cycle that is actually answering: the
+        # per-warzone fit while there is one, the age cycle otherwise — and the count of
+        # disagreements covers BOTH, because a person deciding whether to believe a cell
+        # is owed every sighting either of them argues with, not the tidier half.
+        if out["period"] is None:
+            out["period"] = out["calendar_period"]
+        out["conflicts"] = len(self.conflicts())
         return out
 
     def conflicts(self) -> list:
-        """Every observation the fitted cycle contradicts — the graph's own alarm."""
-        return model.conflicts(self.schedule(), self.observations())
+        """Every observation either cycle contradicts — the graph's own alarm."""
+        rows = self.observations()
+        return (model.conflicts(self.schedule(), rows)
+                + model.calendar_conflicts(self.calendar(), rows, self.ages(),
+                                           self.today()))
 
     # -- housekeeping ---------------------------------------------------------
     def _forget_cache(self) -> None:
         self._rows = None
         self._schedule = None
         self._fitted = False
+        self._calendar = None
+        self._calendared = False
+        # NOT the ages: they come from the machine's warzone list and from the game's day
+        # boundary, and neither moves because somebody wrote an observation down.

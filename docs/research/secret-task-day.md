@@ -96,6 +96,7 @@ Four sources, in order, and every answer carries which one it is:
 | `observed` | somebody wrote down what that warzone did that day (or the counts were labelled by the calibration) |
 | `schedule` | the fitted cycle, on a warzone that has sightings of its own |
 | `neighbour` | the same cycle, on a warzone borrowing its nearest neighbour's offset |
+| `calendar` | the three-day cycle, placed by the warzone's own AGE — see §4.5 |
 | `unknown` | nothing is known, and nothing is being claimed |
 
 **The self-check is the point.** `conflicts()` returns every observation the fitted cycle
@@ -106,6 +107,37 @@ lie says so instead of agreeing with itself.
 Too little data fits NOTHING: fewer than three labelled sightings, or sightings from fewer
 than two distinct days, and there is no schedule at all. Any period fits a single day
 perfectly, which is the failure this guards against.
+
+## 4.5 The cycle is THREE DAYS, and a warzone's own age says where it stands
+
+A player-made cycle chart was handed in as a cross-check. It is a third-party ESTIMATE and
+says so on its own face — «estimates based on server start dates and may be slightly off» —
+but its method is the interesting part, and the panel could test it against readings of the
+game it already holds.
+
+Checked against this machine's own opening dates (`get.other.server.info`, thousands of
+warzones on file), over one block of 128 consecutive warzones:
+
+* the chart's three groups — «today», «tomorrow», «in two days» — are **exactly the three
+  residue classes of the warzone's AGE modulo 3**, where age is whole game-days since it
+  opened;
+* the class sizes the panel computed from its own dates — 36 / 44 / 48 — are the three
+  numbers the chart prints on its own tabs, to the warzone.
+
+So the star day walks a **three-day cycle**, and where a warzone stands in it is decided by
+when that warzone OPENED. That is the closest thing to a fact this question has: the
+opening moment is read from the game, and the arithmetic on top of it is fitted here rather
+than assumed (`fit_calendar`, `tools/lib/secret_day.py`).
+
+Fitted from the panel's own book after the chart's day-set was written down as
+observations: **period 3, zero disagreements**, one phase «day» and one «plain», the third
+phase still unknown because nothing has been written down about it yet.
+
+**What the third phase is, is the open question.** Geometrically the class whose day was
+YESTERDAY is today's post-day, and the class whose day is TOMORROW is an ordinary day. The
+player's own description of a neighbouring block labelled those two the other way round.
+Nothing here guesses: the phase stays `unknown` until an observation lands on it, and one
+mark on each of the two classes settles it for every warzone at once.
 
 ## 5. Where it lives and what draws it
 

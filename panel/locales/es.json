@@ -457,6 +457,7 @@
   "servers.secret.state.unknown": "—",
   "servers.secret.src.game": "juego",
   "servers.secret.src.observed": "observación",
+  "servers.secret.src.calendar": "fecha de apertura",
   "servers.secret.src.schedule": "ciclo",
   "servers.secret.src.neighbour": "vecino",
   "servers.secret.src.unknown": "—",

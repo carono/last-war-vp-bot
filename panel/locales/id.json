@@ -457,6 +457,7 @@
   "servers.secret.state.unknown": "—",
   "servers.secret.src.game": "gim",
   "servers.secret.src.observed": "pengamatan",
+  "servers.secret.src.calendar": "tanggal buka",
   "servers.secret.src.schedule": "siklus",
   "servers.secret.src.neighbour": "tetangga",
   "servers.secret.src.unknown": "—",

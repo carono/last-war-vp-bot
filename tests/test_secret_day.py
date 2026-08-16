@@ -247,12 +247,88 @@ def test_an_observation_with_no_counts_and_no_label_stays_out_of_the_fit() -> No
     assert BASE + 3 not in schedule.offsets
 
 
+# -- the other cycle: the one a warzone's AGE decides ------------------------
+#
+# A block of neighbouring warzones opens a few days apart, so «how old is it» walks the
+# same three states the fitted cycle does — and the panel knows the opening moment of
+# thousands of warzones without asking anybody. The ages below are invented and so are
+# the warzone numbers; what is real is the shape.
+AGES = {BASE + n: 700 + n for n in range(12)}
+
+
+def _aged_sightings(days=range(0, 4)) -> list:
+    """What a watcher would have written down if the state followed a warzone's age."""
+    out = []
+    for server, age in AGES.items():
+        for day in days:
+            state = CYCLE[(age + day) % len(CYCLE)]
+            out.append(sd.observation(server, day, state, sd.SOURCE_OBSERVED))
+    return out
+
+
+def test_the_age_cycle_is_found_and_answers_a_warzone_nobody_watched() -> None:
+    """The point of it: an opening date is a reading of the GAME, not a neighbour's habit."""
+    seen = _aged_sightings()
+    cal = sd.fit_calendar(seen, AGES, today=0)
+    assert cal is not None and cal.period == len(CYCLE) and cal.clash == 0
+    stranger, age = BASE + 500, 1234           # never observed, but its age is known
+    said = sd.answer(None, seen, stranger, 0, calendar=cal,
+                     ages={**AGES, stranger: age}, today=0)
+    assert said["source"] == sd.SOURCE_CALENDAR
+    assert said["state"] == CYCLE[age % len(CYCLE)]
+
+
+def test_one_state_fits_every_period_and_is_therefore_refused() -> None:
+    """36 warzones all marked «day» on one date explain P=2 as well as P=3."""
+    one_state = [sd.observation(BASE + n, 0, sd.STATE_DAY) for n in range(9)]
+    assert sd.fit_calendar(one_state, AGES, today=0) is None
+
+
+def test_the_age_cycle_reports_what_it_cannot_explain() -> None:
+    """Its own half of the self-check, in the same shape as the fitted cycle's."""
+    seen = _aged_sightings()
+    cal = sd.fit_calendar(seen, AGES, today=0)
+    assert sd.calendar_conflicts(cal, seen, AGES, 0) == []
+    odd = sd.observation(BASE, 0, CYCLE[(AGES[BASE] + 1) % len(CYCLE)])
+    if odd["state"] != CYCLE[AGES[BASE] % len(CYCLE)]:
+        clash = sd.calendar_conflicts(cal, seen + [odd], AGES, 0)
+        assert clash and clash[0]["server"] == BASE
+
+
+def test_an_age_answer_gives_way_to_a_fact_and_to_a_sighting() -> None:
+    """The order of trust does not change because a second cycle joined it."""
+    seen = _aged_sightings()
+    cal = sd.fit_calendar(seen, AGES, today=0)
+    said = sd.answer(None, seen, BASE, 0, fact=sd.STATE_POST, calendar=cal,
+                     ages=AGES, today=0)
+    assert (said["state"], said["source"]) == (sd.STATE_POST, sd.SOURCE_GAME)
+    said = sd.answer(None, seen, BASE, 0, calendar=cal, ages=AGES, today=0)
+    assert said["source"] == sd.SOURCE_OBSERVED
+
+
+def test_the_turn_over_is_answerable_off_the_age_cycle_alone() -> None:
+    """«Когда сменится» must work for a warzone that has only an opening date."""
+    seen = _aged_sightings()
+    cal = sd.fit_calendar(seen, AGES, today=0)
+    stranger = BASE + 700
+    ages = {**AGES, stranger: 999}
+    turn = sd.next_change(None, seen, stranger, 0, calendar=cal, ages=ages, today=0)
+    assert turn is not None and 1 <= turn["in_days"] <= cal.period
+    assert turn["state"] != sd.answer(None, seen, stranger, 0, calendar=cal,
+                                      ages=ages, today=0)["state"]
+
+
 # -- the book: the profile's own database ------------------------------------
-def _book():
-    """A book on a throwaway database — the real store, the real migrations."""
+def _book(ages=None):
+    """A book on a throwaway database — the real store, the real migrations.
+
+    The ages are handed in rather than read off this machine's warzone list: a test that
+    fell back to `cache/servers.json` would pass or fail depending on which warzones the
+    computer running it happens to have asked the game about.
+    """
     tmp = tempfile.mkdtemp(prefix="secretday-")
     store = storemod.Store(str(Path(tmp) / "panel.db"))
-    book = bookmod.SecretDayBook(store, reset_ms=2 * 3_600_000)
+    book = bookmod.SecretDayBook(store, reset_ms=2 * 3_600_000, ages=ages or {})
     return book, store
 
 
@@ -317,7 +393,7 @@ def test_a_reading_from_a_client_with_no_clock_is_not_written_down() -> None:
 
 def test_every_drawn_row_carries_the_answer_as_locale_keys() -> None:
     """Both front-ends draw off `decorate`, and neither is handed a sentence."""
-    book, store = _book()
+    book, store = _book()          # no opening dates: the fitted cycle answers alone
     for row in _sightings():
         book.record(row["server"], row["day"], row["state"], row["source"])
     store.flush()
@@ -338,6 +414,21 @@ def test_the_book_says_how_much_it_disagrees_with_itself() -> None:
     facts = book.summary()
     assert facts["servers"] == 3 and facts["days"] == 14
     assert facts["period"] == len(CYCLE) and facts["conflicts"] == 0
+    store.close()
+
+
+def test_the_book_answers_a_warzone_it_has_never_seen_off_its_opening_date() -> None:
+    """The whole point of the age cycle, through the book both front-ends call."""
+    book, store = _book(ages={**AGES, BASE + 400: 1234})
+    for row in _aged_sightings():
+        book.record(row["server"], row["day"], row["state"], row["source"])
+    store.flush()
+    book.set_reset(2 * 3_600_000)
+    said = book.answer(BASE + 400, day=book.today())
+    assert said["source"] in (sd.SOURCE_CALENDAR, sd.SOURCE_UNKNOWN)
+    facts = book.summary()
+    assert facts["dated"] == len(AGES) + 1
+    assert facts["calendar_conflicts"] == 0
     store.close()
 
 

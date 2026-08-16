@@ -457,6 +457,7 @@
   "servers.secret.state.unknown": "—",
   "servers.secret.src.game": "oyun",
   "servers.secret.src.observed": "gözlem",
+  "servers.secret.src.calendar": "açılış tarihi",
   "servers.secret.src.schedule": "döngü",
   "servers.secret.src.neighbour": "komşu",
   "servers.secret.src.unknown": "—",
