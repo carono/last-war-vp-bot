@@ -165,6 +165,15 @@ taken from the game rather than a typo.
 * **The phone:** the same two readings as facts on each warzone's card, the graph's health
   on the head card, and the same four presses — the three marks ask which warzone, since a
   phone has no selected row.
+* **«Куда идти сегодня»** — the magnifier beside the «Сервер» box on the ★ tab
+  (`panel/tabs/secret_tasks/server_picker.py`): a grid of the warzones AROUND the one the
+  box is holding, coloured by today's state, and a cell is a JUMP rather than a number
+  typed in. The slice is a run of consecutive numbers (`server_list.neighbourhood`),
+  agreed with the operator over the two season groupings the config offers — a season plan
+  row groups nine warzones and a season numeral four hundred, and neither is the block a
+  person hunts in, while consecutive numbers are consecutive ages and the cycle is a
+  function of age. The phone gets the same warzones in the same order as items, with the
+  same press behind each (`SecretTasksTab.picker_rows` builds both).
 
 A mark is an OBSERVATION, never a tick: the panel is not keeping a second copy of something
 the game would answer, because the game does not answer this at all. That is the line

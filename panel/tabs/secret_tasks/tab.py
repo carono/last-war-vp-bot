@@ -122,6 +122,13 @@ LINK_COLUMN, ACTION_COLUMN = grid.LINK_COLUMN, grid.ACTION_COLUMN
 # so it belongs to the profile like every other setting here.
 JUMP_HISTORY_MAX = 20
 
+# Where a jump lands on a warzone nobody named a tile on — the middle of the map (#1467).
+# Every warzone is the same 1000×1000 grid (`lua_actions.fast_map_sweep` asks the scene
+# and falls back to the same number), and the middle is where a person looking for tasks
+# starts. Only ever used when the tab's own X/Y boxes are empty: with a tile in them, the
+# picker's press is «the same tile on the next warzone».
+MAP_MIDDLE = 500
+
 # How often a RAIDABLE row is re-read from the game. «Проверять их очень часто ПОСЛЕ
 # того, как они готовы» (#1272) — and it used to be thirty seconds, on the theory that a
 # raidable tile lives for minutes. It does not: it lives until the first person reaches
@@ -1002,6 +1009,12 @@ class SecretTasksTab(PanelTab):
                 "coord.jump").pack(side="left", padx=4, ipady=2)
         self.tr(ttk.Button(box, command=self._load_current_server),
                 "coord.reload_server").pack(side="left", padx=4)
+        # WHERE TO GO TODAY (#1467). The magnifier beside the box opens the grid of
+        # neighbouring warzones coloured by their star-secret day, and a cell in it is a
+        # jump rather than a number typed into the field beside it. The phone draws the
+        # same grid as items on this tab's own screen.
+        self.tr(ttk.Button(box, width=3, command=self._open_server_picker),
+                "secrettasks.picker.open").pack(side="left")
         # HOW FAR BACK THE CAMERA SITS, on the bar that moves it (#1265). It governs
         # every jump this tab makes and the lap beside it, and the three choices are
         # named by what they are FOR: one tile to read, the height secret tasks still
@@ -1953,6 +1966,75 @@ class SecretTasksTab(PanelTab):
         # with no server named changes nothing: the client stayed where it was.
         if server:
             self.coord_srv_var.set(str(int(server)))
+
+    # -- «Куда идти сегодня»: the neighbourhood grid (#1467) ------------------
+    def _open_server_picker(self) -> None:
+        """The magnifier: open the grid of neighbouring warzones (window only)."""
+        from . import server_picker
+
+        server_picker.open_picker(self)
+
+    def picker_rows(self) -> list:
+        """The warzones around ours with today's star-day state — BOTH front-ends.
+
+        Here rather than in either of them because the window's grid and the phone's list
+        are the same reading, and a list built twice is a list that drifts. It reads two
+        things already on disk — the machine's warzone list and this profile's book of
+        star-days — and asks the game nothing, which is what a screen is allowed to cost.
+        """
+        from ...runtime.paths import ensure
+
+        ensure()
+        import server_list
+
+        data = server_list.load()
+        around = self._picker_centre()
+        ids = server_list.neighbourhood(data, around)
+        book = self.rt.secret_days
+        drawn = book.decorate([{"id": server} for server in ids])
+        return [{"server": int(row["id"]),
+                 "state": row.get("secret_state") or "unknown",
+                 "state_key": row.get("secret_state_key"),
+                 "source_key": row.get("secret_source_key"),
+                 "until": row.get("secret_until") or "—"}
+                for row in drawn]
+
+    def _picker_centre(self) -> int:
+        """Which warzone the grid is drawn around: the «Сервер» box, else our own.
+
+        The box is what every jump on this tab already writes into (#1280), so the grid
+        follows the person around instead of always looking at home.
+        """
+        typed = (self.coord_srv_var.get() or "").strip()
+        if typed.isdigit() and int(typed) > 0:
+            return int(typed)
+        # Nothing typed: the ★ list's own rows know which warzone this account is on
+        # (`_own_server`, filled by «↻ сервер» and by every read that names it). Zero is
+        # a perfectly good answer — the neighbourhood then starts at the lowest warzone
+        # the list holds rather than pretending to know where we are.
+        return int(getattr(self, "_own_server", 0) or 0)
+
+    def jump_to_server(self, server) -> None:
+        """Go to that warzone — the click a cell of the grid (or of the phone) makes.
+
+        The coordinates are the ones the tab's own boxes are holding, so «the same tile
+        on the next warzone» is one press; with the boxes empty it lands in the middle of
+        the map, which is where a person looking for tasks wants to start. The jump
+        itself is `rt.game.jump`, the same one every coordinate in the panel walks
+        through — nothing here assembles Lua (`CLAUDE.md`).
+        """
+        try:
+            where = int(server)
+        except (TypeError, ValueError):
+            return
+        if where <= 0:
+            return
+        x = self.coord_x_var.get().strip()
+        y = self.coord_y_var.get().strip()
+        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
+            x, y = str(MAP_MIDDLE), str(MAP_MIDDLE)
+        self.say("coord", "log.picker.jump", srv=where)
+        self._jump(int(x), int(y), where)
 
     def _goto_coord(self) -> None:
         """«Перейти»: the three boxes, validated, then the same jump as everything else."""
@@ -3268,7 +3350,8 @@ class SecretTasksTab(PanelTab):
         # under the checkbox (#1294). Empty until a sprint has run, and a row that would
         # say nothing is left off the card rather than drawn blank.
         assist_tally = self.autoassist.tally_text()
-        return {"cards": [{"title": "secret.autoloot.frame",
+        return {"cards": [self._picker_card(),
+                          {"title": "secret.autoloot.frame",
                            # The RULE as well as the state (#1256): the window draws the
                            # two side by side under the checkbox, and «минимальный
                            # уровень» is the one number that decides where the day's five
@@ -3504,6 +3587,42 @@ class SecretTasksTab(PanelTab):
                           if self.ghost_map.monitor_var.get()
                           else "secret.monitoring.ghost.on")}
 
+    def _picker_card(self) -> dict:
+        """«Куда идти сегодня» — the window's magnifier grid, as the phone's card (#1467).
+
+        The SAME rows the window's grid draws (`picker_rows`) and the same press behind
+        each of them, because a phone that could see the grid and not walk to a warzone
+        would be half the tool — and the jump is `rt.game.jump` through the tab's own
+        `jump_to_server`, a scenario-free camera move the phone has always been allowed
+        to make (the coordinate links on this very screen do it).
+
+        A cell is an ITEM rather than a button in a row: the phone has no grid to draw,
+        so what it gets is the same warzones in the same order, each with the state, where
+        the answer came from and when it turns over — and «Перейти» on each.
+        """
+        rows = self.picker_rows()
+        tally = {"day": 0, "post": 0, "plain": 0, "unknown": 0}
+        items = []
+        for row in rows:
+            tally[row["state"]] = tally.get(row["state"], 0) + 1
+            items.append({"text": str(row["server"]),
+                          "facts": [{"label": "servers.secret.source",
+                                     "value": row["source_key"], "translate": True},
+                                    {"label": "servers.col.secret_until",
+                                     "value": row["until"]}],
+                          "pill": row["state_key"],
+                          "actions": [{"id": "jump_server",
+                                       "label": "secrettasks.picker.go",
+                                       "args": {"server": row["server"]}}]})
+        return {"title": "secrettasks.picker.title",
+                "rows": [{"label": "servers.secret.state.day", "value": str(tally["day"])},
+                         {"label": "servers.secret.state.post",
+                          "value": str(tally["post"])},
+                         {"label": "servers.secret.state.plain",
+                          "value": str(tally["plain"])}],
+                "items": items,
+                "empty": "secrettasks.picker.empty"}
+
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить», and the two display rules the phone may change.
 
@@ -3516,6 +3635,17 @@ class SecretTasksTab(PanelTab):
         if action == "refresh":
             # The window's «Обновить» refreshes both tables, so the phone's does too.
             self.refresh_both()
+            return {"ok": True}
+        if action == "jump_server":
+            # A cell of the star-day grid (#1467) — the same press the window's magnifier
+            # makes, through the same `jump_to_server`.
+            try:
+                where = int(args.get("server") or args.get("text") or 0)
+            except (TypeError, ValueError):
+                return {"ok": False, "reason": "secrettasks.picker.bad_server"}
+            if where <= 0:
+                return {"ok": False, "reason": "secrettasks.picker.bad_server"}
+            self.post(lambda: self.jump_to_server(where))
             return {"ok": True}
         if action == "show_spent":
             self.post(self._toggle_show_spent)

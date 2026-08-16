@@ -186,5 +186,52 @@ def _main() -> int:
     return 1 if failed else 0
 
 
+# -- the picker's slice (#1467) ----------------------------------------------
+def _list(ids) -> dict:
+    """A cache holding just these warzone numbers — invented, like every id here."""
+    return {"servers": {str(i): {"id": i, "name": "State#%d" % i} for i in ids}}
+
+
+def test_the_neighbourhood_is_a_run_of_numbers_around_the_one_asked_about() -> None:
+    """Consecutive numbers are consecutive opening dates — the slice the picker draws."""
+    data = _list(range(1000, 1200))
+    got = S.neighbourhood(data, 1100, span=10)
+    assert got == list(range(1095, 1105))
+    assert len(got) == 10
+
+
+def test_the_window_slides_off_neither_end() -> None:
+    """At the first warzone and at the newest it stays `span` long instead of shrinking."""
+    data = _list(range(1000, 1200))
+    assert S.neighbourhood(data, 1000, span=10) == list(range(1000, 1010))
+    assert S.neighbourhood(data, 1199, span=10) == list(range(1190, 1200))
+
+
+def test_a_gap_in_the_games_numbering_is_not_invented_over() -> None:
+    """A cell for a warzone the list does not carry would offer a jump to nowhere."""
+    data = _list([1000, 1001, 1005, 1006, 1007])
+    assert S.neighbourhood(data, 1003, span=4) == [1000, 1001, 1005, 1006]
+
+
+def test_a_distant_block_of_numbers_is_not_a_neighbourhood() -> None:
+    """The game numbers a separate block far above the ordinary warzones (#1467).
+
+    A window taken by POSITION slid into it the moment the centre was past the newest
+    ordinary warzone — live, half a grid drawn out of numbers five thousand away. A
+    neighbour further than the span is not offered at all.
+    """
+    data = _list(list(range(1000, 1064)) + list(range(9000, 9064)))
+    got = S.neighbourhood(data, 1060, span=32)
+    assert got and max(got) < 9000
+    assert got == [i for i in range(1044, 1064)] or set(got) <= set(range(1000, 1064))
+
+
+def test_a_shorter_list_than_the_span_is_all_of_it() -> None:
+    """Three warzones on file are three cells, not a slice padded to a hundred."""
+    data = _list([7, 8, 9])
+    assert S.neighbourhood(data, 8, span=128) == [7, 8, 9]
+    assert S.neighbourhood({"servers": {}}, 8) == []
+
+
 if __name__ == "__main__":
     raise SystemExit(_main())

@@ -369,6 +369,50 @@ def undated(data: dict) -> list:
     return [int(row["id"]) for row in rows(data) if not row.get("open_ms")]
 
 
+#: How many warzones the picker shows around the account's own (#1467). The block the
+#: operator works in is a run of consecutive NUMBERS, which is also a run of consecutive
+#: ages — and the star-day cycle is decided by age, so a numeric neighbourhood is the
+#: slice on which «where do I go today» has an answer at every cell.
+NEIGHBOURHOOD = 128
+
+
+def neighbourhood(data: dict, server, span: int = NEIGHBOURHOOD) -> list:
+    """The `span` warzones around `server`, by NUMBER, lowest first.
+
+    Why by number and not by the season plan: a season row groups nine warzones (the
+    cross-server match group) and a season NUMERAL groups four hundred, and neither is
+    the block a person hunts in. Consecutive numbers are consecutive opening dates, which
+    is what the star-day cycle is a function of — so this slice is the one where every
+    cell has a state worth reading. Agreed with the operator for the picker (#1467).
+
+    The window is centred on `server` and slides off neither end: near the first warzone
+    the game ever opened it starts at the beginning, near the newest it stops at the
+    newest, and either way it is `span` long while there are that many to show. Warzones
+    the list does not carry are simply absent — the game's own numbering has gaps, and
+    inventing cells for them would offer a jump to nowhere.
+    """
+    known = [int(row["id"]) for row in rows(data)]
+    if not known:
+        return []
+    span = max(1, int(span))
+    try:
+        centre = int(server)
+    except (TypeError, ValueError):
+        centre = known[0]
+    # NEIGHBOURS ARE NEIGHBOURS BY NUMBER, and the window is bounded by DISTANCE as well
+    # as by count. The game's numbering has a separate block high above the ordinary
+    # warzones — «State#8xxx», which the list reports with the same kind as any other —
+    # and a plain «take `span` entries around this position» slid straight into it the
+    # moment the centre was past the newest ordinary warzone: live, a picker centred just
+    # beyond the end drew half its grid out of a block five thousand numbers away. A
+    # neighbour more than `span` away is not a neighbour, so it is not offered at all.
+    near = [i for i in known if abs(i - centre) <= span]
+    if not near:
+        return []
+    near.sort(key=lambda i: (abs(i - centre), i))
+    return sorted(near[:span])
+
+
 # ---------------------------------------------------------------------------
 # How it is SHOWN. Here and not in the panel because both front-ends draw the same
 # rows — the window's grid (`panel/runtime/servers_dialog.py`) and the phone's screen
