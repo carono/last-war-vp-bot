@@ -109,6 +109,18 @@ weighted middle of the weak units, stepping 4.5 aside when a heavy one shares th
 still — **running away from the heavy lane loses stage 1 outright**, because the squad
 grows on what walks into it.
 
+**Stage 20455 is not a steering problem, and the telemetry says why.** The ring of the
+last ten samples on a losing run reads `x36 n18 f0 h1968` for the whole run: eighteen
+soldiers, **not one weak unit anywhere within eighteen of the squad** to grow on, and
+about 1 900 hit points of heavy ones walking in. Every other stage hands the squad
+something to eat in the first seconds; this one does not. So what it wants is a squad
+that arrives already large — and soldiers do not carry between stages — or an account
+whose units simply out-damage the wave.
+
+**Settling in the middle first is worse, not better** (`-9`: hold the middle for 120
+frames, then feed). One win in eight on stage 20452 against `-2`'s 22 in 39. The early
+seconds are exactly when the squad needs to be where the weak units are.
+
 **A cleared stage is worth at most sixty units** (`special_stage_tips_01`). Stage 1 alone
 pays that full sixty in about forty seconds, while stage 3 leaves five soldiers standing
 after a minute — so depth is worth having for the event's ranking and stage 1 is where
@@ -145,3 +157,13 @@ fine clock for «how long did that stage last».
   immediately calls a win «unknown».
 * A client that has been kicked answers every read plausibly and sends nothing: a stage
   that ends with soldiers standing and no verdict at all is that, not a loss.
+* **A per-frame hook must never be the thing that raises.** One unprotected
+  `team:GetPosition()` inside the `OnUpdate` wrapper froze the client mid-battle: the Lua
+  daemon went `busy` for seventeen minutes, every `READ_LUA` queued behind it, and the
+  session sat at `WAIT 3` with no error line in any log. The tell is `daemon.busy` staying
+  true in `/api/state` while the run's `secs` climbs. Recovery is a client restart
+  (`POST /api/game {"action":"restart"}`), and the cure is `pcall` around everything the
+  hook does per frame.
+* A session dies silently when the panel restarts under it — another agent pressing
+  «⟳ Перезапустить панель» is enough — so anything meant to grind for hours needs
+  something outside the panel to notice and press play again.
