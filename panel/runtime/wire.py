@@ -103,6 +103,13 @@ class WireHub:
         # `_lock`, because the markers arrive on the child's reader thread.
         self._heard: dict = {}
         self._heard_said = 0.0         # monotonic of the last roll-up line
+        # A PROOF OF LIFE PER PATTERN (#1416). «Пропускаются события» cannot be told
+        # from «событий не было» by looking at a subscription: both are a listener that
+        # is quietly there. So every match is counted against the pattern it matched,
+        # with the moment it arrived and the command it was — which is what «Занятость»
+        # draws, and the only way a silent ear can say that it is silent.
+        # `pattern -> [count, monotonic of the last, the last command]`.
+        self._seen: dict = {}
 
     # -- subscribing ---------------------------------------------------------
     def subscribe(self, pattern: str, on_fire):
@@ -140,6 +147,33 @@ class WireHub:
         """How many subscriptions the one ear is serving — what the saving is made of."""
         with self._lock:
             return len(self._subs)
+
+    def report(self) -> list:
+        """What this ear is listening for, and whether anything has come (#1416).
+
+        One entry per PATTERN — the unit a person thinks in — carrying how many
+        subscribers hang off it, how many matches have arrived, when the last one did
+        (`time.monotonic`, or `0.0` for never) and what it was. No words: whoever draws
+        it says them (`CLAUDE.md`).
+
+        `alive` is the capture child's own state rather than «somebody subscribed»: an
+        ear whose process has died still has its subscriptions, and that is exactly the
+        case this exists to make visible.
+        """
+        proc = self._proc
+        alive = bool(proc is not None and getattr(proc, "alive", False))
+        with self._lock:
+            counts: dict = {}
+            for pattern, _cb in self._subs.values():
+                counts[pattern] = counts.get(pattern, 0) + 1
+            seen = dict(self._seen)
+        out = []
+        for pattern in sorted(counts):
+            heard, when, command = seen.get(pattern, (0, 0.0, ""))
+            out.append({"pattern": pattern, "subscribers": counts[pattern],
+                        "heard": heard, "last": when, "command": command,
+                        "alive": alive})
+        return out
 
     # -- the child ------------------------------------------------------------
     def _sync(self) -> None:
@@ -238,6 +272,9 @@ class WireHub:
             wanted = [(pattern, cb) for pattern, cb in self._subs.values()]
         for pattern, callback in wanted:
             if pattern in command:
+                with self._lock:
+                    heard, _when, _cmd = self._seen.get(pattern, (0, 0.0, ""))
+                    self._seen[pattern] = (heard + 1, time.monotonic(), command)
                 try:
                     callback(command)
                 except Exception:       # noqa: BLE001 — never let one kill the ear

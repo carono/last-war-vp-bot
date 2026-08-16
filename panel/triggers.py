@@ -965,6 +965,13 @@ class TriggerWatcher:
         # The fire roll-up, per trigger: [locale key last said, fires counted since,
         # monotonic of that line]. See :data:`FIRE_NOTE_SEC`.
         self._fires: dict[str, list] = {}
+        # …and the plain tally behind that roll-up: `name -> [fires, monotonic of the
+        # last]`. The roll-up above is about the LOG — it forgets its count every time it
+        # speaks — and «Занятость» needs the other question answered: has this standing
+        # order ever heard anything, and how long ago (#1416). A watcher that is up and
+        # has heard nothing all day looks identical to one that is working, and telling
+        # those two apart is the whole of «пропускаются события».
+        self._seen: dict[str, list] = {}
         self._started = False
 
     # -- lifecycle ----------------------------------------------------------
@@ -1104,6 +1111,7 @@ class TriggerWatcher:
         test's stub returning a plain bool — is said the way it always was. A fire is
         never silent.
         """
+        self._note_seen(trigger.name)
         if trigger.observe:
             # Says what it sees and stops there. The cure is somebody else's — for
             # `session_kick` it is `recovery.py` — and a second executor on one event is
@@ -1118,6 +1126,44 @@ class TriggerWatcher:
             return
         key = self._FIRE_WORDS.get(outcome, "triggers.log.fire")
         self._note_fire(trigger, key)
+
+    def _note_seen(self, name: str) -> None:
+        """Count a fire against its trigger — the tally «Занятость» reads (#1416)."""
+        with self._lock:
+            entry = self._seen.get(name)
+            if entry is None:
+                self._seen[name] = [1, time.monotonic()]
+            else:
+                entry[0] += 1
+                entry[1] = time.monotonic()
+
+    def report(self) -> list:
+        """Every trigger in the catalogue: what it listens to, and whether it has heard.
+
+        One entry per trigger — including the ones switched OFF, because «этот слушатель
+        выключен» is an answer and an empty row is not. `watching` is whether a listener
+        is actually up for it right now (a subscription or a poll thread), which is not
+        the same as `enabled`: a trigger whose tab is missing is enabled and not offered,
+        and that difference is exactly what a person hunting a missed push wants to see.
+
+        No words: names, flags and numbers. `last` is `time.monotonic()`, `0.0` for
+        «never heard anything».
+        """
+        with self._lock:
+            watching = set(self._listeners)
+            seen = {k: list(v) for k, v in self._seen.items()}
+        out = []
+        for trigger in self._catalogue():
+            fires, last = seen.get(trigger.name, [0, 0.0])
+            out.append({"name": trigger.name,
+                        "signal": trigger.signal(),
+                        "poll": bool(trigger.is_poll),
+                        "observe": bool(trigger.observe),
+                        "label": trigger.label_key or "",
+                        "title": trigger.title or "",
+                        "watching": trigger.name in watching,
+                        "fires": fires, "last": last})
+        return out
 
     def _note_fire(self, trigger, key: str) -> bool:
         """Say what became of this fire — rolled up while it keeps saying the same.

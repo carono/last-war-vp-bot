@@ -38,6 +38,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import time
 
 # CREATE_NO_WINDOW: a child spawned from a windowed process would otherwise flash
 # its own console. Same constant the panel uses for everything else it launches.
@@ -73,6 +74,13 @@ class ChildMonitor:
         # for, so it does not report it as one and does not run on_exit.
         self._stopping = False
         self._thread: "threading.Thread | None" = None
+        #: PROOF OF LIFE (#1416). A capture child that has gone deaf is still a running
+        #: process with a tidy log: nothing about `alive` can tell «слушает и молчит»
+        #: from «слушает и слышит». Its output can — every sniffer in this repo prints a
+        #: progress line as it works — so the reader counts what comes past and stamps
+        #: when. `time.monotonic`, and `0.0` for «not a line yet».
+        self.lines = 0
+        self.last_line_at = 0.0
 
     # -- lifecycle ----------------------------------------------------------
     def start(self) -> bool:
@@ -131,6 +139,8 @@ class ChildMonitor:
             if proc is not None and proc.stdout is not None:
                 for raw in proc.stdout:
                     line = raw.rstrip()
+                    self.lines += 1
+                    self.last_line_at = time.monotonic()
                     if self._on_line is not None:
                         # False = "handled, do not log it"; anything else logs.
                         if self._on_line(line) is False:

@@ -224,6 +224,10 @@ def snapshot(rt, *, top: int = TOP) -> dict:
         "threads": threads(profile),
         "slowest": history,
         "posted": _posted(rt),
+        # …and what this profile is LISTENING to, which is the other half of «почему
+        # ничего не происходит»: the sections above say what is being done, and this one
+        # says what should have woken it (#1416).
+        "listeners": listeners(rt, now),
     }
 
 
@@ -335,6 +339,127 @@ class StepWatch:
     def clear(self) -> None:
         self._seen.clear()
         self._done.clear()
+
+
+#: The capture children this panel starts, keyed by the tool that IS the listener, and
+#: the locale key that says what each one is FOR. A tag alone («secret», «trigger») names
+#: the slot rather than the job, and two very different sniffers share one tag.
+#:
+#: A tool this table has never heard of still gets a row — its own file name in the
+#: «what» column and no description — because a listener nobody wrote a line for is
+#: exactly the one somebody will be hunting (#1416).
+CHILD_KINDS = {
+    "secret_task_capture.py": "busy.listener.secret_tasks",
+    "secret_mission_capture.py": "busy.listener.ghost",
+    "secret_share_autoloot.py": "busy.listener.share_autoloot",
+    "rally_monitor.py": "busy.listener.rally",
+    "scan_leaderboard.py": "busy.listener.leaderboard",
+    "wire_event_monitor.py": "busy.listener.ear",
+    "chat_reader.py": "busy.listener.chat",
+    "map_capture.py": "busy.listener.map",
+}
+
+
+def _tool(cmd) -> str:
+    """`…/tools/secret_task_capture.py --json …` → `secret_task_capture.py`."""
+    for part in reversed(list(cmd or ())):
+        text = str(part)
+        if text.endswith(".py"):
+            return text.replace("\\", "/").rsplit("/", 1)[-1]
+    return str((cmd or [""])[0]).replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def listeners(rt, now: "float | None" = None) -> list:
+    """EVERYTHING THIS PROFILE IS LISTENING TO, and whether any of it is arriving (#1416).
+
+    «Пропускаются события» is unanswerable from a list of subscriptions: a listener that
+    has gone deaf and one over a quiet map look exactly the same — both are switched on,
+    both say nothing. So each row here carries three things, and the third is the one
+    that was missing:
+
+    * **what** — the stream or the event, as a key whoever draws it can say in words;
+    * **is it working** — `alive` (the process / the watch is up) AND `last` (when
+      something last came through it, `0.0` for never). Neither alone is proof: a live
+      process that has heard nothing since it started is the failure being hunted;
+    * **why it exists** — a `desc` key, so the row explains itself to somebody who did
+      not switch it on.
+
+    Three sources, because there are three kinds of listener in this panel:
+
+    1. **the profile's ear** (`rt.wire`) — one capture carrying every push pattern
+       anybody subscribed to, with the count per pattern;
+    2. **the standing orders** (`rt.triggers`) — the catalogue, INCLUDING the ones
+       switched off, because «выключен» is an answer;
+    3. **the capture children** (`rt.children`) — the sniffers with a life of their own:
+       the ★ tiles, the ghost squads, the rally banners, the leaderboards.
+
+    No Tk, no game, no I/O — dict reads and `time.monotonic`, like the rest of this
+    module. Not one word of it is a sentence.
+    """
+    now = time.monotonic() if now is None else now
+    out = []
+
+    hub = getattr(rt, "wire", None)
+    if hub is not None and hasattr(hub, "report"):
+        try:
+            rows = hub.report()
+        except Exception:                     # noqa: BLE001 — a debugger never raises
+            rows = []
+        for row in rows:
+            last = float(row.get("last") or 0.0)
+            out.append({"kind": "wire", "what": str(row.get("pattern") or ""),
+                        "desc": "busy.listener.push", "alive": bool(row.get("alive")),
+                        "heard": int(row.get("heard") or 0),
+                        "since": (now - last) if last else None,
+                        "detail": str(row.get("command") or ""),
+                        "who": str(row.get("subscribers") or "")})
+
+    watcher = getattr(rt, "triggers", None)
+    if watcher is not None and hasattr(watcher, "report"):
+        try:
+            rows = watcher.report()
+        except Exception:                     # noqa: BLE001
+            rows = []
+        for row in rows:
+            last = float(row.get("last") or 0.0)
+            out.append({"kind": "poll" if row.get("poll") else "trigger",
+                        "what": str(row.get("name") or ""),
+                        "desc": str(row.get("label") or ""),
+                        "alive": bool(row.get("watching")),
+                        "heard": int(row.get("fires") or 0),
+                        "since": (now - last) if last else None,
+                        # A poll's `check` is a Lua chunk and a wire trigger's signal is
+                        # a command name; both are the answer to «на что смотрит».
+                        "detail": str(row.get("signal") or ""),
+                        "who": str(row.get("title") or "")})
+
+    factory = getattr(rt, "children", None)
+    if factory is not None:
+        try:
+            # A PROPERTY, not a call (`ChildFactory.live`) — and asking it is also what
+            # tidies a child that ended on its own, so the list here can never name a
+            # process that has been handed back to the machine.
+            kids = list(getattr(factory, "live", ()) or ())
+        except Exception:                     # noqa: BLE001
+            kids = []
+        for kid in kids:
+            tool = _tool(getattr(kid, "cmd", ()))
+            last = float(getattr(kid, "last_line_at", 0.0) or 0.0)
+            out.append({"kind": "capture", "what": tool,
+                        "desc": CHILD_KINDS.get(tool, ""),
+                        "alive": bool(getattr(kid, "alive", False)),
+                        "heard": int(getattr(kid, "lines", 0) or 0),
+                        "since": (now - last) if last else None,
+                        "detail": str(getattr(kid, "tag", "") or ""),
+                        "who": str(getattr(kid, "pid", "") or "")})
+    return out
+
+
+#: How long a listener may say nothing before the row is worth a second look. Not a rule
+#: anything acts on — a quiet map genuinely produces nothing — but five minutes is where
+#: «тихо» stops being ordinary for a ★ capture on a moving map or an ear with the rally
+#: pattern on it, which are the two people ask about.
+LISTENER_QUIET_SEC = 300.0
 
 
 def _posted(rt) -> int:
