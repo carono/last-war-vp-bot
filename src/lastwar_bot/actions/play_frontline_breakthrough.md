@@ -33,11 +33,16 @@
 # only thing that has ever cleared stages 2 and 3, and it arrives there with a handful of
 # soldiers. So the defaults feed on stage 1 and dodge from stage 2 on.
 #
+# It also claims what the event owes before and after the session
+# (`claim_frontline_breakthrough_rewards.md`): the three soldier boxes ride the
+# WARZONE's tally of soldiers saved that day, not this account's, so they come due while
+# the session runs and the event's red dot never lights up for them.
+#
 # Every stage is logged as `BREAKTHROUGH stage=… lane=… win=… left=… peak=…`, one line
 # each, so a session can be counted afterwards without watching it.
 
-ARGS rounds = 12
-ARGS lane1 = -2
+ARGS rounds = 20
+ARGS lane1 = 36
 ARGS lane2 = -5
 ARGS lane3 = -5
 ARGS lane4 = -5
@@ -57,12 +62,16 @@ IF fb_open != 1
 READ_LUA (function() local M=DataCenter.ActFrontBreakSundayDataManager local d=M.dataDict[M:GetFirstActId()] local e=d.info.extra or {} return string.format('next stage %s of %d, best so far %s soldiers on stage %s',tostring(d.nextStageId),#d.stageIds,tostring(e.maxL),tostring(e.maxS)) end)() INTO fb_intro
 LOG "frontline breakthrough: {fb_intro}"
 
+CALL claim_frontline_breakthrough_rewards
+
 READ_LUA 1 INTO fb_go
 
 WHILE fb_go == 1 LIMIT {rounds}
     CALL frontline_breakthrough_stage
     LOG "BREAKTHROUGH stage={fb_stage} lane={fb_lane_used} win={fb_win} left={fb_left} peak={fb_peak} moves={fb_moves} frames={fb_frames} next={fb_next}"
     READ_LUA (function() if tonumber(_G.__fb_stage)==20455 and tonumber(_G.__fb_won)==1 then return 0 end return 1 end)() INTO fb_go
+
+CALL claim_frontline_breakthrough_rewards
 
 READ_LUA (function() local M=DataCenter.ActFrontBreakSundayDataManager local e=M.dataDict[M:GetFirstActId()].info.extra or {} return string.format('best %s soldiers, deepest stage %s',tostring(e.maxL),tostring(e.maxS)) end)() INTO fb_done
 LOG "frontline breakthrough: done — {fb_done}"
