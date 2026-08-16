@@ -128,7 +128,30 @@ A mark is an OBSERVATION, never a tick: the panel is not keeping a second copy o
 the game would answer, because the game does not answer this at all. That is the line
 `CLAUDE.md` draws around a press that marks, and this stays the right side of it.
 
-## 6. What would make this unnecessary
+## 6. What is NOT wired yet
+
+**A lap of the map does not feed the book by itself.** Everything a lap uncovers is already
+in the ★ page's own list — every tile with its warzone, its level and whether it is starred
+— so the natural next source is a roll-up of «what a lap saw on warzone X today»,
+`stars/tiles`, written down as an observation of source `lap` exactly as the alliance
+counts are written down as source `game`. The place for it is where the checkpoint is
+merged (`panel/tabs/secret/tab.py::_merge` / `capture.py::on_line`), and the book's
+`record()` takes it unchanged — nothing else has to move. Until it is there, the book grows
+by the press and by a person's three marks only.
+
+**A wrong mark is corrected by marking again**, not by a «forget» button: the row's key is
+(warzone, day, source), so pressing another of the three overwrites today's mark for that
+warzone. `SecretDayBook.forget()` exists for a caller that needs to drop one outright and
+no front-end offers it yet.
+
+**Two panel-side lessons worth not re-learning.** `play_async` hands what a scenario READ to
+`on_result`; `on_done` is handed nothing, so recording a reading there records an empty
+dictionary («записано: серверов 0» about counts that had just arrived). And on the web API
+the profile travels as a QUERY parameter on a GET and as a FIELD IN THE BODY on a POST — a
+POST with `?profile=…` is answered by the ACTIVE profile, which is how three presses meant
+for one account landed on another's book.
+
+## 7. What would make this unnecessary
 
 A message, a config table or a push that names the day per warzone. Two places worth
 looking if one ever surfaces: the reply to `get.other.server.info` (today it carries an
