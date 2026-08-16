@@ -81,6 +81,7 @@ READ_LUA 1 INTO fb_go
 WHILE fb_go == 1 LIMIT {rounds}
     CALL frontline_breakthrough_stage
     LOG "BREAKTHROUGH stage={fb_stage} lane={fb_lane_used} win={fb_win} left={fb_left} peak={fb_peak} moves={fb_moves} frames={fb_frames} next={fb_next}"
+    LOG "BREAKTHROUGH tail {fb_tail}"
     READ_LUA (function() if tonumber(_G.__fb_stage)==20455 and tonumber(_G.__fb_won)==1 then return 0 end return 1 end)() INTO fb_go
 
 CALL claim_frontline_breakthrough_rewards
