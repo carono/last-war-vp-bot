@@ -8349,20 +8349,188 @@ def recruit_moved() -> str:
 RADAR_HELP_EVENT_TYPE = 18
 
 
-def radar_fetch_board(open_window: bool = True) -> str:
+def radar_fetch_board() -> str:
     """Ask the server for the radar board — `get.detect.info`.
 
     The reply is what fills the client's own list, so this is the read that has to
-    happen before anything below can name a `uuid`. Give it a settle (~0.6 s) and read
+    happen before anything below can name a `uuid`. Give it a settle (~0.8 s) and read
     the board afterwards, never in the same chunk.
 
-    `open_window` is the message's only field. The recording only ever carried `true`
-    (the client sends it as `openWnd` even when the Lua argument was `nil`), so `false`
-    is untested: it may refresh silently, or it may be ignored.
+    **No argument, on purpose.** The recording's own refresh is
+    `SFSNetwork.SendMessage("get.detect.info", nil)` and the message class writes
+    `openWnd = true` into the payload by itself — the flag is the server's copy of «a
+    window asked», not an instruction to open one, and passing it from here would only
+    be a second spelling of what the message already does. Nothing on screen moves.
     """
-    return ('pcall(function() SFSNetwork.SendMessage("get.detect.info", %s) end) '
-            'CS.UnityEngine.Debug.LogError("ACT radar_board_requested openWnd=%s")'
-            % ("true" if open_window else "false", "true" if open_window else "false"))
+    return ('pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectInfoGet) end) '
+            'CS.UnityEngine.Debug.LogError("ACT radar_board_requested")')
+
+
+# The board's own readings. Every one of them is the client's own accessor rather than a
+# walk of `events` written here: `RadarCenterDataManager` counts by
+# `DetectEventState`, and a copy of that test in this file would be a second opinion
+# about what «finished» means the day the enum grows a value.
+#
+#   DetectEventState = {NOT_FINISH = 0, FINISHED = 1, REWARDED = 2, NOT_IN_WORLD = 3}
+#
+# Read live off the client on 2026-08-17 (#1470), together with the manager's method
+# list; the whole board is written up in `docs/research/radar.md`.
+
+
+def radar_finished_count() -> str:
+    """How many errands are FINISHED and waiting to be claimed — the red badge.
+
+    `GetFinishedDetectEventNum` counts `state == DETECT_EVENT_STATE_FINISHED`, which is
+    exactly the set the in-game «Получить все» iterates. This is the `count_lua` of the
+    claim button, so `TAP radar_claim xall` spends precisely the badge.
+    """
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return 0 end "
+            "local ok, n = pcall(function() return M:GetFinishedDetectEventNum() end) "
+            "return (ok and tonumber(n)) or 0 end)()")
+
+
+def radar_board_count() -> str:
+    """How many errands are on the board right now, finished or not."""
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return 0 end "
+            "local ok, n = pcall(function() return M:GetDetectEventCount() end) "
+            "return (ok and tonumber(n)) or 0 end)()")
+
+
+def radar_board_max() -> str:
+    """How many errands the board holds at most — `detectInfo.eventNum`.
+
+    The ceiling matters because it is a STOP, not a spill: a full board stops handing
+    out new errands, so hoarding finished ones for the duel day pays only while there
+    is room left. `docs/research/radar.md` has the arithmetic.
+    """
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return 0 end "
+            "local ok, n = pcall(function() return M:GetMaxDetectNum() end) "
+            "return (ok and tonumber(n)) or 0 end)()")
+
+
+def radar_free_slots() -> str:
+    """Room left on the board — the ceiling minus what is on it. Never below zero."""
+    return ("(function() local a = %s local b = %s "
+            "local d = a - b if d < 0 then d = 0 end return d end)()"
+            % (radar_board_max(), radar_board_count()))
+
+
+def radar_helpable_count() -> str:
+    """How many errands «Быстро выполнить» would set running.
+
+    An errand is eligible when it is a HELPER one (`DetectEventType.HELPER = 18` — the
+    «help an alliancemate» kind, the only kind that needs no march), it is not finished
+    yet, and it is not frozen. That is the set the in-game button fired on: three at
+    once in the recording, all three `eventType = 18`.
+    """
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return 0 end "
+            "local n = 0 "
+            "for _, e in pairs(rawget(M, 'events') or {}) do "
+            "local t = rawget(e, 'template') "
+            "if rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH "
+            "and t and rawget(t, 'type') == DetectEventType.HELPER "
+            "and not rawget(e, 'isFrozen') then n = n + 1 end end "
+            "return n end)()")
+
+
+def radar_claim_press() -> str:
+    """Claim the FIRST finished errand — one `receive.detect.event.reward`.
+
+    The in-game «Получить все» is a client-side loop, not a command: the recording shows
+    `arrayV2.iterator` and then eleven separate sends in a row, one per finished errand,
+    matching the red badge of 11. So claiming all and claiming one are the same press,
+    which is what `xall` spends.
+
+    It sends the message rather than calling `ClaimDetectEventRewardByEventData`,
+    because that method is the WINDOW's version of the press: it asks the resource
+    manager whether the bag is full, may pop a confirm dialog for a rescue errand whose
+    soldiers would not fit (`radar_army_01`), and queues a fly-to animation. The
+    message underneath it is the whole of the transaction, and a headless press must
+    not be able to leave a modal standing.
+
+    That does mean the client-side «your barracks are full» warning is skipped: a rescue
+    errand claimed with no room pays what the server decides to pay. The warning is
+    advice to a person, not a rule of the server.
+    """
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return end "
+            "for _, e in pairs(rawget(M, 'events') or {}) do "
+            "if rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_FINISHED then "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventRewardReceive, "
+            "rawget(e, 'uuid')) end) "
+            "CS.UnityEngine.Debug.LogError(\"ACT radar_claim_sent uuid=\" .. "
+            "tostring(rawget(e, 'uuid'))) return end end end)()")
+
+
+def radar_claim_batch(times: str = "n") -> str:
+    """Claim up to `times` finished errands in ONE game-VM call.
+
+    `times` defaults to the Lua local `n`, which the caller prepends. A claim is a plain
+    fire-and-forget send — nothing inside the batch waits on the server — so the whole
+    badge empties in one round trip instead of one per errand, and the caller's re-read
+    of :func:`radar_finished_count` afterwards remains the stop condition.
+
+    Reports what it really sent as `ACT fired=<k>`.
+    """
+    return ("local M = DataCenter.RadarCenterDataManager "
+            "local fired = 0 "
+            "if M then for _, e in pairs(rawget(M, 'events') or {}) do "
+            "if fired >= %s then break end "
+            "if rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_FINISHED then "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventRewardReceive, "
+            "rawget(e, 'uuid')) end) fired = fired + 1 end end end "
+            'CS.UnityEngine.Debug.LogError("ACT fired=" .. tostring(fired))' % times)
+
+
+def radar_help_start_all() -> str:
+    """Set every eligible «help an alliancemate» errand running, in one call.
+
+    This is the in-game «Быстро выполнить» (`BtnCompleteOnClick`): one
+    `detect.event.help.start {uuid, eventType}` per eligible errand — three at once in
+    the recording. Each one then takes `Mathf.Min(3000, <distance> * 100)` milliseconds,
+    so **three seconds covers the longest of them**, and the finish has to be reported
+    separately (:func:`radar_help_end_all`).
+
+    The uuids it started are parked on `DataCenter.__lw_radar_helping`, so the finish
+    reports exactly what this began and never an errand somebody else's press owns.
+    """
+    return ("local M = DataCenter.RadarCenterDataManager "
+            "local started = {} "
+            "if M then for _, e in pairs(rawget(M, 'events') or {}) do "
+            "local t = rawget(e, 'template') "
+            "if rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH "
+            "and t and rawget(t, 'type') == DetectEventType.HELPER "
+            "and not rawget(e, 'isFrozen') then "
+            "local u = rawget(e, 'uuid') "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventHelpStart, u, "
+            "DetectEventType.HELPER) end) "
+            "started[#started + 1] = u end end end "
+            "DataCenter.__lw_radar_helping = started "
+            'CS.UnityEngine.Debug.LogError("ACT radar_help_started=" .. tostring(#started))')
+
+
+def radar_help_end_all() -> str:
+    """Report every errand :func:`radar_help_start_all` began as finished.
+
+    One `detect.event.help.end {uuid, eventType}` per parked uuid. **The client only
+    sends this itself while the radar window is open** — the recording's three finishes
+    fire the instant the window's own progress slider reaches 1.0 — so a headless run
+    has to send them, or the errands sit half-done until somebody opens the board.
+
+    Sending one before its timer has elapsed is the server's decision to refuse, not
+    ours to make; the caller's job is to wait the three seconds first.
+    """
+    return ("local u = DataCenter.__lw_radar_helping or {} "
+            "local sent = 0 "
+            "for _, uuid in ipairs(u) do "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventHelpEnd, uuid, "
+            "DetectEventType.HELPER) end) sent = sent + 1 end "
+            "DataCenter.__lw_radar_helping = {} "
+            'CS.UnityEngine.Debug.LogError("ACT radar_help_ended=" .. tostring(sent))')
 
 
 def radar_claim(uuid: str) -> str:

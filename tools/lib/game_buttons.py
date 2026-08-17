@@ -964,6 +964,42 @@ BUTTONS["recruit_draw"] = Button(
 )
 
 
+# --- «Радар» -> read the board, claim what is finished, run the ally errands ---
+# The whole board is four messages and no window (#1414, #1470); which errand is which
+# and why the ceiling matters is in docs/research/radar.md.
+BUTTONS["radar_read_board"] = Button(
+    # The refresh the board itself sends. It asks the server; the reply is what fills
+    # the client's list, so everything below has to come after it and after its settle.
+    lua=_lua_actions.radar_fetch_board(),
+    wait=1.0, label="Radar: refresh the board",
+)
+BUTTONS["radar_claim"] = Button(
+    # «Получить» on one card. `xall` is «Получить все», because the in-game button is a
+    # client-side loop over the same message and nothing more.
+    lua=_lua_actions.radar_claim_press(),
+    batch_lua=_lua_actions.radar_claim_batch(),
+    # Long enough for the server's replies to land, so the confirming re-read after a
+    # batch sees the new badge rather than the one it started from.
+    wait=0.8, label="Radar: claim one finished errand",
+    count_lua=_lua_actions.radar_finished_count(),
+    max_taps=60,
+)
+BUTTONS["radar_help_start"] = Button(
+    # «Быстро выполнить»: every eligible ally errand set running in one call. NO
+    # `count_lua` — this is not one press repeated, it is one press that covers the
+    # whole eligible set, exactly like `collect_base_resources`.
+    lua=_lua_actions.radar_help_start_all(),
+    wait=0.6, label="Radar: start every ally errand",
+)
+BUTTONS["radar_help_end"] = Button(
+    # The finish the client only sends while its own window is open. The three seconds
+    # it needs are the recipe's `WAIT`, not this button's pause: a sleep here would be
+    # spent even when nothing was started.
+    lua=_lua_actions.radar_help_end_all(),
+    wait=0.8, label="Radar: report the ally errands finished",
+)
+
+
 # `heal_units` is an alias of `heal_all` — the task tracker refers to the ability by
 # that name, so both resolve to the one hospital.cure press.
 BUTTONS["heal_units"] = BUTTONS["heal_all"]

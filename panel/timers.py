@@ -331,6 +331,29 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.apply_ministry_interior",
     ),
     Timer(
+        name="do_radar_tasks",
+        scenario=("do_radar_tasks",),
+        # Half an hour. The board hands out errands on its own clock all day, and the
+        # part this recipe does is two messages and a three-second wait — cheap enough
+        # to look often, and there is nothing to gain from looking oftener than an
+        # errand ripens.
+        interval_sec=1800,
+        # A failure here means the client was not answering: the presses themselves
+        # no-op on an empty board, so five minutes is soon enough.
+        retry_sec=300,
+        enabled=False,
+        # THE DUEL DAY LIVES HERE, in the row's arguments, and not in the recipe. Claiming
+        # is what scores on the day the radar belongs to, so a week's errands claimed on
+        # that one day are worth far more than the same errands claimed as they ripen —
+        # and the board has a CEILING that stops handing out new ones when it is full. So
+        # a person who hoards sets `claim` to 0 for the week and back to 1 on the day, and
+        # `keep_free` is how much room the hoard is told to leave. The default is «claim
+        # as they ripen», which is what an account not playing the duel wants and what
+        # this line did before it had an argument at all.
+        args={"claim": 1, "help": 1, "keep_free": 5},
+        label_key="timers.item.do_radar_tasks",
+    ),
+    Timer(
         name="auto_treasure",
         scenario=("auto_treasure",),
         # «На вкладке действие нужна кнопка собрать сокровища, чтобы я стриггерил

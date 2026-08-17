@@ -869,6 +869,7 @@
   "timers.item.apply_ministry_interior": "Presentarse a Secretario del Interior",
   "timers.item.attack_codename_daily": "«Nombre Clave»: los ataques del día al jefe",
   "timers.item.auto_treasure": "Recoger los tesoros del mapa",
+  "timers.item.do_radar_tasks": "Realizar las tareas del radar",
   "timers.item.collect_alliance_gifts": "Recoger los Regalos de Alianza",
   "timers.item.collect_base_resources": "Recoger los recursos de la base",
   "timers.item.collect_truck_resources": "Recoger los recursos del camión de la base",

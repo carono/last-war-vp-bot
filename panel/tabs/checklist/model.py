@@ -244,7 +244,13 @@ BLIND_ERRANDS: tuple = (
     Errand("gather"),
     Errand("secret_missions"),
     Errand("secret_tasks_help"),
-    Errand("radar"),
+    # The radar's board: the errands that need no march are carried out and what is
+    # finished is claimed, in one scenario (`actions/do_radar_tasks.md`). BLIND on
+    # purpose, like its neighbours — the board's counters are readable, but a reading on
+    # this line would have to say «how much of today's radar is done», and the radar has
+    # no such number: errands ripen on their own clock all day. So the press is offered
+    # and the line goes on saying «состояние неизвестно», which is the truth.
+    Errand("radar", scenario="do_radar_tasks"),
     Errand("rally_joins"),
     Errand("attack_marked"),
     Errand("treasures"),
