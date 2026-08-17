@@ -363,6 +363,7 @@
   "log.secret.gone": "the server says that tile is gone — «already taken» / «no longer available»; off the list",
   "log.secret.intake": "from the map: tiles {seen} · not ★ {plain} · own server {home} · no finish time {notime} · already listed {known} · already robbed {robbed} · removed earlier {book} · written down {added}",
   "log.secret.no_own_server_feed": "the account's own server could not be read — the raid list stays empty rather than risk a robbery at home",
+  "log.secret.revived": "the monitor died on its own — starting it again ({n} of {of})",
   "log.secret.seed_server": "server taken from the game: {srv}",
   "log.secret.started_move_map": "the capture is running (pid {pid}); its output goes to the log — move the map, or press «Sweep the map», or there will be no traffic",
   "log.secret.starting": "starting the capture: {script} …",

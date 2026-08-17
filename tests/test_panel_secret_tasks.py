@@ -4014,6 +4014,50 @@ def test_the_two_sniffers_have_two_independent_switches():
     assert capturemod.CAPTURE_OPTIONS[0]["script"] == capturemod.SECRET_TASK_CAPTURE
 
 
+def test_a_sniffer_that_died_on_its_own_is_brought_back_and_one_switched_off_is_not():
+    """A crash may not switch the feed off for good (#1476).
+
+    It did, and the switch is saved with the profile, so the silence outlived the fault
+    AND the restart after it: the capture died mid-lap on a checkpoint write, the box
+    went quietly off, and every lap afterwards — for hours, and across a restart — fed
+    nothing into the list while nothing on screen said the sniffer was not running.
+
+    The operator asking for it off is the other case entirely, and stays exactly as it
+    was: `stop()` means stop.
+    """
+    import types
+
+    from panel.tabs.secret_tasks import capture as cap
+
+    armed, said = [], []
+    switch = _Var(True)
+    one = cap.Capture.__new__(cap.Capture)
+    one.index, one.switch, one._proc, one._starting = 0, switch, None, False
+    one._stopping, one._revivals, one._started_at = False, 0, __import__("time").time()
+    one.rt = types.SimpleNamespace(
+        tick=types.SimpleNamespace(arm=lambda name, ms, fn: armed.append(name)))
+    one.tab = types.SimpleNamespace(say=lambda tag, key, **fmt: said.append(key),
+                                    post=lambda fn: fn())
+
+    one._on_exit()                                   # it died on its own
+    assert switch.get() is True, "a crash unticked the box"
+    assert armed == ["secret_revive_0"], armed
+    assert "log.secret.revived" in said
+
+    # …three times, and then the box is cleared: a capture that cannot survive three
+    # starts is broken, and a switch that says «on» over a dead child lies.
+    one._revivals, armed[:] = cap.Capture.MAX_REVIVALS, []
+    one._on_exit()
+    assert switch.get() is False and armed == [], armed
+
+    # An operator switching it off is not a fault and is never fought.
+    switch.set(True)
+    one._proc = types.SimpleNamespace(stop=lambda: None)
+    one.stop()
+    one._on_exit()
+    assert switch.get() is False and armed == [], armed
+
+
 def test_both_captures_are_told_where_to_record_a_share():
     """«Уже поделились» is written by whichever child decodes the broadcast (#1280).
 

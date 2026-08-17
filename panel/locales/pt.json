@@ -363,6 +363,7 @@
   "log.secret.gone": "o servidor diz que aquele tile já não está lá — «já tomado» / «indisponível»; fora da lista",
   "log.secret.intake": "do mapa: casas {seen} · sem ★ {plain} · servidor próprio {home} · sem hora de término {notime} · já na lista {known} · já roubadas {robbed} · retiradas antes {book} · anotadas {added}",
   "log.secret.no_own_server_feed": "não foi possível ler o servidor da conta — a lista de assaltos fica vazia em vez de arriscar um roubo em casa",
+  "log.secret.revived": "o monitor caiu sozinho — a levantá-lo de novo ({n} de {of})",
   "log.secret.seed_server": "servidor pego do jogo: {srv}",
   "log.secret.started_move_map": "a captura está rodando (pid {pid}); a saída dela vai para o registro — mova o mapa ou carregue em «Percorrer o mapa», senão não haverá tráfego",
   "log.secret.starting": "iniciando a captura: {script} …",

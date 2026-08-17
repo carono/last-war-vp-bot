@@ -363,6 +363,7 @@
   "log.secret.gone": "der Server sagt, dieses Feld ist weg — «bereits genommen» / «nicht mehr verfügbar»; von der Liste",
   "log.secret.intake": "von der Karte: Felder {seen} · kein ★ {plain} · eigener Server {home} · ohne Endzeit {notime} · schon in der Liste {known} · schon ausgeraubt {robbed} · früher entfernt {book} · eingetragen {added}",
   "log.secret.no_own_server_feed": "der eigene Server war nicht lesbar — die Raid-Liste bleibt leer, statt zu Hause zu rauben",
+  "log.secret.revived": "die Überwachung ist von selbst gestorben — starte sie neu ({n} von {of})",
   "log.secret.seed_server": "Server aus dem Spiel übernommen: {srv}",
   "log.secret.started_move_map": "die Aufzeichnung läuft (pid {pid}); ihre Ausgabe geht ins Protokoll — bewege die Karte oder drücke «Karte abfahren», sonst kommt kein Verkehr",
   "log.secret.starting": "starte die Aufzeichnung: {script} …",

@@ -363,6 +363,7 @@
   "log.secret.gone": "server bilang petak itu sudah tidak ada — «sudah diambil» / «tidak tersedia»; dihapus dari daftar",
   "log.secret.intake": "dari peta: petak {seen} · bukan ★ {plain} · server sendiri {home} · tanpa waktu selesai {notime} · sudah di daftar {known} · sudah dirampok {robbed} · dihapus sebelumnya {book} · dicatat {added}",
   "log.secret.no_own_server_feed": "server milik akun tidak terbaca — daftar serbuan dibiarkan kosong daripada merampok di rumah",
+  "log.secret.revived": "pemantauan mati sendiri — menyalakannya lagi ({n} dari {of})",
   "log.secret.seed_server": "server diambil dari permainan: {srv}",
   "log.secret.started_move_map": "penangkapan berjalan (pid {pid}); keluarannya masuk ke catatan — geser peta atau tekan «Telusuri peta», kalau tidak takkan ada lalu lintas",
   "log.secret.starting": "memulai penangkapan: {script} …",

@@ -363,6 +363,7 @@
   "log.secret.gone": "serwer mówi, że tego pola już nie ma — «już zajęte» / «niedostępne»; zdejmuję z listy",
   "log.secret.intake": "z mapy: pola {seen} · bez ★ {plain} · własny serwer {home} · bez czasu końca {notime} · już na liście {known} · już obrabowane {robbed} · zdjęte wcześniej {book} · zapisane {added}",
   "log.secret.no_own_server_feed": "nie udało się odczytać własnego serwera — lista rajdów zostaje pusta, zamiast ryzykować rabunek u siebie",
+  "log.secret.revived": "monitorowanie padło samo — podnoszę je ponownie ({n} z {of})",
   "log.secret.seed_server": "serwer wzięty z gry: {srv}",
   "log.secret.started_move_map": "przechwytywanie działa (pid {pid}); jego wyjście idzie do dziennika — porusz mapą albo naciśnij «Objedź mapę», bo inaczej nie będzie ruchu",
   "log.secret.starting": "uruchamiam przechwytywanie: {script} …",

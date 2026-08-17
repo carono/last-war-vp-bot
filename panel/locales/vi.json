@@ -363,6 +363,7 @@
   "log.secret.gone": "máy chủ nói ô đó không còn — «đã bị lấy» / «không còn khả dụng»; gỡ khỏi danh sách",
   "log.secret.intake": "từ bản đồ: ô {seen} · không ★ {plain} · máy chủ nhà {home} · không có giờ kết thúc {notime} · đã có trong danh sách {known} · đã bị cướp {robbed} · đã gỡ trước đó {book} · đã ghi {added}",
   "log.secret.no_own_server_feed": "không đọc được máy chủ của tài khoản — danh sách đột kích để trống thay vì cướp ngay tại nhà",
+  "log.secret.revived": "bộ theo dõi tự tắt — đang bật lại ({n} trên {of})",
   "log.secret.seed_server": "máy chủ lấy từ trò chơi: {srv}",
   "log.secret.started_move_map": "bản bắt đang chạy (pid {pid}); đầu ra của nó đi vào nhật ký — hãy kéo bản đồ hoặc bấm «Quét bản đồ», nếu không sẽ chẳng có lưu lượng",
   "log.secret.starting": "đang khởi động bản bắt: {script} …",

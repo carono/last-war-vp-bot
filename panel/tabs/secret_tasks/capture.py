@@ -100,6 +100,15 @@ class Capture:
         #: A launch is in flight on its own thread — see :meth:`start`. Without it, two
         #: presses in the second the game takes to answer are two captures.
         self._starting = False
+        #: Whether the child that is going away was ASKED to (:meth:`stop`), which is
+        #: the difference between «the operator switched it off» and «it died» (#1476).
+        self._stopping = False
+        #: How many times a DEAD one has been brought back without a good run in
+        #: between. A crash loop must not be a restart loop.
+        self._revivals = 0
+        #: When the running child was started — a run long enough to have been doing its
+        #: job is not part of a crash loop, whatever happened at the end of it.
+        self._started_at = 0.0
 
     @property
     def running(self) -> bool:
@@ -137,6 +146,9 @@ class Capture:
         if self._starting:
             return
         self._starting = True
+        # When this one went up, so a child that ran for an hour and then died is not
+        # counted against the same three lives as one that dies on every start (#1476).
+        self._started_at = time.time()
         threading.Thread(target=self._launch, args=(cmd, script),
                          name="panel-capture-start", daemon=True).start()
 
@@ -245,6 +257,7 @@ class Capture:
     def stop(self) -> None:
         mon, self._proc = self._proc, None
         if mon is not None:
+            self._stopping = True
             self.tab.say("secret", "log.secret.stopped")
             mon.stop()
 
@@ -253,10 +266,51 @@ class Capture:
         self.stop()
         self.start()
 
+    #: How many times a child that died on its own is brought back before the switch is
+    #: cleared and the operator is left to decide. Three is enough to ride out a fault
+    #: in one flush; a capture that cannot survive three starts is broken, and a box that
+    #: goes on saying «on» over a child that keeps dying is worse than one that is off.
+    MAX_REVIVALS = 3
+    #: …and how long to wait before each. Long enough that a start-crash-start loop
+    #: cannot spin, short enough that a lap two seconds later is already being heard.
+    REVIVE_MS = 2000
+    #: A run at least this long was doing its job, so whatever ended it starts the count
+    #: afresh. The live crash came after hours of listening, not on start-up.
+    GOOD_RUN_SEC = 120
+
     def _on_exit(self) -> None:
+        """The child is gone. Whether that is an ANSWER or a FAULT decides what happens.
+
+        It used to be one line either way: clear the box. For a `stop()` that is right —
+        the operator asked. For a CRASH it is how a temporary fault became a permanent
+        silence: the checkpoint dump killed the capture mid-lap (#1476), the box went
+        quietly off, it is saved with the profile, and every lap after it — including
+        the ones after the next restart — fed nothing into the list while the switch
+        that says so sat unticked on a page nobody had open. «Секретки не добавляются»,
+        for hours, with the panel reporting nothing worse than one line about a stream
+        that had ended.
+
+        So a child that was not asked to go is brought back, a few times, and only then
+        is the box cleared — which is the honest report that the sniffer is off.
+        """
         self.tab.say("secret", "log.secret.ended")
         self._proc = None
-        self._untick()
+        asked = self._stopping
+        self._stopping = False
+        if asked or not self.wanted:
+            self._revivals = 0
+            self._untick()
+            return
+        if self._started_at and time.time() - self._started_at >= self.GOOD_RUN_SEC:
+            self._revivals = 0            # it was working; this is not a crash loop
+        if self._revivals >= self.MAX_REVIVALS:
+            self._revivals = 0
+            self._untick()
+            return
+        self._revivals += 1
+        self.tab.say("secret", "log.secret.revived", n=self._revivals,
+                     of=self.MAX_REVIVALS)
+        self.rt.tick.arm("secret_revive_%d" % self.index, self.REVIVE_MS, self.start)
 
     def _untick(self) -> None:
         """Clear THIS capture's own box — never the other sniffer's (#1251)."""
