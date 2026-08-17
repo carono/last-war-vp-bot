@@ -277,6 +277,55 @@ so «started two and finished none» is visible rather than reported as success.
 **Not exercised at all**: the hoarding branch (`claim = 0` / `duel_day` on a non-duel day),
 which needs a different day rather than another run.
 
+## The errands that need a march — what works and what does not (#1470)
+
+`HELPER` is the only kind that finishes on the spot. Every other kind is a tile with a
+squad sent at it, and the sequence is:
+
+1. `detect.event.put.point.in.world {uuid}` — **this works.** An errand sits at
+   `state = 3` (`NOT_IN_WORLD`) with no tile until it is sent; live, four errands were
+   placed and all four moved to `state = 0`. It is the in-game «Перейти» minus the camera
+   flight that follows it.
+2. a march at that tile — **this does not work yet, see below.**
+3. nothing else. The errand ripens when the squad arrives, and the claim is the ordinary
+   one.
+
+### The march target types that ship, and why only three
+
+`MarchTargetType` has 190-odd members. Only pairs the client names itself are used:
+
+| `DetectEventType` | `MarchTargetType` | where the pair comes from |
+|---|---|---|
+| `TREASURE` = 19 | `DETECT_TREASURE` = 50 | live-proven by `auto_treasure` |
+| `DetectEventPickGarbage` = 6 | `PICK_GARBAGE` = 23 | `MarchUtil.OnCollectGarbage` mentions that one constant and no other |
+| `GATHER_RESOURCE` = 16 | `SAMPLE` = 21 | `MarchUtil.OnCollectSimple`, same |
+
+`MarchUtil.OnClickStartMarch` is NOT the call to make: its bytecode ends in
+`OpenFormationSelectUI` — it is the squad-picker window. `SendCreateMarchMessage` is the
+layer under it, and is what `dig_treasure_march` has always used.
+
+### The send is accepted and nothing leaves — an open failure
+
+Live, 2026-08-17, in this order:
+
+| what was tried | result |
+|---|---|
+| 4 marches from the CITY scene | `ok=true` ×4, and all four named **squad 1** |
+| squads read as free | 0 — `totalSoldierNum` is 0 until the client asks (#1285) |
+| after `fill_empty_squads` | 3 squads, 3123 / 2631 / 2565 soldiers |
+| after `GAME WORLD` + 3 marches, 3 different squads | `ok=true` ×3, **`GetOwnerMarches()` = 0** |
+
+Two causes ruled out — the empty-squad trap, and a picker race where
+`GetOwnerFormationMarch` had not heard of a march yet and so handed the same formation out
+four times (both fixed). One cause NOT ruled out: whether the target tile must be loaded.
+`SceneManager.World` read back `nil` on this client even with `SceneUtils.GetIsInWorld()`
+answering 1, so the tile could not be looked up at all — the question is still open, not
+answered.
+
+`do_radar_marches.md` therefore ends in `FAIL` when the client holds no march of ours. A
+recipe that reported success while nothing left would be exactly the confident wrong
+answer this repository keeps testing against.
+
 ## What is NOT known
 
 * **Whether an errand claimed while hoarding is the OLDEST one.** The recipe claims in

@@ -8739,10 +8739,11 @@ def radar_free_squads() -> str:
     """
     return ("(function() local afd = DataCenter.ArmyFormationDataManager "
             "if not afd then return 0 end "
+            "local used = DataCenter.__lw_radar_squads_used or {} "
             "local n = 0 "
             "for _, v in pairs(afd.ArmyFormationList or {}) do "
             "local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) "
-            "if ok and sol > 0 then "
+            "if ok and sol > 0 and not used[tostring(v.uuid)] then "
             "local out = nil "
             "pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) "
             "if out == nil then n = n + 1 end end end "
@@ -8761,6 +8762,13 @@ def radar_march_press() -> str:
     press moves on to the next errand rather than piling a second squad onto this one. A
     press with nothing to send, or with no free squad, says which of the two it was and
     stamps nothing — the errand comes round again on the next run.
+
+    **The SQUAD is stamped too, and that is a bug this recipe already had.** The first live
+    run sent four marches and every one of them named squad 1: `GetOwnerFormationMarch`
+    does not know a march until the server has answered, which is longer than the gap
+    between two presses, so the picker chose the same formation over and over. The
+    server's answer is still the authority — the stamp only stops a press racing its own
+    predecessor within one run, and `radar_marched_forget` clears both tables together.
     """
     return (_RADAR_MARCH_LIST +
             "local pick = nil "
@@ -8771,10 +8779,11 @@ def radar_march_press() -> str:
             'CS.UnityEngine.Debug.LogError("ACT radar_march_none why=nothing-to-march") '
             "return end "
             "local afd = DataCenter.ArmyFormationDataManager "
+            "local used = DataCenter.__lw_radar_squads_used or {} "
             "local squad = nil "
             "if afd then for _, v in pairs(afd.ArmyFormationList or {}) do "
             "local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) "
-            "if ok and sol > 0 and squad == nil then "
+            "if ok and sol > 0 and squad == nil and not used[tostring(v.uuid)] then "
             "local out = nil "
             "pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) "
             "if out == nil then squad = v end end end end "
@@ -8788,7 +8797,9 @@ def radar_march_press() -> str:
             "1, 1, false, srv, nil) end) "
             "if ok then "
             "DataCenter.__lw_radar_marched = DataCenter.__lw_radar_marched or {} "
-            "DataCenter.__lw_radar_marched[tostring(pick.uuid)] = true end "
+            "DataCenter.__lw_radar_marched[tostring(pick.uuid)] = true "
+            "DataCenter.__lw_radar_squads_used = DataCenter.__lw_radar_squads_used or {} "
+            "DataCenter.__lw_radar_squads_used[tostring(squad.uuid)] = true end "
             'CS.UnityEngine.Debug.LogError("ACT radar_march_sent ok=" .. tostring(ok) '
             '.. " kind=" .. tostring(pick.kind) .. " target=" .. tostring(pick.target) '
             '.. " pid=" .. tostring(pick.pid) .. " squad=" .. tostring(squad.index) '
@@ -8804,4 +8815,5 @@ def radar_marched_forget() -> str:
     a squad came home with nothing and the errand is to be tried again.
     """
     return ('DataCenter.__lw_radar_marched = {} '
+            'DataCenter.__lw_radar_squads_used = {} '
             'CS.UnityEngine.Debug.LogError("ACT radar_marched_forgotten")')

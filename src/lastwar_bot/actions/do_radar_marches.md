@@ -42,6 +42,14 @@
 # twice. Both halves are read from the client: `totalSoldierNum`, and
 # `WorldMarchDataManager:GetOwnerFormationMarch`.
 #
+# **AND THE EMPTY SQUAD IS USUALLY NOT EMPTY.** The first live run of this recipe read
+# «0 free squads» on an account whose squads were sitting at home, because
+# `totalSoldierNum` is 0 in any session where nothing has needed the number yet — the
+# client had never asked (#1285). So the squads are FETCHED before they are counted, which
+# is one message per squad, ~0.37 s, and no window: `fill_empty_squads` is exactly that
+# ability and is CALLed rather than reimplemented. A squad still at zero afterwards is
+# genuinely empty and is honestly not counted.
+#
 # With no free squad the press sends nothing and SAYS SO (`radar_march_none
 # why=no-free-squad`) — it does not stamp the errand, so the errand comes round again on
 # the next run rather than being silently consumed. That is the #1416 rule: an errand this
@@ -53,6 +61,27 @@
 # does — no second squad at a tile that already has ours. `forget` clears it, for the case
 # where a squad came home with nothing and the errand should be tried again.
 #
+# ## WHAT THIS DOES NOT YET DO, and it is the whole point of the last line
+#
+# **No march sent by this recipe has been observed to leave.** Live on 2026-08-17: the
+# board's tiles were placed (4 of them, and the errands moved from `NOT_IN_WORLD` to
+# `NOT_FINISH`, so THAT half works), three different squads were picked with 3123 / 2631 /
+# 2565 soldiers in them, three `SendCreateMarchMessage` calls returned `ok=true` with no
+# error — and the client held **zero** marches of ours afterwards. The send is being
+# dropped somewhere between the call and the server.
+#
+# Two things have been ruled out and one has not. Ruled out: the empty-squad trap (the
+# squads were fetched and full) and the squad-picker race (the first run gave all four
+# marches to squad 1; they are stamped now and the second run used three different ones).
+# NOT ruled out: whether the target TILE has to be loaded — `SceneManager.World` read back
+# `nil` on this client even after `GAME WORLD` and `SceneUtils.GetIsInWorld()` said 1, so
+# the question could not even be asked properly yet, let alone answered.
+#
+# So the recipe ENDS IN `FAIL` when the client holds no march of ours, and it will keep
+# doing that until the send works. A run that reports success while nothing left is the
+# exact failure this repository keeps finding, and it is better for this to be loudly
+# unfinished than quietly wrong.
+#
 # The board, the enums and the measurements are in `docs/research/radar.md`.
 
 ARGS place = 1
@@ -63,7 +92,21 @@ IF forget == 0
 ELSE
     TAP radar_forget_marched
 
-# The board first: an errand's state and its tile both come from the server.
+# THE WORLD SCENE, FIRST, AND IT IS NOT A COURTESY. The first live run sent four marches,
+# every one of them came back `ok=true`, and not one left: the client was standing in the
+# CITY, where `WorldScene` does not exist — reading the tile it was marching at answered
+# «no world scene» — and a world march assembled there is dropped without a word. That is
+# the exact shape of failure this repository keeps finding, so the scene is switched first
+# and the marches are sent into a world that is loaded.
+GAME WORLD
+WAIT 1.5
+
+# Then the squads, and this is not optional either: a squad the client has never asked
+# about reads as empty, and the gate below would report «no free squads» over four squads
+# parked at home. One message each, no window (`actions/fill_empty_squads.md`).
+CALL fill_empty_squads
+
+# Then the board: an errand's state and its tile both come from the server.
 TAP radar_read_board
 
 IF place == 0
@@ -96,4 +139,13 @@ READ_LUA (function() local M = DataCenter.RadarCenterDataManager local map = {[D
 READ_LUA (function() local afd = DataCenter.ArmyFormationDataManager if not afd then return 0 end local n = 0 for _, v in pairs(afd.ArmyFormationList or {}) do local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) if ok and sol > 0 then local out = nil pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) if out == nil then n = n + 1 end end end return n end)() INTO squads
 READ_LUA (function() local ok, n = pcall(function() local c = 0 for _ in pairs(DataCenter.__lw_radar_marched or {}) do c = c + 1 end return c end) return (ok and n) or 0 end)() INTO marched
 
-LOG "radar-march: done — {marched} errand(s) have our squads on them, {marchable} still waiting, {squads} free squad(s) left"
+# WHAT THE GAME SAYS, not what the presses said. `SendCreateMarchMessage` returning
+# cleanly proves the call ran, not that a march exists — the four that were «sent» from
+# the city all returned `ok=true` and none of them left. So the run's last word is the
+# number of marches the client actually holds for us.
+READ_LUA (function() local ok, n = pcall(function() local om = DataCenter.WorldMarchDataManager:GetOwnerMarches() local c = 0 if om then local e = om:GetEnumerator() while e:MoveNext() do c = c + 1 end end return c end) if not ok then return -1 end return n end)() INTO on_the_map
+
+LOG "radar-march: done — {marched} errand(s) marched at, {marchable} still waiting, {squads} free squad(s) left, {on_the_map} march(es) of ours on the map"
+
+IF on_the_map == 0
+    FAIL "every march was accepted by the client and none of them exists — the world was not loaded, or the squads were empty"
