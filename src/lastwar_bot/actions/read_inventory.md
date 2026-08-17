@@ -33,7 +33,11 @@
 #   * type   — the config row's `type`, the tab the game's own bag would file it under.
 #   * icon   — the sprite name, `icon` on the config row. NOT derivable from the id: a
 #              hero shard is filed under one id and wears another hero's picture.
-#   * name   — the item's name, in the player's language, from the game's own table.
+#   * name   — the item's name, in the player's language, from the game's own table. Any
+#              white space inside it is flattened to single spaces: an answer travels
+#              back as ONE line, so a newline in the middle of one would end the reading
+#              there and lose every item behind it (`read_inventory_desc.md` says what
+#              that cost before it was found).
 #
 # A field the game will not answer is left at its «unknown» value rather than guessed:
 # every read is wrapped, so an item whose row is missing costs one blank and not the
@@ -41,4 +45,4 @@
 # of it, and the bag grid does not show it; `read_inventory_item.md` fetches one on
 # demand when somebody opens a cell.
 
-READ_LUA (function() local D=DataCenter.ItemData local T=DataCenter.ItemTemplateManager if D==nil then return '' end local agg,order={},{} for _,v in pairs(D.ItemInfos or {}) do local id=nil pcall(function() id=tonumber(v.itemId) end) if id~=nil then local a=agg[id] if a==nil then a=0 order[#order+1]=id end agg[id]=a+(tonumber(v.count) or 0) end end local out={} for _,id in ipairs(order) do local nm,ic,co,ty='','',0,0 pcall(function() nm=tostring(T:GetName(id) or '') end) local tpl=nil pcall(function() tpl=T:GetItemTemplate(id) end) if tpl~=nil then pcall(function() ic=tostring(tpl.icon or '') end) pcall(function() co=tonumber(tpl.color) or 0 end) pcall(function() ty=tonumber(tpl.type) or 0 end) end out[#out+1]=id..';;'..agg[id]..';;'..co..';;'..ty..';;'..ic..';;'..nm end return table.concat(out,' #|# ') end)() INTO items
+READ_LUA (function() local D=DataCenter.ItemData local T=DataCenter.ItemTemplateManager if D==nil then return '' end local agg,order={},{} for _,v in pairs(D.ItemInfos or {}) do local id=nil pcall(function() id=tonumber(v.itemId) end) if id~=nil then local a=agg[id] if a==nil then a=0 order[#order+1]=id end agg[id]=a+(tonumber(v.count) or 0) end end local out={} for _,id in ipairs(order) do local nm,ic,co,ty='','',0,0 pcall(function() nm=tostring(T:GetName(id) or '') end) local tpl=nil pcall(function() tpl=T:GetItemTemplate(id) end) if tpl~=nil then pcall(function() ic=tostring(tpl.icon or '') end) pcall(function() co=tonumber(tpl.color) or 0 end) pcall(function() ty=tonumber(tpl.type) or 0 end) end nm=nm:gsub('%s+',' ') out[#out+1]=id..';;'..agg[id]..';;'..co..';;'..ty..';;'..ic..';;'..nm end return table.concat(out,' #|# ') end)() INTO items

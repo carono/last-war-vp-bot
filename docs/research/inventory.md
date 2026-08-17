@@ -126,3 +126,26 @@ under `results/item_icons/cells/`, built on first use, served to the Tk window a
 
 The daemon carried the 25 KB answer in one line without trouble; 83 KB was not
 attempted, which is why the descriptions are a second scenario asked in slices of 60.
+
+## 8. The trap: a newline inside a reading ends it
+
+An answer comes back as ONE line. Item **descriptions contain line breaks** — the game
+wraps them for its own tooltip — and the first one ends the reading. Everything behind
+it is lost with no error anywhere, and what it looks like is «those items have no
+description».
+
+It was caught by measurement rather than by reading the code. The client's own answer,
+asked directly, was **409 of 415 items described**; the panel was storing 154, in runs
+of 15, 26, 35, 23, 53, 1, 1 per slice of sixty — uneven exactly where a long description
+happened to fall early in a slice. One `gsub('%s+',' ')` in the scenario, and the panel
+gets 409.
+
+So: **any `READ_LUA` that returns text a human wrote must flatten its white space.**
+`read_inventory.md` does it for names too, though no item name has yet been seen with a
+newline in it — the failure is silent and the guard costs nothing.
+
+The second half of the same lesson is on the panel's side. `_play` now answers `None`
+for «the read did not happen» as against `""` for «the game said nothing», and only
+NON-EMPTY descriptions are written to the database: an empty one is what a half-failed
+read also produces, and a profile that cached one would have blanked those items for
+good. The genuinely-undescribed six are remembered for the session only.

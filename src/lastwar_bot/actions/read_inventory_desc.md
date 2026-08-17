@@ -21,7 +21,13 @@
 #
 # An id the client cannot describe is left out entirely rather than sent as a blank, so
 # the caller can tell «no description» from «not asked».
+#
+# **The line breaks are flattened, and that is not tidiness.** An answer travels back as
+# ONE line, so the first description containing a newline ends it and everything behind
+# it is lost — silently, and looking exactly like «those items have no description». It
+# was measured: 409 of one bag's 415 items have text, and the panel was getting 154 of
+# them in uneven runs (15, 26, 35, 23, 53, 1, 1 per slice of sixty) until this `gsub`.
 
 ARGS ids =
 
-READ_LUA (function() local T=DataCenter.ItemTemplateManager if T==nil then return '' end local out={} for one in string.gmatch('{ids}', '[^,%s]+') do local id=tonumber(one) if id~=nil then local ds='' pcall(function() ds=tostring(T:GetDes(id) or '') end) if ds~='' then out[#out+1]=id..';;'..ds end end end return table.concat(out,' #|# ') end)() INTO descs
+READ_LUA (function() local T=DataCenter.ItemTemplateManager if T==nil then return '' end local out={} for one in string.gmatch('{ids}', '[^,%s]+') do local id=tonumber(one) if id~=nil then local ds='' pcall(function() ds=tostring(T:GetDes(id) or '') end) ds=ds:gsub('%s+',' '):gsub('^ ',''):gsub(' $','') if ds~='' then out[#out+1]=id..';;'..ds end end end return table.concat(out,' #|# ') end)() INTO descs

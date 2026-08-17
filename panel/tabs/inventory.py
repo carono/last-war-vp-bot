@@ -130,6 +130,8 @@ class InventoryTab(DataTab):
         super().__init__(rt, parent)
         self._items: list = []
         self._descs: dict = {}
+        #: Ids the game answered nothing for, this session only — see `_fetch_descs`.
+        self._no_desc: set = set()
         self._images: dict = {}
         self._selected = None
         self._loaded_store = False
@@ -146,7 +148,7 @@ class InventoryTab(DataTab):
         if not self._loaded_store:
             self._loaded_store = True
             saved = self._blob(BAG_BLOB)
-            self._descs = self._blob(DESC_BLOB) or {}
+            self._descs = {k: v for k, v in (self._blob(DESC_BLOB) or {}).items() if v}
             if isinstance(saved, list) and saved:
                 self._last_data = saved
                 self.render(saved)
@@ -209,31 +211,52 @@ class InventoryTab(DataTab):
         except Exception:                   # noqa: BLE001 — no game is an old reading
             return False
 
-    def _play(self, name: str, variable: str, args: "dict | None" = None) -> str:
-        """Play a read scenario and hand back the one variable it filled."""
+    def _play(self, name: str, variable: str, args: "dict | None" = None) -> "str | None":
+        """Play a read scenario and hand back the one variable it filled.
+
+        ``None`` means the read did not happen — no daemon, a refusal, an exception —
+        as against ``""``, which is the game answering «nothing». The caller must not
+        confuse the two: writing a failed read into the cache would remember «this item
+        has no description» for as long as the profile lives.
+        """
         try:
             outcome = self.rt.actions.play(name, args or {}, on_event=lambda _m: None)
         except Exception:                   # noqa: BLE001 — a read, never the window
-            return ""
+            return None
         ctx = getattr(outcome, "ctx", None)
         raw = (getattr(ctx, "vars", {}) or {}).get(variable)
-        return raw if (getattr(outcome, "ok", False) and isinstance(raw, str)) else ""
+        return raw if (getattr(outcome, "ok", False) and isinstance(raw, str)) else None
 
     def _fetch_descs(self, ids) -> None:
-        """Ask for the description of every id this profile has not seen before."""
-        wanted = [str(i) for i in ids if str(i) not in self._descs]
+        """Ask for the description of every id this profile has not seen before.
+
+        Slice by slice, and a slice that did not come back is left UNASKED rather than
+        written down as «no description» — otherwise one failed read silently blanks
+        those items for the life of the profile.
+        """
+        wanted = [str(i) for i in ids
+                  if str(i) not in self._descs and str(i) not in self._no_desc]
         if not wanted:
             return
-        found = {}
+        learned = False
         for start in range(0, len(wanted), DESC_CHUNK):
             slice_ = wanted[start:start + DESC_CHUNK]
-            found.update(parse_descs(
-                self._play("read_inventory_desc", "descs", {"ids": ",".join(slice_)})))
-        # An id the client would not describe is remembered as «no text», so the next
-        # refresh does not ask for it again for as long as the panel is open.
-        for one in wanted:
-            self._descs[one] = found.get(one, "")
-        self._save(DESC_BLOB, self._descs)
+            answer = self._play("read_inventory_desc", "descs",
+                                {"ids": ",".join(slice_)})
+            if answer is None:
+                continue
+            found = parse_descs(answer)
+            # ONLY THE TEXT IS KEPT ON DISK. An id the client answered nothing for is
+            # remembered for this session and no longer, because «empty» is the answer a
+            # read that half-failed also gives — and one of those, written down, would
+            # blank those items for the life of the profile. Six items out of four
+            # hundred genuinely have no description, so the re-ask costs one slice at
+            # the next start-up and buys back every profile that cached a bad run.
+            self._descs.update({k: v for k, v in found.items() if v})
+            self._no_desc.update(one for one in slice_ if not found.get(one))
+            learned = True
+        if learned:
+            self._save(DESC_BLOB, self._descs)
 
     # -- the profile's database ---------------------------------------------
     def _blob(self, name: str):
