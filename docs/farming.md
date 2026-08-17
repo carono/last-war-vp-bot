@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **31%** — 44 of 141
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **32%** — 45 of 141
 
-🟩 44 done · 🟨 56 partly · 🟥 41 not automated
+🟩 45 done · 🟨 58 partly · 🟥 38 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -103,10 +103,10 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Radar assignments
 
-- ❌ Collecting finished tasks
-- ❌ Running the missions
-- ❌ Saving tasks up for the alliance duel
-- 🟡 The radar screen can be opened on command; nothing inside it is driven yet
+- ✅ Collecting finished tasks — one press empties the whole board, and it keeps going while the board keeps ripening: a live run claimed twenty-two in a row from a badge that read twelve, because the radar hands out fresh work as fast as the room is made, and stopped by itself when there was nothing ripe left. Nothing is opened and the camera does not move. What it collected is the game's own answer, not this button's: the count is re-read after every round, so a task somebody claimed by hand in the game counts exactly the same
+- 🟡 Running the missions — the errands that need no march (the ones that are helping an alliancemate) are set going all at once and reported finished three seconds later, which is what the in-game «quick complete» does. **The game only reports the finish itself while the radar screen is open**, so the bot sends it — otherwise the errands would sit half-done until somebody looked. The press has run live and did the right thing with an empty list; a board with such an errand actually on it has not come up yet. The other kinds — the camp, the mine — need a squad marched across the map and are deliberately left alone: they are somebody's squad for ten minutes, and «do the radar» should not spend one without being asked
+- 🟡 Saving tasks up for the alliance duel — collecting is what scores on the duel's radar day, so the bot can be told to leave finished tasks standing all week and take them all on the day. It also knows the board has a CEILING and stops handing out new work when it is full, so while it is saving up it collects just enough to keep the board off it. Which weekday that is stays yours: it is set on the errand's row, because the plan differs per season and per warzone. The saving-up half has not been run through a whole week yet
+- 🟡 The radar screen can be opened on command; nothing else inside it is driven
 
 ### Events
 
@@ -305,7 +305,7 @@ The routine as it is actually played, against what the bot covers.
 | Send secret missions out | ❌ |
 | Help with 5 UR or star secret tasks | ❌ |
 | Steal 5 star tasks | 🟡 finding, picking the best star and robbing work; the map is panned on its own now, and the five are still not chained together |
-| Radar tasks | ❌ |
+| Radar tasks | 🟡 collecting the finished ones is one press and proven live; the errands that need no march are set going and reported finished; the ones that need a squad marched are not touched, and saving up for the duel day is built but has not lived a week |
 | 20 rally joins per monster type | 🟡 joining works, a rally announces itself and can be joined on the spot, and the day's total now stops it — counted by the game. Choosing which rallies are worth it, and any split per monster type, do not |
 | Attack marked players, scouting before and after | 🟡 attacking and scouting work, picking targets does not |
 | Send squads to gather resources | 🟡 |

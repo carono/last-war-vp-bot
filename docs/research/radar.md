@@ -164,6 +164,33 @@ the plan differs per season and per warzone, and a recipe that guessed it would 
 for every account whose week is not this one's. The caller owns the calendar — the timer
 row's `args`, or a person.
 
+## What a live run did (2026-08-17, #1470)
+
+`do_radar_tasks` with its defaults, against a board reading 12 finished of 12 on the
+board, ceiling 40, zero `HELPER` errands pending:
+
+```
+radar: 12 finished, 0 ally errand(s) ready to run, 12 of 40 slots used
+TAP Radar: claim one finished errand (12; 0 left)
+TAP Radar: claim one finished errand (17; 0 left)
+TAP Radar: claim one finished errand (20; 0 left)
+TAP Radar: claim one finished errand (21; 0 left)
+TAP Radar: claim one finished errand (22; 0 left)
+TAP Radar: claim one finished errand xall -> 22 press(es)
+radar: done — 0 finished errand(s) left standing, 12 of 40 slots used
+```
+
+**Twenty-two claims out of a badge of twelve, and that is right.** `xall` re-reads
+`count_lua` after each batch, and the count came back HIGHER each round: the server ripens
+fresh errands as fast as the room is made. The loop stopped by itself at zero, and the
+board still held twelve — the unripe ones.
+
+The wire agrees independently: the trigger ear logged `push.resource.item.update` during
+the run, so the rewards really landed.
+
+**Not exercised**: the `HELPER` path (none were pending — the presses ran and correctly
+sent nothing), and the hoarding branch (`claim = 0`), which needs a week rather than a run.
+
 ## What is NOT known
 
 * **Whether an errand claimed while hoarding is the OLDEST one.** The recipe claims in
