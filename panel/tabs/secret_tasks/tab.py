@@ -465,6 +465,9 @@ class SecretTasksTab(PanelTab):
         # The player's OWN server, cached the same way: what the home-server
         # prohibition compares a tile against. 0 = not read yet / unreadable.
         self._own_server = 0
+        #: One reader at a time behind that 0 (#1471): the magnifier's slice asks for it
+        #: on every draw while it is unknown, and the phone may draw the screen on a loop.
+        self._priming_own = False
         #: «home is unreadable, so the raid list admits nothing» — said once per spell
         #: of not knowing rather than once per feed (`_abroad_only`).
         self._warned_no_own_feed = False
@@ -1990,10 +1993,19 @@ class SecretTasksTab(PanelTab):
         that is, so nobody has to guess what they are looking at. The edge is computed
         from the season plan and moves by itself; there is no number for it in the code.
 
-        `anchor` is OUR OWN warzone and not the «Сервер» box: the question is where THIS
-        account may go robbing, and that does not change because somebody typed a foreign
-        number in to jump. With our own unknown the box is the next best guess, and with
-        neither the answer is empty rather than invented.
+        **The anchor is the account's HOME warzone and nothing else** — «исходи от сервера
+        игрока». Not the «Сервер» box: that is wherever the camera was last sent, and the
+        question the window answers is where THIS account may go robbing, which does not
+        change because somebody typed a foreign number in. Not a setting either: the home
+        warzone is read off the live client (`own_server`, the same reading «не грабить на
+        своём сервере» judges every row against), so it is an account's answer and each
+        profile has its own.
+
+        With the home warzone unreadable the answer is **«неизвестно» and an empty grid**,
+        never a guess off the coordinate box: a client that has not finished logging in
+        answers everything plausibly and wrongly (`docs/research/server-link-status.md`),
+        and a grid drawn around a wrong anchor is a list of warzones nobody can rob
+        offered as if they could.
         """
         from ...runtime.paths import ensure
 
@@ -2004,7 +2016,7 @@ class SecretTasksTab(PanelTab):
         data = server_list.load()
         now_ms = game_clock.now_ms()
         anchor = self._picker_anchor()
-        ids = server_list.same_phase(data, anchor, now_ms)
+        ids = server_list.same_phase(data, anchor, now_ms) if anchor else []
         step, stage = server_list.phase_of(
             (data.get("servers") or {}).get(str(anchor)) or {}, now_ms)
         book = self.rt.secret_days
@@ -2015,26 +2027,36 @@ class SecretTasksTab(PanelTab):
                  "source_key": row.get("secret_source_key"),
                  "until": row.get("secret_until") or "—"}
                 for row in drawn]
+        # ONE ready sentence for both front-ends. The window prints it above the grid and
+        # the phone as the card's first row; composing it twice is how the two drift.
+        if not anchor:
+            slice_text = self.t("secrettasks.picker.no_home")
+        elif not rows:
+            slice_text = self.t("secrettasks.picker.no_plan", home=anchor)
+        else:
+            slice_text = self.t("secrettasks.picker.slice", home=anchor,
+                                step=step or "—", stage=self.t("servers.stage.%s" % stage),
+                                first=rows[0]["server"], last=rows[-1]["server"])
         return {"anchor": anchor, "step": step or "—",
                 "stage_key": "servers.stage.%s" % stage,
-                "first": rows[0]["server"] if rows else 0,
-                "last": rows[-1]["server"] if rows else 0,
-                "rows": rows}
+                "slice": slice_text, "rows": rows}
 
     def _picker_anchor(self) -> int:
-        """Whose availability the grid answers for: our own warzone, else the box.
+        """The account's HOME warzone, or 0 for «the client has not said».
 
-        Our own first, because «where can I rob today» is a fact about this account and
-        not about wherever the camera happens to be standing. The box (`_jump` writes
-        every jump into it, #1280) is the fallback for a panel that has not been told our
-        warzone yet — better than an empty grid, and it is the same slice whenever the
-        two are in the same phase, which they are for any warzone we could have jumped to.
+        Read off the live client and cached (`own_server` / `_prime_own_server`), never
+        from the coordinate box and never from a setting. Zero is a real answer and is
+        drawn as one: the client is not in the game yet, and «unknown» is the only honest
+        thing to show — a stranded or half-logged-in client would otherwise anchor the
+        whole grid on a number it made up.
+
+        The ask itself goes on a thread, so a draw that finds nothing cached says
+        «unknown» this time and has the answer by the next repaint.
         """
         own = int(getattr(self, "_own_server", 0) or 0)
-        if own > 0:
-            return own
-        typed = (self.coord_srv_var.get() or "").strip()
-        return int(typed) if typed.isdigit() and int(typed) > 0 else 0
+        if own <= 0:
+            self._prime_own_server()
+        return own
 
     def jump_to_server(self, server) -> None:
         """Go to that warzone — the click a cell of the grid (or of the phone) makes.
@@ -2566,13 +2588,23 @@ class SecretTasksTab(PanelTab):
         the Tk thread would be a round trip per repaint. So it is asked for here, once,
         beside the reads the tab already makes, and the redraw only ever consults the
         cached number. An unreadable answer stays 0 and hides nothing.
+
+        The magnifier's slice is anchored on this number too (#1471), and the PHONE can
+        ask for it before anybody has opened the tab — so two things are guarded here:
+        the redraw, because the widgets it touches do not exist until `build()` has run
+        (LAZY), and the ask itself, because a screen that keeps refreshing while the
+        client is out of the game would otherwise start a reader per refresh.
         """
-        if self._own_server:
+        if self._own_server or getattr(self, "_priming_own", False):
             return
+        self._priming_own = True
 
         def work() -> None:
-            srv = self.own_server()
-            if srv:
+            try:
+                srv = self.own_server()
+            finally:
+                self._priming_own = False
+            if srv and self.loaded:
                 self.after(lambda: (self._render(), self._update_status()))
 
         threading.Thread(target=work, daemon=True).start()
@@ -3644,10 +3676,7 @@ class SecretTasksTab(PanelTab):
                                        "args": {"server": row["server"]}}]})
         return {"title": "secrettasks.picker.title",
                 "rows": [{"label": "secrettasks.picker.slice.label",
-                          "value": self.t("secrettasks.picker.slice",
-                                          step=view["step"],
-                                          stage=self.t(view["stage_key"]),
-                                          first=view["first"], last=view["last"])},
+                          "value": view["slice"]},
                          {"label": "servers.secret.state.day", "value": str(tally["day"])},
                          {"label": "servers.secret.state.post",
                           "value": str(tally["post"])},

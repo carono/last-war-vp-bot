@@ -126,9 +126,7 @@ class _Grid:
             child.destroy()
         view = self.view()
         rows = view["rows"]
-        self.slice.set(self.tab.t("secrettasks.picker.slice", step=view["step"],
-                                  stage=self.tab.t(view["stage_key"]),
-                                  first=view["first"], last=view["last"]))
+        self.slice.set(view["slice"])
         tally = {"day": 0, "post": 0, "plain": 0, "unknown": 0}
         for index, row in enumerate(rows):
             state = row.get("state") or "unknown"

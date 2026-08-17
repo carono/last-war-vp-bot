@@ -255,6 +255,28 @@ rather than a convenience. Checked against the operator's own landmark — they 
 earliest warzone they can rob today — and the computed edge lands within one warzone of it:
 the first warzone that left the season with us. The one below is still playing it.
 
+### The anchor is the account's HOME warzone
+
+Said by the operator in one line — «исходи от сервера игрока» — and it matters more than
+it looks. The magnifier sits beside the «Сервер» box, and that box holds wherever the
+camera was last sent (`_jump` writes every jump into it, #1280). Anchoring the slice on it
+answers «what is in the same phase as the warzone I am LOOKING at», which is a different
+question from «where may THIS account go robbing» the moment somebody types a foreign
+number in.
+
+So `_picker_anchor` reads the account's own warzone off the LIVE client — `own_server()`,
+`LuaEntry.Player.serverId`, the same number «не грабить на своём сервере» judges every row
+against — and nothing else. It is an account's answer, not a machine's: each profile has
+its own, and it stays the HOME warzone even while the camera is standing in a foreign one
+(measured: `IsInOtherServer() == true` and `serverId` unchanged).
+
+**Unreadable is drawn as «unknown», never as the box.** A client that has not finished
+logging in answers everything plausibly and wrongly
+(`docs/research/server-link-status.md`), so a zero produces an empty grid and a line
+saying the client has not said — not a grid drawn around a guess. The ask goes on a thread
+and is one-at-a-time (`_priming_own`), because the phone may redraw the screen on a loop
+while the client is out of the game.
+
 ### What the two front-ends show
 
 `SecretTasksTab.picker_view` builds one reading for both: the cells, and a header saying
