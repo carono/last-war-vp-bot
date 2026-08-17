@@ -115,7 +115,7 @@ IF discharge == 1
 ELSE
     LUA DataCenter.__lw_radar_hoard_from = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)()
     READ_LUA 0 INTO opened
-    WHILE opened < keep_free LIMIT 60
+    WHILE opened < {keep_free} LIMIT 60
         IF finished == 0
             LOG "radar: {free} place(s) open and nothing ripe to spend — the room is not mine to make"
             STOP

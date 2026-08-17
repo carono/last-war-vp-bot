@@ -117,7 +117,7 @@ ELSE
 IF do_claim == 1
     TAP radar_claim xall
 ELSE
-    WHILE opened < keep_free LIMIT 60
+    WHILE opened < {keep_free} LIMIT 60
         IF supply == 0
             LOG "radar: the day has no errands left to hand out — nothing to make room for, keeping all {finished}"
             STOP

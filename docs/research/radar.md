@@ -373,14 +373,39 @@ answered.
 recipe that reported success while nothing left would be exactly the confident wrong
 answer this repository keeps testing against.
 
+## The two numbers per player — `detect_level`
+
+Neither the capacity nor the allowance is a constant, and each had been guessed wrong once
+before the table turned up. `detect_level`, 20 rows, one per radar level, read off
+`LocalController`:
+
+| column | what it is |
+|---|---|
+| `detect_show_num` | how many errands the board holds AT ONCE — **the capacity** |
+| `detect_max_num` | how many it hands out in a DAY — **the allowance** |
+| `refresh` | `"<seconds>;<count>"` — the drip that refills the allowance |
+| `res_increase_num`, `exp`, `unlock_detect`, `levelup_*` | the level's own economy |
+
+Level 16 gives `12` and `40` — exactly the 12 the board sat at all afternoon and the 40
+`detectInfo.eventNum` started the day on, which is what finally identified `eventNum` as
+the allowance COUNTING DOWN. **Level 1 gives `5` and `25`**, so a second account differs in
+both: the level is read per profile (`GetDetectInfoLevel`) and the row looked up under it.
+Live: level 16, capacity 12, quota 40.
+
+**Two silent traps reading that table**, both of which return 0 for everything with nothing
+saying why:
+
+* `getLine` on a table nobody has `getTable`d first answers with something that has no
+  `_lineData`;
+* the metadata is keyed by COLUMN NAME with the numeric index at `[1]` — the other way
+  round from the obvious reading (`md['detect_show_num'][1]`, not a scan for `v[1] == name`).
+
 ## What is NOT known
 
 * **Whether an errand claimed while hoarding is the OLDEST one.** The recipe claims in
   `pairs` order, which is a Lua hash order and therefore arbitrary. It matters only in the
   hoarding branch, and only for which errand is spent to make room.
-* **The board's own holding capacity.** Twelve, observed — no getter found that says so.
-  `keep_free` is therefore expressed as «open this many places», measured against where the
-  board stood when the hoard began, rather than against a capacity nobody can read.
+* ~~The board's own holding capacity.~~ **Answered**: `detect_level.detect_show_num`, above.
 * **`cost` and `signal`.** Every `HELPER` errand read live carried `cost = 1` and every
   other kind `cost = 0`. `detectInfo.signal` read 4 and later 1, so it is spent by
   something. `GetDetectHelpTypeCostNum` is a constant read off the manager. Whether the two
