@@ -361,6 +361,27 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.do_radar_tasks",
     ),
     Timer(
+        name="radar_full_cycle",
+        scenario=("radar_full_cycle",),
+        # Half an hour. The board drips errands all day and the run is cheap when there is
+        # nothing to do — but it SPENDS SQUADS on the days it marches, so the useful period
+        # is «about how long a march takes», not «as often as possible».
+        interval_sec=1800,
+        retry_sec=300,
+        # OFF by default like the rest of this catalogue. Switched on, this is the whole
+        # radar on a clock: it picks its own mode from the game's weekday, so nothing has to
+        # be changed on the row from one day to the next.
+        enabled=False,
+        # `duel_days` is the weekdays the radar scores on, 1 = Monday … 7 = Sunday, and the
+        # default is the player's own answer — Monday, Wednesday, Friday, Saturday. It lives
+        # HERE and not in the recipe because the duel's plan differs by season and by
+        # warzone. `force` overrides the day (1 discharge, 2 hoard) for a week that is being
+        # played by hand; `keep_free` is how many places the hoard keeps open.
+        args={"duel_days": [1, 3, 5, 6], "force": 0, "keep_free": 3,
+              "help": 1, "march": 1},
+        label_key="timers.item.radar_full_cycle",
+    ),
+    Timer(
         name="do_radar_marches",
         scenario=("do_radar_marches",),
         # Twenty minutes. It spends SQUADS, and a squad is out for a march's travel time —

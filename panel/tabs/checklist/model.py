@@ -256,6 +256,11 @@ BLIND_ERRANDS: tuple = (
     # errands run, and their squads left alone for a rally, presses the first and not the
     # second (`actions/do_radar_marches.md`).
     Errand("radar_march", scenario="do_radar_marches"),
+    # …and the whole board in one press, in the mode today calls for — a duel day
+    # discharges, any other day holds the rewards and keeps places open. This is the one a
+    # CLOCK should call (`actions/radar_full_cycle.md`); the two rows above stay because
+    # «collect what is ripe» and «spend squads» are decisions a person may want separately.
+    Errand("radar_all", scenario="radar_full_cycle"),
     Errand("rally_joins"),
     Errand("attack_marked"),
     Errand("treasures"),

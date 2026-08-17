@@ -8849,3 +8849,93 @@ def radar_marched_forget() -> str:
     return ('DataCenter.__lw_radar_marched = {} '
             'DataCenter.__lw_radar_squads_used = {} '
             'CS.UnityEngine.Debug.LogError("ACT radar_marched_forgotten")')
+
+
+# ---------------------------------------------------------------------------
+# Радар — the level table, which is where the two numbers actually come from (#1470)
+# ---------------------------------------------------------------------------
+# The board's capacity and the day's allowance are NOT constants and NOT the same number,
+# and both were guessed wrong once before the table turned up. `detect_level` — 20 rows,
+# one per radar level, read live off `LocalController` — settles it:
+#
+#   detect_show_num   how many errands the board holds AT ONCE  — the capacity
+#   detect_max_num    how many it will hand out in a DAY        — the allowance
+#   refresh           "<seconds>;<count>" — the drip that refills the allowance
+#
+# On the account this was read from, level 16: `detect_show_num = 12`,
+# `detect_max_num = 40` — which is exactly the 12 the board sat at all afternoon and the 40
+# `detectInfo.eventNum` started the day on. `eventNum` is therefore the allowance COUNTING
+# DOWN, and `GetMaxDetectNum()` (which returns it) is a badly named remainder rather than
+# any kind of maximum.
+#
+# **Level 1 gives 5 and 25.** So a second player's radar has different numbers for both,
+# which is why neither may be written down here: the level is read per profile
+# (`GetDetectInfoLevel`) and the row is looked up under it.
+
+def radar_level() -> str:
+    """The profile's own radar level — 0 when it cannot be read."""
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return 0 end "
+            "local ok, v = pcall(function() return M:GetDetectInfoLevel() end) "
+            "return (ok and tonumber(v)) or 0 end)()")
+
+
+def _radar_level_field(field: str) -> str:
+    """A column of this profile's `detect_level` row, 0 when anything is unreadable.
+
+    The column NAMES are read off the row's own metadata rather than assumed at a numeric
+    index: a config table that grows a column shifts every index after it, and this file
+    has no business remembering which build had what where.
+    """
+    return ("(function() local M = DataCenter.RadarCenterDataManager "
+            "if not M then return 0 end "
+            "local lvl = 0 "
+            "pcall(function() lvl = tonumber(M:GetDetectInfoLevel()) or 0 end) "
+            "if lvl < 1 then return 0 end "
+            "local inst = LocalController.instance() "
+            "pcall(function() inst:getTable('detect_level') end) "
+            "local row = nil "
+            "pcall(function() row = inst:getLine('detect_level', lvl) end) "
+            "if type(row) ~= 'table' then return 0 end "
+            "local md = nil pcall(function() md = row:getMetaData() end) "
+            "if type(md) ~= 'table' then return 0 end "
+            # `md` is keyed by COLUMN NAME and each entry's `[1]` is the numeric
+            # index `_lineData` uses — the other way round from the obvious reading,
+            # and reading it the obvious way returned 0 for everything with nothing
+            # saying why.
+            "local col = nil "
+            "pcall(function() local e = md['%s'] col = e and e[1] end) "
+            "if col == nil then return 0 end "
+            "local ld = rawget(row, '_lineData') or {} "
+            "return tonumber(ld[col]) or tonumber(ld[tostring(col)]) "
+            "or tonumber(ld[tonumber(col) or -1]) or 0 end)()" % field)
+
+
+def radar_capacity() -> str:
+    """How many errands this profile's board holds at once — `detect_show_num`.
+
+    The number `keep_free` is measured against. Read per profile, never written down: a
+    level-1 radar holds 5 and a level-16 one holds 12.
+    """
+    return _radar_level_field("detect_show_num")
+
+
+def radar_day_quota() -> str:
+    """How many errands this profile's radar hands out in a whole day — `detect_max_num`.
+
+    The TOTAL. What is LEFT of it is `detectInfo.eventNum` (:func:`radar_board_max`, whose
+    name lies), and the difference between the two is how much of the day has been drawn.
+    """
+    return _radar_level_field("detect_max_num")
+
+
+def radar_free_places() -> str:
+    """Room on the board — the capacity minus what is on it. Never below zero.
+
+    This is the reading the hoard is steered by, and it replaces the subtraction that used
+    to be done against `GetMaxDetectNum()` — two unrelated quantities, which is how a log
+    line came to read «12 of 2 slots used».
+    """
+    return ("(function() local cap = %s local now = %s "
+            "local d = cap - now if d < 0 then d = 0 end return d end)()"
+            % (radar_capacity(), radar_board_count()))

@@ -383,7 +383,7 @@ def test_the_nine_errands_with_an_ability_offer_it_and_the_four_without_do_not()
     assert codename.scenario == modelmod.CODENAME_ATTACK
     assert codename.run_key == "checklist.codename.attack"
 
-    # Five of the blind group CAN be run, and which five is a decision too (#1247, #1470).
+    # Six of the blind group CAN be run, and which six is a decision too (#1247, #1470).
     # Blind is a statement about what can be seen, and the two halves fail apart: the
     # bot empties the base's resource truck, claims the alliance gifts and applies for
     # the ministry post without being able to read any of the three afterwards. The row
@@ -396,9 +396,12 @@ def test_the_nine_errands_with_an_ability_offer_it_and_the_four_without_do_not()
     # march, and `radar_march` spends SQUADS. A person saving their squads for a rally
     # presses the first and not the second. Neither has a reading — the radar has no
     # number for «how much of today is done», because its errands ripen on their own clock
-    # all day (#1470).
+    # all day (#1470). The third, `radar_all`, is the whole board in one press with the mode
+    # chosen from the GAME's weekday — the one a clock calls; the two narrower ones stay
+    # because «collect what is ripe» and «spend squads» are decisions a person may want on
+    # their own.
     blind = [e.key for e in modelmod.BLIND_ERRANDS if e.runnable]
-    assert blind == ["truck_reward", "radar", "radar_march",
+    assert blind == ["truck_reward", "radar", "radar_march", "radar_all",
                      "alliance_gifts", "ministry"], blind
     assert modelmod.BY_KEY["ministry"].run_key == "checklist.run.ministry"
 
