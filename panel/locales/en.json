@@ -365,6 +365,7 @@
   "log.secret.seed_server": "server taken from the game: {srv}",
   "log.secret.started_move_map": "the capture is running (pid {pid}); its output goes to the log — move the map, or press «Sweep the map», or there will be no traffic",
   "log.secret.starting": "starting the capture: {script} …",
+  "log.secret.dismissed_forgiven": "removals booked by the old rule are forgiven: {count} tile(s) may come back",
   "log.secret.state_done": "state re-read: {checked} checked, {updated} updated, {gone} gone, {unconfirmed} unconfirmed",
   "log.secret.state_none": "no rows to re-read — the list is empty",
   "log.secret.stopped": "monitor stopped",

@@ -365,6 +365,7 @@
   "log.secret.seed_server": "servidor pego do jogo: {srv}",
   "log.secret.started_move_map": "a captura está rodando (pid {pid}); a saída dela vai para o registro — mova o mapa ou carregue em «Percorrer o mapa», senão não haverá tráfego",
   "log.secret.starting": "iniciando a captura: {script} …",
+  "log.secret.dismissed_forgiven": "as remoções anotadas pela regra antiga foram perdoadas: {count} bloco(s) podem voltar",
   "log.secret.state_done": "estado relido: {checked} verificadas, {updated} atualizadas, {gone} sumiram, {unconfirmed} não confirmadas",
   "log.secret.state_none": "nada para reler — a lista está vazia",
   "log.secret.stopped": "monitor parado",

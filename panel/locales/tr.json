@@ -365,6 +365,7 @@
   "log.secret.seed_server": "sunucu oyundan alındı: {srv}",
   "log.secret.started_move_map": "yakalama çalışıyor (pid {pid}); çıktısı günlüğe gidiyor — haritayı oynat ya da «Haritayı tara» tuşuna bas, yoksa trafik olmaz",
   "log.secret.starting": "yakalama başlatılıyor: {script} …",
+  "log.secret.dismissed_forgiven": "eski kuralın kaydettiği çıkarmalar affedildi: {count} kare geri gelebilir",
   "log.secret.state_done": "durum yeniden okundu: {checked} kontrol, {updated} güncellendi, {gone} kayboldu, {unconfirmed} doğrulanmadı",
   "log.secret.state_none": "yeniden okunacak satır yok — liste boş",
   "log.secret.stopped": "gözcü durduruldu",

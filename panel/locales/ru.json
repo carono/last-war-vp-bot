@@ -365,6 +365,7 @@
   "log.secret.seed_server": "сервер взят из игры: {srv}",
   "log.secret.started_move_map": "захват запущен (pid {pid}); вывод идёт в лог — двигай карту или нажми «Обойти карту», иначе трафика не будет",
   "log.secret.starting": "запускаю захват: {script} …",
+  "log.secret.dismissed_forgiven": "снятия, записанные старым правилом, прощены: {count} тайл(ов) снова могут вернуться",
   "log.secret.state_done": "состояние перечитано: проверено {checked}, обновлено {updated}, исчезло {gone}, не подтвердилось {unconfirmed}",
   "log.secret.state_none": "нечего перечитывать — список пуст",
   "log.secret.stopped": "стоп мониторинга",

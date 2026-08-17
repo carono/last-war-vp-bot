@@ -1953,6 +1953,10 @@ def _state_tab(rows):
     tab._vm_busy = True
     tab.said = []
     tab.say = lambda _tag, key, **fmt: tab.said.append((key, fmt))
+    # A press-driven read ends by re-merging the capture's checkpoint (#1416); this
+    # fixture has none, and the decision under test is the one before that call.
+    tab.loaded, tab._busy = False, False
+    tab.refresh = lambda: None
     return tab
 
 
@@ -1972,18 +1976,27 @@ def test_the_state_refresh_updates_the_loot_count_from_the_alliance_table():
     assert (fmt["checked"], fmt["updated"], fmt["gone"]) == (1, 1, 0), fmt
 
 
-def test_a_tile_the_server_has_no_detail_for_is_gone():
-    """A point with no task on it answers with no detail at all — measured live. With
-    the control proving the answers were arriving, that is «there is nothing there»."""
-    rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000)}
+def test_a_tile_another_task_is_standing_on_is_gone_and_a_silent_one_is_not():
+    """What a per-tile answer may and may not take off the list (#1272, rewritten #1476).
+
+    It used to be «no detail, and the control answered, therefore gone», and that emptied
+    the list every thirty seconds: measured on the live client, most points never answer
+    at all — of 125 of the account's own alliance tasks only 2 had a detail, and asking
+    for three more added nothing in eight seconds. So silence is `unconfirmed` now, and
+    the one thing that takes a row off here is the server naming a DIFFERENT task on that
+    very point.
+    """
+    rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000),
+            "3": _row(3, 7, -5_000, 600_000)}
     tab = _state_tab(rows)
 
-    # row 1 answered with its own uuid, row 2 with nothing; the control came back.
-    tab._state_landed(["1", "2"], {}, {1: 1, 2: 0}, True)
+    # row 1 answered with its own uuid, row 2 with nothing, row 3 with somebody else's;
+    # the control came back.
+    tab._state_landed(["1", "2", "3"], {}, {1: 1, 2: 0, 3: 77}, True)
 
-    assert sorted(tab._rows) == ["1"], tab._rows
+    assert sorted(tab._rows) == ["1", "2"], tab._rows
     key, fmt = tab.said[-1]
-    assert (fmt["checked"], fmt["gone"]) == (2, 1), fmt
+    assert (fmt["checked"], fmt["gone"], fmt["unconfirmed"]) == (3, 1, 1), fmt
 
 
 def test_without_the_control_no_row_is_dropped():
@@ -2002,12 +2015,16 @@ def test_without_the_control_no_row_is_dropped():
 
 def test_a_row_we_robbed_is_never_dropped_by_the_refresh():
     """It is on the list so it can still be shared, and our own robbery is the likeliest
-    reason the tile would now answer with nothing (#1272)."""
+    reason the tile would now answer with something else (#1272).
+
+    Asked with a CONTRADICTION rather than a silence since #1476 — a silence keeps every
+    row now, so it would no longer prove the robbed exception is doing anything.
+    """
     row = _row(1, 7, -5_000, 600_000)
     row["robbed"] = True
     tab = _state_tab({"1": row})
 
-    tab._state_landed(["1"], {}, {1: 0}, True)
+    tab._state_landed(["1"], {}, {1: 77}, True)
 
     assert "1" in tab._rows
 
@@ -2052,6 +2069,8 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab.capture = types.SimpleNamespace(running=True)
     tab.ghost_capture = types.SimpleNamespace(running=False)
     tab.rt.play_async = lambda name, args=None, **kw: True
+    tab.loaded, tab._busy = False, False       # no checkpoint to re-merge here
+    tab.refresh = lambda: None
 
     # A live read that carries nothing, and one that carries something else.
     tab._merge([], verify={"7"}, source=st.SOURCE_VM)
@@ -2063,9 +2082,10 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab._poll_apply(["7"], {"9": _LiveTask(9)})
     assert "7" in tab._rows, "the ready-row poll took it"
 
-    # «Обновить состояние»: the control answered, our tile has no detail at all.
+    # «Обновить состояние»: the control answered, and the point now names another task —
+    # the only shape that takes a row off there since #1476, and a robbed row survives it.
     tab._vm_busy = True
-    tab._state_landed(["7"], {}, {1: 0}, True)
+    tab._state_landed(["7"], {}, {1: 77}, True)
     assert "7" in tab._rows, "the state refresh took it"
 
     # The server's own «уже взято», which is what it says about a tile we robbed.
@@ -2114,6 +2134,12 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
     assert {"1", "2"} <= set(tab._rows), "a failed poll emptied it"
     tab._state_landed(["1", "2"], {}, {}, False)                  # no control point
     assert {"1", "2"} <= set(tab._rows), "an unproven refresh emptied it"
+    # …AND A PROVEN ONE THAT HEARD NOTHING ABOUT THESE TILES (#1476). The control
+    # answering says the link is alive; it says nothing whatever about a point the server
+    # never replied about, and most points never reply. This is the door that emptied the
+    # list every thirty seconds for a day.
+    tab._state_landed(["1", "2"], {}, {1: 0, 2: 0}, True)
+    assert {"1", "2"} <= set(tab._rows), "a silent probe with a live control emptied it"
 
     # …and a tile filled to 3/3 is FILTERED, not deleted — «Показывать исчерпанные» is
     # what brings it back.
@@ -2121,7 +2147,12 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
     assert "1" in tab._rows and tab._spent(tab._rows["1"])
     assert 1 not in [r["uuid"] for r in tab._visible_rows()]
 
-    # Only the two clauses take a row away.
+    # Only the two clauses take a row away — and the state read's own version of clause 2
+    # is a POSITIVE contradiction, never a silence: another task standing on that point.
+    tab._rows["3"] = _row(3, 7, -5_000, 600_000)
+    tab._state_landed(["3"], {}, {1: 99}, True)
+    assert "3" not in tab._rows, "a different task on the point did not take the row off"
+
     tab._drop_gone("2")                                           # clause 2
     assert "2" not in tab._rows
     tab._rows["1"]["expires_at"] = _ms(-1_000)                    # clause 1
@@ -3704,6 +3735,12 @@ def _sweep_tab(rows=None):
     tab.coord_srv_var = _Var("300")
     tab._rows = dict(rows or {})
     tab._collected, tab._restore_pending = {"already-robbed"}, {"x"}
+    # The two books a merge consults (#1416, #1280). Empty here, and NOT optional: the
+    # audit below merges a tile the list has never seen, which is exactly the path that
+    # reads them — without these the guard against emptying the list raised an
+    # `AttributeError` instead of guarding anything, and did so from the day the book of
+    # removals was added until #1476 noticed the list emptying for real.
+    tab._dismissed, tab._robbed_until = {}, {}
     tab.said = []
     tab.say = lambda tag, key, **fmt: tab.said.append(key)
     tab.capture = types.SimpleNamespace(running=True)
@@ -3711,6 +3748,11 @@ def _sweep_tab(rows=None):
     tab.post = lambda fn: fn()
     tab._render = tab._update_status = tab._persist_rows = lambda: None
     tab._retitle_sweep = lambda: None
+    # A press-driven state read ends by re-merging the capture's checkpoint, and this
+    # fixture has neither a checkpoint nor a tab to draw it on — the decisions under test
+    # are the ones ABOVE that call.
+    tab.loaded, tab._busy = False, False
+    tab.refresh = lambda: None
     played = []
     tab.rt = types.SimpleNamespace(
         played=played,

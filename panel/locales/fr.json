@@ -365,6 +365,7 @@
   "log.secret.seed_server": "serveur pris dans le jeu : {srv}",
   "log.secret.started_move_map": "la capture tourne (pid {pid}) ; sa sortie va au journal — déplace la carte ou appuie sur « Parcourir la carte », sinon il n'y aura pas de trafic",
   "log.secret.starting": "démarrage de la capture : {script} …",
+  "log.secret.dismissed_forgiven": "les retraits inscrits par l'ancienne règle sont pardonnés : {count} case(s) peuvent revenir",
   "log.secret.state_done": "état relu : {checked} vérifiées, {updated} mises à jour, {gone} disparues, {unconfirmed} non confirmées",
   "log.secret.state_none": "rien à relire — la liste est vide",
   "log.secret.stopped": "moniteur arrêté",

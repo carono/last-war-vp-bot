@@ -365,6 +365,7 @@
   "log.secret.seed_server": "Server aus dem Spiel übernommen: {srv}",
   "log.secret.started_move_map": "die Aufzeichnung läuft (pid {pid}); ihre Ausgabe geht ins Protokoll — bewege die Karte oder drücke «Karte abfahren», sonst kommt kein Verkehr",
   "log.secret.starting": "starte die Aufzeichnung: {script} …",
+  "log.secret.dismissed_forgiven": "Nach der alten Regel gebuchte Entfernungen sind vergeben: {count} Feld(er) dürfen zurückkommen",
   "log.secret.state_done": "Status neu gelesen: {checked} geprüft, {updated} aktualisiert, {gone} verschwunden, {unconfirmed} unbestätigt",
   "log.secret.state_none": "nichts neu zu lesen — die Liste ist leer",
   "log.secret.stopped": "Überwachung gestoppt",

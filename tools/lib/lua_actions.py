@@ -1580,6 +1580,25 @@ def steal_next_secret_task() -> str:
 # — a tile the client itself says exists — and the reader reports whether that one came
 # back. Without the control answering, a nil says nothing and no row is dropped.
 #
+# AND THE CONTROL HAS TO BE A POINT THAT IS NOT ALREADY ANSWERED (#1476). The detail
+# cache is not emptied between runs: `worldPointDetailList` holds every point the client
+# has ever had a detail for — 104 of them on the live profile that reported this — so a
+# control picked blindly off `allianceTask` is very often one whose answer has been
+# sitting there since some earlier tap. It then reads `ok=1` whatever the link is doing,
+# and every silent tile in the batch is scored as «the server says it is gone». That is
+# not a theory: 709 «состояние перечитано» lines in one profile's log, over ten days,
+# and «исчезло» was EQUAL to «проверено» in every single one of them while «обновлено»
+# was never once above nought. Measured on the same client: of 125 of the account's OWN
+# alliance tasks exactly 2 had a cached detail, and a fresh `world.get.detail.new` for
+# the other three sampled added nothing in eight seconds — yet the control answered, so
+# all three would have been deleted.
+#
+# So the control is picked as the first alliance task the cache has NO answer for. Then
+# `ok=1` can only mean a reply arrived DURING THIS RUN, which is the only thing it was
+# ever supposed to mean. When every alliance task already has one — nothing left to prove
+# arrival with — the probe sends no control at all and the reader says `ok=0`, which is
+# «I cannot tell» and takes no row off the list.
+#
 # What the detail does NOT carry is the loot count: `stealInfoList` is not in it, so
 # «сколько раз уже ограбили» still comes from the alliance table for the tiles it covers
 # and from the capture for the rest.
@@ -1600,9 +1619,16 @@ def secret_task_detail_probe(tiles, control=None) -> str:
     # The control is picked in the VM when the caller does not name one: the client's own
     # alliance table is a list of tiles it is sure exist, and one of them answering is
     # what turns «no detail» from «I heard nothing» into «there is nothing there».
+    #
+    # …and it is the first one the DETAIL CACHE cannot already answer (#1476), because a
+    # point that is already answered proves nothing about this run — see the note above.
     ctrl = (("{p=%d,s=%d}" % (int(control[0]), int(control[1]))) if control else
-            "(function() for _, v in pairs(DataCenter.ActDispatchTaskDataManager"
-            ".allianceTask or {}) do return {p=v.pointId, s=v.targetServer} end "
+            "(function() local D=DataCenter.WorldPointDetailManager "
+            "for _, v in pairs(DataCenter.ActDispatchTaskDataManager"
+            ".allianceTask or {}) do "
+            "local d = D:GetDetailByPointId(v.pointId) "
+            "if not (d and (tonumber(d.uuid) or 0) > 0) then "
+            "return {p=v.pointId, s=v.targetServer} end end "
             "return nil end)()")
     return ("local M=DataCenter.ActDispatchTaskDataManager "
             "M.__lw_detail_ask={} M.__lw_detail_ctrl=%s "

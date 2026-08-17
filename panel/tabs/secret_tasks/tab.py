@@ -205,6 +205,18 @@ ROBBED_KEEP_MS = 24 * 60 * 60 * 1000
 # earlier than that whenever the map re-sights the tile, which is the whole point.
 DISMISSED_KEEP_SEC = 24 * 60 * 60
 
+# WHICH RULE BOOKED THOSE REMOVALS (#1476). The book is only as good as the judgement
+# that fills it, and for one day it was filled by a broken one: every row a state read
+# asked about was booked as «the server says it is gone», so a profile carries up to a
+# day of removals that were never true and refuses those tiles until the map drives over
+# each of them again. The number is written beside the book; a checkpoint written under
+# an older number has its removals FORGIVEN once, on the read, and the rows come back on
+# the next merge instead of at some point tomorrow.
+#
+# Bump it whenever the rule that decides a removal changes in a way that could have
+# booked one wrongly. It costs one refill of a list that is refilled every minute anyway.
+DISMISSED_RULE = 2
+
 # How long BEFORE a tile matures «Собрать» is already offered (#1272). A star is taken
 # in the first moment it is takeable — «счёт может идти на микросекунды, потому что много
 # желающих уже кликают» — and a button that appears at the instant of readiness is one
@@ -1787,9 +1799,27 @@ class SecretTasksTab(PanelTab):
 
         THE TWO KINDS OF ABSENCE, KEPT APART (#1272). A row missing from the alliance
         table means nothing unless that table could have carried it (`_answerable`, and
-        the rule that stopped the list being wiped every start-up). A tile the SERVER
-        answered about with no detail — with the control point proving the answers were
-        arriving — is the other thing entirely: there is nothing there, and the row goes.
+        the rule that stopped the list being wiped every start-up).
+
+        AND SILENCE IS NOT AN ANSWER, WHATEVER THE CONTROL SAYS (#1476). A tile that came
+        back with no detail used to be deleted as long as the control point had answered
+        — and that emptied the list, every thirty seconds, for as long as anybody let it:
+        709 «состояние перечитано» lines in one profile's log with «исчезло» EQUAL to
+        «проверено» in every one, «обновлено» never once above nought. Two measurements
+        on the live client say why. The control was being satisfied by a detail that had
+        been in the cache since some earlier tap rather than by a reply to this run
+        (fixed where it is picked, `lua_actions.secret_task_detail_probe`) — and, even
+        with an honest control, most points simply never answer: of 125 of the account's
+        OWN alliance tasks only 2 had a detail at all, and asking for three more added
+        nothing in eight seconds.
+
+        So a nought is `unconfirmed` now, full stop, and the only thing that takes a row
+        off here is a POSITIVE contradiction: the server answered about that very point
+        with a DIFFERENT uuid, which is another task sitting where ours was. That still
+        needs the control, because an answer for one point says nothing about a batch
+        nobody heard. Everything else this list has for getting rid of a dead row is
+        untouched — its own expiry (`THE_LIST_RULE` clause 1), the verify path in
+        :meth:`_merge`, and the operator's «Очистить список».
         """
         if auto:
             self._state_busy = False
@@ -1826,6 +1856,13 @@ class SecretTasksTab(PanelTab):
                 # «проверено», which the same line already reports.
                 row["seen_at"] = time.time()
                 continue
+            if not answer:
+                # NOTHING CAME BACK ABOUT THIS POINT (#1476). Not «there is nothing
+                # there» — the two are the same nil, and the second is far rarer than the
+                # first: measured on the live client, most points never answer at all.
+                # An unheard tile is unconfirmed and stays exactly where it is.
+                unconfirmed += 1
+                continue
             if not control:
                 # Nothing came back for the control either: the answers were not
                 # arriving, and an absence proves nothing. Exactly the mistake #1272
@@ -1834,8 +1871,8 @@ class SecretTasksTab(PanelTab):
                 continue
             if row.get("robbed"):                    # kept for sharing, as ever
                 continue
-            # `THE_LIST_RULE` clause 2 — asked about this tile, told there is nothing
-            # there, and the control point proved the answers were arriving.
+            # `THE_LIST_RULE` clause 2 — asked about this tile, told that ANOTHER task is
+            # standing on it, and the control point proved the answers were arriving.
             #
             # …AND IT STAYS OFF (#1416). Without the book the next merge of the capture's
             # checkpoint put every one of these back, so this line ran again half a
@@ -3080,6 +3117,9 @@ class SecretTasksTab(PanelTab):
             # restart too, and a panel that came back having forgotten what the operator
             # cleared would refill the list from it within the second.
             "dismissed": self._dismissed_book(),
+            # …stamped with the rule that booked them (#1476), so a later panel can tell
+            # a removal it should honour from one a fault of its own put there.
+            "dismissed_rule": DISMISSED_RULE,
             "rows": [
             {"uuid": r["uuid"], "server": r["server"], "x": r["x"], "y": r["y"],
              "level": r["level"], "cfg_id": r["cfg_id"], "loot_count": r["loot_count"],
@@ -3235,7 +3275,18 @@ class SecretTasksTab(PanelTab):
             # restart that forgot them would let the capture's checkpoint refill the
             # list with everything the operator had cleared, which is the very fault
             # the book exists to end.
+            #
+            # …unless they were booked by a rule that has since been found wrong
+            # (:data:`DISMISSED_RULE`, #1476), in which case they are forgiven whole:
+            # keeping them would hold a day's worth of tiles off a list this very read is
+            # trying to restore.
             cutoff = time.time() - DISMISSED_KEEP_SEC
+            forgiven = 0
+            if int(records.get("dismissed_rule") or 0) != DISMISSED_RULE:
+                forgiven = len(records.get("dismissed") or ())
+                records = dict(records, dismissed=())
+                if forgiven:
+                    self.say("secret", "log.secret.dismissed_forgiven", count=forgiven)
             for entry in records.get("dismissed") or ():
                 if not isinstance(entry, dict):
                     continue

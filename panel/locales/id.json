@@ -365,6 +365,7 @@
   "log.secret.seed_server": "server diambil dari permainan: {srv}",
   "log.secret.started_move_map": "penangkapan berjalan (pid {pid}); keluarannya masuk ke catatan — geser peta atau tekan «Telusuri peta», kalau tidak takkan ada lalu lintas",
   "log.secret.starting": "memulai penangkapan: {script} …",
+  "log.secret.dismissed_forgiven": "penghapusan yang dicatat aturan lama dimaafkan: {count} petak boleh kembali",
   "log.secret.state_done": "status dibaca ulang: {checked} diperiksa, {updated} diperbarui, {gone} hilang, {unconfirmed} belum pasti",
   "log.secret.state_none": "tidak ada yang dibaca ulang — daftarnya kosong",
   "log.secret.stopped": "pemantau dihentikan",
