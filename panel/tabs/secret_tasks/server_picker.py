@@ -4,14 +4,15 @@ The operator asked for it in one sentence: a magnifier beside the «Сервер
 warzones like the one a player-made cycle chart draws, and a click that GOES there rather
 than filling a field in.
 
-**What the grid knows.** Each cell is a warzone of the neighbourhood
-(`server_list.neighbourhood` — a run of consecutive numbers around the account's own,
-agreed with the operator over the season plan because consecutive numbers are consecutive
-opening dates and the star-day cycle is a function of a warzone's age, #1467). Its colour
-is the state this profile's book answers for it TODAY — the star day, the day after it, an
-ordinary day, or nothing known — and the tooltip-ish line under the grid says where that
-answer came from and when it turns over. Nothing here reads the game: the states come out
-of `rt.secret_days`, which is arithmetic over rows already on disk.
+**What the grid knows.** Each cell is a warzone a robbery is POSSIBLE on
+(`server_list.same_phase` — the warzones standing in the same season and the same stage
+of it as ours, #1471). It was a run of consecutive numbers around us to begin with, which
+drew plenty of cells the game does not open to this account: «показывается от начала
+сервера, а там грабить нельзя». A cell's colour is the state this profile's book answers
+for it TODAY — the star day, the day after it, an ordinary day, or nothing known — and the
+line under the grid says how many of each there are. Nothing here reads the game: the
+slice is the season plan already on disk and the states come out of `rt.secret_days`,
+which is arithmetic over rows already on disk.
 
 **A click is a jump.** The same `rt.game.jump` every coordinate in the panel walks
 through, at the coordinates the tab's own boxes are holding — so «the same tile on the
@@ -85,6 +86,14 @@ class _Grid:
         tab.tr(ttk.Button(head, command=self.repaint),
                "secrettasks.picker.refresh").pack(side="right")
 
+        # WHICH SLICE THIS IS, in words (#1471). The grid is no longer «the numbers next
+        # to ours» but «the warzones the game opens to us today», and a person cannot tell
+        # one from the other by looking at the cells — so the rule is written above them.
+        self.slice = tk.StringVar()
+        band = ttk.Frame(win, padding=(10, 0, 10, 4))
+        band.pack(fill="x")
+        ttk.Label(band, textvariable=self.slice).pack(side="left")
+
         legend = ttk.Frame(win, padding=(10, 0, 10, 6))
         legend.pack(fill="x")
         for state in ("day", "post", "plain"):
@@ -104,18 +113,22 @@ class _Grid:
         self.repaint()
 
     # -- drawing --------------------------------------------------------------
-    def rows(self) -> list:
-        """The neighbourhood, with each warzone's state — the phone's own list too.
+    def view(self) -> dict:
+        """The slice and its cells — the phone's own reading too.
 
-        Built by the tab so the two front-ends cannot drift: `SecretTasksTab.picker_rows`
+        Built by the tab so the two front-ends cannot drift: `SecretTasksTab.picker_view`
         is what `web_view` draws as well.
         """
-        return self.tab.picker_rows()
+        return self.tab.picker_view()
 
     def repaint(self) -> None:
         for child in self.body.winfo_children():
             child.destroy()
-        rows = self.rows()
+        view = self.view()
+        rows = view["rows"]
+        self.slice.set(self.tab.t("secrettasks.picker.slice", step=view["step"],
+                                  stage=self.tab.t(view["stage_key"]),
+                                  first=view["first"], last=view["last"]))
         tally = {"day": 0, "post": 0, "plain": 0, "unknown": 0}
         for index, row in enumerate(rows):
             state = row.get("state") or "unknown"

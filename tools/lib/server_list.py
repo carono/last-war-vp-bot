@@ -369,48 +369,64 @@ def undated(data: dict) -> list:
     return [int(row["id"]) for row in rows(data) if not row.get("open_ms")]
 
 
-#: How many warzones the picker shows around the account's own (#1467). The block the
-#: operator works in is a run of consecutive NUMBERS, which is also a run of consecutive
-#: ages — and the star-day cycle is decided by age, so a numeric neighbourhood is the
-#: slice on which «where do I go today» has an answer at every cell.
-NEIGHBOURHOOD = 128
+def phase_of(row: dict, now_ms) -> tuple:
+    """Which season PHASE a warzone is standing in: `(step, stage)`.
 
+    The pair is deliberately coarser than the row and coarser than a season id. The
+    NUMERAL (`V`, `Ⅵ`) says which season the warzone is playing; the stage says whether
+    it is in the pre-season, the season proper, the settlement or the lull between two
+    seasons. Two warzones that agree on both are in the same phase of the same season,
+    which is the thing the game opens to each other; two that agree on the numeral alone
+    are not — half of a numeral is mid-season while the other half is months past it.
 
-def neighbourhood(data: dict, server, span: int = NEIGHBOURHOOD) -> list:
-    """The `span` warzones around `server`, by NUMBER, lowest first.
-
-    Why by number and not by the season plan: a season row groups nine warzones (the
-    cross-server match group) and a season NUMERAL groups four hundred, and neither is
-    the block a person hunts in. Consecutive numbers are consecutive opening dates, which
-    is what the star-day cycle is a function of — so this slice is the one where every
-    cell has a state worth reading. Agreed with the operator for the picker (#1467).
-
-    The window is centred on `server` and slides off neither end: near the first warzone
-    the game ever opened it starts at the beginning, near the newest it stops at the
-    newest, and either way it is `span` long while there are that many to show. Warzones
-    the list does not carry are simply absent — the game's own numbering has gaps, and
-    inventing cells for them would offer a jump to nowhere.
+    A warzone nobody has read a season row for answers `("", "unknown")`, which matches
+    nothing on purpose.
     """
-    known = [int(row["id"]) for row in rows(data)]
-    if not known:
-        return []
-    span = max(1, int(span))
+    season = (row or {}).get("season") or {}
+    if not season:
+        return ("", STAGE_UNKNOWN)
+    return (str(season.get("step") or ""), stage_of(season, now_ms))
+
+
+def same_phase(data: dict, server, now_ms=None) -> list:
+    """The warzones standing in the SAME season phase as `server`, lowest first.
+
+    **This is the slice a robbery has an answer on** (#1471). The picker used to draw a
+    run of consecutive NUMBERS around the account's own, which is honest about who the
+    neighbours are and wrong about the only question being asked — half of those cells
+    are warzones the game does not open to this account, so a click on them goes nowhere
+    and a grid half of which cannot be acted on is worse than no grid. The operator said
+    it in one sentence: «ограничивать сезоном или соответствующим межсезоньем».
+
+    So the cut is `phase_of`: the same season numeral AND the same stage of it. Warzones
+    younger than ours are still playing a season we finished; older ones finished theirs
+    long before; the ones in the lull WITH us are the ones we can walk into. The edge is
+    computed from the season plan already on disk for every warzone
+    (`docs/research/server-events.md`), so it moves by itself when the next season opens
+    — there is no number written down anywhere for it, and there must not be.
+
+    `now_ms` is the GAME's clock (`tools/lib/game_clock.py`). Without it every stage
+    reads as unknown and the answer is empty, which is the safe way round: an empty grid
+    says «nothing read yet», a full one would claim warzones nobody checked.
+    """
     try:
         centre = int(server)
     except (TypeError, ValueError):
-        centre = known[0]
-    # NEIGHBOURS ARE NEIGHBOURS BY NUMBER, and the window is bounded by DISTANCE as well
-    # as by count. The game's numbering has a separate block high above the ordinary
-    # warzones — «State#8xxx», which the list reports with the same kind as any other —
-    # and a plain «take `span` entries around this position» slid straight into it the
-    # moment the centre was past the newest ordinary warzone: live, a picker centred just
-    # beyond the end drew half its grid out of a block five thousand numbers away. A
-    # neighbour more than `span` away is not a neighbour, so it is not offered at all.
-    near = [i for i in known if abs(i - centre) <= span]
-    if not near:
         return []
-    near.sort(key=lambda i: (abs(i - centre), i))
-    return sorted(near[:span])
+    here = (data.get("servers") or {}).get(str(centre))
+    if not here:
+        return []
+    step, stage = phase_of(here, now_ms)
+    if not step or stage == STAGE_UNKNOWN:
+        return []
+    # The high block («State#8xxx») is NOT held out here, unlike in the numeric window it
+    # replaces. It was a trap for a slice built on distance — a picker centred past the
+    # newest ordinary warzone drew half its cells five thousand numbers away — and it is
+    # not one for a slice built on availability: a season row groups those warzones with
+    # ours (one is in this account's own nine), so the game does open them and a cell
+    # offering the jump is telling the truth.
+    return sorted(int(row["id"]) for row in rows(data)
+                  if phase_of(row, now_ms) == (step, stage))
 
 
 # ---------------------------------------------------------------------------

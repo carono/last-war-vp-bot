@@ -186,51 +186,83 @@ def _main() -> int:
     return 1 if failed else 0
 
 
-# -- the picker's slice (#1467) ----------------------------------------------
-def _list(ids) -> dict:
+# -- the picker's slice (#1467, recut in #1471) ------------------------------
+DAY = 86_400_000
+NOW = 1_000 * DAY
+
+
+def _list(ids, **season) -> dict:
     """A cache holding just these warzone numbers — invented, like every id here."""
-    return {"servers": {str(i): {"id": i, "name": "State#%d" % i} for i in ids}}
+    return {"servers": {str(i): {"id": i, "name": "State#%d" % i,
+                                 "season": dict(season)} for i in ids}}
 
 
-def test_the_neighbourhood_is_a_run_of_numbers_around_the_one_asked_about() -> None:
-    """Consecutive numbers are consecutive opening dates — the slice the picker draws."""
-    data = _list(range(1000, 1200))
-    got = S.neighbourhood(data, 1100, span=10)
-    assert got == list(range(1095, 1105))
-    assert len(got) == 10
+def _merge(*parts) -> dict:
+    """Several `_list`s as one cache."""
+    out = {"servers": {}}
+    for part in parts:
+        out["servers"].update(part["servers"])
+    return out
 
 
-def test_the_window_slides_off_neither_end() -> None:
-    """At the first warzone and at the newest it stays `span` long instead of shrinking."""
-    data = _list(range(1000, 1200))
-    assert S.neighbourhood(data, 1000, span=10) == list(range(1000, 1010))
-    assert S.neighbourhood(data, 1199, span=10) == list(range(1190, 1200))
+#: A season that ENDED before `NOW` — the lull the picker's own account is standing in.
+LULL = {"step": "IV", "pre_ms": NOW - 90 * DAY, "start_ms": NOW - 80 * DAY,
+        "settle_ms": NOW - 20 * DAY, "end_ms": NOW - 10 * DAY}
+#: The same numeral, still being PLAYED — same season, different stage.
+PLAYING = {"step": "IV", "pre_ms": NOW - 30 * DAY, "start_ms": NOW - 20 * DAY,
+           "settle_ms": NOW + 20 * DAY, "end_ms": NOW + 30 * DAY}
+#: A different season altogether, and mid-flight.
+NEXT_ONE = {"step": "V", "pre_ms": NOW - 30 * DAY, "start_ms": NOW - 20 * DAY,
+            "settle_ms": NOW + 20 * DAY, "end_ms": NOW + 30 * DAY}
 
 
-def test_a_gap_in_the_games_numbering_is_not_invented_over() -> None:
-    """A cell for a warzone the list does not carry would offer a jump to nowhere."""
-    data = _list([1000, 1001, 1005, 1006, 1007])
-    assert S.neighbourhood(data, 1003, span=4) == [1000, 1001, 1005, 1006]
+def test_the_slice_is_the_warzones_in_our_own_season_phase() -> None:
+    """«Ограничивать сезоном или соответствующим межсезоньем» — the operator's rule."""
+    data = _merge(_list(range(1000, 1010), **LULL),
+                  _list(range(1010, 1020), **PLAYING))
+    assert S.same_phase(data, 1003, NOW) == list(range(1000, 1010))
 
 
-def test_a_distant_block_of_numbers_is_not_a_neighbourhood() -> None:
-    """The game numbers a separate block far above the ordinary warzones (#1467).
+def test_the_same_season_in_a_different_stage_is_a_different_phase() -> None:
+    """Half a numeral can be mid-season while the other half is months past it."""
+    data = _merge(_list(range(1000, 1004), **LULL),
+                  _list(range(1004, 1008), **PLAYING))
+    assert S.phase_of(data["servers"]["1000"], NOW)[0] == \
+        S.phase_of(data["servers"]["1004"], NOW)[0]          # the same numeral…
+    assert S.phase_of(data["servers"]["1000"], NOW) != \
+        S.phase_of(data["servers"]["1004"], NOW)             # …and not the same phase
+    assert 1004 not in S.same_phase(data, 1000, NOW)
 
-    A window taken by POSITION slid into it the moment the centre was past the newest
-    ordinary warzone — live, half a grid drawn out of numbers five thousand away. A
-    neighbour further than the span is not offered at all.
+
+def test_a_different_season_is_never_in_the_slice() -> None:
+    data = _merge(_list([1000, 1001], **PLAYING), _list([1002, 1003], **NEXT_ONE))
+    assert S.same_phase(data, 1000, NOW) == [1000, 1001]
+
+
+def test_the_high_block_is_in_when_it_shares_the_phase() -> None:
+    """Unlike the numeric window this replaces: the cut is availability, not distance.
+
+    A season row groups warzones from the high «State#8xxx» block with ordinary ones, so
+    a cell offering that jump is telling the truth (#1471).
     """
-    data = _list(list(range(1000, 1064)) + list(range(9000, 9064)))
-    got = S.neighbourhood(data, 1060, span=32)
-    assert got and max(got) < 9000
-    assert got == [i for i in range(1044, 1064)] or set(got) <= set(range(1000, 1064))
+    data = _merge(_list(range(1000, 1004), **LULL), _list([9001, 9002], **LULL))
+    assert S.same_phase(data, 1000, NOW) == [1000, 1001, 1002, 1003, 9001, 9002]
 
 
-def test_a_shorter_list_than_the_span_is_all_of_it() -> None:
-    """Three warzones on file are three cells, not a slice padded to a hundred."""
-    data = _list([7, 8, 9])
-    assert S.neighbourhood(data, 8, span=128) == [7, 8, 9]
-    assert S.neighbourhood({"servers": {}}, 8) == []
+def test_the_edge_of_the_slice_is_computed_and_never_written_down() -> None:
+    """Move the clock past the neighbours' season end and they join us — nothing else."""
+    data = _merge(_list([1000], **LULL), _list([1001], **PLAYING))
+    assert S.same_phase(data, 1000, NOW) == [1000]
+    later = NOW + 40 * DAY
+    assert S.same_phase(data, 1000, later) == [1000, 1001]
+
+
+def test_nothing_read_is_an_empty_slice_rather_than_every_warzone() -> None:
+    """An empty grid says «nothing read yet»; a full one would claim warzones nobody checked."""
+    assert S.same_phase(_list([7, 8, 9]), 8, NOW) == []          # no season rows at all
+    assert S.same_phase(_list([7, 8, 9], **LULL), 8, None) == []  # no game clock
+    assert S.same_phase(_list([7, 8, 9], **LULL), 42, NOW) == []  # not a warzone we hold
+    assert S.same_phase({"servers": {}}, 8, NOW) == []
 
 
 if __name__ == "__main__":

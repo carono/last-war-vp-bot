@@ -166,14 +166,11 @@ taken from the game rather than a typo.
   on the head card, and the same four presses — the three marks ask which warzone, since a
   phone has no selected row.
 * **«Куда идти сегодня»** — the magnifier beside the «Сервер» box on the ★ tab
-  (`panel/tabs/secret_tasks/server_picker.py`): a grid of the warzones AROUND the one the
-  box is holding, coloured by today's state, and a cell is a JUMP rather than a number
-  typed in. The slice is a run of consecutive numbers (`server_list.neighbourhood`),
-  agreed with the operator over the two season groupings the config offers — a season plan
-  row groups nine warzones and a season numeral four hundred, and neither is the block a
-  person hunts in, while consecutive numbers are consecutive ages and the cycle is a
-  function of age. The phone gets the same warzones in the same order as items, with the
-  same press behind each (`SecretTasksTab.picker_rows` builds both).
+  (`panel/tabs/secret_tasks/server_picker.py`): a grid of the warzones a robbery is
+  possible on, coloured by today's state, and a cell is a JUMP rather than a number typed
+  in. The slice is `server_list.same_phase` — see §7. The phone gets the same warzones in
+  the same order as items, with the same press behind each
+  (`SecretTasksTab.picker_view` builds both).
 
 A mark is an OBSERVATION, never a tick: the panel is not keeping a second copy of something
 the game would answer, because the game does not answer this at all. That is the line
@@ -211,3 +208,57 @@ looking if one ever surfaces: the reply to `get.other.server.info` (today it car
 opening moment and nothing else) and whatever fills `ActivityListDataManager` for a FOREIGN
 warzone (today: nothing does). Until then the schedule stays derived — and the moment a
 fact appears it wins, because `answer()` already prefers it.
+
+## 8. Which warzones a robbery is possible on — the picker's slice (#1471)
+
+The magnifier of §5 first drew a run of **consecutive numbers** around the account's own,
+on the reasoning that consecutive numbers are consecutive ages and the star-day cycle is a
+function of age (§4.5). That is true about the CYCLE and wrong about the WINDOW: the
+operator's complaint was that most of what it drew is a warzone the game does not open to
+this account — «показывается от начала сервера, а там грабить нельзя» — and a grid half of
+which cannot be acted on is worse than no grid.
+
+**The rule is the operator's own: «ограничивать сезоном или соответствующим
+межсезоньем».** The slice is now `server_list.same_phase` — every warzone whose season
+plan puts it in the SAME season numeral and the SAME stage of it as ours right now
+(`phase_of` = `(step, stage_of(...))`, judged against the game's clock). It costs no wire
+traffic: the plan for every warzone the client knows about is already on disk
+(`docs/research/server-events.md` §1), so the edge is arithmetic and moves by itself when
+the next season opens. **There is no number for it anywhere in the code, and there must not
+be** — it is a different number on a different account and a different one again next
+month.
+
+Why the numeral alone is not enough: half of a numeral is mid-season while the other half
+is months past it. Live, the block below ours was still PLAYING the season after ours (it
+ends in a week) while ours had settled and been over for two and a half months — the same
+config table, the same day, two different phases. The stage is what separates them.
+
+Why not the season row's own group: `GetConfigDataByServerId(<own>):getValue('server')`
+gives the nine warzones of the cross-server match group, which is far too narrow — it
+starts well above the edge the operator can actually reach.
+
+### What the game was asked, and what it would not answer
+
+Four readings, all negative, all worth not repeating:
+
+| asked | answer |
+|---|---|
+| `CrossServerUtil.TryGetCrossEnableServerList()` | `nil` — the list is transient, filled only while a cross-server event authorises one |
+| `Global.CrossServerEnableList` (the table `GetCrossEnableReason` reads; found by `string.dump`) | `nil`, same reason |
+| `CrossServerUtil.GetCrossEnableReason(<id>)` over a wide sweep | `-2` («Disable») for every warzone but our own — it answers about that transient list, not about where we may go |
+| `CrossServerUtil.GetCrossServerIsInSameSeason(<id>)` for **every** id 1…2600 | `true` for all 2 600, including numbers no warzone has — it is not a filter |
+| `lw_dispatch_settings.season_condition_server` | global bands (`3-9999`, `3-36`, `37-9999`) that pick which rule row applies by warzone AGE; nothing per account |
+| `ActDispatchTaskDataManager.allianceTask` | 200 live tasks, every one with `targetServer` = our own — the alliance's list, not a cross-server pool |
+
+So there is **no live list to read**, and the config-derived phase is the honest answer
+rather than a convenience. Checked against the operator's own landmark — they named the
+earliest warzone they can rob today — and the computed edge lands within one warzone of it:
+the first warzone that left the season with us. The one below is still playing it.
+
+### What the two front-ends show
+
+`SecretTasksTab.picker_view` builds one reading for both: the cells, and a header saying
+which phase this is (`secrettasks.picker.slice` — season numeral, stage, and where the
+block starts and ends). The window prints it above the grid, the phone as the card's first
+row. The count under the grid is the real number of warzones in the slice, which is what it
+always was — it just is not a hundred-and-twenty-eight any more.

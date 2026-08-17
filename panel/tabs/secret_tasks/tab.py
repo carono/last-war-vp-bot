@@ -1967,52 +1967,74 @@ class SecretTasksTab(PanelTab):
         if server:
             self.coord_srv_var.set(str(int(server)))
 
-    # -- «Куда идти сегодня»: the neighbourhood grid (#1467) ------------------
+    # -- «Куда идти сегодня»: the robbable warzones (#1467, recut in #1471) ---
     def _open_server_picker(self) -> None:
-        """The magnifier: open the grid of neighbouring warzones (window only)."""
+        """The magnifier: open the grid of warzones we may rob on (window only)."""
         from . import server_picker
 
         server_picker.open_picker(self)
 
-    def picker_rows(self) -> list:
-        """The warzones around ours with today's star-day state — BOTH front-ends.
+    def picker_view(self) -> dict:
+        """The warzones a robbery is POSSIBLE on, with today's star-day state.
 
-        Here rather than in either of them because the window's grid and the phone's list
-        are the same reading, and a list built twice is a list that drifts. It reads two
-        things already on disk — the machine's warzone list and this profile's book of
-        star-days — and asks the game nothing, which is what a screen is allowed to cost.
+        BOTH front-ends draw this one reading — the window's grid and the phone's card —
+        because a list built twice is a list that drifts. It reads two things already on
+        disk (the machine's warzone list and this profile's book of star-days) and asks
+        the game nothing, which is what a screen is allowed to cost.
+
+        **The cut is availability, not adjacency** (#1471). It used to be a run of a
+        hundred-odd consecutive numbers around us, and the operator's complaint was the
+        whole point of the window: «показывается от начала сервера, а там грабить
+        нельзя». So the slice is `server_list.same_phase` — the warzones standing in the
+        same season and the same stage of it as our own — and the header says which phase
+        that is, so nobody has to guess what they are looking at. The edge is computed
+        from the season plan and moves by itself; there is no number for it in the code.
+
+        `anchor` is OUR OWN warzone and not the «Сервер» box: the question is where THIS
+        account may go robbing, and that does not change because somebody typed a foreign
+        number in to jump. With our own unknown the box is the next best guess, and with
+        neither the answer is empty rather than invented.
         """
         from ...runtime.paths import ensure
 
         ensure()
+        import game_clock
         import server_list
 
         data = server_list.load()
-        around = self._picker_centre()
-        ids = server_list.neighbourhood(data, around)
+        now_ms = game_clock.now_ms()
+        anchor = self._picker_anchor()
+        ids = server_list.same_phase(data, anchor, now_ms)
+        step, stage = server_list.phase_of(
+            (data.get("servers") or {}).get(str(anchor)) or {}, now_ms)
         book = self.rt.secret_days
         drawn = book.decorate([{"id": server} for server in ids])
-        return [{"server": int(row["id"]),
+        rows = [{"server": int(row["id"]),
                  "state": row.get("secret_state") or "unknown",
                  "state_key": row.get("secret_state_key"),
                  "source_key": row.get("secret_source_key"),
                  "until": row.get("secret_until") or "—"}
                 for row in drawn]
+        return {"anchor": anchor, "step": step or "—",
+                "stage_key": "servers.stage.%s" % stage,
+                "first": rows[0]["server"] if rows else 0,
+                "last": rows[-1]["server"] if rows else 0,
+                "rows": rows}
 
-    def _picker_centre(self) -> int:
-        """Which warzone the grid is drawn around: the «Сервер» box, else our own.
+    def _picker_anchor(self) -> int:
+        """Whose availability the grid answers for: our own warzone, else the box.
 
-        The box is what every jump on this tab already writes into (#1280), so the grid
-        follows the person around instead of always looking at home.
+        Our own first, because «where can I rob today» is a fact about this account and
+        not about wherever the camera happens to be standing. The box (`_jump` writes
+        every jump into it, #1280) is the fallback for a panel that has not been told our
+        warzone yet — better than an empty grid, and it is the same slice whenever the
+        two are in the same phase, which they are for any warzone we could have jumped to.
         """
+        own = int(getattr(self, "_own_server", 0) or 0)
+        if own > 0:
+            return own
         typed = (self.coord_srv_var.get() or "").strip()
-        if typed.isdigit() and int(typed) > 0:
-            return int(typed)
-        # Nothing typed: the ★ list's own rows know which warzone this account is on
-        # (`_own_server`, filled by «↻ сервер» and by every read that names it). Zero is
-        # a perfectly good answer — the neighbourhood then starts at the lowest warzone
-        # the list holds rather than pretending to know where we are.
-        return int(getattr(self, "_own_server", 0) or 0)
+        return int(typed) if typed.isdigit() and int(typed) > 0 else 0
 
     def jump_to_server(self, server) -> None:
         """Go to that warzone — the click a cell of the grid (or of the phone) makes.
@@ -3590,7 +3612,7 @@ class SecretTasksTab(PanelTab):
     def _picker_card(self) -> dict:
         """«Куда идти сегодня» — the window's magnifier grid, as the phone's card (#1467).
 
-        The SAME rows the window's grid draws (`picker_rows`) and the same press behind
+        The SAME rows the window's grid draws (`picker_view`) and the same press behind
         each of them, because a phone that could see the grid and not walk to a warzone
         would be half the tool — and the jump is `rt.game.jump` through the tab's own
         `jump_to_server`, a scenario-free camera move the phone has always been allowed
@@ -3599,8 +3621,14 @@ class SecretTasksTab(PanelTab):
         A cell is an ITEM rather than a button in a row: the phone has no grid to draw,
         so what it gets is the same warzones in the same order, each with the state, where
         the answer came from and when it turns over — and «Перейти» on each.
+
+        The card's first row is the SLICE the window prints above its grid (#1471) — which
+        season and stage these warzones share, and where the block starts and ends. A
+        phone that showed the cells without the rule would be showing a different screen
+        from the window's, which is the one thing neither front-end is allowed to do.
         """
-        rows = self.picker_rows()
+        view = self.picker_view()
+        rows = view["rows"]
         tally = {"day": 0, "post": 0, "plain": 0, "unknown": 0}
         items = []
         for row in rows:
@@ -3615,7 +3643,12 @@ class SecretTasksTab(PanelTab):
                                        "label": "secrettasks.picker.go",
                                        "args": {"server": row["server"]}}]})
         return {"title": "secrettasks.picker.title",
-                "rows": [{"label": "servers.secret.state.day", "value": str(tally["day"])},
+                "rows": [{"label": "secrettasks.picker.slice.label",
+                          "value": self.t("secrettasks.picker.slice",
+                                          step=view["step"],
+                                          stage=self.t(view["stage_key"]),
+                                          first=view["first"], last=view["last"])},
+                         {"label": "servers.secret.state.day", "value": str(tally["day"])},
                          {"label": "servers.secret.state.post",
                           "value": str(tally["post"])},
                          {"label": "servers.secret.state.plain",
