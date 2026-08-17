@@ -990,6 +990,9 @@ BUTTONS["radar_help_start"] = Button(
     # whole eligible set, exactly like `collect_base_resources`.
     lua=_lua_actions.radar_help_start_all(),
     wait=0.6, label="Radar: start every ally errand",
+    # HOW MANY, in the run's own log. Without this the count the chunk prints reaches
+    # `_run_lua` and is dropped there (#1416), and «выполнил» arrives without a number.
+    relay=("radar_help_started",),
 )
 BUTTONS["radar_help_end"] = Button(
     # The finish the client only sends while its own window is open. The three seconds
@@ -997,6 +1000,7 @@ BUTTONS["radar_help_end"] = Button(
     # spent even when nothing was started.
     lua=_lua_actions.radar_help_end_all(),
     wait=0.8, label="Radar: report the ally errands finished",
+    relay=("radar_help_ended",),
 )
 
 

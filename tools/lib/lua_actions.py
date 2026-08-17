@@ -8437,6 +8437,29 @@ def radar_helpable_count() -> str:
             "return n end)()")
 
 
+def radar_game_weekday() -> str:
+    """Which weekday the GAME is on — 1 = Monday … 7 = Sunday, 0 when it cannot be asked.
+
+    Not the PC's. The game's day turns at the server's own midnight (02:00 UTC on the
+    warzone this was measured on, `docs/research/ghost-recon-steal.md`), so a machine in
+    any timezone west of it spends hours calling the game's Tuesday «Monday» — and the
+    whole point of asking is to decide whether TODAY is the day the radar's errands
+    score. The client's own `GetTomorrowZero()` is the next such midnight; a day earlier
+    is the start of the one now running, and its UTC weekday is the label the duel week
+    uses.
+
+    Lua's `os.date` numbers the week from Sunday, so it is turned round here rather than
+    at three call sites.
+    """
+    return ("(function() local ok, ms = pcall(function() "
+            "return UITimeManager:GetInstance():GetTomorrowZero() end) "
+            "if not ok or not tonumber(ms) then return 0 end "
+            "local start = math.floor(tonumber(ms) / 1000) - 86400 "
+            "local w = tonumber(os.date('!%w', start)) "
+            "if w == nil then return 0 end "
+            "if w == 0 then return 7 end return w end)()")
+
+
 def radar_claim_press() -> str:
     """Claim the FIRST finished errand — one `receive.detect.event.reward`.
 

@@ -347,10 +347,17 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # that one day are worth far more than the same errands claimed as they ripen —
         # and the board has a CEILING that stops handing out new ones when it is full. So
         # a person who hoards sets `claim` to 0 for the week and back to 1 on the day, and
-        # `keep_free` is how much room the hoard is told to leave. The default is «claim
-        # as they ripen», which is what an account not playing the duel wants and what
-        # this line did before it had an argument at all.
-        args={"claim": 1, "help": 1, "keep_free": 5},
+        # `keep_free` is how much room the hoard is told to leave.
+        #
+        # `duel_day` is the other way of saying it, and the better one for a clock: name
+        # the weekday the radar scores on (1 = Monday … 7 = Sunday) and the recipe asks
+        # the GAME which weekday it is on — the server's day, not this machine's — and
+        # decides for itself, every run, with no hand on the row. It ships at 0 («not
+        # given») on purpose: WHICH day is a fact about the player's season and warzone,
+        # the client does not expose it (`docs/research/radar.md`), and a number written
+        # here would be one account's week presented as everyone's. On the season this
+        # was written in it is 1, and `docs/game/daily_cycle.md` says why.
+        args={"claim": 1, "help": 1, "duel_day": 0, "keep_free": 5},
         label_key="timers.item.do_radar_tasks",
     ),
     Timer(
