@@ -3133,10 +3133,16 @@ class SecretTasksTab(PanelTab):
             }
         # EVERY DOOR, WITH A NUMBER ON IT (#1476). «Не появляется» was answered three
         # times by guessing which of these was shutting, and each guess cost a live
-        # session; the line says which one it actually is. Printed only when the merge
-        # did something — a tick that re-heard rows it already had says nothing, or a
-        # lap would write a line a second about nothing at all.
-        if added or booked or robbed_already or no_finish:
+        # session; the line says which one it actually is.
+        #
+        # PRINTED WHENEVER A TILE REACHED THE DOOR AT ALL, added or not. It used to be
+        # «only when the merge did something», and that is the version of the line that
+        # cannot answer the question it exists for: a lap that adds nothing prints
+        # nothing, and «записано 0» is indistinguishable from «мы ничего не слышали» —
+        # which are the two halves the operator's report («первый проход добавил 4, все
+        # последующие ничего») hangs on. A merge with an EMPTY offer stays silent, so a
+        # panel nobody is driving still says nothing at all.
+        if offered:
             counts = dict(intake or {})
             self.say("secret", "log.secret.intake",
                      seen=int(counts.get("seen") or offered),

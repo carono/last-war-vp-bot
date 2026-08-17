@@ -2263,6 +2263,22 @@ def test_a_second_lap_over_the_same_tiles_fills_the_list_again():
     tab._merge([_StubTask(7, seen_at=__import__("time").time() + 1)])
     assert "7" in tab._rows, "the second lap added nothing"
 
+    # …AND THE SECOND LAP ADDS WHAT IT FINDS, whatever the first one did. The report was
+    # «первый проход добавил 4, все последующие — ничего», so the case is not «a row came
+    # back» but «a lap that is not the first still writes rows down»: a fresh tile, on a
+    # buffer the tab has already drained once, with the book holding an entry that has
+    # nothing to do with it.
+    tab._tiles = {"8": tile(8)}
+    tab._tiles_land()
+    assert "8" in tab._rows, "the second batch never left the buffer"
+    tab._drop_gone("8")
+    tab._tiles = {"8": tile(8), "9": tile(9)}
+    tab._tiles_land()                                    # a THIRD lap, over both
+    assert {"8", "9"} <= set(tab._rows), "a later lap stopped writing tiles down"
+    # …and every one of them went through the door counted, so the log can say which
+    # gate shut when a lap really does bring nothing.
+    assert "log.secret.intake" in tab.said, tab.said
+
 
 def test_a_page_is_emptied_by_its_own_button_and_by_nothing_of_its_neighbours():
     """«Очистить список» is the THIRD door into a list, and it opens onto one (#1298).
