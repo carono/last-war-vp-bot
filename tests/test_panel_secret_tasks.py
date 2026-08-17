@@ -708,8 +708,11 @@ def _fake_rt(path: str):
 
     from panel.runtime.store import Store
     db_path = os.path.join(os.path.dirname(path), "panel.db")
+    # …and `say`, because a merge now accounts for every door it shut (#1476) and the
+    # line goes through the runtime like every other word the panel speaks.
     return types.SimpleNamespace(profiles=_FakeProfiles(path), root=None,
-                                 store=Store(db_path))
+                                 store=Store(db_path),
+                                 say=lambda tag, key, **fmt: None)
 
 
 def test_persist_writes_a_checkpoint_load_persisted_reads_it_back():
@@ -2194,9 +2197,71 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
 
     tab._drop_gone("2")                                           # clause 2
     assert "2" not in tab._rows
+    # …AND A REMOVAL IS NOT A BAN (#1476). The book keeps the CHECKPOINT from repeating
+    # a sighting older than the removal, and that is all it may ever do: the map is the
+    # authority, so the tile turning up on it again puts the row straight back. Without
+    # this, one removal cost a whole day of laps — the operator's «первый проход добавил
+    # 4, все последующие ничего».
+    assert "2" in tab._dismissed, "the removal was not booked at all"
+    tab._merge([_StubTask(2)], fresh=True)                        # seen on the map again
+    assert "2" in tab._rows, "the book refused a tile the map had just re-sighted"
+    assert "2" not in tab._dismissed, "the removal outlived the sighting that undid it"
     tab._rows["1"]["expires_at"] = _ms(-1_000)                    # clause 1
     expired, _changed = tab._refresh_timers()
     assert "1" in expired, expired
+
+
+def test_a_second_lap_over_the_same_tiles_fills_the_list_again():
+    """«Первый проход добавил 4, все последующие — ничего не добавилось» (#1476).
+
+    The live report, as a test, and it is the door NOBODY was watching: the model is
+    fed, the rows leave it for perfectly good reasons — a removal, a lap while the page
+    was shut — and then every later lap adds nothing, because each of the two feeds had
+    its own gate. The event feed waited for somebody to open the tab; the checkpoint
+    feed was refused by the book of removals. Neither gate may exist: «все секретки
+    строго должны записываться».
+    """
+    import types
+
+    tab = _sweep_tab({})
+    tab.rt.play_async = lambda name, args=None, **kw: True
+    tab.rt.root = None
+    tab.rt.profiles = _FakeProfiles(_state_path())
+    tab.rt.secret_days = types.SimpleNamespace(saw_tiles=lambda *a: None)
+    tab.rt.tick = types.SimpleNamespace(arm=lambda *a, **kw: None)
+    # A home server that is READ (#1188): an unreadable one admits nothing at all, which
+    # is a different gate with a test of its own.
+    tab._own_server = 953
+    tab.own_server = lambda: 953
+    tab._maybe_start_poll = lambda: None
+    tab._collected = set()
+    tab._cfg_rank, tab._cfg_asked, tab._cfg_asking = {}, set(), False
+    tab._ask_cfg_rank = lambda ids: None
+    tab._restored = True                       # the checkpoint is `_ensure_model`'s job
+    tab._warned_no_own_feed = False             # the home-server gate says this once
+    tab._tiles_lock = __import__("threading").Lock()
+
+    def tile(uuid):
+        return {"uuid": str(uuid), "server": 300, "x": 5, "y": 6, "level": 7,
+                "cfg": 60000701, "family": "6000", "loot": 0, "starred": True,
+                "completed_at": _ms(-1_000), "expires_at": _ms(600_000)}
+
+    # THE FIRST LAP, WITH NOBODY LOOKING. The tab has never been opened, which is the
+    # ordinary case: a capture runs from boot and a lap can be started from the phone.
+    tab.loaded = False
+    tab._tiles = {"7": tile(7)}
+    tab._tiles_land()
+    assert "7" in tab._rows, "a lap driven with the page shut was heard by nobody"
+
+    # The row leaves for a reason the rule allows, and is booked.
+    tab._drop_gone("7")
+    assert "7" not in tab._rows and "7" in tab._dismissed
+
+    # THE SECOND LAP OVER THE SAME TILE. The child announces a tile once per state, so
+    # what a repeat lap actually re-offers is its CHECKPOINT — with a sighting stamped
+    # fresh by the lap that just drove over it. That is a find, not a repeat.
+    tab._merge([_StubTask(7, seen_at=__import__("time").time() + 1)])
+    assert "7" in tab._rows, "the second lap added nothing"
 
 
 def test_a_page_is_emptied_by_its_own_button_and_by_nothing_of_its_neighbours():

@@ -361,6 +361,7 @@
   "log.secret.collect_armed": "«Recoger» está armado: el envío saldrá en el momento en que la casilla madure, en {secs} s",
   "log.secret.ended": "el flujo del monitor ha terminado",
   "log.secret.gone": "el servidor dice que esa casilla ya no está: «ya tomada» / «no disponible»; fuera de la lista",
+  "log.secret.intake": "desde el mapa: casillas {seen} · sin ★ {plain} · servidor propio {home} · sin hora de fin {notime} · ya en la lista {known} · ya robadas {robbed} · retiradas antes {book} · anotadas {added}",
   "log.secret.no_own_server_feed": "no se pudo leer el servidor propio — la lista de asaltos queda vacía en vez de arriesgar un robo en casa",
   "log.secret.seed_server": "servidor tomado del juego: {srv}",
   "log.secret.started_move_map": "la captura está en marcha (pid {pid}); su salida va al registro — mueve el mapa o pulsa «Recorrer el mapa», o no habrá tráfico",

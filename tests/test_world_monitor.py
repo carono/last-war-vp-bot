@@ -239,6 +239,53 @@ def test_a_sighting_nobody_reconfirms_is_evicted_rather_than_served():
     assert index.records()["mines"] == []
 
 
+def test_a_checkpoint_is_written_off_copies_so_a_live_row_cannot_kill_the_capture():
+    """The row handed to the dump is a COPY, and the run survives a mutating one (#1476).
+
+    This is not a tidiness rule. The checkpoint is written by the main thread while the
+    sniffer thread goes on stamping fields onto the very records it is walking, and
+    `json.dump` walks them lazily: a field arriving mid-write raises «dictionary changed
+    size during iteration», straight out of `main`. Live, the secret-task capture died
+    exactly that way in the middle of a map lap — after which the panel's list was fed by
+    nothing at all, and every further lap added nothing to it.
+
+    Two guarantees, one per half of the fix: what comes OUT of the index is detached from
+    what the sniffer is still writing, and a flush that fails for any reason is a skipped
+    flush rather than the end of the run.
+    """
+    import json
+    import tempfile
+
+    import map_capture
+
+    index = world_index.WorldIndex()
+    index.on_blocks(_blocks(_mine_tile(24200, 5)), (), time.time())
+    handed = index.records()["mines"][0]
+    held = index._kinds["mines"][next(iter(index._kinds["mines"]))]
+    held["alliance_name"] = "AL1"                    # the sniffer, learning something
+    assert "alliance_name" not in handed, "the checkpoint was handed a live row"
+
+    class _Mutating(dict):
+        """A record that grows while it is being serialised, like the live one did.
+
+        The mutation happens INSIDE the walk, which is the only shape that reproduces
+        the live crash: iterating a dict's own view while a key is added to it is what
+        raises `RuntimeError: dictionary changed size during iteration`.
+        """
+
+        def items(self):
+            for key, value in dict.items(self):
+                self["late_%s" % key] = 1            # the other thread, mid-walk
+                yield key, value
+
+    path = os.path.join(tempfile.mkdtemp(), "world_map.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write('[{"kept": true}]')
+    assert map_capture.dump_records([_Mutating(a=1)], path) is False
+    assert json.load(open(path, encoding="utf-8")) == [{"kept": True}], \
+        "a failed flush truncated the checkpoint instead of leaving the last good one"
+
+
 def test_the_cap_keeps_the_best_and_says_how_many_it_dropped():
     """A whole-server lap finds nine thousand mines. A silent cut reads as «that is all»."""
     index = world_index.WorldIndex(max_per_kind=2)

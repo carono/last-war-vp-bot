@@ -346,11 +346,16 @@ class Capture:
     def _nudge(self) -> None:
         """Re-merge the checkpoint into the list, debounced (Tk thread).
 
-        Armed by name, so a burst of findings is one merge — and a no-op unless the tab
-        has been opened, since an unopened one reads fresh when first shown anyway.
+        Armed by name, so a burst of findings is one merge.
+
+        AND IT RUNS WHETHER OR NOT ANYBODY HAS OPENED THE TAB (#1476). It used to
+        return early on an unopened one — «it reads fresh when first shown anyway» —
+        which was true of the checkpoint and false of the LIST: the child announces each
+        tile once per state (`reported`, `secret_task_capture.py`), so a lap driven while
+        the page was shut was heard by nobody and the next lap over the same tiles said
+        nothing at all. The merge is a file read and a dict write; the drawing is what
+        needs a window, and `_render` is the one that skips.
         """
-        if not self.tab.loaded:
-            return
         self.rt.tick.arm("secret_nudge", NUDGE_MS, self.tab.refresh)
 
     def append(self, line: str) -> None:

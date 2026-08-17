@@ -361,6 +361,7 @@
   "log.secret.collect_armed": "«Raccogli» è armato: l'invio parte nell'istante in cui la casella matura, fra {secs} s",
   "log.secret.ended": "il flusso del monitor è terminato",
   "log.secret.gone": "il server dice che quella casella non c'è più — «già presa» / «non più disponibile»; tolta dalla lista",
+  "log.secret.intake": "dalla mappa: caselle {seen} · senza ★ {plain} · server proprio {home} · senza orario di fine {notime} · già in elenco {known} · già derubate {robbed} · tolte prima {book} · annotate {added}",
   "log.secret.no_own_server_feed": "il server dell'account non è leggibile — la lista dei raid resta vuota invece di rischiare un furto in casa",
   "log.secret.seed_server": "server preso dal gioco: {srv}",
   "log.secret.started_move_map": "la cattura è in funzione (pid {pid}); la sua uscita va nel registro — muovi la mappa o premi «Percorrere la mappa», altrimenti non ci sarà traffico",

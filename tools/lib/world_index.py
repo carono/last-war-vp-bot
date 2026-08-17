@@ -360,6 +360,18 @@ class WorldIndex:
         Eviction runs here, so the file never carries a sighting already past the
         window, and the cap is applied on a ranking that keeps what is worth
         keeping (see `_mine_rank`) rather than on dict order.
+
+        EVERY ROW IS COPIED OUT, and that is not tidiness — it is what keeps the
+        capture alive (#1476). The caller is the main thread writing the
+        checkpoint; the rows themselves go on being written by the SNIFFER
+        thread, which adds a field to a record the moment the map or a march
+        says something new about it. `json.dump` walks those dicts lazily, so a
+        field arriving mid-write raises `RuntimeError: dictionary changed size
+        during iteration` — out of the dump, out of `main`, and the whole
+        capture is gone. Live, that is exactly what happened: the secret-task
+        child died in the middle of a map lap, the panel's list stopped being
+        fed, and every lap after it added nothing at all. The lock makes the
+        LIST safe; only a copy makes the ROW safe.
         """
         ranks = {"mines": _mine_rank, "trucks": _cargo_rank, "trains": _fresh_rank,
                  "players": _fresh_rank}
@@ -370,7 +382,7 @@ class WorldIndex:
                 cap = self.max_players if kind == "players" else self.max_per_kind
                 rows = sorted(records.values(), key=ranks[kind])
                 self.dropped[kind] = max(len(rows) - cap, 0)
-                out[kind] = rows[:cap]
+                out[kind] = [dict(row) for row in rows[:cap]]
         return out
 
     def counts(self) -> dict:

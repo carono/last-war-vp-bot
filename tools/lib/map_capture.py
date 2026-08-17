@@ -375,11 +375,31 @@ def dump_records(records: list, path: str) -> bool:
     that survives is worth more than a checkpoint that is never briefly
     inconsistent, so a locked file now costs one skipped flush instead of the
     run. The next flush rewrites it whole.
+
+    NO FLUSH MAY EVER END THE RUN (#1476). It did: a record still being written
+    by the sniffer thread while this walked it raised `RuntimeError: dictionary
+    changed size during iteration`, that came straight out of `main`, and the
+    capture died in the middle of a map lap — after which the panel's list was
+    fed by nothing at all and every further lap added nothing. The race itself
+    is closed where the rows are handed over (`world_index.WorldIndex.records`
+    copies them), and this is the belt beside that brace: a checkpoint is a
+    convenience the next tick rewrites, and there is no fault of a checkpoint
+    worth the capture it is a checkpoint OF.
+
+    The text is built BEFORE the file is opened for the same reason. A dump
+    that raises halfway through `json.dump(fh)` leaves the target truncated
+    mid-token — one live crash left the world checkpoint unreadable and the
+    panel said so on the next tick — whereas a failure while serialising to a
+    string leaves the previous file exactly where it was.
     """
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     try:
+        text = json.dumps(records, indent=2, ensure_ascii=False)
+    except (RuntimeError, TypeError, ValueError):
+        return False
+    try:
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump(records, fh, indent=2, ensure_ascii=False)
+            fh.write(text)
         return True
     except PermissionError:
         return False

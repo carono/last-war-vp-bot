@@ -412,6 +412,11 @@ class SecretTasksTab(PanelTab):
         # (drop what is no longer there, refresh what still is) rather than treating
         # them as new finds. Cleared the moment that snapshot lands, read or not.
         self._restore_pending: set = set()
+        # …and whether the checkpoint has been read back into `_rows` yet (#1476). The
+        # restore used to be the first look's; a capture listens from boot, so it is the
+        # MODEL's now and either of them may be the one that asks for it
+        # (:meth:`_ensure_model`).
+        self._restored = False
         # Tasks robbed by hand this session: a rescan must not re-add one the server has
         # not yet dropped from `allianceTask`.
         self._collected: set = set()
@@ -656,7 +661,15 @@ class SecretTasksTab(PanelTab):
         VM round trip at start-up for a list nobody has looked at.
 
         Idempotent — each order returns early when it is already running.
+
+        THE LIST ITSELF IS RESTORED HERE TOO (#1476), and it costs one blob read rather
+        than the VM round trip this docstring warns about. A capture is listening from
+        boot, so tiles arrive from boot — and the model they land in has to exist by
+        then, or the first lap of the day is merged into whatever an unopened tab
+        happens to have (nothing), and the rows the last session checkpointed are then
+        re-added by `on_show` on top of a list that has already moved on.
         """
+        self._ensure_model()
         if self.monitor_var.get():
             self.capture.start()
         # …and the ghost sniffer, whose switch lives on its own page (#1251). Two
@@ -687,7 +700,10 @@ class SecretTasksTab(PanelTab):
         if self.loaded:
             return
         self.loaded = True
-        self._restore_pending = self._load_persisted()
+        # …and the restore is `_ensure_model`'s now (#1476): boot may already have done
+        # it, and reading the checkpoint a second time would put back rows that have
+        # since left the list for one of `THE_LIST_RULE`'s reasons.
+        self._ensure_model()
         if self._restore_pending:
             self._render()
             self._update_status()
@@ -747,6 +763,9 @@ class SecretTasksTab(PanelTab):
         self.autoloot._seen.clear()
         self._pressing.clear()
         self._restore_pending = set()
+        # …and the new account's own checkpoint has not been read yet, whoever asks for
+        # it first — the capture below, or a look at the page (#1476).
+        self._restored = False
         # The roster belongs to the old account just as much — a different account
         # is a different alliance, and those are not this one's alliancemates (#1244).
         self.alliance.clear()
@@ -772,8 +791,8 @@ class SecretTasksTab(PanelTab):
         # is not in (#1245). Dropped rather than re-read, because the new profile's own
         # file is read by the next countdown pass anyway.
         self.shared.clear()
+        self._ensure_model()          # the new account's rows, window or no window
         if self.loaded:
-            self._restore_pending = self._load_persisted()
             self._render()
             self._update_status()
             self._prime_own_server()
@@ -2744,17 +2763,20 @@ class SecretTasksTab(PanelTab):
         game VM about every distinct template on it, and merges the lot. Per burst of
         finds. This is the same merge over the tiles themselves, with the template ranks
         taken from a cache that is filled in the background.
+
+        AND IT NO LONGER WAITS FOR ANYBODY TO LOOK (#1476). It used to re-arm itself
+        while the tab was unopened — the buffer was not where an event died, but the
+        MODEL was still built by the first look, so a lap driven from «Состояние», from
+        the phone or by a schedule wrote its tiles into a dict and left them there. The
+        operator's rule is one sentence and admits no gate at all: «все секретки строго
+        должны записываться». The model is restored here instead
+        (:meth:`_ensure_model`), the merge runs headless, and the drawing — which is the
+        only part that ever needed a window — is what `_render` skips when there is no
+        table yet.
         """
         import lastwar_proto as proto
 
-        if not self.loaded:
-            # THE BUFFER IS NEVER THE PLACE AN EVENT DIES (#1416). A tab nobody has
-            # opened yet has no model to merge into — but the tiles have already
-            # arrived, and dropping them here would be the very «мы их не слышим» this
-            # is meant to end. They keep, and this comes back for them; `ensure_loaded`
-            # is what a first look does, and it is one Tk pass away.
-            self.rt.tick.arm("secret_tiles", TILES_WAIT_MS, self._tiles_land)
-            return
+        self._ensure_model()
         with self._tiles_lock:
             records, self._tiles = self._tiles, {}
         if not records:
@@ -2793,7 +2815,10 @@ class SecretTasksTab(PanelTab):
             if server:
                 self.rt.secret_days.saw_tiles(server, stars, seen)
         if tasks:
-            self._merge(self._abroad_only(tasks))
+            abroad = self._abroad_only(tasks)
+            self._merge(abroad, fresh=True,
+                        intake={"seen": len(records), "plain": len(records) - len(tasks),
+                                "home": len(tasks) - len(abroad)})
 
     def _rank_of(self, record: dict, rank) -> tuple:
         """`(level, starred)` for one tile — the client's word where there is one.
@@ -2968,7 +2993,8 @@ class SecretTasksTab(PanelTab):
         return row.get("source", SOURCE_WIRE) == source
 
     def _merge(self, tasks, verify: "set | None" = None,
-               source: str = SOURCE_WIRE) -> None:
+               source: str = SOURCE_WIRE, fresh: bool = False,
+               intake: "dict | None" = None) -> None:
         """Add tiles the list does not have yet; keep the ones it does.
 
         A rescan only ADDS — an existing row keeps its place and its timer, a tile robbed
@@ -2989,6 +3015,19 @@ class SecretTasksTab(PanelTab):
 
         Whichever read it came from is that read's own affair: the two paths land here
         through `_wire_landed` / `_vm_landed`, and each clears the flag it was holding.
+
+        ``fresh`` marks a SIGHTING rather than a reading: a tile the capture has just
+        heard off the map and handed over as an event (#1476). The book of removals does
+        not apply to one. It never should have: the book is there to stop the capture's
+        CHECKPOINT repeating a sighting older than the removal into a row that has since
+        left, and an event is by construction newer than anything the panel has done.
+        The map is the authority — that is what `THE_LIST_RULE` says in as many words —
+        so «нашёл заново» outranks «снял раньше», full stop.
+
+        ``intake`` is what the feed dropped BEFORE this method saw it — the plain tiles
+        and the home-server ones — so the line below can account for every tile a lap
+        brought in, not only for the ones that got this far. The operator asked for
+        exactly that: numbers per door, not «похоже, книга».
         """
         # A TILE WITH NO FINISH TIME NEVER ENTERS THE MODEL (#1272). The wire decoder
         # reads it off the tile's `f3` and a tile that does not carry one comes through
@@ -3003,7 +3042,9 @@ class SecretTasksTab(PanelTab):
         # one, and everything downstream — the standing order, the phone, the checkpoint
         # — reads the model rather than the table. The VM feed never produced one anyway
         # (`secret_task_all_alliance` demands `done > 0`); it is the pcap that can.
+        offered = len(tasks)
         tasks = [t for t in tasks if t.completed_at]
+        no_finish = offered - len(tasks)
         incoming = {str(t.uuid): t for t in tasks}
         # Whether the read said ANYTHING, measured before the loop starts popping matches
         # out of `incoming` — otherwise a read that carried exactly the rows it confirmed
@@ -3033,9 +3074,11 @@ class SecretTasksTab(PanelTab):
                 row["expires_at"] = task.expires_at
                 row["completed_at"] = task.completed_at
                 row["loot_count"] = task.loot_count
+        known = robbed_already = booked = added = 0
         for key, t in incoming.items():
             row = self._rows.get(key)
             if row is not None:
+                known += 1
                 # A ROW ALREADY HERE IS REFRESHED, NOT SKIPPED (#1272). It used to be
                 # skipped outright — «a rescan only ADDS» — and that threw away the one
                 # reading that carries how many times a STRANGER's tile has been robbed.
@@ -3059,9 +3102,18 @@ class SecretTasksTab(PanelTab):
                 row["seen_at"] = time.time()
                 continue
             if key in self._collected:
+                robbed_already += 1
                 continue
-            if self._dismissed_still(key, t):
+            # THE BOOK IS ASKED ABOUT A REPEAT, NEVER ABOUT A SIGHTING (#1476). A tile
+            # handed over as an event has just been seen on the map, and the map is the
+            # authority this list is built on; only the checkpoint — which repeats
+            # itself every tick, unchanged, for as long as its own window lasts — can
+            # offer a sighting older than the removal it is being checked against.
+            if not fresh and self._dismissed_still(key, t):
+                booked += 1
                 continue
+            self._dismissed.pop(key, None)
+            added += 1
             self._rows[key] = {
                 "uuid": t.uuid, "server": t.server_id, "x": t.x, "y": t.y,
                 "level": t.level, "cfg_id": t.cfg_id, "loot_count": t.loot_count,
@@ -3079,6 +3131,19 @@ class SecretTasksTab(PanelTab):
                 "source": source,
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
+        # EVERY DOOR, WITH A NUMBER ON IT (#1476). «Не появляется» was answered three
+        # times by guessing which of these was shutting, and each guess cost a live
+        # session; the line says which one it actually is. Printed only when the merge
+        # did something — a tick that re-heard rows it already had says nothing, or a
+        # lap would write a line a second about nothing at all.
+        if added or booked or robbed_already or no_finish:
+            counts = dict(intake or {})
+            self.say("secret", "log.secret.intake",
+                     seen=int(counts.get("seen") or offered),
+                     plain=int(counts.get("plain") or 0),
+                     home=int(counts.get("home") or 0),
+                     notime=no_finish, known=known, robbed=robbed_already,
+                     book=booked, added=added)
         self._render()
         # An empty list after a clean read is "no starred tile right now", not "no game" —
         # the scroll's own hint says so, so the status stays blank rather than crying
@@ -3217,6 +3282,24 @@ class SecretTasksTab(PanelTab):
             self._robbed_until.setdefault(str(key), now + ROBBED_KEEP_MS)
         self._robbed_until = {k: v for k, v in self._robbed_until.items() if v > now}
         return [{"uuid": k, "until": v} for k, v in self._robbed_until.items()]
+
+    def _ensure_model(self) -> None:
+        """The list exists and holds the last session's rows — window or no window (#1476).
+
+        The tab is EAGER: its capture is started at boot by `ensure_loaded`, so tiles
+        can arrive before anybody has opened the page, and «все секретки строго должны
+        записываться» leaves no room for a model that is built by the first look. This
+        is the restore, split out of `on_show` and made idempotent, so both callers —
+        the boot and the first look — get the same one list.
+
+        Cheap by construction: one `blobs` read, no game round trip, nothing drawn. The
+        expensive half of opening the tab (the VM snapshot, the roster, the ghost read)
+        stays exactly where it was.
+        """
+        if self._restored:
+            return
+        self._restored = True
+        self._restore_pending = self._load_persisted()
 
     def _load_persisted(self) -> set:
         """Read back the last session's list; return the keys still needing a live check.
