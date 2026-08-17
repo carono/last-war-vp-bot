@@ -347,6 +347,10 @@ Corrected pairs, after the user named the two kinds that were left:
 
 `SAMPLE` was the wrong guess for a radar mine and is gone.
 
+**End to end, live, 2026-08-17:** the day's last four errands — three `GATHER_RESOURCE` and
+one `FAKE_PLAYER` — were placed on the map, marched at, came back `state = FINISHED` and were
+claimed. `detectInfo.completeNum` moved 3832 → 3836: four, exactly. The board ended empty.
+
 #### What it looked like while it was still failing
 
 Live, 2026-08-17, in this order:
