@@ -1031,7 +1031,12 @@ BUTTONS["radar_march"] = Button(
     wait=1.5, label="Radar: march one squad at one errand",
     count_lua=_lua_actions.radar_marchable_count(),
     max_taps=12,
-    relay=("radar_march_sent", "radar_march_none"),
+    # `radar_march_armed` and not only `radar_march_sent`: the send is SCHEDULED a frame
+    # later (`TimerManager:DelayInvoke`, the only way it is not dropped), so its own
+    # marker prints after `_run_lua` has already collected the chunk's output and never
+    # reaches the log. A run that ordered three marches showed nine refusals and not one
+    # order — which read as «it sent nothing» over a run that had sent three.
+    relay=("radar_march_armed", "radar_march_sent", "radar_march_none"),
 )
 BUTTONS["radar_forget_marched"] = Button(
     lua=_lua_actions.radar_marched_forget(),

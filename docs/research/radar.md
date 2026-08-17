@@ -400,6 +400,34 @@ saying why:
 * the metadata is keyed by COLUMN NAME with the numeric index at `[1]` — the other way
   round from the obvious reading (`md['detect_show_num'][1]`, not a scan for `v[1] == name`).
 
+## Three profiles, one afternoon — the per-player numbers, proven
+
+The level table is only interesting if two accounts disagree, so all three profiles open in
+the window were read with the same read-only recipe. Profile names are the operator's own
+and are not written here; what matters is that the numbers differ and differ CONSISTENTLY.
+
+| profile | warzone | radar level | capacity | day quota | board | ripe | verdict |
+|---|---|---|---|---|---|---|---|
+| A | X | 16 | 12 | 40 | 0 | 0 | live, in game |
+| B | Y | 16 | 12 | 40 | 12 | 12 | live, in game |
+| C | Y | **13** | **11** | 40 | 11 | 7 | **kicked — read only, never acted on** |
+
+**Profile C is the proof**: a different radar level came back with a different capacity —
+11 rather than 12 — from the same code path. Had the level differed and the capacity not,
+the read would have been of something else entirely. The quota happens to be 40 at both
+levels (the table's `detect_max_num` is flat over that range and only moves at level 17),
+so capacity is what separates them.
+
+**And nothing leaked between them.** A ran the full cycle to a standstill and stayed at
+`completeNum` unchanged with an empty board; B ran it twice and its own `completeNum` moved
+512 → 559, which is 31 + 16 = **47 claims, exactly**; C's every number — board, ripe, level,
+tally — was identical before and after, because it was never acted on. Two accounts on the
+SAME warzone (B and C) kept separate boards, separate squads and separate tallies.
+
+**C was not tested for acting, and that is on purpose.** Its client had been kicked («вход с
+другого устройства»), and a client that is not logged in answers plausibly and wrongly. Its
+readings are recorded as readings; nothing was sent to it.
+
 ## What is NOT known
 
 * **Whether an errand claimed while hoarding is the OLDEST one.** The recipe claims in
