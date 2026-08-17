@@ -637,6 +637,11 @@ class _FakeProfiles:
         import os
         return os.path.join(os.path.dirname(self._path), "ghost.json")
 
+    def secret_log(self, name=None) -> str:
+        """The profile's own findings log — a batch of lines per write now (#1476)."""
+        import os
+        return os.path.join(os.path.dirname(self._path), "secret_findings.jsonl")
+
     def world_json(self, name=None) -> str:
         """Where the SECOND listener checkpoints the rest of the map (#1289).
 
@@ -2798,10 +2803,18 @@ def _mark_as_the_game_would(tab, uuid) -> None:
 # 5-7 and rob 7-7 read level-5 stars in the log and found no rows for them.
 
 def _capture(tab):
-    """A `Capture` with nothing but the tab behind it — `passes` needs no child."""
+    """A `Capture` with nothing but the tab behind it — `passes` needs no child.
+
+    The level bounds are pushed in the way the panel pushes them (#1476): on the Tk
+    thread, into the cache the reader thread reads. `passes` may not touch a Tk variable
+    itself — a `.get()` from the child's reader thread costs milliseconds a line, and a
+    reader that is slow is a capture blocked on a full pipe.
+    """
     from panel.tabs.secret_tasks.capture import Capture
     cap = object.__new__(Capture)
     cap.tab = tab
+    cap._bounds = (None, None)
+    cap.bounds_changed()
     return cap
 
 
@@ -4028,6 +4041,54 @@ def test_the_two_sniffers_have_two_independent_switches():
     from panel.runtime import captures as capturemod
     assert len(capturemod.CAPTURE_OPTIONS) == 2
     assert capturemod.CAPTURE_OPTIONS[0]["script"] == capturemod.SECRET_TASK_CAPTURE
+
+
+def test_the_readers_line_touches_neither_tk_nor_the_disk():
+    """A slow reader is a DEAF capture, and that is what «дальше ничего» was (#1476).
+
+    The panel reads the child's stdout on a thread, and the pipe between them holds a
+    fixed number of bytes: once it is full the capture blocks inside `print` — it stops
+    decoding, stops writing its checkpoint and stops announcing tiles. Measured live on
+    the second lap in a row: the ★ capture's own counters did not move by one
+    (225 map responses before and after), while the other sniffer's rose by 229 in the
+    same seven seconds.
+
+    Both costs the old reader paid per finding are pinned here: a Tk `.get()` on the
+    filter boxes, and an open/write/close on the profile's findings log.
+    """
+    import types
+
+    from panel.tabs.secret_tasks import capture as cap
+
+    class _Exploding:
+        """A variable that fails if it is read from the reader thread at all."""
+
+        def get(self):
+            raise AssertionError("the reader thread read a Tk variable")
+
+    tab = _make_tab({}, lo="5", hi="7")
+    one = _capture(tab)                       # bounds cached on the Tk thread, once
+    tab.filter_from_var, tab.filter_to_var = _Exploding(), _Exploding()
+
+    assert one.passes(_finding(6)) is True    # …and the line still filters correctly
+    assert one.passes(_finding(9)) is False
+
+    # The findings log is a QUEUE, written by the Tk side in one open per batch.
+    armed = []
+    one.index = 0
+    one._to_log, one._log_lock = [], __import__("threading").Lock()
+    one.rt = types.SimpleNamespace(
+        tick=types.SimpleNamespace(arm=lambda name, ms, fn: armed.append(name)),
+        profiles=_FakeProfiles(_state_path()))
+    one.tab = types.SimpleNamespace(after=lambda fn: fn())
+    one.append(_finding(6))
+    one.append(_finding(7))
+    assert len(one._to_log) == 2, one._to_log
+    assert armed == ["secret_log_0"], armed   # one write for the burst, not two
+    one.flush_log()
+    assert one._to_log == []
+    with open(one.rt.profiles.secret_log(), encoding="utf-8") as fh:
+        assert len(fh.readlines()) == 2
 
 
 def test_a_sniffer_that_died_on_its_own_is_brought_back_and_one_switched_off_is_not():

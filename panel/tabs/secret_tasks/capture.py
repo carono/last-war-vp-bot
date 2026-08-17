@@ -109,6 +109,14 @@ class Capture:
         #: When the running child was started — a run long enough to have been doing its
         #: job is not part of a crash loop, whatever happened at the end of it.
         self._started_at = 0.0
+        #: The level bounds `passes` filters the LOG by, cached off the Tk thread
+        #: (#1476). See :meth:`bounds_changed`.
+        self._bounds = (None, None)
+        #: Findings waiting to be written to the profile's own log, and the lock the
+        #: reader thread hands them over under. One file open per batch instead of one
+        #: per finding — the reader thread may not touch the disk (#1476).
+        self._to_log: list = []
+        self._log_lock = threading.Lock()
 
     @property
     def running(self) -> bool:
@@ -138,6 +146,11 @@ class Capture:
         """
         if self._proc is not None:
             return
+        # The boxes are read HERE, on the thread that owns them, and the reader thread
+        # gets the cache (#1476). A profile's saved bounds are restored after this class
+        # is made, so a capture started by the boot would otherwise filter its log
+        # against whatever the fresh variables held.
+        self.bounds_changed()
         script = capturemod.CAPTURE_OPTIONS[self.index]["script"]
         cmd = self.command(script)
         # …and the rest — the game and the spawn — off the Tk thread. `_starting` is what
@@ -321,10 +334,17 @@ class Capture:
     def passes(self, line: str) -> bool:
         """Panel-side filters for a finding line. Non-task lines always pass.
 
-        A finding looks like ` * lvl N  @[x,y|srv]  steal 0/3  family 6000  cfg …`. The
-        level bounds are read live from the boxes, so typing in one affects subsequent
-        lines immediately. A line counts as a finding when it has both a `lvl N` and a
-        parseable coordinate.
+        A finding looks like ` * lvl N  @[x,y|srv]  steal 0/3  family 6000  cfg …`. A
+        line counts as a finding when it has both a `lvl N` and a parseable coordinate.
+
+        THE BOUNDS ARE READ FROM A CACHE, NOT FROM THE BOXES (#1476), and that is the
+        difference between a lap being heard and the child going deaf behind a full
+        pipe. This runs on the reader thread; a `StringVar.get()` is a Tk call, and a Tk
+        call from a background thread costs milliseconds in this panel
+        (`docs/research/profile-isolation.md`) — times two, times every finding on a
+        lap. The cache is written on the Tk thread by :meth:`bounds_changed`, which the
+        tab calls when somebody types in a box, so typing still takes effect on the very
+        next line.
 
         THE STAR IS NOT A SETTING (#1244). Three tiles in four on a real map are plain
         ones nobody will ever raid — 236 of the 277 in one live checkpoint — and every
@@ -342,13 +362,29 @@ class Capture:
         # share one pair, and a person narrowing the log silently re-aimed the robberies.
         # The very same pair governs what the TABLE shows (`SecretTasksTab._in_range`),
         # so the log and the list are one set rather than two (#1244).
-        lo = self.tab.filter_from_var.get().strip()
-        hi = self.tab.filter_to_var.get().strip()
-        if lo.isdigit() and lvl < int(lo):
+        lo, hi = self._bounds
+        if lo is not None and lvl < lo:
             return False
-        if hi.isdigit() and lvl > int(hi):
+        if hi is not None and lvl > hi:
             return False
         return True
+
+    def bounds_changed(self) -> None:
+        """Re-read the level boxes into the cache `passes` uses. TK THREAD ONLY (#1476).
+
+        Called when the tab is built and whenever somebody types in one of the boxes, so
+        the reader thread never touches a Tk variable and the operator still sees the
+        change on the next line.
+        """
+        def number(var):
+            try:
+                raw = var.get().strip()
+            except Exception:             # noqa: BLE001 — no window yet, no bound
+                return None
+            return int(raw) if raw.isdigit() else None
+
+        self._bounds = (number(self.tab.filter_from_var),
+                        number(self.tab.filter_to_var))
 
     def on_tile(self, line: str) -> bool:
         """One TILE event: hand it to the list and get out of the way (#1416).
@@ -413,10 +449,42 @@ class Capture:
         self.rt.tick.arm("secret_nudge", NUDGE_MS, self.tab.refresh)
 
     def append(self, line: str) -> None:
-        """Append a finding to the active profile's log (best-effort)."""
+        """Put a finding in the queue for the profile's own log. ANY THREAD (#1476).
+
+        It used to open the file, write one line and close it, on the reader thread, per
+        finding. A lap prints hundreds of them, and a reader thread that is busy is a
+        child that is BLOCKED: the pipe between them is a fixed-size buffer, so once it
+        is full the capture stops mid-`print` — it stops decoding, stops writing its
+        checkpoint and stops announcing tiles. Live, that is what «первый проход добавил
+        4, все последующие — ничего» was: during the second lap the ★ capture's own
+        counters did not move by one, while the other sniffer's rose by 229 map
+        responses in the same seven seconds.
+
+        So the hand-over is a list append, and the disk is the Tk side's business —
+        :meth:`flush_log`, one open for the whole batch.
+        """
+        with self._log_lock:
+            first = not self._to_log
+            self._to_log.append(line)
+        if first:
+            self.tab.after(self._arm_flush)
+
+    def _arm_flush(self) -> None:
+        """Debounce the batch write (Tk thread): a burst of findings is one open."""
+        self.rt.tick.arm("secret_log_%d" % self.index, NUDGE_MS, self.flush_log)
+
+    def flush_log(self) -> None:
+        """Write everything queued into the profile's own findings log, in one open."""
+        with self._log_lock:
+            lines, self._to_log = self._to_log, []
+        if not lines:
+            return
+        now = time.time()
         try:
             with open(self.rt.profiles.secret_log(), "a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"ts": time.time(), "line": line},
-                                    ensure_ascii=False) + "\n")
+                for line in lines:
+                    fh.write(json.dumps({"ts": now, "line": line},
+                                        ensure_ascii=False) + "\n")
         except OSError:
             pass
+

@@ -627,6 +627,11 @@ class SecretTasksTab(PanelTab):
         self.ghost_capture = Capture(rt, self, index=1,
                                      switch=self.ghost_map.monitor_var,
                                      interval=self.ghost_map.interval_var)
+        # …each with the level bounds its line filter uses, cached off the Tk thread
+        # from the start (#1476) — the boxes are restored before this runs, and a
+        # capture may be started by the boot before anybody types in one.
+        self.capture.bounds_changed()
+        self.ghost_capture.bounds_changed()
         self.autoloot = AutoLoot(rt, self)
         # …and the alliance page's own standing order (#1272), which spends a DIFFERENT
         # daily budget on a DIFFERENT command: five helps a day through
@@ -2313,6 +2318,11 @@ class SecretTasksTab(PanelTab):
         bounds and remember them. No game round trip — every row is already in memory,
         and the log picks the same pair up on its next line."""
         self.rt.settings.changed()
+        # …which it does off a CACHE now (#1476): the capture's line filter may not read
+        # a Tk variable from the reader thread, so the boxes are pushed to it here, on
+        # the thread that owns them.
+        self.capture.bounds_changed()
+        self.ghost_capture.bounds_changed()
         if self._tree is None:
             return
         self._render()
