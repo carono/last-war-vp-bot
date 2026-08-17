@@ -1011,6 +1011,15 @@ BUTTONS["radar_place_points"] = Button(
     wait=1.2, label="Radar: put the errands on the map",
     relay=("radar_points_placed",),
 )
+BUTTONS["radar_arm_squads"] = Button(
+    # Choose the squads ONCE, before any is spent. Both readings the picker used to make
+    # per press move under it — the soldier count is a client cache that reverts, and a
+    # march is unknown until the server answers — so a run with three squads at home sent
+    # one march and then refused eleven times.
+    lua=_lua_actions.radar_squads_arm(),
+    wait=0.3, label="Radar: choose the squads this run may send",
+    relay=("radar_squads_armed",),
+)
 BUTTONS["radar_march"] = Button(
     # One free squad at one errand. NO `verify_lua`: the press may legitimately send
     # nothing — no free squad, nothing of a kind we can march — and a button-level check

@@ -308,7 +308,39 @@ squad sent at it, and the sequence is:
 `OpenFormationSelectUI` — it is the squad-picker window. `SendCreateMarchMessage` is the
 layer under it, and is what `dig_treasure_march` has always used.
 
-### The send is accepted and nothing leaves — an open failure
+### The send is accepted and nothing leaves — SOLVED
+
+**A `SendCreateMarchMessage` issued from the hijack thread is BUILT AND THEN DROPPED.**
+No error, no march. It is written down in this very file — `dig_treasure_march` says so in
+its own comment, and `tools/dev/gather.py` does the same — and it was walked past twice
+before the measurement settled it: the identical call, made directly, gave `ok=true` three
+times and left `GetOwnerMarches()` at 0; wrapped in
+`TimerManager:GetInstance():DelayInvoke(fn, 0.5)`, one press put a squad on the map.
+
+**And the tile's uuid is 0, not the errand's.** A resource tile really has none —
+`tools/dev/gather.py` reads `uuid = 0` off the popup of a mine the player clicked. Passing
+the DETECT EVENT's uuid where the TILE's belongs was the second half of the same failure.
+
+**And the squads must be chosen once, not per press.** Both readings move underneath a
+picker that re-reads them: `totalSoldierNum` is a client cache that reverts to zero
+(#1285), and a march is unknown to the client until the server has answered, which is
+longer than the gap between two presses. A run with three squads standing at home sent one
+march and then said «no free squad» eleven times. They are parked as a queue now
+(`radar_squads_arm`) and each press pops one — the same shape the treasures and the rally
+use.
+
+Corrected pairs, after the user named the two kinds that were left:
+
+| `DetectEventType` | `MarchTargetType` | how |
+|---|---|---|
+| `GATHER_RESOURCE` = 16 | `COLLECT` = 2 | the order the working hand-driven gather sends; **proven live** |
+| `FAKE_PLAYER` = 17 | `FAKE_ATTACK` = 103 | the radar's «attack» errand is a fake enemy base |
+| `DetectEventPickGarbage` = 6 | `PICK_GARBAGE` = 23 | `MarchUtil.OnCollectGarbage` names it |
+| `TREASURE` = 19 | `DETECT_TREASURE` = 50 | live-proven by `auto_treasure` |
+
+`SAMPLE` was the wrong guess for a radar mine and is gone.
+
+#### What it looked like while it was still failing
 
 Live, 2026-08-17, in this order:
 

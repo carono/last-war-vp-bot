@@ -8652,10 +8652,18 @@ def radar_put_point(uuid: str) -> str:
 #: than numbers on purpose: a number here would be this build's answer, and the client's own
 #: enums are the authority every other reading in this file goes to.
 RADAR_MARCH_TYPES = (
-    "{[DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE, "
+    "{[DetectEventType.GATHER_RESOURCE] = MarchTargetType.COLLECT, "
     "[DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, "
-    "[DetectEventType.GATHER_RESOURCE] = MarchTargetType.SAMPLE}"
+    "[DetectEventType.FAKE_PLAYER] = MarchTargetType.FAKE_ATTACK, "
+    "[DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE}"
 )
+
+#: The kinds whose TILE carries a uuid of its own. Everything else is marched at with
+#: `uuid = 0`, which is what a resource tile really has — `tools/dev/gather.py` reads
+#: `uuid = 0` straight off the popup of a mine the player clicked, and the march that
+#: goes out with it is the one that works. Passing the ERRAND's uuid instead was one of
+#: the two reasons the first attempts sent nothing.
+RADAR_MARCH_UUID_KINDS = "{[DetectEventType.TREASURE] = true}"
 
 #: The walk every reading and press below shares: the errands that are NOT the help kind,
 #: not finished, not frozen, and not already marched by us. Returns a Lua array of
@@ -8728,26 +8736,41 @@ def radar_unmarchable_kinds() -> str:
             "return table.concat(out, ' ') end)()")
 
 
-def radar_free_squads() -> str:
-    """How many squads could be sent right now — loaded, and not already out.
+def radar_squads_arm() -> str:
+    """Park the squads this run may send, ONCE, before any of them is spent.
 
-    Two halves, and both are needed. A formation with no soldiers in it produces a march
-    the server silently drops (`tools/rally_join.py`, and the same trap cost «отправка
-    работает через раз» on the treasures), and a formation already out on the map cannot be
-    sent twice. `WorldMarchDataManager:GetOwnerFormationMarch(uuid)` is the client's own
-    answer to the second — the same call `RadarCenterDataManager:IsDetectEventDoing` uses.
+    The picker used to re-read `totalSoldierNum` and `GetOwnerFormationMarch` on every
+    press, and both readings move under it: the soldier count is a client-side cache that
+    goes back to zero (#1285), and a march is not known to the client until the server has
+    answered, which is longer than the gap between two presses. A run that had three squads
+    standing at home therefore sent one march and then said «no free squad» eleven times.
+
+    So the squads are chosen ONCE — loaded, and not already out — and parked as a queue the
+    press pops from, exactly the way the treasures and the rally park theirs. The server
+    stays the authority for the next run; within one run, the queue is.
     """
-    return ("(function() local afd = DataCenter.ArmyFormationDataManager "
-            "if not afd then return 0 end "
-            "local used = DataCenter.__lw_radar_squads_used or {} "
-            "local n = 0 "
-            "for _, v in pairs(afd.ArmyFormationList or {}) do "
+    return ("local afd = DataCenter.ArmyFormationDataManager "
+            "local q = {} "
+            "if afd then for _, v in pairs(afd.ArmyFormationList or {}) do "
             "local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) "
-            "if ok and sol > 0 and not used[tostring(v.uuid)] then "
+            "if ok and sol > 0 then "
             "local out = nil "
-            "pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) "
-            "if out == nil then n = n + 1 end end end "
-            "return n end)()")
+            "pcall(function() out = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) "
+            "if out == nil then q[#q + 1] = {uuid = v.uuid, index = v.index} end end end end "
+            "DataCenter.__lw_radar_squad_queue = q "
+            'CS.UnityEngine.Debug.LogError("ACT radar_squads_armed=" .. tostring(#q))')
+
+
+def radar_squads_ready() -> str:
+    """Lua *expression* -> how many parked squads are still unspent."""
+    return "(function() return #(DataCenter.__lw_radar_squad_queue or {}) end)()"
+
+
+def radar_free_squads() -> str:
+    """How many squads this run can still send — what `radar_squads_arm` parked and the
+    presses have not yet popped. See that function for why it is a queue and not a re-read.
+    """
+    return radar_squads_ready()
 
 
 def radar_march_press() -> str:
@@ -8778,32 +8801,40 @@ def radar_march_press() -> str:
             "if pick == nil then "
             'CS.UnityEngine.Debug.LogError("ACT radar_march_none why=nothing-to-march") '
             "return end "
-            "local afd = DataCenter.ArmyFormationDataManager "
-            "local used = DataCenter.__lw_radar_squads_used or {} "
-            "local squad = nil "
-            "if afd then for _, v in pairs(afd.ArmyFormationList or {}) do "
-            "local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) "
-            "if ok and sol > 0 and squad == nil and not used[tostring(v.uuid)] then "
-            "local out = nil "
-            "pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) "
-            "if out == nil then squad = v end end end end "
+            "local q = DataCenter.__lw_radar_squad_queue or {} "
+            "local squad = table.remove(q, 1) "
             "if squad == nil then "
             'CS.UnityEngine.Debug.LogError("ACT radar_march_none why=no-free-squad") '
             "return end "
             "local srv = 0 "
             "pcall(function() srv = tonumber(LuaEntry.Player.serverId) or 0 end) "
-            "local ok, err = pcall(function() "
-            "MarchUtil.SendCreateMarchMessage(squad.uuid, pick.target, pick.pid, pick.uuid, "
-            "1, 1, false, srv, nil) end) "
-            "if ok then "
+            "local carries = " + RADAR_MARCH_UUID_KINDS + " "
+            "local tgt = carries[pick.kind] and pick.uuid or 0 "
+            # Stamped BEFORE the send rather than after it: the send now happens a frame
+            # later (below), so an `if ok then` around the stamp would run before the call
+            # it is meant to describe. The stamp's job is «this press has taken this
+            # errand and this squad», which is true the moment the press decides.
             "DataCenter.__lw_radar_marched = DataCenter.__lw_radar_marched or {} "
             "DataCenter.__lw_radar_marched[tostring(pick.uuid)] = true "
-            "DataCenter.__lw_radar_squads_used = DataCenter.__lw_radar_squads_used or {} "
-            "DataCenter.__lw_radar_squads_used[tostring(squad.uuid)] = true end "
+            # ON THE MAIN THREAD, and this is the whole reason the first attempts sent
+            # nothing at all. A `SendCreateMarchMessage` issued from the hijack thread is
+            # BUILT and then DROPPED — no error, no march — which is why every send in
+            # this file that works goes through `TimerManager:DelayInvoke`
+            # (`dig_treasure_march`, `dig_head_treasure`, `tools/dev/gather.py`). Measured
+            # again on 2026-08-17: the identical call direct returned `ok=true` three times
+            # and left `GetOwnerMarches()` at zero; scheduled, one press put a squad on the
+            # map.
+            "TimerManager:GetInstance():DelayInvoke(function() "
+            "local ok, err = pcall(function() "
+            "MarchUtil.SendCreateMarchMessage(squad.uuid, pick.target, pick.pid, tgt, "
+            "1, 1, false, srv, nil) end) "
             'CS.UnityEngine.Debug.LogError("ACT radar_march_sent ok=" .. tostring(ok) '
             '.. " kind=" .. tostring(pick.kind) .. " target=" .. tostring(pick.target) '
-            '.. " pid=" .. tostring(pick.pid) .. " squad=" .. tostring(squad.index) '
-            '.. " err=" .. tostring(err))')
+            '.. " pid=" .. tostring(pick.pid) .. " uuid=" .. tostring(tgt) '
+            '.. " squad=" .. tostring(squad.index) .. " err=" .. tostring(err)) '
+            "end, 0.5) "
+            'CS.UnityEngine.Debug.LogError("ACT radar_march_armed kind=" .. tostring(pick.kind) '
+            '.. " pid=" .. tostring(pick.pid) .. " squad=" .. tostring(squad.index))')
 
 
 def radar_marched_forget() -> str:

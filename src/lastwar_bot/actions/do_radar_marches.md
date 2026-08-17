@@ -23,10 +23,19 @@
 # `MarchTargetType` has 190-odd members and the wrong one sends somebody's squad at
 # something they did not ask for. So only pairs the client itself names are shipped:
 #
-#   * `TREASURE` → `DETECT_TREASURE` — live-proven by `auto_treasure.md`;
+#   * `GATHER_RESOURCE` → `COLLECT` — **live-proven on 2026-08-17**: the order the
+#     working hand-driven gather sends (`tools/dev/gather.py`), and one press of it put a
+#     squad on a radar mine;
+#   * `FAKE_PLAYER` → `FAKE_ATTACK` — the radar's «attack» errand is a fake enemy base,
+#     and `MarchUtil.OnClickStartMarch` names `FAKE_ATTACK` beside its `isFakePlayer` test;
 #   * `DetectEventPickGarbage` → `PICK_GARBAGE` — `MarchUtil.OnCollectGarbage` mentions
 #     that one constant in its bytecode and no other;
-#   * `GATHER_RESOURCE` → `SAMPLE` — same, for `MarchUtil.OnCollectSimple`.
+#   * `TREASURE` → `DETECT_TREASURE` — live-proven by `auto_treasure.md`.
+#
+# **And the tile's uuid is 0, not the errand's.** A resource tile really has none —
+# `tools/dev/gather.py` reads `uuid = 0` straight off the popup of a mine the player
+# clicked — so the errand's own uuid was being passed where the TILE's belongs. Only the
+# treasure kind carries one.
 #
 # **An errand of any other kind is SKIPPED WITH ITS KIND IN THE LOG.** The monster camps,
 # the rescues, the fake players, the wandering bosses and the seasonal digs are all left
@@ -61,26 +70,23 @@
 # does — no second squad at a tile that already has ours. `forget` clears it, for the case
 # where a squad came home with nothing and the errand should be tried again.
 #
-# ## WHAT THIS DOES NOT YET DO, and it is the whole point of the last line
+# ## WHY THE SEND IS SCHEDULED, AND NOT CALLED
 #
-# **No march sent by this recipe has been observed to leave.** Live on 2026-08-17: the
-# board's tiles were placed (4 of them, and the errands moved from `NOT_IN_WORLD` to
-# `NOT_FINISH`, so THAT half works), three different squads were picked with 3123 / 2631 /
-# 2565 soldiers in them, three `SendCreateMarchMessage` calls returned `ok=true` with no
-# error — and the client held **zero** marches of ours afterwards. The send is being
-# dropped somewhere between the call and the server.
+# The first attempts sent NOTHING and said `ok=true` three times over. Three full squads
+# (3123 / 2631 / 2565 soldiers), three different formations, three
+# `SendCreateMarchMessage` calls returning cleanly with no error — and `GetOwnerMarches()`
+# = 0. Nothing left.
 #
-# Two things have been ruled out and one has not. Ruled out: the empty-squad trap (the
-# squads were fetched and full) and the squad-picker race (the first run gave all four
-# marches to squad 1; they are stamped now and the second run used three different ones).
-# NOT ruled out: whether the target TILE has to be loaded — `SceneManager.World` read back
-# `nil` on this client even after `GAME WORLD` and `SceneUtils.GetIsInWorld()` said 1, so
-# the question could not even be asked properly yet, let alone answered.
+# The cause is written down elsewhere in this repository and was walked past twice: **a
+# `SendCreateMarchMessage` issued from the hijack thread is BUILT AND THEN DROPPED.** Every
+# send in `lua_actions.py` that works goes through `TimerManager:GetInstance():DelayInvoke`
+# for exactly that reason — `dig_treasure_march` says so in its own comment, and
+# `tools/dev/gather.py` does the same. Measured again on 2026-08-17: the identical call,
+# direct, gave zero marches; scheduled a frame later, one press put a squad on the map.
 #
-# So the recipe ENDS IN `FAIL` when the client holds no march of ours, and it will keep
-# doing that until the send works. A run that reports success while nothing left is the
-# exact failure this repository keeps finding, and it is better for this to be loudly
-# unfinished than quietly wrong.
+# So the recipe still ENDS IN `FAIL` when the client holds no march of ours — the number it
+# reports is the one the GAME holds, never the count of presses that returned cleanly.
+# That check is what caught this, and it stays.
 #
 # The board, the enums and the measurements are in `docs/research/radar.md`.
 
@@ -91,6 +97,13 @@ IF forget == 0
     LOG "radar-march: keeping the record of what has already been marched"
 ELSE
     TAP radar_forget_marched
+
+# THE SQUADS ARE CHOSEN ONCE, HERE. Re-reading them per press does not work: the soldier
+# count is a client cache that reverts to zero, and a march is unknown to the client until
+# the server has answered — which is longer than the gap between two presses. A run with
+# three squads standing at home sent one march and then refused eleven times. So they are
+# parked as a queue and each press pops one.
+TAP radar_arm_squads
 
 # THE WORLD SCENE, FIRST, AND IT IS NOT A COURTESY. The first live run sent four marches,
 # every one of them came back `ok=true`, and not one left: the client was standing in the
@@ -116,9 +129,9 @@ ELSE
     WAIT 1.5
     TAP radar_read_board
 
-READ_LUA (function() local M = DataCenter.RadarCenterDataManager local map = {[DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE, [DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, [DetectEventType.GATHER_RESOURCE] = MarchTargetType.SAMPLE} local done = DataCenter.__lw_radar_marched or {} local n = 0 if M then for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') local kind = t and rawget(t, 'type') if kind ~= nil and kind ~= DetectEventType.HELPER and map[kind] ~= nil and rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH and not rawget(e, 'isFrozen') and not done[tostring(rawget(e, 'uuid'))] then n = n + 1 end end end return n end)() INTO marchable
-READ_LUA (function() local afd = DataCenter.ArmyFormationDataManager if not afd then return 0 end local n = 0 for _, v in pairs(afd.ArmyFormationList or {}) do local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) if ok and sol > 0 then local out = nil pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) if out == nil then n = n + 1 end end end return n end)() INTO squads
-READ_LUA (function() local M = DataCenter.RadarCenterDataManager local map = {[DetectEventType.TREASURE] = true, [DetectEventType.DetectEventPickGarbage] = true, [DetectEventType.GATHER_RESOURCE] = true} local tally = {} if M then for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') local kind = t and rawget(t, 'type') if kind ~= nil and kind ~= DetectEventType.HELPER and not map[kind] and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_FINISHED and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_REWARDED then local k = tostring(kind) tally[k] = (tally[k] or 0) + 1 end end end local out = {} for k, v in pairs(tally) do out[#out + 1] = k .. 'x' .. tostring(v) end table.sort(out) if #out == 0 then return 'none' end return table.concat(out, ' ') end)() INTO skipped
+READ_LUA (function() local M = DataCenter.RadarCenterDataManager local map = {[DetectEventType.GATHER_RESOURCE] = MarchTargetType.COLLECT, [DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, [DetectEventType.FAKE_PLAYER] = MarchTargetType.FAKE_ATTACK, [DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE} local done = DataCenter.__lw_radar_marched or {} local n = 0 if M then for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') local kind = t and rawget(t, 'type') if kind ~= nil and kind ~= DetectEventType.HELPER and map[kind] ~= nil and rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH and not rawget(e, 'isFrozen') and not done[tostring(rawget(e, 'uuid'))] then n = n + 1 end end end return n end)() INTO marchable
+READ_LUA (function() return #(DataCenter.__lw_radar_squad_queue or {}) end)() INTO squads
+READ_LUA (function() local M = DataCenter.RadarCenterDataManager local map = {[DetectEventType.GATHER_RESOURCE] = true, [DetectEventType.DetectEventPickGarbage] = true, [DetectEventType.FAKE_PLAYER] = true, [DetectEventType.TREASURE] = true} local tally = {} if M then for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') local kind = t and rawget(t, 'type') if kind ~= nil and kind ~= DetectEventType.HELPER and not map[kind] and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_FINISHED and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_REWARDED then local k = tostring(kind) tally[k] = (tally[k] or 0) + 1 end end end local out = {} for k, v in pairs(tally) do out[#out + 1] = k .. 'x' .. tostring(v) end table.sort(out) if #out == 0 then return 'none' end return table.concat(out, ' ') end)() INTO skipped
 
 LOG "radar-march: {marchable} errand(s) ready to be marched at, {squads} free squad(s); kinds this cannot march yet: {skipped}"
 
@@ -135,8 +148,8 @@ IF marchable == 0
 # squads — and the press says which.
 TAP radar_march xall
 
-READ_LUA (function() local M = DataCenter.RadarCenterDataManager local map = {[DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE, [DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, [DetectEventType.GATHER_RESOURCE] = MarchTargetType.SAMPLE} local done = DataCenter.__lw_radar_marched or {} local n = 0 if M then for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') local kind = t and rawget(t, 'type') if kind ~= nil and kind ~= DetectEventType.HELPER and map[kind] ~= nil and rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH and not rawget(e, 'isFrozen') and not done[tostring(rawget(e, 'uuid'))] then n = n + 1 end end end return n end)() INTO marchable
-READ_LUA (function() local afd = DataCenter.ArmyFormationDataManager if not afd then return 0 end local n = 0 for _, v in pairs(afd.ArmyFormationList or {}) do local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) if ok and sol > 0 then local out = nil pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) if out == nil then n = n + 1 end end end return n end)() INTO squads
+READ_LUA (function() local M = DataCenter.RadarCenterDataManager local map = {[DetectEventType.GATHER_RESOURCE] = MarchTargetType.COLLECT, [DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, [DetectEventType.FAKE_PLAYER] = MarchTargetType.FAKE_ATTACK, [DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE} local done = DataCenter.__lw_radar_marched or {} local n = 0 if M then for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') local kind = t and rawget(t, 'type') if kind ~= nil and kind ~= DetectEventType.HELPER and map[kind] ~= nil and rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH and not rawget(e, 'isFrozen') and not done[tostring(rawget(e, 'uuid'))] then n = n + 1 end end end return n end)() INTO marchable
+READ_LUA (function() return #(DataCenter.__lw_radar_squad_queue or {}) end)() INTO squads
 READ_LUA (function() local ok, n = pcall(function() local c = 0 for _ in pairs(DataCenter.__lw_radar_marched or {}) do c = c + 1 end return c end) return (ok and n) or 0 end)() INTO marched
 
 # WHAT THE GAME SAYS, not what the presses said. `SendCreateMarchMessage` returning
