@@ -26,9 +26,22 @@
 #
 # Claiming is what scores on the duel day the radar belongs to, so a week's worth of
 # errands claimed on that ONE day is worth far more than the same errands claimed as they
-# ripen. But the board has a CEILING (`GetMaxDetectNum`), and a full board stops handing
-# out new errands — so hoarding pays only while there is room. `keep_free` is how many
-# slots the hoard is told to leave.
+# ripen. What stops a hoard from simply growing is the SUPPLY, and it took three live runs
+# to see what it is.
+#
+# `GetMaxDetectNum()` is not a ceiling, whatever its name says: it returns
+# `detectInfo.eventNum`, and across three runs it read 40, then 18, then 2, then 0 while
+# the board itself sat at twelve every time and only fell to eight once the number hit
+# zero. **It is the allowance of errands the radar will still hand out**, and it refills at
+# `nextRefreshTime`. The board's own holding capacity is not a number the client exposes;
+# twelve is what it was observed to be on this account.
+#
+# So a hoard does not overflow — it BLOCKS. A board sitting at its capacity has nowhere to
+# put a new errand, the day's allowance goes undrawn, and the reset takes what was never
+# drawn. That is «не доводить до максимума заданий», and `keep_free` is the answer: while
+# hoarding, claim just enough to open that many places, and only while the allowance still
+# has something to put in them. An allowance already at zero has nothing to be unblocked
+# for, so the hoard keeps everything.
 #
 # Two ways to say which mode today is, and the recipe prefers the second:
 #
@@ -60,7 +73,9 @@ TAP radar_read_board
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local n = 0 for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') if rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH and t and rawget(t, 'type') == DetectEventType.HELPER and not rawget(e, 'isFrozen') then n = n + 1 end end return n end)() INTO helpable
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetFinishedDetectEventNum() end) return (ok and tonumber(n)) or 0 end)() INTO finished
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)() INTO onboard
-READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() INTO ceiling
+# `GetMaxDetectNum()` = `detectInfo.eventNum` — NOT a capacity: the allowance of errands
+# the radar will still hand out before `nextRefreshTime` refills it (see the head).
+READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() INTO supply
 
 # Which weekday the GAME is on — 1 = Monday … 7 = Sunday, 0 when it could not be asked.
 READ_LUA (function() local ok, ms = pcall(function() return UITimeManager:GetInstance():GetTomorrowZero() end) if not ok or not tonumber(ms) then return 0 end local start = math.floor(tonumber(ms) / 1000) - 86400 local w = tonumber(os.date('!%w', start)) if w == nil then return 0 end if w == 0 then return 7 end return w end)() INTO gameday
@@ -70,7 +85,7 @@ READ_LUA (function() local ok, ms = pcall(function() return UITimeManager:GetIns
 # falls back to `claim` rather than guessing that today is not the day.
 READ_LUA (function() local duel = {duel_day} local plain = {claim} local today = (function() local ok, ms = pcall(function() return UITimeManager:GetInstance():GetTomorrowZero() end) if not ok or not tonumber(ms) then return 0 end local start = math.floor(tonumber(ms) / 1000) - 86400 local w = tonumber(os.date('!%w', start)) if w == nil then return 0 end if w == 0 then return 7 end return w end)() if duel < 1 or today < 1 then return plain end if today == duel then return 1 end return 0 end)() INTO do_claim
 
-LOG "radar: {finished} finished, {helpable} ally errand(s) ready to run, {onboard} of {ceiling} slots used; game weekday {gameday}, duel day {duel_day}"
+LOG "radar: {onboard} errand(s) on the board — {finished} finished, {helpable} ally one(s) runnable; the day will still hand out {supply}; game weekday {gameday}, duel day {duel_day}"
 
 # The ally errands. Pressing with nothing eligible sends nothing and says so, so this
 # needs no gate of its own — the button IS the gate.
@@ -84,27 +99,40 @@ ELSE
     TAP radar_read_board
 
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetFinishedDetectEventNum() end) return (ok and tonumber(n)) or 0 end)() INTO finished
-READ_LUA (function() local a = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() local b = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)() local d = a - b if d < 0 then d = 0 end return d end)() INTO free
+READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() INTO supply
+
+# Where the board stands as the hoard begins, parked in the VM so «how many places have I
+# opened» is a subtraction rather than a count this recipe would have to keep.
+LUA DataCenter.__lw_radar_hoard_from = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)()
+READ_LUA 0 INTO opened
 
 IF do_claim == 0
-    LOG "radar: hoarding {finished} finished errand(s) for the duel day, {free} slot(s) free"
+    LOG "radar: hoarding {finished} finished errand(s) for the duel day; the day will still hand out {supply}"
 ELSE
     LOG "radar: claiming {finished} finished errand(s)"
 
-# Claim everything, or — while hoarding — only enough to keep the board off its ceiling.
+# Claim everything, or — while hoarding — only enough to unblock a board that is sitting
+# on the day's supply. The two gates are separate on purpose and each says which it was:
+# «nothing ripe to spend» and «nothing left to be unblocked for» are different answers.
 IF do_claim == 1
     TAP radar_claim xall
 ELSE
-    WHILE free < keep_free LIMIT 60
+    WHILE opened < keep_free LIMIT 60
+        IF supply == 0
+            LOG "radar: the day has no errands left to hand out — nothing to make room for, keeping all {finished}"
+            STOP
         IF finished == 0
-            LOG "radar: the board is near its ceiling and nothing on it is finished — the room is not mine to make"
+            LOG "radar: the board is blocking the day's {supply} remaining errand(s) and nothing on it is finished — the room is not mine to make"
             STOP
         TAP radar_claim
         READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetFinishedDetectEventNum() end) return (ok and tonumber(n)) or 0 end)() INTO finished
-        READ_LUA (function() local a = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() local b = (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)() local d = a - b if d < 0 then d = 0 end return d end)() INTO free
+        READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() INTO supply
+        READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) local now = (ok and tonumber(n)) or 0 local from = tonumber(DataCenter.__lw_radar_hoard_from) or now local d = from - now if d < 0 then d = 0 end return d end)() INTO opened
 
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetFinishedDetectEventNum() end) return (ok and tonumber(n)) or 0 end)() INTO finished
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetDetectEventCount() end) return (ok and tonumber(n)) or 0 end)() INTO onboard
 READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local n = 0 for _, e in pairs(rawget(M, 'events') or {}) do local t = rawget(e, 'template') if rawget(e, 'state') == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH and t and rawget(t, 'type') == DetectEventType.HELPER and not rawget(e, 'isFrozen') then n = n + 1 end end return n end)() INTO helpable
 
-LOG "radar: done — {finished} finished left standing, {helpable} ally errand(s) still runnable, {onboard} of {ceiling} slots used"
+READ_LUA (function() local M = DataCenter.RadarCenterDataManager if not M then return 0 end local ok, n = pcall(function() return M:GetMaxDetectNum() end) return (ok and tonumber(n)) or 0 end)() INTO supply
+
+LOG "radar: done — {onboard} on the board, {finished} finished left standing, {helpable} ally errand(s) still runnable, {supply} the day can still hand out"

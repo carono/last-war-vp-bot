@@ -79,11 +79,31 @@ scout-mail store and has nothing to do with the errands.
 local M = DataCenter.RadarCenterDataManager
 M:GetDetectEventCount()          -- errands on the board
 M:GetFinishedDetectEventNum()    -- of them, ripe (this is the red badge)
-M:GetMaxDetectNum()              -- the ceiling — detectInfo.eventNum
+M:GetMaxDetectNum()              -- NOT a ceiling: detectInfo.eventNum, see below
 M:GetDetectEventInfoUuids()      -- the uuids, in no order
 rawget(M, 'events')              -- uuid -> DetectEventInfo
 rawget(M, 'detectInfo')          -- the board's own head, below
 ```
+
+### `GetMaxDetectNum` is the day's ALLOWANCE, not a capacity
+
+The name is a trap and it cost a wrong first cut of the recipe. Measured across three
+runs an hour apart, claiming as it went:
+
+| run | `GetDetectEventCount()` | `GetMaxDetectNum()` |
+|---|---|---|
+| 1 | 12 | 40 |
+| 2 | 12 | 18 |
+| 3 | 12 → 8 | 2 → 0 |
+
+The board sat at twelve every time and only fell below it once the other number reached
+zero. So `detectInfo.eventNum` is **how many errands the radar will still hand out**
+before `nextRefreshTime` refills it, and the board's own holding capacity is not a number
+the client exposes — twelve is what it was observed to be on this account.
+
+The consequence for hoarding is the opposite of the obvious one: a hoard does not
+overflow, it **blocks**. A board at its capacity has nowhere to put a new errand, the
+allowance goes undrawn, and the refresh takes back what was never drawn.
 
 `detectInfo`, as it reads live (shape, not values):
 
@@ -147,62 +167,107 @@ explicit**: the client-side «your barracks are full» warning is skipped, and a
 errand claimed with no room pays whatever the server decides to pay. The warning is advice
 to a person, not a rule of the server.
 
-## The ceiling, and the duel day
+## The duel day, and how the recipe decides which one today is
 
-`GetMaxDetectNum()` (= `detectInfo.eventNum`, 40 on the account this was read on) is how
-many errands the board holds, and **a full board stops handing out new ones**. Claiming is
-what scores on the duel day the radar belongs to — Monday, on the week
+Claiming is what scores on the duel day the radar belongs to — Monday, on the week
 `docs/game/daily_cycle.md` was written from — so a week's errands claimed on that one day
-are worth far more than the same errands claimed as they ripen.
+are worth far more than the same errands claimed as they ripen. Against that stands the
+allowance above: a board sitting at its capacity blocks the day's supply, and the refresh
+takes back what was never drawn. That pair is the whole of «не доводить до максимума
+заданий» (#1051) and is the `claim` / `keep_free` pair of `actions/do_radar_tasks.md`.
 
-The two facts fight: hoarding pays, and hoarding into the ceiling stops the supply. That
-is the whole of the user's «не доводить до максимума заданий» (#1051), and it is the
-`claim` / `keep_free` pair of `actions/do_radar_tasks.md`.
+**The weekday is read; WHICH weekday is given.** The recipe asks the client
+`UITimeManager:GetInstance():GetTomorrowZero()`, steps back a day to the start of the one
+now running, and takes its UTC weekday — 1 = Monday … 7 = Sunday. It is not the PC's:
+the server's midnight is 02:00 UTC on this warzone, so a machine west of it spends hours
+calling the game's Tuesday «Monday» and would hoard through the very day it meant to
+spend. Live on 2026-08-17 the reading came back `1`.
 
-**Which weekday is the duel's radar day is not decided in the recipe**, and must not be:
-the plan differs per season and per warzone, and a recipe that guessed it would be wrong
-for every account whose week is not this one's. The caller owns the calendar — the timer
-row's `args`, or a person.
+### Negative finding: the client does not say which activity scores today
 
-## What a live run did (2026-08-17, #1470)
+Searched for, on a live client, and not found — the same answer #1467 reached for the star
+day, for the same reason.
 
-`do_radar_tasks` with its defaults, against a board reading 12 finished of 12 on the
-board, ceiling 40, zero `HELPER` errands pending:
+| asked | answer |
+|---|---|
+| `AllianceCompeteDataManager:CheckIfAllianceCompeteOpen()` / `CheckIfIsInCompete()` | `true` — the duel is on and we are in it |
+| `…:IsBattleDay()` / `IsSettleStage()` | `false` / `false` — the WEEK's phase, not the day's objectives |
+| `…:GetExtraActivityList()` | `nil` with no argument; the per-day list arrives with the duel screen's own fetch |
+| `…:HaveOpponent()` | a table of 2 — the two sides, no calendar |
+| `alliance_duel_prompt_tips` | 6 rows of `id, priority, condition, desc, icon, jump` — condition-driven UI hints, not a plan |
+| `TableName` matching duel/compete/vs | `al_duel_infinity_box_reward`, `al_duel_infinity_box_season`, `alliance_duel_prompt_tips`, `lw_champion_duel_*` — rewards, seasons and a different event |
+| `GetDuelScoreManager.duelInfos` | `curScore` / `targetScoreList` / `scoreData` per score type — thresholds, no per-day objectives |
+
+So `duel_day` is a fact about the player's season and warzone, given to the recipe, and
+what is derived from the game is only the weekday it is compared against. Left at 0, the
+plain `claim` decides; a weekday the client could not answer falls back to `claim` rather
+than guessing «not today».
+
+## Three live runs, 2026-08-17 (#1470)
+
+All with the recipe's defaults (`claim = 1`), an hour or so apart, on the day the player
+says is the radar's duel day.
+
+| run | board before | ripe before | ally errands | allowance before | claims |
+|---|---|---|---|---|---|
+| 1 | 12 | 12 | 0 | 40 | **22** |
+| 2 | 12 | 1 | 6 | 18 | **16** |
+| 3 | 12 | 0 | 6 | 2 | **6** |
+
+**44 errands claimed, 12 ally errands carried out**, and `completeNum` — the game's own
+lifetime tally — moved 3784 → 3828, which is 44 exactly.
+
+Run 1 is why `xall` re-reads rather than trusting the badge:
 
 ```
-radar: 12 finished, 0 ally errand(s) ready to run, 12 of 40 slots used
+radar: 12 finished, 0 ally errand(s) ready to run
 TAP Radar: claim one finished errand (12; 0 left)
 TAP Radar: claim one finished errand (17; 0 left)
 TAP Radar: claim one finished errand (20; 0 left)
 TAP Radar: claim one finished errand (21; 0 left)
 TAP Radar: claim one finished errand (22; 0 left)
 TAP Radar: claim one finished errand xall -> 22 press(es)
-radar: done — 0 finished errand(s) left standing, 12 of 40 slots used
 ```
 
-**Twenty-two claims out of a badge of twelve, and that is right.** `xall` re-reads
-`count_lua` after each batch, and the count came back HIGHER each round: the server ripens
-fresh errands as fast as the room is made. The loop stopped by itself at zero, and the
-board still held twelve — the unripe ones.
+Twenty-two out of a badge of twelve: the count came back HIGHER after each batch, because
+the server ripens fresh errands as fast as the room is made. The loop stopped by itself at
+zero.
+
+Runs 2 and 3 are the proof of the `HELPER` path, which run 1 could not give — six pending
+each time, and the board's ripe count went 1 → 7 across the three seconds:
+
+```
+radar: 0 finished, 6 ally errand(s) ready to run; the day will still hand out 2; game weekday 1
+radar_help_started=6
+radar_help_ended=6
+… READ_LUA finished = 6
+TAP Radar: claim one finished errand xall -> 6 press(es)
+```
+
+That exercises the part that was actually uncertain — the finish the client only sends
+while its own window is open, here sent by the recipe with no window at all.
 
 The wire agrees independently: the trigger ear logged `push.resource.item.update` during
-the run, so the rewards really landed.
+run 1, so the rewards really landed.
 
-**Not exercised**: the `HELPER` path (none were pending — the presses ran and correctly
-sent nothing), and the hoarding branch (`claim = 0`), which needs a week rather than a run.
+**Not exercised**: the hoarding branch (`claim = 0` / `duel_day` on a non-duel day), which
+needs a different day rather than another run.
 
 ## What is NOT known
 
 * **Whether an errand claimed while hoarding is the OLDEST one.** The recipe claims in
   `pairs` order, which is a Lua hash order and therefore arbitrary. It matters only in the
   hoarding branch, and only for which errand is spent to make room.
+* **The board's own holding capacity.** Twelve, observed — no getter found that says so.
+  `keep_free` is therefore expressed as «open this many places», measured against where the
+  board stood when the hoard began, rather than against a capacity nobody can read.
 * **`cost` and `signal`.** Every `HELPER` errand read live carried `cost = 1` and every
-  other kind `cost = 0`, and `detectInfo.signal` was 4. `GetDetectHelpTypeCostNum` is a
-  constant read off the manager. Whether the two are the same currency was not established
-  and nothing here spends against them.
-* **`GetCurEventNum()` returned 52 against a board of 12 with a ceiling of 40.** Its
-  constants mention `GetMaxDetectNum`, so it is not a plain count; it takes an argument
-  this did not work out. Unused.
+  other kind `cost = 0`. `detectInfo.signal` read 4 and later 1, so it is spent by
+  something. `GetDetectHelpTypeCostNum` is a constant read off the manager. Whether the two
+  are the same currency was not established and nothing here spends against them.
+* **`GetCurEventNum()` returned 52 against a board of 12 and an allowance of 40,** and 8
+  against a board of 8 and an allowance of 0. Its constants mention `GetMaxDetectNum`, so
+  it is not a plain count. Unused.
 * **`reset.detect.event`** — `IsCanReset()` was true and `GetResetNum()` was 0. Rerolling
   the board is a thing the game offers and this does not touch it.
 
