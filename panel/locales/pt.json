@@ -1008,6 +1008,7 @@
   "inventory.search": "Buscar:",
   "inventory.count": "{n} itens",
   "inventory.empty": "vazio — aperte Atualizar (o jogo precisa estar rodando)",
+  "inventory.no_icons": "{n} itens — ainda sem imagens, rode tools/extract_item_icons.py",
   "tab.heroes": "Heróis",
   "heroes.col.icon": "",
   "heroes.col.name": "Nome",

@@ -1008,6 +1008,7 @@
   "inventory.search": "Tìm:",
   "inventory.count": "{n} vật phẩm",
   "inventory.empty": "trống — hãy bấm Làm mới (trò chơi phải đang chạy)",
+  "inventory.no_icons": "{n} vật phẩm — chưa có hình, hãy chạy tools/extract_item_icons.py",
   "tab.heroes": "Tướng",
   "heroes.col.icon": "",
   "heroes.col.name": "Tên",

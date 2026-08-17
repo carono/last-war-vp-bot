@@ -26,13 +26,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 
-import game_paths  # noqa: E402  (where the game is — LW_GAMERES & co)
+import game_paths     # noqa: E402  (where the game is — LW_GAMERES & co)
+import gameres_index  # noqa: E402  (the shared index reader)
 
 try:
     import UnityPy
@@ -58,73 +58,13 @@ ICON_PREFIXES = {name: SET_PREFIXES[name] for name in ("big", "small")}
 BODY_PREFIXES = {"body": SET_PREFIXES["body"]}
 
 
-def read_sections(gameres: Path):
-    """Return {sectionName: [lines...]} for the gameres text index."""
-    data = gameres.read_bytes()
-    tags = ["Version", "Directories", "Paths", "Bundles", "Groups"]
-    positions = {t: data.find(f"[{t}]".encode()) for t in tags}
-    positions = {t: p for t, p in positions.items() if p >= 0}
-    order = sorted(positions, key=lambda t: positions[t])
-    out = {}
-    for i, t in enumerate(order):
-        start = positions[t]
-        end = positions[order[i + 1]] if i + 1 < len(order) else len(data)
-        out[t] = data[start:end].decode("latin-1").splitlines()[1:]
-    return out
-
-
-def sanitize(name: str) -> str:
-    name = name.strip() or "unnamed"
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
-
-
-def build_targets(sections, categories):
-    """Map sprite-name -> category and bundle-sha256 -> {sprite names expected}."""
-    # dirIndex -> category
-    dir_cat = {}
-    for line in sections.get("Directories", []):
-        if not line.strip():
-            continue
-        idx, path = line.split(",", 1)
-        for cat, prefix in categories.items():
-            if path == prefix or path.startswith(prefix + "/"):
-                dir_cat[int(idx)] = cat
-                break
-
-    # fileIndex -> (category, spriteName)  (sprite name = filename without extension)
-    file_target = {}
-    for line in sections.get("Paths", []):
-        if not line.strip():
-            continue
-        parts = line.split(",", 2)
-        if len(parts) < 3:
-            continue
-        fidx, didx, fname = int(parts[0]), int(parts[1]), parts[2]
-        cat = dir_cat.get(didx)
-        if cat is None:
-            continue
-        stem = fname.rsplit(".", 1)[0]
-        file_target[fidx] = (cat, stem)
-
-    # bundle sha256 -> {spriteName: category}
-    bundle_sprites = {}
-    for line in sections.get("Bundles", []):
-        line = line.strip()
-        if not line:
-            continue
-        fields = line.split(",")
-        if len(fields) < 8:
-            continue
-        real = fields[-1]
-        idxs = fields[4].split("|") if fields[4] else []
-        for s in idxs:
-            if not s.isdigit():
-                continue
-            tgt = file_target.get(int(s))
-            if tgt:
-                cat, stem = tgt
-                bundle_sprites.setdefault(real, {})[stem] = cat
-    return file_target, bundle_sprites
+# The three index steps — read the sections, pick the sprite names, work out which
+# bundles carry them — are shared with tools/extract_item_icons.py and live in
+# tools/lib/gameres_index.py. They are re-exported here under their old names so the
+# rest of this file (and anything importing it) reads exactly as it did.
+read_sections = gameres_index.read_sections
+sanitize = gameres_index.sanitize
+build_targets = gameres_index.build_targets
 
 
 def main() -> int:

@@ -359,6 +359,9 @@ def _make_handler(server: WebServer):
             if path == "/api/avatar":
                 self._avatar(query)
                 return
+            if path == "/api/itemicon":
+                self._itemicon(query)
+                return
             if path.startswith("/api/"):
                 self._api("GET", path, query, {})
                 return
@@ -406,12 +409,34 @@ def _make_handler(server: WebServer):
             Behind the same token as everything else: a folder of players' photographs
             is not something to hand to whoever finds the port.
             """
+            def resolve():
+                import player_faces
+                return player_faces.file_named(_one(query.get("face")))
+
+            self._picture(query, resolve)
+
+        def _itemicon(self, query: dict) -> None:
+            """Serve one composed inventory cell out of `results/item_icons/cells`.
+
+            The same shape as `_avatar` and for the same reasons (#1469): the pictures
+            are the game's own art extracted onto THIS machine, they are identical for
+            every profile, and the name is checked by `item_icons.file_named` rather
+            than trusted. A cell that was never composed is a 404 and the phone simply
+            shows the item's name — exactly what the window does with its glyph.
+            """
+            def resolve():
+                import item_icons
+                return item_icons.file_named(_one(query.get("cell")))
+
+            self._picture(query, resolve)
+
+        def _picture(self, query: dict, resolve) -> None:
+            """The half both picture routes share: authorise, resolve, send, cache."""
             if not self._authorised(query):
                 self._refuse(query)
                 return
             try:
-                import player_faces
-                full = player_faces.file_named(_one(query.get("face")))
+                full = resolve()
             except Exception:                   # noqa: BLE001 — one request, not the panel
                 full = None
             if not full:
@@ -424,8 +449,9 @@ def _make_handler(server: WebServer):
                 self._send(404, b"", "text/plain")
                 return
             kind = "image/png" if full.lower().endswith(".png") else "image/jpeg"
-            # A face does not change while the panel is open — a `picVer` bump writes a
-            # new file under a new name — so the browser may keep it and stop asking.
+            # Neither kind of picture changes under its own name while the panel is
+            # open — a `picVer` bump writes a new face file, a re-composed cell a new
+            # cell file — so the browser may keep it and stop asking.
             self._send(200, blob, kind,
                        headers=[("Cache-Control", "private, max-age=86400")])
 

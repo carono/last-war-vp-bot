@@ -1008,6 +1008,7 @@
   "inventory.search": "Suche:",
   "inventory.count": "{n} Gegenstände",
   "inventory.empty": "leer — drücke «Auffrischen» (das Spiel muss laufen)",
+  "inventory.no_icons": "{n} Gegenstände — noch keine Bilder, führe tools/extract_item_icons.py aus",
   "tab.heroes": "Helden",
   "heroes.col.icon": "",
   "heroes.col.name": "Name",

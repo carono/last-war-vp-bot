@@ -1008,6 +1008,7 @@
   "inventory.search": "Cari:",
   "inventory.count": "{n} barang",
   "inventory.empty": "kosong — tekan Segarkan (permainan harus berjalan)",
+  "inventory.no_icons": "{n} barang — belum ada gambar, jalankan tools/extract_item_icons.py",
   "tab.heroes": "Hero",
   "heroes.col.icon": "",
   "heroes.col.name": "Nama",

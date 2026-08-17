@@ -321,6 +321,16 @@ input[type=checkbox]:disabled { opacity: .5; }
   margin-right: 8px;
   background: var(--line);
 }
+
+/* An inventory cell: the game's own plate, so square, whole, and no background of
+   ours behind it (the frame already is one). Height follows the 162x170 plate. */
+.item .icon {
+  width: 32px;
+  height: 34px;
+  flex: none;
+  object-fit: contain;
+  margin-right: 8px;
+}
 /* The button is ALWAYS in the same place — bottom right of the card, whether or not
    there is a pill beside it. With `space-between` a row whose pill was hidden put its
    button on the left, so «Запустить» moved from card to card down the list and the

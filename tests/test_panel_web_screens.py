@@ -146,8 +146,11 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     # «Ралли» screen draws the face of everybody standing in a banner, out of the game
     # client's own cache (#1324). The renderer draws it as an <img> and drops it if it
     # will not load, so an item that has one degrades to the item without one.
+    # `icon` is the same thing for a picture the GAME composed rather than a photograph
+    # — an inventory cell, a rarity frame with the item drawn on it (#1469). Square and
+    # un-cropped where a face is round, and it degrades the same way.
     allowed_item = {"text", "label", "detail", "note", "pill", "actions", "facts",
-                    "until", "avatar"}
+                    "until", "avatar", "icon"}
     for tab_id, cls in _tabs_with_screens():
         view = _sample_view(cls)
         if view is None:
@@ -203,7 +206,8 @@ _SAMPLES = {
                 "resources": {"food": 1000, "wood": 2000}},
     "alliance": [{"name": "Somebody", "level": 30, "power": 12000000,
                   "online": True, "offline": 0}],
-    "inventory": [{"name": "Speedup 5m", "count": 12, "desc": "five minutes"}],
+    "inventory": [{"id": 400204, "name": "Speedup 5m", "count": 12, "colour": 3,
+                   "type": 0, "icon": "icon_item_400204"}],
     "heroes": [{"name": "Somebody", "level": 30, "power": 4000}],
     "accounts": [{"name": "Somebody", "server": 935}],
 }

@@ -776,6 +776,18 @@ function renderItem(item) {
     face.addEventListener('error', () => face.remove());
     head.appendChild(face);
   }
+  /* AN ICON, when the item has one — the same idea as a face and drawn the same way,
+   * but square and un-cropped, because it is a picture the GAME composed rather than a
+   * photograph: an inventory cell is a rarity frame with the item on it and rounding it
+   * off would cut the frame's own corners (#1469). Also a link, never bytes. */
+  if (item.icon) {
+    const icon = document.createElement('img');
+    icon.className = 'icon';
+    icon.src = item.icon;
+    icon.alt = '';
+    icon.addEventListener('error', () => icon.remove());
+    head.appendChild(icon);
+  }
   const title = document.createElement('span');
   title.className = 'title';
   // `label` is a KEY (a line that IS one of the panel's own words), `text` is data.

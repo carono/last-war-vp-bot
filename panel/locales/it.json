@@ -1008,6 +1008,7 @@
   "inventory.search": "Cerca:",
   "inventory.count": "{n} oggetti",
   "inventory.empty": "vuoto — premi Aggiorna (il gioco deve essere in funzione)",
+  "inventory.no_icons": "{n} oggetti — ancora senza immagini, esegui tools/extract_item_icons.py",
   "tab.heroes": "Eroi",
   "heroes.col.icon": "",
   "heroes.col.name": "Nome",

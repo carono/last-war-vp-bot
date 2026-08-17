@@ -253,7 +253,7 @@ class ProfileTab(DataTab):
             view.setdefault("actions", []).append(
                 {"id": "warzone", "label": "profile.warzone.go",
                  "prompt": "profile.warzone.ask",
-                 "value": str(self._warzone_ask or "")})
+                 "value": str(getattr(self, "_warzone_ask", 0) or "")})
         return view
 
     def web_press(self, action: str, args: dict) -> dict:
