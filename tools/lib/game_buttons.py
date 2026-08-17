@@ -1002,6 +1002,33 @@ BUTTONS["radar_help_end"] = Button(
     wait=0.8, label="Radar: report the ally errands finished",
     relay=("radar_help_ended",),
 )
+BUTTONS["radar_place_points"] = Button(
+    # «Перейти», minus the camera flight: an errand with no tile on the map yet cannot be
+    # marched at, and one message each is what puts it there. Only the kinds the march
+    # press will actually take — a tile placed for an errand we then refuse is litter on
+    # somebody's map.
+    lua=_lua_actions.radar_place_points(),
+    wait=1.2, label="Radar: put the errands on the map",
+    relay=("radar_points_placed",),
+)
+BUTTONS["radar_march"] = Button(
+    # One free squad at one errand. NO `verify_lua`: the press may legitimately send
+    # nothing — no free squad, nothing of a kind we can march — and a button-level check
+    # would report that as «pressed and nothing moved», burying a refusal the press has
+    # already explained in words (the same reason `recruit_draw` has none).
+    lua=_lua_actions.radar_march_press(),
+    # The server has to answer `SendCreateMarchMessage` before the march shows up as the
+    # formation's, and the next press reads exactly that to know the squad is spent.
+    wait=1.5, label="Radar: march one squad at one errand",
+    count_lua=_lua_actions.radar_marchable_count(),
+    max_taps=12,
+    relay=("radar_march_sent", "radar_march_none"),
+)
+BUTTONS["radar_forget_marched"] = Button(
+    lua=_lua_actions.radar_marched_forget(),
+    wait=0.2, label="Radar: forget which errands were marched",
+    relay=("radar_marched_forgotten",),
+)
 
 
 # `heal_units` is an alias of `heal_all` — the task tracker refers to the ability by

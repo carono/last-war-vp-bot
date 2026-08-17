@@ -361,6 +361,21 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.do_radar_tasks",
     ),
     Timer(
+        name="do_radar_marches",
+        scenario=("do_radar_marches",),
+        # Twenty minutes. It spends SQUADS, and a squad is out for a march's travel time —
+        # so the useful period is «about how long a march takes», not «as often as
+        # possible». It sends nothing when every squad is out, and says so.
+        interval_sec=1200,
+        retry_sec=300,
+        # OFF by default, and more deliberately than the rest of this catalogue: every
+        # other row here spends a quota that dies at the reset, and this one spends the
+        # squads a person may be saving for a rally.
+        enabled=False,
+        args={"place": 1, "forget": 0},
+        label_key="timers.item.do_radar_marches",
+    ),
+    Timer(
         name="auto_treasure",
         scenario=("auto_treasure",),
         # «На вкладке действие нужна кнопка собрать сокровища, чтобы я стриггерил

@@ -8608,3 +8608,200 @@ def radar_put_point(uuid: str) -> str:
     return ('pcall(function() SFSNetwork.SendMessage("detect.event.put.point.in.world", %s) end) '
             'CS.UnityEngine.Debug.LogError("ACT radar_point_requested uuid=%s")'
             % (uuid, uuid))
+
+
+# ---------------------------------------------------------------------------
+# Радар — the errands that need a march (#1470)
+# ---------------------------------------------------------------------------
+# The other half of the board. A `HELPER` errand is two messages and three seconds; every
+# other kind is a TILE ON THE MAP with a squad sent at it, and the sequence the game plays
+# is three steps rather than one:
+#
+#   1. `detect.event.put.point.in.world {uuid}` — an errand sits at `state = 3`
+#      (`DETECT_EVENT_STATE_NOT_IN_WORLD`) until this is sent; the server then places its
+#      tile and the errand becomes `state = 0`. This is the in-game «Перейти», minus the
+#      camera flight that follows it.
+#   2. a march — `MarchUtil.SendCreateMarchMessage(formation, <target type>, pointId, uuid,
+#      1, 1, false, server, nil)`, the same call `dig_treasure_march` makes.
+#   3. nothing. The errand ripens when the squad arrives and does its work, and then it is
+#      the ordinary claim (`radar_claim_press`). There is no third message to send.
+#
+# **THE TARGET TYPE IS NEVER GUESSED.** `MarchTargetType` has 190-odd members and picking
+# the wrong one sends somebody's squad at something they did not ask for. So only pairs the
+# client itself names are shipped, and an errand of any other kind is SKIPPED WITH ITS KIND
+# IN THE LOG rather than marched hopefully:
+#
+#   | DetectEventType            | MarchTargetType   | where the pair comes from            |
+#   |----------------------------|-------------------|--------------------------------------|
+#   | `TREASURE` = 19            | `DETECT_TREASURE` | live-proven by `auto_treasure`        |
+#   | `DetectEventPickGarbage`=6 | `PICK_GARBAGE`    | `MarchUtil.OnCollectGarbage` names it |
+#   | `GATHER_RESOURCE` = 16     | `SAMPLE`          | `MarchUtil.OnCollectSimple` names it  |
+#
+# Each of those two `MarchUtil` functions mentions exactly ONE `MarchTargetType` constant in
+# its bytecode and no other, which is as close to a definition as a stripped-of-nothing Lua
+# dump gets. Everything else — the monster camps, the rescues, the fake players, the
+# wandering bosses, the seasonal digs — is left for a run that can prove its pair.
+#
+# The dedup and the busy gate are the same one table. An errand this recipe has marched is
+# stamped on `DataCenter.__lw_radar_marched[<uuid>]`, so a second run does not send a second
+# squad at a tile that already has ours, and an errand that could not be marched — no free
+# squad — is simply not stamped and comes round again. Nothing is dropped silently: every
+# press says what it did and what it could not do, which is the #1416 lesson.
+
+#: `DetectEventType` -> `MarchTargetType`, as a Lua table literal. Written as names rather
+#: than numbers on purpose: a number here would be this build's answer, and the client's own
+#: enums are the authority every other reading in this file goes to.
+RADAR_MARCH_TYPES = (
+    "{[DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE, "
+    "[DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, "
+    "[DetectEventType.GATHER_RESOURCE] = MarchTargetType.SAMPLE}"
+)
+
+#: The walk every reading and press below shares: the errands that are NOT the help kind,
+#: not finished, not frozen, and not already marched by us. Returns a Lua array of
+#: `{uuid, kind, pid, target}` where `target` is nil for a kind with no proven pair.
+_RADAR_MARCH_LIST = (
+    "local M = DataCenter.RadarCenterDataManager "
+    "local map = %s "
+    "local done = DataCenter.__lw_radar_marched or {} "
+    "local list = {} "
+    "if M then for _, e in pairs(rawget(M, 'events') or {}) do "
+    "local t = rawget(e, 'template') "
+    "local kind = t and rawget(t, 'type') "
+    "local u = rawget(e, 'uuid') "
+    "if kind ~= nil and kind ~= DetectEventType.HELPER "
+    "and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_FINISHED "
+    "and rawget(e, 'state') ~= DetectEventState.DETECT_EVENT_STATE_REWARDED "
+    "and not rawget(e, 'isFrozen') and not done[tostring(u)] then "
+    "list[#list + 1] = {uuid = u, kind = kind, pid = rawget(e, 'pointId'), "
+    "state = rawget(e, 'state'), target = map[kind]} end end end "
+) % RADAR_MARCH_TYPES
+
+
+def radar_place_points() -> str:
+    """Put every out-of-world errand onto the map — the in-game «Перейти», minus the camera.
+
+    An errand at `state = 3` (`DETECT_EVENT_STATE_NOT_IN_WORLD`) has no tile yet and cannot
+    be marched at; one `detect.event.put.point.in.world {uuid}` each is what places it. The
+    server answers by placing the tile and broadcasting the errand's new state, so this
+    needs a settle before anything reads the board again.
+
+    Only the kinds with a proven march type are placed. Placing one this recipe would then
+    refuse to march would put a tile on the player's map for nothing.
+    """
+    return (_RADAR_MARCH_LIST +
+            "local sent = 0 "
+            "for _, r in ipairs(list) do "
+            "if r.target ~= nil and r.state == DetectEventState.DETECT_EVENT_STATE_NOT_IN_WORLD then "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventPutPointInWorld, "
+            "r.uuid) end) sent = sent + 1 end end "
+            'CS.UnityEngine.Debug.LogError("ACT radar_points_placed=" .. tostring(sent))')
+
+
+def radar_marchable_count() -> str:
+    """How many errands this recipe could march at right now — a proven kind, on the map,
+    not already ours. The `count_lua` of the march button, so `xall` spends exactly them."""
+    return ("(function() " + _RADAR_MARCH_LIST +
+            "local n = 0 "
+            "for _, r in ipairs(list) do "
+            "if r.target ~= nil and r.state == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH "
+            "then n = n + 1 end end "
+            "return n end)()")
+
+
+def radar_unmarchable_kinds() -> str:
+    """The kinds on the board this recipe will NOT march, as `<kind>x<count>` — so a run
+    that skipped work says WHICH work rather than «some».
+
+    A string, not a number: it goes into a `LOG` line, and the point of it is to be the
+    next task's input. A kind that keeps showing up here is the pair worth proving.
+    """
+    return ("(function() " + _RADAR_MARCH_LIST +
+            "local tally = {} "
+            "for _, r in ipairs(list) do "
+            "if r.target == nil then local k = tostring(r.kind) "
+            "tally[k] = (tally[k] or 0) + 1 end end "
+            "local out = {} "
+            "for k, v in pairs(tally) do out[#out + 1] = k .. 'x' .. tostring(v) end "
+            "table.sort(out) "
+            "if #out == 0 then return 'none' end "
+            "return table.concat(out, ' ') end)()")
+
+
+def radar_free_squads() -> str:
+    """How many squads could be sent right now — loaded, and not already out.
+
+    Two halves, and both are needed. A formation with no soldiers in it produces a march
+    the server silently drops (`tools/rally_join.py`, and the same trap cost «отправка
+    работает через раз» on the treasures), and a formation already out on the map cannot be
+    sent twice. `WorldMarchDataManager:GetOwnerFormationMarch(uuid)` is the client's own
+    answer to the second — the same call `RadarCenterDataManager:IsDetectEventDoing` uses.
+    """
+    return ("(function() local afd = DataCenter.ArmyFormationDataManager "
+            "if not afd then return 0 end "
+            "local n = 0 "
+            "for _, v in pairs(afd.ArmyFormationList or {}) do "
+            "local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) "
+            "if ok and sol > 0 then "
+            "local out = nil "
+            "pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) "
+            "if out == nil then n = n + 1 end end end "
+            "return n end)()")
+
+
+def radar_march_press() -> str:
+    """Send ONE free squad at ONE marchable errand — the whole of the march half's press.
+
+    Nothing is opened and no camera moves: `SendCreateMarchMessage` is the layer under the
+    game's own `OnCollectSimple` / `OnCollectGarbage`, below the squad-picker window those
+    open (`MarchUtil.OnClickStartMarch` ends in `OpenFormationSelectUI`, which is why it is
+    not what this calls).
+
+    It stamps the errand on `DataCenter.__lw_radar_marched` BEFORE reporting, so a repeat
+    press moves on to the next errand rather than piling a second squad onto this one. A
+    press with nothing to send, or with no free squad, says which of the two it was and
+    stamps nothing — the errand comes round again on the next run.
+    """
+    return (_RADAR_MARCH_LIST +
+            "local pick = nil "
+            "for _, r in ipairs(list) do "
+            "if r.target ~= nil and r.state == DetectEventState.DETECT_EVENT_STATE_NOT_FINISH "
+            "and pick == nil then pick = r end end "
+            "if pick == nil then "
+            'CS.UnityEngine.Debug.LogError("ACT radar_march_none why=nothing-to-march") '
+            "return end "
+            "local afd = DataCenter.ArmyFormationDataManager "
+            "local squad = nil "
+            "if afd then for _, v in pairs(afd.ArmyFormationList or {}) do "
+            "local ok, sol = pcall(function() return tonumber(v.totalSoldierNum) or 0 end) "
+            "if ok and sol > 0 and squad == nil then "
+            "local out = nil "
+            "pcall(function() out = WorldMarchDataManager:GetOwnerFormationMarch(v.uuid) end) "
+            "if out == nil then squad = v end end end end "
+            "if squad == nil then "
+            'CS.UnityEngine.Debug.LogError("ACT radar_march_none why=no-free-squad") '
+            "return end "
+            "local srv = 0 "
+            "pcall(function() srv = tonumber(LuaEntry.Player.serverId) or 0 end) "
+            "local ok, err = pcall(function() "
+            "MarchUtil.SendCreateMarchMessage(squad.uuid, pick.target, pick.pid, pick.uuid, "
+            "1, 1, false, srv, nil) end) "
+            "if ok then "
+            "DataCenter.__lw_radar_marched = DataCenter.__lw_radar_marched or {} "
+            "DataCenter.__lw_radar_marched[tostring(pick.uuid)] = true end "
+            'CS.UnityEngine.Debug.LogError("ACT radar_march_sent ok=" .. tostring(ok) '
+            '.. " kind=" .. tostring(pick.kind) .. " target=" .. tostring(pick.target) '
+            '.. " pid=" .. tostring(pick.pid) .. " squad=" .. tostring(squad.index) '
+            '.. " err=" .. tostring(err))')
+
+
+def radar_marched_forget() -> str:
+    """Forget which errands this recipe has marched.
+
+    The stamp exists to stop a second squad going at a tile that already has ours, and an
+    errand that has been claimed is gone from the board anyway — so the table only ever
+    grows with uuids the server has already retired. Clearing it is what a person does after
+    a squad came home with nothing and the errand is to be tried again.
+    """
+    return ('DataCenter.__lw_radar_marched = {} '
+            'CS.UnityEngine.Debug.LogError("ACT radar_marched_forgotten")')

@@ -251,6 +251,11 @@ BLIND_ERRANDS: tuple = (
     # no such number: errands ripen on their own clock all day. So the press is offered
     # and the line goes on saying «состояние неизвестно», which is the truth.
     Errand("radar", scenario="do_radar_tasks"),
+    # …and the other half of the same board, as its own line because it is its own
+    # decision: this one spends SQUADS. A person who wants the board claimed and the ally
+    # errands run, and their squads left alone for a rally, presses the first and not the
+    # second (`actions/do_radar_marches.md`).
+    Errand("radar_march", scenario="do_radar_marches"),
     Errand("rally_joins"),
     Errand("attack_marked"),
     Errand("treasures"),
