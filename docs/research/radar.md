@@ -264,15 +264,19 @@ straight afterwards:
 | `detectInfo.eventNum` | 18 / 2 | 0 |
 | `detectInfo.signal` | 4 | 1 |
 
-`GetDetectHelpTypeCostNum()` returns 10, a constant, and `signal` fell 4 → 1 across the
-day. So there is a per-day price on the help and the account had run out of it; `cost` on
-the errand looks like «this one has been paid for» rather than a price of its own (in the
-first read of the day, every already-helped errand carried `cost = 1`).
+**And the price theory was wrong — a fifth run disproved it the same afternoon.** With the
+allowance still at 0 and `signal` still 1, two ally errands were started and both finished:
+ripe count 2 → 4, all four claimed. So it is not a per-day price that was spent.
 
-**Not turned into a gate**, deliberately: the correlation is one afternoon's, and a gate on
-an unproven predicate silently skips work that would have gone through. What the recipe
-does instead is SAY it — the closing line reports how many ally errands are still runnable,
-so «started two and finished none» is visible rather than reported as success.
+What actually distinguishes run 4 is TIME: those same two errands had been started by run 3
+eight minutes earlier and were still in flight, and a second `help.start` on an errand
+already running does nothing. `GetDetectHelpTypeCostNum()` = 10 and the fall of `signal`
+remain unexplained and are no longer offered as the explanation.
+
+**Not turned into a gate**, and now for a better reason than caution: there is no predicate
+to gate on. What the recipe does instead is SAY it — the closing line reports how many ally
+errands are still runnable, so «started two and finished none» is visible rather than
+reported as success, and the next run picks them up.
 
 **Not exercised at all**: the hoarding branch (`claim = 0` / `duel_day` on a non-duel day),
 which needs a different day rather than another run.
