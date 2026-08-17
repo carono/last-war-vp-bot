@@ -74,6 +74,11 @@ EXEMPT = {
     # and the person it happens to is not at the machine. A button would be a way to
     # relog for no reason, which the client's own «Перезапустить» already is.
     "recover_from_kick": "a reaction to a kick, not something anybody presses",
+    # One lap of ONE warzone: the body of the star round's loop, and a file of its own
+    # only because a `{name}` is filled when a recipe is parsed and a sub-recipe is
+    # parsed at every `CALL` (#1479). Pressing it alone would sweep warzone 0. What a
+    # person presses is `sweep_star_servers`, on «Таймеры».
+    "sweep_one_star_server": "the loop body of sweep_star_servers, never pressed alone",
 }
 
 

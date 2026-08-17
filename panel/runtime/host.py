@@ -216,7 +216,13 @@ class PanelRuntime:
                                     # rather than on the callers, because it has to reach
                                     # every context there is: a press, a timer's errand,
                                     # an auto-order on its own worker.
-                                    regain=self.regain_hook())
+                                    regain=self.regain_hook(),
+                                    # …and WHOSE written-down answers its scenarios may
+                                    # read (#1479). Both are properties that follow a
+                                    # profile switch, so this is a callable like the
+                                    # target above and never a snapshot.
+                                    books=lambda: {"store": self.store,
+                                                   "days": self.secret_days})
         self._schedule = None           # built on first ask (see the property below)
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)

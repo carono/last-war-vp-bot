@@ -105,6 +105,7 @@ from .autoloot import AutoLoot
 from .capture import Capture
 from .ghost import GhostAllianceGrid, GhostGrid, GhostMapGrid
 from .shared import SharedMarks
+from .star_round import StarRound
 from . import world
 from .world import MineGrid, MonsterGrid, TrainGrid, TruckGrid
 
@@ -637,6 +638,10 @@ class SecretTasksTab(PanelTab):
         # daily budget on a DIFFERENT command: five helps a day through
         # `hero.dispatch.assist`, over the alliance's own finished tasks.
         self.autoassist = AutoAssist(rt, self)
+        # …and the panel's half of the four-hourly round that FILLS this list (#1479).
+        # The round itself is `actions/sweep_star_servers.md`; this only refuses to start
+        # one while the sniffer above is down, and says afterwards what reached the list.
+        self.round = StarRound(rt, self)
         # The second table (#1244): what the alliancemates are running, filled by its
         # own read — see `_roster`.
 
@@ -675,6 +680,10 @@ class SecretTasksTab(PanelTab):
         re-added by `on_show` on top of a list that has already moved on.
         """
         self._ensure_model()
+        # The four-hourly round's own wiring, hooked up at BOOT rather than at the first
+        # look: the errand fires whether or not anybody opens this tab, and a
+        # precondition nobody registered is a lap walked into a dead sniffer (#1479).
+        self.round.register()
         if self.monitor_var.get():
             self.capture.start()
         # …and the ghost sniffer, whose switch lives on its own page (#1251). Two

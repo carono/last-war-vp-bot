@@ -440,6 +440,27 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.attack_codename_daily",
     ),
     Timer(
+        name="sweep_star_servers",
+        scenario=("sweep_star_servers",),
+        # FOUR HOURS, and the number is about RIPENING rather than about how long a lap
+        # takes (#1479). A lap of a fresh warzone found 91 star tiles of which 86 were
+        # still maturing; the robbery is «Автолут ★»'s and it happens hours later, off a
+        # list this errand filled. So the useful cadence is «be back through the day»,
+        # and the recipe walks a DIFFERENT handful of warzones each time — the ones it
+        # walked earlier today are written down and taken out of the choice.
+        interval_sec=14400,
+        # Twenty minutes. A run FAILS when the client is not answering or the map would
+        # not come up, and both of those mend themselves in minutes — while a spent daily
+        # quota is a clean STOP rather than a failure, so a finished day costs one run
+        # every four hours and not one every twenty minutes.
+        retry_sec=1200,
+        enabled=False,
+        # 5-10 is the operator's own bound and the model enforces it; six is a lap of
+        # about twenty seconds, which leaves the client free for everything else.
+        args={"count": 6},
+        label_key="timers.item.sweep_star_servers",
+    ),
+    Timer(
         name="restart_game",
         scenario=("restart_game",),
         # Six hours. Nothing in the game is spent by a restart and nothing is lost —

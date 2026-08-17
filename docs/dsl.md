@@ -764,6 +764,53 @@ Three things to know:
 - **Above 1199 there is nothing to collect.** The client switches to its coarse big-map
   layer and answers a map request with no tiles at all.
 
+### `PICK_STAR_SERVERS [COUNT n]` / `NEXT_STAR_SERVER`
+
+Choose the warzones one lap of the star-secret-task round walks, and take them off its
+queue one at a time (#1479). Nothing is pressed and nothing is robbed: the pair exists so
+that a recipe can decide WHERE to sweep out of what this account has written down.
+
+```
+PICK_STAR_SERVERS COUNT 6
+IF STAR_PICKED == 0
+    STOP "no warzone in reach is having its star day today"
+WHILE STAR_LEFT > 0 LIMIT 10
+    NEXT_STAR_SERVER
+    CALL sweep_one_star_server          # its `{STAR_SERVER}` is filled at the CALL
+```
+
+The choice, in order: the warzones standing in the same season phase as ours
+(`server_list.same_phase` — the ones a robbery is possible on at all, #1471), of those
+the ones this profile's book says are having their star-secret-task day (#1467), never
+home (robbing at home is forbidden, #1188), never one this GAME-day has already walked,
+nearest to home first, capped at 5-10 a lap. When everything available has been walked
+the circle starts again — the tiles seen three hours ago have ripened since.
+
+| Register | What it holds |
+|---|---|
+| `STAR_HOME` | the account's own warzone, as the client answered |
+| `STAR_REACH` | how many warzones are in the season slice at all |
+| `STAR_POOL` | …of those, how many are having their star day today |
+| `STAR_WALKED` | how many this game-day had already walked before this lap |
+| `STAR_CYCLED` | `1` when the circle had to start again |
+| `STAR_PICKED` / `STAR_LEFT` | this lap's queue, and what is left of it |
+| `STAR_SERVERS` | the queue itself, comma separated — `NEXT_STAR_SERVER` eats it |
+| `STAR_CHOSEN` | the same list, which nothing pops: what a report names afterwards |
+| `STAR_SERVER` | the warzone the last `NEXT_STAR_SERVER` took |
+| `STAR_DAY` | the game-day index the round's memory is keyed by |
+
+- **It needs the PANEL.** The book of star days and the round's memory are a profile's
+  own (`ctx.days` / `ctx.store`); a run from a shell has neither and the statement says
+  so rather than choosing warzones out of nothing.
+- **A warzone is written down as walked when it is POPPED**, not after its lap
+  (`star_round.mark`): a run that dies half way must not spend the rest of the day
+  retrying the warzone it broke on.
+- **The loop body has to be a `CALL`.** A `{name}` is substituted when a recipe is
+  PARSED, and a sub-recipe is parsed at every `CALL` — written inline, every lap would
+  sweep whatever `STAR_SERVER` held when the caller's own file was read, which is zero.
+- Only the pick touches the client, and only to ask which warzone is home. The model is
+  `tools/lib/star_round.py`; the recipe that uses both is `actions/sweep_star_servers.md`.
+
 ### `COLLECT_VS_DUEL [STORE "<path>"] [NO_FETCH]`
 
 Write the alliance duel («VS») into a ranking history: **both sides, every day**.

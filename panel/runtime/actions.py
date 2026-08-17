@@ -75,7 +75,7 @@ class ActionRunner:
     """Runs scenarios, checks them, and reads them back for the editor."""
 
     def __init__(self, log, claim=None, release=None, target=None,
-                 activity=None, interrupts=None, regain=None) -> None:
+                 activity=None, interrupts=None, regain=None, books=None) -> None:
         self._log = log                   # the LogBus
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
@@ -89,6 +89,14 @@ class ActionRunner:
         # WHICH client this runner's scenarios drive, under whose lease, and in which
         # Windows session it lives. See :meth:`_target_kw`.
         self._target = target
+        # callable() -> {"store": Store, "days": SecretDayBook} — WHOSE WRITTEN-DOWN
+        # ANSWERS a scenario may read (#1479). A recipe reads the client for what the
+        # client knows; the star round also needs what THIS PROFILE has observed — which
+        # warzones are having their star day, and which of them today's laps have already
+        # walked — and neither of those is anywhere in the game. A callable, like the
+        # target, because both follow a profile switch. A runner built without one keeps
+        # every context exactly as it was: those primitives then say they need a panel.
+        self._books = books
         # What is being played, for the strip along the bottom of the window
         # (panel/runtime/activity.py). A scenario is the longest thing the panel ever
         # does — a recipe with a WAIT in it holds the game for minutes — and its name
@@ -127,6 +135,24 @@ class ActionRunner:
         return {key: target[key] for key in ("game_port", "game_token", "game_user")
                 if target.get(key) is not None}
 
+    def _books_kw(self) -> dict:
+        """This profile's database and its book of star days, for the context (#1479).
+
+        Asked at the moment a context is built rather than held, because a profile switch
+        moves both: the store is re-pointed at the new profile's `panel.db` and the book
+        is rebuilt on it (`panel/runtime/host.py`). A runner with no provider — a test, a
+        bare harness — hands over nothing, and the primitives that need them fail by name
+        instead of quietly choosing warzones out of another account's observations.
+        """
+        if self._books is None:
+            return {}
+        try:
+            books = self._books() or {}
+        except Exception:                 # noqa: BLE001 — a read, never the run
+            return {}
+        return {key: books[key] for key in ("store", "days")
+                if books.get(key) is not None}
+
     # -- running ------------------------------------------------------------
     def context(self, on_event=None, **kw):
         """A fresh interpreter context whose events land in the log.
@@ -140,6 +166,8 @@ class ActionRunner:
         """
         from lastwar_bot import script_engine
         for key, value in self._target_kw().items():
+            kw.setdefault(key, value)
+        for key, value in self._books_kw().items():
             kw.setdefault(key, value)
         if self._regain is not None:
             kw.setdefault("regain", self._regain)

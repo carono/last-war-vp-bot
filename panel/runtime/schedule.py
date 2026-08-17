@@ -107,6 +107,9 @@ class Schedule:
         # Keeps this class free of knowing what a rally is.
         self._gates: dict = {}
         self._args: dict = {}
+        # …and what the errand's owner says about a run once it is over
+        # (:meth:`register_report`).
+        self._reports: dict = {}
         # Per-errand preconditions: «may this even START right now», asked in front of
         # the run instead of inside it (:meth:`register_precondition`).
         self._before: dict = {}
@@ -213,6 +216,27 @@ class Schedule:
         a run that IS happening may be counted under.
         """
         self._before[name] = check
+
+    def register_report(self, name: str, hook) -> None:
+        """What the errand's OWNER has to add about the run that just finished (#1479).
+
+        ``hook(ctx)`` is handed the finished context — the run's own variables and all —
+        and says whatever only the panel can say about it. Kept apart from
+        :meth:`register_gate`, whose `record` answers a different question (what a run
+        may be COUNTED under, and it is only asked of an errand that has a budget).
+
+        The star round is the case that needs it: the recipe can say how many warzones it
+        walked and how many robberies the day still owes, because those are the game's own
+        numbers — and it cannot say how many rows reached the ★ list or how many of them
+        are ripe, because that list is the panel's, filled by a capture the recipe never
+        sees. A report that stops half way through the numbers a person needs is one they
+        have to finish by hand, every four hours.
+
+        Called after the LAST step succeeded, never after a failure: the scenario has
+        already said why it stopped, and a second sentence of counts over a run that did
+        not happen reads as if it had.
+        """
+        self._reports[name] = hook
 
     def register_args(self, name: str, source) -> None:
         """Variables one named errand must read LIVE rather than carry (:meth:`args`)."""
@@ -549,6 +573,16 @@ class Schedule:
                     reason = str(getattr(ctx, "fail_reason", "") or "").strip()
                     raise RuntimeError(
                         reason or self.rt.t("timers.log.step_failed", step=step))
+            report = self._reports.get(name)
+            if report is not None:
+                # WHAT ONLY THE PANEL CAN SAY about the run (:meth:`register_report`),
+                # and never at the cost of the run: an errand that worked must not be
+                # written down as a failure because the sentence about it raised.
+                try:
+                    report(ctx)
+                except Exception:            # noqa: BLE001
+                    self.rt.dbg("timers").warning("report of %s failed", name,
+                                                  exc_info=True)
             if spent and record is not None:
                 # THE FINISHED RUN, NOT A PAIR OF NUMBERS READ OFF IT (#1281). What to
                 # count and how much of it is the errand's own rule, and it has to be

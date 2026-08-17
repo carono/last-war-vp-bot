@@ -229,6 +229,16 @@ _COLLECT_VS_STORE_RE = re.compile(r"\bSTORE\s+(\"[^\"]*\"|'[^']*'|\S+)", re.IGNO
 _COLLECT_SERVERS_RE = re.compile(r"^COLLECT_SERVER_LIST\b(.*)$", re.IGNORECASE)
 _COLLECT_SERVERS_DATES_RE = re.compile(r"\bDATES(?:\s+(\d+))?\b", re.IGNORECASE)
 
+# PICK_STAR_SERVERS [COUNT n] / NEXT_STAR_SERVER
+# Which warzones this lap of the star-secret-task round walks, and taking them off its
+# queue one at a time. The choice is arithmetic over things already on disk — the
+# machine's warzone list and this profile's book of star days — and it is a statement
+# rather than panel code because the rule («today's star day, in reach, not walked yet,
+# nearest home first») is the ability, and the ability lives in the recipe (`CLAUDE.md`).
+_PICK_STARS_RE = re.compile(r"^PICK_STAR_SERVERS\b(.*)$", re.IGNORECASE)
+_PICK_STARS_COUNT_RE = re.compile(r"\bCOUNT\s+(\d+)\b", re.IGNORECASE)
+_NEXT_STAR_RE = re.compile(r"^NEXT_STAR_SERVER\s*$", re.IGNORECASE)
+
 # ---- Game-VM primitives (Lua daemon bridge) --------------------------------
 # These drive the game through its own Lua VM (the warm daemon, tools/lua_daemon.py),
 # not through pixels — so they need no hwnd. See docs/dsl.md "Game primitives".
@@ -282,6 +292,19 @@ def _coerce(raw: str) -> Any:
         return float(raw)
     except ValueError:
         return raw
+
+
+def _as_int(raw: Any, default: int = 0) -> int:
+    """A whole number out of whatever a Lua read or a script variable answered.
+
+    Anything that is not one — `None` from an unreachable VM, `"nil"`, a float that came
+    back as text — is `default`. Callers here treat 0 as «the client did not say», which
+    is the one answer that must never be mistaken for a warzone number.
+    """
+    try:
+        return int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return default
 
 _SCREEN_CHECK_RE = re.compile(
     rf"^screen\s*(==|!=)\s*({_IDENT})\s*$", re.IGNORECASE,
@@ -442,6 +465,21 @@ class CollectServerListStmt(_Stmt):
     store: str = ""
     fetch: bool = True
     dates: int = 0
+
+
+@dataclass(slots=True)
+class PickStarServersStmt(_Stmt):
+    """Choose the warzones one lap of the star-secret-task round walks (#1479).
+
+    `count` is how many are wanted; the model holds it inside the operator's own bounds
+    (`star_round.COUNT_MIN` / `COUNT_MAX`). `None` means «the model's own floor».
+    """
+    count: int | None = None
+
+
+@dataclass(slots=True)
+class NextStarServerStmt(_Stmt):
+    """Take the next warzone off the round's queue and write down that it was walked."""
 
 
 @dataclass(slots=True)
@@ -732,6 +770,24 @@ def _parse_one(lines, i, indent):
                    (10 ** 6 if dates else 0)),
         ), i + 1
 
+    m = _PICK_STARS_RE.match(text)
+    if m:
+        rest = m.group(1)
+        count = _PICK_STARS_COUNT_RE.search(rest)
+        leftover = _PICK_STARS_COUNT_RE.sub("", rest).strip()
+        if leftover:
+            # The same rule the sweep's modifiers keep: a silently ignored one would
+            # walk a different number of warzones than the recipe says it does.
+            raise ScriptParseError(
+                f"line {ln}: unrecognised PICK_STAR_SERVERS option: {leftover!r}")
+        return PickStarServersStmt(
+            text=text, line_no=ln,
+            count=int(count.group(1)) if count else None,
+        ), i + 1
+
+    if _NEXT_STAR_RE.match(text):
+        return NextStarServerStmt(text=text, line_no=ln), i + 1
+
     m = _GAME_SCENE_RE.match(text)
     if m:
         return GameSceneStmt(text=text, line_no=ln, scene=m.group(1).lower()), i + 1
@@ -936,6 +992,19 @@ class Context:
     #: sub-recipe the run is actually inside rather than the file it started from.
     action: str = ""
     profile: Any = None  # `lastwar_bot.profile.Profile` instance, or None
+    # THE PROFILE'S OWN DATABASE and its book of star-secret-task days, when the caller
+    # has them — the panel does (`panel/runtime/store.py`, `panel/runtime/secret_day.py`)
+    # and a script run from a shell does not.
+    #
+    # Duck-typed on purpose, and this file must not learn what a panel is: `store` is
+    # anything with `blob_get`/`blob_set` (one named row read and written whole, which is
+    # where a round's memory belongs — `CLAUDE.md`, «Game data lives only in the
+    # database»), and `days` is anything with `today()` and `decorate()`. A primitive
+    # that needs one and is handed `None` fails by name rather than guessing: the whole
+    # point of the star round is that it walks the warzones a PARTICULAR account's book
+    # says are having their day, and a run with no book has no such answer.
+    store: Any = None
+    days: Any = None
     # Result of the most recent SCAN_SECRET_MISSIONS — a list of
     # `net.missions.SecretMission`, read by the `missions.count` condition.
     missions: list = field(default_factory=list)
@@ -1268,6 +1337,17 @@ class Interpreter:
             case CollectServerListStmt():
                 self._require_link(stmt)
                 self._do_collect_server_list(stmt)
+            # NEITHER of the star-round pair is gated on the link, and for opposite
+            # reasons. The pick ASKS the client which warzone is home and what time it
+            # is, and both of those are read-backs of what the client already holds — a
+            # deaf client answers them correctly, and refusing here would stop a round
+            # whose whole product (a fuller list) is collected by a capture rather than
+            # by this run. The pop touches no client at all: it is the profile's own
+            # database.
+            case PickStarServersStmt():
+                self._do_pick_star_servers(stmt)
+            case NextStarServerStmt():
+                self._do_next_star_server(stmt)
             case ReadLuaStmt():
                 self._do_read_lua(stmt)
 
@@ -2608,6 +2688,104 @@ class Interpreter:
             self._check_cancel()
         return asked
 
+    # ---- the star-secret-task round (#1479) --------------------------------
+    def _do_pick_star_servers(self, stmt: PickStarServersStmt) -> None:
+        """Choose the warzones this lap walks, and put them on the round's queue.
+
+        Everything it weighs is already on disk — the machine's warzone list
+        (`tools/lib/server_list.py`) and this profile's book of star-secret-task days
+        (`panel/runtime/secret_day.py`) — so the only thing asked of the client is which
+        warzone is HOME, which the book needs as its anchor and the round needs as the
+        one place it must never walk («не грабить на своём сервере», #1188).
+
+        Seven registers come back, and the recipe is expected to say all of them out
+        loud: `STAR_HOME`, `STAR_POOL` (warzones having their star day and in reach),
+        `STAR_PICKED` / `STAR_LEFT` (this lap's queue and what is left of it),
+        `STAR_WALKED` (how many this game-day had walked before this lap), `STAR_CYCLED`
+        (1 when the circle started again) and `STAR_SERVERS`, the queue itself.
+
+        THE ROUND DOES NOT ROB. It fills the list a capture is decoding, and «Автолут ★»
+        takes each tile the moment the server says it is ripe — measured live on fresh
+        warzones, 86 of 91 star tiles were still maturing and 0-5 were raidable that
+        second, so a lap is worth what comes AFTER it (#1479).
+        """
+        self._tools_lib_on_path()
+        try:
+            import game_clock
+            import server_list
+            import star_round
+        except ImportError as exc:               # pragma: no cover — a broken checkout
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: PICK_STAR_SERVERS needs tools/lib — {exc}"
+            ) from exc
+
+        book, store = self.ctx.days, self.ctx.store
+        if book is None or store is None:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: PICK_STAR_SERVERS needs the panel's own book of "
+                "star days and its database — run it from the panel, not from a shell")
+
+        home = _as_int(self._eval_lua_value("LuaEntry.Player.serverId"))
+        if home <= 0:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: the client did not say which warzone is home "
+                "(a client at the login screen answers -1) — nothing can be chosen")
+
+        now_ms = game_clock.now_ms()
+        day = int(book.today(now_ms))
+        ids = server_list.same_phase(server_list.load(), home, now_ms)
+        states = {int(row.get("id") or 0): row.get("secret_state")
+                  for row in book.decorate([{"id": s} for s in ids], day)}
+        state = star_round.load(store)
+        walked = star_round.walked_on(state, day)
+        chosen = star_round.choose(ids, states, home, walked, stmt.count)
+        star_round.note_lap(store, day, chosen["cycled"])
+
+        queue = chosen["servers"]
+        self.ctx.vars["STAR_HOME"] = home
+        self.ctx.vars["STAR_DAY"] = day
+        self.ctx.vars["STAR_REACH"] = len(ids)
+        self.ctx.vars["STAR_POOL"] = chosen["pool"]
+        self.ctx.vars["STAR_WALKED"] = len(walked)
+        self.ctx.vars["STAR_CYCLED"] = 1 if chosen["cycled"] else 0
+        self.ctx.vars["STAR_PICKED"] = len(queue)
+        self.ctx.vars["STAR_LEFT"] = len(queue)
+        self.ctx.vars["STAR_SERVERS"] = ",".join(str(s) for s in queue)
+        # …and the same list under a name NOTHING POPS, because the queue above is empty
+        # by the time anybody wants to report what the lap did (#1479). The recipe's
+        # closing line and the panel's own report both name this one.
+        self.ctx.vars["STAR_CHOSEN"] = self.ctx.vars["STAR_SERVERS"]
+        self.ctx.vars["STAR_SERVER"] = 0
+        self._log(f"PICK_STAR_SERVERS — home {home}, {len(ids)} warzone(s) in reach, "
+                  f"{chosen['pool']} having their star day, {len(walked)} walked today"
+                  + (", the circle starts again" if chosen["cycled"] else "")
+                  + f" -> {len(queue)}: {self.ctx.vars['STAR_SERVERS'] or '—'}")
+
+    def _do_next_star_server(self, stmt: NextStarServerStmt) -> None:
+        """Take the next warzone off the queue into `STAR_SERVER`, and write it down.
+
+        Written down HERE rather than after its lap, so a round that dies half way does
+        not spend the rest of the day retrying the warzone it broke on
+        (`star_round.mark`). Touches no client: the queue is a script variable and the
+        memory is one row of this profile's database.
+        """
+        self._tools_lib_on_path()
+        import star_round
+
+        raw = str(self.ctx.vars.get("STAR_SERVERS") or "")
+        queue = [part for part in (p.strip() for p in raw.split(",")) if part]
+        if not queue:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: NEXT_STAR_SERVER with an empty queue — "
+                "run PICK_STAR_SERVERS first and stop on STAR_PICKED == 0")
+        head, rest = queue[0], queue[1:]
+        server = _as_int(head)
+        self.ctx.vars["STAR_SERVER"] = server
+        self.ctx.vars["STAR_SERVERS"] = ",".join(rest)
+        self.ctx.vars["STAR_LEFT"] = len(rest)
+        star_round.mark(self.ctx.store, int(self.ctx.vars.get("STAR_DAY") or 0), server)
+        self._log(f"NEXT_STAR_SERVER -> {server} ({len(rest)} left)")
+
     def _do_call(self, stmt: CallStmt) -> None:
         self._log(f"CALL {stmt.action_name}")
         sub = Interpreter(self.ctx)
@@ -2898,6 +3076,8 @@ def new_context(
     game_user: str | None = None,
     yield_to: Any = None,
     regain: Any = None,
+    store: Any = None,
+    days: Any = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -2910,13 +3090,19 @@ def new_context(
     three a launch can use. Left out, the environment and this desktop answer as they
     always have (see :class:`Context`).
 
+    `store` / `days` are the profile's database and its book of star-secret-task days,
+    for the primitives that read what THIS ACCOUNT has written down rather than what the
+    client can be asked (`PICK_STAR_SERVERS`). A run from a shell has neither, and the
+    primitives that need them say so by name.
+
     Pass the same context to several `run_action` / `run_text` calls to run them
     as one session: variables, the last FIND and the Lua evaluator are shared, so
     a sequence costs one daemon connection rather than one per step.
     """
     ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
                   cancel=cancel, game_port=game_port, game_token=game_token,
-                  game_user=game_user, yield_to=yield_to, regain=regain)
+                  game_user=game_user, yield_to=yield_to, regain=regain,
+                  store=store, days=days)
     if variables:
         ctx.vars.update(variables)
     return ctx
