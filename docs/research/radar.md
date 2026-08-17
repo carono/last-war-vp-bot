@@ -250,8 +250,32 @@ while its own window is open, here sent by the recipe with no window at all.
 The wire agrees independently: the trigger ear logged `push.resource.item.update` during
 run 1, so the rewards really landed.
 
-**Not exercised**: the hoarding branch (`claim = 0` / `duel_day` on a non-duel day), which
-needs a different day rather than another run.
+### Run 4, and the limit it found
+
+A fourth run, after the day's allowance had reached 0, met two `HELPER` errands and did not
+finish them: `radar_help_started=2`, `radar_help_ended=2`, and the ripe count stayed at
+zero. **A start/end pair is not always accepted.** What is different about those two, read
+straight afterwards:
+
+| | the six that finished | the two that did not |
+|---|---|---|
+| `state` | 0 → 1 | 0, and still 0 |
+| `cost` | 1 | 0 |
+| `detectInfo.eventNum` | 18 / 2 | 0 |
+| `detectInfo.signal` | 4 | 1 |
+
+`GetDetectHelpTypeCostNum()` returns 10, a constant, and `signal` fell 4 → 1 across the
+day. So there is a per-day price on the help and the account had run out of it; `cost` on
+the errand looks like «this one has been paid for» rather than a price of its own (in the
+first read of the day, every already-helped errand carried `cost = 1`).
+
+**Not turned into a gate**, deliberately: the correlation is one afternoon's, and a gate on
+an unproven predicate silently skips work that would have gone through. What the recipe
+does instead is SAY it — the closing line reports how many ally errands are still runnable,
+so «started two and finished none» is visible rather than reported as success.
+
+**Not exercised at all**: the hoarding branch (`claim = 0` / `duel_day` on a non-duel day),
+which needs a different day rather than another run.
 
 ## What is NOT known
 
