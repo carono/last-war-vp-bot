@@ -1045,6 +1045,45 @@ def test_the_book_of_removals_survives_a_restart():
     assert fresh._rows == {}, "and refilled the list from the capture's checkpoint"
 
 
+def test_removals_booked_by_a_rule_since_found_wrong_are_forgiven_once():
+    """A book is only as good as the judgement that filled it (#1476).
+
+    For a day every row a state read asked about was booked as «the server says it is
+    gone» — a control point answered off a stale cache, and most tiles never answer at
+    all — so a live profile is carrying up to a day of removals that were never true. The
+    checkpoint is stamped with the rule that filled it, and a checkpoint written under an
+    older number has its removals dropped on the read rather than holding those tiles off
+    the list until tomorrow.
+    """
+    import json
+    import time as _time
+
+    path = _state_path()
+    tab = _make_tab({"1": _row(1, 7, 120_000, 600_000)})
+    tab.rt = _fake_rt(path)
+    tab._clear()
+
+    # …exactly what the running panel's own database held: a book, and no rule beside it.
+    blob = tab.rt.store.blob_get(tab.STATE_BLOB)
+    assert blob["dismissed_rule"] == st.DISMISSED_RULE, "the rule is not written down"
+    assert blob["dismissed"], blob
+    tab.rt.store.blob_set(tab.STATE_BLOB,
+                          json.loads(json.dumps({k: v for k, v in blob.items()
+                                                 if k != "dismissed_rule"})))
+
+    fresh = _make_tab({})
+    fresh.rt = _fake_rt(path)
+    fresh.said = []
+    fresh.say = lambda _tag, key, **fmt: fresh.said.append((key, fmt))
+    fresh._load_persisted()
+
+    assert fresh._dismissed == {}, "a removal booked by the broken rule was kept"
+    assert fresh.said and fresh.said[-1][0] == "log.secret.dismissed_forgiven", fresh.said
+    # …and the tile comes back on the very next merge, rather than at some point tomorrow.
+    fresh._merge([_StubTask(1, seen_at=_time.time() - 30)])
+    assert "1" in fresh._rows, "the forgiven tile did not come back"
+
+
 def test_web_press_clear_runs_the_wipe_on_the_tk_thread():
     """The phone gets the same «Очистить список» the window has (CLAUDE.md)."""
     tab = object.__new__(st.SecretTasksTab)
