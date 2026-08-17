@@ -317,9 +317,16 @@ before the measurement settled it: the identical call, made directly, gave `ok=t
 times and left `GetOwnerMarches()` at 0; wrapped in
 `TimerManager:GetInstance():DelayInvoke(fn, 0.5)`, one press put a squad on the map.
 
-**And the tile's uuid is 0, not the errand's.** A resource tile really has none —
-`tools/dev/gather.py` reads `uuid = 0` off the popup of a mine the player clicked. Passing
-the DETECT EVENT's uuid where the TILE's belongs was the second half of the same failure.
+**And whether the tile has a uuid depends on the kind.** A resource tile really has none —
+`tools/dev/gather.py` reads `uuid = 0` off the popup of a mine the player clicked, so passing
+the DETECT EVENT's uuid there was the second half of the same failure. An enemy base DOES
+have one: `ATTACK_CITY` with `uuid = 0` was refused exactly as silently as the wrong target
+type, and with the uuid it went. Two kinds carry a uuid (`TREASURE`, `FAKE_PLAYER`); the rest
+march at `0`.
+
+**A silent refusal is what a wrong pair looks like.** Not an error, not a log line — the call
+returns cleanly and no march exists. That is why the recipe's last word is the number the
+GAME holds, and why the three pairs that ship are only the ones something has proven.
 
 **And the squads must be chosen once, not per press.** Both readings move underneath a
 picker that re-reads them: `totalSoldierNum` is a client cache that reverts to zero
@@ -334,7 +341,7 @@ Corrected pairs, after the user named the two kinds that were left:
 | `DetectEventType` | `MarchTargetType` | how |
 |---|---|---|
 | `GATHER_RESOURCE` = 16 | `COLLECT` = 2 | the order the working hand-driven gather sends; **proven live** |
-| `FAKE_PLAYER` = 17 | `FAKE_ATTACK` = 103 | the radar's «attack» errand is a fake enemy base |
+| `FAKE_PLAYER` = 17 | `ATTACK_CITY` = 11, **with the errand's uuid** | the radar's «attack» errand is an enemy base; `FAKE_ATTACK` was the plausible guess off the name and was refused silently, `ATTACK_CITY` put a squad on the map — and it is what the recording showed the in-game button sending (`OnClickStartMarch(11, …)`) |
 | `DetectEventPickGarbage` = 6 | `PICK_GARBAGE` = 23 | `MarchUtil.OnCollectGarbage` names it |
 | `TREASURE` = 19 | `DETECT_TREASURE` = 50 | live-proven by `auto_treasure` |
 

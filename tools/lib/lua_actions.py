@@ -8654,7 +8654,7 @@ def radar_put_point(uuid: str) -> str:
 RADAR_MARCH_TYPES = (
     "{[DetectEventType.GATHER_RESOURCE] = MarchTargetType.COLLECT, "
     "[DetectEventType.DetectEventPickGarbage] = MarchTargetType.PICK_GARBAGE, "
-    "[DetectEventType.FAKE_PLAYER] = MarchTargetType.FAKE_ATTACK, "
+    "[DetectEventType.FAKE_PLAYER] = MarchTargetType.ATTACK_CITY, "
     "[DetectEventType.TREASURE] = MarchTargetType.DETECT_TREASURE}"
 )
 
@@ -8663,7 +8663,8 @@ RADAR_MARCH_TYPES = (
 #: `uuid = 0` straight off the popup of a mine the player clicked, and the march that
 #: goes out with it is the one that works. Passing the ERRAND's uuid instead was one of
 #: the two reasons the first attempts sent nothing.
-RADAR_MARCH_UUID_KINDS = "{[DetectEventType.TREASURE] = true}"
+RADAR_MARCH_UUID_KINDS = ("{[DetectEventType.TREASURE] = true, "
+                          "[DetectEventType.FAKE_PLAYER] = true}")
 
 #: The walk every reading and press below shares: the errands that are NOT the help kind,
 #: not finished, not frozen, and not already marched by us. Returns a Lua array of
