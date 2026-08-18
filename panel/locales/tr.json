@@ -370,7 +370,7 @@
   "log.secret.starting": "yakalama başlatılıyor: {script} …",
   "log.secret.dismissed_forgiven": "eski kuralın kaydettiği çıkarmalar affedildi: {count} kare geri gelebilir",
   "log.secret.state_done": "durum yeniden okundu: {checked} kontrol, {updated} güncellendi, {gone} kayboldu, {unconfirmed} doğrulanmadı",
-  "log.secret.state_none": "yeniden okunacak satır yok — liste boş",
+  "log.secret.state_none": "denetlenecek bir şey yok — hiçbir satır soyulmaya hazır değil",
   "log.secret.stopped": "gözcü durduruldu",
   "log.select_all": "Tümünü seç",
   "log.server.current": "geçerli sunucu: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: vazgeçildi — oyun için {secs} sn beklendi, ilgili an geçti",
   "busy.status.gated": "oyunu bekliyor",
   "busy.queue.gated": "oyun hazır olana kadar bekletildi: {name} — {secs} sn",
-  "rally.skip.same_banners": "açıktaki her toplanma tam bu durumda zaten değerlendirildi — diğer kanca az önce baktı"
+  "log.secret.verify_start": "{rows} hazır satır denetleniyor — {servers} savaş bölgesi, {points} kamera durağı",
+  "log.secret.verify_unwatched": "★ izleyicisi kapalı — tur hiçbir şeyi çözmez, hiçbir şey denetlenmez",
+  "rally.skip.same_banners": "açıktaki her toplanma tam bu durumda zaten değerlendirildi — diğer kanca az önce baktı",
+  "secrettasks.checked.hour": "{n} sa önce",
+  "secrettasks.checked.min": "{n} dk önce",
+  "secrettasks.checked.never": "hiç",
+  "secrettasks.checked.now": "az önce",
+  "secrettasks.col.checked": "Denetlendi"
 }

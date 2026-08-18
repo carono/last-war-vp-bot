@@ -370,7 +370,7 @@
   "log.secret.starting": "starte die Aufzeichnung: {script} …",
   "log.secret.dismissed_forgiven": "Nach der alten Regel gebuchte Entfernungen sind vergeben: {count} Feld(er) dürfen zurückkommen",
   "log.secret.state_done": "Status neu gelesen: {checked} geprüft, {updated} aktualisiert, {gone} verschwunden, {unconfirmed} unbestätigt",
-  "log.secret.state_none": "nichts neu zu lesen — die Liste ist leer",
+  "log.secret.state_none": "nichts zu prüfen — keine Zeile ist bereit zum Rauben",
   "log.secret.stopped": "Überwachung gestoppt",
   "log.select_all": "Alles markieren",
   "log.server.current": "aktueller Server: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: aufgegeben — {secs} s auf das Spiel gewartet, der Moment dafür ist vorbei",
   "busy.status.gated": "wartet auf das Spiel",
   "busy.queue.gated": "zurückgestellt, bis das Spiel bereit ist: {name} — {secs} s",
-  "rally.skip.same_banners": "jede ausstehende Sammlung wurde in genau diesem Zustand schon geprüft — der andere Haken hat gerade nachgesehen"
+  "log.secret.verify_start": "prüfe {rows} bereite Zeile(n) — {servers} Kampfzone(n), {points} Kamerastopp(s)",
+  "log.secret.verify_unwatched": "der ★-Monitor ist aus — ein Rundgang entschlüsselt nichts, es würde nichts geprüft",
+  "rally.skip.same_banners": "jede ausstehende Sammlung wurde in genau diesem Zustand schon geprüft — der andere Haken hat gerade nachgesehen",
+  "secrettasks.checked.hour": "vor {n} Std.",
+  "secrettasks.checked.min": "vor {n} Min.",
+  "secrettasks.checked.never": "nie",
+  "secrettasks.checked.now": "gerade eben",
+  "secrettasks.col.checked": "Geprüft"
 }

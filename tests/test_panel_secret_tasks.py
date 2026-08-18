@@ -7,6 +7,7 @@ from __future__ import annotations
 TIER = "ui"        # Tk and a display — see tools/run_tests.py
 
 import sys
+import time as _time_module
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -396,7 +397,17 @@ def test_the_table_sorts_by_the_heading_and_falls_back_to_the_best_raid():
     tab._sort = ("state", False)
     assert [r["uuid"] for r in st.SecretTasksTab._sorted_rows(tab, rows)] == [2, 1, 3]
     # Every column but the action one sorts; the action column is a button, not an order.
-    assert set(st.SecretTasksTab.SORT_KEYS) == {c[0] for c in st.COLUMNS} - {st.ACTION_COLUMN}
+    # Every column but the action one sorts, over the ★ page's own set — which is the
+    # shared one plus «Сверено» (#1484).
+    assert (set(st.SecretTasksTab.SORT_KEYS)
+            == {c[0] for c in gr.STAR_COLUMNS} - {st.ACTION_COLUMN})
+    # …and «ни разу» sorts to the TOP, because a row nothing has verified is the row
+    # least worth believing.
+    never = dict(_row(4, 7, -5_000, 600_000))
+    checked = dict(_row(5, 7, -5_000, 600_000), checked_at=1_700_000_000_000)
+    tab._sort = ("checked", False)
+    assert [r["uuid"] for r in
+            st.SecretTasksTab._sorted_rows(tab, [checked, never])] == [4, 5]
 
 
 class _FakeTree:
@@ -1993,103 +2004,222 @@ def test_the_verdict_travels_from_the_recipe_to_the_list():
     assert "7" not in tab._rows, "the tile the server called gone stayed on the list"
 
 
+class _ScanTile:
+    """One tile as the capture's checkpoint hands it over — what a walk HEARD (#1484)."""
+
+    def __init__(self, uuid, x=1, y=2, server=1, loot_count=0, seen_at=None):
+        now = __import__("time").time()
+        self.uuid = uuid
+        self.server_id = server
+        self.x, self.y = x, y
+        self.loot_count = loot_count
+        self.expires_at = int(now * 1000) + 600_000
+        self.completed_at = int(now * 1000) - 5_000
+        self.seen_at = now if seen_at is None else seen_at
+
+
 def _state_tab(rows):
-    """A tab wired for `_state_landed` — no game, no Tk, just the decision."""
+    """A tab wired for `_verify_apply` — no game, no Tk, just the decision."""
     tab = _make_tab(rows)
     tab.rt = _fake_rt(_state_path())
-    tab._vm_busy = True
     tab.said = []
     tab.say = lambda _tag, key, **fmt: tab.said.append((key, fmt))
-    # A press-driven read ends by re-merging the capture's checkpoint (#1416); this
-    # fixture has none, and the decision under test is the one before that call.
-    tab.loaded, tab._busy = False, False
-    tab.refresh = lambda: None
+    tab._verify_queue = []
+    tab._verify_auto = False
+    tab._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+    # `_verify_next` on an empty queue only reports; the decision under test is above it.
+    tab.rt.play_async = lambda name, args=None, **kw: True
     return tab
 
 
-def test_the_state_refresh_updates_the_loot_count_from_the_alliance_table():
-    """«Чтобы обновлялось число ограблений» (#1272) — the one reading that carries it."""
+def test_the_walk_takes_the_loot_count_off_the_map():
+    """«Очень много готовых к сбору, но по факту почти все уже разграблены» (#1484).
+
+    n/3 for a stranger's tile rides on the MAP TILE and nothing else — the per-tile
+    answer the old button asked carries 45 fields and no stealer list — so the reading
+    that moves it is the one the capture decodes off a walk.
+    """
     row = _row(1, 7, -5_000, 600_000)
-    row["loot_count"] = 0
+    row["ready"], row["loot_count"] = True, 0
     tab = _state_tab({"1": row})
-    task = _LiveTask(1)
-    task.loot_count = 2
 
-    tab._state_landed(["1"], {"1": task}, {}, True)
+    tab._verify_apply(1, ("1",), __import__("time").time() - 5,
+                      [_ScanTile(1, loot_count=3)])
 
-    assert tab._rows["1"]["loot_count"] == 2
+    assert tab._rows["1"]["loot_count"] == 3, "the walk did not move the loot count"
+    assert tab._spent(tab._rows["1"]), "a 3/3 tile still reads as a target"
+    assert tab._rows["1"]["checked_at"], "the row was not stamped as verified"
+    tab._verify_finish()
     key, fmt = tab.said[-1]
     assert key == "log.secret.state_done"
     assert (fmt["checked"], fmt["updated"], fmt["gone"]) == (1, 1, 0), fmt
 
 
-def test_a_tile_another_task_is_standing_on_is_gone_and_a_silent_one_is_not():
-    """What a per-tile answer may and may not take off the list (#1272, rewritten #1476).
+def test_a_tile_missing_from_a_square_that_answered_is_gone_and_a_silent_square_is_not():
+    """What a walk may and may not take off the list (#1484).
 
-    It used to be «no detail, and the control answered, therefore gone», and that emptied
-    the list every thirty seconds: measured on the live client, most points never answer
-    at all — of 125 of the account's own alliance tasks only 2 had a detail, and asking
-    for three more added nothing in eight seconds. So silence is `unconfirmed` now, and
-    the one thing that takes a row off here is the server naming a DIFFERENT task on that
-    very point.
+    The two absences, kept apart. A tile that did not come back while ANOTHER tile of its
+    own square did is a tile the server was asked about and did not report — clause 2 of
+    `THE_LIST_RULE`. A tile whose square said nothing at all is a tile nobody heard, and
+    the list keeps it: that is the half #1476 got wrong in the other direction, when a
+    silence was being read as «the server says it is gone» and emptied the list every
+    thirty seconds.
     """
-    rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000),
-            "3": _row(3, 7, -5_000, 600_000)}
-    tab = _state_tab(rows)
+    near = _row(1, 7, -5_000, 600_000)          # its square answers — about someone else
+    far = _row(2, 7, -5_000, 600_000)           # its square says nothing
+    far["x"], far["y"] = 500, 500
+    for row in (near, far):
+        row["ready"] = True
+    tab = _state_tab({"1": near, "2": far})
+    started = __import__("time").time() - 5
 
-    # row 1 answered with its own uuid, row 2 with nothing, row 3 with somebody else's;
-    # the control came back.
-    tab._state_landed(["1", "2", "3"], {}, {1: 1, 2: 0, 3: 77}, True)
+    tab._verify_apply(1, ("1", "2"), started, [_ScanTile(99, x=3, y=4)])
 
-    assert sorted(tab._rows) == ["1", "2"], tab._rows
-    key, fmt = tab.said[-1]
-    assert (fmt["checked"], fmt["gone"], fmt["unconfirmed"]) == (3, 1, 1), fmt
+    assert sorted(tab._rows) == ["2"], tab._rows
+    tab._verify_finish()
+    _key, fmt = tab.said[-1]
+    assert (fmt["checked"], fmt["gone"], fmt["unconfirmed"]) == (2, 1, 1), fmt
 
 
-def test_without_the_control_no_row_is_dropped():
-    """The rule that stopped the list being wiped every start-up, kept here: when the
-    control tile did not answer either, the answers were not arriving and an absence
-    proves nothing (#1272)."""
+def test_a_walk_that_heard_nothing_removes_nothing():
+    """A silent walk is «I have nothing to say», never «none of them exists» (#1484)."""
     rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 7, -5_000, 600_000)}
+    for row in rows.values():
+        row["ready"] = True
     tab = _state_tab(rows)
 
-    tab._state_landed(["1", "2"], {}, {1: 0, 2: 0}, False)
+    tab._verify_apply(1, ("1", "2"), __import__("time").time() - 5, [])
 
-    assert sorted(tab._rows) == ["1", "2"], "an unproven silence emptied the list"
-    key, fmt = tab.said[-1]
+    assert sorted(tab._rows) == ["1", "2"], "an unheard walk emptied the list"
+    tab._verify_finish()
+    _key, fmt = tab.said[-1]
     assert fmt["unconfirmed"] == 2 and fmt["gone"] == 0, fmt
 
 
-def test_a_row_we_robbed_is_never_dropped_by_the_refresh():
-    """It is on the list so it can still be shared, and our own robbery is the likeliest
-    reason the tile would now answer with something else (#1272).
-
-    Asked with a CONTRADICTION rather than a silence since #1476 — a silence keeps every
-    row now, so it would no longer prove the robbed exception is doing anything.
-    """
+def test_a_checkpoint_record_older_than_the_walk_confirms_nothing():
+    """The capture repeats itself for its own freshness window (#1416), so a record
+    stamped before the walk started is not evidence the walk brought anything back."""
     row = _row(1, 7, -5_000, 600_000)
-    row["robbed"] = True
+    row["ready"] = True
+    tab = _state_tab({"1": row})
+    started = __import__("time").time()
+
+    tab._verify_apply(1, ("1",), started,
+                      [_ScanTile(1, loot_count=3, seen_at=started - 600)])
+
+    assert tab._rows["1"]["loot_count"] == 0, "a stale record was taken as fresh"
+    assert not tab._rows["1"].get("checked_at"), "a stale record stamped the row"
+
+
+def test_a_row_we_robbed_is_never_dropped_by_the_walk():
+    """It is on the list so it can still be shared, and our own robbery is the likeliest
+    reason the map would stop carrying the tile (#1272)."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["robbed"], row["ready"] = True, True
     tab = _state_tab({"1": row})
 
-    tab._state_landed(["1"], {}, {1: 77}, True)
+    tab._verify_apply(1, ("1",), __import__("time").time() - 5, [_ScanTile(99, x=3, y=4)])
 
     assert "1" in tab._rows
 
 
-def test_the_refresh_asks_about_the_ready_rows_first():
-    """«Приоритет — готовым строкам»: their state lives seconds, and they are the ones
-    the operator was seeing a lie about (#1272)."""
+def test_only_the_rows_ready_to_rob_are_verified():
+    """«И напомню, что синхроним только готовые к сбору» — the operator's own rule (#1484).
+
+    A tile still counting down has a state the clock already knows, a 3/3 tile has no slot
+    left for anybody, and one we robbed ourselves is a receipt. None of the three can be
+    told anything by a walk, and every one of them costs a camera stop.
+    """
     waiting = _row(1, 7, 120_000, 600_000)
     ready = _row(2, 7, -5_000, 600_000)
     ready["ready"] = True
-    tab = _make_tab({"1": waiting, "2": ready})
+    spent = _row(3, 7, -5_000, 600_000)
+    spent["ready"], spent["loot_count"] = True, 3
+    ours = _row(4, 7, -5_000, 600_000)
+    ours["ready"], ours["robbed"] = True, True
+    tab = _make_tab({"1": waiting, "2": ready, "3": spent, "4": ours})
     tab.rt = _fake_rt(_state_path())
 
-    # The press asks about EVERY row (#1280) — and the ready one is still at the front,
-    # because a read cut short by a slow VM should have answered the rows that matter.
-    assert [r["uuid"] for r in tab._state_targets()] == [2, 1]
-    # …while the 3-second poll keeps to the rows whose state lives seconds.
-    assert [r["uuid"] for r in tab._state_targets(hot=True)] == [2]
+    assert [r["uuid"] for r in tab._verify_targets()] == [2]
+    # …while the 3-second poll keeps its own, wider, window: ready OR about to be.
+    assert [r["uuid"] for r in tab._hot_rows()] == [2]
+
+
+def test_the_plan_is_one_walk_per_warzone_over_square_centres():
+    """Waypoints are square CENTRES, one run per warzone — both for measured reasons.
+
+    The centre is what makes «did not come back» readable: a row walked through the middle
+    of its own square was certainly asked about, while one walked past the edge may simply
+    never have been fetched. One run per warzone is the capture's doing: it indexes the
+    warzone it is hearing and drops the rest the moment the client leaves.
+    """
+    here = _row(1, 7, -5_000, 600_000)
+    here["x"], here["y"] = 10, 20
+    neighbour = _row(2, 7, -5_000, 600_000)      # same square as the first
+    neighbour["x"], neighbour["y"] = 70, 70
+    abroad = _row(3, 7, -5_000, 600_000)
+    abroad["x"], abroad["y"], abroad["server"] = 500, 500, 2
+    for row in (here, neighbour, abroad):
+        row["ready"] = True
+    tab = _make_tab({"1": here, "2": neighbour, "3": abroad})
+    tab.rt = _fake_rt(_state_path())
+
+    plan = tab._verify_plan(tab._verify_targets())
+
+    assert [server for server, _pts, _keys in plan] == [1, 2], plan
+    step, half = st.VERIFY_STEP, st.VERIFY_STEP // 2
+    assert plan[0][1] == ((half, half),), "two rows of one square asked for two walks"
+    assert sorted(plan[0][2]) == ["1", "2"]
+    assert plan[1][1] == ((500 // step * step + half, 500 // step * step + half),)
+
+
+def test_the_button_refuses_to_walk_with_the_sniffer_down():
+    """A walk decodes nothing on its own: with the capture off it would drive the camera
+    over ten warzones, confirm not one row and report a success (#1484, the shape of
+    #1476's fault)."""
+    import types
+    row = _row(1, 7, -5_000, 600_000)
+    row["ready"] = True
+    tab = _state_tab({"1": row})
+    tab.capture = types.SimpleNamespace(running=False)
+    tab._vm_busy = False
+    tab._status_var = _Var("")
+    started = []
+    tab.rt.play_async = lambda name, args=None, **kw: started.append(name) or True
+
+    tab.refresh_state()
+
+    assert started == [], "a verification walked with nothing listening"
+    assert tab.said[-1][0] == "log.secret.verify_unwatched", tab.said
+
+
+def test_the_verified_cell_says_never_rather_than_a_dash():
+    """«Пустое значение должно быть видно как таковое, а не как прочерк» (#1484)."""
+    import game_clock
+    from panel.tabs.secret_tasks import grid as gridmod
+
+    now = game_clock.now_ms()
+    t = lambda key, **fmt: key if not fmt else "%s:%s" % (key, fmt.get("n"))
+    assert gridmod.checked_text(None, now, t) == "secrettasks.checked.never"
+    assert gridmod.checked_text(now - 5_000, now, t) == "secrettasks.checked.now"
+    assert gridmod.checked_text(now - 5 * 60_000, now, t) == "secrettasks.checked.min:5"
+    assert gridmod.checked_text(now - 3 * 3_600_000, now, t) == "secrettasks.checked.hour:3"
+
+
+def test_the_verified_stamp_survives_a_restart():
+    """A restart that forgot it would bring the whole list back reading «ни разу» —
+    as wrong as the row that kept saying «0/3» about a tile emptied an hour before."""
+    path = _state_path()
+    row = _row(11, 6, -5_000, 600_000)
+    row["checked_at"] = 1_700_000_000_000
+    tab = _make_tab({"11": row})
+    tab.rt = _fake_rt(path)
+    tab._persist_rows()
+
+    fresh = _make_tab({})
+    fresh.rt = _fake_rt(path)
+    fresh._load_persisted()
+    assert fresh._rows["11"]["checked_at"] == 1_700_000_000_000
 
 
 def test_a_robbed_row_leaves_only_by_its_own_clock():
@@ -2111,6 +2241,7 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab.say = lambda *_a, **_k: None
     tab.post = lambda fn: fn()
     tab._maybe_start_poll = lambda: None      # no window, no chain to arm
+    tab._verify_auto = False
     tab._sweeping, tab._sweep_btn = False, None
     tab._retitle_sweep = lambda: None
     tab.capture = types.SimpleNamespace(running=True)
@@ -2129,10 +2260,11 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab._poll_apply(["7"], {"9": _LiveTask(9)})
     assert "7" in tab._rows, "the ready-row poll took it"
 
-    # «Обновить состояние»: the control answered, and the point now names another task —
-    # the only shape that takes a row off there since #1476, and a robbed row survives it.
-    tab._vm_busy = True
-    tab._state_landed(["7"], {}, {1: 77}, True)
+    # «Обновить состояние»: the walk heard the row's own square and did not hear the row
+    # — the only shape that takes a row off there (#1484), and a robbed row survives it.
+    tab._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+    tab._verify_queue = []
+    tab._verify_apply(1, ("7",), _time_module.time() - 5, [_ScanTile(99, x=3, y=4)])
     assert "7" in tab._rows, "the state refresh took it"
 
     # The server's own «уже взято», which is what it says about a tile we robbed.
@@ -2169,6 +2301,7 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
     tab.shared = _shared_marks(tab)
     tab._maybe_start_poll = lambda: None
     tab._vm_busy = False
+    tab._verify_auto = False
     tab._collected = set()
 
     tab._sweep_once()                                             # a lap
@@ -2179,14 +2312,16 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
     assert {"1", "2"} <= set(tab._rows), "a read that cannot see them emptied it"
     tab._poll_apply(["1", "2"], None)                             # a failed poll
     assert {"1", "2"} <= set(tab._rows), "a failed poll emptied it"
-    tab._state_landed(["1", "2"], {}, {}, False)                  # no control point
-    assert {"1", "2"} <= set(tab._rows), "an unproven refresh emptied it"
-    # …AND A PROVEN ONE THAT HEARD NOTHING ABOUT THESE TILES (#1476). The control
-    # answering says the link is alive; it says nothing whatever about a point the server
-    # never replied about, and most points never reply. This is the door that emptied the
-    # list every thirty seconds for a day.
-    tab._state_landed(["1", "2"], {}, {1: 0, 2: 0}, True)
-    assert {"1", "2"} <= set(tab._rows), "a silent probe with a live control emptied it"
+    tab._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+    tab._verify_queue = []
+    tab._verify_apply(1, ("1", "2"), _time_module.time() - 5, [])   # a walk that heard nothing
+    assert {"1", "2"} <= set(tab._rows), "an unheard walk emptied it"
+    # …AND ONE THAT HEARD ANOTHER WARZONE (#1484). The checkpoint is whatever the capture
+    # is listening to at the moment it is read, and a tile of the warzone next door says
+    # nothing whatever about this one's squares.
+    tab._verify_apply(1, ("1", "2"), _time_module.time() - 5,
+                      [_ScanTile(99, x=1, y=2, server=7)])
+    assert {"1", "2"} <= set(tab._rows), "another warzone's tiles emptied it"
 
     # …and a tile filled to 3/3 is FILTERED, not deleted — «Показывать исчерпанные» is
     # what brings it back.
@@ -2194,11 +2329,11 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
     assert "1" in tab._rows and tab._spent(tab._rows["1"])
     assert 1 not in [r["uuid"] for r in tab._visible_rows()]
 
-    # Only the two clauses take a row away — and the state read's own version of clause 2
-    # is a POSITIVE contradiction, never a silence: another task standing on that point.
+    # Only the two clauses take a row away — and the walk's own version of clause 2 is a
+    # POSITIVE contradiction, never a silence: the row's square answered, without it.
     tab._rows["3"] = _row(3, 7, -5_000, 600_000)
-    tab._state_landed(["3"], {}, {1: 99}, True)
-    assert "3" not in tab._rows, "a different task on the point did not take the row off"
+    tab._verify_apply(1, ("3",), _time_module.time() - 5, [_ScanTile(99, x=3, y=4)])
+    assert "3" not in tab._rows, "a square that answered without the tile kept the row"
 
     tab._drop_gone("2")                                           # clause 2
     assert "2" not in tab._rows
@@ -2621,7 +2756,17 @@ def test_every_grid_is_literally_the_same_table():
 
     assert st.COLUMNS is gr.COLUMNS
     assert (st.LINK_COLUMN, st.ACTION_COLUMN) == (gr.LINK_COLUMN, gr.ACTION_COLUMN)
-    assert st.SecretTasksTab.SORT_KEYS is gr.SORT_KEYS
+    # ONE COLUMN OF DIFFERENCE, AND IT IS ARGUED FOR (#1484). The ★ page carries
+    # «Сверено» — when the game last confirmed the row — and the other two do not,
+    # because they are re-read from the client whole every time they are looked at and
+    # the honest answer there is «just now» for every row. So the shared set is still the
+    # shared set, and the ★ page's is it plus one at the END, where an extra column
+    # cannot shift the meaning of any cell before it.
+    assert gr.STAR_COLUMNS[:len(gr.COLUMNS)] == gr.COLUMNS
+    assert [c[0] for c in gr.STAR_COLUMNS[len(gr.COLUMNS):]] == ["checked"]
+    assert al.AllianceGrid.COLUMNS is gr.COLUMNS
+    assert st.SecretTasksTab.SORT_KEYS is gr.STAR_SORT_KEYS
+    assert set(gr.SORT_KEYS) < set(gr.STAR_SORT_KEYS)
     assert issubclass(al.AllianceGrid, gr.TaskGrid)
     assert issubclass(gh.GhostGrid, gr.TaskGrid)
     pkg = Path(__file__).resolve().parents[1] / "panel" / "tabs" / "secret_tasks"

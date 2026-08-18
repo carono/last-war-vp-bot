@@ -370,7 +370,7 @@
   "log.secret.starting": "đang khởi động bản bắt: {script} …",
   "log.secret.dismissed_forgiven": "các lần gỡ do quy tắc cũ ghi lại được bỏ qua: {count} ô có thể quay lại",
   "log.secret.state_done": "đã đọc lại trạng thái: kiểm tra {checked}, cập nhật {updated}, biến mất {gone}, chưa xác nhận {unconfirmed}",
-  "log.secret.state_none": "không có gì để đọc lại — danh sách trống",
+  "log.secret.state_none": "không có gì để đối chiếu — chưa dòng nào sẵn sàng để cướp",
   "log.secret.stopped": "đã dừng trình theo dõi",
   "log.select_all": "Chọn tất cả",
   "log.server.current": "máy chủ hiện tại: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: bỏ qua — đã chờ trò chơi {secs} giây, thời điểm liên quan đã trôi qua",
   "busy.status.gated": "đang chờ trò chơi",
   "busy.queue.gated": "hoãn đến khi trò chơi sẵn sàng: {name} — {secs} giây",
-  "rally.skip.same_banners": "mọi cuộc tập hợp đang mở đều đã được cân nhắc đúng ở trạng thái này — móc còn lại vừa xem xong"
+  "log.secret.verify_start": "đang đối chiếu {rows} dòng sẵn sàng — {servers} vùng chiến, {points} điểm dừng máy quay",
+  "log.secret.verify_unwatched": "màn theo dõi ★ đang tắt — một vòng đi không giải mã gì, sẽ không đối chiếu được gì",
+  "rally.skip.same_banners": "mọi cuộc tập hợp đang mở đều đã được cân nhắc đúng ở trạng thái này — móc còn lại vừa xem xong",
+  "secrettasks.checked.hour": "{n} giờ trước",
+  "secrettasks.checked.min": "{n} phút trước",
+  "secrettasks.checked.never": "chưa lần nào",
+  "secrettasks.checked.now": "vừa xong",
+  "secrettasks.col.checked": "Đã đối chiếu"
 }

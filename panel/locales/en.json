@@ -370,7 +370,7 @@
   "log.secret.starting": "starting the capture: {script} …",
   "log.secret.dismissed_forgiven": "removals booked by the old rule are forgiven: {count} tile(s) may come back",
   "log.secret.state_done": "state re-read: {checked} checked, {updated} updated, {gone} gone, {unconfirmed} unconfirmed",
-  "log.secret.state_none": "no rows to re-read — the list is empty",
+  "log.secret.state_none": "nothing to re-check — no row is ready to rob",
   "log.secret.stopped": "monitor stopped",
   "log.select_all": "Select All",
   "log.server.current": "current server: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: given up — {secs} s waiting for the game, the moment it was about has passed",
   "busy.status.gated": "waiting for the game",
   "busy.queue.gated": "held back until the game is up: {name} — {secs} s",
-  "rally.skip.same_banners": "every banner out has already been weighed in this very state — the other hook has just looked"
+  "log.secret.verify_start": "verifying {rows} ready row(s) — {servers} warzone(s), {points} camera stop(s)",
+  "log.secret.verify_unwatched": "the ★ monitor is off — a walk decodes nothing, so nothing would be verified",
+  "rally.skip.same_banners": "every banner out has already been weighed in this very state — the other hook has just looked",
+  "secrettasks.checked.hour": "{n} h ago",
+  "secrettasks.checked.min": "{n} min ago",
+  "secrettasks.checked.never": "never",
+  "secrettasks.checked.now": "just now",
+  "secrettasks.col.checked": "Verified"
 }

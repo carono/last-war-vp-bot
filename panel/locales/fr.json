@@ -370,7 +370,7 @@
   "log.secret.starting": "démarrage de la capture : {script} …",
   "log.secret.dismissed_forgiven": "les retraits inscrits par l'ancienne règle sont pardonnés : {count} case(s) peuvent revenir",
   "log.secret.state_done": "état relu : {checked} vérifiées, {updated} mises à jour, {gone} disparues, {unconfirmed} non confirmées",
-  "log.secret.state_none": "rien à relire — la liste est vide",
+  "log.secret.state_none": "rien à vérifier — aucune ligne n'est prête à être pillée",
   "log.secret.stopped": "moniteur arrêté",
   "log.select_all": "Tout sélectionner",
   "log.server.current": "serveur actuel : {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name} : abandonné — {secs} s d'attente du jeu, le moment concerné est passé",
   "busy.status.gated": "attend le jeu",
   "busy.queue.gated": "reporté jusqu'à ce que le jeu soit prêt : {name} — {secs} s",
-  "rally.skip.same_banners": "chaque ralliement sorti a déjà été évalué dans cet état précis — l'autre point d'écoute vient de regarder"
+  "log.secret.verify_start": "vérification de {rows} ligne(s) prête(s) — {servers} zone(s), {points} arrêt(s) caméra",
+  "log.secret.verify_unwatched": "le moniteur ★ est éteint — un passage ne décode rien, rien ne serait vérifié",
+  "rally.skip.same_banners": "chaque ralliement sorti a déjà été évalué dans cet état précis — l'autre point d'écoute vient de regarder",
+  "secrettasks.checked.hour": "il y a {n} h",
+  "secrettasks.checked.min": "il y a {n} min",
+  "secrettasks.checked.never": "jamais",
+  "secrettasks.checked.now": "à l'instant",
+  "secrettasks.col.checked": "Vérifié"
 }

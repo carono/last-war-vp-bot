@@ -289,6 +289,79 @@ CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d span="
 ''' % (where, stride, stride, height, gap, height, stride, gap))
 
 
+#: The Lua one :func:`fast_map_visit` fills in — the waypoint walk with the grid taken
+#: out. Kept out of the function so the Lua reads as Lua: the six `%`-slots are the
+#: warzone, the point list, the height, the interval, and the height and interval again
+#: for the line the chunk prints about itself.
+VISIT_CHUNK = '''
+local DC = DataCenter.ActDispatchTaskDataManager
+-- THE SAME RUN TOKEN THE FULL LAP USES, so one «Stop» stops either of them and two of
+-- them can never be walking over each other.
+DC.__lw_sweep_run = (tonumber(DC.__lw_sweep_run) or 0) + 1
+local run = DC.__lw_sweep_run
+local srv = %s
+local pts = {%s}
+local V3, tm = CS.UnityEngine.Vector3, TimerManager:GetInstance()
+for n = 1, #pts do
+  local p = pts[n]
+  tm:DelayInvoke(function()
+    if DC.__lw_sweep_run ~= run then return end
+    pcall(function() GoToUtil.GotoWorldPos(V3(p[1]*2+1, 0, p[2]*2+1), %d, 0, nil, srv) end)
+  end, (n - 1) * %f)
+end
+CS.UnityEngine.Debug.LogError("ACT visit n="..#pts.." zoom=%d span="
+  ..string.format("%%.1f", (#pts - 1) * %f).." srv="..tostring(srv))
+'''
+
+
+def fast_map_visit(points, zoom: "int | None" = None,
+                   interval: "float | None" = None,
+                   server: "int | None" = None) -> str:
+    """Walk the camera over a NAMED list of tiles, so a capture re-hears exactly those.
+
+    :func:`fast_map_sweep` with the grid taken out. The lap it schedules is a lap of a
+    whole warzone — 121 waypoints, 2.6 s, twenty thousand tiles — and that is the right
+    shape for FILLING a list. It is the wrong shape for CHECKING one: the rows of the
+    star list that are ready to rob sit in a few dozen of those 121 squares, and walking
+    the other eighty is time the operator spends waiting to be told whether a tile they
+    are looking at is still worth going to (#1484).
+
+    So the caller hands in the tiles it wants re-heard and this schedules one jump per
+    tile, through the same machinery and with the same guarantees: the game's own timer
+    owns the waypoints, the client answers each view change with a `world.get.block`, the
+    answers land in whatever passive capture is listening, and the run token
+    :func:`fast_map_sweep_stop` bumps disowns whatever is still pending.
+
+    **One warzone per call.** Every waypoint carries the same `server`, because a capture
+    keys its index on the warzone it is currently hearing and drops the rest the moment
+    the client leaves (`TaskIndex.on_server_left`) — measured live: a lap of one warzone
+    left 1434 tiles in the checkpoint and going home emptied it within four seconds. A
+    caller with tiles on ten warzones therefore makes ten calls and reads between them,
+    which is exactly what `SecretTasksTab` does.
+
+    `points` is an iterable of `(x, y)`; duplicates are the caller's to remove — one jump
+    per entry is what is scheduled. The height is `SWEEP_ZOOM_MAX` unless named, for the
+    reason `docs/research/map-sweep-zoom.md` gives: one notch above it the client goes on
+    sending bases and stops sending tasks, silently.
+    """
+    height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
+    gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
+    where = str(int(server)) if server else current_server_expr()
+    items = ",".join("{%d,%d}" % (int(x), int(y)) for x, y in points)
+    return (VISIT_CHUNK % (where, items, height, gap, height, gap))
+
+
+def fast_visit_seconds(count: int, interval: "float | None" = None) -> float:
+    """How long a :func:`fast_map_visit` of `count` waypoints takes, so a caller can wait.
+
+    The same arithmetic the Lua does, and the same shape as :func:`fast_sweep_seconds` —
+    a caller sitting out a lap it scheduled inside the game should not have to re-derive
+    the span from the interval.
+    """
+    gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
+    return max(0, int(count) - 1) * gap
+
+
 def fast_map_sweep_stop() -> str:
     """Disown every waypoint a lap still has pending — «Остановить» (#1272).
 

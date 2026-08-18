@@ -135,6 +135,48 @@ def _uuid(row) -> str:
     """The row's own id as the last word of every sort key — see :data:`SORT_KEYS`."""
     return str(row.get("uuid") or "")
 
+# …AND THE ★ LIST'S OWN EXTRA COLUMN (#1484): when the game last CONFIRMED this row.
+#
+# Only that list has one, and that is the point of it being separate rather than added to
+# the set above. The alliance and ghost pages are re-read from the client whole every time
+# they are looked at, so «when was this last verified» is «just now» for every row on
+# them and a column saying so would be decoration. The ★ list is the opposite: it is
+# filled by a passive capture that only hears a tile while the map is being driven over
+# it, so a row can be hours old with nothing on the screen saying which. «Строка, которую
+# не сверяли час, и строка, сверенная минуту назад, сейчас выглядят одинаково.»
+STAR_COLUMNS = COLUMNS + (
+    ("checked", "secrettasks.col.checked", 110, "center", False),
+)
+
+#: The ★ list's sort keys: the shared ones plus its own column. A never-verified row
+#: sorts FIRST ascending — `0` is older than any timestamp — which is the order the eye
+#: wants: least trustworthy at the top.
+STAR_SORT_KEYS = dict(SORT_KEYS,
+                      checked=lambda r: (int(r.get("checked_at") or 0), _uuid(r)))
+
+
+def checked_text(checked_at, now: int, t) -> str:
+    """The «Сверено» cell: how long ago the game last confirmed this row.
+
+    `checked_at` is on the GAME's clock in milliseconds, like every other timestamp on
+    this tab, and `now` must be too (`game_clock.now_ms`) — the machine this was written
+    on ran eleven seconds slow against the game's own clock (#1227), and an age is a
+    subtraction of two clocks that had better be the same one.
+
+    **Nothing is drawn as a dash.** A row that has never been verified says so in words:
+    a dash in an age column reads as «нечего показывать», which the eye finishes as «всё
+    в порядке», and the rows this list gets wrong are precisely the ones nothing has ever
+    checked. That was asked for in exactly those terms (#1484).
+    """
+    if not checked_at:
+        return t("secrettasks.checked.never")
+    age = max(0, (int(now) - int(checked_at)) // 1000)
+    if age < 60:
+        return t("secrettasks.checked.now")
+    if age < 3600:
+        return t("secrettasks.checked.min", n=age // 60)
+    return t("secrettasks.checked.hour", n=age // 3600)
+
 
 def make_tree(parent, columns=None) -> ttk.Treeview:
     """The Treeview both grids are: the same columns, widths and row colours.
@@ -487,18 +529,36 @@ def sync_tree(tree, rows, values_of, tag_of, columns=None) -> None:
         return
 
 
-def paint_timers(tree, rows) -> None:
+def paint_timers(tree, rows, t=None) -> None:
     """Write each row's countdown into its cell — the per-second half of the drawing.
 
     Only the state cell changes as a second passes; the ready-transition is what asks
     for a full redraw, because it re-colours the row and re-sorts it.
+
+    ``t``, when given, also ages the «Сверено» cell (#1484) — the ★ list's own column,
+    which counts UP from the last time the game confirmed the row. It changes at most
+    once a minute per row, so the text is built, compared with what the cell already
+    says, and written only when it has really moved: a `tree.set` per row per second is
+    exactly the traffic that runs the shared event loop out with four profiles open
+    (#1226). A grid with no such column passes nothing and pays nothing.
     """
     if tree is None:
         return
+    now = None
+    if t is not None:
+        import game_clock
+        now = game_clock.now_ms()
     for key, row in rows.items():
         try:
-            if tree.exists(key):
-                tree.set(key, "state", row["timer"].get())
+            if not tree.exists(key):
+                continue
+            tree.set(key, "state", row["timer"].get())
+            if now is None:
+                continue
+            text = checked_text(row.get("checked_at"), now, t)
+            if text != row.get("checked_text"):
+                row["checked_text"] = text
+                tree.set(key, "checked", text)
         except tk.TclError:
             return
 

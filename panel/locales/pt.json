@@ -370,7 +370,7 @@
   "log.secret.starting": "iniciando a captura: {script} …",
   "log.secret.dismissed_forgiven": "as remoções anotadas pela regra antiga foram perdoadas: {count} bloco(s) podem voltar",
   "log.secret.state_done": "estado relido: {checked} verificadas, {updated} atualizadas, {gone} sumiram, {unconfirmed} não confirmadas",
-  "log.secret.state_none": "nada para reler — a lista está vazia",
+  "log.secret.state_none": "nada a verificar — nenhuma linha está pronta para roubo",
   "log.secret.stopped": "monitor parado",
   "log.select_all": "Selecionar tudo",
   "log.server.current": "servidor atual: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: abandonado — {secs} s à espera do jogo, o momento a que dizia respeito já passou",
   "busy.status.gated": "à espera do jogo",
   "busy.queue.gated": "adiado até o jogo estar pronto: {name} — {secs} s",
-  "rally.skip.same_banners": "cada reunião em curso já foi avaliada exatamente neste estado — o outro gancho acabou de olhar"
+  "log.secret.verify_start": "verificando {rows} linha(s) pronta(s) — {servers} zona(s), {points} parada(s) da câmera",
+  "log.secret.verify_unwatched": "o monitor ★ está desligado — uma volta não decodifica nada, nada seria verificado",
+  "rally.skip.same_banners": "cada reunião em curso já foi avaliada exatamente neste estado — o outro gancho acabou de olhar",
+  "secrettasks.checked.hour": "há {n} h",
+  "secrettasks.checked.min": "há {n} min",
+  "secrettasks.checked.never": "nunca",
+  "secrettasks.checked.now": "agora mesmo",
+  "secrettasks.col.checked": "Verificado"
 }

@@ -261,6 +261,13 @@ _SWEEP_RE = re.compile(r"^SWEEP_MAP\b(.*)$", re.IGNORECASE)
 _SWEEP_OPT_RE = re.compile(
     r"(ZOOM|STEP|EVERY|SERVER)\s+(\d+(?:\.\d+)?)", re.IGNORECASE,
 )
+# …and the same lap aimed at NAMED tiles rather than at a grid (#1484). A lap FILLS a
+# list; this CHECKS one, so the waypoints are the caller's — `POINTS 102,110;97,259` —
+# and the warzone is compulsory, because a capture keeps only the one it is hearing.
+_VISIT_RE = re.compile(r"^VISIT_MAP\b(.*)$", re.IGNORECASE)
+_VISIT_OPT_RE = re.compile(
+    r"(ZOOM|EVERY|SERVER)\s+(\d+(?:\.\d+)?)|(POINTS)\s*([\d,;]*)", re.IGNORECASE,
+)
 # TAP presses a named "button" from the friendly catalogue (tools/lib/game_buttons.py),
 # optionally N times (`TAP donate_1000 x30`) or `xall` — press as many times as the
 # button reports it still can (its count_lua), re-reading until that reaches zero.
@@ -417,6 +424,27 @@ class SweepMapStmt(_Stmt):
     #: did before #1280 and what is right when nobody has said otherwise. A caller that
     #: KNOWS (the panel's «Сервер» box) names it, because the client's own answer is a
     #: cached manager field that keeps pointing at the server before last.
+    server: int | None = None
+
+
+@dataclass(slots=True)
+class VisitMapStmt(_Stmt):
+    """Walk the camera over a named list of tiles, so a capture re-hears exactly those.
+
+    The checking half of :class:`SweepMapStmt` (#1484). A lap of the whole warzone is
+    what fills a list; a list that is already full needs the handful of squares its rows
+    actually sit in re-heard, and nothing else.
+    """
+    #: The waypoints, in the order they are walked. Empty is a runtime error rather than
+    #: a silent no-op: a caller with nothing to check should not be playing this at all,
+    #: and a lap that visits nowhere and reports success is the shape of fault #1476 was.
+    points: tuple = ()
+    zoom: int | None = None
+    every: float | None = None
+    #: WHICH warzone the waypoints are walked on. Compulsory here, unlike the full lap:
+    #: a capture drops every tile of the warzone the client leaves the moment it leaves
+    #: (`TaskIndex.on_server_left`), so a visit that does not say where it is going gets
+    #: whichever warzone a cached manager field last remembered.
     server: int | None = None
 
 
@@ -805,6 +833,10 @@ def _parse_one(lines, i, indent):
     if m:
         return _parse_sweep_map(m.group(1), text, ln), i + 1
 
+    m = _VISIT_RE.match(text)
+    if m:
+        return _parse_visit_map(m.group(1), text, ln), i + 1
+
     m = _TAP_RE.match(text)
     if m:
         raw = m.group(2)
@@ -939,6 +971,51 @@ def _parse_sweep_map(rest: str, text: str, ln: int) -> SweepMapStmt:
     if leftover.strip():
         raise ScriptParseError(
             f"line {ln}: unrecognised SWEEP_MAP option: {leftover.strip()!r}"
+        )
+    return stmt
+
+
+def _parse_visit_map(rest: str, text: str, ln: int) -> VisitMapStmt:
+    """Parse the modifier tail of VISIT_MAP — the sweep's rules plus `POINTS`.
+
+    `POINTS` is `x,y` pairs separated by `;`, which is what survives being substituted
+    into a line: a scenario gets its waypoints as an ARGS string from whoever plays it
+    (`{points}`), the same way `steal_secret_task.md` gets its queue, and a value with a
+    space in it would be read as the next modifier.
+    """
+    stmt = VisitMapStmt(text=text, line_no=ln)
+    points = []
+    consumed = []
+    for m in _VISIT_OPT_RE.finditer(rest):
+        consumed.append(m.span())
+        if m.group(3):
+            for pair in m.group(4).split(";"):
+                if not pair.strip():
+                    continue
+                try:
+                    x, y = pair.split(",")
+                    points.append((int(x), int(y)))
+                except ValueError:
+                    raise ScriptParseError(
+                        f"line {ln}: VISIT_MAP POINTS wants x,y pairs: {pair!r}"
+                    ) from None
+            continue
+        keyword, value = m.group(1).upper(), m.group(2)
+        if keyword == "ZOOM":
+            stmt.zoom = int(float(value))
+        elif keyword == "SERVER":
+            # 0 is «not named» — an unset `ARGS server` substitutes to it.
+            stmt.server = int(float(value)) or None
+        else:
+            stmt.every = float(value)
+    stmt.points = tuple(points)
+
+    leftover = rest
+    for start, end in reversed(consumed):
+        leftover = leftover[:start] + leftover[end:]
+    if leftover.strip():
+        raise ScriptParseError(
+            f"line {ln}: unrecognised VISIT_MAP option: {leftover.strip()!r}"
         )
     return stmt
 
@@ -1317,6 +1394,9 @@ class Interpreter:
             case SweepMapStmt():
                 self._require_link(stmt)
                 self._do_sweep_map(stmt)
+            case VisitMapStmt():
+                self._require_link(stmt)
+                self._do_visit_map(stmt)
             case TapStmt():
                 self._require_link(stmt)
                 self._do_tap(stmt)
@@ -1804,6 +1884,36 @@ class Interpreter:
         # …plus a breath for the last waypoint's answer to arrive: the map data lands a
         # beat after the camera stops, and a scan reading it must not be cut off mid-reply.
         # Sliced, so a lap of the whole map is not several seconds of a Stop being ignored.
+        self._nap(span + 2.0)
+
+    def _do_visit_map(self, stmt: VisitMapStmt) -> None:
+        """Re-hear a named set of tiles, and then WAIT the walk out.
+
+        The same shape as :meth:`_do_sweep_map` and for the same reason: the waypoints
+        are handed to the game's own timer in one call, so the chunk returns while the
+        camera is still walking and the step has to sit out the span it just scheduled.
+        """
+        if not stmt.points:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: VISIT_MAP was given no POINTS — "
+                f"a walk with no waypoints hears nothing and reports success"
+            )
+        if not stmt.server:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: VISIT_MAP needs SERVER — a capture keeps only "
+                f"the warzone it is hearing, so an unnamed one checks the wrong map"
+            )
+        self._tools_lib_on_path()
+        import lua_actions
+        self._run_lua(lua_actions.fast_map_visit(stmt.points, stmt.zoom, stmt.every,
+                                                 server=stmt.server))
+        span = lua_actions.fast_visit_seconds(len(stmt.points), stmt.every)
+        zoom = stmt.zoom if stmt.zoom is not None else lua_actions.SWEEP_ZOOM_MAX
+        self._log(f"VISIT_MAP -> zoom {zoom}, server {stmt.server}, "
+                  f"{len(stmt.points)} tile(s), ~{span + 2:.0f}s")
+        # …plus the same breath for the last waypoint's answer to arrive: the map data
+        # lands a beat after the camera stops, and a capture reading it must not be cut
+        # off mid-reply.
         self._nap(span + 2.0)
 
     def _do_tap(self, stmt: TapStmt) -> None:

@@ -95,6 +95,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
+from ...runtime import claims
 from ...runtime import players
 from ...widgets import NumericEntry, tk_stringvar, font as ui_font
 from ..base import PanelTab, TriggerSpec
@@ -167,31 +168,46 @@ TILES_WAIT_MS = 3_000
 # `grid.repaint_countdowns`.
 LIVE_MS = 250
 
-# How long the per-tile read waits for the SERVER's replies, and how often it looks
-# (#1272). This is the one wait on the state read that is not the panel's own slowness:
-# `world.get.detail.new` goes out per tile and each reply lands when it lands.
+# HOW OFTEN THE LIST RE-CHECKS ITSELF AGAINST THE MAP, and how much of it at a time
+# (#1280, recut #1484). «Обновить состояние» is a press, and the complaint that produced
+# the automatic half was that a list nobody presses on is a list that lies.
 #
-# It used to be a flat `sleep(1.2)` followed by a 1.0 s settle, paid in full even when
-# every answer was already in — three of the four seconds a press cost. Now the read-back
-# is repeated every :data:`DETAIL_POLL_SEC` and stops the moment every asked tile has a
-# real answer, so a handful of ready rows on a warm client is a fraction of a second and
-# the ceiling is only reached when the server really is silent. The ceiling itself is
-# what the old sleep-plus-settle came to, so nothing that used to answer stops answering.
-DETAIL_WAIT_MS = 2_200
-DETAIL_POLL_SEC = 0.12
+# ONE WARZONE A TURN, because that is the unit the evidence comes in. The check is a walk
+# of the map and the capture that decodes it indexes the warzone it is currently hearing,
+# dropping the rest the moment the client leaves it (`TaskIndex.on_server_left`, measured
+# at four seconds) — so a turn walks one warzone, reads the checkpoint, and the next turn
+# takes the next warzone. A live list spanning ten warzones therefore comes round in ten
+# turns.
+#
+# A MINUTE rather than the old thirty seconds, because a turn now costs a couple of
+# seconds of held game instead of a couple of round trips: ten warzones in ten minutes,
+# and the rows whose state lives seconds are not waiting for this — the standing order
+# polls them every :data:`POLL_MS` anyway.
+STATE_MS = 60_000
 
-# How often the list re-checks ITSELF against the game, and how much of it at a time
-# (#1280). «Обновить состояние» is a press, and the complaint that produced this was that
-# the automatic half only ever looked at the rows that were already ready — so a tile
-# somebody else emptied an hour ago went on saying «готово через 40 минут» until a hand
-# pressed something.
-#
-# A SLICE, not the list. The read holds the game while it runs, so twenty tiles — one
-# probe chunk and one read-back — is what one turn costs, and a ninety-row list comes
-# round in about two minutes. The rows whose state lives seconds are not waiting for this:
-# they are at the front of every slice AND asked about every :data:`POLL_MS` by the poll.
-STATE_MS = 30_000
-STATE_SLICE = 20
+# THE GRID A VERIFICATION WALKS, in tiles (#1484). A waypoint is the CENTRE of a square
+# this wide, so every row inside the square is at most half of it from where the camera
+# lands — comfortably inside the patch of map one jump at :data:`VERIFY_ZOOM` loads, which
+# `SWEEP_MAP` walks at a stride of 90. The margin is the whole reason it is not 90 too: a
+# row sitting on the border of a 90-square would be exactly on the edge of what its own
+# waypoint fetches, and «did not come back» would then mean «was never asked».
+VERIFY_STEP = 80
+
+# The height the walk is made at, and the pause between two waypoints. Both are the
+# sweep's: 600 is the last height at which the client still asks for secret-task tiles at
+# all (docs/research/map-sweep-zoom.md), and one notch higher it goes on sending bases
+# while the tasks stop, silently.
+VERIFY_ZOOM = 600
+VERIFY_EVERY = 0.05
+
+# How much of the checkpoint, in seconds either side of the walk, counts as «this walk
+# heard it» (:meth:`_verify_landed`). The scenario sits out two seconds after its last
+# waypoint so the final answer can land, and the capture rewrites its checkpoint about
+# once a second — six is those two plus room for a slow flush and a slow file read. It is
+# a belt-and-braces guard rather than the main one: the capture drops every tile of the
+# warzone the client leaves, so what stands in the checkpoint for the warzone just walked
+# was heard since the client arrived on it.
+VERIFY_GRACE = 6.0
 
 # How long a uuid we robbed is remembered when nothing said when its tile expires
 # (#1280). A dispatch task does not live a day, so a day is «until it cannot exist any
@@ -314,9 +330,9 @@ SOURCE_WIRE = "wire"    # found by the passive capture, or restored from its che
 #:    ours — and there is nothing on the map any more. That is `_tick`.
 #: 2. **The game said it is not there.** An ANSWER about that particular tile: the
 #:    server's «задание уже взято / больше не доступно / срок истёк» (`_drop_gone`), or
-#:    a per-tile read that came back with no detail while a control point proved the
-#:    answers were arriving (`_state_landed`), or a live read that both COULD see the row
-#:    and did not carry it (`_merge`, `_poll_apply`, gated by `_answerable`).
+#:    a WALK over the square it sits in that heard the square and not the tile
+#:    (`_verify_apply`, #1484), or a live read that both COULD see the row and did not
+#:    carry it (`_merge`, `_poll_apply`, gated by `_answerable`).
 #:
 #: **EVERYTHING ELSE IS A FILTER.** A tile robbed three times, one at home, one outside
 #: the level range, one the boxes narrow away — all of those are still IN the list and
@@ -399,8 +415,16 @@ class SecretTasksTab(PanelTab):
         # состояние» makes and therefore needs a flag of its own: sharing `_vm_busy` with
         # it would let a background turn swallow a press, or a share push's snapshot.
         self._state_busy = False
-        # Where the rotation had got to — see `_state_sweep`.
+        # Which warzone the unattended rotation is up to — see `_state_sweep`.
         self._state_cursor = 0
+        # THE VERIFICATION IN FLIGHT (#1484): the warzones still to walk, whether it is
+        # the unattended turn or a press, and what the whole run has come to so far. A
+        # verification is a CHAIN — one walk per warzone, with a read of the capture's
+        # checkpoint between them, because the checkpoint only ever holds the warzone the
+        # client is on — so it needs a queue rather than a flag.
+        self._verify_queue: list = []
+        self._verify_auto = False
+        self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
         # The event's config table, read once per session (see `_ghost_work`).
         self._ghost_config = None
         self._ticking = False
@@ -884,6 +908,10 @@ class SecretTasksTab(PanelTab):
             self.rt.tick.disarm(name)
         self._ticking = self._polling = self._living = False
         self._state_busy = False
+        # …and whatever a verification still had to walk (#1484). The chain re-arms
+        # itself from `on_show`, so a queue left behind here would come back walking a
+        # warzone nobody has asked about since.
+        self._verify_queue = []
 
     # -- persistence ----------------------------------------------------------
     def config(self) -> dict:
@@ -1180,7 +1208,7 @@ class SecretTasksTab(PanelTab):
         self._body = ttk.Frame(stars)
         self._body.pack(fill="both", expand=True)
 
-        tree = grid.make_tree(self._body)
+        tree = grid.make_tree(self._body, grid.STAR_COLUMNS)
         tree.bind("<Button-1>", self._on_click)
         tree.bind("<Double-Button-1>", self._on_double_click)
         tree.bind("<Button-3>", self._on_right_click)
@@ -1322,7 +1350,7 @@ class SecretTasksTab(PanelTab):
         """
         if self._tree is None:
             return
-        for col, key, _w, _a, _s in COLUMNS:
+        for col, key, _w, _a, _s in grid.STAR_COLUMNS:
             try:
                 self._tree.heading(col, text=self.t(key),
                                    command=(lambda c=col: self._sort_by(c))
@@ -1338,13 +1366,19 @@ class SecretTasksTab(PanelTab):
             self._sort = (column, False)
         self._render()
 
-    #: How each column orders — `grid.SORT_KEYS`, kept under the name the headings ask
-    #: for it by.
-    SORT_KEYS = grid.SORT_KEYS
+    #: How each column orders — `grid.STAR_SORT_KEYS`, kept under the name the headings
+    #: ask for it by. The ★ list's set, because the ★ list has a column of its own
+    #: («Сверено», #1484) and a heading with no key gets no sort command at all.
+    SORT_KEYS = grid.STAR_SORT_KEYS
 
     def _sorted_rows(self, rows) -> list:
-        """The rows in the order the table shows them (`grid.sort_rows`)."""
-        return grid.sort_rows(rows, self._sort)
+        """The rows in the order the table shows them (`grid.sort_rows`).
+
+        With THIS page's keys, not the module's (#1484): the ★ table has a column the
+        other two do not, and a sort asked for by a heading with no key is a click that
+        silently does nothing.
+        """
+        return grid.sort_rows(rows, self._sort, self.SORT_KEYS)
 
     def _rank(self, row) -> str:
         """One row's level, wearing a star only if the GAME draws one (#1244).
@@ -1399,13 +1433,32 @@ class SecretTasksTab(PanelTab):
             where = "%s %s" % (grid.ROBBED_GLYPH, where)
         if row.get("shared"):
             where = "%s %s" % (grid.SHARED_GLYPH, where)
+        import game_clock
         return (row.get("owner_name") or "",
                 where,
                 self.t("secrettasks.server", srv=row["server"]),
                 "%s %s" % (READY_GLYPH if ready else TYPE_GLYPH, rank),
                 row["timer"].get(),
                 self.t("secrettasks.slots", n=int(row["loot_count"] or 0)),
-                self.t("secrettasks.collect") if can_take else "")
+                self.t("secrettasks.collect") if can_take else "",
+                # …AND WHEN THE GAME LAST CONFIRMED THE ROW (#1484). Last, because it is
+                # about how much the rest of the row is worth rather than about the tile
+                # — and never a dash: a row nothing has verified says «ни разу», which is
+                # the whole reason the column was asked for.
+                self._checked_cell(row))
+
+    def _checked_cell(self, row) -> str:
+        """The «Сверено» cell, and the copy of it the per-second pass compares against.
+
+        Kept on the row so :func:`grid.paint_timers` does not rewrite a cell the draw has
+        just written — the two produce the same text from the same clock, and a `tree.set`
+        that changes nothing still costs a trip into Tcl.
+        """
+        import game_clock
+
+        text = grid.checked_text(row.get("checked_at"), game_clock.now_ms(), self.t)
+        row["checked_text"] = text
+        return text
 
     def _show_empty(self, empty: bool) -> None:
         """Say «нет звёздных секреток» above the table, or take the line away.
@@ -1435,7 +1488,7 @@ class SecretTasksTab(PanelTab):
     # -- what a click on the table does ----------------------------------------
     def _column_at(self, event) -> str:
         """Which column the pointer is over, "" when it is not over a cell."""
-        return grid.column_at(self._tree, event)
+        return grid.column_at(self._tree, event, grid.STAR_COLUMNS)
 
     def _row_at(self, event):
         return self._rows.get(self._tree.identify_row(event.y)) if self._tree else None
@@ -1640,297 +1693,285 @@ class SecretTasksTab(PanelTab):
         self.say("coord", "log.coord.zoom", level=self.t(f"coord.zoom.{self._zoom_level}"),
                  height=height, step=step)
 
-    # -- «Обновить состояние»: re-ask the game about the rows already on the list ----
+    # -- «Обновить состояние»: re-hear the ready rows off the MAP (#1272, recut #1484) --
     def refresh_state(self) -> None:
-        """Re-read the STATE of every row on the ★ list, readiest first (#1272).
+        """Re-check the rows that are READY TO ROB, by driving the map over them.
 
-        STAGE ONE OF KEEPING THE LIST TRUE, and deliberately a button rather than a
-        clock: «давай идти по этапам… сделай кнопку, которая будет обновлять состояние».
-        The automatic version comes after this one is seen to work.
+        WHAT THIS USED TO BE, AND WHY IT WAS REPLACED — the whole of #1484, measured
+        rather than reasoned. The button asked the game a per-tile question
+        (`world.get.detail.new`, the one a marker tap fires) and it could not answer
+        either half of what the operator was pressing it for:
 
-        It is NOT a map scan. «Обойти карту» finds tiles; this checks the ones already
-        found — the loot count, whether the tile is still there, its expiry — which is
-        the half nothing could answer. The alliance table the tab already reads covers
-        only MY alliance's tasks (live: 189, none starred, all at home), so for the
-        strangers' tiles that make up this list it says nothing at all; the per-tile
-        answer is the one a marker tap gets, `world.get.detail.new`.
+        * **the answers did not arrive.** 19 of every 20 tiles came back with nothing at
+          all — the tiles on this list are strangers' tiles on other warzones — so the
+          run reported «не подтвердилось 19» and changed nothing;
+        * **and an answer could not have carried the number anyway.** The per-tile detail
+          is 45 fields and none of them is the stealer list. «Сколько раз эту секретку
+          уже ограбили» rides on the MAP TILE (`world.get.block`, `f10.f4`) and on the
+          client's own alliance table — which covers MY alliance's tasks, i.e. none of
+          this list. Live: 716 «состояние перечитано» lines in one profile's log over ten
+          days, «обновлено» nought in every single one of them, while the operator was
+          looking at 617 rows saying «0/3, готово к сбору» about tiles long since emptied.
 
-        EVERY ROW, READIEST FIRST (#1280). It was narrowed to the raidable ones because a
-        press cost four seconds of held game (#1272); the press costs a fraction of that
-        now — one chunk asks about every tile at once and the read-back ends as soon as
-        the replies land — so the narrowing bought nothing and hid what the button is
-        for: «работает только по готовым строкам, а не по всему списку». The order is
-        still readiest-first, so a read cut short by a slow VM has answered the rows whose
-        state lives seconds before it stops.
+        So the check is a WALK now. The camera is driven over the squares those rows sit
+        in (`actions/verify_secret_tasks.md`), the passive capture decodes what the server
+        sends back, and the checkpoint it writes is read per warzone — which is the fact
+        that shapes everything here: a capture indexes the warzone it is hearing and drops
+        the rest the moment the client leaves (measured: 1434 tiles in the checkpoint
+        during a lap of one warzone, gone within four seconds of going home). One warzone
+        per run, therefore, and the reading happens BETWEEN the runs.
 
-        The 3-second poll keeps the narrow scope (`_state_targets(hot=True)`) — that one
-        runs unattended and a press does not.
+        **ONLY THE ROWS THAT ARE READY TO ROB**, which is the operator's own instruction
+        and not a cost-saving: «и напомню, что синхроним только готовые к сбору». A tile
+        still counting down cannot have been robbed by anybody yet, so asking about it
+        spends a walk to be told what the clock already says. `_verify_targets` is that
+        rule, and it is the same rule for the press and for the unattended turn.
         """
-        if self._vm_busy:
+        if self._verify_queue or self._vm_busy:
             return
-        targets = self._state_targets()
+        targets = self._verify_targets()
         if not targets:
-            # An empty list — and saying so is the honest answer to a press, rather than
-            # a round trip that reports «проверено 0».
+            # No row is ready — and saying so is the honest answer to a press, rather
+            # than a walk that reports «проверено 0».
             self.say("secret", "log.secret.state_none")
             return
-        self._vm_busy = True
-        self._status_var.set(self.t("tabx.loading"))
-        self._read_state(targets)
+        if not self.capture.running:
+            # A walk decodes nothing on its own. With the sniffer down this would drive
+            # the camera over ten warzones, confirm not one row and report a success —
+            # the exact shape of the fault that hid #1476 for hours.
+            self.say("secret", "log.secret.verify_unwatched")
+            return
+        plan = self._verify_plan(targets)
+        self.say("secret", "log.secret.verify_start", rows=len(targets),
+                 servers=len(plan), points=sum(len(p[1]) for p in plan))
+        self._verify_queue = plan
+        self._verify_auto = False
+        self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+        self._verify_next()
 
-    def _read_state(self, targets, auto: bool = False) -> None:
-        """Ask the game about these rows, off the Tk thread. One place, two callers."""
-        keys = [str(r["uuid"]) for r in targets]
-        tiles = [(int(r["x"] or 0), int(r["y"] or 0), int(r["server"] or 0))
-                 for r in targets]
-        threading.Thread(target=self._state_work, args=(keys, tiles, auto),
-                         daemon=True).start()
+    def _verify_targets(self) -> list:
+        """The rows a verification is about: ready to rob, nearest expiry first.
 
-    # -- and the same read, unattended, a slice at a time (#1280) ---------------
-    def _state_sweep(self) -> None:
-        """Re-check the WHOLE list by rotating through it, :data:`STATE_SLICE` at a time.
+        «Готово к сбору» and nothing else (#1484). A row still counting down has a state
+        the clock already knows; a 3/3 row and one we robbed ourselves have no slot left
+        for anybody, so nothing a walk could hear about them would change a decision
+        (`_takeable`). What is left is precisely the set a person is about to act on, and
+        the set whose truth goes stale without anybody being told.
 
-        «Обновить состояние» is a press, and a list that is only true when somebody
-        presses is a list that lies for as long as nobody does. The 3-second poll cannot
-        be that check — it asks the alliance table alone, which cannot testify about a
-        stranger's tile at all — so this is the same two-part read the button makes,
-        aimed at a slice of the list and moved on one slice at a time.
-
-        A slice rather than the lot because the read holds the game while it runs: twenty
-        tiles is one chunk and one read-back, and a ninety-row list comes round about
-        every two minutes at :data:`STATE_MS`. The raidable rows are at the front of every
-        slice regardless — `_state_targets` sorts them there — and they are asked about
-        far more often by the poll anyway.
-
-        Skipped whole while a press is already reading, while the game is down, and while
-        the list is empty. It is a re-check, never a feed: nothing here can ADD a row.
-        """
-        try:
-            if self._state_busy or self._vm_busy or not self._rows:
-                return
-            if not (self.rt.game.ready() and not self.rt.game.busy):
-                return
-            rows = self._state_targets()
-            if not rows:
-                return
-            start = self._state_cursor % len(rows)
-            take = min(STATE_SLICE, len(rows))
-            targets = (rows + rows)[start:start + take]
-            self._state_cursor = (start + len(targets)) % len(rows)
-            self._state_busy = True
-            self._read_state(targets, auto=True)
-        finally:
-            self.rt.tick.arm("secret_state", STATE_MS, self._state_sweep)
-
-    def _state_targets(self, hot: bool = False) -> list:
-        """The rows a state read is about, readiest first.
-
-        `hot=True` is the narrow set the unattended chains use: the very gate the standing
-        order aims by (:meth:`_raidable`) — ready, or within :data:`AUTO_EARLY_MS` of
-        maturing, and not a tile nobody can take (3/3, or one we have robbed). That is
-        what the 3-second poll asks about and what arms it at all.
-
-        `hot=False` — the default, and what a PRESS gets — is the WHOLE list (#1280).
-        Every row on this tab is a tile that may have been emptied, looted out or taken
-        off the map since it was found, and a state read that skips them is a list that
-        can only be corrected by driving the map again.
-
-        Readiest first either way, because when the read is cut short by a slow VM the
-        rows worth having are the ones already at the front.
-
-        Everything OFF this list is untouched by the read, which is the other half of the
+        Everything OFF this list is untouched by the walk, which is the other half of the
         rule the tab is built on: a row nobody asked about cannot be dropped by an answer
         nobody got (:data:`THE_LIST_RULE`).
         """
-        rows = [r for r in self._rows.values() if not hot or self._raidable(r)]
-        return sorted(rows, key=lambda r: (not r.get("ready"),
-                                           r.get("completed_at") or float("inf")))
+        rows = [r for r in self._rows.values()
+                if r.get("ready") and self._takeable(r)]
+        return sorted(rows, key=lambda r: (r.get("expires_at") or float("inf"),
+                                           str(r.get("uuid"))))
 
-    def _state_work(self, keys: list, tiles: list, auto: bool = False) -> None:
-        """The round trips, off the Tk thread: the alliance table, then the tiles.
+    def _verify_plan(self, rows) -> list:
+        """Group rows into one walk per warzone: `[(server, waypoints, keys), …]`.
 
-        WHAT THE WAITING COSTS, MEASURED (#1272). Every read here used to sit out a fixed
-        settle — 1.1 s for the alliance table, 0.6 s for the probe, a bare `sleep(1.2)`
-        for the replies and 1.0 s for the read-back — so a press could not answer in less
-        than 3.9 s however fast the VM was, and it held the game lease for all of it,
-        which is what made the OTHER buttons feel stuck too. The answer of a chunk is in
-        the log ~30 ms after the call returns (`lua_eval.collect`), and each of these
-        chunks ends by printing a line of its own, so the settle is now a DEADLINE with a
-        sentinel to end it early: `VT_END` for the table, `detail_asked` for the probe,
-        `DT_CONTROL` for the read-back. The replies from the server are the one wait that
-        is real, and it is polled rather than slept through — as soon as every asked tile
-        has an answer, the read is over.
+        A waypoint is the CENTRE of a :data:`VERIFY_STEP` square, not a row's own
+        coordinate, and that is what makes the answer readable afterwards. The client
+        loads roughly one step's worth of map around wherever the camera lands, so a
+        square walked through its centre is a square every row in it was asked about —
+        which is the difference between «this tile did not come back» and «nobody looked
+        at that corner». :meth:`_verify_apply` reads exactly that back.
+
+        The warzone with the most ready rows goes first: a walk that gets interrupted has
+        then answered the biggest question it could.
         """
-        import lua_actions
-        live, seen, control = None, {}, False
-        try:
-            ev = self.rt.game.evaluator()
-            # 1. The alliance table — the only thing that carries a LOOT COUNT.
-            import steal_secret_task
-            live = {str(t.uuid): t
-                    for t in steal_secret_task._vm_all_alliance_tasks(ev)}
-            if tiles:
-                # 2. …and the per-tile answer for everything else. One chunk to ask, then
-                #    read the replies back as they land.
-                ev.run(lua_actions.secret_task_detail_probe(tiles), marker="ACT",
-                       settle=0.6, sentinel="detail_asked")
-                seen, control = self._read_details(ev, len(tiles))
-        except Exception:                     # noqa: BLE001 — a failed read proves nothing
-            live = None
-        self.after(lambda: self._state_landed(keys, live, seen, control, auto))
+        cells: dict = {}
+        for row in rows:
+            key = (int(row.get("server") or 0),
+                   int(row.get("x") or 0) // VERIFY_STEP,
+                   int(row.get("y") or 0) // VERIFY_STEP)
+            cells.setdefault(key, []).append(str(row["uuid"]))
+        plan: dict = {}
+        for (server, cx, cy), keys in cells.items():
+            if not server:
+                continue
+            points, owned = plan.setdefault(server, ([], []))
+            points.append((cx * VERIFY_STEP + VERIFY_STEP // 2,
+                           cy * VERIFY_STEP + VERIFY_STEP // 2))
+            owned.extend(keys)
+        return sorted(((srv, tuple(pts), tuple(keys))
+                       for srv, (pts, keys) in plan.items()),
+                      key=lambda item: -len(item[2]))
 
-    def _read_details(self, ev, asked: int) -> tuple:
-        """Read the probe's replies back, stopping as soon as they have all landed.
+    def _verify_next(self) -> None:
+        """Walk the next warzone on the plan, or finish. Tk thread."""
+        if not self._verify_queue:
+            self._verify_finish()
+            return
+        server, points, keys = self._verify_queue[0]
+        ok = self.rt.play_async(
+            "verify_secret_tasks",
+            {"points": ";".join("%d,%d" % p for p in points),
+             "count": len(points), "server": int(server),
+             "zoom": VERIFY_ZOOM, "every": VERIFY_EVERY},
+            tag="secret",
+            # An unattended turn steps aside for anything a person started; a press does
+            # not, which is the same split `play_async` already makes for every button.
+            priority=claims.BACKGROUND if self._verify_auto else claims.HUMAN,
+            on_done=lambda: self.post(
+                lambda: self._verify_landed(server, keys, len(points))))
+        if not ok:
+            # The claim was refused outright — nothing walked, so nothing may be judged.
+            self._verify_queue = []
+            self._verify_finish()
 
-        The server answers each `world.get.detail.new` on its own, so there IS a wait
-        here — but it is a wait for an ANSWER, not a fixed sleep, and it used to be both:
-        1.2 s of sleeping plus a 1.0 s settle, whatever had already arrived. Now the
-        read-back is repeated on a short pause until every asked tile has a REAL answer,
-        and out of the loop at :data:`DETAIL_WAIT_MS` whether they all do or not.
+    def _verify_landed(self, server, keys, stops: int) -> None:
+        """The walk is over: read the capture's checkpoint, off the Tk thread.
 
-        A nought is not an answer to wait no longer on, and that is the trap this loop
-        has to walk around: the chunk prints a `DT` line for every tile it was asked
-        about whether the reply has arrived or not, and `uuid=0` means both «there is
-        nothing on that tile» and «nothing has come back yet». So only a nonzero uuid
-        ends the wait early; a tile still reading nought when the deadline passes is
-        handed over as the nought it is, exactly as the old fixed sleep handed it over,
-        and what it MEANS is decided by the control point in :meth:`_state_landed`.
+        Read AT ONCE, and that is not tidiness. The checkpoint is the warzone the capture
+        is currently hearing; the moment anything moves the client home — the next errand,
+        a robbery, a person — the index drops every tile of the warzone just walked
+        (`TaskIndex.on_server_left`, measured at four seconds). So the file is read here,
+        while it still holds what the walk brought.
+
+        THE CUTOFF IS COUNTED BACK FROM HERE, not forward from the press. A run waits for
+        the game claim before it walks anything, and that wait is unbounded — another
+        errand may be inside a call — so a timestamp taken when the press was accepted
+        can be minutes older than the walk it is supposed to date. What IS known is how
+        long the walk itself takes: one stop per :data:`VERIFY_EVERY`, plus the scenario's
+        own settle and one flush of the checkpoint. Anything the capture stamped before
+        that is the capture repeating itself, and repetition confirms nothing (#1416).
         """
-        import lua_actions
-        deadline = time.monotonic() + DETAIL_WAIT_MS / 1000.0
-        seen, control = {}, False
-        while True:
-            time.sleep(DETAIL_POLL_SEC)
-            for ln in ev.run(lua_actions.secret_task_detail_read(), marker="ACT",
-                             settle=1.0, sentinel="DT_CONTROL") or ():
-                body = ln[4:] if ln.startswith("ACT ") else ln
-                if body.startswith("DT_CONTROL"):
-                    control = body.strip().endswith("ok=1")
-                elif body.startswith("DT "):
-                    f = dict(kv.split("=", 1) for kv in body[3:].split() if "=" in kv)
-                    seen[int(f.get("i") or 0)] = int(f.get("uuid") or 0)
-            answered = sum(1 for uuid in seen.values() if uuid)
-            if answered >= asked or time.monotonic() >= deadline:
-                return seen, control
+        self._verify_queue = self._verify_queue[1:]
+        started = time.time() - (stops * VERIFY_EVERY + VERIFY_GRACE)
 
-    def _state_landed(self, keys, live, seen, control: bool, auto: bool = False) -> None:
-        """Apply what came back, and say what it changed.
+        def work() -> None:
+            import lastwar_proto as proto
+            try:
+                scan = proto.load_fresh_tasks(self.rt.profiles.tasks_json(),
+                                              max_age_seconds=None)
+            except Exception:            # noqa: BLE001 — no checkpoint, no evidence
+                scan = []
+            self.after(lambda: self._verify_apply(server, keys, started, scan))
 
-        `auto` marks the unattended pass (:meth:`_state_sweep`): it clears its own flag
-        and stays quiet unless it actually changed something, because a line every thirty
-        seconds saying «проверено 20 · обновлено 0» is a log nobody can read.
+        threading.Thread(target=work, daemon=True).start()
 
-        WHAT IT CAN AND CANNOT REFRESH, said plainly because it was asked (#1272). The
-        loot count lives in exactly two places: the client's own alliance table, which
-        holds MY alliance's tasks and nothing else, and the map itself — the stealer list
-        rides on the `world.get.block` tile and is decoded by the passive capture. The
-        per-tile read used here carries neither (45 fields, and `reward` is its only
-        list), and the game's own marker does not draw n/3 at all, so there is no UI path
-        to follow to one. For a stranger's tile — which is most of this list — n/3 moves
-        when a LAP re-reads the map with the monitor on, and this button confirms that
-        the tile still exists. It does not pretend to more than that.
+    def _verify_apply(self, server, keys, started: float, scan) -> None:
+        """Judge one warzone's rows against what the walk actually heard. Tk thread.
 
-        THE TWO KINDS OF ABSENCE, KEPT APART (#1272). A row missing from the alliance
-        table means nothing unless that table could have carried it (`_answerable`, and
-        the rule that stopped the list being wiped every start-up).
+        THREE ANSWERS, AND ONLY ONE OF THEM REMOVES A ROW:
 
-        AND SILENCE IS NOT AN ANSWER, WHATEVER THE CONTROL SAYS (#1476). A tile that came
-        back with no detail used to be deleted as long as the control point had answered
-        — and that emptied the list, every thirty seconds, for as long as anybody let it:
-        709 «состояние перечитано» lines in one profile's log with «исчезло» EQUAL to
-        «проверено» in every one, «обновлено» never once above nought. Two measurements
-        on the live client say why. The control was being satisfied by a detail that had
-        been in the cache since some earlier tap rather than by a reply to this run
-        (fixed where it is picked, `lua_actions.secret_task_detail_probe`) — and, even
-        with an honest control, most points simply never answer: of 125 of the account's
-        OWN alliance tasks only 2 had a detail at all, and asking for three more added
-        nothing in eight seconds.
-
-        So a nought is `unconfirmed` now, full stop, and the only thing that takes a row
-        off here is a POSITIVE contradiction: the server answered about that very point
-        with a DIFFERENT uuid, which is another task sitting where ours was. That still
-        needs the control, because an answer for one point says nothing about a batch
-        nobody heard. Everything else this list has for getting rid of a dead row is
-        untouched — its own expiry (`THE_LIST_RULE` clause 1), the verify path in
-        :meth:`_merge`, and the operator's «Очистить список».
+        * **heard** — the tile came back. Its loot count is taken (upwards only: a tile is
+          robbed 0 → 1 → 2 → 3 and never un-robbed, so `max` cannot be fooled by a stale
+          record), its clocks are refreshed, and the row is stamped `checked_at` on the
+          GAME's clock. This is where «разграблена, 3/3» finally becomes visible: the row
+          is not deleted for it — `THE_LIST_RULE` is explicit — it stops being a target
+          and the display rule hides it unless «Показывать исчерпанные» is on.
+        * **gone** — the tile did NOT come back and its square DID: some other tile in the
+          same :data:`VERIFY_STEP` square was heard during this walk, so the server was
+          answering about that patch of map and our tile is not on it any more. That is
+          `THE_LIST_RULE` clause 2 — an answer ABOUT THAT TILE, not a silence — and it is
+          the one thing here that takes a row off.
+        * **unconfirmed** — neither. The square itself said nothing, so nothing about it
+          is known and the row stays exactly where it is. This is the half #1476 got
+          wrong in the other direction, and it stays deliberately timid: a silent walk
+          removes nothing.
         """
-        if auto:
-            self._state_busy = False
-        else:
-            self._vm_busy = False
-        checked = len(keys)
-        updated = gone = unconfirmed = 0
-        for index, key in enumerate(keys, start=1):
+        import game_clock
+
+        now = game_clock.now_ms()
+        heard, squares = {}, set()
+        for task in scan:
+            if int(getattr(task, "server_id", 0) or 0) != int(server):
+                continue
+            # Only what THIS walk brought. The checkpoint keeps a tile for its own
+            # freshness window, so a record older than the walk is the capture repeating
+            # itself — which is precisely the reading that must not be allowed to confirm
+            # anything (#1416).
+            seen = getattr(task, "seen_at", None)
+            if seen is None or float(seen) + 1.0 < started:
+                continue
+            heard[str(task.uuid)] = task
+            squares.add((int(task.x or 0) // VERIFY_STEP, int(task.y or 0) // VERIFY_STEP))
+        tally = self._verify_tally
+        for key in keys:
             row = self._rows.get(key)
-            if row is None:
+            if row is None:                      # already gone some other way
                 continue
-            task = (live or {}).get(key)
+            tally["checked"] += 1
+            task = heard.get(key)
             if task is not None:
-                # The loot count, and the clocks that go with it — «сколько раз уже
-                # ограбили», which is what the alliance table is for.
-                if (row.get("loot_count") != task.loot_count
-                        or row.get("expires_at") != task.expires_at
-                        or row.get("completed_at") != task.completed_at):
-                    updated += 1
-                row["loot_count"] = task.loot_count
-                row["expires_at"] = task.expires_at
-                row["completed_at"] = task.completed_at
+                was = int(row.get("loot_count") or 0)
+                row["loot_count"] = max(was, int(task.loot_count or 0))
+                if task.expires_at:
+                    row["expires_at"] = task.expires_at
+                if task.completed_at:
+                    row["completed_at"] = task.completed_at
                 row["seen_at"] = time.time()
+                row["checked_at"] = now
+                if row["loot_count"] != was:
+                    tally["updated"] += 1
                 continue
-            answer = seen.get(index)
-            if answer is None:                       # the probe never ran for this one
-                unconfirmed += 1
+            square = (int(row.get("x") or 0) // VERIFY_STEP,
+                      int(row.get("y") or 0) // VERIFY_STEP)
+            if square not in squares:
+                tally["unconfirmed"] += 1
                 continue
-            if answer == int(row["uuid"]):
-                # STILL THERE — and that is ALL this answer says. The per-tile read
-                # carries no stealer list (45 fields, measured: `reward` is its only
-                # list), so for a stranger's tile it cannot move n/3 and must not be
-                # counted as if it had. «Обновлено» means a value changed; this is
-                # «проверено», which the same line already reports.
-                row["seen_at"] = time.time()
+            if row.get("robbed"):                # kept for sharing, as ever
+                row["checked_at"] = now
                 continue
-            if not answer:
-                # NOTHING CAME BACK ABOUT THIS POINT (#1476). Not «there is nothing
-                # there» — the two are the same nil, and the second is far rarer than the
-                # first: measured on the live client, most points never answer at all.
-                # An unheard tile is unconfirmed and stays exactly where it is.
-                unconfirmed += 1
-                continue
-            if not control:
-                # Nothing came back for the control either: the answers were not
-                # arriving, and an absence proves nothing. Exactly the mistake #1272
-                # spent a morning undoing.
-                unconfirmed += 1
-                continue
-            if row.get("robbed"):                    # kept for sharing, as ever
-                continue
-            # `THE_LIST_RULE` clause 2 — asked about this tile, told that ANOTHER task is
-            # standing on it, and the control point proved the answers were arriving.
-            #
-            # …AND IT STAYS OFF (#1416). Without the book the next merge of the capture's
-            # checkpoint put every one of these back, so this line ran again half a
-            # minute later on the same rows: one live afternoon printed «проверено 20,
-            # обновлено 0, исчезло 20» every thirty seconds, and the list never changed.
             self._rows.pop(key, None)
             self._dismiss([key])
-            gone += 1
-        if not auto or updated or gone:
-            self.say("secret", "log.secret.state_done", checked=checked, updated=updated,
-                     gone=gone, unconfirmed=unconfirmed)
+            tally["gone"] += 1
         self._render()
         self._update_status()
         self._persist_rows()
-        if not auto:
-            # …AND THE ONE READING THIS PRESS CANNOT TAKE ITSELF (#1416). «Сколько раз
-            # уже ограбили» is not in the per-tile answer (45 fields, no stealer list)
-            # and the alliance table only covers our own alliance, so for the strangers'
-            # tiles that make up this list n/3 moves in exactly one place: the map, heard
-            # by the passive capture and written to its checkpoint. Merging that file is
-            # free — it is a read of a file the capture has already written — and without
-            # it a press could report «обновлено 0» while a fresh count sat on disk. It
-            # only ever raises the count (`_merge` takes the larger), so nothing a slower
-            # source says can walk it back.
-            self.refresh()
+        self._verify_next()
+
+    def _verify_finish(self) -> None:
+        """Say what the whole verification came to, and let the next one start."""
+        tally, auto = self._verify_tally, self._verify_auto
+        self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+        self._verify_auto = False
+        self._state_busy = False
+        if not tally["checked"]:
+            return
+        # The unattended turn stays quiet unless it actually changed something: a line a
+        # minute saying «проверено 20 · обновлено 0» is a log nobody can read.
+        if not auto or tally["updated"] or tally["gone"]:
+            self.say("secret", "log.secret.state_done", checked=tally["checked"],
+                     updated=tally["updated"], gone=tally["gone"],
+                     unconfirmed=tally["unconfirmed"])
+
+    # -- and the same check, unattended, one warzone at a time (#1280, recut #1484) ---
+    def _state_sweep(self) -> None:
+        """Re-check the ready rows of ONE warzone, rotating through the warzones.
+
+        «Обновить состояние» is a press, and a list that is only true when somebody
+        presses is a list that lies for as long as nobody does. So the same walk runs on
+        its own — one warzone a turn, because that is the unit the capture's checkpoint
+        can be read in, and because a turn holds the game for a couple of seconds and
+        every one of those is a second the standing orders are not using it.
+
+        Skipped whole while a press is already walking, while the game is down, while the
+        sniffer that would decode the walk is not running, and while no row is ready.
+        It is a re-check, never a feed: nothing here can ADD a row.
+        """
+        try:
+            if self._verify_queue or self._vm_busy or not self._rows:
+                return
+            if not (self.rt.game.ready() and not self.rt.game.busy):
+                return
+            if not self.capture.running:
+                return
+            plan = self._verify_plan(self._verify_targets())
+            if not plan:
+                return
+            # Rotate, so a warzone that is not the biggest still comes round.
+            start = self._state_cursor % len(plan)
+            self._state_cursor = (start + 1) % len(plan)
+            self._verify_queue = [plan[start]]
+            self._verify_auto = True
+            self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+            self._state_busy = True
+            self._verify_next()
+        finally:
+            self.rt.tick.arm("secret_state", STATE_MS, self._state_sweep)
 
     def _sweep_once(self) -> None:
         """«Обойти карту» — and «Остановить» while one is walking (#1272).
@@ -3227,7 +3268,14 @@ class SecretTasksTab(PanelTab):
              # …AND WHETHER WE ROBBED IT (#1272). A robbed row is kept on the list so it
              # can still be shared, and a restart that forgot the mark would put back a
              # row offering «Собрать» on a tile the server has already refused us once.
-             "robbed": bool(r.get("robbed"))}
+             "robbed": bool(r.get("robbed")),
+             # …AND WHEN THE GAME LAST CONFIRMED IT (#1484), on the GAME's clock. It is
+             # the column «Сверено», and it has to survive a restart or the whole list
+             # comes back reading «ни разу» — which is exactly as wrong as the row that
+             # kept saying «0/3, готово к сбору» about a tile emptied an hour before.
+             # Absent on a checkpoint written before this existed, and that reads as
+             # «ни разу», which is the honest answer for a row nothing has verified.
+             "checked_at": r.get("checked_at")}
             for r in self._rows.values()]})
 
     # -- the book of removals (#1416) -------------------------------------------
@@ -3449,6 +3497,10 @@ class SecretTasksTab(PanelTab):
                 # it: that set is what a later capture is checked against, so without it
                 # a feed could re-add an unmarked copy the moment this row expired.
                 "robbed": bool(rec.get("robbed")),
+                # …and when the game last confirmed it (#1484). `None` — which is what an
+                # older checkpoint has — is «ни разу», said in the column in so many words
+                # rather than drawn as a dash somebody reads as «только что».
+                "checked_at": rec.get("checked_at"),
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
             if rec.get("robbed"):
@@ -3497,7 +3549,15 @@ class SecretTasksTab(PanelTab):
                                          r.get("expires_at") or float("inf"))):
             facts = [{"label": "secrettasks.col.level", "value": self._rank(row)},
                      {"label": "secrettasks.col.slots",
-                      "value": f"{row.get('loot_count')}/3"}]
+                      "value": f"{row.get('loot_count')}/3"},
+                     # …AND WHEN THE GAME LAST CONFIRMED THE ROW (#1484), which is the
+                     # window's «Сверено» column said as a fact. It is the one reading
+                     # that says how much the two above are worth, and a phone is where
+                     # somebody is MOST likely to act on a stale one — they cannot glance
+                     # at the map to check. «Ни разу» is spelled out here too.
+                     {"label": "secrettasks.col.checked",
+                      "value": grid.checked_text(row.get("checked_at"),
+                                                 int(now * 1000), self.t)}]
             # The same mark the window puts on the row (#1245): the glyph on the
             # coordinate, the words in the line under it. Whoever is reading the phone
             # is the one most likely to forward a tile twice — they cannot see the
@@ -4025,7 +4085,8 @@ class SecretTasksTab(PanelTab):
         # brought up to date first and the row is drawn with the state it really is in.
         self._refresh_timers()
         rows = self._sorted_rows(self._visible_rows())
-        grid.sync_tree(tree, rows, self._row_values, grid.row_tag)
+        grid.sync_tree(tree, rows, self._row_values, grid.row_tag,
+                       grid.STAR_COLUMNS)
         self._show_empty(not rows)
         self._sync_actions()
 
@@ -4035,7 +4096,7 @@ class SecretTasksTab(PanelTab):
         Only the state cell changes as a second passes; the ready-transition is what asks
         for a full :meth:`_render`, because it re-colours the row and re-sorts it.
         """
-        grid.paint_timers(self._tree, self._rows)
+        grid.paint_timers(self._tree, self._rows, self.t)
 
     def _in_range(self, level) -> bool:
         """Whether `level` is inside the DISPLAY range — «Фильтры: уровень от / до».
@@ -4483,11 +4544,22 @@ class SecretTasksTab(PanelTab):
         return expired, changed or marked
 
     # -- the ready-row poll ----------------------------------------------------
+    def _hot_rows(self) -> list:
+        """The rows the 3-second poll is about — ready, or about to be (#1280).
+
+        The standing order's own gate (:meth:`_raidable`): ready, or within
+        :data:`AUTO_EARLY_MS` of maturing, and never a tile nobody can take. It is a
+        NARROWER set than a verification's (:meth:`_verify_targets`, which is «ready to
+        rob» exactly) and it is asked a different question — the alliance table, once
+        every three seconds, against tiles whose state lives seconds.
+        """
+        return [r for r in self._rows.values() if self._raidable(r)]
+
     def _maybe_start_poll(self) -> None:
         """Start the slow poll if a row is raidable and it is not already running."""
         if self._polling:
             return
-        if self._state_targets(hot=True):
+        if self._hot_rows():
             self._polling = True
             self.rt.tick.arm("secret_poll", POLL_MS, self._poll_tick)
 
@@ -4501,10 +4573,11 @@ class SecretTasksTab(PanelTab):
         THE HOT ROWS ONLY: ready, or inside the standing order's early window. It used to
         be `ready` alone, which is the one row set that is provably too late — the
         two-and-a-half seconds before a tile matures are exactly when its loot count is
-        worth knowing. The REST of the list is re-checked by `_state_sweep`, on its own
-        slower clock and with the per-tile read this poll does not make (#1280).
+        worth knowing. The READY rows are re-checked by `_state_sweep` as well, on its own
+        slower clock and against the MAP rather than the alliance table — which is the
+        only source that can move a stranger's n/3 at all (#1484).
         """
-        keys = [str(r["uuid"]) for r in self._state_targets(hot=True)]
+        keys = [str(r["uuid"]) for r in self._hot_rows()]
         if not keys:
             self._polling = False
             return

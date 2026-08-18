@@ -370,7 +370,7 @@
   "log.secret.starting": "avvio della cattura: {script} …",
   "log.secret.dismissed_forgiven": "le rimozioni annotate dalla vecchia regola sono perdonate: {count} casella/e possono tornare",
   "log.secret.state_done": "stato riletto: {checked} controllate, {updated} aggiornate, {gone} sparite, {unconfirmed} non confermate",
-  "log.secret.state_none": "niente da rileggere — l'elenco è vuoto",
+  "log.secret.state_none": "niente da verificare — nessuna riga è pronta per il furto",
   "log.secret.stopped": "monitor fermato",
   "log.select_all": "Seleziona tutto",
   "log.server.current": "server attuale: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: abbandonato — {secs} s di attesa del gioco, il momento a cui si riferiva è passato",
   "busy.status.gated": "attende il gioco",
   "busy.queue.gated": "rinviato finché il gioco non è pronto: {name} — {secs} s",
-  "rally.skip.same_banners": "ogni raduno in corso è già stato valutato in questo stesso stato — l'altro aggancio ha appena guardato"
+  "log.secret.verify_start": "verifico {rows} riga/e pronta/e — {servers} zona/e, {points} sosta/e della camera",
+  "log.secret.verify_unwatched": "il monitor ★ è spento — un giro non decodifica nulla, non si verificherebbe niente",
+  "rally.skip.same_banners": "ogni raduno in corso è già stato valutato in questo stesso stato — l'altro aggancio ha appena guardato",
+  "secrettasks.checked.hour": "{n} h fa",
+  "secrettasks.checked.min": "{n} min fa",
+  "secrettasks.checked.never": "mai",
+  "secrettasks.checked.now": "proprio ora",
+  "secrettasks.col.checked": "Verificato"
 }

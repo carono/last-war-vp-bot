@@ -370,7 +370,7 @@
   "log.secret.starting": "запускаю захват: {script} …",
   "log.secret.dismissed_forgiven": "снятия, записанные старым правилом, прощены: {count} тайл(ов) снова могут вернуться",
   "log.secret.state_done": "состояние перечитано: проверено {checked}, обновлено {updated}, исчезло {gone}, не подтвердилось {unconfirmed}",
-  "log.secret.state_none": "нечего перечитывать — список пуст",
+  "log.secret.state_none": "нечего сверять — ни одна строка не готова к сбору",
   "log.secret.stopped": "стоп мониторинга",
   "log.select_all": "Выделить всё",
   "log.server.current": "текущий сервер: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: отменено — {secs} с ждали игру, момент, ради которого пришло событие, прошёл",
   "busy.status.gated": "ждёт игру",
   "busy.queue.gated": "отложено до готовности игры: {name} — {secs} с",
-  "rally.skip.same_banners": "все выставленные стяги уже взвешены ровно в этом состоянии — второй хук только что смотрел"
+  "log.secret.verify_start": "сверяю {rows} готовых строк — зон {servers}, остановок камеры {points}",
+  "log.secret.verify_unwatched": "мониторинг ★ выключен — обход ничего не расшифрует, сверять будет нечем",
+  "rally.skip.same_banners": "все выставленные стяги уже взвешены ровно в этом состоянии — второй хук только что смотрел",
+  "secrettasks.checked.hour": "{n} ч назад",
+  "secrettasks.checked.min": "{n} мин назад",
+  "secrettasks.checked.never": "ни разу",
+  "secrettasks.checked.now": "только что",
+  "secrettasks.col.checked": "Сверено"
 }

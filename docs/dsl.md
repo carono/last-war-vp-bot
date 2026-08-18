@@ -764,6 +764,39 @@ Three things to know:
 - **Above 1199 there is nothing to collect.** The client switches to its coarse big-map
   layer and answers a map request with no tiles at all.
 
+### `VISIT_MAP POINTS x,y;x,y [ZOOM height] [EVERY seconds] SERVER id`
+
+Walk the camera over the tiles you **name**, instead of over the whole map. The
+checking half of `SWEEP_MAP` (#1484): a lap FILLS a list, this re-hears the rows a list
+already holds, so that «сколько раз эту секретку ограбили» and «а она ещё там» stop
+being whatever they were when the tile was first sighted.
+
+```
+VISIT_MAP POINTS 102,110;97,259;66,269 SERVER 991
+VISIT_MAP POINTS {points} ZOOM 600 EVERY 0.05 SERVER {server}
+```
+
+| Modifier | Effect | Default |
+|---|---|---|
+| `POINTS` | the waypoints, `x,y` pairs separated by `;`, in the order they are walked. **No spaces** — the value travels as an `ARGS` string and a space would read as the next modifier | — |
+| `ZOOM h` | camera height, exactly as `SWEEP_MAP` | 600 |
+| `EVERY s` | seconds between two waypoints | 0.05 |
+| `SERVER id` | which warzone the waypoints are on — **compulsory** | — |
+
+Like `SWEEP_MAP` it is scheduled inside the game in one call, it waits out the walk it
+scheduled, and `fast_map_sweep_stop` disowns whatever is still pending — the two share a
+run token, so one «Stop» stops either and neither can walk over the other.
+
+Two things it will not let you do quietly:
+
+- **No waypoints is a runtime error.** A walk that visits nowhere and reports success is
+  the exact shape of the fault that hid #1476 for hours.
+- **`SERVER` is compulsory**, unlike the full lap. A capture indexes the warzone it is
+  currently hearing and drops every tile of the one the client leaves the moment it
+  leaves — measured: a lap of one warzone left 1434 tiles in the checkpoint and going
+  home emptied it within four seconds. So one warzone per run, and whoever reads the
+  result reads it BETWEEN the runs.
+
 ### `PICK_STAR_SERVERS [COUNT n]` / `NEXT_STAR_SERVER`
 
 Choose the warzones one lap of the star-secret-task round walks, and take them off its

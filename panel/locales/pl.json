@@ -370,7 +370,7 @@
   "log.secret.starting": "uruchamiam przechwytywanie: {script} …",
   "log.secret.dismissed_forgiven": "usunięcia zapisane przez starą regułę zostały darowane: {count} pole/pola mogą wrócić",
   "log.secret.state_done": "stan odczytany ponownie: sprawdzono {checked}, zaktualizowano {updated}, zniknęło {gone}, niepotwierdzone {unconfirmed}",
-  "log.secret.state_none": "nie ma czego odczytać ponownie — lista jest pusta",
+  "log.secret.state_none": "nie ma czego sprawdzać — żaden wiersz nie jest gotowy do kradzieży",
   "log.secret.stopped": "monitor zatrzymany",
   "log.select_all": "Zaznacz wszystko",
   "log.server.current": "bieżący serwer: {srv}",
@@ -1913,5 +1913,12 @@
   "timers.log.gate_expired": "{name}: porzucone — {secs} s czekania na grę, chwila, której dotyczyło, minęła",
   "busy.status.gated": "czeka na grę",
   "busy.queue.gated": "wstrzymane do gotowości gry: {name} — {secs} s",
-  "rally.skip.same_banners": "każda wystawiona zbiórka została już oceniona dokładnie w tym stanie — drugi hak właśnie patrzył"
+  "log.secret.verify_start": "sprawdzam {rows} gotowych wierszy — stref: {servers}, postojów kamery: {points}",
+  "log.secret.verify_unwatched": "monitor ★ jest wyłączony — obchód niczego nie odczyta, nie byłoby czego sprawdzić",
+  "rally.skip.same_banners": "każda wystawiona zbiórka została już oceniona dokładnie w tym stanie — drugi hak właśnie patrzył",
+  "secrettasks.checked.hour": "{n} godz. temu",
+  "secrettasks.checked.min": "{n} min temu",
+  "secrettasks.checked.never": "ani razu",
+  "secrettasks.checked.now": "przed chwilą",
+  "secrettasks.col.checked": "Sprawdzono"
 }
