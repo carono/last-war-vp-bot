@@ -425,6 +425,12 @@ class SecretTasksTab(PanelTab):
         self._verify_queue: list = []
         self._verify_auto = False
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+        # …and what each of those rows' loot count was when the run STARTED, because
+        # that is what «обновлено» is a count of. The capture feeds the model directly
+        # while the walk is still going (`tile_seen` -> `_tiles_land` -> `_merge`), so by
+        # the time a warzone's answers are judged the number may already have moved —
+        # measured live: nine tiles came back 3/3 and the line reported «обновлено 0».
+        self._verify_was: dict = {}
         # The event's config table, read once per session (see `_ghost_work`).
         self._ghost_config = None
         self._ticking = False
@@ -1744,6 +1750,8 @@ class SecretTasksTab(PanelTab):
         plan = self._verify_plan(targets)
         self.say("secret", "log.secret.verify_start", rows=len(targets),
                  servers=len(plan), points=sum(len(p[1]) for p in plan))
+        self._verify_was = {str(r["uuid"]): int(r.get("loot_count") or 0)
+                            for r in targets}
         self._verify_queue = plan
         self._verify_auto = False
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
@@ -1909,8 +1917,18 @@ class SecretTasksTab(PanelTab):
             tally["checked"] += 1
             task = heard.get(key)
             if task is not None:
-                was = int(row.get("loot_count") or 0)
-                row["loot_count"] = max(was, int(task.loot_count or 0))
+                # AGAINST WHAT THE ROW HELD WHEN THE RUN STARTED, not against what it
+                # holds now: the capture writes into the model while the walk is still
+                # walking, so «now» has often already been corrected by the very traffic
+                # this run produced (#1484).
+                was = self._verify_was.get(key, int(row.get("loot_count") or 0))
+                # UPWARDS ONLY, over every reading there is: what the row held when the
+                # run started, what it holds now (the capture may have corrected it
+                # mid-walk) and what the walk itself heard. A tile is robbed 0 -> 1 -> 2
+                # -> 3 and never un-robbed, so `max` cannot be fooled by a stale record —
+                # which is what makes this safe without a timestamp per field.
+                row["loot_count"] = max(was, int(row.get("loot_count") or 0),
+                                        int(task.loot_count or 0))
                 if task.expires_at:
                     row["expires_at"] = task.expires_at
                 if task.completed_at:
@@ -1940,6 +1958,7 @@ class SecretTasksTab(PanelTab):
         """Say what the whole verification came to, and let the next one start."""
         tally, auto = self._verify_tally, self._verify_auto
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+        self._verify_was = {}
         self._verify_auto = False
         self._state_busy = False
         if not tally["checked"]:
@@ -1979,6 +1998,9 @@ class SecretTasksTab(PanelTab):
             start = self._state_cursor % len(plan)
             self._state_cursor = (start + 1) % len(plan)
             self._verify_queue = [plan[start]]
+            self._verify_was = {key: int((self._rows.get(key) or {}).get("loot_count")
+                                         or 0)
+                                for key in plan[start][2]}
             self._verify_auto = True
             self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
             self._state_busy = True

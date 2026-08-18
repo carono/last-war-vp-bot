@@ -2026,7 +2026,11 @@ def _state_tab(rows):
     tab.say = lambda _tag, key, **fmt: tab.said.append((key, fmt))
     tab._verify_queue = []
     tab._verify_auto = False
+    tab._verify_was = {}
     tab._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
+    # What each row's loot count was when the run started — «обновлено» counts against
+    # THAT, not against a model the capture may have corrected mid-walk (#1484).
+    tab._verify_was = {key: int(row.get("loot_count") or 0) for key, row in rows.items()}
     # `_verify_next` on an empty queue only reports; the decision under test is above it.
     tab.rt.play_async = lambda name, args=None, **kw: True
     return tab
@@ -2242,6 +2246,7 @@ def test_a_robbed_row_leaves_only_by_its_own_clock():
     tab.post = lambda fn: fn()
     tab._maybe_start_poll = lambda: None      # no window, no chain to arm
     tab._verify_auto = False
+    tab._verify_was = {}
     tab._sweeping, tab._sweep_btn = False, None
     tab._retitle_sweep = lambda: None
     tab.capture = types.SimpleNamespace(running=True)
@@ -2302,6 +2307,7 @@ def test_nothing_but_the_two_rules_and_the_button_can_empty_the_list():
     tab._maybe_start_poll = lambda: None
     tab._vm_busy = False
     tab._verify_auto = False
+    tab._verify_was = {}
     tab._collected = set()
 
     tab._sweep_once()                                             # a lap
