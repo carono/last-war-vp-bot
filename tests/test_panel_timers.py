@@ -715,6 +715,26 @@ def test_run_now_is_queued_not_a_thread_of_its_own():
     assert s.store.last_run(BASE) > 0, "a manual run must restart the period too"
 
 
+def test_the_worker_is_idle_once_its_run_is_over():
+    """`queue_state()["running"]` must not go on naming a run that already ended.
+
+    Found while building the live queue view (#1500): the ordinary finish path never
+    cleared `_running`, so an empty, idle queue kept reporting the LAST errand as still
+    going, its age climbing for as long as nothing else came due — a live view of the
+    queue would have shown work that was not happening.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    cat = _catalogue()
+    s = _Scheduler(tmp, cat.default_config())
+    timer = cat.by_name(BASE)
+
+    assert s.sched.request(timer) is True
+    assert s.sched.drain() == [BASE]
+    state = s.sched.queue_state()
+    assert state["running"] == "", state
+    assert state["running_secs"] == 0.0, state
+
+
 def test_nothing_runs_in_parallel_on_the_real_worker():
     """The live thread: two errands due at once, executed one after the other.
 
@@ -1350,6 +1370,76 @@ def test_a_submitted_trigger_errand_is_labelled_all_the_way_through_the_queue():
     assert "timers.log.by_trigger" in s.logs, s.logs
     assert "timers.log.manual" not in s.logs, s.logs
 
+
+# -- what a live view of the queue needs (#1500) ------------------------------
+def test_a_waiting_errand_says_who_lined_it_up():
+    """A press and a clock queue the SAME way — the only thing that differs is why."""
+    tmp = Path(tempfile.mkdtemp())
+    cat = _catalogue()
+    s = _Scheduler(tmp, cat.default_config())
+    # Hold the worker with one run so the second stays in `waiting`.
+    s.outcome = True
+    assert s.sched.request(cat.by_name(BASE)) is True
+    with s.sched._queue_lock:
+        s.sched._running = BASE               # pretend it is mid-run
+    assert s.sched.request(cat.by_name(ALLY)) is True
+    state = s.sched.queue_state()
+    row = next(r for r in state["waiting"] if r["name"] == ALLY)
+    assert row["scheduled"] is False and row["by"] == timersmod.BY_HAND, row
+
+    class _Errand:
+        name = "probe_push"
+        scenario = ()
+        immediate = False
+        interval_sec = 0
+        retry_sec = 0
+
+    assert s.sched.submit(_Errand()) == "queued"
+    state = s.sched.queue_state()
+    row = next(r for r in state["waiting"] if r["name"] == "probe_push")
+    assert row["by"] == timersmod.BY_TRIGGER, row
+
+
+def test_a_gated_fire_carries_its_reason_and_who_fired_it():
+    s, _ran = None, None
+    tmp = Path(tempfile.mkdtemp())
+    cat = _catalogue()
+    s = timersmod.TimerScheduler(
+        store=_store(tmp), catalogue=lambda: cat, config=lambda: cat.default_config(),
+        runner=lambda t: True, log=lambda key, **fmt: None,
+        gate=lambda name=None: "timers.log.skip_game")
+
+    class _Errand:
+        name = "probe_gated"
+        scenario = ()
+        immediate = False
+        interval_sec = 0
+        retry_sec = 0
+
+    s.submit(_Errand())
+    s.drain()
+    rows = s.gated()
+    assert len(rows) == 1, rows
+    assert rows[0]["reason"] == "timers.log.skip_game", rows[0]
+    assert rows[0]["by"] == timersmod.BY_TRIGGER, rows[0]
+
+
+def test_finished_and_cancelled_errands_stay_readable_in_recent():
+    """Nothing that leaves the queue vanishes without a trace (#1500)."""
+    tmp = Path(tempfile.mkdtemp())
+    cat = _catalogue()
+    s = _Scheduler(tmp, cat.default_config())
+
+    assert s.sched.request(cat.by_name(BASE)) is True
+    assert s.sched.drain() == [BASE]
+    recent = s.sched.recent()
+    assert recent and recent[0]["name"] == BASE and recent[0]["outcome"] == "done", recent
+
+    assert s.sched.request(cat.by_name(ALLY)) is True
+    assert s.sched.cancel(ALLY) is True       # merely waiting, not running: cancellable
+    assert s.sched.drain() == []              # the worker drops it rather than running it
+    recent = s.sched.recent()
+    assert recent[0]["name"] == ALLY and recent[0]["outcome"] == "cancelled", recent
 
 
 def _run_standalone() -> int:

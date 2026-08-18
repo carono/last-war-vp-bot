@@ -366,8 +366,19 @@ def _table_snapshot() -> dict:
                    "secs": 7.0}],
         "queue": {"running": "restart_game", "running_secs": 200.0,
                   "express": ["alliance_help"],
-                  "waiting": [{"name": "base_collect", "secs": 90.0}],
-                  "held": ["collect_trucks"], "hold_secs": 12.0, "alive": True},
+                  "waiting": [{"name": "base_collect", "secs": 90.0,
+                              "scheduled": True, "by": "hand"}],
+                  "held": ["collect_trucks"], "hold_secs": 12.0,
+                  "gated": [{"name": "rally_auto_join", "secs": 45.0,
+                            "scheduled": False, "by": "trigger",
+                            "reason": "timers.log.skip_game",
+                            "expires_in": 555.0, "retry_sec": 10}],
+                  "recent": [{"name": "auto_treasure", "by": "hand",
+                             "scheduled": False, "outcome": "done", "secs": 5.0},
+                            {"name": "leaderboard_collect", "by": "trigger",
+                             "scheduled": False, "outcome": "gate_expired",
+                             "secs": 900.0}],
+                  "alive": True},
         "claims": [{"key": ("127.0.0.1", 47654), "owner": "alice/timer", "secs": 400.0,
                     "refused": 12, "mine": True, "client": True}],
         "waiting": [{"key": ("127.0.0.1", 47654), "owner": "bob/action", "secs": 30.0,
@@ -428,7 +439,11 @@ def test_the_block_is_several_grids_and_every_row_answers_its_grids_questions() 
         cells = [view._cells_for(r, columns) for r in grows]
         assert all(len(c) == len(columns) for c in cells)
     assert covered == set(SECTIONS), sorted(covered)
-    assert all(key.startswith(("busy.", "activity.")) for key in tab.asked), tab.asked
+    # `timers.*` too: a gated row says WHY in the gate's own key — `timers.log.skip_…` —
+    # rather than a busy.* paraphrase of it, which is the single source of truth #1500
+    # asked for, not a hardcoded sentence dressed up as one.
+    assert all(key.startswith(("busy.", "activity.", "timers."))
+              for key in tab.asked), tab.asked
 
     by_section = {}
     for row in rows:
@@ -444,6 +459,27 @@ def test_the_block_is_several_grids_and_every_row_answers_its_grids_questions() 
     assert listening[0]["level"] == "412"                # the raw heard-count, not a key
     assert listening[1]["status"] == "busy.listen.never"
     assert listening[2]["status"] == "busy.status.off" and listening[2]["mark"] == "stuck"
+
+    # The queue grid: what runs, what waits and WHY, what is held, what is gated and
+    # for how much longer, and what just left (#1500).
+    queued = by_section["queue"]
+    running_row = next(r for r in queued if r["status"] == "busy.status.running")
+    assert running_row["what"] == "restart_game" and running_row["secs"] == 200
+    waiting_row = next(r for r in queued if r["status"] == "busy.status.queued")
+    assert waiting_row["who"] == "timer"                  # scheduled=True wins over `by`
+    assert "restart_game" in waiting_row["detail"]        # ahead of it in the queue
+    held_row = next(r for r in queued if r["status"] == "busy.status.held")
+    assert "alice/timer" in held_row["detail"]             # WHO holds the game claim
+    assert held_row["mark"] == "slow"
+    gated_row = next(r for r in queued if r["status"] == "busy.status.gated")
+    assert gated_row["who"] == "event"                    # scheduled=False, by=trigger
+    assert "555" in gated_row["detail"]                   # when it gives up
+    assert gated_row["mark"] == "slow"                    # 555 s left — not imminent
+    done_row = next(r for r in queued if r["what"] == "auto_treasure")
+    assert done_row["status"] == "busy.status.done" and done_row["mark"] == ""
+    expired_row = next(r for r in queued if r["what"] == "leaderboard_collect")
+    assert expired_row["status"] == "busy.status.gate_expired"
+    assert expired_row["mark"] == "slow"
 
 
 def test_a_row_never_lands_in_two_grids_at_once() -> None:

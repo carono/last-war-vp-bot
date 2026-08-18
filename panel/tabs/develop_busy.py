@@ -94,11 +94,15 @@ SECTIONS = ("jam", "runs", "queue", "claims", "listeners", "timers", "slowest",
 #:   `CLAUDE.md`), ``"secs"`` (an int, or blank for `None`) or ``"key"`` (a locale key,
 #:   said through `t()`, blank for an empty string).
 #:
-#: **ЛИСТЕНЕРЫ отдельно, ТАЙМЕРЫ отдельно, и т.д.** (#1500) — the errand queue is folded
-#: into the timers grid rather than kept apart: «когда прогонится» и «что стоит и ждёт
-#: игру» are the same question («таймеры/поручения» in the request that asked for this),
-#: and the queue's `section` stays `"queue"` internally (verdicts and the clipboard still
-#: name it) — only which GRID a row lands in changed.
+#: **ЛИСТЕНЕРЫ отдельно, ТАЙМЕРЫ отдельно, и т.д.** (#1500) — a first cut folded the
+#: errand queue into the timers grid, and the very next ask was «где посмотреть очередь
+#: живьём» (#1500, part two): «в очереди» is what a «отработать сейчас» press answers
+#: with, and the person pressing it wants the ROW, not a merged table's leftovers. So the
+#: queue is its own grid — what is running, what waits behind it and why, what is held
+#: because the game's own claim is somebody else's, what is parked behind a shut gate and
+#: for how much longer, and what just left and how it ended — reading `queue_state()`
+#: straight (`panel/timers.py`) rather than a copy of it, per «не заводи второй источник
+#: правды». `timers` keeps only the clock — the catalogue's own due/overdue reading.
 GROUPS = (
     ("listeners", "busy.group.listeners", ("listeners",), (
         ("what", "busy.col.what", 170, False, "text"),
@@ -108,7 +112,14 @@ GROUPS = (
         ("level", "busy.col.heard", 70, True, "text"),
         ("status", "busy.col.status", 130, False, "key"),
     )),
-    ("timers", "busy.group.timers", ("timers", "queue"), (
+    ("queue", "busy.group.queue", ("queue",), (
+        ("what", "busy.col.what", 180, False, "text"),
+        ("who", "busy.col.queued_by", 90, False, "text"),
+        ("detail", "busy.col.detail", 380, False, "text"),
+        ("secs", "busy.col.secs", 80, True, "secs"),
+        ("status", "busy.col.status", 130, False, "key"),
+    )),
+    ("timers", "busy.group.timers", ("timers",), (
         ("what", "busy.col.what", 190, False, "text"),
         ("who", "busy.col.who", 130, False, "text"),
         ("detail", "busy.col.detail", 300, False, "text"),
@@ -149,9 +160,10 @@ GROUPS = (
 )
 
 #: How many rows each grid shows before it scrolls. A jam grid is rarely more than a
-#: couple of lines; the errand queue and the listeners are where the length is.
+#: couple of lines; the errand queue, the listeners and the timers are where the length
+#: is — the queue grid tallest of all, since it also carries the errands that just left.
 GROUP_HEIGHT = {"jam": 3, "runs": 4, "claims": 4, "slowest": 4, "threads": 6,
-                "listeners": 6, "timers": 8}
+                "listeners": 6, "timers": 8, "queue": 10}
 
 #: Anything that has been going on this long is drawn amber. A press a person is waiting
 #: for is answered in seconds, an errand in tens of them; a minute is where «it is
@@ -442,7 +454,7 @@ class BusyView:
             add("runs", detail=t(step["key"], **step["fmt"]), secs=step["secs"],
                 status="busy.status.running")
 
-        out.extend(self._queue_rows(snap.get("queue") or {}))
+        out.extend(self._queue_rows(snap))
         out.extend(self._claim_rows(snap))
         out.extend(self._listener_rows(snap))
         out.extend(self._timer_rows(snap))
@@ -513,7 +525,28 @@ class BusyView:
                          "mark": mark})
         return rows
 
-    def _queue_rows(self, queue: dict) -> list:
+    def _queue_rows(self, snap: dict) -> list:
+        """The live queue, one row per errand — «где посмотреть очередь живьём» (#1500).
+
+        Reads `snap["queue"]` — `panel/timers.py::TimerScheduler.queue_state()`, asked
+        straight, not copied — so this grid shows the SAME queue the worker is actually
+        working off, in the shape it already keeps: what runs, what waits behind it and
+        why, what is turned away because the game's own claim is somebody else's right
+        now (cross-referenced against `snap["claims"]`, the one place that says WHO),
+        what is parked behind a shut gate and for how much longer (#1416's own
+        guarantee — a refusal PARKS a fire rather than dropping it), and what just left
+        the queue and how it ended, so a row a person was told «в очереди» about does
+        not simply stop answering.
+
+        The ORDER is not one priority number pretending the queue is a line: it is
+        running, then what is blocked (held behind the claim, parked behind the gate —
+        both need a look), then what is genuinely waiting its FIFO turn, then express
+        errands running off to the side of the queue entirely, then the recent past.
+        That is the real shape of a single-worker queue with a side door and a
+        gate — not a straight line, and drawn as what it is rather than invented as one.
+        """
+        t = self.tab.t
+        queue = snap.get("queue") or {}
         rows: list = []
 
         def add(**kw) -> None:
@@ -529,21 +562,57 @@ class BusyView:
             # the wall of text this block stopped being.
             add(status="busy.status.off")
             return rows
+
+        def by_word(scheduled, by) -> str:
+            if scheduled:
+                return t("busy.queued_by.timer")
+            if by == "trigger":
+                return t("busy.queued_by.trigger")
+            return t("busy.queued_by.hand")
+
+        holder = next((row["owner"] for row in snap.get("claims") or ()
+                      if row.get("client")), "")
+
         if queue.get("running"):
-            add(what=queue["running"], secs=queue.get("running_secs", 0),
-                status="busy.status.running")
+            step = next((r["step"] for r in snap.get("runs") or ()
+                        if r["name"] == queue["running"]), "")
+            add(what=queue["running"], detail=_step(step),
+                secs=queue.get("running_secs", 0), status="busy.status.running")
         for name in queue.get("express") or ():
-            add(what=name, status="busy.status.express")
-        for item in queue.get("waiting", []):
-            add(what=item["name"], secs=item["secs"], status="busy.status.queued")
+            add(what=name, detail=t("busy.queue.detail.express"),
+                status="busy.status.express")
+        for item in queue.get("waiting") or ():
+            # WHY IT WAITS: the worker is single-file, so everything behind the one
+            # running errand waits for exactly one reason — its own turn.
+            ahead = (t("busy.queue.detail.ahead", name=queue["running"])
+                    if queue.get("running") else "")
+            add(what=item["name"], who=by_word(item.get("scheduled"), item.get("by")),
+                detail=ahead, secs=item["secs"], status="busy.status.queued")
         for name in queue.get("held") or ():
-            add(what=name, secs=queue.get("hold_secs", 0), status="busy.status.held")
+            # WHY IT WAITS: the panel's own single runner turned it down as busy — most
+            # often the game's claim is somebody else's, named here when it is.
+            detail = (t("busy.queue.detail.holder", owner=holder) if holder
+                     else t("busy.queue.detail.busy"))
+            add(what=name, detail=detail, status="busy.status.held", mark="slow")
         for item in queue.get("gated") or ():
             # A FIRE WAITING FOR A DOOR, not for the worker (#1416). It is not «в
             # очереди» — the queue would have run it — and leaving it out of this
             # reading is what made a delayed event indistinguishable from a lost one.
-            add(what=item["name"], secs=item["secs"], status="busy.status.gated",
-                mark="slow")
+            reason = t(item["reason"]) if item.get("reason") else t("busy.status.gated")
+            expires = t("busy.queue.detail.expires",
+                       secs=int(item.get("expires_in", 0)))
+            add(what=item["name"], who=by_word(item.get("scheduled"), item.get("by")),
+                detail=f"{reason} · {expires}", secs=item["secs"],
+                status="busy.status.gated",
+                mark="stuck" if item.get("expires_in", 0) <= 60 else "slow")
+        for item in queue.get("recent") or ():
+            # WHAT IT TURNED INTO — nothing that left the queue is silent about it
+            # (#1500). Amber for the two outcomes worth a second look; plain for the
+            # ordinary ones.
+            outcome = item.get("outcome", "")
+            add(what=item["name"], who=by_word(item.get("scheduled"), item.get("by")),
+                secs=item["secs"], status=f"busy.status.{outcome}" if outcome else "",
+                mark="slow" if outcome in ("failed", "gate_expired") else "")
         if not rows:
             add(status="busy.status.idle" if queue.get("alive") else "busy.status.off")
         return rows

@@ -96,6 +96,7 @@ import os
 import queue
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 from . import debug_log, paths
@@ -140,6 +141,13 @@ GATE_RETRY_SEC = 10.0
 # no longer there. Long enough to outlast a restart of the client (measured at a median
 # 184 s, `restart_game`), short enough that nothing acts on last hour's news.
 GATE_KEEP_SEC = 600.0
+
+# How many finished/cancelled/given-up errands the queue remembers, newest first —
+# «Занятость» (#1500) reads this so a name that just left the queue does not read as
+# «пропало без вести»: it says what it turned into instead. Bounded, and lost on a
+# restart on purpose, exactly like `_gated` and every other in-memory queue reading —
+# it is a checkpoint of the worker's own recent past, not game data (`CLAUDE.md`).
+RECENT_KEEP = 20
 
 # How often ONE errand may repeat the same reason for being skipped. A skip has to be
 # said — «тихо не поехали» is exactly what #1281 was about, and a wire trigger can be
@@ -1325,6 +1333,11 @@ class TimerScheduler:
         # slow run and three errands that arrived this second look identical (#1392).
         # Filled wherever a name enters `_queued`, emptied wherever it leaves.
         self._queued_at: dict[str, float] = {}
+        # WHO lined it up and HOW — a clock, a press (window or phone: the same call
+        # either way, `panel/web/api.py::run_timer`/`run_action`), or an event
+        # (`BY_TRIGGER` — a push, which is what an autoloot or a rally-join fires from).
+        # Filled and emptied alongside `_queued_at`, for the same rows (#1500).
+        self._queued_meta: dict[str, tuple[bool, str]] = {}
         # Errands NOT in the catalogue that were handed to the queue directly —
         # a trigger's scenario (panel/triggers.py). They share the one worker and the
         # dedup set, but the worker cannot look them up in `catalogue()`, so it keeps
@@ -1372,6 +1385,11 @@ class TimerScheduler:
         self._gated: dict = {}
         # Repeated skips, rolled up: name -> [reason, count, last-said-monotonic].
         self._skips: dict = {}
+        # WHAT JUST LEFT THE QUEUE, newest first — «не пропадает молча» (#1500). A row
+        # in the live queue that finishes, is cancelled or is given up behind its gate
+        # stops answering `queue_state()` the instant it does, and without this a jam
+        # read a second late looked exactly like a jam that had never happened.
+        self._recent: deque = deque(maxlen=RECENT_KEEP)
         self._queue_lock = threading.Lock()
         # Wall clock the worker may take from the queue again, set when the panel
         # turns an errand down as busy. Without it the item goes straight back on
@@ -1442,6 +1460,7 @@ class TimerScheduler:
             if not express:
                 self._queued.add(errand.name)
                 self._queued_at[errand.name] = time.monotonic()
+                self._queued_meta[errand.name] = (False, BY_TRIGGER)
         if express:
             # Outside the lock: `_express` takes it to claim the name for itself, and
             # re-checks there, so the gap above cannot let two runs through.
@@ -1498,7 +1517,7 @@ class TimerScheduler:
                 # the panel will bring it back, so a gate refusal here used to be an
                 # event silently thrown away — the very «пропускаются событий» this
                 # was reported as. Parked, and re-offered when the gate opens.
-                self._park_gated(name, errand, scheduled, by)
+                self._park_gated(name, errand, scheduled, by, reason)
                 return False
         with self._queue_lock:
             if name in self._queued:
@@ -1512,6 +1531,7 @@ class TimerScheduler:
                 return False
             self._queued.add(name)
             self._queued_at[name] = time.monotonic()
+            self._queued_meta[name] = (bool(scheduled), by)
             self._express_running.add(name)
 
         def work() -> None:
@@ -1551,21 +1571,25 @@ class TimerScheduler:
                 return False
             self._queued.add(name)
             self._queued_at[name] = time.monotonic()
+            self._queued_meta[name] = (bool(scheduled), by)
         self._queue.put((name, scheduled, by))
         return True
 
-    def park_gated(self, errand) -> None:
+    def park_gated(self, errand, reason: "str | None" = None) -> None:
         """Hold a fire that never reached the queue at all — the panel was stopped.
 
         `Schedule.submit` asks its own gate before this scheduler is involved (a fire
         that reaches the queue has already cost a name and a slot), so the refusal
-        happened one layer up and the errand has to be handed in from there.
+        happened one layer up and the errand has to be handed in from there — WHY, if
+        the caller has it, so the row this fire draws on «Занятость» does not have to
+        guess (#1500).
         """
         name = str(getattr(errand, "name", "") or "")
         if name:
-            self._park_gated(name, errand, False, BY_TRIGGER)
+            self._park_gated(name, errand, False, BY_TRIGGER, reason)
 
-    def _park_gated(self, name: str, errand, scheduled: bool, by: str) -> None:
+    def _park_gated(self, name: str, errand, scheduled: bool, by: str,
+                    reason: "str | None" = None) -> None:
         """Keep a fire the gate turned away, so it can be offered again (#1416).
 
         THE GUARANTEE THIS EXISTS FOR: a listener either acts on an event at once or
@@ -1580,14 +1604,16 @@ class TimerScheduler:
         for a name waiting in the queue.
 
         Its own age is kept from the FIRST fire, not the last, so a push that keeps
-        arriving cannot hold a stale errand alive for ever.
+        arriving cannot hold a stale errand alive for ever. ``reason`` is the GATE's own
+        locale key (already computed by the caller — this never asks the gate itself)
+        so a live reading can say WHY without a second question to the game.
         """
         if errand is None:
             return
         with self._queue_lock:
             old = self._gated.get(name)
             since = old[3] if old else time.monotonic()
-            self._gated[name] = (errand, bool(scheduled), by, since, 0.0)
+            self._gated[name] = (errand, bool(scheduled), by, since, 0.0, reason)
             self._adhoc.setdefault(name, errand)
         self._dbg.info("parked %s behind the gate", name)
 
@@ -1606,9 +1632,9 @@ class TimerScheduler:
         out, dropped = [], []
         with self._queue_lock:
             parked = list(self._gated.items())
-        for name, (errand, scheduled, by, since, last) in parked:
+        for name, (errand, scheduled, by, since, last, _reason) in parked:
             if now - since >= GATE_KEEP_SEC:
-                dropped.append(name)
+                dropped.append((name, scheduled, by))
                 continue
             if last and now - last < GATE_RETRY_SEC:
                 continue
@@ -1616,20 +1642,23 @@ class TimerScheduler:
             if reason:
                 with self._queue_lock:
                     if name in self._gated:
-                        self._gated[name] = (errand, scheduled, by, since, now)
+                        self._gated[name] = (errand, scheduled, by, since, now, reason)
                 continue
             with self._queue_lock:
                 self._gated.pop(name, None)
             if self._enqueue(name, scheduled, by):
                 out.append(name)
-        for name in dropped:
+        for name, scheduled, by in dropped:
             with self._queue_lock:
                 self._gated.pop(name, None)
             # SAID OUT LOUD. An event given up on is the thing the operator was told
             # would never happen, so it is never silent — even though giving it up is
-            # the right answer once its moment has passed.
+            # the right answer once its moment has passed. And it stays visible a while
+            # longer still, in `recent()` — a row that vanished off the gated list said
+            # nothing about WHERE it went until #1500.
             self._log("timers.log.gate_expired", name=name,
                       secs=int(GATE_KEEP_SEC))
+            self._note_done(name, by, scheduled, "gate_expired")
             self._dbg.warning("gave up %s — %.0fs behind the gate", name, GATE_KEEP_SEC)
         return out
 
@@ -1637,9 +1666,28 @@ class TimerScheduler:
         """The fires waiting for their gate, oldest first — for «Занятость» (#1416)."""
         now = time.monotonic()
         with self._queue_lock:
-            rows = [{"name": name, "secs": max(0.0, now - since)}
-                    for name, (_e, _s, _b, since, _l) in self._gated.items()]
+            rows = [{"name": name, "secs": max(0.0, now - since), "scheduled": bool(s),
+                     "by": b, "reason": reason}
+                    for name, (_e, s, b, since, _l, reason) in self._gated.items()]
         return sorted(rows, key=lambda row: -row["secs"])
+
+    def _note_done(self, name: str, by: str, scheduled: bool, outcome: str) -> None:
+        """Remember what a queue entry turned into — the other half of #1500.
+
+        A row a person was told «в очереди» about must not simply stop answering: this
+        is what lets a live view say «выполнено» / «отменено» / «просрочено, ждало
+        ворота» for the last :data:`RECENT_KEEP` of them instead of nothing at all.
+        """
+        with self._queue_lock:
+            self._recent.appendleft({"name": name, "by": by, "scheduled": bool(scheduled),
+                                     "outcome": outcome, "when": time.monotonic()})
+
+    def recent(self) -> list:
+        """The last errands to leave the queue, newest first, with their age in seconds."""
+        now = time.monotonic()
+        with self._queue_lock:
+            rows = list(self._recent)
+        return [{**row, "secs": max(0.0, now - row["when"])} for row in rows]
 
     def _requeue(self, name: str, scheduled: bool, by: str = BY_HAND) -> None:
         """Put a turned-down errand back on the queue, still claimed.
@@ -1661,6 +1709,7 @@ class TimerScheduler:
             if not refire:
                 self._queued.discard(name)
                 self._queued_at.pop(name, None)
+                self._queued_meta.pop(name, None)
                 self._adhoc.pop(name, None)   # a submitted trigger errand is done with
                 # The cancel mark goes with the claim. A cancel that arrived while the
                 # errand was already running is refused (see `cancel`), but a mark left
@@ -1668,6 +1717,16 @@ class TimerScheduler:
                 # same errand — a bug that would look like a timer that fires once and
                 # then skips a turn for no reason.
                 self._cancelled.discard(name)
+                # THE WORKER IS IDLE NOW, and `queue_state()` has to say so (#1500):
+                # `_running` was set for the length of this call and nothing else ever
+                # cleared it on the ordinary finish path, so between one run ending and
+                # the next one starting a live view kept reporting the LAST errand as
+                # still going, with its age climbing for as long as the queue happened
+                # to sit empty. Only when it is still THIS name — a refire (above) put
+                # it straight back on the worker's plate and is about to run it again.
+                if self._running == name:
+                    self._running = None
+                    self._running_since = 0.0
                 return
         # AN ERRAND MARKED «СРАЗУ» RE-FIRES THE WAY IT FIRED. Putting it on the queue
         # would hand the second push exactly the wait the flag exists to remove — and
@@ -1677,6 +1736,7 @@ class TimerScheduler:
             with self._queue_lock:
                 self._queued.discard(name)     # `_express` claims the name itself
                 self._queued_at.pop(name, None)
+                self._queued_meta.pop(name, None)
             if not self._express(name, False, refire=True, by=BY_TRIGGER):
                 with self._queue_lock:
                     self._adhoc.pop(name, None)
@@ -1705,14 +1765,18 @@ class TimerScheduler:
         with self._queue_lock:
             running, since = self._running, self._running_since
             express = sorted(self._express_running)
-            waiting = [(name, self._queued_at.get(name, now))
+            waiting = [(name, self._queued_at.get(name, now),
+                       self._queued_meta.get(name, (False, BY_HAND)))
                        for name in self._queued
                        if name != running and name not in self._express_running]
             held = sorted(self._busy_held)
             refire = sorted(self._refire)
             cancelled = sorted(self._cancelled)
-        waiting = [{"name": name, "secs": max(0.0, now - at)}
-                   for name, at in waiting]
+        # WHO lined it up and HOW (#1500) travel beside the wait itself, so a live view
+        # can say «таймер» / «кнопка» / «событие» without a second question to anything.
+        waiting = [{"name": name, "secs": max(0.0, now - at),
+                   "scheduled": bool(meta[0]), "by": meta[1]}
+                  for name, at, meta in waiting]
         waiting.sort(key=lambda row: row["secs"], reverse=True)
         return {
             "running": running or "",
@@ -1727,6 +1791,9 @@ class TimerScheduler:
             # are not «в очереди» — the queue would run them — and a reading that left
             # them out is what made a delayed event look like a dropped one.
             "gated": self.gated(),
+            # …and what just left, so a row a person was told «в очереди» about does not
+            # simply stop answering the moment it finishes (#1500).
+            "recent": self.recent(),
             "alive": self.running,
         }
 
@@ -1835,6 +1902,7 @@ class TimerScheduler:
         """
         if self._take_cancelled(name):       # the UI took it back while it waited
             self._log("timers.log.cancelled", name=name)
+            self._note_done(name, by, scheduled, "cancelled")
             self._release(name)
             return "skipped"
         timer = self._catalogue().by_name(name)
@@ -1862,7 +1930,7 @@ class TimerScheduler:
                 # re-offered when the gate opens, and a catalogue timer is left to its
                 # clock exactly as before.
                 if timer is not None and self._catalogue().by_name(name) is None:
-                    self._park_gated(name, timer, scheduled, by)
+                    self._park_gated(name, timer, scheduled, by, reason)
                 return "skipped"
         # Mark it as running for the whole call, so `cancel` can tell "waiting in
         # the queue" (cancellable) from "in flight" (not) — and so a fire landing
@@ -1882,6 +1950,7 @@ class TimerScheduler:
             self._hold_until = time.time() + self._busy_retry
             self._requeue(name, scheduled)   # stays claimed: it is still waiting
             return "busy"
+        self._note_done(name, by, scheduled, "done" if ok else "failed")
         self._release(name)
         return "ran" if ok else "skipped"
 

@@ -133,10 +133,10 @@ def test_the_wait_is_bounded_and_the_giving_up_is_said():
     sched.drain()
     # …and the fire is older than the panel's patience.
     with sched._queue_lock:
-        errand, scheduled, by, _since, _last = sched._gated["rally_auto_join"]
+        errand, scheduled, by, _since, _last, reason = sched._gated["rally_auto_join"]
         sched._gated["rally_auto_join"] = (
             errand, scheduled, by,
-            time.monotonic() - timersmod.GATE_KEEP_SEC - 1, 0.0)
+            time.monotonic() - timersmod.GATE_KEEP_SEC - 1, 0.0, reason)
     assert sched.enqueue_due() == []
     assert sched.gated() == []
     assert ("log", "timers.log.gate_expired") in ran, \

@@ -131,7 +131,17 @@ def _queue(rt) -> dict:
     if schedule is None:
         return {}
     try:
-        return schedule.timers.queue_state()
+        from .. import timers as timersmod
+
+        state = schedule.timers.queue_state()
+        # WHEN A GATED FIRE'S PATIENCE RUNS OUT (#1500) — derived here, once, from the
+        # scheduler's own constant, rather than a copy of `GATE_KEEP_SEC` kept beside
+        # it: the row already carries its age, and this is arithmetic on it, not a
+        # second reading of anything.
+        for row in state.get("gated") or ():
+            row["expires_in"] = max(0.0, timersmod.GATE_KEEP_SEC - row["secs"])
+            row["retry_sec"] = int(timersmod.GATE_RETRY_SEC)
+        return state
     except Exception:                        # noqa: BLE001 — a reading, never the panel
         return {}
 

@@ -475,7 +475,7 @@ class Schedule:
             # still there to act on. The scheduler holds it behind its gate and offers
             # it again on its own beat (`TimerScheduler._retry_gated`), giving up only
             # once the moment it was about has certainly passed.
-            self.timers.park_gated(trigger)
+            self.timers.park_gated(trigger, "timers.log.skip_daemon")
             return "held"
         return self.timers.submit(trigger)
 
