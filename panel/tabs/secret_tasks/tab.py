@@ -1761,9 +1761,22 @@ class SecretTasksTab(PanelTab):
         Everything OFF this list is untouched by the walk, which is the other half of the
         rule the tab is built on: a row nobody asked about cannot be dropped by an answer
         nobody got (:data:`THE_LIST_RULE`).
+
+        READINESS IS READ OFF THE CLOCK HERE, not off the row's `ready` flag. The flag is
+        the once-a-second pass's, and that pass is the WINDOW's — it starts when somebody
+        first looks at the tab. A press that arrives from the phone before anybody has
+        opened it would otherwise find every restored row still flagged «not ready» and
+        answer «нечего сверять» about a list full of ripe tiles. The game's clock is the
+        same authority the flag itself is computed from (#1227), so asking it directly
+        costs nothing and cannot go stale.
         """
+        import game_clock
+
+        now = game_clock.now_ms()
         rows = [r for r in self._rows.values()
-                if r.get("ready") and self._takeable(r)]
+                if (r.get("completed_at") or 0) and int(r["completed_at"]) <= now
+                and (r.get("expires_at") or 0) and int(r["expires_at"]) > now
+                and self._takeable(r)]
         return sorted(rows, key=lambda r: (r.get("expires_at") or float("inf"),
                                            str(r.get("uuid"))))
 
