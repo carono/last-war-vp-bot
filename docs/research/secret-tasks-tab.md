@@ -11,6 +11,7 @@ answer, `P` = panel-only, `F` = file.
 | `secret_tick` | 1 s | stamp share marks, recompute timers, drop expired, flip `ready`/`soon`, render or repaint state cell, persist on expiry, refresh both order lines, re-arm poll + live, tick 4 other pages | `F` (`stat` of `secret_shared.json`, parse only on mtime change) | no | `on_show` → `_start_ticking` | `shutdown()` only |
 | `secret_live` | 250 ms | rewrite the state cell where its text changed — draw only, decides nothing | nothing | no | `_tick` → `_maybe_start_live` while any row has a clock | when no row on the tab has a clock |
 | `secret_poll` | 3 s | re-read the RAIDABLE rows: refresh `loot_count`/clocks, drop what a read that could see it did not carry | `V` `_vm_all_alliance_tasks` | no | `_maybe_start_poll` while `_hot_rows()` non-empty | when nothing is raidable |
+| `secret_harvest` | 20 s | re-read the capture's checkpoint and merge it — the whole background half: loot counts rise, rows are stamped «сверено» with the moment the MAP answered. Asks the game nothing (the template re-rank is cached) | `F` `tasks.json` | no | `ensure_loaded` (BOOT), self re-arms | `shutdown()`; skipped while a merge is in flight or the list is empty |
 | `secret_clock` | 5 min | re-measure game-vs-PC clock drift | `V` one line, skipped while game down/busy | no | `on_show` → `_start_clock_sync`, self re-arms | `shutdown()` |
 | `secret_nudge` | 800 ms one-shot debounce | re-merge the capture checkpoint into the list | `F` `tasks.json` + `V` cfg-rank chunk | no | every capture finding line / «on timer» line | fires once per burst |
 | `autoloot_push_restart` | 1.5 s one-shot | re-spawn the push listener with the new rule | nothing | no | level box typed while «Автолут ★» on | fires once |
@@ -26,6 +27,7 @@ answer, `P` = panel-only, `F` = file.
 | `secret_live` | `tab.py:_live_tick` / `grid.py:repaint_countdowns` |
 | `secret_poll` | `tab.py:_poll_tick` → `_poll_work` → `_poll_apply` |
 | `secret_clock` | `tab.py:_start_clock_sync` → `_sync_clock` |
+| `secret_harvest` | `tab.py:_harvest_tick` → `refresh` → `_fetch_scan` → `_merge` |
 | `secret_nudge` | `capture.py:on_line` → `_nudge` → `tab.py:refresh` |
 | `autoloot_push_restart` | `autoloot.py:range_changed` → `restart_push` |
 | «Автолут ★» loop | `autoloot.py:_loop` → `tick` → `run` → `_spend` |

@@ -92,11 +92,27 @@ on another account, with an alliance spread across warzones, it would cover more
 
 ## 4. What is actually done
 
-* **Every sighting counts.** The sniffer hears tiles whenever the map moves for any
-  reason — the four-hourly star round, a person panning, any errand that jumps. Those
-  sightings raise `loot_count` (upwards only) and stamp `checked_at`, so the «Сверено»
-  column is filled by traffic nobody paid for. A checkpoint REPEAT does not stamp: that
-  would date the row by when the file was read.
+* **Every sighting counts — harvested from the checkpoint, not from the event stream.**
+  The sniffer hears tiles whenever the map moves for any reason: the four-hourly star
+  round, a person panning, any errand that jumps. Its EVENT stream cannot carry those,
+  though, and that is worth knowing before anyone tries: the capture child announces a
+  tile once per state and never again — the dedup is what stops a lap of twenty thousand
+  tiles flooding the panel — so **a full lap over a warzone whose tiles are all already
+  on the list prints nothing and taught the list nothing**, measured exactly that way.
+
+  The checkpoint has them all. So the tab re-reads that file every twenty seconds
+  (`secret_harvest`), on a worker, and merges it: `loot_count` rises (upwards only) and
+  the row is stamped. It asks the game nothing — the template re-rank that used to ride
+  along is cached, so the steady state is a file read and no round trip at all.
+
+  **The stamp is when the MAP answered, not when the file was read.** The checkpoint is
+  rewritten every tick with everything still inside its freshness window, so the same
+  record is offered over and over; each carries its own `seen_at` and that is what is
+  carried onto the game's clock. A newer reading moves the stamp forward, an older one
+  cannot walk it back.
+
+  Measured on the shipped build: one ordinary lap of one warzone → **98 rows stamped, 9
+  of them now reading 3/3**, 2 at 2/3, 1 at 1/3 — and no game call made for any of it.
 * **The robbery corrects the rest at the point of use.** `hero.dispatch.steal` answers
   «задание уже взято / больше не доступно / срок истёк» about a tile that has gone, and
   the row comes off on that answer (`_drop_gone`). A premature or hopeless press costs
