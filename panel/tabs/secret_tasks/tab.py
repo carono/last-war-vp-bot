@@ -3007,9 +3007,22 @@ class SecretTasksTab(PanelTab):
         import steal_secret_task
         tasks = proto.load_fresh_tasks(self.rt.profiles.tasks_json(),
                                        max_age_seconds=None)
+        # …AND THE ROUND TRIP IS ONLY MADE FOR A TEMPLATE NOBODY HAS ASKED ABOUT YET
+        # (#1484). This read runs on a clock now — every :data:`HARVEST_MS`, which is the
+        # whole background half of keeping the list true — and a game call on a clock is
+        # exactly what that half may not be. The answer per template never changes (it is
+        # a config row), the tab already keeps the cache the event feed fills
+        # (`_cfg_rank`), and a checkpoint whose templates are all in it is re-ranked from
+        # memory for nothing. Live, a lap of one warzone puts every template it carries
+        # into the cache on the first merge and the next hundred cost no call at all.
+        unknown = {int(t.cfg_id) for t in tasks
+                   if t.cfg_id and int(t.cfg_id) not in self._cfg_rank}
+        fixed = 0
         try:
-            fixed = steal_secret_task.apply_cfg_rank(self.rt.game.evaluator(), tasks,
-                                                     say=lambda _m: None)
+            evaluator = self.rt.game.evaluator() if unknown else None
+            fixed = steal_secret_task.apply_cfg_rank(evaluator, tasks,
+                                                     say=lambda _m: None,
+                                                     cache=self._cfg_rank)
         except Exception:            # noqa: BLE001 — no daemon, no game: keep the digits
             fixed = 0
         if fixed:

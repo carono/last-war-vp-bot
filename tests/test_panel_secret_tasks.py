@@ -2197,6 +2197,34 @@ def test_the_background_half_reads_a_file_and_asks_the_game_nothing():
     assert "_harvest_tick" in boot, "the harvest is not armed at boot"
 
 
+def test_the_periodic_re_rank_asks_the_game_only_about_a_template_it_has_not_seen():
+    """A game call on a clock is the thing the harvest may not be (#1484).
+
+    The template's level and star are a config row and never change, so the second
+    reading of the same checkpoint must cost nothing: `apply_cfg_rank` takes the tab's
+    own cache, asks only about what is missing from it, and writes back what it learns.
+    """
+    import steal_secret_task
+
+    asked = []
+
+    class _Ev:
+        def run(self, chunk, marker=None, settle=None):
+            asked.append(chunk)
+            return ["ACT CFG cfg=60000701 lvl=7 spec=1"]
+
+    cache = {}
+    tasks = [_StubTask(1, cfg_id=60000701), _StubTask(2, cfg_id=60000701)]
+    steal_secret_task.apply_cfg_rank(_Ev(), tasks, say=lambda _m: None, cache=cache)
+    assert len(asked) == 1 and cache == {60000701: (7, 1)}, (asked, cache)
+
+    # …the same templates again: no round trip, and the ranking still applied.
+    more = [_StubTask(3, cfg_id=60000701, level=99)]
+    steal_secret_task.apply_cfg_rank(_Ev(), more, say=lambda _m: None, cache=cache)
+    assert len(asked) == 1, "the re-rank asked the game about a template it already knew"
+    assert more[0].level == 7, more[0].level
+
+
 def test_nothing_walks_the_map_on_its_own():
     """«Обход карты — плохая практика» — so the tab keeps no timer that can start one.
 

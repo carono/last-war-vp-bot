@@ -184,7 +184,7 @@ def _label(task) -> str:
                task.level, task.loot_count))
 
 
-def apply_cfg_rank(ev, tasks, say=print) -> int:
+def apply_cfg_rank(ev, tasks, say=print, cache=None) -> int:
     """Re-rank checkpoint tasks against the CLIENT'S OWN config row. Returns how many.
 
     A capture decodes a pcap in a child process with no game in it, so the `starred` and
@@ -201,21 +201,35 @@ def apply_cfg_rank(ev, tasks, say=print) -> int:
     to the VM feed. A template the client cannot answer for comes back `0/0`, which that
     function already reads as «the config said nothing» and answers from the digits, so
     an unknown id is exactly as good (and as bad) as it was before.
+
+    ``cache`` makes the round trip OPTIONAL, which is what lets a caller run this on a
+    clock (#1484). The answer per template is a config row and never changes, so a caller
+    that keeps a `{cfg_id: (level, is_special)}` dict hands it in: templates already in
+    it are applied from memory, only the rest are asked about, and what comes back is
+    written into the dict for next time. With every template known — the steady state
+    after one merge — `ev` is never touched, so a periodic re-rank costs no game call at
+    all. Pass `ev=None` deliberately to say «do not ask, use what is cached».
     """
     sys.path.insert(0, os.path.join(_HERE, "lib"))
     import lastwar_proto as proto
     import lua_actions
 
     ids = sorted({int(t.cfg_id) for t in tasks if t.cfg_id})
-    if not ids or ev is None:
+    if not ids:
         return 0
-    ranks: dict[int, tuple[int, int]] = {}
-    for line in ev.run(lua_actions.dispatch_task_cfg_rank(ids), MARKER, 1.0):
-        if " CFG cfg=" not in line:
-            continue
-        cfg, lvl, spec = _num(line, "cfg"), _num(line, "lvl"), _num(line, "spec")
-        if cfg:
-            ranks[cfg] = (lvl, spec)
+    ranks: dict[int, tuple[int, int]] = dict(cache or {})
+    missing = [i for i in ids if i not in ranks]
+    if missing and ev is not None:
+        for line in ev.run(lua_actions.dispatch_task_cfg_rank(missing), MARKER, 1.0):
+            if " CFG cfg=" not in line:
+                continue
+            cfg, lvl, spec = _num(line, "cfg"), _num(line, "lvl"), _num(line, "spec")
+            if cfg:
+                ranks[cfg] = (lvl, spec)
+                if cache is not None:
+                    cache[cfg] = (lvl, spec)
+    if not ranks:
+        return 0
     changed = 0
     for task in tasks:
         got = ranks.get(int(task.cfg_id or 0))
