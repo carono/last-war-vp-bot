@@ -119,6 +119,51 @@ the table answers for none of it. It is still read every three seconds by the re
 poll, and where it *does* answer it now stamps the row as verified — it costs nothing and
 on another account, with an alliance spread across warzones, it would cover more.
 
+## How a tile is learned to be GONE — the reply's own rectangle
+
+The question nothing above answers: the operator jumps to a coordinate the list calls
+«готово к сбору» and finds empty ground, and the row stays. How does the CLIENT know?
+
+**It is told about ground, not about tiles.** A `world.get.block` reply is a set of
+blocks, and each block carries the rectangle it accounts for:
+
+| field | meaning |
+|---|---|
+| `leftBottom` / `rightTop` | the corners, packed `y * maxAreaSize + x`, **server-local** — not the packing the REQUEST uses (protocol.md §7) |
+| `maxAreaSize` | the warzone's side, 1000 on every one measured |
+| `viewLvl` | the height it was asked at |
+| `points` | everything standing inside that rectangle |
+
+So a tile inside the rectangle and absent from `points` is not on the map. That is how
+the client finds out — it draws what the reply carries and drops what it does not — and
+it is the only mechanism there is: no per-tile push, no per-tile question, and a tap
+sends nothing (above).
+
+Verified against a recording before a line was written: for every block, the tasks the
+existing decoder yields inside the rectangle are exactly the `f2 = 17` points that block
+carried. The map **wraps horizontally**, and a block that runs off the right edge comes
+back with `x0 > x1` — measured, `(991, 0) -> (0, 111)` carrying points at x 994 and 996 —
+so «is this tile inside» is one function (`proto.area_holds`) and not an inline
+comparison.
+
+`viewLvl` is load-bearing. Above the secret-task height the client keeps asking for bases
+and stops asking for tasks, so a rectangle heard up there would read as «no tasks here»
+about ground that is full of them. Only `viewLvl == 0` is trusted.
+
+**Live acceptance.** One ordinary lap of one warzone, with the list holding rows found
+over the previous days:
+
+```
+карта ответила про их клетки и их там нет: пропало 1
+карта ответила про их клетки и их там нет: пропало 3
+карта ответила про их клетки и их там нет: пропало 21
+карта ответила про их клетки и их там нет: пропало 87
+```
+
+— 112 rows removed, and what was left was **114 rows on that warzone against the 114
+tiles the lap actually heard there**. The rows on the warzone nobody asked about were
+untouched, which is the rule working from the other side.
+
 ## 4. What is actually done
 
 * **Every sighting counts — harvested from the checkpoint, not from the event stream.**
@@ -142,6 +187,12 @@ on another account, with an alliance spread across warzones, it would cover more
 
   Measured on the shipped build: one ordinary lap of one warzone → **98 rows stamped, 9
   of them now reading 3/3**, 2 at 2/3, 1 at 1/3 — and no game call made for any of it.
+* **A region that answered takes the rows it did not carry.** The rectangle above, as
+  its own machine line out of the capture (`##AREA##`), judged on the Tk thread. Three
+  guards keep it an answer rather than a silence: the row must be inside the rectangle,
+  the answer must be NEWER than the row's own last sighting, and a row we robbed
+  ourselves is kept. A row nobody has answered about stays where it is, for ever if need
+  be.
 * **The robbery corrects the rest at the point of use.** `hero.dispatch.steal` answers
   «задание уже взято / больше не доступно / срок истёк» about a tile that has gone, and
   the row comes off on that answer (`_drop_gone`). A premature or hopeless press costs
