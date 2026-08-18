@@ -1,13 +1,14 @@
-"""«Автозапуск» as a menu entry: one switch for the whole machine (#1506).
+"""«Автозапуск»: one switch for the whole machine — one section of «Параметры» (#1506, #1509).
 
-It used to live on «Настройки» (`panel/tabs/settings.py`), a page inside one profile —
-which was the wrong shape from the start: `panel/runtime/autostart.py` registers exactly
-ONE Windows task for the whole panel, whatever profiles happen to be open in it (#1207),
-so every profile's «Настройки» drew the same tick with a different account's name over
-it. This is the shape the panel already uses for the other things that belong to the
-WINDOW rather than to an account — «Веб» (`web_dialog.py`) and «Серверы»
-(`servers_dialog.py`): a modal off the menu bar, opened on demand, thrown away when it
-closes.
+It used to live on the profile's own «Настройки» tab → «Игра» (`panel/tabs/settings.py`),
+a page inside one
+profile — which was the wrong shape from the start: `panel/runtime/autostart.py`
+registers exactly ONE Windows task for the whole panel, whatever profiles happen to be
+open in it (#1207), so every profile's page drew the same tick with a different
+account's name over it (#1506). It then got its own entry on the menu bar; now it is one
+row in the sidebar of the single «Параметры» modal (`panel/runtime/settings_dialog.py`,
+#1509) beside «Веб», «Профиль» and «Язык» — every switch that belongs to the window
+rather than to an account, behind one door instead of four.
 
 WHAT IT SHOWS IS ASKED OF WINDOWS, NEVER REMEMBERED. `autostartmod.status()` calls
 `schtasks /Query` itself — a task removed by hand in `taskschd.msc`, or one left over
@@ -31,97 +32,43 @@ from tkinter import messagebox, ttk
 from . import autostart as autostartmod
 from .. import i18n as i18nmod
 
-#: The one dialog this process has open, if any — a second «Автозапуск» raises it
-#: instead of drawing a second copy of the same switch.
-_OPEN = None
 
+def build(parent, rt_get, t) -> "_AutostartSection":
+    """Build the section INTO ``parent`` — a content frame `settings_dialog.py` owns.
 
-def open_dialog(parent, rt_get, t) -> "tk.Toplevel | None":
-    """Show the autostart switch. ``rt_get()`` is the profile on screen NOW.
-
-    A callable rather than a runtime for the same reason `web_dialog.open_dialog` takes
-    one: the dialog outlives a profile switch, and a press belongs in whichever
-    profile's log is on screen when it happens, not in the one that was showing when the
-    window opened.
+    ``rt_get()`` is the profile on screen NOW — see `web_dialog.build` for why this is
+    a callable rather than a runtime.
     """
-    global _OPEN
-    if _OPEN is not None and _OPEN.alive():
-        _OPEN.lift()
-        return _OPEN.win
-    _OPEN = _AutostartDialog(parent, rt_get, t)
-    return _OPEN.win
+    return _AutostartSection(parent, rt_get, t)
 
 
-def close_dialog() -> None:
-    """Shut it if it is open — the window is closing, or the language changed."""
-    global _OPEN
-    dialog, _OPEN = _OPEN, None
-    if dialog is not None:
-        dialog.destroy()
-
-
-class _AutostartDialog:
-    """The modal itself: one switch, one note, and what it is set to do."""
+class _AutostartSection:
+    """One switch, one note, and what it is set to do."""
 
     def __init__(self, parent, rt_get, t) -> None:
         self._rt_get = rt_get
         self._t = t
 
-        self.win = win = tk.Toplevel(parent)
-        win.title(t("menu.autostart"))
-        win.resizable(False, False)
-        win.transient(parent)
-        win.protocol("WM_DELETE_WINDOW", self._close)
-
-        frm = ttk.Frame(win)
-        frm.pack(fill="both", expand=True, padx=14, pady=14)
+        frm = ttk.Frame(parent)
+        frm.pack(fill="both", expand=True)
+        self._frame = frm
 
         self._on = tk.BooleanVar(value=False)
         ttk.Checkbutton(frm, text=t("autostart.enable"), variable=self._on,
                         command=self._toggled).pack(anchor="w")
 
-        # THE ONE SENTENCE THAT EXPLAINS WHY THIS IS NOT ON A TAB — the same reason
-        # «Веб» carries one (`web_dialog.py`): a profile's own page would draw one
-        # machine-wide task with a different account's name over it every time.
-        ttk.Label(frm, text=t("autostart.shared"), foreground="#888", wraplength=520,
+        # THE ONE SENTENCE THAT EXPLAINS WHY THIS IS NOT ON A PROFILE'S PAGE — the same
+        # reason «Веб» carries one: a profile's own tab would draw one machine-wide task
+        # with a different account's name over it every time.
+        ttk.Label(frm, text=t("autostart.shared"), foreground="#888", wraplength=480,
                   justify="left").pack(anchor="w", pady=(6, 0))
-        ttk.Label(frm, text=t("autostart.hint"), foreground="#888", wraplength=520,
+        ttk.Label(frm, text=t("autostart.hint"), foreground="#888", wraplength=480,
                   justify="left").pack(anchor="w", pady=(6, 0))
 
-        self._note = ttk.Label(frm, wraplength=520, justify="left")
+        self._note = ttk.Label(frm, wraplength=480, justify="left")
         self._note.pack(anchor="w", pady=(10, 0))
 
-        buttons = ttk.Frame(frm)
-        buttons.pack(fill="x", pady=(12, 0))
-        ttk.Button(buttons, text=t("profile.close"), command=self._close).pack(
-            side="right")
-
         self._reload()
-
-    # -- lifecycle ------------------------------------------------------------
-    def alive(self) -> bool:
-        try:
-            return bool(self.win.winfo_exists())
-        except tk.TclError:
-            return False
-
-    def lift(self) -> None:
-        try:
-            self.win.lift()
-            self.win.focus_set()
-        except tk.TclError:
-            pass
-
-    def destroy(self) -> None:
-        try:
-            self.win.destroy()
-        except tk.TclError:
-            pass
-
-    def _close(self) -> None:
-        global _OPEN
-        _OPEN = None
-        self.destroy()
 
     # -- the switch -------------------------------------------------------------
     def _toggled(self) -> None:
@@ -138,7 +85,8 @@ class _AutostartDialog:
             autostartmod.set_enabled(rt.profiles, want)
         except RuntimeError as exc:
             said = i18nmod.translated(self._t, exc)
-            messagebox.showerror(self._t("menu.autostart"), said, parent=self.win)
+            messagebox.showerror(self._t("menu.autostart"), said,
+                                 parent=self._frame.winfo_toplevel())
             self._rt_say(rt, "log.autostart.failed", error=said)
         else:
             if want:
@@ -153,22 +101,22 @@ class _AutostartDialog:
     def _rt_say(self, rt, key: str, **fmt) -> None:
         try:
             rt.say("autostart", key, **fmt)
-        except Exception:                    # noqa: BLE001 — a log line, never the dialog
+        except Exception:                    # noqa: BLE001 — a log line, never the section
             pass
 
-    # -- what the dialog shows ---------------------------------------------------
+    # -- what the section shows ---------------------------------------------------
     def _reload(self) -> None:
         """Re-read the scheduler and the last hourly verdict — never a saved tick.
 
-        `schtasks /Query` is a subprocess (~60 ms measured); a modal opened on demand
+        `schtasks /Query` is a subprocess (~60 ms measured); a section built on demand
         can afford it, unlike a tab redrawn on every profile switch.
         """
         rt = self._rt_get()
         try:
             info = autostartmod.status(rt.profiles)
-        except Exception:                    # noqa: BLE001 — the dialog stays, blank
+        except Exception:                    # noqa: BLE001 — the note stays blank
             return
-        if not self.alive():
+        if not self._frame.winfo_exists():
             return
         self._on.set(info.registered)
         lines = []

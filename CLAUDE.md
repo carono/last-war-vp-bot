@@ -252,11 +252,24 @@ copy of them per account and obeyed whichever profile switched on first. Ask the
 questions in the order this file gives them («A profile is a whole panel of its own»)
 and the answer was «per machine» all along. So the knobs are a panel-wide block in
 `profiles/settings.json` (`panel/profile.py`), `panel/runtime/web_control.py` turns them
-into the one running server, `panel/runtime/web_dialog.py` draws them off the menu bar
-beside «Профиль», and `panel/profile.py::migrate_web_settings` brought the profiles'
-copies across so nobody's phone stopped signing in. **The divergence itself did not
-change** and the same test pins it from the other side: no `web` tab in the registry,
-and nothing in `panel/web/api.py` that can reach the setting.
+into the one running server, and `panel/runtime/web_dialog.py` draws them. **The
+divergence itself did not change** and the same test pins it from the other side: no
+`web` tab in the registry, and nothing in `panel/web/api.py` that can reach the setting.
+
+**«Веб» was its own menu entry for a while, and then «Профиль» and «Автозапуск» grew
+entries of their own beside it (#1506) — and a fourth command on the menu bar for a
+fourth switch of the exact same kind is where "one menu bar, one command per knob"
+becomes indistinguishable from never having organised it at all (#1509).** All four —
+«Веб», «Профиль», «Язык», «Автозапуск» — answer the same question the same way: a
+switch that belongs to the WINDOW rather than to an account. So one modal replaced the
+four commands, `panel/runtime/settings_dialog.py` (the sidebar shape, and nothing about
+any one switch), with each switch's own content unchanged and merely reused as a
+section — `web_dialog.py` and `autostart_dialog.py` now build INTO a frame the modal
+hands them instead of owning a `Toplevel`, and «Профиль» / «Язык» stay methods on
+`Panel` because they reach the shell's own state (the workspace, the translator). The
+modal is called «Параметры», deliberately not «Настройки» — a profile's own tab already
+has that name (`tab.settings`), and the same word over two different doors is exactly
+the confusion this file exists to prevent.
 
 **«⟳ Перезапустить панель» is what a legal exception looks like in practice** (#1258).
 Python edits reach a running panel only through a fresh interpreter, and the person

@@ -899,15 +899,19 @@ Three things bound it:
   in `CLAUDE.md`. `tests/test_panel_web_screens.py` fails if one of them grows a screen
   quietly — and a third exception is added the same way: ask, agree, write it in both
   files, pin it in the test.
-* **There were THREE, and «Веб» is now a MENU ENTRY rather than a tab (#1313).** The
-  divergence did not change — the door the person came in through is still not opened
-  from the far side of it — but its subject did: one server answers for every open
-  profile, so the port, the token and the certificate are the WINDOW's and live in the
-  panel-wide `profiles/settings.json`. `panel/runtime/web_control.py` owns them,
-  `panel/runtime/web_dialog.py` draws them off the menu bar, and the same test pins
-  both halves: no `web` tab in the registry, and no route in `panel/web/api.py` that
-  can reach the setting. Anything else a screenless corner of the panel needs on the
-  move goes the way «⟳ Перезапустить панель» did — onto «Состояние» as a press.
+* **There were THREE, and «Веб» is now a section of «Параметры» rather than a tab
+  (#1313, #1509).** The divergence did not change — the door the person came in
+  through is still not opened from the far side of it — but its subject did: one
+  server answers for every open profile, so the port, the token and the certificate
+  are the WINDOW's and live in the panel-wide `profiles/settings.json`.
+  `panel/runtime/web_control.py` owns them, `panel/runtime/web_dialog.py` draws them —
+  first as its own menu entry, and since #1509 as one row in the sidebar of the single
+  «Параметры» modal (`panel/runtime/settings_dialog.py`) beside «Профиль», «Язык» and
+  «Автозапуск», every switch of that kind behind one door instead of four — and the
+  same test pins both halves: no `web` tab in the registry, and no route in
+  `panel/web/api.py` that can reach the setting. Anything else a screenless corner of
+  the panel needs on the move goes the way «⟳ Перезапустить панель» did — onto
+  «Состояние» as a press.
 * **A control added to one of those two is covered by its standing exception, not by
   a new one** — but say so where you add it, or the next reader cannot tell. «Обновлять
   до dev-версии» on «Разработка» (#1274) is the worked example: the tick exists only in

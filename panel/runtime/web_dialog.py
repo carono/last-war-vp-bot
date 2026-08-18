@@ -1,24 +1,17 @@
-"""«Веб» as a menu entry: the switch, the address and the token, in one modal (#1313).
+"""«Веб»: the switch, the address and the token — one section of «Параметры» (#1313, #1509).
 
-This is what the `panel/tabs/web.py` tab became. The knobs behind it are the WINDOW's
-(`panel/runtime/web_control.py`), so a page inside one profile was the wrong shape for
-them: whichever profile you happened to be looking at drew a copy of one answer, and the
-other profiles drew the same answer again with a different label on it.
-
-A modal off the menu bar is the shape the panel already uses for the other thing that
-belongs to the window and is touched twice a month — «Профиль». It is opened on demand,
-built in the language that is on at that moment, and thrown away when it closes, which
-is why nothing here registers a retranslation hook.
-
-IT LIVES IN `panel/runtime/` AND NOT IN THE SHELL. `panel/__main__.py` is the window,
-the notebook, the log and the menu; a change that needs more than a menu entry moves the
-more into the runtime first (`CLAUDE.md`). So the shell adds one label and calls
-:func:`open_dialog`, and everything the dialog knows is here.
+The knobs behind it are the WINDOW's (`panel/runtime/web_control.py`), so a page inside
+one profile was the wrong shape for them: whichever profile you happened to be looking
+at drew a copy of one answer, and the other profiles drew the same answer again with a
+different label on it. It used to be its own entry on the menu bar (#1313); now it is
+one row in the sidebar of the single «Параметры» modal (`panel/runtime/settings_dialog.py`,
+#1509) beside «Профиль», «Язык» and «Автозапуск» — every switch that belongs to the
+window rather than to an account, behind one door instead of four.
 
 THE PHONE HAS NO COPY OF THIS, on purpose and by agreement — it is the door the person
 came in through, and managing the door from the far side of it is how somebody locks
-themselves out. That was already true of the tab this replaces; `CLAUDE.md` and
-`docs/panel-tabs.md` carry the reasoning and `tests/test_panel_web_screens.py` pins it.
+themselves out. `CLAUDE.md` and `docs/panel-tabs.md` carry the reasoning and
+`tests/test_panel_web_screens.py` pins it.
 """
 from __future__ import annotations
 
@@ -28,47 +21,25 @@ from tkinter import ttk
 
 from . import web_control
 
-#: The one dialog this process has open, if any — a second «Веб» in the menu must raise
-#: the window that is already there rather than draw a second set of the same fields.
-_OPEN = None
 
+def build(parent, rt_get, t) -> "_WebSection":
+    """Build the section INTO ``parent`` — a content frame `settings_dialog.py` owns.
 
-def open_dialog(parent, rt_get, t) -> "tk.Toplevel | None":
-    """Show the remote-control settings. ``rt_get()`` is the profile on screen NOW.
-
-    A callable rather than a runtime because the dialog outlives a profile switch: the
-    log line a press produces belongs in whichever profile the person is looking at when
-    they press it, not in the one that was showing when the window opened.
+    ``rt_get()`` is the profile on screen NOW. A callable rather than a runtime because
+    the section outlives a profile switch: the log line a press produces belongs in
+    whichever profile the person is looking at when they press it, not in the one that
+    was showing when the modal opened.
     """
-    global _OPEN
-    if _OPEN is not None and _OPEN.alive():
-        _OPEN.lift()
-        return _OPEN.win
-    _OPEN = _WebDialog(parent, rt_get, t)
-    return _OPEN.win
+    return _WebSection(parent, rt_get, t)
 
 
-def close_dialog() -> None:
-    """Shut it if it is open — the window is closing, or the language changed."""
-    global _OPEN
-    dialog, _OPEN = _OPEN, None
-    if dialog is not None:
-        dialog.destroy()
-
-
-class _WebDialog:
-    """The modal itself: six knobs, three buttons and the link to type into a phone."""
+class _WebSection:
+    """Six knobs, three buttons and the link to type into a phone."""
 
     def __init__(self, parent, rt_get, t) -> None:
         self._rt_get = rt_get
         self._t = t
         values = web_control.settings()
-
-        self.win = win = tk.Toplevel(parent)
-        win.title(t("menu.web"))
-        win.resizable(False, False)
-        win.transient(parent)
-        win.protocol("WM_DELETE_WINDOW", self._close)
 
         self._on = tk.BooleanVar(value=bool(values["enabled"]))
         self._port = tk.StringVar(value=values["port"])
@@ -77,8 +48,9 @@ class _WebDialog:
         self._cert = tk.StringVar(value=values["cert"])
         self._key = tk.StringVar(value=values["key"])
 
-        frm = ttk.Frame(win)
-        frm.pack(fill="both", expand=True, padx=14, pady=14)
+        frm = ttk.Frame(parent)
+        frm.pack(fill="both", expand=True)
+        self._frame = frm
 
         head = ttk.Frame(frm)
         head.pack(fill="x")
@@ -89,8 +61,8 @@ class _WebDialog:
 
         # THE ONE SENTENCE THAT EXPLAINS WHY THIS IS NOT ON A TAB. Without it the person
         # who has three profiles open has no way to tell whether they are setting all of
-        # them or only the one whose page is behind this window.
-        ttk.Label(frm, text=t("web.shared"), foreground="#888", wraplength=520,
+        # them or only the one whose page is behind this modal.
+        ttk.Label(frm, text=t("web.shared"), foreground="#888", wraplength=480,
                   justify="left").pack(anchor="w", pady=(6, 0))
 
         grid = ttk.Frame(frm)
@@ -113,48 +85,21 @@ class _WebDialog:
         ttk.Button(buttons, text=t("web.copy"), command=self._copy).pack(
             side="left", padx=6)
         ttk.Button(buttons, text=t("web.open"), command=self._open).pack(side="left")
-        ttk.Button(buttons, text=t("profile.close"), command=self._close).pack(
-            side="right")
 
         ttk.Label(frm, text=t("web.address")).pack(anchor="w", pady=(12, 0))
         # An Entry rather than a Label so the address can be selected and copied on a
         # machine where the clipboard button is not what the person reaches for.
         self._link = ttk.Entry(frm)
         self._link.pack(fill="x")
-        ttk.Label(frm, text=t("web.hint"), wraplength=520,
+        ttk.Label(frm, text=t("web.hint"), wraplength=480,
                   justify="left").pack(anchor="w", pady=(10, 0))
-        ttk.Label(frm, text=t("web.https"), wraplength=520,
+        ttk.Label(frm, text=t("web.https"), wraplength=480,
                   justify="left").pack(anchor="w", pady=(8, 0))
         # Not a fixed label: which of the two warnings is true depends on whether the
         # server answering has a certificate, so `_paint` says it.
-        self._warning = ttk.Label(frm, wraplength=520, justify="left")
+        self._warning = ttk.Label(frm, wraplength=480, justify="left")
         self._warning.pack(anchor="w", pady=(6, 0))
         self._paint()
-
-    # -- lifecycle ----------------------------------------------------------
-    def alive(self) -> bool:
-        try:
-            return bool(self.win.winfo_exists())
-        except tk.TclError:
-            return False
-
-    def lift(self) -> None:
-        try:
-            self.win.lift()
-            self.win.focus_set()
-        except tk.TclError:
-            pass
-
-    def destroy(self) -> None:
-        try:
-            self.win.destroy()
-        except tk.TclError:
-            pass
-
-    def _close(self) -> None:
-        global _OPEN
-        _OPEN = None
-        self.destroy()
 
     # -- the switch ---------------------------------------------------------
     def _fields(self) -> dict:
@@ -184,9 +129,10 @@ class _WebDialog:
 
     def _copy(self) -> None:
         try:
-            self.win.clipboard_clear()
-            self.win.clipboard_append(web_control.address())
-        except tk.TclError:                  # no clipboard, no crash
+            top = self._frame.winfo_toplevel()
+            top.clipboard_clear()
+            top.clipboard_append(web_control.address())
+        except tk.TclError:                   # no clipboard, no crash
             return
         self._rt_say("web.log.copied")
 
@@ -197,7 +143,7 @@ class _WebDialog:
         except Exception as exc:             # noqa: BLE001
             self._rt_say("web.log.error", error=exc)
 
-    # -- what the dialog shows ----------------------------------------------
+    # -- what the section shows ----------------------------------------------
     def _reload(self) -> None:
         """Re-read the saved answer: a failure to bind switches the setting back off."""
         values = web_control.settings()
@@ -206,7 +152,7 @@ class _WebDialog:
         self._paint()
 
     def _paint(self) -> None:
-        if not self.alive():
+        if not self._frame.winfo_exists():
             return
         server = web_control.serving()
         self._state.configure(
@@ -221,5 +167,5 @@ class _WebDialog:
     def _rt_say(self, key: str, **fmt) -> None:
         try:
             self._rt_get().say(web_control.TAG, key, **fmt)
-        except Exception:                    # noqa: BLE001 — a log line, never the panel
+        except Exception:                    # noqa: BLE001 — a log line, never the section
             pass

@@ -1886,11 +1886,15 @@ def test_the_timers_tab_offers_the_hook_the_web_presses():
 
 
 def test_the_remote_control_belongs_to_the_window_and_not_to_a_profile():
-    """It is a menu entry and a panel-wide block, and there is no tab left (#1313).
+    """It is a section of «Параметры» and a panel-wide block, and there is no tab
+    left (#1313, #1509).
 
     One server answers for every open profile, so one copy of the port, the token and
     the certificate is the whole point: a `web` tab would be a page inside one account
-    holding a setting that belongs to the machine, which is what this replaced.
+    holding a setting that belongs to the machine, which is what this replaced. It was
+    its own menu entry for a while (#1313) and is now one row in the single settings
+    modal's sidebar (#1509), beside «Профиль», «Язык» and «Автозапуск» — every switch
+    of that same kind behind one door instead of four.
     """
     from panel import tabs as tabsreg
 
@@ -1898,7 +1902,9 @@ def test_the_remote_control_belongs_to_the_window_and_not_to_a_profile():
         "the «Веб» tab is back in the registry — the remote control's knobs are the "
         "window's, and a per-profile page for them is the mistake #1313 undid")
     shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
-    assert 'label=self._t("menu.web")' in shell, "no «Веб» entry in the menu bar"
+    assert 'settingsdlg.Section("web", "menu.web"' in shell, (
+        "no «Веб» section in «Параметры» — the remote control's switch is not "
+        "reachable from the menu bar at all any more")
     assert "webctl.apply(" in shell, (
         "nothing starts the remote control at boot — it exists to be reachable "
         "without anybody opening its dialog")

@@ -108,6 +108,7 @@ from .runtime import interrupt as interruptmod
 from .runtime import panel_control as panelctl
 from .runtime import panic as panicmod
 from .runtime import rally_wire as rallywire
+from .runtime import settings_dialog as settingsdlg
 from .runtime import web_control as webctl
 from .runtime import web_dialog as webdlg
 
@@ -1679,38 +1680,24 @@ class Panel(runtime.SessionScoped, tk.Tk):
         old = getattr(self, "_menubar", None)
         menubar = tk.Menu(self)
 
-        lang_menu = tk.Menu(menubar, tearoff=0)
-        self._lang_var = getattr(self, "_lang_var", tk.StringVar())
-        self._lang_var.set(self._i18n.lang)
-        # The menu IS the locales directory: a file each, labelled with what the file
-        # calls itself. Adding a language is copying en.json and translating it — there
-        # is no list here to add it to (panel/i18n.py).
-        for lang in self._i18n.available():
-            lang_menu.add_radiobutton(
-                label=self._i18n.name(lang), value=lang,
-                variable=self._lang_var, command=lambda l=lang: self._set_language(l))
-
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label=self._t("menu.help.send_log"),
                               command=self._open_send_log_dialog)
         help_menu.add_command(label=self._t("menu.help.about"), command=self._show_about)
 
-        menubar.add_command(label=self._t("menu.profile"),
-                            command=self._open_profile_dialog)
-        # …and beside it the OTHER thing that belongs to the window rather than to an
-        # account: one server, one port, one token for every profile open here (#1313).
-        menubar.add_command(label=self._t("menu.web"), command=self._open_web_dialog)
-        # …and the third thing that belongs to the window: which warzones the GAME has.
-        # 2 558 of them the day it was written, and more every week, so it is a reading
-        # kept once per machine rather than a copy per profile (#1418).
+        # ONE door for every switch that belongs to the WINDOW rather than to an
+        # account — «Профиль», «Веб», «Язык», «Автозапуск» (#1509). There used to be
+        # four menu entries for the four of them; a modern settings dialog is one
+        # entry and a sidebar, not one command per knob.
+        menubar.add_command(label=self._t("menu.settings"),
+                            command=self._open_settings_dialog)
+        # …and beside it the other thing that belongs to the window: which warzones
+        # the GAME has. 2 558 of them the day it was written, and more every week, so
+        # it is a reading kept once per machine rather than a copy per profile
+        # (#1418) — and a READING rather than a SWITCH, which is why it stays its own
+        # entry instead of joining the sections above.
         menubar.add_command(label=self._t("menu.servers"),
                             command=self._open_servers_dialog)
-        # …and the fourth: the ONE hourly task that opens this panel when it is not
-        # running, whatever profiles it holds (#1506). It used to be a tick on
-        # «Настройки», one profile's page drawing a machine-wide task.
-        menubar.add_command(label=self._t("menu.autostart"),
-                            command=self._open_autostart_dialog)
-        menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
         self.config(menu=menubar)
         self._menubar = menubar
@@ -1721,14 +1708,33 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 pass
         self._hook(self._build_menu)
 
-    def _open_web_dialog(self) -> None:
-        """Menu → «Веб»: the remote control's switch, port and token, for the window.
+    def _open_settings_dialog(self, initial: str | None = None) -> None:
+        """Menu → «Параметры»: one modal, four sections (#1509).
 
-        Everything it does is `panel/runtime/web_dialog.py`; the shell only says which
-        profile's log a press should be said in, and that is the one on screen at the
-        moment of the press rather than at the moment the dialog opened.
+        Named apart from the profile's own «Настройки» tab (`tab.settings`) on
+        purpose: this is the WINDOW's four switches, that is one account's paths,
+        budgets and daemon — calling both «Настройки» would put the same word over
+        two different things a person has to tell apart at a glance.
+
+        Every section is either an existing dialog's own content, unchanged in
+        substance and reused as-is (`web_dialog.build`, `autostart_dialog.build`), or —
+        for «Профиль» and «Язык», which reach into the shell's own state — a method
+        below. The shell only says WHICH sections there are and in what order; the
+        modal itself (`panel/runtime/settings_dialog.py`) knows nothing about any of
+        them.
         """
-        webdlg.open_dialog(self, lambda: self._rt, self._t)
+        sections = (
+            settingsdlg.Section("web", "menu.web",
+                                lambda p: webdlg.build(p, lambda: self._rt, self._t)),
+            settingsdlg.Section("profile", "menu.profile", self._build_profile_section),
+            settingsdlg.Section("language", "menu.language",
+                                self._build_language_section),
+            settingsdlg.Section("autostart", "menu.autostart",
+                                lambda p: autostartdlg.build(p, lambda: self._rt,
+                                                             self._t)),
+        )
+        settingsdlg.open_dialog(self, sections, self._t, initial=initial,
+                                on_close=self._on_settings_dialog_closed)
 
     def _open_servers_dialog(self) -> None:
         """Menu → «Серверы»: every warzone the game has, in one grid.
@@ -1740,15 +1746,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         from .runtime import servers_dialog as srvdlg
 
         srvdlg.open_dialog(self, lambda: self._rt, self._t)
-
-    def _open_autostart_dialog(self) -> None:
-        """Menu → «Автозапуск»: the one hourly task, for the window (#1506).
-
-        Everything it does is `panel/runtime/autostart_dialog.py` — the shell only says
-        which profile's log a press should be said in, and that is the one on screen at
-        the moment of the press rather than at the moment the dialog opened.
-        """
-        autostartdlg.open_dialog(self, lambda: self._rt, self._t)
 
     def _show_about(self) -> None:
         win = tk.Toplevel(self)
@@ -1884,25 +1881,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._say("debug", "log.debug.failed", error=exc)
 
     # -- profiles -----------------------------------------------------------
-    def _open_profile_dialog(self) -> None:
-        """The profile manager, in a modal window (menu → «Профиль»): pick the
-        active profile, or create / rename / delete one. It used to be a bar above
-        the tabs on the main page; a switch that is used rarely does not earn a
-        permanent strip there."""
-        existing = getattr(self, "_profile_win", None)
-        if existing is not None and existing.winfo_exists():
-            existing.lift()
-            existing.focus_set()
-            return
+    def _build_profile_section(self, parent) -> None:
+        """«Профиль», inside «Параметры» (#1509): pick the active profile, or create /
+        rename / delete one. It used to be its own modal off the menu bar, and before
+        that a bar above the tabs on the main page — a switch used this rarely does
+        not earn either.
 
-        win = tk.Toplevel(self)
-        self._profile_win = win
-        win.title(self._t("menu.profile"))
-        win.resizable(False, False)
-        win.transient(self)
-
-        frm = ttk.Frame(win)
-        frm.pack(fill="both", expand=True, padx=16, pady=16)
+        `_profile_win` still names the window that owns this section (the settings
+        modal, now) rather than a dialog of its own: `_profile_dialog_parent` parents
+        the create/rename/delete sub-dialogs on it, and it is how they stack above
+        «Параметры» instead of under it.
+        """
+        self._profile_win = parent.winfo_toplevel()
+        frm = ttk.Frame(parent)
+        frm.pack(fill="both", expand=True)
         self._tr(ttk.Label(frm), "profile.label").grid(row=0, column=0, sticky="w")
         self._profile_var.set(self._profiles.active)
         self._profile_combo = ttk.Combobox(frm, textvariable=self._profile_var,
@@ -1939,32 +1931,35 @@ class Panel(runtime.SessionScoped, tk.Tk):
                  "profile.delete").pack(side="left")
         self._tr(ttk.Button(btns, command=self._reveal_profile_dir),
                  "profile.folder").pack(side="left", padx=6)
-        self._tr(ttk.Button(btns, command=win.destroy),
-                 "profile.close").pack(side="right")
         # NOTHING ELSE GOES HERE (#1263). There used to be a «Развести клиенты…» below
         # this row that asked a login per shared profile and wrote the answers to disk —
         # under profiles that were open, whose widgets then put the old values back on
         # the next save. It reported success and changed nothing. Which client a profile
-        # drives is now edited where the profile is configured: «Настройки» → «Игра» →
-        # «Сессия Windows», through that profile's own bound variables.
+        # drives is now edited where the profile is configured: «Настройки» (tab) →
+        # «Игра» → «Сессия Windows», through that profile's own bound variables.
+        return None
 
-        win.protocol("WM_DELETE_WINDOW", win.destroy)
-        win.bind("<Destroy>", self._on_profile_dialog_destroyed)
-        win.update_idletasks()
-        # Centre over the main window.
-        x = self.winfo_rootx() + max(0, (self.winfo_width() - win.winfo_width()) // 2)
-        y = self.winfo_rooty() + max(0, (self.winfo_height() - win.winfo_height()) // 3)
-        win.geometry(f"+{x}+{y}")
-        win.grab_set()
-        win.focus_set()
+    def _build_language_section(self, parent) -> None:
+        """«Язык», inside «Параметры» (#1509). The list IS the locales directory: a
+        file each, labelled with what the file calls itself — there is no table here
+        to add a language to (`panel/i18n.py`)."""
+        frm = ttk.Frame(parent)
+        frm.pack(fill="both", expand=True)
+        self._lang_var = getattr(self, "_lang_var", tk.StringVar())
+        self._lang_var.set(self._i18n.lang)
+        for lang in self._i18n.available():
+            ttk.Radiobutton(frm, text=self._i18n.name(lang), value=lang,
+                            variable=self._lang_var,
+                            command=lambda l=lang: self._set_language(l)).pack(
+                anchor="w", pady=2)
+        return None
 
-    def _on_profile_dialog_destroyed(self, event) -> None:
-        # The combo lives only while the modal is open; forget it once it is gone so
-        # `_refresh_profile_combo` never touches a dead widget.
-        if event.widget is self._profile_win:
-            self._profile_combo = None
-            self._profile_client_lbl = None
-            self._profile_win = None
+    def _on_settings_dialog_closed(self) -> None:
+        """The «Параметры» modal is gone — forget what only lived while it was open,
+        so `_refresh_profile_combo` never touches a dead widget."""
+        self._profile_combo = None
+        self._profile_client_lbl = None
+        self._profile_win = None
 
     def _reveal_profile_dir(self) -> None:
         """Open the selected profile's own directory — where its `config.json` lives.
@@ -4826,7 +4821,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._hotkeys.stop()          # the keyboard belongs to Windows again
         # The socket is the WINDOW's, so it is let go here rather than by a tab's
         # shutdown — and quietly, because the log it would be said in is about to close.
-        webdlg.close_dialog()
+        settingsdlg.close_dialog()
         webctl.stop(quiet=True)
         self._workspace.each(self._close_session)
         self._workspace.shutdown()

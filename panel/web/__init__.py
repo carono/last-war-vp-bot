@@ -16,14 +16,15 @@ an ability is one `src/lastwar_bot/actions/*.md` scenario and both front-ends pl
     panel/web/server.py    the socket, the token and the static files
     panel/web/static/      the page itself — no words in it, they come from /api/i18n
     panel/runtime/web_control.py  the switch, the port and the token — the WINDOW's
-    panel/runtime/web_dialog.py   …and the modal that draws them, off the menu bar
+    panel/runtime/web_dialog.py   …and the «Веб» section that draws them, inside the
+                                   one «Параметры» modal (#1509)
 
 WHO STARTS IT. The shell does, at boot, from the panel-wide block in
 `profiles/settings.json` — because there is ONE server per window and it answers for
 every profile that window has open. It used to be a per-profile tab, which meant a
 window with three accounts open held three copies of one answer and obeyed whichever of
-them switched on first (#1313). Switch it off in menu → «Веб» and there is no server:
-no thread, no socket, nothing listening.
+them switched on first (#1313). Switch it off in «Параметры» → «Веб» and there is no
+server: no thread, no socket, nothing listening.
 """
 from __future__ import annotations
 
