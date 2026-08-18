@@ -2142,26 +2142,59 @@ def test_a_tile_the_sniffer_HEARD_counts_as_a_verification():
     tab.rt = _fake_rt(_state_path())
     tab._maybe_start_poll = lambda: None
 
-    tab._merge([_StubTask(1, loot_count=2)], fresh=True)
+    tab._merge([_StubTask(1, loot_count=2, seen_at=_time_module.time())], fresh=True)
 
     assert tab._rows["1"]["loot_count"] == 2, "a sighting did not move the loot count"
     assert tab._rows["1"]["checked_at"], "a sighting did not count as a verification"
 
 
-def test_a_checkpoint_repeat_is_not_a_verification():
-    """The capture rewrites its file every tick with whatever is still fresh, so a row
-    found in it again dates the READ and not the map (#1416). Stamping on one of those
-    would make «Сверено» say «только что» about a tile nobody has looked at for an hour.
+def test_the_stamp_is_when_the_MAP_answered_not_when_the_file_was_read():
+    """The capture rewrites its checkpoint every tick with everything still inside its
+    freshness window, so the same record is offered again and again (#1416). Dating the
+    row by the read would have «Сверено» say «только что» about a tile nobody has driven
+    past for a quarter of an hour — so the record's own `seen_at` is what is carried.
     """
+    import game_clock
+
     row = _row(1, 7, -5_000, 600_000)
     tab = _make_tab({"1": row})
     tab.rt = _fake_rt(_state_path())
     tab._maybe_start_poll = lambda: None
+    now = game_clock.now_ms()
 
-    tab._merge([_StubTask(1, loot_count=1)])          # `fresh` left False: the file
+    tab._merge([_StubTask(1, loot_count=1, seen_at=_time_module.time() - 900)])
 
     assert tab._rows["1"]["loot_count"] == 1, "the count is still taken, upwards"
-    assert not tab._rows["1"].get("checked_at"), "a file repeat was called a verification"
+    age = now - int(tab._rows["1"]["checked_at"])
+    assert 890_000 < age < 910_000, age
+
+    # …and a NEWER reading of the same tile moves it forward; an older one does not.
+    tab._merge([_StubTask(1, loot_count=1, seen_at=_time_module.time())])
+    fresh = int(tab._rows["1"]["checked_at"])
+    assert now - fresh < 5_000, fresh
+    tab._merge([_StubTask(1, loot_count=1, seen_at=_time_module.time() - 3600)])
+    assert int(tab._rows["1"]["checked_at"]) == fresh, "a stale record walked the stamp back"
+
+
+def test_the_background_half_reads_a_file_and_asks_the_game_nothing():
+    """The harvest is the whole automatic half, and it must stay free (#1484).
+
+    It is armed at boot — «Автолут ★» robs out of this list whether or not anybody opens
+    the tab — and it must never grow a game call: the moment it does, it is the
+    thirty-second camera walk again under another name.
+    """
+    import inspect
+    from panel.tabs.secret_tasks import tab as module
+
+    src = inspect.getsource(module.SecretTasksTab._harvest_tick)
+    # …the CODE, not the prose: the docstring is allowed to say the word «jump».
+    code = src.split(chr(34) * 3)[-1]
+    for forbidden in ("play_async", "evaluator(", ".jump(", "VISIT", "run_action"):
+        assert forbidden not in code, forbidden
+    assert "self.refresh()" in src
+    assert "secret_harvest" in inspect.getsource(module.SecretTasksTab.shutdown)
+    boot = inspect.getsource(module.SecretTasksTab.ensure_loaded)
+    assert "_harvest_tick" in boot, "the harvest is not armed at boot"
 
 
 def test_nothing_walks_the_map_on_its_own():

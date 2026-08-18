@@ -195,6 +195,22 @@ LIVE_MS = 250
 # «задание уже взято / больше не доступно» takes the row off (`_drop_gone`), and a
 # premature press costs nothing at all.
 #
+# HOW OFTEN THE CHECKPOINT IS HARVESTED, in milliseconds. This is the whole background
+# half and it costs no game call at all: a read of the file the sniffer is already
+# writing, on a worker, merged into the list.
+#
+# It exists because the sniffer's EVENT stream cannot carry a re-sighting. The capture
+# child announces a tile once per state and never again — measured: a full lap over a
+# warzone whose tiles were all already known printed not one line and the panel learned
+# nothing. The checkpoint has them all, with the moment the map last answered stamped on
+# each, so reading it is how a lap anybody makes reaches this list.
+#
+# Twenty seconds because that is a fifth of the time the shortest lap takes to be worth
+# reading and because nothing here waits on it: a lap the panel played is merged the
+# instant it ends, and this is the net under everything else — a person panning, another
+# profile's errand, a round that ended while the tab was shut.
+HARVEST_MS = 20_000
+
 # The camera walk is a PERSON'S press and nothing else now («Обновить состояние»). It
 # used to run itself every thirty seconds, and that is the practice this note exists to
 # end: it holds the one game claim for seconds at a time, it moves the map under whoever
@@ -727,6 +743,11 @@ class SecretTasksTab(PanelTab):
             self.autoloot.start()
         if self.autoassist_var.get():
             self.autoassist.start()
+        # …AND THE HARVEST, at BOOT rather than at the first look. «Автолут ★» spends the
+        # day's five robberies out of this list whether or not anybody opens the tab, so
+        # the thing that keeps the list true has to run whether or not anybody does
+        # either. It asks the game for nothing; it reads a file (#1484).
+        self._harvest_tick()
 
     def on_show(self) -> None:
         """Somebody opened the tab: restore the last session's list, start the
@@ -912,7 +933,7 @@ class SecretTasksTab(PanelTab):
         self.autoloot.stop()
         self.autoassist.stop()
         for name in ("secret_tick", "secret_live", "secret_poll", "secret_nudge",
-                     "secret_clock", "autoloot_push_restart"):
+                     "secret_clock", "secret_harvest", "autoloot_push_restart"):
             self.rt.tick.disarm(name)
         self._ticking = self._polling = self._living = False
         # …and whatever a verification still had to walk (#1484). The chain re-arms
@@ -1699,6 +1720,29 @@ class SecretTasksTab(PanelTab):
         self.rt.settings.changed()
         self.say("coord", "log.coord.zoom", level=self.t(f"coord.zoom.{self._zoom_level}"),
                  height=height, step=step)
+
+    # -- the background half: harvest what the sniffer has already heard (#1484) -----
+    def _harvest_tick(self) -> None:
+        """Re-merge the capture's checkpoint, on a clock, asking the game nothing.
+
+        THE ONE THING THAT KEEPS THIS LIST TRUE WITHOUT COSTING ANYTHING. The map is
+        driven for other reasons all day — the four-hourly star round, a person panning,
+        any errand that jumps — and the sniffer decodes every tile that goes past. What
+        it does NOT do is tell the panel twice: the child announces a tile once per state
+        and never again, so a lap over a warzone whose tiles are already on the list
+        prints nothing at all and used to teach the list nothing at all. Measured exactly
+        that way: one full lap, not one intake line, not one row stamped.
+
+        The checkpoint has them all — with the moment the map last answered written on
+        each — so this reads it. No game call, no camera, no claim: a file, on a worker,
+        merged on the Tk thread like every other feed.
+        """
+        try:
+            if self._busy or not self._rows:
+                return
+            self.refresh()
+        finally:
+            self.rt.tick.arm("secret_harvest", HARVEST_MS, self._harvest_tick)
 
     # -- «Обновить состояние»: re-hear the ready rows off the MAP (#1272, recut #1484) --
     def refresh_state(self) -> None:
@@ -3096,6 +3140,7 @@ class SecretTasksTab(PanelTab):
         # (`secret_task_all_alliance` demands `done > 0`); it is the pcap that can.
         import game_clock
 
+        now_ms = game_clock.now_ms()
         offered = len(tasks)
         tasks = [t for t in tasks if t.completed_at]
         no_finish = offered - len(tasks)
@@ -3154,22 +3199,27 @@ class SecretTasksTab(PanelTab):
                 if row.get("expires_at") is None:
                     row["expires_at"] = t.expires_at
                 row["seen_at"] = time.time()
-                # …AND IT COUNTS AS A VERIFICATION (#1484). A tile the sniffer has just
-                # HEARD off the map is the same evidence a press goes looking for, and it
-                # arrives for nothing — from the four-hourly star round, from a person
-                # moving the map, from any errand that jumps. There is no cheaper source
-                # and there is no other one: measured, a stranger's tile is never
-                # re-announced on its own, the alliance table cannot see it and asking
-                # for it without the camera sends nothing (see the note at the top of
-                # this module). So a sighting stamps the row, and «Сверено» tells the
-                # truth without a single round trip being made for it.
+                # …AND IT COUNTS AS A VERIFICATION (#1484). A tile the sniffer heard off
+                # the map is the same evidence a press goes looking for, and it arrives
+                # for nothing — from the four-hourly star round, from a person moving the
+                # map, from any errand that jumps. There is no cheaper source and there
+                # is no other one: measured, a stranger's tile is never re-announced on
+                # its own, the alliance table cannot see it, and asking for it without
+                # the camera sends nothing (see the note at the top of this module).
                 #
-                # ONLY A SIGHTING, never a checkpoint repeat: the capture rewrites its
-                # file every tick with whatever is still inside its freshness window, and
-                # stamping on one of those would date the row by when we last READ THE
-                # FILE rather than by when the map last answered (#1416).
-                if fresh:
-                    row["checked_at"] = game_clock.now_ms()
+                # STAMPED WITH WHEN THE MAP ANSWERED, NOT WITH WHEN WE READ THE FILE.
+                # The capture rewrites its checkpoint every tick with everything still
+                # inside its freshness window, so the same record is offered again and
+                # again for as long as that window lasts; dating the row by the read
+                # would have «Сверено» say «только что» about a tile nobody has driven
+                # past for a quarter of an hour. Every record carries the moment the map
+                # last re-sent it, and that — carried onto the GAME's clock, which is
+                # what the column is drawn against — is the honest answer. A record with
+                # no timestamp at all is an event handed straight over by the listener,
+                # and that one really is «now».
+                heard = self._heard_at(t, now_ms)
+                if heard > int(row.get("checked_at") or 0):
+                    row["checked_at"] = heard
                 continue
             if key in self._collected:
                 robbed_already += 1
@@ -3227,6 +3277,22 @@ class SecretTasksTab(PanelTab):
         self._update_status()
         self._maybe_start_poll()
         self._persist_rows()
+
+    @staticmethod
+    def _heard_at(task, now_ms: int) -> int:
+        """When the MAP last answered about this tile, on the game's clock (#1484).
+
+        The capture stamps every checkpoint record with `seen_at` — epoch seconds on the
+        machine the sniffer runs on — and a tile handed over as a live event carries
+        none, because it is being handed over as it arrives. So: the age of the record,
+        subtracted from the game's now. Both clocks are being asked at the same instant,
+        so only the DIFFERENCE travels between them and the drift the game clock exists
+        to correct (#1227) stays corrected.
+        """
+        seen = getattr(task, "seen_at", None)
+        if not seen:
+            return int(now_ms)
+        return int(now_ms - max(0.0, time.time() - float(seen)) * 1000)
 
     # -- surviving a restart (#1242) --------------------------------------------
     def _persist_rows(self) -> None:
