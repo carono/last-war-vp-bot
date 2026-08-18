@@ -49,6 +49,7 @@ import time
 
 from .. import i18n as i18nmod
 from .. import timers as timersmod
+from ..runtime import autostart as autostartmod
 from ..runtime import daemon as daemonmod
 from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
@@ -90,6 +91,14 @@ SERVERS_SCREEN = "servers"
 #: How many warzones one screenful carries. There are thousands, and a phone that is
 #: handed all of them scrolls a list nobody reads; the search box is what narrows it.
 SERVERS_PAGE = 150
+
+#: The screen that is not a tab either: the ONE hourly task that opens this panel when
+#: it is not running. It belongs to the WINDOW rather than to an account
+#: (`panel/runtime/autostart_dialog.py`, #1506) — every profile open here shares the same
+#: task — and unlike «Веб» the phone gets the same switch the window has: turning the
+#: watchdog off costs a restart that would otherwise have happened by itself, never the
+#: channel the phone is reached through, so it is not the divergence «Веб» is.
+AUTOSTART_SCREEN = "autostart"
 
 
 class _Feed:
@@ -699,6 +708,10 @@ class WebApi:
         # inside one profile — and the phone still gets it, because a reading the person
         # at the machine has is a reading the phone must have too (`CLAUDE.md`).
         out.append({"id": SERVERS_SCREEN, "title": "servers.title"})
+        # …and the fourth: the one hourly task, for the same reason and by the same
+        # decision as «Серверы» above — it belongs to the window and not to an account,
+        # so the phone gets it here rather than as a page inside one profile.
+        out.append({"id": AUTOSTART_SCREEN, "title": "menu.autostart"})
         return {"screens": out}
 
     def screen(self, screen_id: str, profile: str | None = None) -> dict:
@@ -710,6 +723,8 @@ class WebApi:
         """
         if screen_id == SERVERS_SCREEN:
             return self._servers_view(profile)
+        if screen_id == AUTOSTART_SCREEN:
+            return self._autostart_view(profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
@@ -897,6 +912,76 @@ class WebApi:
                state=rt.i18n.t("servers.secret.state.%s" % state))
         return {"ok": True}
 
+    # -- «Автозапуск»: the screen with no tab behind it, either (#1506) ------
+    def _autostart_view(self, profile: str | None = None) -> dict:
+        """The one hourly task, read off Windows — never off a saved tick.
+
+        Pre-translated into whole sentences here (`rt.t`), the same way `activity.text`
+        is: the window's own wording is a key WITH parameters (`{task}`, `{profiles}`),
+        and the generic row renderer has no way to fill one in — see
+        `panel/runtime/autostart_dialog.py` for the sentences themselves.
+        """
+        rt = self._runtime(profile)
+        info = autostartmod.status(rt.profiles)
+        lines = [rt.t("autostart.shared")]
+        if not info.supported:
+            lines.append(rt.t("autostart.state.unsupported"))
+        elif info.registered:
+            lines.append(rt.t("autostart.state.on", task=info.task))
+            lines.append(rt.t("autostart.state.profiles",
+                              profiles=", ".join(info.profiles)))
+            if not info.elevated:
+                lines.append(rt.t("autostart.state.limited"))
+        else:
+            lines.append(rt.t("autostart.state.off"))
+        last = self._autostart_last_text(rt, info.last)
+        if last:
+            lines.append(last)
+        card = {"title": "autostart.frame",
+                "items": [{"text": line} for line in lines]}
+        action = ({"id": "disable", "label": "autostart.disable"} if info.registered
+                  else {"id": "enable", "label": "autostart.enable"})
+        return {"id": AUTOSTART_SCREEN, "title": "menu.autostart",
+                "cards": [card], "actions": [action] if info.supported else []}
+
+    def _autostart_last_text(self, rt, last: dict) -> str:
+        """One sentence about the last hourly look — mirrors the window's own wording."""
+        state = str((last or {}).get("state") or "")
+        if not state:
+            return ""
+        when = time.strftime("%d.%m %H:%M", time.localtime(last.get("ts") or 0))
+        if state == "running":
+            return rt.t("autostart.check.running", when=when)
+        if state == "started":
+            return rt.t("autostart.check.started", when=when)
+        if state == "restarted":
+            return rt.t("autostart.check.restarted", when=when)
+        return rt.t("autostart.check.failed", when=when, error=last.get("error") or "")
+
+    def _autostart_press(self, action: str, profile: str | None) -> dict:
+        """The same switch the window's «Автозапуск» dialog has, and nothing it has not.
+
+        Runs `schtasks` on THIS thread — the window does the same on the Tk thread with
+        no hand-over of its own (`autostart_dialog.py`), so a subprocess of a few tens of
+        milliseconds costs the HTTP worker no more than it costs the event loop.
+        """
+        if action not in ("enable", "disable"):
+            return {"error": "unknown", "detail": action}
+        rt = self._runtime(profile)
+        want = action == "enable"
+        try:
+            autostartmod.set_enabled(rt.profiles, want)
+        except RuntimeError as exc:
+            said = i18nmod.translated(rt.t, exc)
+            rt.say("autostart", "log.autostart.failed", error=said)
+            return {"ok": False, "reason": said}
+        if want:
+            rt.say("autostart", "log.autostart.on",
+                  profiles=", ".join(autostartmod.open_set(rt.profiles)))
+        else:
+            rt.say("autostart", "log.autostart.off")
+        return {"ok": True}
+
     def press(self, screen_id: str, action: str, args: dict,
               profile: str | None = None) -> dict:
         """One press on a tab's screen, on the Tk thread — the tab's own handler.
@@ -919,6 +1004,8 @@ class WebApi:
         """
         if screen_id == SERVERS_SCREEN:
             return self._servers_press(action, args or {}, profile)
+        if screen_id == AUTOSTART_SCREEN:
+            return self._autostart_press(action, profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):

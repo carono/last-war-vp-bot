@@ -100,6 +100,7 @@ from . import widgets
 from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
 from .runtime import autostart as autostartmod
+from .runtime import autostart_dialog as autostartdlg
 from .runtime import game_control as gamectl
 from .runtime import hotkeys
 from .runtime import health as healthmod
@@ -1704,6 +1705,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # kept once per machine rather than a copy per profile (#1418).
         menubar.add_command(label=self._t("menu.servers"),
                             command=self._open_servers_dialog)
+        # …and the fourth: the ONE hourly task that opens this panel when it is not
+        # running, whatever profiles it holds (#1506). It used to be a tick on
+        # «Настройки», one profile's page drawing a machine-wide task.
+        menubar.add_command(label=self._t("menu.autostart"),
+                            command=self._open_autostart_dialog)
         menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
         self.config(menu=menubar)
@@ -1734,6 +1740,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
         from .runtime import servers_dialog as srvdlg
 
         srvdlg.open_dialog(self, lambda: self._rt, self._t)
+
+    def _open_autostart_dialog(self) -> None:
+        """Menu → «Автозапуск»: the one hourly task, for the window (#1506).
+
+        Everything it does is `panel/runtime/autostart_dialog.py` — the shell only says
+        which profile's log a press should be said in, and that is the one on screen at
+        the moment of the press rather than at the moment the dialog opened.
+        """
+        autostartdlg.open_dialog(self, lambda: self._rt, self._t)
 
     def _show_about(self) -> None:
         win = tk.Toplevel(self)

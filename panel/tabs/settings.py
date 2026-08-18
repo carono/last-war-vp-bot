@@ -22,7 +22,6 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from ..runtime import autostart as autostartmod
 from .. import i18n as i18nmod
 from .. import runtime
 from ..runtime import diag
@@ -55,7 +54,7 @@ class SettingsTab(PanelTab):
     TITLE_KEY = "tab.settings"
     ORDER = 40
     PREFERRED_SIZE = "820x640"
-    LOCALE_NS = ("settings", "opt", "debug", "session", "autostart", "graphics")
+    LOCALE_NS = ("settings", "opt", "debug", "session", "graphics")
     NEEDS = frozenset()
     # …and this is the tab that collects the others' pages, so it is filled after every
     # one of them however early it sits in the tab bar (`panel.tabs.build_order`, #1237).
@@ -303,133 +302,7 @@ class SettingsTab(PanelTab):
                 ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
         )):
             self._opt_row(grid, row + 2 + offset, key, **kwargs)
-        self._build_autostart_settings(parent)
         self._build_debug_log_settings(parent)
-
-    # -- «Автозапуск»: the hourly task that opens the panel when it is not there --
-    #
-    # The tick is NOT a profile knob, and that is deliberate. What it shows is what the
-    # Windows scheduler holds (panel/runtime/autostart.py `registered`), so a task somebody
-    # removed by hand in taskschd.msc, or one this profile never had on this machine,
-    # reads as off — where a saved boolean would confidently say «on» about a task that
-    # is not there. Ticking it registers; unticking removes; both then re-read.
-    def _build_autostart_settings(self, parent: ttk.Frame) -> None:
-        """The box, what it registered, and what the last hourly look made of it."""
-        frame = self.tr(ttk.LabelFrame(parent, padding=8), "autostart.frame")
-        frame.pack(fill="x", pady=(12, 0))
-        self._autostart_var = tk.BooleanVar(master=self.rt.root, value=False)
-        box = ttk.Checkbutton(frame, variable=self._autostart_var,
-                              command=self._toggle_autostart)
-        self.tr(box, "autostart.enable").pack(anchor="w")
-        self.tr(ttk.Label(frame, foreground="#888", wraplength=620, justify="left"),
-                "autostart.hint").pack(anchor="w", pady=(4, 0))
-        self._autostart_note = ttk.Label(frame, foreground="#888", wraplength=620,
-                                         justify="left")
-        self._autostart_note.pack(anchor="w", pady=(6, 0))
-        self._refresh_autostart()
-
-    def _toggle_autostart(self) -> None:
-        """Register or remove this profile's task — and say why if Windows refused.
-
-        The box snaps back to whatever the scheduler actually holds afterwards, so a
-        refusal (no administrator rights, group policy, no `schtasks` at all) leaves a
-        tick that tells the truth rather than one that merely remembers the click.
-        """
-        want = bool(self._autostart_var.get())
-        try:
-            autostartmod.set_enabled(self.rt.profiles, want)
-        except RuntimeError as exc:
-            said = i18nmod.translated(self.t, exc)
-            messagebox.showerror(self.t("autostart.frame"), said)
-            self.say("autostart", "log.autostart.failed", error=said)
-        else:
-            if want:
-                # The task opens ONE panel with the whole set (#1207), so the set is what
-                # the line names — «для профиля X» would be a promise it does not make.
-                self.say("autostart", "log.autostart.on",
-                         profiles=", ".join(autostartmod.open_set(self.rt.profiles)))
-            else:
-                self.say("autostart", "log.autostart.off")
-        self._refresh_autostart()
-
-    def _refresh_autostart(self) -> None:
-        """Re-read the scheduler and the last verdict, and say both in one block.
-
-        THE READ IS OFF THE TK THREAD, because it is a `schtasks` SUBPROCESS: measured
-        at ~58 ms, and this runs whenever the page is drawn — so with four profiles open
-        it is a quarter of a second of window that has not redrawn, for a label nobody
-        is waiting on (#1226). The painting comes back through `self.post`, which is the
-        one way a tab may return from a worker (docs/panel-tabs.md).
-        """
-        if getattr(self, "_autostart_note", None) is None:
-            return
-
-        def read() -> None:
-            try:
-                info = autostartmod.status(self.rt.profiles)
-            except Exception:            # noqa: BLE001 — a label, never the page
-                return
-            self.post(lambda: self._paint_autostart(info))
-
-        threading.Thread(target=read, name="panel-autostart", daemon=True).start()
-
-    def _paint_autostart(self, info) -> None:
-        """Draw what :meth:`_refresh_autostart` read. Tk thread.
-
-        Whole sentences joined by a newline, never fragments glued together: the order
-        of the pieces is not the same in every language, and each line here stands by
-        itself in any of them.
-        """
-        note = getattr(self, "_autostart_note", None)
-        if note is None:
-            return
-        self._autostart_var.set(info.registered)
-        lines = []
-        if not info.supported:
-            lines.append(self.t("autostart.state.unsupported"))
-        elif info.registered:
-            lines.append(self.t("autostart.state.on", task=info.task))
-            # Which pages come up with it — the one thing a person cannot tell from the
-            # task's name, now that the name has no profile in it (#1207).
-            lines.append(self.t("autostart.state.profiles",
-                                profiles=", ".join(info.profiles)))
-            if not info.elevated:
-                lines.append(self.t("autostart.state.limited"))
-        else:
-            lines.append(self.t("autostart.state.off"))
-        lines.append(self._autostart_last(info.last))
-        try:
-            note.configure(text="\n".join(line for line in lines if line))
-        except tk.TclError:
-            pass
-
-    def _autostart_last(self, last: dict) -> str:
-        """One sentence about the last hourly look — a key per verdict, spelled out.
-
-        Built as a `t(...)` per branch rather than `t(f"autostart.check.{state}")`: a key
-        assembled at run time is one `tests/test_panel_i18n.py` cannot see, and a locale
-        missing it shows the person the key itself.
-        """
-        state = str((last or {}).get("state") or "")
-        if not state:
-            return ""
-        when = time.strftime("%d.%m %H:%M", time.localtime((last.get("ts") or 0)))
-        if state == "running":
-            return self.t("autostart.check.running", when=when)
-        if state == "started":
-            return self.t("autostart.check.started", when=when)
-        if state == "restarted":
-            return self.t("autostart.check.restarted", when=when)
-        return self.t("autostart.check.failed", when=when,
-                      error=last.get("error") or "")
-
-    def on_language_change(self) -> None:
-        """The one block the page words itself: the autostart note.
-
-        `tr` re-labels what it registered; a string built with `t` is not registered and
-        would keep whatever language it was drawn in until the tab was rebuilt.
-        """
-        self._refresh_autostart()
 
     def _build_debug_log_settings(self, parent: ttk.Frame) -> None:
         """The technical debug log: the send target and «Отправить диагностику».
