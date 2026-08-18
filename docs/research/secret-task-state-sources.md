@@ -75,6 +75,35 @@ again: `kBlockSize = 500`, `kBlockCount = (2, 2)`, `_USE_LW_AOI = true`.
 so building the frame by hand is not obviously impossible — but the parameter order is
 not in the dump and would have to be found by guessing against the wire.
 
+### What a TAP on a secret task actually does — nothing, on the wire
+
+Traced live (`клик по секретке`, 2026-08-18, 4347 lines): the operator tapped a star on
+the map and the client made **no server round trip at all**. Not one `SendMessage` in the
+whole trace, and the only frames that came in while the panel was open were three
+unrelated alliance pushes.
+
+What the tap does is open the window with the answer already in hand:
+
+```
+EventManager.DispatchCSEvent  781, 415435          -- the tap, by pointId
+EventManager.Broadcast        731, 415435
+UIManager.OpenWindow          UIWorldPoint, <uuid>, 415435, "", 22, 0
+```
+
+— the uuid travels INTO the window, so the client had it before the tap; the pointId
+`415435` is tile (435, 415), and the warzone (945) comes off the same call chain.
+
+This is the same fact as §2 seen from the other side: for a point the client has LOADED,
+everything the panel draws — including the stealer list — is already in
+`HeroDispatchMissionPointInfo`, and the game never re-asks. It also refines the note in
+[`protocol.md`](protocol.md), which has a marker tap firing `world.get.detail.new`: that
+was captured while a task was being ROBBED, and a tap on a freshly-loaded dispatch tile
+fires nothing.
+
+(The pcap side of that run recorded 0 bytes, so the wire itself is unrecorded. It does not
+change the reading — nothing was sent, so there was nothing to answer — but a run that
+needs the wire should check the capture file is not empty before being believed.)
+
 ## 3. Off the alliance table — 0 % of this list
 
 `ActDispatchTaskDataManager.allianceTask` carries `stealInfoList` and needs no map at all.
