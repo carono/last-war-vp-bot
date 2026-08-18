@@ -202,6 +202,54 @@ def test_the_busy_page_only_ticks_while_it_is_the_one_being_read():
         _close(root)
 
 
+def test_the_busy_page_draws_several_sortable_grids_and_not_one_wall_of_text():
+    """«слушатели отдельно, таймеры отдельно, и т.д.» (#1500) — read live.
+
+    The columns of a grid are the same questions asked of every row IN THAT GRID, so the
+    row that is stuck is found by sorting rather than by reading headed paragraphs — and
+    a listener's columns are not asked to also make sense of a claim's.
+    """
+    try:
+        import tkinter  # noqa: F401
+        from tkinter import ttk
+    except Exception as exc:                        # noqa: BLE001
+        return _skip(exc)
+    from panel.tabs.develop_busy import GROUPS, MARKS
+    try:
+        root, _rt, tab, _frame = _tab(height=760)
+    except Exception as exc:                        # noqa: BLE001
+        return _skip(exc)
+    try:
+        tab.show_page("busy")
+        root.update()
+        trees = tab._busy._trees
+        assert set(trees) == {key for key, *_ in GROUPS}, sorted(trees)
+        for key, _title, _sections, columns in GROUPS:
+            tree = trees[key]
+            assert isinstance(tree, ttk.Treeview), (key, tree)
+            assert tree.winfo_ismapped(), key
+            assert list(tree["columns"]) == [c[0] for c in columns], (key, tree["columns"])
+            # Headings are words of the panel's, said out of the table…
+            heads = [tree.heading(c)["text"] for c in tree["columns"]]
+            assert all(h.strip() for h in heads), (key, heads)
+            # …the two marks exist as row tags, and are colours rather than punctuation…
+            for mark in MARKS:
+                assert tree.tag_configure(mark, "foreground"), (key, mark)
+        # …and a click on one grid's heading sorts THAT grid, and turns it round —
+        # without touching a sibling grid's own sort.
+        tab._busy._sort_by("claims", "secs")
+        assert tab._busy._sort["claims"] == ("secs", False)
+        tab._busy._sort_by("claims", "secs")
+        assert tab._busy._sort["claims"] == ("secs", True)
+        assert tab._busy._sort.get("runs", ("", False)) == ("", False)
+        # A grid nothing landed in still shows a row rather than staying empty.
+        tab._busy._draw(tab._busy._rows)
+        for key, _title, _sections, _columns in GROUPS:
+            assert trees[key].get_children(), f"{key}: an empty grid drew nothing at all"
+    finally:
+        _close(root)
+
+
 def test_the_log_pane_leaves_the_spool_when_its_page_is_not_open():
     """The spool keeps the history whether or not a pane draws it (#1391)."""
     try:

@@ -354,6 +354,169 @@ def test_every_line_the_block_draws_is_a_locale_key() -> None:
     assert all(key.startswith(("busy.", "activity.")) for key in tab.asked), tab.asked
 
 
+def _table_snapshot() -> dict:
+    """A snapshot with one of everything, so a row of every section is drawn."""
+    return {
+        "profile": "alice", "now": time.monotonic(),
+        "runs": [{"name": "scan_map", "tag": "timer", "secs": 42.0,
+                  "step": "JUMP 100,100", "asked": False},
+                 {"name": "heal_units", "tag": "action", "secs": 120.0,
+                  "step": "TAP heal_all", "asked": True}],
+        "steps": [{"key": "activity.daemon.start", "fmt": {"port": 47654},
+                   "secs": 7.0}],
+        "queue": {"running": "restart_game", "running_secs": 200.0,
+                  "express": ["alliance_help"],
+                  "waiting": [{"name": "base_collect", "secs": 90.0}],
+                  "held": ["collect_trucks"], "hold_secs": 12.0, "alive": True},
+        "claims": [{"key": ("127.0.0.1", 47654), "owner": "alice/timer", "secs": 400.0,
+                    "refused": 12, "mine": True, "client": True}],
+        "waiting": [{"key": ("127.0.0.1", 47654), "owner": "bob/action", "secs": 30.0,
+                     "level": 2}],
+        "timers": [{"name": "base_collect", "due_in": -300.0,
+                    "last": time.time() - 3600, "state": timersmod.ATTEMPT_FAILED},
+                   {"name": "alliance_help", "due_in": 120.0, "last": 0.0,
+                    "state": timersmod.ATTEMPT_NONE}],
+        "ticks": [{"name": "status", "due_in": -8.0}],
+        "slowest": [{"name": "scan_map", "tag": "action", "secs": 300.0}],
+        "threads": [{"name": "lw:alice:timer:scan_map", "where": "busy.py:12",
+                     "owner": "alice", "mine": True}],
+        "listeners": [{"kind": "wire", "what": "push.alliance.march.*",
+                       "desc": "busy.listener.push", "alive": True, "heard": 412,
+                       "since": 3.0, "detail": "", "who": "1"},
+                      {"kind": "capture", "what": "secret_task_capture.py",
+                       "desc": "busy.listener.secret_tasks", "alive": True, "heard": 0,
+                       "since": None, "detail": "", "who": "9001"},
+                      {"kind": "trigger", "what": "on_login", "desc": "",
+                       "alive": False, "heard": 5, "since": 900.0, "detail": "",
+                       "who": ""}],
+        "posted": 3,
+    }
+
+
+def test_the_block_is_several_grids_and_every_row_answers_its_grids_questions() -> None:
+    """«слушатели отдельно, таймеры отдельно, и т.д.» (#1500): one grid per kind.
+
+    A jam is found by COMPARING rows — who has been at it longest, who is waiting on
+    whom — and a sentence per row is exactly what hides that comparison. What changed
+    from the single filterable table (#1415) is that each KIND of row now gets its own
+    grid with its own columns, because a listener's «сколько раз» and a claim's
+    «отказов» are not the same question.
+    """
+    from panel.tabs.develop_busy import GROUPS, SECTIONS
+
+    tab = _Tab(_Runtime(), _locale("en"))
+    view = BusyView(tab)
+    rows = view.rows(_table_snapshot())
+
+    assert {row["section"] for row in rows} == set(SECTIONS), \
+        sorted({row["section"] for row in rows})
+    # Every row is the same shape, and its words are keys rather than sentences.
+    for row in rows:
+        assert set(row) == {"section", "what", "who", "detail", "secs", "level",
+                            "status", "mark"}, row
+        assert row["mark"] in ("", "slow", "stuck"), row
+        assert not row["status"] or row["status"].startswith("busy."), row
+    # …and every GRID names a title and covers a real subset of the sections.
+    group_keys = [g[0] for g in GROUPS]
+    assert len(group_keys) == len(set(group_keys)), group_keys
+    covered = set()
+    for _key, title, sections, columns in GROUPS:
+        assert title.startswith("busy."), title
+        assert columns, _key                          # every grid has columns of its own
+        covered.update(sections)
+        grows = [r for r in rows if r["section"] in sections]
+        cells = [view._cells_for(r, columns) for r in grows]
+        assert all(len(c) == len(columns) for c in cells)
+    assert covered == set(SECTIONS), sorted(covered)
+    assert all(key.startswith(("busy.", "activity.")) for key in tab.asked), tab.asked
+
+    by_section = {}
+    for row in rows:
+        by_section.setdefault(row["section"], []).append(row)
+    running = by_section["runs"][0]
+    assert running["what"] == "scan_map" and running["who"] == "timer"
+    assert running["secs"] == 42 and running["detail"] == "JUMP 100,100"
+    assert by_section["runs"][1]["status"] == "busy.status.stopping"
+    assert by_section["claims"][0]["what"] == "127.0.0.1:47654"
+    assert by_section["claims"][0]["who"].endswith("alice/timer")      # ★ = this profile
+    assert by_section["claims"][1]["level"] == "busy.level.human"      # who is waiting
+    listening = by_section["listeners"]
+    assert listening[0]["level"] == "412"                # the raw heard-count, not a key
+    assert listening[1]["status"] == "busy.listen.never"
+    assert listening[2]["status"] == "busy.status.off" and listening[2]["mark"] == "stuck"
+
+
+def test_a_row_never_lands_in_two_grids_at_once() -> None:
+    """Every `section` a row can have belongs to exactly one grid's `sections`."""
+    from panel.tabs.develop_busy import GROUPS, SECTIONS
+
+    seen: dict = {}
+    for key, _title, sections, _columns in GROUPS:
+        for section in sections:
+            assert section not in seen, (section, seen[section], key)
+            seen[section] = key
+    assert set(seen) == set(SECTIONS), sorted(set(SECTIONS) - set(seen))
+
+
+def test_an_empty_grid_says_so_instead_of_disappearing() -> None:
+    """«Пустая группа должна честно говорить «пусто»» (#1500) — never just vanish."""
+    from panel.tabs.develop_busy import GROUPS
+
+    tab = _Tab(_Runtime(), _locale("en"))
+    view = BusyView(tab)
+    for _key, _title, _sections, columns in GROUPS:
+        placeholder = view._empty_row(columns)
+        assert placeholder[0] == "— nothing", placeholder
+        assert placeholder[-1] == ""                    # no colour on a placeholder row
+        assert len(placeholder) == len(columns) + 1      # cells, plus the mark
+
+
+def test_the_long_and_the_stuck_mark_themselves() -> None:
+    """The point of the table: a jam is seen before a word of it is read."""
+    from panel.tabs.develop_busy import SLOW_SEC
+
+    view = BusyView(_Tab(_Runtime(), _locale("en")))
+    rows = view.rows(_table_snapshot())
+    marks = {(row["section"], row["what"] or row["status"]): row["mark"] for row in rows}
+
+    assert marks[("runs", "scan_map")] == ""                    # 42 s — ordinary
+    assert marks[("runs", "heal_units")] == "slow"              # 120 s — amber
+    assert marks[("queue", "restart_game")] == "slow"           # 200 s in the queue
+    assert marks[("timers", "base_collect")] == "stuck"         # overdue — red
+    assert marks[("timers", "status")] == "stuck"               # a late tick of the panel
+    assert all(row["mark"] == "stuck" for row in rows if row["section"] == "jam")
+    # And the threshold is the one the module names, not a number spelled twice.
+    quiet = {"runs": [{"name": "x", "tag": "t", "secs": SLOW_SEC - 1, "step": "",
+                       "asked": False}],
+             "steps": [], "queue": {}, "claims": [], "waiting": [], "timers": [],
+             "ticks": [], "slowest": [], "threads": [], "posted": 0}
+    assert BusyView(_Tab(_Runtime(), _locale("en"))).rows(quiet)[0]["mark"] == ""
+
+
+def test_a_grid_sorts_by_seconds_as_numbers_and_leaves_its_neighbours_alone() -> None:
+    """The column that matters most is the one a string sort reads 100 · 12 · 9.
+
+    Each grid keeps its OWN sort (#1500): sorting the claims grid must not reorder the
+    runs grid beside it.
+    """
+    from panel.tabs.develop_busy import GROUPS
+
+    columns = dict((key, cols) for key, _t, _s, cols in GROUPS)["claims"]
+    sections = dict((key, secs) for key, _t, secs, _c in GROUPS)["claims"]
+    view = BusyView(_Tab(_Runtime(), _locale("en")))
+    rows = view.rows(_table_snapshot())
+    claims = [r for r in rows if r["section"] in sections]
+
+    view._sort["claims"] = ("secs", True)
+    longest = view._sorted_group("claims", claims, columns)
+    numbers = [r["secs"] for r in longest if r["secs"] is not None]
+    assert numbers == sorted(numbers, reverse=True), numbers
+    assert numbers[0] == 400                        # the claim nobody has let go of
+
+    # The runs grid was never touched: its own (unset) sort is still the build order.
+    assert view._sort.get("runs", ("", False)) == ("", False)
+
+
 def test_a_lua_step_cannot_flood_the_block() -> None:
     """A `READ_LUA` step is a whole Lua chunk — 1 700 characters, measured live."""
     from panel.tabs.develop_busy import STEP_CHARS, _step
