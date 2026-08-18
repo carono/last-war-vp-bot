@@ -228,6 +228,15 @@ def apply_cfg_rank(ev, tasks, say=print, cache=None) -> int:
                 ranks[cfg] = (lvl, spec)
                 if cache is not None:
                     cache[cfg] = (lvl, spec)
+        # A TEMPLATE THE CLIENT DID NOT ANSWER FOR IS CACHED AS «asked, nothing said».
+        # Without it every such id is missing again on the next read and the caller's
+        # «only ask about what you have not asked about» becomes «ask every time» —
+        # measured: fourteen round trips in three quiet minutes. `(0, 0)` is what
+        # `task_rank` already reads as «the config said nothing», so it changes no
+        # ranking, only the number of questions.
+        if cache is not None:
+            for cfg in missing:
+                cache.setdefault(cfg, (0, 0))
     if not ranks:
         return 0
     changed = 0

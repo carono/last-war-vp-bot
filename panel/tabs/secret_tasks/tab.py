@@ -3025,9 +3025,15 @@ class SecretTasksTab(PanelTab):
                                                      cache=self._cfg_rank)
         except Exception:            # noqa: BLE001 — no daemon, no game: keep the digits
             fixed = 0
-        if fixed:
+        if fixed and unknown:
             # Said in the panel's own words, not the tool's: the child's line is English
             # by construction and this one is read by whoever is watching the tab.
+            #
+            # …and ONLY when the game was actually asked (#1484). The re-rank runs on
+            # every harvest now, so the digits are corrected on every read of the file
+            # and `fixed` is non-zero every time — a line three times a minute saying the
+            # config fixed 181 tiles, about a question nobody asked and an answer that
+            # came out of a dictionary.
             self.say("secret", "log.secret.cfg_reranked", n=fixed)
         return self._abroad_only([t for t in tasks if t.starred])
 
