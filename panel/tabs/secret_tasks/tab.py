@@ -462,6 +462,10 @@ class SecretTasksTab(PanelTab):
         # (drop what is no longer there, refresh what still is) rather than treating
         # them as new finds. Cleared the moment that snapshot lands, read or not.
         self._restore_pending: set = set()
+        # Regions the map has just answered about, waiting to be judged (#1484). The
+        # tiles say what IS there; these say what the server was ASKED about, and without
+        # them a list can only ever grow. Guarded by `_tiles_lock`, like the tiles.
+        self._areas: list = []
         # …and whether the checkpoint has been read back into `_rows` yet (#1476). The
         # restore used to be the first look's; a capture listens from boot, so it is the
         # MODEL's now and either of them may be the one that asks for it
@@ -933,7 +937,8 @@ class SecretTasksTab(PanelTab):
         self.autoloot.stop()
         self.autoassist.stop()
         for name in ("secret_tick", "secret_live", "secret_poll", "secret_nudge",
-                     "secret_clock", "secret_harvest", "autoloot_push_restart"):
+                     "secret_clock", "secret_harvest", "secret_areas",
+                     "autoloot_push_restart"):
             self.rt.tick.disarm(name)
         self._ticking = self._polling = self._living = False
         # …and whatever a verification still had to walk (#1484). The chain re-arms
@@ -2915,6 +2920,92 @@ class SecretTasksTab(PanelTab):
             self._merge(abroad, fresh=True,
                         intake={"seen": len(records), "plain": len(records) - len(tasks),
                                 "home": len(tasks) - len(abroad)})
+
+    # -- what the map answered ABOUT, which is the only way a row can be gone (#1484) --
+    def area_seen(self, record: dict) -> None:
+        """One region the server answered about — THE WHOLE HOOK. Any thread, no I/O.
+
+        A dict write and a wake-up, exactly like :meth:`tile_seen`, and for the same
+        reason: the sniffer's reader thread may not be made to wait for anything.
+        """
+        try:
+            record = {"server": int(record.get("server") or 0),
+                      "x0": int(record["x0"]), "y0": int(record["y0"]),
+                      "x1": int(record["x1"]), "y1": int(record["y1"]),
+                      "at": float(record.get("at") or 0.0),
+                      "uuids": {str(u) for u in record.get("uuids") or ()}}
+        except (KeyError, TypeError, ValueError):
+            return
+        if not record["server"]:
+            return
+        with self._tiles_lock:
+            first = not self._areas
+            self._areas.append(record)
+        if first:
+            self.after(self._areas_soon)
+
+    def _areas_soon(self) -> None:
+        """Arm the one pass that judges them (Tk thread). A lap is still one pass."""
+        self.rt.tick.arm("secret_areas", TILES_MS, self._areas_land)
+
+    def _areas_land(self) -> None:
+        """Take off every row the map has just answered about and did not carry.
+
+        THIS IS THE ANSWER TO «перехожу по координатам — там пусто, а строка висит».
+        Nothing tells the client that a task has been taken: there is no per-tile push,
+        and no way to ask about one tile. What the server does is answer a REGION query
+        with everything standing in that region — so the client learns a tile is gone by
+        being handed a rectangle that no longer contains it, and so does this list. It is
+        the same reply the sniffer was already decoding for the tiles; all that was
+        missing was the rectangle it came in.
+
+        `THE_LIST_RULE` clause 2, and the strictest reading of it: an ANSWER about that
+        very patch of map, arriving after the last thing we knew about the row. The three
+        guards are what keep it an answer rather than a silence —
+
+        * the row must be INSIDE the rectangle, wrap and all (`proto.area_holds`);
+        * the answer must be NEWER than the row's own last sighting, or a reply that
+          crossed with a fresh capture of the same tile would delete what had just been
+          found;
+        * a row we robbed ourselves is kept, as everywhere else — it is on the list to be
+          shared, and our own robbery is the likeliest reason the map stopped carrying it.
+
+        Nothing here is a freshness window and nothing expires: a row nobody has answered
+        about stays exactly where it is, for ever if need be. That is the half #1476 got
+        wrong in the other direction.
+        """
+        import lastwar_proto as proto
+
+        self._ensure_model()
+        with self._tiles_lock:
+            areas, self._areas = self._areas, []
+        if not areas or not self._rows:
+            return
+        gone = []
+        for key, row in list(self._rows.items()):
+            if row.get("robbed"):
+                continue
+            server = int(row.get("server") or 0)
+            x, y = int(row.get("x") or 0), int(row.get("y") or 0)
+            seen = float(row.get("seen_at") or 0.0)
+            for area in areas:
+                if area["server"] != server or key in area["uuids"]:
+                    continue
+                if area["at"] <= seen:
+                    continue
+                if not proto.area_holds(area, x, y):
+                    continue
+                gone.append(key)
+                break
+        if not gone:
+            return
+        for key in gone:
+            self._rows.pop(key, None)
+        self._dismiss(gone)
+        self.say("secret", "log.secret.area_gone", n=len(gone))
+        self._render()
+        self._update_status()
+        self._persist_rows()
 
     def _rank_of(self, record: dict, rank) -> tuple:
         """`(level, starred)` for one tile — the client's word where there is one.

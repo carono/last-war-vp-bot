@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name}: aufgegeben — {secs} s auf das Spiel gewartet, der Moment dafür ist vorbei",
   "busy.status.gated": "wartet auf das Spiel",
   "busy.queue.gated": "zurückgestellt, bis das Spiel bereit ist: {name} — {secs} s",
+  "log.secret.area_gone": "die Karte hat über ihre Felder geantwortet, ohne sie: {n} Kachel(n) sind weg",
   "log.secret.verify_start": "prüfe {rows} bereite Zeile(n) — {servers} Kampfzone(n), {points} Kamerastopp(s)",
   "log.secret.verify_unwatched": "der ★-Monitor ist aus — ein Rundgang entschlüsselt nichts, es würde nichts geprüft",
   "rally.skip.same_banners": "jede ausstehende Sammlung wurde in genau diesem Zustand schon geprüft — der andere Haken hat gerade nachgesehen",

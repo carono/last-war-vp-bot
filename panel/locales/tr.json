@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name}: vazgeçildi — oyun için {secs} sn beklendi, ilgili an geçti",
   "busy.status.gated": "oyunu bekliyor",
   "busy.queue.gated": "oyun hazır olana kadar bekletildi: {name} — {secs} sn",
+  "log.secret.area_gone": "harita onların karelerini yanıtladı ve orada yoklar: {n} tanesi gitti",
   "log.secret.verify_start": "{rows} hazır satır denetleniyor — {servers} savaş bölgesi, {points} kamera durağı",
   "log.secret.verify_unwatched": "★ izleyicisi kapalı — tur hiçbir şeyi çözmez, hiçbir şey denetlenmez",
   "rally.skip.same_banners": "açıktaki her toplanma tam bu durumda zaten değerlendirildi — diğer kanca az önce baktı",

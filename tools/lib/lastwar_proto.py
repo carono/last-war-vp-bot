@@ -731,6 +731,82 @@ def _looters(raw) -> tuple[str, ...]:
     return (str(raw),)
 
 
+def block_areas(payload: dict):
+    """Yield the RECTANGLE each block of a `world.get.block` response covers.
+
+    THE ONE THING THAT CAN SAY A TILE IS GONE, and nothing else can (#1484). The server
+    answers a region query with everything standing in that region, so a tile inside the
+    rectangle and absent from the answer is not on the map any more. There is no push, no
+    per-tile «it is gone», and no way to ask about one tile: the map replies about AREAS,
+    and absence inside a covered area is the whole of the evidence. It is also how the
+    game itself finds out — the client draws what the reply carries and drops what it
+    does not, which is why a player who walks over to the coordinate sees empty ground
+    while a list built out of older replies still shows a task.
+
+    Each dict is server-local, in the same numbers `secret_tasks` yields and the game
+    shows on screen:
+
+        {"server": int, "x0": int, "y0": int, "x1": int, "y1": int,
+         "view": int, "uuids": [str, …]}
+
+    `x0/y0` is the bottom-left corner and `x1/y1` the top-right, both inclusive, and the
+    map WRAPS horizontally — a block may legitimately come back with `x0 > x1`, meaning
+    it runs off the right edge and continues from zero (measured: `leftBottom` (991, 0)
+    with `rightTop` (0, 111), carrying points at x 994 and 996). :func:`area_holds` is
+    what answers «is this tile inside», so nobody has to remember that twice.
+
+    `view` is the block's own `viewLvl`. It matters because the client asks for less at
+    greater heights: above the secret-task height the map goes on sending bases and stops
+    sending tasks (docs/research/map-sweep-zoom.md), and an area heard at such a level
+    would read as «no tasks here» about ground that is full of them. A caller that means
+    to DELETE anything must check it.
+
+    `uuids` are the dispatch tasks (`f2 = 17`) the block did carry, as strings, so a
+    caller can subtract its own rows from them without decoding the points twice.
+
+    Both corners are packed the response's way — `y * maxAreaSize + x`, server-local —
+    which is NOT how the request packs them (protocol.md §7). That difference is what
+    once produced x values above 1000 on a 1000×1000 server.
+    """
+    for block in payload.get("serverPointArr") or ():
+        area = int(block.get("maxAreaSize") or 1000)
+        try:
+            low = int(block["leftBottom"])
+            high = int(block["rightTop"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        uuids = []
+        for point in block.get("points") or ():
+            tile = point.get("_protobuf") or {}
+            if tile.get("f2") != 17:
+                continue
+            uuid = (tile.get("f10") or {}).get("f1") or tile.get("f100")
+            if uuid:
+                uuids.append(str(uuid))
+        yield {"server": int(block.get("serverId") or 0),
+               "x0": low % area, "y0": low // area,
+               "x1": high % area, "y1": high // area,
+               "view": int(block.get("viewLvl") or 0),
+               "area": area, "uuids": uuids}
+
+
+def area_holds(area: dict, x: int, y: int) -> bool:
+    """Is tile `(x, y)` inside the rectangle this block answered about?
+
+    The horizontal wrap is the whole reason this is a function: a block that runs off the
+    right edge of the map comes back with `x0 > x1` and covers `x >= x0` OR `x <= x1`.
+    Getting that wrong in the obvious direction — treating it as an empty range — loses
+    removals quietly; getting it wrong the other way deletes rows on the far side of the
+    map, so it is written once, here, and tested.
+    """
+    y0, y1 = area["y0"], area["y1"]
+    if not (min(y0, y1) <= y <= max(y0, y1)):
+        return False
+    x0, x1 = area["x0"], area["x1"]
+    if x0 <= x1:
+        return x0 <= x <= x1
+    return x >= x0 or x <= x1
+
 def secret_tasks(payload: dict):
     """Yield every secret task in one decoded `world.get.block` response.
 

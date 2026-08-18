@@ -43,6 +43,17 @@ NUDGE_MS = 800
 #: over, return.
 TILE_MARKER = "##TILE##"
 
+#: The machine line the capture prints per REGION the server answered about — and the
+#: only evidence in this whole system that a tile is GONE (#1484). It MUST match
+#: `tools/secret_task_capture.py::AREA_MARKER`.
+#:
+#: The tiles say what IS on the map; without the regions the list can only ever grow.
+#: The server answers a region query with everything standing in it, so a row inside the
+#: rectangle and missing from the answer is a row whose tile is not there — which is also
+#: how the game itself finds out, and why walking to the coordinate shows empty ground
+#: while a list built out of older replies still shows a task.
+AREA_MARKER = "##AREA##"
+
 #: The `family NNNN` token the capture prints on every finding, and the leading ` *` it
 #: marks a starred one with. The family is what the rule is actually made of; the star
 #: glyph is the fallback for a line shape that ever stops carrying it.
@@ -406,6 +417,22 @@ class Capture:
             self.tab.tile_seen(record)
         return False
 
+    def on_area(self, line: str) -> bool:
+        """One REGION the server answered about — handed over exactly like a tile.
+
+        Same shape and same reason as :meth:`on_tile`: parse, hand over, return. The
+        judgement — which of the panel's own rows were inside it and did not come back —
+        is the tab's, on the Tk thread, over everything that has arrived
+        (`SecretTasksTab.area_seen`).
+        """
+        try:
+            record = json.loads(line[len(AREA_MARKER):].strip())
+        except ValueError:
+            return False                # a torn line is not worth a word
+        if isinstance(record, dict):
+            self.tab.area_seen(record)
+        return False
+
     def on_line(self, line: str) -> bool:
         """One capture line: log it if the display filter lets it through, record a real
         finding into the profile's own log, and nudge the list to re-merge the
@@ -419,6 +446,8 @@ class Capture:
         """
         if line.startswith(TILE_MARKER):
             return self.on_tile(line)
+        if line.startswith(AREA_MARKER):
+            return self.on_area(line)
         is_finding = bool(coords.parse(line))
         # THE CHECKPOINT MERGE IS THE FALLBACK NOW, not the feed (#1416). The tiles
         # arrive as their own events above; this keeps the old path alive for what the

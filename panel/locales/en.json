@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name}: given up — {secs} s waiting for the game, the moment it was about has passed",
   "busy.status.gated": "waiting for the game",
   "busy.queue.gated": "held back until the game is up: {name} — {secs} s",
+  "log.secret.area_gone": "the map answered about their squares without them: {n} tile(s) are gone",
   "log.secret.verify_start": "verifying {rows} ready row(s) — {servers} warzone(s), {points} camera stop(s)",
   "log.secret.verify_unwatched": "the ★ monitor is off — a walk decodes nothing, so nothing would be verified",
   "rally.skip.same_banners": "every banner out has already been weighed in this very state — the other hook has just looked",

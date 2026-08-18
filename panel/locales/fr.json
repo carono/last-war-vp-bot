@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name} : abandonné — {secs} s d'attente du jeu, le moment concerné est passé",
   "busy.status.gated": "attend le jeu",
   "busy.queue.gated": "reporté jusqu'à ce que le jeu soit prêt : {name} — {secs} s",
+  "log.secret.area_gone": "la carte a répondu sur leurs cases sans les contenir : {n} case(s) disparue(s)",
   "log.secret.verify_start": "vérification de {rows} ligne(s) prête(s) — {servers} zone(s), {points} arrêt(s) caméra",
   "log.secret.verify_unwatched": "le moniteur ★ est éteint — un passage ne décode rien, rien ne serait vérifié",
   "rally.skip.same_banners": "chaque ralliement sorti a déjà été évalué dans cet état précis — l'autre point d'écoute vient de regarder",

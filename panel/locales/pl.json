@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name}: porzucone — {secs} s czekania na grę, chwila, której dotyczyło, minęła",
   "busy.status.gated": "czeka na grę",
   "busy.queue.gated": "wstrzymane do gotowości gry: {name} — {secs} s",
+  "log.secret.area_gone": "mapa odpowiedziała o ich polach i nie ma ich tam: zniknęło {n}",
   "log.secret.verify_start": "sprawdzam {rows} gotowych wierszy — stref: {servers}, postojów kamery: {points}",
   "log.secret.verify_unwatched": "monitor ★ jest wyłączony — obchód niczego nie odczyta, nie byłoby czego sprawdzić",
   "rally.skip.same_banners": "każda wystawiona zbiórka została już oceniona dokładnie w tym stanie — drugi hak właśnie patrzył",

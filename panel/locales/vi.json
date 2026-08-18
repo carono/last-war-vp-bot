@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name}: bỏ qua — đã chờ trò chơi {secs} giây, thời điểm liên quan đã trôi qua",
   "busy.status.gated": "đang chờ trò chơi",
   "busy.queue.gated": "hoãn đến khi trò chơi sẵn sàng: {name} — {secs} giây",
+  "log.secret.area_gone": "bản đồ đã trả lời về ô của chúng mà không có chúng: mất {n}",
   "log.secret.verify_start": "đang đối chiếu {rows} dòng sẵn sàng — {servers} vùng chiến, {points} điểm dừng máy quay",
   "log.secret.verify_unwatched": "màn theo dõi ★ đang tắt — một vòng đi không giải mã gì, sẽ không đối chiếu được gì",
   "rally.skip.same_banners": "mọi cuộc tập hợp đang mở đều đã được cân nhắc đúng ở trạng thái này — móc còn lại vừa xem xong",

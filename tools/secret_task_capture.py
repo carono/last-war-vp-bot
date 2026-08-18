@@ -79,6 +79,18 @@ from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 #: `panel/tabs/secret_tasks/capture.py::TILE_MARKER`: the two processes agree on this
 #: string and on the JSON object after the tab, and on nothing else.
 TILE_MARKER = "##TILE##"
+
+#: The machine line the capture prints per REGION the server answered about, and the
+#: only thing in this whole system that can say a tile is GONE (#1484).
+#:
+#: There is no «this task has been taken» push and no way to ask about one tile. The map
+#: replies about AREAS: everything standing inside a rectangle. So a tile inside the
+#: rectangle and absent from the reply is not there any more — which is also how the GAME
+#: finds out, and why a player who walks over to the coordinate sees empty ground while a
+#: list built out of older replies still shows a task.
+#:
+#: Must match `panel/tabs/secret_tasks/capture.py::AREA_MARKER`.
+AREA_MARKER = "##AREA##"
 from map_capture import (  # noqa: E402
     MapIndex, ProgressTicker, add_capture_arguments, check_platform, diagnose,
     dump_records as dump_tasks, human_size, level_set, start_capture,
@@ -122,6 +134,11 @@ class TaskIndex(MapIndex):
         #: `--world-json` was not given, and then nothing here costs anything.
         self.world = world
         self._tasks: dict[tuple, proto.SecretTask] = {}
+        #: Regions the server has answered about since the last drain (#1484) — see
+        #: :data:`AREA_MARKER`. A list rather than a set: two replies about the same
+        #: rectangle a second apart are two pieces of evidence, and the later one is
+        #: what a reader wants.
+        self._areas: list = []
         # Wall-clock of the last time the map re-sent each task, so stale ones
         # can be evicted rather than served as if still live.
         self._seen_at: dict[tuple, float] = {}
@@ -135,8 +152,27 @@ class TaskIndex(MapIndex):
             key = (task.server_id, task.uuid)
             self._tasks[key] = task
             self._seen_at[key] = now
+        # …AND WHAT THE REPLY ANSWERED ABOUT, not only what it carried (#1484). Kept
+        # here and printed by the tick loop rather than printed here: this runs on the
+        # sniffer thread with the index lock held, and a print per response from there is
+        # exactly the pipe overflow that made a capture go deaf mid-lap (#1476).
+        #
+        # Only the height at which tasks arrive at all. Above it the client goes on
+        # asking for bases and stops asking for tasks, so an area heard up there would
+        # read as «no tasks here» about ground that is full of them
+        # (docs/research/map-sweep-zoom.md).
+        for area in proto.block_areas(payload):
+            if area["view"] == 0:
+                area["at"] = now
+                self._areas.append(area)
         if self.world is not None:
             self.world.on_blocks(payload, blocks, now)
+
+    def take_areas(self) -> list:
+        """Everything answered about since the last drain. Called by the tick loop."""
+        with self._index_lock:
+            areas, self._areas = self._areas, []
+        return areas
 
     def on_response(self, command, payload) -> None:
         """Every non-map answer — which is where the game announces a share.
@@ -427,6 +463,17 @@ def main() -> int:
                         print(f"{C_DIM}  transcript: "
                               f"{index.transcript.frames} frame(s), "
                               f"{human_size(index.transcript.size())}{C_RESET}")
+            # WHAT THE SERVER ANSWERED ABOUT, before what it carried (#1484). One line
+            # per region, drained on the tick so the sniffer thread never prints: it is
+            # the only evidence that a tile is GONE, and a reader that gets the tiles
+            # without the regions can add rows for ever and remove none.
+            for area in index.take_areas():
+                print(AREA_MARKER + "\t" + json.dumps({
+                    "server": area["server"], "at": round(area["at"], 3),
+                    "x0": area["x0"], "y0": area["y0"],
+                    "x1": area["x1"], "y1": area["y1"],
+                    "uuids": area["uuids"],
+                }, ensure_ascii=False), flush=True)
             for task in index.find(level=args.level, star_only=args.star,
                                    can_loot=args.can_loot, pending=args.pending):
                 tile = (task.server_id, task.uuid)

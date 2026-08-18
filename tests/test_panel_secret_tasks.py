@@ -2225,6 +2225,98 @@ def test_the_periodic_re_rank_asks_the_game_only_about_a_template_it_has_not_see
     assert more[0].level == 7, more[0].level
 
 
+def test_a_region_the_map_answered_about_takes_the_rows_it_did_not_carry():
+    """«Перехожу по координатам — там пусто, а строка висит» — the removal, at last (#1484).
+
+    Nothing tells the client a task has been taken: no per-tile push, no way to ask about
+    one tile. The server answers a REGION with everything standing in it, so a row inside
+    the rectangle and missing from the answer is a row whose tile is gone — which is how
+    the game itself finds out, and now how the list does.
+    """
+    inside = _row(1, 7, -5_000, 600_000)
+    inside["x"], inside["y"], inside["server"] = 50, 60, 945
+    carried = _row(2, 7, -5_000, 600_000)
+    carried["x"], carried["y"], carried["server"] = 51, 61, 945
+    outside = _row(3, 7, -5_000, 600_000)
+    outside["x"], outside["y"], outside["server"] = 900, 900, 945
+    abroad = _row(4, 7, -5_000, 600_000)
+    abroad["x"], abroad["y"], abroad["server"] = 50, 60, 946
+    rows = {"1": inside, "2": carried, "3": outside, "4": abroad}
+    for row in rows.values():
+        row["seen_at"] = _time_module.time() - 600
+    tab = _make_tab(rows)
+    tab.rt = _fake_rt(_state_path())
+    tab.say = lambda *_a, **_k: None
+    tab._render = lambda: None
+    tab._update_status = lambda: None
+    tab._ensure_model = lambda: None
+    tab._tiles_lock = __import__("threading").Lock()
+    tab._areas = [{"server": 945, "x0": 0, "y0": 0, "x1": 100, "y1": 100,
+                   "at": _time_module.time(), "uuids": {"2"}}]
+
+    tab._areas_land()
+
+    assert sorted(tab._rows) == ["2", "3", "4"], tab._rows
+    assert "1" in tab._dismissed, "the removal was not booked"
+
+
+def test_a_region_older_than_the_row_takes_nothing():
+    """A reply that crossed with a fresh sighting of the same tile must not delete what
+    had just been found — the answer has to be NEWER than what it argues with."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["x"], row["y"], row["server"] = 50, 60, 945
+    row["seen_at"] = _time_module.time()
+    tab = _make_tab({"1": row})
+    tab.rt = _fake_rt(_state_path())
+    tab.say = lambda *_a, **_k: None
+    tab._ensure_model = lambda: None
+    tab._tiles_lock = __import__("threading").Lock()
+    tab._areas = [{"server": 945, "x0": 0, "y0": 0, "x1": 100, "y1": 100,
+                   "at": _time_module.time() - 600, "uuids": set()}]
+
+    tab._areas_land()
+
+    assert "1" in tab._rows, "a stale region emptied the list"
+
+
+def test_a_row_we_robbed_survives_a_region_that_lost_it():
+    """Our own robbery is the likeliest reason the map stops carrying a tile, and the row
+    is on the list to be shared (#1272). Every other remover makes this exception too."""
+    row = _row(1, 7, -5_000, 600_000)
+    row["x"], row["y"], row["server"], row["robbed"] = 50, 60, 945, True
+    row["seen_at"] = _time_module.time() - 600
+    tab = _make_tab({"1": row})
+    tab.rt = _fake_rt(_state_path())
+    tab.say = lambda *_a, **_k: None
+    tab._ensure_model = lambda: None
+    tab._tiles_lock = __import__("threading").Lock()
+    tab._areas = [{"server": 945, "x0": 0, "y0": 0, "x1": 100, "y1": 100,
+                   "at": _time_module.time(), "uuids": set()}]
+
+    tab._areas_land()
+
+    assert "1" in tab._rows
+
+
+def test_the_map_wraps_and_the_rectangle_knows_it():
+    """A block that runs off the right edge comes back with x0 > x1 and covers both
+    sides of the seam — measured live: (991, 0) -> (0, 111) carrying points at x 994.
+
+    Reading that as an empty range loses removals quietly; reading it the other way
+    deletes rows on the far side of the map. Hence one function, tested.
+    """
+    import lastwar_proto as proto
+
+    seam = {"x0": 991, "y0": 0, "x1": 10, "y1": 111}
+    assert proto.area_holds(seam, 994, 15)
+    assert proto.area_holds(seam, 5, 15)
+    assert not proto.area_holds(seam, 500, 15)
+    assert not proto.area_holds(seam, 994, 500)
+    plain = {"x0": 1, "y0": 0, "x1": 111, "y1": 110}
+    assert proto.area_holds(plain, 89, 4)
+    assert not proto.area_holds(plain, 500, 4)
+
+
 def test_nothing_walks_the_map_on_its_own():
     """«Обход карты — плохая практика» — so the tab keeps no timer that can start one.
 

@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name}: dilepas — menunggu permainan {secs} d, saat yang dimaksud sudah lewat",
   "busy.status.gated": "menunggu permainan",
   "busy.queue.gated": "ditahan sampai permainan siap: {name} — {secs} d",
+  "log.secret.area_gone": "peta menjawab tentang kotak mereka tanpa mereka: {n} hilang",
   "log.secret.verify_start": "memeriksa {rows} baris siap — {servers} zona, {points} perhentian kamera",
   "log.secret.verify_unwatched": "monitor ★ mati — putaran tidak menguraikan apa pun, tidak ada yang diperiksa",
   "rally.skip.same_banners": "setiap penggalangan yang terbuka sudah ditimbang dalam keadaan yang persis sama — kait satunya baru saja melihat",

@@ -1913,6 +1913,7 @@
   "timers.log.gate_expired": "{name}: abbandonato — {secs} s di attesa del gioco, il momento a cui si riferiva è passato",
   "busy.status.gated": "attende il gioco",
   "busy.queue.gated": "rinviato finché il gioco non è pronto: {name} — {secs} s",
+  "log.secret.area_gone": "la mappa ha risposto sulle loro caselle senza di esse: {n} sparita/e",
   "log.secret.verify_start": "verifico {rows} riga/e pronta/e — {servers} zona/e, {points} sosta/e della camera",
   "log.secret.verify_unwatched": "il monitor ★ è spento — un giro non decodifica nulla, non si verificherebbe niente",
   "rally.skip.same_banners": "ogni raduno in corso è già stato valutato in questo stesso stato — l'altro aggancio ha appena guardato",
