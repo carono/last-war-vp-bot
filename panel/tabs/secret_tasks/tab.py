@@ -724,6 +724,14 @@ class SecretTasksTab(PanelTab):
             self.autoloot.start()
         if self.autoassist_var.get():
             self.autoassist.start()
+        # …AND THE UNATTENDED CHECK, which belongs at BOOT and not at the first look
+        # (#1484). It used to be armed by `on_show`, and «Автолут ★» spends the day's
+        # five robberies out of this list whether or not anybody opens the tab — so on a
+        # panel nobody touches, the one thing keeping the list honest was the one thing
+        # that never started. It costs a tick a minute while it has nothing to do: the
+        # turn itself steps aside for a press, for a busy game and for a sniffer that is
+        # not running, and it walks nothing while no row is ready.
+        self._state_sweep()
 
     def on_show(self) -> None:
         """Somebody opened the tab: restore the last session's list, start the
@@ -762,7 +770,9 @@ class SecretTasksTab(PanelTab):
         self._read_monsters()
         self._start_clock_sync()
         self._start_ticking()
-        self._state_sweep()
+        # …the unattended check is `ensure_loaded`'s (#1484), armed at boot: it has to
+        # run for a panel nobody has opened, because the standing order that robs out of
+        # this list does.
         self._prime_own_server()
         self._snapshot()
         self._roster()
