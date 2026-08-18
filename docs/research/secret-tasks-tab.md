@@ -11,7 +11,6 @@ answer, `P` = panel-only, `F` = file.
 | `secret_tick` | 1 s | stamp share marks, recompute timers, drop expired, flip `ready`/`soon`, render or repaint state cell, persist on expiry, refresh both order lines, re-arm poll + live, tick 4 other pages | `F` (`stat` of `secret_shared.json`, parse only on mtime change) | no | `on_show` → `_start_ticking` | `shutdown()` only |
 | `secret_live` | 250 ms | rewrite the state cell where its text changed — draw only, decides nothing | nothing | no | `_tick` → `_maybe_start_live` while any row has a clock | when no row on the tab has a clock |
 | `secret_poll` | 3 s | re-read the RAIDABLE rows: refresh `loot_count`/clocks, drop what a read that could see it did not carry | `V` `_vm_all_alliance_tasks` | no | `_maybe_start_poll` while `_hot_rows()` non-empty | when nothing is raidable |
-| `secret_state` | 60 s | the same WALK «Обновить состояние» makes, over ONE warzone a turn — the ready-to-rob rows only (#1484) | `W` capture checkpoint, after driving the camera over their squares | yes (one scenario run) | `on_show`, self re-arms | `shutdown()`; skipped while a press is walking, while the game is down, and while the ★ sniffer is off |
 | `secret_clock` | 5 min | re-measure game-vs-PC clock drift | `V` one line, skipped while game down/busy | no | `on_show` → `_start_clock_sync`, self re-arms | `shutdown()` |
 | `secret_nudge` | 800 ms one-shot debounce | re-merge the capture checkpoint into the list | `F` `tasks.json` + `V` cfg-rank chunk | no | every capture finding line / «on timer» line | fires once per burst |
 | `autoloot_push_restart` | 1.5 s one-shot | re-spawn the push listener with the new rule | nothing | no | level box typed while «Автолут ★» on | fires once |
@@ -27,7 +26,6 @@ answer, `P` = panel-only, `F` = file.
 | `secret_live` | `tab.py:_live_tick` / `grid.py:repaint_countdowns` |
 | `secret_poll` | `tab.py:_poll_tick` → `_poll_work` → `_poll_apply` |
 | `secret_clock` | `tab.py:_start_clock_sync` → `_sync_clock` |
-| `secret_state` | `tab.py:_state_sweep` → `_verify_next` → `verify_secret_tasks.md` → `_verify_landed` → `_verify_apply` |
 | `secret_nudge` | `capture.py:on_line` → `_nudge` → `tab.py:refresh` |
 | `autoloot_push_restart` | `autoloot.py:range_changed` → `restart_push` |
 | «Автолут ★» loop | `autoloot.py:_loop` → `tick` → `run` → `_spend` |
@@ -47,12 +45,12 @@ alliance roster (thread) → ghost read (thread).
 | coordinate `X:… Y:…` | never after insert | — | `W`/`V`/`F` | `tab.py:_row_values` |
 | server | never after insert | — | `W`/`V`/`F` | `tab.py:_merge` |
 | level + star | insert only; wire values corrected once by the client's config on each checkpoint merge | per merge | `W` digits → `V` config | `steal_secret_task.apply_cfg_rank` |
-| **`n/3` (loot count)** | `secret_poll` (3 s, raidable rows, own alliance only), checkpoint merge, and — since #1484 — «Обновить состояние» / `secret_state`, which DRIVE THE MAP over the ready rows so the capture hears their tiles again | see note | `W` tile stealer list, `V` alliance table | `tab.py:_merge` (`max`), `_poll_apply`, `_verify_apply` |
+| **`n/3` (loot count)** | any SIGHTING the sniffer makes (a lap, a person panning, an errand that jumps) — upwards only; `secret_poll` (3 s) for my own alliance's tasks; and «Обновить состояние», which is a press | on traffic / 3 s / press | `W` tile stealer list, `V` alliance table | `tab.py:_merge` (`max`), `_poll_apply`, `_verify_apply` |
 | state text «готово через …» / «готово к сбору · истекает через …» | `secret_live` | 250 ms | `P`, computed from `completed_at`/`expires_at` vs game clock | `grid.py:state_text` |
 | `ready` (green) | `secret_tick` | 1 s | `P` | `grid.py:refresh_timers` |
 | `soon` (yellow, < 10 min) | `secret_tick` | 1 s | `P` | `grid.py:refresh_timers` |
 | `completed_at` / `expires_at` | `secret_poll`, «Обновить состояние», merge (only if they were empty) | 3 s / press / merge | `V` / `W` | `tab.py:_poll_apply`, `_verify_apply` |
-| **«Сверено» (`checked_at`)** | «Обновить состояние» / `secret_state` — the only two things that stamp it; aged in place once a second | press / 60 s | `P`, stamped on the GAME's clock when a walk heard the tile | `tab.py:_verify_apply`, `grid.py:checked_text` |
+| **«Сверено» (`checked_at`)** | a SIGHTING off the sniffer, the 3-second alliance poll, or the «Обновить состояние» press — a checkpoint repeat deliberately does NOT stamp; aged in place once a second | on traffic / 3 s / press | `P`, stamped on the GAME's clock | `tab.py:_merge`, `_poll_apply`, `_verify_apply`, `grid.py:checked_text` |
 | «Собрать» cell | every render | on any change | `P` — ready, or ≤ 10 s to maturity, and takeable | `tab.py:_collectable` |
 | 💰 robbed | server-confirmed robbery | on the answer | `P`, kept in the checkpoint | `tab.py:_collect_done` |
 | 📣 shared | `secret_tick` re-stats `secret_shared.json` | 1 s | `F` — panel share, both captures, autoloot listener | `shared.py:apply` |
@@ -60,6 +58,14 @@ alliance roster (thread) → ghost read (thread).
 | owner name | never on the ★ page (always empty) | — | — | `grid.py:COLUMNS` |
 | row order | full render (merge, poll drop, sort click, filter, ready flip) | on change | `P` | `grid.py:sort_rows` + `sync_tree` |
 | counters «секреток: N · скрыто: M», notebook labels | every render | on change | `P` | `tab.py:_update_status`, `sync_page_counts` |
+
+> **Why there is no automatic version of this, measured rather than assumed:**
+> [`secret-task-state-sources.md`](secret-task-state-sources.md). Nothing arrives
+> passively (five quiet minutes: 0 responses), the client cannot be asked for a region
+> without its camera (`SendViewRequest` sends nothing, and forcing it tore the world
+> down), and the alliance table holds 200 tasks with 0 abroad while this list is
+> abroad-only. So the background half is «count every sighting somebody else's lap
+> makes», and the walk is a button.
 
 **`n/3` moves for a stranger's tile only when the MAP is driven over it.** The count lives
 in the map tile (`world.get.block`, decoded by the capture) and in my own alliance's table,
@@ -78,7 +84,7 @@ Alliance page rows are replaced whole by each roster read; ghost pages by each g
 |---|---|---|---|---|---|
 | **Обойти карту** | claim game lease → play `scan_map.md` with zoom/step **and the server from the «Сервер» box** → scenario schedules all waypoints in one Lua call → sleeps `lap + 2 s` (~8 s) | 1 chunk: `GoToUtil.GotoWorldPos` per waypoint via the game's own timer; ~121 `world.get.block` | nothing directly; the capture writes what the lap uncovers, then the nudge merges it | log «обхожу карту, ~N с»; warning if no sniffer is running; rows appear ~1–2 s later | `tab.py:_sweep_once`, `lua_actions.fast_map_sweep` |
 | **Остановить** (same button) | bumps the sweep run token; every pending waypoint closure returns | 1 chunk | none | log «обход остановлен» | `tab.py:_sweep_stop`, `lua_actions.fast_map_sweep_stop` |
-| **Обновить состояние** | the READY-TO-ROB rows only → group them into 80-tile squares, one run per warzone → play `verify_secret_tasks.md` (`VISIT_MAP` over the square centres, ~0.05 s a stop + 2 s) → read the capture's checkpoint AT ONCE, before the client can leave that warzone | `W` — `world.get.block` per camera stop, decoded by the ★ sniffer | tile heard → `n/3` (upwards only) + clocks + «Сверено»; tile silent while ANOTHER tile of its square answered → row removed (`THE_LIST_RULE` clause 2); square silent → nothing | log «сверяю N готовых строк — зон M, остановок камеры K», then «проверено N · обновлено N · исчезло N · не подтвердилось N»; refuses with «мониторинг ★ выключен» when nothing is listening | `tab.py:refresh_state` → `_verify_plan` → `_verify_next` → `_verify_landed` → `_verify_apply` |
+| **Обновить состояние** (a PERSON's press, and nothing automatic — #1484) | the READY-TO-ROB rows only → group them into 80-tile squares, one run per warzone → play `verify_secret_tasks.md` (`VISIT_MAP` over the square centres, ~0.05 s a stop + 2 s) → read the capture's checkpoint AT ONCE, before the client can leave that warzone | `W` — `world.get.block` per camera stop, decoded by the ★ sniffer | tile heard → `n/3` (upwards only) + clocks + «Сверено»; tile silent while ANOTHER tile of its square answered → row removed (`THE_LIST_RULE` clause 2); square silent → nothing | log «сверяю N готовых строк — зон M, остановок камеры K», then «проверено N · обновлено N · исчезло N · не подтвердилось N»; refuses with «мониторинг ★ выключен» when nothing is listening | `tab.py:refresh_state` → `_verify_plan` → `_verify_next` → `_verify_landed` → `_verify_apply` |
 | **Собрать** (cell, double-click, menu, strip) | guard `_pressing` → if the tile is still counting down, sleep down to 2.5 s before maturity → play `steal_secret_task.md` with `{queue}` → recipe parks, spams `xall` (0.05 s, ≤ 60 presses ≈ 9 s), pops the target, closes the reward window | `hero.dispatch.steal {uuid, targetServer}`, repeated until the server answers | success → row marked 💰, stays on the list, loses «Собрать», uuid added to `_collected`; `how=gone` → row removed | log «нажму через N с», then «ограблено» or «не удалось» | `tab.py:_collect` → `_collect_done` / `_drop_gone` |
 | **Поделиться → альянс / мир** | read cached self ids → build room `alliance_<srv>_<aid>` or `country_<srv>` → build attachment → send | chat message with the tile attachment | row gets 📣, mark appended to `secret_shared.json` | log «отправлено в …» or «не удалось» | `tab.py:_share` → `_share_done`, `shared.py:mark_panel` |
 | **Очистить список** | wipe `_rows` and pending restore, render, persist — the book of what we robbed is KEPT | nothing | list empty, checkpoint empty of rows; the alliance page is untouched | empty table + «нет звёздных секреток» | `tab.py:_clear` |

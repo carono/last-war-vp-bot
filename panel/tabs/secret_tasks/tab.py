@@ -168,29 +168,39 @@ TILES_WAIT_MS = 3_000
 # `grid.repaint_countdowns`.
 LIVE_MS = 250
 
-# HOW OFTEN THE LIST RE-CHECKS ITSELF AGAINST THE MAP, and how much of it at a time
-# (#1280, recut #1484). «Обновить состояние» is a press, and the complaint that produced
-# the automatic half was that a list nobody presses on is a list that lies.
+# WHAT KEEPS THIS LIST TRUE, AND WHAT DOES NOT — the audit, because three of the four
+# ways it could have been done do not exist (#1484, measured on the live client).
 #
-# ONE WARZONE A TURN, because that is the unit the evidence comes in. The check is a walk
-# of the map and the capture that decodes it indexes the warzone it is currently hearing,
-# dropping the rest the moment the client leaves it (`TaskIndex.on_server_left`, measured
-# at four seconds) — so a turn walks one warzone, reads the checkpoint, and the next turn
-# takes the next warzone. A live list spanning ten warzones therefore comes round in ten
-# turns.
+# The number that goes stale is «сколько раз эту секретку ограбили», and it rides on the
+# MAP TILE (`world.get.block`) and on the client's own alliance table. So:
 #
-# A MINUTE rather than the old thirty seconds, because a turn now costs a couple of
-# seconds of held game instead of a couple of round trips: ten warzones in ten minutes,
-# and the rows whose state lives seconds are not waiting for this — the standing order
-# polls them every :data:`POLL_MS` anyway.
-STATE_MS = 60_000
+#   1. **PASSIVELY, off the wire.** Measured: five minutes of a live, logged-in, quiet
+#      client — camera still, sniffer running — brought 0 map responses and 0 tiles. A
+#      stranger's tile is NEVER re-announced on its own. There is no push to subscribe to.
+#   2. **BY ASKING, without moving the camera.** `WorldScene.SendViewRequest(tilePos,
+#      viewLevel, serverId)` exists and is exactly the right shape. Called on its own it
+#      sends NOTHING — sixteen calls across a warzone left the response counter where it
+#      was. Forced (`SetFirstViewRequestFlag(true)`), it does send a few, and it also
+#      tore the world down: the scene object died and the client came back on its home
+#      warzone. Not a background read; a way to break the client.
+#   3. **OFF THE ALLIANCE TABLE.** It carries `stealInfoList` and needs no map at all —
+#      for MY alliance's tasks. Measured: 200 of them, **0 abroad**, and this list is
+#      abroad-only by construction (#1188). It answers for 0 % of it.
+#
+# What is left is what already happens. Every tile the sniffer hears — from the
+# four-hourly star round, from a person moving the map, from any errand that jumps — is
+# a re-sighting, and re-sightings are now COUNTED rather than only added
+# (:meth:`_merge`): the loot count rises, the row is stamped «сверено», and none of it
+# costs a round trip. The robbery corrects the rest at the point of use: the server's own
+# «задание уже взято / больше не доступно» takes the row off (`_drop_gone`), and a
+# premature press costs nothing at all.
+#
+# The camera walk is a PERSON'S press and nothing else now («Обновить состояние»). It
+# used to run itself every thirty seconds, and that is the practice this note exists to
+# end: it holds the one game claim for seconds at a time, it moves the map under whoever
+# is looking at it, and it is exactly the class of work #1416 spent itself taking out of
+# the hot path.
 
-# THE GRID A VERIFICATION WALKS, in tiles (#1484). A waypoint is the CENTRE of a square
-# this wide, so every row inside the square is at most half of it from where the camera
-# lands — comfortably inside the patch of map one jump at :data:`VERIFY_ZOOM` loads, which
-# `SWEEP_MAP` walks at a stride of 90. The margin is the whole reason it is not 90 too: a
-# row sitting on the border of a 90-square would be exactly on the edge of what its own
-# waypoint fetches, and «did not come back» would then mean «was never asked».
 VERIFY_STEP = 80
 
 # The height the walk is made at, and the pause between two waypoints. Both are the
@@ -411,19 +421,12 @@ class SecretTasksTab(PanelTab):
         # …and the ghost-recon page's own read (#1251), which is a fourth source with
         # a fourth failure mode: a weekly event that is shut six days out of seven.
         self._ghost_busy = False
-        # …and the unattended state re-check (#1280), which is the SAME read «Обновить
-        # состояние» makes and therefore needs a flag of its own: sharing `_vm_busy` with
-        # it would let a background turn swallow a press, or a share push's snapshot.
-        self._state_busy = False
-        # Which warzone the unattended rotation is up to — see `_state_sweep`.
-        self._state_cursor = 0
         # THE VERIFICATION IN FLIGHT (#1484): the warzones still to walk, whether it is
         # the unattended turn or a press, and what the whole run has come to so far. A
         # verification is a CHAIN — one walk per warzone, with a read of the capture's
         # checkpoint between them, because the checkpoint only ever holds the warzone the
         # client is on — so it needs a queue rather than a flag.
         self._verify_queue: list = []
-        self._verify_auto = False
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
         # …and what each of those rows' loot count was when the run STARTED, because
         # that is what «обновлено» is a count of. The capture feeds the model directly
@@ -724,14 +727,6 @@ class SecretTasksTab(PanelTab):
             self.autoloot.start()
         if self.autoassist_var.get():
             self.autoassist.start()
-        # …AND THE UNATTENDED CHECK, which belongs at BOOT and not at the first look
-        # (#1484). It used to be armed by `on_show`, and «Автолут ★» spends the day's
-        # five robberies out of this list whether or not anybody opens the tab — so on a
-        # panel nobody touches, the one thing keeping the list honest was the one thing
-        # that never started. It costs a tick a minute while it has nothing to do: the
-        # turn itself steps aside for a press, for a busy game and for a sniffer that is
-        # not running, and it walks nothing while no row is ready.
-        self._state_sweep()
 
     def on_show(self) -> None:
         """Somebody opened the tab: restore the last session's list, start the
@@ -770,9 +765,6 @@ class SecretTasksTab(PanelTab):
         self._read_monsters()
         self._start_clock_sync()
         self._start_ticking()
-        # …the unattended check is `ensure_loaded`'s (#1484), armed at boot: it has to
-        # run for a panel nobody has opened, because the standing order that robs out of
-        # this list does.
         self._prime_own_server()
         self._snapshot()
         self._roster()
@@ -920,10 +912,9 @@ class SecretTasksTab(PanelTab):
         self.autoloot.stop()
         self.autoassist.stop()
         for name in ("secret_tick", "secret_live", "secret_poll", "secret_nudge",
-                     "secret_clock", "secret_state", "autoloot_push_restart"):
+                     "secret_clock", "autoloot_push_restart"):
             self.rt.tick.disarm(name)
         self._ticking = self._polling = self._living = False
-        self._state_busy = False
         # …and whatever a verification still had to walk (#1484). The chain re-arms
         # itself from `on_show`, so a queue left behind here would come back walking a
         # warzone nobody has asked about since.
@@ -1763,7 +1754,6 @@ class SecretTasksTab(PanelTab):
         self._verify_was = {str(r["uuid"]): int(r.get("loot_count") or 0)
                             for r in targets}
         self._verify_queue = plan
-        self._verify_auto = False
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
         self._verify_next()
 
@@ -1841,9 +1831,9 @@ class SecretTasksTab(PanelTab):
              "count": len(points), "server": int(server),
              "zoom": VERIFY_ZOOM, "every": VERIFY_EVERY},
             tag="secret",
-            # An unattended turn steps aside for anything a person started; a press does
-            # not, which is the same split `play_async` already makes for every button.
-            priority=claims.BACKGROUND if self._verify_auto else claims.HUMAN,
+            # A person is waiting for this one — it is a press and only ever a press
+            # now (#1484), so it takes the client the way every other button does.
+            priority=claims.HUMAN,
             on_done=lambda: self.post(
                 lambda: self._verify_landed(server, keys, len(points))))
         if not ok:
@@ -1966,57 +1956,14 @@ class SecretTasksTab(PanelTab):
 
     def _verify_finish(self) -> None:
         """Say what the whole verification came to, and let the next one start."""
-        tally, auto = self._verify_tally, self._verify_auto
+        tally = self._verify_tally
         self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
         self._verify_was = {}
-        self._verify_auto = False
-        self._state_busy = False
         if not tally["checked"]:
             return
-        # The unattended turn stays quiet unless it actually changed something: a line a
-        # minute saying «проверено 20 · обновлено 0» is a log nobody can read.
-        if not auto or tally["updated"] or tally["gone"]:
-            self.say("secret", "log.secret.state_done", checked=tally["checked"],
-                     updated=tally["updated"], gone=tally["gone"],
-                     unconfirmed=tally["unconfirmed"])
-
-    # -- and the same check, unattended, one warzone at a time (#1280, recut #1484) ---
-    def _state_sweep(self) -> None:
-        """Re-check the ready rows of ONE warzone, rotating through the warzones.
-
-        «Обновить состояние» is a press, and a list that is only true when somebody
-        presses is a list that lies for as long as nobody does. So the same walk runs on
-        its own — one warzone a turn, because that is the unit the capture's checkpoint
-        can be read in, and because a turn holds the game for a couple of seconds and
-        every one of those is a second the standing orders are not using it.
-
-        Skipped whole while a press is already walking, while the game is down, while the
-        sniffer that would decode the walk is not running, and while no row is ready.
-        It is a re-check, never a feed: nothing here can ADD a row.
-        """
-        try:
-            if self._verify_queue or self._vm_busy or not self._rows:
-                return
-            if not (self.rt.game.ready() and not self.rt.game.busy):
-                return
-            if not self.capture.running:
-                return
-            plan = self._verify_plan(self._verify_targets())
-            if not plan:
-                return
-            # Rotate, so a warzone that is not the biggest still comes round.
-            start = self._state_cursor % len(plan)
-            self._state_cursor = (start + 1) % len(plan)
-            self._verify_queue = [plan[start]]
-            self._verify_was = {key: int((self._rows.get(key) or {}).get("loot_count")
-                                         or 0)
-                                for key in plan[start][2]}
-            self._verify_auto = True
-            self._verify_tally = {"checked": 0, "updated": 0, "gone": 0, "unconfirmed": 0}
-            self._state_busy = True
-            self._verify_next()
-        finally:
-            self.rt.tick.arm("secret_state", STATE_MS, self._state_sweep)
+        self.say("secret", "log.secret.state_done", checked=tally["checked"],
+                 updated=tally["updated"], gone=tally["gone"],
+                 unconfirmed=tally["unconfirmed"])
 
     def _sweep_once(self) -> None:
         """«Обойти карту» — and «Остановить» while one is walking (#1272).
@@ -3147,6 +3094,8 @@ class SecretTasksTab(PanelTab):
         # one, and everything downstream — the standing order, the phone, the checkpoint
         # — reads the model rather than the table. The VM feed never produced one anyway
         # (`secret_task_all_alliance` demands `done > 0`); it is the pcap that can.
+        import game_clock
+
         offered = len(tasks)
         tasks = [t for t in tasks if t.completed_at]
         no_finish = offered - len(tasks)
@@ -3205,6 +3154,22 @@ class SecretTasksTab(PanelTab):
                 if row.get("expires_at") is None:
                     row["expires_at"] = t.expires_at
                 row["seen_at"] = time.time()
+                # …AND IT COUNTS AS A VERIFICATION (#1484). A tile the sniffer has just
+                # HEARD off the map is the same evidence a press goes looking for, and it
+                # arrives for nothing — from the four-hourly star round, from a person
+                # moving the map, from any errand that jumps. There is no cheaper source
+                # and there is no other one: measured, a stranger's tile is never
+                # re-announced on its own, the alliance table cannot see it and asking
+                # for it without the camera sends nothing (see the note at the top of
+                # this module). So a sighting stamps the row, and «Сверено» tells the
+                # truth without a single round trip being made for it.
+                #
+                # ONLY A SIGHTING, never a checkpoint repeat: the capture rewrites its
+                # file every tick with whatever is still inside its freshness window, and
+                # stamping on one of those would date the row by when we last READ THE
+                # FILE rather than by when the map last answered (#1416).
+                if fresh:
+                    row["checked_at"] = game_clock.now_ms()
                 continue
             if key in self._collected:
                 robbed_already += 1
@@ -4618,9 +4583,9 @@ class SecretTasksTab(PanelTab):
         THE HOT ROWS ONLY: ready, or inside the standing order's early window. It used to
         be `ready` alone, which is the one row set that is provably too late — the
         two-and-a-half seconds before a tile matures are exactly when its loot count is
-        worth knowing. The READY rows are re-checked by `_state_sweep` as well, on its own
-        slower clock and against the MAP rather than the alliance table — which is the
-        only source that can move a stranger's n/3 at all (#1484).
+        worth knowing. It answers for MY alliance's tasks and no others, which on this
+        list is next to none of them (#1484) — the rest are corrected by what the sniffer
+        hears and by the server's own answer to a robbery.
         """
         keys = [str(r["uuid"]) for r in self._hot_rows()]
         if not keys:
@@ -4662,6 +4627,8 @@ class SecretTasksTab(PanelTab):
         the list is kept true by, and «Автолут ★» chooses out of the list it leaves
         behind (:meth:`rob_candidates`).
         """
+        import game_clock
+
         if live is None:
             return
         removed = False
@@ -4689,6 +4656,11 @@ class SecretTasksTab(PanelTab):
             row["expires_at"] = task.expires_at
             row["completed_at"] = task.completed_at
             row["loot_count"] = task.loot_count
+            # …and this IS a verification of that row, by the one source that needs no
+            # map at all (#1484). It covers my own alliance's tasks and nothing else —
+            # live, 200 of them and not one abroad, so on this list it is next to nothing
+            # — but where it does answer it answers every three seconds, for free.
+            row["checked_at"] = game_clock.now_ms()
         if removed:
             self._render()
             self._update_status()

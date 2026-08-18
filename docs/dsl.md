@@ -787,6 +787,14 @@ Like `SWEEP_MAP` it is scheduled inside the game in one call, it waits out the w
 scheduled, and `fast_map_sweep_stop` disowns whatever is still pending — the two share a
 run token, so one «Stop» stops either and neither can walk over the other.
 
+**It is for a PRESS, not for a clock.** Any walk holds the one game claim while it runs
+and moves the map under whoever is looking at it, so a recipe that plays this on a timer
+is the practice #1484 removed. The panel's «Обновить состояние» plays it when a person
+asks; nothing starts it on its own. Where the same information can be had by counting
+what the sniffer hears off laps somebody was making anyway, do that instead — see
+[`docs/research/secret-task-state-sources.md`](research/secret-task-state-sources.md) for
+what was measured and why the cheaper routes do not exist.
+
 Two things it will not let you do quietly:
 
 - **No waypoints is a runtime error.** A walk that visits nowhere and reports success is

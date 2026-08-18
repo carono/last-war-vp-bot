@@ -2127,6 +2127,65 @@ def test_a_row_we_robbed_is_never_dropped_by_the_walk():
     assert "1" in tab._rows
 
 
+def test_a_tile_the_sniffer_HEARD_counts_as_a_verification():
+    """The free half of #1484, and after the audit the ONLY background half there is.
+
+    Three sources were measured on the live client and three do not exist: nothing
+    arrives passively (five quiet minutes, 0 map responses), asking without the camera
+    sends nothing, and the alliance table holds 200 tasks with 0 abroad while this list
+    is abroad-only. What DOES arrive is every tile the sniffer hears off a lap somebody
+    else was already making — so a sighting raises the loot count AND stamps the row.
+    """
+    row = _row(1, 7, -5_000, 600_000)
+    row["loot_count"] = 0
+    tab = _make_tab({"1": row})
+    tab.rt = _fake_rt(_state_path())
+    tab._maybe_start_poll = lambda: None
+
+    tab._merge([_StubTask(1, loot_count=2)], fresh=True)
+
+    assert tab._rows["1"]["loot_count"] == 2, "a sighting did not move the loot count"
+    assert tab._rows["1"]["checked_at"], "a sighting did not count as a verification"
+
+
+def test_a_checkpoint_repeat_is_not_a_verification():
+    """The capture rewrites its file every tick with whatever is still fresh, so a row
+    found in it again dates the READ and not the map (#1416). Stamping on one of those
+    would make «Сверено» say «только что» about a tile nobody has looked at for an hour.
+    """
+    row = _row(1, 7, -5_000, 600_000)
+    tab = _make_tab({"1": row})
+    tab.rt = _fake_rt(_state_path())
+    tab._maybe_start_poll = lambda: None
+
+    tab._merge([_StubTask(1, loot_count=1)])          # `fresh` left False: the file
+
+    assert tab._rows["1"]["loot_count"] == 1, "the count is still taken, upwards"
+    assert not tab._rows["1"].get("checked_at"), "a file repeat was called a verification"
+
+
+def test_nothing_walks_the_map_on_its_own():
+    """«Обход карты — плохая практика» — so the tab keeps no timer that can start one.
+
+    The check is a PRESS now. The chain that used to run it every thirty seconds held the
+    one game claim for seconds at a time and moved the map under whoever was reading it,
+    which is the class of work #1416 exists to keep out of the hot path.
+    """
+    import inspect
+    from panel.tabs.secret_tasks import tab as module
+
+    assert not hasattr(module.SecretTasksTab, "_state_sweep"), "the walking timer is back"
+    src = inspect.getsource(module.SecretTasksTab.ensure_loaded)
+    assert "verify" not in src.lower(), "boot arms a verification again"
+    # …and the only two things that can start one are the button in the window and the
+    # phone's copy of that button. No clock, no boot, no chain.
+    whole = inspect.getsource(module)
+    starts = [line.strip() for line in whole.splitlines() if "self.refresh_state" in line]
+    assert len(starts) == 2, starts
+    assert any("ttk.Button" in line for line in starts), starts
+    assert any("self.post(" in line for line in starts), starts
+
+
 def test_only_the_rows_ready_to_rob_are_verified():
     """«И напомню, что синхроним только готовые к сбору» — the operator's own rule (#1484).
 
