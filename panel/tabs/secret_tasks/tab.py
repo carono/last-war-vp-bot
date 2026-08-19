@@ -2783,6 +2783,81 @@ class SecretTasksTab(PanelTab):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def sweep_monsters(self) -> None:
+        """«Обойти за монстрами» — one lap per chosen height, then collect (#1523).
+
+        THE PRESS THAT ANSWERS «монстров тысячи, а в гриде десятки». Every other kind on
+        this map is on the wire, so `scan_map.md` throws the camera across the whole
+        server in two and a half seconds and a passive sniffer picks the answers up. A
+        monster is not: placement is computed client-side, the only copy is the object
+        the client has DRAWN around the camera, and nobody is listening for those. So
+        this lap SAMPLES at every stop — and the pace is the whole quantity, measured:
+
+            0.05 s a stop -> 22 monsters   0.30 s -> 27   0.60 s -> 33
+
+        against 10–16 NEW at each of five views the camera stood three seconds at. The
+        client needs a beat to draw a view and gives up nothing before it.
+
+        The heights are a LIST because neither end dominates — a low lap sees more per
+        stop (105 → 12 drawn, 300 → 24, 600 → 25, 1199 → 20) and covers less ground with
+        it — so a person who wants the map walked twice says so instead of pressing twice.
+
+        It plays a scenario and nothing else (`CLAUDE.md`): the waypoints, the sampling
+        and the height all live in `actions/scan_map_monsters.md` and its primitive. What
+        the panel decides is WHEN, with WHICH numbers, and what to do with the answer.
+        """
+        if self._monster_busy:
+            self.take(INTAKE_MONSTERS).dropped(reason="already_reading")
+            return
+        self._monster_busy = True
+        pace, stages = self.monsters.pace(), self.monsters.stages()
+        srv = self.coord_srv_var.get().strip()
+        server = int(srv) if srv.isdigit() else 0
+        self.say("coord", "log.monsters.sweeping", stages=len(stages),
+                 pace=pace, secs=int(self._monster_lap_seconds(pace, stages)))
+
+        def work() -> None:
+            take = self.take(INTAKE_MONSTERS)
+            found: list = []
+            try:
+                for height, step in stages:
+                    if not self.rt.game.ready():
+                        self._say_monsters(("no_game",), "log.monsters.unread",
+                                           why="no_game")
+                        break
+                    outcome = self.rt.actions.play(
+                        "scan_map_monsters",
+                        {"zoom": height, "step": step, "every": pace,
+                         "server": server},
+                        on_event=lambda _m: None)
+                    ctx = getattr(outcome, "ctx", None)
+                    raw = (getattr(ctx, "vars", {}) or {}).get("monsters")
+                    if outcome.ok and isinstance(raw, str):
+                        found.extend(world.parse_monsters(
+                            raw, server=self._own_server or None))
+            except Exception as exc:           # noqa: BLE001 — a lap, never the window
+                self.rt.dbg("secret").warning("monster lap failed: %s", exc,
+                                              exc_info=True)
+            take.seen(len(found))
+            take.kept(len(found))
+            self._say_monsters(("lap", len(found)), "log.monsters.lap",
+                               n=len(found), stages=len(stages))
+            self.after(lambda: self._monsters_landed(found))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    @staticmethod
+    def _monster_lap_seconds(pace: float, stages) -> float:
+        """Roughly how long the whole thing takes, so the line can say it before it does.
+
+        The lap primitive's own arithmetic, once per stage — a person told «примерно 180 с»
+        does not press it again wondering whether anything happened.
+        """
+        import lua_actions
+
+        return sum(lua_actions.fast_sweep_seconds(step, pace) + 2.0
+                   for _height, step in stages)
+
     def _say_monsters(self, state, key: str, **fmt) -> None:
         """Say what the monster read came to — ONCE per answer, like `_say_world`.
 
@@ -4054,12 +4129,26 @@ class SecretTasksTab(PanelTab):
                                        self._clear_action("mines")]},
                           {"title": "world.monsters",
                            "items": self.monsters.web_items(),
-                           "rows": self._count_rows(self.monsters),
+                           # …and the two numbers the LAP is walked by, because they are
+                           # the difference between tens of rows and thousands and a
+                           # person away from the machine has to be able to see which
+                           # ones this account is using (#1523).
+                           "rows": self._count_rows(self.monsters)
+                                   + [{"label": "world.monsters.pace",
+                                       "value": str(self.monsters.pace())},
+                                      {"label": "world.monsters.stages",
+                                       "value": ", ".join(
+                                           str(h) for h, _s in self.monsters.stages())}],
                            "empty": "world.monsters.empty",
                            # The one card whose feed is a game read rather than the
-                           # sniffer, so it says so and offers the read itself.
+                           # sniffer, so it says so and offers the read itself — and the
+                           # LAP beside it, which is the same ability the window's button
+                           # plays and the only one that fills this page beyond the view
+                           # the camera happens to be on.
                            "actions": [{"id": "read_monsters",
                                         "label": "world.monsters.read"},
+                                       {"id": "sweep_monsters",
+                                        "label": "world.monsters.sweep"},
                                        self._clear_action("monsters")]},
                           {"title": "world.trains",
                            "items": self.trains.web_items(),
@@ -4278,6 +4367,13 @@ class SecretTasksTab(PanelTab):
             # The monster page's own feed. A READ — it presses nothing in the game —
             # which is why it is a press the phone may make at all.
             self.post(self._read_monsters)
+            return {"ok": True}
+        if action == "sweep_monsters":
+            # The lap that FILLS the page. It moves the camera and nothing else — no
+            # march, no window, no press in the game — and the whole of it is one
+            # scenario (`actions/scan_map_monsters.md`), which is what makes it a press
+            # the phone may make (`CLAUDE.md`).
+            self.post(self.sweep_monsters)
             return {"ok": True}
         return {"error": "unknown"}
 

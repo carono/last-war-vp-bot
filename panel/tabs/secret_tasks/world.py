@@ -482,9 +482,112 @@ class MonsterGrid(WorldGrid):
     #: on it.
     STATE_BLOB = "world_state_monsters"
 
+    #: HOW LONG THE CAMERA STANDS AT EACH STOP OF A MONSTER LAP, in seconds, and it is a
+    #: SETTING because the measurement says it is the whole quantity (#1523). One lap of
+    #: 121 stops on a live warzone, counting distinct monster tiles:
+    #:
+    #:     0.05 s ->     22    (the ★ lap's pace — the camera has moved on before the
+    #:                           client has drawn anything)
+    #:     0.30 s ->     27
+    #:     0.60 s ->     33
+    #:     1.20 s ->    972    <- a CLIFF, not a slope
+    #:     2.50 s ->  1 059    (twice the clock for another nine per cent)
+    #:
+    #: Somewhere around a second the client's region loader starts keeping up and the same
+    #: lap over the same ground goes from tens to a thousand. Everything below that is a
+    #: lap that looks like it worked and collects almost nothing — which is exactly what
+    #: «монстров тысячи, а в гриде десятки» was. 1.2 s is about 970 monsters for 147 s of
+    #: camera; the operator owns the knob either way.
+    DEFAULT_PACE = "1.2"
+
+    #: …AND THE HEIGHTS IT WALKS, one lap each, because how many monsters are drawn at
+    #: once depends on the height and the ground one stop covers depends on it the other
+    #: way. Measured at one view: 105 -> 12 drawn, 300 -> 24, 600 -> 25, 1199 -> 20 — so a
+    #: low lap sees more per stop and needs more stops. Neither dominates, which is why
+    #: this is a list and not a number.
+    DEFAULT_STAGES = "600"
+
+    #: What one stop is worth at a height, so a stage list can be walked with a step that
+    #: matches it rather than with one number for all of them. The pairs the lap primitive
+    #: already names (`lua_actions.ZOOM_LEVELS`), plus the two heights in between that the
+    #: measurement above says are worth offering at all.
+    STAGE_STEPS = {105: 24, 300: 45, 600: 90, 900: 135, 1199: 180}
+
     def state_path(self) -> str:
         """Where this page's OLD JSON checkpoint used to live, for the one-time import."""
         return self.tab.rt.profiles.world_state_json(self.CONFIG_KEY)
+
+    def __init__(self, tab) -> None:
+        super().__init__(tab)
+        #: The two knobs above as the person's own, saved with the page's block.
+        self.pace_var = tk_stringvar(tab.rt.root)
+        self.pace_var.set(self.DEFAULT_PACE)
+        self.stages_var = tk_stringvar(tab.rt.root)
+        self.stages_var.set(self.DEFAULT_STAGES)
+
+    def extra_filters(self, bar) -> None:
+        """The lap's own controls, on the page the lap fills.
+
+        A press that STARTS something, beside readings — which is the ordinary and wanted
+        shape (`CLAUDE.md`): the button plays `actions/scan_map_monsters.md` and the page
+        then re-reads. It marks nothing.
+        """
+        from ...widgets import NumericEntry
+
+        self.tab.tr(ttk.Label(bar), "world.monsters.pace").pack(side="left", padx=(16, 2))
+        NumericEntry(bar, textvariable=self.pace_var, width=5,
+                     decimal=True).pack(side="left")
+        self.tab.tr(ttk.Label(bar), "world.monsters.stages").pack(side="left", padx=(10, 2))
+        ttk.Entry(bar, textvariable=self.stages_var, width=12).pack(side="left")
+        self.tab.tr(ttk.Button(bar, command=self.tab.sweep_monsters),
+                    "world.monsters.sweep").pack(side="left", padx=(8, 0))
+
+    def config(self) -> dict:
+        return dict(super().config(), pace=self.pace_var.get(),
+                    stages=self.stages_var.get())
+
+    def apply_config(self, raw) -> None:
+        super().apply_config(raw)
+        grid.take(raw, "pace", self.pace_var, str)
+        grid.take(raw, "stages", self.stages_var, str)
+
+    def persist_vars(self) -> list:
+        return super().persist_vars() + [self.pace_var, self.stages_var]
+
+    def pace(self) -> float:
+        """The seconds-per-stop the person asked for, never below what draws anything.
+
+        A zero would be a lap that collects nothing while looking like it worked, and a
+        blank box is a person who has not chosen rather than one who chose zero — so both
+        fall back to the default instead of to the fastest possible lap.
+        """
+        raw = str(self.pace_var.get()).strip().replace(",", ".")
+        try:
+            value = float(raw)
+        except ValueError:
+            return float(self.DEFAULT_PACE)
+        return value if value > 0 else float(self.DEFAULT_PACE)
+
+    def stages(self) -> list:
+        """`[(height, step)]` — the laps this page walks, in order.
+
+        A height nobody named falls back to the one the measurement supports, so an empty
+        box is still a working lap. A height with no step of its own is walked with the
+        nearest one that has: the pairing is what makes a lap complete, and a step from
+        another height is a lap with holes in it.
+        """
+        out = []
+        for chunk in str(self.stages_var.get()).replace(";", ",").split(","):
+            chunk = chunk.strip()
+            if not chunk.isdigit():
+                continue
+            height = int(chunk)
+            step = self.STAGE_STEPS.get(height)
+            if step is None:
+                step = self.STAGE_STEPS[min(self.STAGE_STEPS,
+                                            key=lambda h: abs(h - height))]
+            out.append((height, step))
+        return out or [(600, self.STAGE_STEPS[600])]
 
     def decorate(self, row, record) -> None:
         super().decorate(row, record)

@@ -719,7 +719,7 @@ JUMP 512, 640, 300
 JUMP 512, 640 ZOOM 600
 ```
 
-### `SWEEP_MAP [ZOOM height] [STEP tiles] [EVERY seconds] [SERVER id]`
+### `SWEEP_MAP [ZOOM height] [STEP tiles] [EVERY seconds] [SERVER id] [HARVEST]`
 
 Walk the camera over the **whole** server map once. The client only sends map data while
 the map is moving, so this is what gives `SCAN_SECRET_MISSIONS` — and the panel's passive
@@ -736,6 +736,7 @@ SWEEP_MAP                       # the default: the secret-task height
 SWEEP_MAP ZOOM 1199 STEP 150    # four times the ground, bases and mines, no tasks
 SWEEP_MAP EVERY 0.02            # …in half the time
 SWEEP_MAP SERVER 300            # …on that server, whatever the client believes
+SWEEP_MAP EVERY 1.2 HARVEST     # …and pick up the monsters it drives past
 ```
 
 | Modifier | Effect | Default |
@@ -744,6 +745,7 @@ SWEEP_MAP SERVER 300            # …on that server, whatever the client believe
 | `STEP n` | tiles between waypoints. A step belongs to its height: 90 goes with 600, 150 with 1199 | 90 |
 | `EVERY s` | seconds between two waypoints | 0.05 |
 | `SERVER id` | which server the waypoints are walked on. `0` (and leaving it out) means «ask the client» | 0 |
+| `HARVEST` | also SAMPLE the monsters the lap drives past, into a table of the game's own that a later `READ_LUA` drains. A flag, so it carries no value | off |
 
 An unknown modifier is a **parse error**, not a warning — a silently ignored `ZOOM`
 sweeps at the wrong height and comes home with the wrong half of the map.
@@ -763,6 +765,19 @@ Three things to know:
   Run it with the panel's monitor on, or alongside `SCAN_SECRET_MISSIONS`.
 - **Above 1199 there is nothing to collect.** The client switches to its coarse big-map
   layer and answers a map request with no tiles at all.
+- **`HARVEST` is for MONSTERS and nothing else, because monsters are the one thing on the
+  map that is not on the wire** (#1523). Every other kind arrives in `world.get.block`
+  and a passive sniffer picks it up while the camera flies; a monster is computed
+  client-side, so the only copy is the object the client has DRAWN around wherever the
+  camera is standing, and nobody is listening for those. With the flag on, each waypoint
+  also schedules a sample of `World/dynamicObj` — 1 ms, against the 10–12 ms a scan of
+  the whole object table costs — keyed by tile, with the level off the monster's own tag.
+  `actions/scan_map_monsters.md` is the lap that uses it and drains what it left.
+- **And with `HARVEST` the pace stops being a detail.** Measured live over one lap of a
+  1000 × 1000 warzone at height 600, counting distinct monster tiles: `EVERY 0.05` → 22,
+  `0.30` → 27, `0.60` → 33, **`1.20` → 972**, `2.50` → 1 059. It is a cliff and not a
+  slope — somewhere around a second the client's region loader starts keeping up — so a
+  harvesting lap at the ★ lap's pace looks like it worked and collects almost nothing.
 
 ### `VISIT_MAP POINTS x,y;x,y [ZOOM height] [EVERY seconds] SERVER id`
 

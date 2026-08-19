@@ -316,6 +316,105 @@ def test_a_region_the_server_answered_about_is_counted_too():
 
 
 # ---------------------------------------------------------------------------
+# THE LAP THAT FILLS THE MONSTER PAGE — the pace, the heights, and the harvest
+# ---------------------------------------------------------------------------
+def test_the_lap_can_pick_the_monsters_up_and_says_so_only_when_asked():
+    """`HARVEST` is a flag on the lap, and OFF unless a recipe asks (#1523).
+
+    The ★ lap is timed in fractions of a second and must stay exactly what it was: a
+    sampler scheduled beside its waypoints would be a cost on the one lap that cannot
+    afford one. So the monster lap asks and the others do not.
+    """
+    import lua_actions
+
+    picked = lua_actions.fast_map_sweep(zoom=600, step=90, interval=1.2, server=1,
+                                        harvest=True)
+    plain = lua_actions.fast_map_sweep(zoom=600, step=90, interval=0.05, server=1)
+    assert "__lw_sample" in picked
+    assert "dynamicObj" in picked, "the sampler stopped walking the node it was measured on"
+    assert "__lw_sample" not in plain, "the ★ lap grew a sampler"
+
+
+def test_the_sampler_looks_the_node_up_again_every_time():
+    """The bug that made the first measurement of this nonsense (#1523).
+
+    Caching the `dynamicObj` transform in a global and reusing it is what turned a lap
+    that was really collecting thirty monsters into one that reported two: the handle
+    goes stale when the scene churns and every later sample walked a destroyed object.
+    """
+    import lua_actions
+
+    body = lua_actions.MONSTER_SAMPLER
+    assert body.count("FindObjectsOfType") == 1, body
+    assert "_G.__lw_dyn" not in body, "the sampler is caching the node again"
+
+
+def test_the_monster_lap_is_a_scenario_with_the_pace_as_an_argument():
+    import pathlib
+
+    from lastwar_bot import script_engine as se
+
+    text = (_REPO / "src" / "lastwar_bot" / "actions"
+            / "scan_map_monsters.md").read_text("utf-8")
+    defaults, rest = se.extract_defaults(text)
+    # The four the panel passes, and `every` among them: the pace is the whole quantity
+    # and it may not be a constant in the recipe either.
+    assert {"server", "zoom", "step", "every"} <= set(defaults), defaults
+    program = se.parse_text(se.substitute(rest, defaults))
+    sweeps = [st for st in program if type(st).__name__ == "SweepMapStmt"]
+    assert len(sweeps) == 1 and sweeps[0].harvest, sweeps
+    # …and the default is the measured one, not a number somebody liked: below ~1 s the
+    # client's region loader does not keep up and the same lap collects tens.
+    assert float(defaults["every"]) >= 1.0, defaults["every"]
+
+
+def test_the_page_owns_the_pace_and_the_heights_and_saves_them():
+    from panel.tabs.secret_tasks.world import MonsterGrid
+
+    page = object.__new__(MonsterGrid)
+    page.pace_var, page.stages_var = _Var("2.5"), _Var("300, 600")
+    assert page.pace() == 2.5
+    assert page.stages() == [(300, 45), (600, 90)]
+    # A blank or nonsense box is a person who has not chosen, never a lap that collects
+    # nothing while looking like it worked.
+    page.pace_var, page.stages_var = _Var(""), _Var("")
+    assert page.pace() == float(MonsterGrid.DEFAULT_PACE)
+    assert page.stages() == [(600, 90)]
+    # …and a height nobody has a step for is walked with the nearest one that has: a step
+    # from another height is a lap with holes in it.
+    page.stages_var = _Var("1000")
+    assert page.stages() == [(1000, MonsterGrid.STAGE_STEPS[900])]
+
+
+def test_the_lap_reaches_the_phone_as_well_as_the_window():
+    """`CLAUDE.md`: an edit travels between the window and the web, in BOTH directions."""
+    import ast
+
+    source = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text("utf-8")
+    assert '"id": "sweep_monsters"' in source, "the phone cannot start the lap"
+    assert '"world.monsters.pace"' in source, "the phone cannot see the pace it walks at"
+    assert '"world.monsters.stages"' in source, "…nor the heights"
+    tree = ast.parse(source)
+    names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "sweep_monsters" in names, "the window has no button behind it"
+    world = (_REPO / "panel" / "tabs" / "secret_tasks" / "world.py").read_text("utf-8")
+    assert '"world.monsters.sweep"' in world, "the window's own button is missing"
+
+
+class _Var:
+    """A stand-in for a Tk variable — just `.get()` / `.set()`."""
+
+    def __init__(self, value=""):
+        self._v = value
+
+    def get(self):
+        return self._v
+
+    def set(self, value):
+        self._v = value
+
+
+# ---------------------------------------------------------------------------
 # stand-ins
 # ---------------------------------------------------------------------------
 class _Widget:

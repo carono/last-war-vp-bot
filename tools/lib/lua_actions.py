@@ -210,9 +210,85 @@ FIND_WORLD_SCENE = (
     'WS=arr[i] break end end _G.WS=WS end ')
 
 
+#: THE MONSTER SAMPLER a lap runs at every waypoint (#1523), installed once per lap.
+#:
+#: WHY IT HAS TO BE INSIDE THE GAME. A monster is not on the wire at all — placement is
+#: computed client-side (docs/research/world-monsters.md) — so the only copy of the list
+#: is what the client has DRAWN, and it draws only around wherever the camera is
+#: standing. Read from Python that is one round trip per view, and a lap is 121 views;
+#: scheduled beside the lap's own waypoints it is a Lua closure that runs between two
+#: camera moves and costs nothing anybody can measure.
+#:
+#: WHERE THE MONSTERS HANG, measured live rather than guessed: every drawn one is a child
+#: of `World/dynamicObj` whose name begins with `WorldMonster`. That node held 151
+#: children on a live map and walking all of them took **1 ms**; the FindObjectsOfType
+#: scan the tab's own reader uses costs 10–12 ms, which is why the sampler walks the node
+#: and the reader does not.
+#:
+#: **THE NODE IS LOOKED UP FRESH EVERY TIME, and that is not a detail.** Caching the
+#: transform in a global and reusing it is what made the first measurement of this
+#: nonsense: the handle goes stale when the scene churns, every later sample walked a
+#: destroyed object, and a lap that was really collecting thirty monsters reported two.
+#:
+#: What it keeps is keyed by TILE (`SceneUtils.WorldToTileIndex`), so one monster seen
+#: from two overlapping views is one row, and the value is the drawn object's own name
+#: and the level off its tag — all a roaming monster says about itself before it is
+#: selected.
+MONSTER_SAMPLER = """
+local DC = DataCenter.ActDispatchTaskDataManager
+if DC.__lw_mon == nil then DC.__lw_mon = {} DC.__lw_mon_n = 0 DC.__lw_mon_s = 0 end
+DC.__lw_sample = function()
+  local dyn = nil
+  pcall(function()
+    local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.GameObject))
+    for i = 0, arr.Length - 1 do
+      local g = arr[i]
+      local nm = nil
+      pcall(function() nm = g.name end)
+      if nm ~= nil and tostring(nm) == "dynamicObj" then dyn = g.transform break end
+    end
+  end)
+  if dyn == nil then return end
+  DC.__lw_mon_s = (tonumber(DC.__lw_mon_s) or 0) + 1
+  pcall(function()
+    for i = 0, dyn.childCount - 1 do
+      local c = dyn:GetChild(i)
+      local nm = tostring(c.name)
+      if nm:find("WorldMonster") then
+        local pid = nil
+        pcall(function() pid = SceneUtils.WorldToTileIndex(c.position) end)
+        if pid ~= nil then
+          local key = tostring(pid)
+          if DC.__lw_mon[key] == nil then
+            local lvl = 0
+            -- THE LEVEL TAG, off a NAMED path inside this very object — not another
+            -- scan of the scene, and not the `UIWorldLabel` the page's own reader looks
+            -- for. Read live: the number a person sees over a monster is a
+            -- `SuperTextMesh` under `ModelLabel/LevelLabel/LevelText`, with the icon's
+            -- own copy at `Icon/IconLabel/LevelLabel` for the ones drawn as a pin.
+            pcall(function()
+              local lab = c:Find("ModelLabel/LevelLabel/LevelText")
+              if lab == nil then lab = c:Find("Icon/IconLabel/LevelLabel") end
+              if lab ~= nil then
+                local txt = lab:GetComponent("SuperTextMesh")
+                if txt == nil then txt = lab:GetComponent("UIWorldLabel") end
+                if txt ~= nil then lvl = tonumber(string.match(tostring(txt.text), "%d+")) or 0 end
+              end
+            end)
+            DC.__lw_mon[key] = (nm:gsub("%(Clone%)", "")) .. "|" .. tostring(lvl)
+            DC.__lw_mon_n = (tonumber(DC.__lw_mon_n) or 0) + 1
+          end
+        end
+      end
+    end
+  end)
+end
+"""
+
+
 def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
                    interval: "float | None" = None,
-                   server: "int | None" = None) -> str:
+                   server: "int | None" = None, harvest: bool = False) -> str:
     """One lap of the WHOLE server map, scheduled inside the game — the fast swipe.
 
     A lap driven from Python is a lap of round trips: ~150 ms each way, so 121 waypoints
@@ -254,7 +330,16 @@ def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
     stride = max(1, int(FAST_STEP if step is None else step))
     gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
     where = str(int(server)) if server else current_server_expr()
-    return (FIND_WORLD_SCENE + '''
+    # THE SAMPLER IS INSTALLED IN FRONT OF THE WAYPOINTS, never inside one (#1523): it is
+    # one assignment and the closures below only call it, so a lap of 121 views defines
+    # the function once. `harvest` is off by default because the ★ lap is timed in
+    # fractions of a second and must stay exactly what it was.
+    sampler = (MONSTER_SAMPLER + "\n") if harvest else ""
+    sample_call = ("  tm:DelayInvoke(function()\n"
+                   "    if DC.__lw_sweep_run ~= run then return end\n"
+                   "    DC.__lw_sample()\n"
+                   "  end, (n - 1) * %f + %f)\n" % (gap, gap * 0.85)) if harvest else ""
+    return (FIND_WORLD_SCENE + sampler + '''
 local DC = DataCenter.ActDispatchTaskDataManager
 -- EVERY WAYPOINT IS SCHEDULED AT ONCE, so a lap cannot be called back — the game's own
 -- timer owns them from here (#1272). What it CAN be is disowned: each closure checks the
@@ -282,11 +367,11 @@ for row = 1, #axis do
       if DC.__lw_sweep_run ~= run then return end
       pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), %d, 0, nil, srv) end)
     end, (n - 1) * %f)
-  end
+%s  end
 end
 CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d span="
   ..string.format("%%.1f", (n - 1) * %f).." size="..tostring(size))
-''' % (where, stride, stride, height, gap, height, stride, gap))
+''' % (where, stride, stride, height, gap, sample_call, height, stride, gap))
 
 
 #: The Lua one :func:`fast_map_visit` fills in — the waypoint walk with the grid taken

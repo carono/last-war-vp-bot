@@ -99,6 +99,53 @@ which is why the report could only be phrased as «события проглат
 
 ---
 
+## The pace of the lap IS the monster page — measured
+
+The operator's second reading was the one that moved this on: «монстров на всей карте
+тысячи, никак не несколько десятков». Two hypotheses came with it — the lap is too fast,
+and it needs intermediate zoom stages — and both were put to a live client rather than
+argued about.
+
+**The pace.** One lap of a 1000 × 1000 warzone, height 600, step 90, 121 stops, counting
+distinct monster tiles, with the camera sampled at every stop:
+
+| seconds a stop | monsters | clock |
+|---|---|---|
+| 0.05 (the ★ lap's pace) | **22** | 6 s |
+| 0.30 | 27 | 36 s |
+| 0.60 | 33 | 73 s |
+| **1.20** | **972** | **147 s** |
+| 2.50 | 1 059 | 302 s |
+
+**It is a cliff, not a slope.** Somewhere around a second the client's region loader
+starts keeping up, and the same lap over the same ground goes from tens to a thousand.
+Everything below it is a lap that looks like it worked and collects almost nothing —
+which is exactly what «монстров тысячи, а в гриде десятки» was. Above it the curve
+flattens at once: 2.5 s buys another nine per cent for twice the clock. So the default is
+**1.2 s**, and it is a setting because the two ends of that table are genuinely different
+jobs.
+
+Confirmed on the shipping path, pressed from the phone: **one lap, 147 s, 897 monsters
+into the page, every one of them with a real level** (1 … 31+) and a species name — from
+21 rows before it.
+
+**The heights.** How many monsters are drawn at once does depend on the height — at one
+view, 105 → 12, 300 → 24, 600 → 25, 1199 → 20 — while the ground one stop covers grows
+with it, so a low lap sees more per stop and needs more stops. Neither end dominates,
+which is why the heights are a LIST the operator owns rather than a number: a page that
+wants the map covered twice says `300, 600` and gets two laps.
+
+What is NOT worth walking: a lap at 900 with the step that belongs to it (135) collected
+**5** monsters against the same pace's 27 at 600 — the higher the camera, the fewer
+objects the client bothers to draw, and the bigger step does not make up for it. 600 is
+the default for the same reason it is the ★ lap's.
+
+**And the settle time is not the same thing as the pace.** A single view saturates almost
+at once — 0.3 s → 9 drawn, 1.3 s → 10, 3.3 s → 10, 8.3 s → 10 — so standing longer at ONE
+place buys nothing. What the extra second per stop buys is the client keeping up with a
+STREAM of view changes, which is a different bottleneck and the reason the curve above is
+shaped the way it is.
+
 ## What a lap can and cannot do for the monsters
 
 Worth writing down, because «обход не наполняет грид» reads like a bug in the lap and is
@@ -117,13 +164,16 @@ not:
   page, and a page filled by walking and re-reading is as wide as where the camera has
   actually stopped.
 
-What #1523 changes is that this is now **said** rather than left to look like a bug:
-every read reports its count or its reason. Making the page as wide as the map needs a
-different SOURCE — the client's own area query
-(`WorldScene:GetMonsterListInArea(centre, radius, ids, results)`, which answers `ok` but
-needs the right `lw_world_monster` config ids to filter by; a probe with a single guessed
-id returned 0). That is an ability, not a bug fix, and it belongs to whoever takes the
-monster work next.
+So a lap that only READS at the end can never do better than one view, and that is what
+the monster page had. **The answer is to sample at every stop and to give the camera a
+second to draw** — `SWEEP_MAP … HARVEST` and the table above. The reading is a 1 ms walk
+of `World/dynamicObj` (the node every drawn monster hangs on, found live) against the
+10–12 ms a scan of the whole object table costs, so it fits between two waypoints.
+
+The client's own area query — `WorldScene:GetMonsterListInArea(centre, radius, ids, out)`
+— is NOT that source and was checked: it is a config-id whitelist and answers for INVASION
+monsters only (world-monsters.md, Findings 6 and 10), which is why #1519 can count golden
+zombies with it and this page cannot count the map with it.
 
 ---
 

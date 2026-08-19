@@ -259,7 +259,7 @@ _JUMP_RE = re.compile(
 # comes back with the wrong half of the map.
 _SWEEP_RE = re.compile(r"^SWEEP_MAP\b(.*)$", re.IGNORECASE)
 _SWEEP_OPT_RE = re.compile(
-    r"(ZOOM|STEP|EVERY|SERVER)\s+(\d+(?:\.\d+)?)", re.IGNORECASE,
+    r"(ZOOM|STEP|EVERY|SERVER)\s+(\d+(?:\.\d+)?)|(HARVEST)", re.IGNORECASE,
 )
 # …and the same lap aimed at NAMED tiles rather than at a grid (#1484). A lap FILLS a
 # list; this CHECKS one, so the waypoints are the caller's — `POINTS 102,110;97,259` —
@@ -425,6 +425,11 @@ class SweepMapStmt(_Stmt):
     #: KNOWS (the panel's «Сервер» box) names it, because the client's own answer is a
     #: cached manager field that keeps pointing at the server before last.
     server: int | None = None
+    #: Whether the lap also SAMPLES the monsters it drives past (#1523). Off unless the
+    #: recipe asks: a monster is not on the wire, so the only copy is what the client has
+    #: drawn around the camera, and picking it up costs a Lua closure per waypoint. The
+    #: ★ lap is timed in fractions of a second and stays exactly what it was.
+    harvest: bool = False
 
 
 @dataclass(slots=True)
@@ -954,6 +959,9 @@ def _parse_sweep_map(rest: str, text: str, ln: int) -> SweepMapStmt:
     consumed = []
     for m in _SWEEP_OPT_RE.finditer(rest):
         consumed.append(m.span())
+        if m.group(3):                       # HARVEST — a flag, so it carries no value
+            stmt.harvest = True
+            continue
         keyword, value = m.group(1).upper(), m.group(2)
         if keyword == "ZOOM":
             stmt.zoom = int(float(value))
@@ -1876,11 +1884,13 @@ class Interpreter:
         self._tools_lib_on_path()
         import lua_actions
         self._run_lua(lua_actions.fast_map_sweep(stmt.zoom, stmt.step, stmt.every,
-                                                 server=stmt.server))
+                                                 server=stmt.server,
+                                                 harvest=stmt.harvest))
         span = lua_actions.fast_sweep_seconds(stmt.step, stmt.every)
         zoom = stmt.zoom if stmt.zoom is not None else lua_actions.SWEEP_ZOOM_MAX
         where = f", server {stmt.server}" if stmt.server else ""
-        self._log(f"SWEEP_MAP -> zoom {zoom}{where}, one lap, ~{span + 2:.0f}s")
+        picks = " + monsters" if stmt.harvest else ""
+        self._log(f"SWEEP_MAP -> zoom {zoom}{where}, one lap, ~{span + 2:.0f}s{picks}")
         # …plus a breath for the last waypoint's answer to arrive: the map data lands a
         # beat after the camera stops, and a scan reading it must not be cut off mid-reply.
         # Sliced, so a lap of the whole map is not several seconds of a Stop being ignored.
