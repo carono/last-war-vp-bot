@@ -280,8 +280,26 @@ class Daemon:
         Every call gets its own answer file (`private=True`), because two collects
         sharing one file cannot tell their lines apart — both filter by the same marker.
 
-        A run that returns is also the PROOF the whole heartbeat is about: real errands
-        stamp the pulse, so a working daemon never has to probe itself.
+        A run that BROUGHT SOMETHING BACK is also the proof the whole heartbeat is about:
+        such errands stamp the pulse, so a working daemon rarely has to probe itself.
+
+        **A run that came back empty stamps NOTHING — neither success nor failure**
+        (#1555). It used to stamp `ok()` regardless, and that turned the one honest
+        reading in this file into a rubber stamp: on 2026-08-19 the game hot-updated to
+        encrypted Lua chunks, every `SafeDoString` failed with `xLua exception : syntax
+        error`, not one chunk ran for three hours — and the ping went on answering
+        `warm, last_ok_age 0.8, misses 0`, because each of the panel's own empty errands
+        reset the landing clock and :meth:`heartbeat` (which DOES check what came back)
+        never became due. Every indicator was green over a client the panel could not
+        drive at all.
+
+        Empty is not a failure either, and must not be counted as one: a chunk that logs
+        nothing legitimately returns nothing. It is simply not EVIDENCE, so it is not
+        treated as any — the age grows until either a run brings a line back or the
+        self-probe, which knows exactly what its own chunk should print, answers for it.
+        The cost of that is at most one probe per :data:`IDLE_PROBE_SEC` on a daemon
+        serving nothing but silent chunks, which is what the probe interval was already
+        priced for.
         """
         pending = None
         for attempt in (1, 2):
@@ -302,7 +320,8 @@ class Daemon:
                         self.pulse.failed(verdict)
                         raise verdict from exc
         lines = pending.harvest()
-        self.pulse.ok()
+        if lines:
+            self.pulse.ok()
         return lines
 
     def heartbeat(self) -> bool:
