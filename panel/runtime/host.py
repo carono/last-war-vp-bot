@@ -30,6 +30,7 @@ from .day_reset import DayReset
 from .gate import DaemonGate
 from .health import ProfileHealth
 from .i18n import Translator
+from .intake import Intake as IntakeLedger
 from .interrupt import Interrupts
 from .log import LogBus
 from .log_view import LogSpool
@@ -138,6 +139,13 @@ class PanelRuntime:
         # phone on the profile picker — out of one object. It is born amber: nothing has
         # read this profile yet, and «нечего сказать» may never be painted green.
         self.health = ProfileHealth()
+        # …AND WHAT EACH RECEIVER WAS GIVEN AND WHAT BECAME OF IT
+        # (panel/runtime/intake.py, #1523). The counters behind «события проглатываются»:
+        # a receiver that drops what it is handed and a map that had nothing on it look
+        # identical from outside, so every receiver records seen / kept / dropped / lost
+        # and «Занятость» draws the lot. `lost` is the one that must stay at zero — an
+        # accepted event is processed or queued, never discarded.
+        self.intake = IntakeLedger()
         # …AND WHETHER ANYTHING AUTOMATIC MAY RUN AT ALL (panel/runtime/gate.py, #1393).
         # One question — «is this profile's daemon alive» — asked by the schedule in
         # front of every timer and every trigger, by the watchdog before it puts a client

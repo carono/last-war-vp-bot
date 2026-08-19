@@ -376,6 +376,23 @@ class PanelTab:
     def say(self, tag: str, key: str, **fmt) -> None:
         self.rt.say(tag, key, **fmt)
 
+    def take(self, receiver: str):
+        """This tab's counter for one RECEIVER — `panel/runtime/intake.py`, #1523.
+
+        Every door an event can arrive at records `seen` / `kept` / `dropped` / `lost`,
+        and «Занятость» draws the lot, because a receiver that throws away what it is
+        handed and a map that had nothing on it look identical from outside. Reached
+        through here rather than off `self.rt` so a tab driven by a bare harness — a
+        test, a `python -m panel.tabs.<id>` with no runtime behind it — is handed the
+        counting-nothing stand-in instead of raising.
+
+        `lost` is the one that must stay at zero: an accepted event is processed or
+        queued, never discarded. A deliberate refusal is `dropped`, WITH a reason.
+        """
+        from ..runtime.intake import of
+
+        return of(self.rt).at(receiver)
+
     def post(self, call) -> None:
         """Repaint from a background thread: hand ``call`` to the Tk thread.
 

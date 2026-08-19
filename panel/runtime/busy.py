@@ -53,6 +53,7 @@ import threading
 import time
 
 from . import claims
+from . import intake as intakemod
 
 #: A thread sitting in one of these has released Python's lock: it is WAITING, not
 #: working, and listing it would bury the two or three threads that are. The same set
@@ -238,6 +239,13 @@ def snapshot(rt, *, top: int = TOP) -> dict:
         # ничего не происходит»: the sections above say what is being done, and this one
         # says what should have woken it (#1416).
         "listeners": listeners(rt, now),
+        # …AND WHAT EACH RECEIVER DID WITH WHAT IT HEARD (#1523). The listener rows above
+        # answer «пришло ли», and until now nothing answered «а взяли ли». A capture that
+        # decoded 25 563 tiles and a panel that merged none of them are two green rows and
+        # an empty table, which is exactly how «события проглатываются» stayed
+        # undiagnosable for so long. `lost` is the number to read first: it is not a fact
+        # about the map, it is a receiver that threw something away.
+        "intake": intakemod.of(rt).report(now),
     }
 
 
@@ -295,6 +303,18 @@ def verdicts(snap: dict) -> list:
                             "secs": int(-slow_tick[0]["due_in"])}})
     if int(snap.get("posted", 0)) >= POSTED_MANY:
         out.append({"key": "busy.jam.posted", "fmt": {"count": int(snap["posted"])}})
+    # …AND THE ONE THAT IS NEVER ORDINARY (#1523). Every other verdict above is a
+    # THRESHOLD — a claim held a bit long, a queue a bit deep, all of them things a busy
+    # panel does legitimately. A lost event is not one of those: it means a receiver was
+    # handed something and threw it away, so a single one is worth naming and the loudest
+    # receiver is named first.
+    losing = [row for row in snap.get("intake", []) if int(row.get("lost", 0)) > 0]
+    if losing:
+        worst = losing[0]
+        out.append({"key": "busy.jam.lost",
+                    "fmt": {"what": worst["what"],
+                            "count": sum(int(r["lost"]) for r in losing),
+                            "why": ", ".join(sorted(worst.get("losses") or {}))}})
     return out
 
 

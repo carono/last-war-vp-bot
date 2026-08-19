@@ -156,6 +156,18 @@ TILES_MS = 200
 # is a model to merge them into (#1416).
 TILES_WAIT_MS = 3_000
 
+# THE NAMES THIS TAB'S RECEIVERS KEEP THEIR COUNTERS UNDER (`panel/runtime/intake.py`,
+# #1523). One per door, dotted so «Занятость» can group them, and spelled here rather
+# than at each call site so a receiver cannot quietly start counting under two names.
+#
+# Not translated and never shown as words: whoever draws the ledger says «монстры» in
+# whatever language that window is showing, off `busy.intake` (`CLAUDE.md`).
+INTAKE_TILES = "secret.tiles"        # ★ tiles handed over by the sniffer, one per state
+INTAKE_AREAS = "secret.areas"        # the regions the server answered about
+INTAKE_WORLD = "world.checkpoint"    # mines / trains / trucks, off the capture's file
+INTAKE_GHOST_MAP = "ghost.map"       # the ghost-recon tiles, off its own file
+INTAKE_MONSTERS = "world.monsters"   # the one list with no file behind it at all
+
 # How often the countdowns are REDRAWN, as opposed to recomputed (#1272). «Те, что уже
 # можно грабить, должны обновляться несколько раз в секунду»: a cell rewritten once a
 # second is a second late for most of every second, and on a raidable tile that reads as
@@ -671,6 +683,9 @@ class SecretTasksTab(PanelTab):
         self.trucks = TruckGrid(self)
         #: Whether the monster read is in flight — one game round trip at a time.
         self._monster_busy = False
+        #: …and what it last came to, so `_say_monsters` writes a line when the answer
+        #: CHANGES rather than on every look at the tab (#1523).
+        self._monsters_said = None
 
         # TWO SNIFFERS, TWO SWITCHES (#1251). The secret-task capture belongs to the ★
         # page and the ghost one to the map page; either may run while the other does
@@ -852,6 +867,10 @@ class SecretTasksTab(PanelTab):
         for page in (self.mines, self.monsters, self.trains, self.trucks):
             page.clear()
         self._world_said = None
+        # …and what the MONSTER read last said, for the same reason (#1523): the new
+        # profile's own client has to be able to say «монстров: 0» out loud even if the
+        # old one had just said it.
+        self._monsters_said = None
         if self.loaded:
             self.ghost_map.restore()
             # …and the monster page's own file, which is the new profile's memory of
@@ -2585,17 +2604,28 @@ class SecretTasksTab(PanelTab):
         The capture rewrites it every tick while the map moves, so this is what turns a
         lap of the map into rows — and it is cheap enough to run whenever the tab is
         refreshed (#1251).
-        """
-        if not self.loaded:
-            return
 
+        AND IT NO LONGER WAITS FOR ANYBODY TO LOOK (#1523). It used to open with
+        `if not self.loaded: return` — the same shape #1476 took out of the ★ tiles and
+        left standing here — so a lap driven from «Состояние», from the phone or by a
+        schedule filled the checkpoint and merged none of it, and the page came up empty
+        for as long as nobody had opened the tab. The merge is a file read and a dict
+        write; only the DRAWING needs a window, and `GhostMapGrid.render` is what skips.
+        """
         def work() -> None:
+            take = self.take(INTAKE_GHOST_MAP)
             try:
                 import ghost_recon_steal as ghost_tool
                 rows = ghost_tool.map_roster(self.rt.profiles.ghost_json(),
                                              self._ghost_config or {})
             except Exception:                 # noqa: BLE001 — no file yet, or a broken one
+                # NOT SILENT ANY MORE. A checkpoint that has never been written and one
+                # that cannot be parsed both ended here and said nothing; the count is
+                # the difference between «сниффер выключен» and «сниффер сломан».
+                take.lost(1, reason="unreadable")
                 return
+            take.seen(len(rows))
+            take.kept(len(rows))
             self.after(lambda: self.ghost_map.landed(self.ghost_map.status, rows))
 
         threading.Thread(target=work, daemon=True).start()
@@ -2617,13 +2647,18 @@ class SecretTasksTab(PanelTab):
         A page that stays empty because the sniffer is off is a switch to flip; one that
         stays empty because its checkpoint cannot be parsed is a bug; one that is empty
         because the map really has no train on it is the answer.
-        """
-        if not self.loaded:
-            return
 
+        **AND IT NO LONGER WAITS FOR ANYBODY TO LOOK** (#1523). `if not self.loaded:
+        return` stood at the top — the very shape #1476 took out of the ★ tiles and left
+        standing on these three pages — so a lap driven from «Состояние», from the phone
+        or by a schedule wrote 7 994 mines into the checkpoint and merged not one of them
+        while the tab was shut. The merge is a file read and a dict write; only the
+        DRAWING needs a window, and `WorldGrid.render` is what skips.
+        """
         def work() -> None:
             import lastwar_proto as proto
 
+            take = self.take(INTAKE_WORLD)
             path = self.rt.profiles.world_json()
             try:
                 # …through the one reader that looks again at a torn checkpoint
@@ -2634,11 +2669,13 @@ class SecretTasksTab(PanelTab):
                 data = proto.load_checkpoint(path)
             except OSError as exc:             # no capture has ever written it
                 self._say_world(("nofile",), "log.world.no_file", error=exc)
-                return
+                return                          # nothing was offered — nothing is lost
             except ValueError as exc:          # …or it was read mid-write, three times
+                take.lost(1, reason="torn")
                 self._say_world(("torn",), "log.world.unreadable", error=exc)
                 return
             if not isinstance(data, dict):
+                take.lost(1, reason="bad_shape")
                 self._say_world(("shape",), "log.world.unreadable",
                                 error=type(data).__name__)
                 return
@@ -2648,6 +2685,8 @@ class SecretTasksTab(PanelTab):
                 self.trucks: world.truck_records(data.get("trucks")),
             }
             counts = tuple(len(records) for records in rows.values())
+            take.seen(sum(counts))
+            take.kept(sum(counts))
             # …and what it actually held, per kind. The counts are the whole point:
             # «поезда: 0» beside «грузовики: 6» is the sniffer working and the event
             # being off, which is a sentence the empty table cannot say by itself.
@@ -2685,27 +2724,77 @@ class SecretTasksTab(PanelTab):
         page and stays there under the same rule every list here follows, so walking the
         map with «Обойти карту» and pressing «Обновить» along the way is how the page
         fills up.
+
+        **AND IT SAYS WHAT HAPPENED, WHICH IT NEVER USED TO** (#1523). Measured on the
+        live panel: a lap of the map that brought 155 map responses, 25 563 tiles and
+        7 994 mines produced, in the same window, not one line about a monster anywhere
+        in 200 MB of `panel.log` — because every way this read can come back empty ended
+        in the same silence. The client sitting in the BASE (no `WorldScene` at all, so
+        nothing is drawn and nothing can be read), a daemon that is not answering, a
+        scenario that failed, and a genuinely empty patch of map were four different
+        facts wearing one blank page. Each one is a reason on the ledger now and a line
+        in the log; and none of them is a LOSS, because there was nothing to lose —
+        what was lost is what this method never got the chance to read at all.
+
+        **AND IT NO LONGER WAITS FOR ANYBODY TO LOOK.** `if not self.loaded` opened it,
+        which is the class this task is about: a monster read fired by a schedule or by
+        the phone, with the tab shut, was thrown away — and the monster page is the ONE
+        page on this tab whose source leaves nothing behind on disk, so what it threw
+        away was the only copy there was.
         """
-        if not self.loaded or self._monster_busy:
+        if self._monster_busy:
+            self.take(INTAKE_MONSTERS).dropped(reason="already_reading")
             return
         self._monster_busy = True
 
         def work() -> None:
-            text = ""
+            take = self.take(INTAKE_MONSTERS)
+            text, why = "", ""
             try:
-                if self.rt.game.ready():
+                if not self.rt.game.ready():
+                    why = "no_game"
+                else:
                     outcome = self.rt.actions.play("read_world_monsters",
                                                    on_event=lambda _m: None)
                     ctx = getattr(outcome, "ctx", None)
                     raw = (getattr(ctx, "vars", {}) or {}).get("monsters")
-                    if outcome.ok and isinstance(raw, str):
+                    if not outcome.ok:
+                        why = "read_failed"
+                    elif isinstance(raw, str):
                         text = raw
-            except Exception:                  # noqa: BLE001 — a read, never the window
-                text = ""
+                    else:
+                        why = "no_answer"
+            except Exception as exc:           # noqa: BLE001 — a read, never the window
+                why = "read_failed"
+                self.rt.dbg("secret").warning("monster read failed: %s", exc,
+                                              exc_info=True)
             records = world.parse_monsters(text, server=self._own_server or None)
+            take.seen(len(records))
+            take.kept(len(records))
+            if why:
+                # A read that could not happen is not a map with nothing on it. It is
+                # NOT counted as lost — nothing was ever handed over — but it is said,
+                # once per changed answer, which is what was missing entirely.
+                self._say_monsters((why,), "log.monsters.unread", why=why)
+            else:
+                self._say_monsters(("ok", len(records)), "log.monsters.read",
+                                   n=len(records))
             self.after(lambda: self._monsters_landed(records))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _say_monsters(self, state, key: str, **fmt) -> None:
+        """Say what the monster read came to — ONCE per answer, like `_say_world`.
+
+        The read runs on «Обновить», on every look at the tab and after every lap, so an
+        unconditional line would be a log nobody could read past. The line is written
+        when the answer CHANGES and swallowed while it repeats, which is what makes
+        «монстров: 0» worth reading when it appears.
+        """
+        if self._monsters_said == state:
+            return
+        self._monsters_said = state
+        self.say("secret", key, **fmt)
 
     def _monsters_landed(self, records) -> None:
         self._monster_busy = False
@@ -2843,8 +2932,11 @@ class SecretTasksTab(PanelTab):
         the model, the checkpoint — happens on the Tk thread, once, over whatever has
         piled up (:meth:`_tiles_land`).
         """
+        take = self.take(INTAKE_TILES)
+        take.seen()
         uuid = str(record.get("uuid") or "").strip()
         if not uuid:
+            take.dropped(reason="no_uuid")
             return
         with self._tiles_lock:
             first = not self._tiles
@@ -2915,8 +3007,12 @@ class SecretTasksTab(PanelTab):
         for server, (stars, seen) in counted.items():
             if server:
                 self.rt.secret_days.saw_tiles(server, stars, seen)
+        take = self.take(INTAKE_TILES)
+        take.dropped(len(records) - len(tasks), reason="not_starred")
         if tasks:
             abroad = self._abroad_only(tasks)
+            take.dropped(len(tasks) - len(abroad), reason="home_server")
+            take.kept(len(abroad))
             self._merge(abroad, fresh=True,
                         intake={"seen": len(records), "plain": len(records) - len(tasks),
                                 "home": len(tasks) - len(abroad)})
@@ -2928,6 +3024,8 @@ class SecretTasksTab(PanelTab):
         A dict write and a wake-up, exactly like :meth:`tile_seen`, and for the same
         reason: the sniffer's reader thread may not be made to wait for anything.
         """
+        take = self.take(INTAKE_AREAS)
+        take.seen()
         try:
             record = {"server": int(record.get("server") or 0),
                       "x0": int(record["x0"]), "y0": int(record["y0"]),
@@ -2935,9 +3033,12 @@ class SecretTasksTab(PanelTab):
                       "at": float(record.get("at") or 0.0),
                       "uuids": {str(u) for u in record.get("uuids") or ()}}
         except (KeyError, TypeError, ValueError):
+            take.dropped(reason="malformed")
             return
         if not record["server"]:
+            take.dropped(reason="no_server")
             return
+        take.kept()
         with self._tiles_lock:
             first = not self._areas
             self._areas.append(record)

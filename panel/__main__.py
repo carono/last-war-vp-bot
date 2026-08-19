@@ -2747,6 +2747,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # leave watching on the previous profile's behalf. The Timers tab, if this
         # profile has one, redraws its rows from its own `on_profile_switch`.
         self._schedule.on_profile_switch()
+        # …and the intake ledger, which is this account's receivers and not the next
+        # one's (#1523). Every row in it counts events off THIS profile's map; carried
+        # over, a fresh account would open on somebody else's «принято 25 563» and the
+        # one number that matters — «потеряно» — would be inherited too.
+        self._rt.intake.clear()
 
     # `_update_path_hints` went with the rally monitor: the one label showing a
     # profile's log path is that tab's own now, and it refreshes itself on a language

@@ -400,6 +400,15 @@ def _table_snapshot() -> dict:
                       {"kind": "trigger", "what": "on_login", "desc": "",
                        "alive": False, "heard": 5, "since": 900.0, "detail": "",
                        "who": ""}],
+        # …and what each RECEIVER did with what it heard (#1523). The listener rows above
+        # say whether anything arrived; these say whether the panel took it, which is the
+        # half that was missing when «события проглатываются» was unanswerable.
+        "intake": [{"what": "secret.tiles", "seen": 25_563, "kept": 41,
+                    "dropped": 25_522, "lost": 0, "since": 2.0,
+                    "reasons": {"not_starred": 25_522}, "losses": {}},
+                   {"what": "world.monsters", "seen": 2, "kept": 1, "dropped": 0,
+                    "lost": 1, "since": 4.0, "reasons": {},
+                    "losses": {"tab_closed": 1}}],
         "posted": 3,
     }
 
@@ -423,8 +432,11 @@ def test_the_block_is_several_grids_and_every_row_answers_its_grids_questions() 
         sorted({row["section"] for row in rows})
     # Every row is the same shape, and its words are keys rather than sentences.
     for row in rows:
-        assert set(row) == {"section", "what", "who", "detail", "secs", "level",
-                            "status", "mark"}, row
+        # The eight every row has, plus the four numbers a RECEIVER row adds (#1523):
+        # «принято / взято / отброшено / потеряно» are four columns and cannot be folded
+        # into one, so the receivers grid is the one section with fields of its own.
+        assert set(row) - {"seen", "kept", "dropped", "lost"} == {
+            "section", "what", "who", "detail", "secs", "level", "status", "mark"}, row
         assert row["mark"] in ("", "slow", "stuck"), row
         assert not row["status"] or row["status"].startswith("busy."), row
     # …and every GRID names a title and covers a real subset of the sections.

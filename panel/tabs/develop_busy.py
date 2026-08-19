@@ -82,8 +82,8 @@ LEVELS = {0: "busy.level.background", 1: "busy.level.express", 2: "busy.level.hu
 
 #: Every kind of row `rows()` produces, and the order a jam is asked about — still what
 #: :meth:`lines` walks section by section for the clipboard text.
-SECTIONS = ("jam", "runs", "queue", "claims", "listeners", "timers", "slowest",
-            "threads")
+SECTIONS = ("jam", "runs", "queue", "claims", "listeners", "intake", "timers",
+            "slowest", "threads")
 
 #: **THE GRIDS**, in the order they are stacked on the page. Each entry is
 #: ``(key, title-locale-key, sections, columns)``:
@@ -110,6 +110,16 @@ GROUPS = (
         ("detail", "busy.col.detail", 340, False, "text"),
         ("secs", "busy.col.secs", 90, True, "secs"),
         ("level", "busy.col.heard", 70, True, "text"),
+        ("status", "busy.col.status", 130, False, "key"),
+    )),
+    ("intake", "busy.group.intake", ("intake",), (
+        ("what", "busy.col.what", 170, False, "text"),
+        ("seen", "busy.col.seen", 90, True, "text"),
+        ("kept", "busy.col.kept", 90, True, "text"),
+        ("dropped", "busy.col.dropped", 100, True, "text"),
+        ("lost", "busy.col.lost", 90, True, "text"),
+        ("detail", "busy.col.detail", 260, False, "text"),
+        ("secs", "busy.col.secs", 80, True, "secs"),
         ("status", "busy.col.status", 130, False, "key"),
     )),
     ("queue", "busy.group.queue", ("queue",), (
@@ -163,7 +173,7 @@ GROUPS = (
 #: couple of lines; the errand queue, the listeners and the timers are where the length
 #: is — the queue grid tallest of all, since it also carries the errands that just left.
 GROUP_HEIGHT = {"jam": 3, "runs": 4, "claims": 4, "slowest": 4, "threads": 6,
-                "listeners": 6, "timers": 8, "queue": 10}
+                "listeners": 6, "intake": 6, "timers": 8, "queue": 10}
 
 #: Anything that has been going on this long is drawn amber. A press a person is waiting
 #: for is answered in seconds, an errand in tens of them; a minute is where «it is
@@ -457,6 +467,7 @@ class BusyView:
         out.extend(self._queue_rows(snap))
         out.extend(self._claim_rows(snap))
         out.extend(self._listener_rows(snap))
+        out.extend(self._intake_rows(snap))
         out.extend(self._timer_rows(snap))
 
         for row in snap["slowest"]:
@@ -523,6 +534,57 @@ class BusyView:
                          # sense the other sections mean, so the mark is set above rather
                          # than derived from the seconds by `add`.
                          "mark": mark})
+        return rows
+
+    def _intake_rows(self, snap: dict) -> list:
+        """WHAT EACH RECEIVER DID WITH WHAT IT HEARD — the other half of the row above.
+
+        The listeners grid says whether anything ARRIVED; this says whether the panel
+        took it (#1523). The two were never the same question and the gap between them
+        is where «события проглатываются» lived: a capture reporting 25 563 tiles and a
+        table that grew by nothing are two perfectly healthy-looking listener rows.
+
+        Four numbers per receiver, and only one of them is ever a fault:
+
+        * **принято** — reached this door;
+        * **взято** — merged into a model, a store or a table;
+        * **отброшено** — declined ON PURPOSE, with a reason (a plain tile among starred
+          ones, a row on our own server). Legitimate, and the reasons are in «подробность»
+          so a page that shows nothing can be read rather than guessed at;
+        * **потеряно** — accepted and then thrown away for a reason that is not about the
+          event. Red, always, at any count: an accepted event is processed or queued,
+          never discarded.
+        """
+        t = self.tab.t
+        rows: list = []
+        for row in snap.get("intake") or ():
+            lost = int(row.get("lost") or 0)
+            dropped = int(row.get("dropped") or 0)
+            seen = int(row.get("seen") or 0)
+            since = row.get("since")
+            if lost:
+                status, mark = "busy.intake.losing", "stuck"
+            elif not seen:
+                status, mark = "busy.intake.never", ""
+            elif since is not None and since >= busymod.LISTENER_QUIET_SEC:
+                status, mark = "busy.intake.quiet", "slow"
+            else:
+                status, mark = "busy.intake.taking", ""
+            # WHY, as the receiver's own reason words — data, not sentences: they are
+            # the ledger's keys and the whole point is that a drop can be named.
+            why = dict(row.get("losses") or {})
+            why.update(row.get("reasons") or {})
+            detail = " · ".join(f"{name}: {count}"
+                                for name, count in sorted(why.items()))
+            rows.append({"section": "intake",
+                         "what": str(row.get("what") or ""),
+                         "seen": str(seen), "kept": str(int(row.get("kept") or 0)),
+                         "dropped": str(dropped) if dropped else "",
+                         "lost": str(lost) if lost else "",
+                         "detail": detail,
+                         "secs": None if since is None else int(since),
+                         "level": "", "who": "",
+                         "status": status, "mark": mark})
         return rows
 
     def _queue_rows(self, snap: dict) -> list:
@@ -701,6 +763,7 @@ class BusyView:
         section("busy.section.queue", self._queue_lines(snap.get("queue") or {}))
         section("busy.section.claims", self._claim_lines(snap))
         section("busy.section.listeners", self._listener_lines(snap))
+        section("busy.section.intake", self._intake_lines(snap))
         section("busy.section.timers", self._timer_lines(snap))
         section("busy.section.slowest", self._slow_lines(snap))
         section("busy.section.threads",
@@ -730,6 +793,27 @@ class BusyView:
             else:
                 rows.append(t("busy.listen.line.heard", what=what, kind=kind, desc=desc,
                               count=heard, secs=int(since or 0)))
+        return rows
+
+    def _intake_lines(self, snap: dict) -> list:
+        """The receivers as sentences — «★-тайлы: принято 25563, взято 41, потеряно 0».
+
+        Same reason as `_listener_lines`: a jam is reported rather than fixed at the
+        keyboard, and the receiver that is dropping things has to survive being pasted
+        into a chat.
+        """
+        t = self.tab.t
+        rows = []
+        for row in snap.get("intake") or ():
+            why = dict(row.get("losses") or {})
+            why.update(row.get("reasons") or {})
+            rows.append(t("busy.intake.line",
+                          what=str(row.get("what") or ""),
+                          seen=int(row.get("seen") or 0),
+                          kept=int(row.get("kept") or 0),
+                          dropped=int(row.get("dropped") or 0),
+                          lost=int(row.get("lost") or 0),
+                          why=", ".join(f"{k}: {v}" for k, v in sorted(why.items()))))
         return rows
 
     def _queue_lines(self, queue: dict) -> list:

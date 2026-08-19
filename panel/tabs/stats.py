@@ -16,6 +16,13 @@ from ..runtime import reads
 from .base import PanelTab, TriggerSpec
 
 
+#: This tab's one receiver, on the ledger «Занятость» draws (`panel/runtime/intake.py`,
+#: #1523). A balance-changed push is the only thing that ever fills the tally, and the
+#: amount lives for exactly as long as it takes to read the balance behind it — so this
+#: is a receiver whose loss cannot be made good by looking again.
+INTAKE_GAINS = "stats.gains"
+
+
 class StatsTab(PanelTab):
     ID = "stats"
     TITLE_KEY = "tab.stats"
@@ -93,13 +100,25 @@ class StatsTab(PanelTab):
         balance moved, not by how much, so the tracker diffs. The first read of a
         session is a baseline.
         """
+        take = self.take(INTAKE_GAINS)
+        take.seen()
         current = reads.resource_balance(self.rt.game)
         if not current:
+            # A PUSH THAT COULD NOT BE PRICED IS A LOSS, not an empty answer (#1523).
+            # The push says a balance MOVED; the amount only exists in the reading taken
+            # right after it, so a read that failed takes the gain with it and no later
+            # read can recover it. It used to return in silence, which is why a tally
+            # that stopped growing looked exactly like a day nobody collected anything.
+            take.lost(1, reason="no_reading")
             return
         gains = resourcestatsmod.positive_deltas(current, self._last)
         self._last = current
         if not gains:
+            # The baseline read of a session, or a push about something that did not go
+            # up. Both are answers rather than faults — declined, with the reason.
+            take.dropped(1, reason="no_gain")
             return
+        take.kept()
         self._stats = (self._stats or resourcestatsmod.load_stats_from_store(
             self.rt.store, self.rt.profiles.resource_stats_json())).add(gains)
         resourcestatsmod.save_stats_to_store(self.rt.store, self._stats)
