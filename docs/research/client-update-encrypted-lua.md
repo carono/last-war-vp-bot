@@ -125,6 +125,32 @@ One thing improves in passing: `DoString` does NOT swallow errors the way `SafeD
 does, so a chunk that will not COMPILE — which never reaches the `pcall` the answer
 wrapper puts around it — now says so in the daemon's log instead of vanishing.
 
+**Corroborated by the launcher, which names it in plain words.** Its own log, on every
+start-up, says what it thinks of the script bundle it has just checked:
+
+```
+LWLuaFile is current. local=LwLuaState { version: 7, … }, remote_version=7, format=Lenc
+```
+
+`format: Lenc` — the client's own word for the wrapping, and a free way for the next
+agent to tell at a glance whether a build is still on it. A build that goes back to
+plain source will say so there before anything else on the machine does.
+
+**What is proven and what is not, as of 2026-08-19 evening.** Proven: the scheme
+(the key read out of the plugin decrypts the client's own scripts into Lua 5.3 bytecode),
+and the route (the live panel resolved `DoString` with `param0=System.Byte[]` on the
+running client and logged `chunks are wrapped: ChaCha8 rounds=8 feedforward=False …`).
+**Not yet proven: one chunk landing and writing its line back.** It could not be, on
+that evening, for a reason that has nothing to do with the wrapping — the client would
+not stay in the game. It crashed on the loading screen once (`Curl error 6: Could not
+resolve host`, then the crash handler), and the instance launched after it sat on the
+loading screen for twenty-five minutes and exited without ever reaching the account. A
+client whose main thread is parked in the crash handler, or which has no window yet, is
+one nothing can attach to at all — which is what the daemon's log says now that it has
+one. **So the first thing to do when the client is playable again is the round trip**, and
+if it fails, the sentence to look for is `DoString refused the chunk:` in the daemon's log:
+that is the wrapping being wrong, and anything else is not.
+
 **What was NOT needed, and is worth not repeating.** No patching of the client's memory
 (the LENC compare is one `jne` away from being nopped, and an anti-cheat is in the
 process — feeding the loader what it asks for is both cheaper and quieter), no calling
