@@ -249,6 +249,14 @@ paid for:
   map, and the client still says nothing. So the camera is put on the target first
   (`GoToUtil.MoveToWorldPoint`), given a beat, and only then is the ring scanned.
 
+**«Has it arrived» is answered by the march's clock, never by the squad's state.**
+Measured: a ride the server timed at 271 seconds left the formation reading `state = 1`
+at 485 seconds and counting, because a squad that has landed at a mine is GATHERING and
+the client draws no distinction between «on the road» and «at work». So every wait in the
+chain is on the newest own march's `endTime` — the server's own arrival stamp, and the
+one that came within two seconds of the prediction. This corrects §5 below: the state
+reading tells «out» from «at home» and nothing finer.
+
 **The risk, plainly.** A squad that lands at a mine is GATHERING, and issuing the attack
 from there is the same move the chain's second kill already needs: a march from where the
 squad stands rather than from home. That is not proven live yet and this feature inherits

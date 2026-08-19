@@ -45,7 +45,7 @@ READING_MONSTERS = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
 #: The presses the recipe plays, and the order they only make sense in.
 PRESSES = ("golden_arm", "golden_scan", "golden_pick", "golden_touch", "golden_grab",
            "golden_send", "golden_home", "golden_confirm", "golden_look",
-           "golden_approach_arm", "golden_ride")
+           "golden_approach_arm", "golden_ride", "golden_eta")
 
 
 def _source(path: Path, variables=None):
@@ -314,6 +314,25 @@ def test_the_ride_is_only_taken_when_the_arithmetic_wins():
         "the ride must not bring the squad home — it has to land beside the target"
 
 
+def test_every_wait_is_on_the_marchs_clock_and_not_on_the_squads_state():
+    """A squad that has landed at a mine is GATHERING and goes on reading «out».
+
+    Measured live: a ride of 271 seconds left the formation at `state = 1` for 485
+    seconds and counting. A chain that waits for the state to clear waits for ever, so
+    both waits are on the march's own `endTime` — the server's arrival stamp, which came
+    within two seconds of what the speed function predicted.
+    """
+    body, _ = _source(RECIPE)
+    marching = lua_actions.golden_marching()
+    assert marching not in body, \
+        "a wait is still gated on the squad's state, which never clears while it gathers"
+    assert body.count("TAP golden_eta") >= 2, \
+        "the arrival clock is not wound after every march the chain sends"
+    note = lua_actions.golden_note_eta()
+    assert "endTime" in note and "GetOwnerMarches" in note, \
+        "the clock is guessed rather than read off the march the server made"
+
+
 def test_the_ride_looks_at_the_target_before_it_hunts_for_a_mine():
     """`HasPointInfo` can only answer for a district the client has actually loaded."""
     body, _ = _source(RECIPE)
@@ -332,14 +351,15 @@ def test_the_lua_of_every_press_compiles():
         return
     runtime = lupa.LuaRuntime()
     #: The catalogue's name -> the function behind it, where the two differ.
-    behind = {"golden_ride": "golden_approach_send"}
+    behind = {"golden_ride": "golden_approach_send", "golden_eta": "golden_note_eta"}
     for name in PRESSES:
         if name == "golden_home":            # the same chunk as golden_send
             continue
         runtime.compile(getattr(lua_actions, behind.get(name, name))())
     runtime.compile(lua_actions.monster_prefab_lookup() + " return 1")
     for name in ("monster_prefab_probe", "golden_speeds", "golden_approach_planned",
-                 "golden_rode", "golden_approach_report", "golden_armed", "golden_queued",
+                 "golden_rode", "golden_approach_report", "golden_arrived",
+                 "golden_armed", "golden_queued",
                  "golden_found", "golden_picked",
                  "golden_needs_uuid", "golden_marching", "golden_settled",
                  "golden_can_go", "golden_last_march", "golden_attacks",

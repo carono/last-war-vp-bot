@@ -1126,6 +1126,13 @@ BUTTONS["golden_ride"] = Button(
     lua=_lua_actions.golden_approach_send(),
     wait=1.5, label="ride to the mine beside the target",
 )
+BUTTONS["golden_eta"] = Button(
+    # Not a press: the clock. A squad that has landed at a mine goes on reading «out», so
+    # «has it arrived» is answered by the march's own `endTime` and never by the squad's
+    # state — measured, a 271-second ride still read «out» at 485 seconds.
+    lua=_lua_actions.golden_note_eta(),
+    wait=0.2, label="note when the march is due to land",
+)
 BUTTONS["golden_confirm"] = Button(
     # Not a press either: the tally, moved only after the GAME has been seen holding a
     # march of ours. A send that returned cleanly proves nothing.

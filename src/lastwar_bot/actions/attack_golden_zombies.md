@@ -149,17 +149,22 @@ IF queued == 0
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost then return 0 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() > 0) and 1 or 0 end)() INTO go
 
 WHILE go == 1 LIMIT 24
-    # A squad that is already out cannot be sent, and the send is refused in silence —
-    # which is exactly how a whole run came to spend nothing and say nothing (#1519). So
-    # the wait is here, BEFORE the pick, and it is the same wait for the squad coming
-    # back from the previous kill.
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local st = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then st = math.floor(tonumber(v.state) or 0) end end end) return ((st or 0) == 1) and 1 or 0 end)() INTO marching
-    WHILE marching == 1 LIMIT {march_wait}
+    # A squad that is still travelling cannot be sent again, and the send is refused in
+    # silence — which is how a whole run came to spend nothing and say nothing (#1519).
+    # So the wait is here, BEFORE the pick.
+    #
+    # It waits on the MARCH'S OWN CLOCK and not on the squad's state, because the state
+    # does not answer the question: a squad that has landed at a mine is gathering, and
+    # it goes on reading «out» for as long as it works there — measured, a 271-second
+    # ride still read «out» at 485 seconds. Nothing parked means nothing to wait for,
+    # which is the first lap.
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
+    WHILE arrived == 0 LIMIT {march_wait}
         WAIT 3
-        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local st = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then st = math.floor(tonumber(v.state) or 0) end end end) return ((st or 0) == 1) and 1 or 0 end)() INTO marching
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
 
-    IF marching == 1
-        LOG "the squad is still out after the wait — stopping rather than sending orders nobody can carry out"
+    IF arrived == 0
+        LOG "the squad is still on the road after the wait — stopping rather than sending orders nobody can carry out"
         READ_LUA (0) INTO go
 
     IF go == 1
@@ -191,10 +196,14 @@ WHILE go == 1 LIMIT 24
                     READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'why=' .. tostring(p.why or '-') .. ' direct=' .. tostring(math.floor(tonumber(p.direct_sec) or 0)) .. ' via=' .. tostring(math.floor(tonumber(p.approach_sec) or 0)) .. ' rode=' .. tostring(math.floor(tonumber(p.rode) or 0)) .. ' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. ' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)() INTO ride_report
                     LOG "riding to a mine beside the target — {ride_report}"
                     TAP golden_ride
-                    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local st = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then st = math.floor(tonumber(v.state) or 0) end end end) return ((st or 0) == 1) and 1 or 0 end)() INTO marching
-                    WHILE marching == 1 LIMIT {march_wait}
+                    TAP golden_eta
+                    # The march's OWN clock, never the squad's state: a squad
+                    # that has landed at a mine is gathering, and it goes on
+                    # reading «out» for as long as it works there.
+                    READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
+                    WHILE arrived == 0 LIMIT {march_wait}
                         WAIT 3
-                        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local st = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then st = math.floor(tonumber(v.state) or 0) end end end) return ((st or 0) == 1) and 1 or 0 end)() INTO marching
+                        READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
             # The last march of the run is the one that brings the squad home; every one
             # before it deliberately leaves it standing where it killed.
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost * 2 then return 1 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) + 1 >= lim then return 1 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() <= 1) and 1 or 0 end)() INTO last_one
@@ -217,6 +226,9 @@ WHILE go == 1 LIMIT 24
             ELSE
                 # The tally moves HERE and nowhere else.
                 TAP golden_confirm
+                # …and when this march is due to land, so the next lap knows what to
+                # wait for.
+                TAP golden_eta
                 # The event keeps spawning while the squad is out.
                 TAP golden_scan
 

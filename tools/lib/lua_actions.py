@@ -10237,3 +10237,60 @@ def golden_approach_report() -> str:
         "' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. "
         "' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)()"
     )
+
+
+#: The SERVER's clock in milliseconds, which is what a march's `endTime` is stamped in.
+#: The PC's own clock is not it (docs/research/game-clock.md), so it is only the fallback
+#: of last resort — a few seconds out either way is harmless for a wait, and being an
+#: hour out is not.
+_GAME_NOW_MS = (
+    "(function() local t = nil "
+    "pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) "
+    "if t == nil then pcall(function() "
+    "t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end "
+    "if t == nil then t = os.time() * 1000 end return t end)()"
+)
+
+
+def golden_note_eta() -> str:
+    """Park when the march that has just gone out is due to land.
+
+    **The squad's `state` cannot answer «has it arrived».** Measured live: a ride of 271
+    seconds left the formation reading `state = 1` for 485 seconds and counting, because
+    a squad that has landed at a mine is GATHERING and the client makes no distinction
+    between «on the road» and «at work». A chain that waits for `state` to clear waits
+    for ever.
+
+    The march's own clock does answer. The newest of our marches is the one just created —
+    it is the one that lands last — and its `endTime` is the server's own arrival stamp,
+    within two seconds of what the speed function predicts. Where the list cannot be read
+    the prediction is parked instead, so the wait is bounded either way.
+    """
+    return (
+        _GOLD_P +
+        "local latest = nil "
+        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+        "if ms == nil then return end "
+        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+        "if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) "
+        "if e ~= nil and e > 0 and (latest == nil or e > latest) then latest = e end end end end) "
+        "if latest == nil then "
+        "local guess = tonumber(p.approach_sec) or 60 "
+        "latest = (%(now)s) + math.floor(guess * 1000) end "
+        "p.eta_ms = latest "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_eta in="'
+        '..tostring(math.floor((latest - (%(now)s)) / 1000)).."s")'
+        % {"gold": _GOLD, "now": _GAME_NOW_MS}
+    )
+
+
+def golden_arrived() -> str:
+    """Lua *expression* -> 1 once the parked march is due to have landed, else 0.
+
+    `1` when nothing is parked, so a caller that polls this after a step which sent
+    nothing is not left waiting on a clock nobody wound.
+    """
+    return ("(function() " + _GOLD_P +
+            "local due = tonumber(p.eta_ms) if due == nil then return 1 end "
+            "return ((%s) >= due) and 1 or 0 end)()" % _GAME_NOW_MS)
