@@ -2005,6 +2005,7 @@
   "flow.state.never": "● tutaj nic jeszcze nie dotarło · {why}",
   "flow.state.off": "● źródło nigdy nie zostało uruchomione — nic nie może dotrzeć · odebrano {seen} · wzięto {kept}",
   "flow.state.quiet": "● cisza od {since} · odebrano {seen} · wzięto {kept} · odrzucono {dropped}",
+  "flow.state.refused": "● zapytanie nie przechodzi ({why}) · ostatnie nadeszło {since} temu · odebrano {seen} · wzięto {kept}",
   "flow.state.starving": "● źródło mówi ({heard}), a tutaj nic nie dotarło · {why}",
   "busy.intake.quiet": "cicho",
   "busy.intake.never": "jeszcze nic nie przyszło",

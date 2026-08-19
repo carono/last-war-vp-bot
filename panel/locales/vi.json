@@ -2005,6 +2005,7 @@
   "flow.state.never": "● chưa từng có gì đến đây · {why}",
   "flow.state.off": "● nguồn chưa từng được khởi động — không có gì đến được · nhận {seen} · lấy {kept}",
   "flow.state.quiet": "● im lặng {since} · nhận {seen} · lấy {kept} · loại {dropped}",
+  "flow.state.refused": "● yêu cầu không đi qua ({why}) · lần đến gần nhất {since} trước · nhận {seen} · lấy {kept}",
   "flow.state.starving": "● nguồn đang nói ({heard}) nhưng không có gì đến đây · {why}",
   "busy.intake.quiet": "im lặng",
   "busy.intake.never": "chưa có gì đến",

@@ -2005,6 +2005,7 @@
   "flow.state.never": "● belum pernah ada yang sampai ke sini · {why}",
   "flow.state.off": "● sumber belum pernah dijalankan — tidak ada yang bisa masuk · masuk {seen} · diambil {kept}",
   "flow.state.quiet": "● sunyi {since} · masuk {seen} · diambil {kept} · ditolak {dropped}",
+  "flow.state.refused": "● permintaan tidak tembus ({why}) · kedatangan terakhir {since} lalu · masuk {seen} · diambil {kept}",
   "flow.state.starving": "● sumber berbicara ({heard}) tetapi tidak ada yang sampai ke sini · {why}",
   "busy.intake.quiet": "sepi",
   "busy.intake.never": "belum ada yang datang",

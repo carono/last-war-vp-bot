@@ -79,6 +79,12 @@ DEAD = "dead"
 OFF = "off"
 #: Nothing has ever arrived here, from anywhere.
 NEVER = "never"
+#: THE ASK ITSELF IS NOT GETTING THROUGH (#1549). Refusals are being recorded right now
+#: and nothing has ARRIVED for a while — a poll that cannot run (the client is in the
+#: base, the daemon is down, a read failed). Kept apart from :data:`QUIET`, which is «the
+#: map has nothing to say»: the operator asked «пока таймаут, данные пропадают?» and a
+#: strip reading «тихо» over 223 refused polls answers the wrong question.
+REFUSED = "refused"
 #: Something arrived within :data:`FRESH_SEC` — the live signal.
 FLOWING = "flowing"
 #: It worked, and has said nothing for a while.
@@ -92,6 +98,7 @@ COLOURS = {
     STARVING: "#e0a84f",
     DEAD: "#e04f4f",
     OFF: "#888888",
+    REFUSED: "#e0a84f",
     NEVER: "#888888",
     FLOWING: "#4fe08a",
     QUIET: "#e0d84f",
@@ -162,7 +169,16 @@ def _state(row: dict, source: "dict | None") -> str:
     since = row.get("since_in", row.get("since"))
     if since is None:
         return NEVER
-    return FLOWING if float(since) <= FRESH_SEC else QUIET
+    if float(since) <= FRESH_SEC:
+        return FLOWING
+    # …and «тихо» only when the silence is the SOURCE's. Something happened here just
+    # now and it was not an arrival, so it was a refusal — the ask is not getting
+    # through, which is a different sentence and a different thing to do about it.
+    last = row.get("since")
+    if (int(row.get("dropped") or 0) > 0 and last is not None
+            and float(last) <= FRESH_SEC):
+        return REFUSED
+    return QUIET
 
 
 def badge(rt, receiver: str, *, now: "float | None" = None) -> dict:
@@ -256,6 +272,7 @@ LINE_KEYS = {
     STARVING: "flow.state.starving",
     DEAD: "flow.state.dead",
     OFF: "flow.state.off",
+    REFUSED: "flow.state.refused",
     NEVER: "flow.state.never",
     FLOWING: "flow.state.flowing",
     QUIET: "flow.state.quiet",

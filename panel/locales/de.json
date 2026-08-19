@@ -2005,6 +2005,7 @@
   "flow.state.never": "● hier ist noch nie etwas angekommen · {why}",
   "flow.state.off": "● die Quelle wurde nie gestartet — es kann nichts ankommen · empfangen {seen} · übernommen {kept}",
   "flow.state.quiet": "● still seit {since} · empfangen {seen} · übernommen {kept} · abgelehnt {dropped}",
+  "flow.state.refused": "● die Abfrage kommt nicht durch ({why}) · letzter Eingang vor {since} · empfangen {seen} · übernommen {kept}",
   "flow.state.starving": "● die Quelle spricht ({heard}), hier ist aber nichts angekommen · {why}",
   "busy.intake.quiet": "still",
   "busy.intake.never": "noch nichts angekommen",

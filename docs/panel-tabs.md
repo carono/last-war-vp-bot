@@ -808,11 +808,18 @@ the words.
 |------------|----------------------------------------------------------|
 | `flowing`  | something arrived within the last minute                  |
 | `quiet`    | it worked, and has said nothing for a while               |
+| `refused`  | **the ask is not getting through** — refusals now, no arrivals |
 | `never`    | nothing has ever arrived here                             |
 | `starving` | **the source IS heard from and we are taking none of it** |
 | `losing`   | something was accepted and thrown away — never ordinary   |
 | `dead`     | the source ran and is not running any more                |
 | `off`      | the source has never been started — a switch, not a bug   |
+
+`refused` against `quiet` is the other half of the same idea, and it was added after the
+operator asked «пока таймаут, данные пропадают или как?»: with the client's sockets
+half-closed the monster poll recorded 223 refusals in nineteen minutes and the strip said
+«тихо», which is the sentence for a map with nothing on it and sends a person to look at
+the map instead of at the client.
 
 `starving` against `never` / `quiet` is the distinction the module exists for: «данных
 нет, потому что их не присылают» and «данные идут, но мы их не берём» lead a person to do

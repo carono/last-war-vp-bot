@@ -2005,6 +2005,7 @@
   "flow.state.never": "● сюда ещё ничего не приходило · {why}",
   "flow.state.off": "● источник не запущен — приходить нечему · принято {seen} · взято {kept}",
   "flow.state.quiet": "● тихо {since} · принято {seen} · взято {kept} · отброшено {dropped}",
+  "flow.state.refused": "● опрос не проходит ({why}) · последнее пришло {since} назад · принято {seen} · взято {kept}",
   "flow.state.starving": "● источник говорит ({heard}), а сюда ничего не дошло · {why}",
   "busy.intake.quiet": "тихо",
   "busy.intake.never": "ещё ничего не приходило",

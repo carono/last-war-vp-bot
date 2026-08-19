@@ -148,6 +148,23 @@ def _now(rt) -> float:
     return time.monotonic()
 
 
+def _age_arrival(rt, name: str, secs: float) -> None:
+    """Push this receiver's last ARRIVAL that far into the past, leaving the rest alone.
+
+    The clock cannot be wound forward for a test (the board would age the refusals too),
+    so the counter is aged instead — which is exactly the live shape: fresh refusals over
+    a stale arrival.
+    """
+    rt.intake._rows[name].last_in -= secs                      # noqa: SLF001
+
+
+def _age_all(rt, name: str, secs: float) -> None:
+    """…and this ages everything, which is «nothing has happened here for a while»."""
+    row = rt.intake._rows[name]                                # noqa: SLF001
+    row.last_in -= secs
+    row.last -= secs
+
+
 # ---------------------------------------------------------------------------
 # the one that would have hidden the bug again
 # ---------------------------------------------------------------------------
@@ -162,15 +179,41 @@ def test_a_refusal_does_not_count_as_an_arrival():
     take = rt.intake.at("world.monsters")
     take.seen(177)
     take.kept(177)
-    now = _now(rt) + flowmod.FRESH_SEC + 5
-    # …an hour of refusals later, the ARRIVAL is still the old one
+    # …ten minutes of refusals later, the ARRIVAL is still the old one
     for _ in range(5):
         take.dropped(reason="not_in_world")
+    _age_arrival(rt, "world.monsters", flowmod.FRESH_SEC + 600)
     _fresh(rt)
-    badge = flowmod.board(rt, now=now)["world.monsters"]
-    assert badge["state"] == flowmod.QUIET, badge
+    badge = flowmod.badge(rt, "world.monsters")
+    # …and it is not «тихо» either: something IS happening every tick, and what is
+    # happening is a refusal. See the next test.
+    assert badge["state"] == flowmod.REFUSED, badge
     assert badge["dropped"] == 5
     assert "not_in_world" in flowmod.why(badge)
+    assert badge["since"] > flowmod.FRESH_SEC          # the arrival, not the refusal
+
+
+def test_a_poll_that_cannot_run_is_not_a_map_with_nothing_on_it():
+    """«Пока таймаут, данные пропадают или как?» — the question this state answers.
+
+    Live, the monster poll recorded 223 refusals over nineteen minutes with the client's
+    sockets half-closed. The strip said «тихо», which is the sentence for a map that has
+    nothing to say — and sends a person looking at the map instead of at the client.
+    """
+    rt = _rt()
+    take = rt.intake.at("world.monsters")
+    take.seen(192)
+    take.kept(192)
+    _age_all(rt, "world.monsters", flowmod.FRESH_SEC + 600)
+    _fresh(rt)
+    # nothing at all has happened for ten minutes: the map is quiet, and that is honest
+    assert flowmod.badge(rt, "world.monsters")["state"] == flowmod.QUIET
+    # …now the poll starts being refused. The silence stops being the map's.
+    take.dropped(reason="no_game")
+    _fresh(rt)
+    badge = flowmod.badge(rt, "world.monsters")
+    assert badge["state"] == flowmod.REFUSED, badge
+    assert "no_game" in flowmod.why(badge)
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +231,7 @@ def test_the_badge_carries_no_words_at_all():
 
 def test_every_state_has_a_key_and_a_colour():
     for state in (flowmod.LOSING, flowmod.STARVING, flowmod.DEAD, flowmod.OFF,
-                  flowmod.NEVER, flowmod.FLOWING, flowmod.QUIET):
+                  flowmod.NEVER, flowmod.FLOWING, flowmod.QUIET, flowmod.REFUSED):
         assert state in flowmod.LINE_KEYS
         assert state in flowmod.COLOURS
 
