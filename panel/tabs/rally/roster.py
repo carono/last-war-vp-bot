@@ -148,6 +148,12 @@ class Banner:
         return (self.seats_cap - self.taken) if self.seats_cap else -1
 
 
+#: This model's receiver in `panel/runtime/intake.py` (#1549). The rally block is fed by
+#: a capture child, so it is a listener grid like any other and gets the same strip: a
+#: sniffer that has exited and an alliance with nothing standing look identical otherwise.
+INTAKE_RALLY = "rally.banners"
+
+
 class RallyRoster:
     """The live model behind the block. Fed by the capture, read from the game."""
 
@@ -176,6 +182,7 @@ class RallyRoster:
         """
         if self._stopped or not team:
             return
+        self._take().seen()
         fresh = False
         with self._lock:
             banner = self._banners.get(team)
@@ -215,14 +222,25 @@ class RallyRoster:
         """
         if self._stopped or not team:
             return
+        self._take().seen()
         with self._lock:
             banner = self._banners.get(team)
             if banner is None or banner.gone_at:
+                # A `remove` for a banner we never had, or one already ended: declined
+                # on purpose and for a reason ABOUT the event, which is a `dropped` and
+                # never a loss (`panel/runtime/intake.py`).
+                self._take().dropped(reason="unknown_banner")
                 return
             banner.gone_at = time.time()
             banner.ending = ending or "closed"
         self._say(f"rally_roster.event.{ending or 'closed'}", team=team)
         self._changed()
+
+    def _take(self):
+        """This model's recorder — the counting-nothing stand-in under a bare harness."""
+        from ...runtime.intake import of
+
+        return of(self.rt).at(INTAKE_RALLY)
 
     # -- what the game holds -------------------------------------------------
     def refresh_async(self) -> None:
@@ -303,6 +321,9 @@ class RallyRoster:
         if rows is None:
             self._prune()
             return
+        # WHAT THE READ TURNED INTO ROWS (#1549). The pushes above are «пришло»; this is
+        # «взяли», and the strip on the block draws the pair.
+        self._take().kept(len(rows))
         events = []
         now = time.time()
         seen = set()

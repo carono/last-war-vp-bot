@@ -670,6 +670,18 @@ function renderCard(card, needle) {
     head.textContent = card.head;
     box.appendChild(head);
   }
+  /* IS THE DATA ARRIVING, AND ARE WE TAKING IT (#1549) — the same strip the window
+   * draws above each table, in the card's own head. `key` + `fmt` are said through T()
+   * like everything else; the colour comes from panel/runtime/flow.py so the six states
+   * read the same in both front-ends. */
+  if (card.flow) {
+    const strip = document.createElement('div');
+    strip.className = 'flow';
+    strip.dataset.state = card.flow.state || '';
+    strip.style.color = card.flow.colour || '';
+    strip.textContent = T(card.flow.key, card.flow.fmt);
+    box.appendChild(strip);
+  }
   for (const row of card.rows || []) {
     const line = document.createElement('div');
     line.className = 'kv';

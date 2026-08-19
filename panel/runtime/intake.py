@@ -65,7 +65,8 @@ QUIET_SEC = 300.0
 class Counter:
     """One receiver's four numbers, its reasons, and when it last heard anything."""
 
-    __slots__ = ("name", "seen", "kept", "dropped", "lost", "last", "reasons", "losses")
+    __slots__ = ("name", "seen", "kept", "dropped", "lost", "last", "last_in",
+                 "reasons", "losses")
 
     def __init__(self, name: str) -> None:
         self.name = str(name)
@@ -76,6 +77,13 @@ class Counter:
         #: `time.monotonic()` of the last time anything at all was recorded, `0.0` for
         #: never — the same shape `busy.listeners` uses, so the two grids read alike.
         self.last = 0.0
+        #: …and the last time something actually ARRIVED (`seen`), which is not the same
+        #: question (#1549). A receiver polled every twenty seconds with the client in
+        #: the base records a `dropped` every tick, so `last` says «heard from a second
+        #: ago» about a page nothing has reached for an hour. The flow strip reads THIS
+        #: one, and a badge that said otherwise would be the same lie the strip exists to
+        #: end.
+        self.last_in = 0.0
         #: `reason -> count` for the deliberate drops, and separately for the losses.
         #: Two dicts rather than one because the two answer different questions: the
         #: first is «what is this receiver filtering out», the second is «what is broken».
@@ -87,6 +95,7 @@ class Counter:
                 "seen": self.seen, "kept": self.kept,
                 "dropped": self.dropped, "lost": self.lost,
                 "since": (now - self.last) if self.last else None,
+                "since_in": (now - self.last_in) if self.last_in else None,
                 "reasons": dict(self.reasons), "losses": dict(self.losses)}
 
 
@@ -123,7 +132,7 @@ class Intake:
         with self._lock:
             row = self._row(name)
             row.seen += int(n)
-            row.last = time.monotonic()
+            row.last = row.last_in = time.monotonic()
 
     def kept(self, name: str, n: int = 1) -> None:
         """``n`` of them went into a model, a store or a table."""

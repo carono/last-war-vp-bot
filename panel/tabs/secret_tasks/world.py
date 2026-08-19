@@ -357,6 +357,7 @@ class MineGrid(WorldGrid):
 
     CONFIG_KEY = "mines"
     SOURCE = "mines"
+    INTAKE = "world.checkpoint"
     TITLE_KEY = "world.mines"
     HINT_KEY = "world.mines.hint"
     EMPTY_KEY = "world.mines.empty"
@@ -454,6 +455,7 @@ class MonsterGrid(WorldGrid):
 
     CONFIG_KEY = "monsters"
     SOURCE = ""                     # a scenario fills this one, not the capture
+    INTAKE = "world.monsters"
     TITLE_KEY = "world.monsters"
     HINT_KEY = "world.monsters.hint"
     EMPTY_KEY = "world.monsters.empty"
@@ -518,6 +520,14 @@ class MonsterGrid(WorldGrid):
         """Where this page's OLD JSON checkpoint used to live, for the one-time import."""
         return self.tab.rt.profiles.world_state_json(self.CONFIG_KEY)
 
+    #: HOW OFTEN THE REGISTER IS ASKED WHILE SOMEBODY WALKS THE MAP, in seconds (#1549).
+    #: The ask costs 36 ms and touches neither the camera nor the scene
+    #: (`actions/poll_world_monsters.md`), and a row ages out after fifteen minutes, so
+    #: anything under a minute keeps the page true at a cost that does not show. Twenty
+    #: seconds is a compromise between «the row appeared while I was still looking at the
+    #: monster» and one more claim on the daemon every tick.
+    DEFAULT_FOLLOW = "20"
+
     def __init__(self, tab) -> None:
         super().__init__(tab)
         #: The two knobs above as the person's own, saved with the page's block.
@@ -525,6 +535,14 @@ class MonsterGrid(WorldGrid):
         self.pace_var.set(self.DEFAULT_PACE)
         self.stages_var = tk_stringvar(tab.rt.root)
         self.stages_var.set(self.DEFAULT_STAGES)
+        #: «Следить за картой» — ON for a profile that has never been asked (#1549).
+        #: The page had three buttons and no clock, so walking the map by hand filled the
+        #: client's register (176, 177, 321 monsters at three moments of one session) and
+        #: left the page showing 1 row. The default is on because a page that only fills
+        #: when pressed is the bug this switch answers.
+        self.follow_var = tk.BooleanVar(master=tab.rt.root, value=True)
+        self.follow_secs_var = tk_stringvar(tab.rt.root)
+        self.follow_secs_var.set(self.DEFAULT_FOLLOW)
 
     def extra_filters(self, bar) -> None:
         """The lap's own controls, on the page the lap fills.
@@ -546,18 +564,47 @@ class MonsterGrid(WorldGrid):
         # at what is drawn — 8 s against 147, and the only source that carries the uuid.
         self.tab.tr(ttk.Button(bar, command=self.tab.ask_world_monsters),
                     "world.monsters.ask").pack(side="left", padx=(4, 0))
+        # …AND THE CLOCK BESIDE THEM (#1549): the same register, asked by itself while
+        # the person walks. A press that starts something is ordinary; what this adds is
+        # that nobody has to keep pressing it for the page to stay true.
+        self.tab.tr(ttk.Checkbutton(bar, variable=self.follow_var,
+                                    command=self.refilter),
+                    "world.monsters.follow").pack(side="left", padx=(16, 2))
+        NumericEntry(bar, textvariable=self.follow_secs_var, width=4).pack(side="left")
+        self.tab.tr(ttk.Label(bar), "world.monsters.follow_secs").pack(side="left",
+                                                                      padx=(2, 0))
 
     def config(self) -> dict:
         return dict(super().config(), pace=self.pace_var.get(),
-                    stages=self.stages_var.get())
+                    stages=self.stages_var.get(),
+                    follow=bool(self.follow_var.get()),
+                    follow_secs=self.follow_secs_var.get())
 
     def apply_config(self, raw) -> None:
         super().apply_config(raw)
         grid.take(raw, "pace", self.pace_var, str)
         grid.take(raw, "stages", self.stages_var, str)
+        grid.take(raw, "follow", self.follow_var)
+        grid.take(raw, "follow_secs", self.follow_secs_var, str)
 
     def persist_vars(self) -> list:
-        return super().persist_vars() + [self.pace_var, self.stages_var]
+        return super().persist_vars() + [self.pace_var, self.stages_var,
+                                         self.follow_var, self.follow_secs_var]
+
+    def follow_seconds(self) -> int:
+        """How often the register is asked, never so often that it is all the panel does.
+
+        A blank box is somebody who has not chosen rather than somebody who chose zero,
+        and both fall back to the default. Five seconds is the floor: the ask itself is
+        36 ms, but each one takes the profile's game claim, and a claim taken three times
+        a second is a claim nothing else can have.
+        """
+        raw = str(self.follow_secs_var.get()).strip()
+        try:
+            value = int(float(raw))
+        except ValueError:
+            return int(self.DEFAULT_FOLLOW)
+        return max(5, value) if value > 0 else int(self.DEFAULT_FOLLOW)
 
     def pace(self) -> float:
         """The seconds-per-stop the person asked for, never below what draws anything.
@@ -796,6 +843,7 @@ class TruckGrid(_VehicleGrid):
 
     CONFIG_KEY = "trucks"
     SOURCE = "trucks"
+    INTAKE = "world.checkpoint"
     TITLE_KEY = "world.trucks"
     HINT_KEY = "world.trucks.hint"
     EMPTY_KEY = "world.trucks.empty"
@@ -881,6 +929,7 @@ class TrainGrid(_VehicleGrid):
 
     CONFIG_KEY = "trains"
     SOURCE = "trains"
+    INTAKE = "world.checkpoint"
     TITLE_KEY = "world.trains"
     HINT_KEY = "world.trains.hint"
     EMPTY_KEY = "world.trains.empty"

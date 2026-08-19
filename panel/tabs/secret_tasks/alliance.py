@@ -62,6 +62,7 @@ class AllianceGrid(grid.TaskGrid):
     """The alliance's own secret tasks as the same table, filled by the VM read."""
 
     CONFIG_KEY = "alliance"
+    INTAKE = "secret.alliance"
     TITLE_KEY = "secrettasks.alliance"
     HINT_KEY = "secrettasks.alliance.hint"
     EMPTY_KEY = "secrettasks.alliance.empty"

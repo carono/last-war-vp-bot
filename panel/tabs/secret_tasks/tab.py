@@ -167,6 +167,8 @@ INTAKE_AREAS = "secret.areas"        # the regions the server answered about
 INTAKE_WORLD = "world.checkpoint"    # mines / trains / trucks, off the capture's file
 INTAKE_GHOST_MAP = "ghost.map"       # the ghost-recon tiles, off its own file
 INTAKE_MONSTERS = "world.monsters"   # the one list with no file behind it at all
+INTAKE_ALLIANCE = "secret.alliance"  # the alliance's own dispatch list, read off the VM
+INTAKE_GHOST = "ghost.squads"        # my own and the alliance's ghost squads, ditto
 
 # How often the countdowns are REDRAWN, as opposed to recomputed (#1272). «Те, что уже
 # можно грабить, должны обновляться несколько раз в секунду»: a cell rewritten once a
@@ -683,6 +685,9 @@ class SecretTasksTab(PanelTab):
         self.trucks = TruckGrid(self)
         #: Whether the monster read is in flight — one game round trip at a time.
         self._monster_busy = False
+        #: The ★ page's own flow strip (#1549) — see `_refresh_star_flow`.
+        self._star_flow_var = tk_stringvar(self.rt.root)
+        self._star_flow = None
         #: …and what it last came to, so `_say_monsters` writes a line when the answer
         #: CHANGES rather than on every look at the tab (#1523).
         self._monsters_said = None
@@ -767,6 +772,12 @@ class SecretTasksTab(PanelTab):
         # the thing that keeps the list true has to run whether or not anybody does
         # either. It asks the game for nothing; it reads a file (#1484).
         self._harvest_tick()
+        # …AND THE MONSTER FOLLOW, for the same reason and with the same shape (#1549).
+        # The page's own feed is a question nobody was asking: a person walking the map
+        # by hand LOADS the client's register — 176, 177 and 321 monsters at three
+        # moments of one live session — while the page showed 1 row, because a row ages
+        # out after fifteen minutes and only three buttons could ever re-confirm one.
+        self._monster_follow_tick()
 
     def on_show(self) -> None:
         """Somebody opened the tab: restore the last session's list, start the
@@ -1257,6 +1268,12 @@ class SecretTasksTab(PanelTab):
         # spends the day's robberies on THIS table, so it is read where the table is.
         self._build_filter_bar(stars)
         self._build_star_filters(stars)
+        # …and the flow strip, on the page whose feed is the ★ capture (#1549). The ★
+        # list is drawn by the tab rather than by a `TaskGrid`, so it says the same
+        # sentence out of the same module instead of growing a second way of saying it.
+        self._star_flow = ttk.Label(stars, textvariable=self._star_flow_var)
+        self._star_flow.pack(fill="x", anchor="w", pady=(3, 0))
+        self._refresh_star_flow()
         self._body = ttk.Frame(stars)
         self._body.pack(fill="both", expand=True)
 
@@ -2532,8 +2549,16 @@ class SecretTasksTab(PanelTab):
         out», which is the same lie `_merge` refuses to tell about a restored row.
         """
         self._roster_busy = False
-        if ok:
-            self.alliance.apply(rows)
+        take = self.take(INTAKE_ALLIANCE)
+        if not ok:
+            # Not a loss: nothing was handed over. A read that could not happen is
+            # counted as a refusal WITH ITS REASON, which is what tells «альянс ничего
+            # не отправил» from «демон не ответил» on the strip above the table (#1549).
+            take.dropped(reason="read_failed")
+            return
+        take.seen(len(rows or ()))
+        take.kept(len(rows or ()))
+        self.alliance.apply(rows)
 
     # -- the ghost-recon lists (#1251) ------------------------------------------
     def _ghost(self) -> None:
@@ -2592,8 +2617,12 @@ class SecretTasksTab(PanelTab):
         mine in both when I am the one who started it.
         """
         self._ghost_busy = False
+        take = self.take(INTAKE_GHOST)
         if not ok:
+            take.dropped(reason="read_failed")
             return
+        take.seen(len(mine or ()) + len(allies or ()))
+        take.kept(len(mine or ()) + len(allies or ()))
         self.ghost.landed(status, [r for r in mine if r.get("mine")])
         self.ghost_allies.landed(status, [r for r in allies if not r.get("mine")])
         self.ghost_map.landed(status, found)
@@ -2783,6 +2812,86 @@ class SecretTasksTab(PanelTab):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _monster_follow_tick(self) -> None:
+        """Ask the world's register on a clock while somebody walks the map (#1549).
+
+        THE ANSWER TO «я хожу по карте, и грид не заполняется», and the measurement is
+        what shaped it. The register (`WorldScene:GetMonsterListInArea`) is fed by the
+        client LOADING ground, which is exactly what a person panning the map does — so
+        the monsters were there all along. What was missing is that nothing asked: the
+        page had three presses and no clock, and `world.SIGHTING_TTL_SEC` takes a row off
+        fifteen minutes after the last confirmation. Live, one afternoon: the register
+        answered 176 / 177 / 321 at three different moments and the page held 1 row.
+
+        It plays `actions/poll_world_monsters.md` and nothing else — the register asked
+        with NO camera lap in front of it (36 ms) and NO `GAME WORLD` behind it, because
+        a poll that puts the map up drags a person out of their base every twenty
+        seconds. Off the map the recipe leaves `monsters` unset, which is why the page
+        can say «клиент не в мире» instead of showing an empty table.
+
+        Every outcome is on the ledger, so the strip above the table can name it: the
+        switch off, no daemon, the client in the base, a read that failed. None of them
+        is a LOSS — nothing was handed over — and all of them are the difference between
+        «данных нет» and «мы их не берём», which is what #1549 is about.
+        """
+        try:
+            take = self.take(INTAKE_MONSTERS)
+            if not self.monsters.follow_var.get():
+                take.dropped(reason="follow_off")
+                return
+            if self._monster_busy:
+                take.dropped(reason="already_reading")
+                return
+            if not self.rt.game.ready():
+                take.dropped(reason="no_game")
+                return
+            self._monster_busy = True
+            threading.Thread(target=self._monster_follow_work, daemon=True).start()
+        finally:
+            # Named, so the poll is ONE chain however often `ensure_loaded` is reached —
+            # and re-armed from the box every time, so changing the interval takes effect
+            # on the next tick rather than on the next restart.
+            self.rt.tick.arm("secret_monster_follow",
+                             max(5, self.monsters.follow_seconds()) * 1000,
+                             self._monster_follow_tick)
+
+    def _monster_follow_work(self) -> None:
+        """The poll's worker: one recipe, one parse, one merge on the Tk thread."""
+        take = self.take(INTAKE_MONSTERS)
+        found, why = [], ""
+        try:
+            outcome = self.rt.actions.play("poll_world_monsters",
+                                           on_event=lambda _m: None)
+            ctx = getattr(outcome, "ctx", None)
+            raw = (getattr(ctx, "vars", {}) or {}).get("monsters")
+            if not outcome.ok:
+                why = "read_failed"
+            elif raw is None:
+                # THE DISTINCTION THE RECIPE EXISTS FOR: the variable is never set off
+                # the map, so this is «the client is in the base», not «the map is empty».
+                why = "not_in_world"
+            else:
+                found = world.parse_monsters(str(raw),
+                                             server=self._own_server or None)
+        except Exception as exc:               # noqa: BLE001 — a poll, never the window
+            why = "read_failed"
+            self.rt.dbg("secret").warning("monster follow failed: %s", exc,
+                                          exc_info=True)
+        if why:
+            take.dropped(reason=why)
+        else:
+            take.seen(len(found))
+            take.kept(len(found))
+        # …and the log line only when the ANSWER CHANGES, like every other monster read:
+        # a poll every twenty seconds writing a line every twenty seconds is a log
+        # nobody can read past (`_say_monsters`).
+        if why:
+            self._say_monsters((why,), "log.monsters.unread", why=why)
+        else:
+            self._say_monsters(("follow", len(found)), "log.monsters.followed",
+                               n=len(found))
+        self.after(lambda: self._monsters_landed(found))
+
     def sweep_monsters(self) -> None:
         """«Обойти за монстрами» — one lap per chosen height, then collect (#1523).
 
@@ -2917,6 +3026,33 @@ class SecretTasksTab(PanelTab):
 
         return sum(lua_actions.fast_sweep_seconds(step, pace) + 2.0
                    for _height, step in stages)
+
+    def _refresh_star_flow(self) -> None:
+        """Rewrite the ★ page's flow strip — the capture's own numbers, in words (#1549).
+
+        Same module, same six states and same colours as every other page's strip; what
+        differs is only that this table is the tab's own widgets rather than a
+        `TaskGrid`, so the strip is drawn here instead of in `grid.py`.
+        """
+        if self._star_flow is None:
+            return
+        from ...runtime import flow
+
+        said = flow.line(flow.badge(self.rt, INTAKE_TILES))
+        self._star_flow_var.set(self.t(said["key"], **said["fmt"]))
+        try:
+            self._star_flow.configure(foreground=said["colour"])
+        except tk.TclError:
+            pass
+
+    def _star_web_flow(self) -> dict:
+        """The same badge for the phone — data, never words (#1549)."""
+        from ...runtime import flow
+
+        badge = flow.badge(self.rt, INTAKE_TILES)
+        said = flow.line(badge)
+        return {"key": said["key"], "fmt": said["fmt"], "colour": said["colour"],
+                "state": badge.get("state")}
 
     def _say_monsters(self, state, key: str, **fmt) -> None:
         """Say what the monster read came to — ONCE per answer, like `_say_world`.
@@ -4045,7 +4181,7 @@ class SecretTasksTab(PanelTab):
         # under the checkbox (#1294). Empty until a sprint has run, and a row that would
         # say nothing is left off the card rather than drawn blank.
         assist_tally = self.autoassist.tally_text()
-        return {"cards": [self._picker_card(),
+        screen = {"cards": [self._picker_card(),
                           {"title": "secret.autoloot.frame",
                            # The RULE as well as the state (#1256): the window draws the
                            # two side by side under the checkbox, and «минимальный
@@ -4198,7 +4334,13 @@ class SecretTasksTab(PanelTab):
                                        "value": str(self.monsters.pace())},
                                       {"label": "world.monsters.stages",
                                        "value": ", ".join(
-                                           str(h) for h, _s in self.monsters.stages())}],
+                                           str(h) for h, _s in self.monsters.stages())},
+                                      # …and how often the register is asked by itself
+                                      # (#1549). The window has the box and the number
+                                      # side by side; the phone reads the number here
+                                      # and flips the box with the action below.
+                                      {"label": "world.monsters.follow_secs",
+                                       "value": str(self.monsters.follow_seconds())}],
                            "empty": "world.monsters.empty",
                            # The one card whose feed is a game read rather than the
                            # sniffer, so it says so and offers the read itself — and the
@@ -4215,6 +4357,12 @@ class SecretTasksTab(PanelTab):
                                        # different questions, not one dressed twice.
                                        {"id": "ask_monsters",
                                         "label": "world.monsters.ask"},
+                                       # …and the clock the window grew beside those
+                                       # three (#1549), worded by what pressing it does.
+                                       {"id": "follow_monsters",
+                                        "label": ("world.monsters.follow.off"
+                                                  if self.monsters.follow_var.get()
+                                                  else "world.monsters.follow.on")},
                                        self._clear_action("monsters")]},
                           {"title": "world.trains",
                            "items": self.trains.web_items(),
@@ -4246,6 +4394,34 @@ class SecretTasksTab(PanelTab):
                             {"id": "zoom",
                              "label": f"coord.zoom.{self._zoom_level}"},
                             {"id": "sweep_now", "label": "coord.sweep_now"}]}
+        # …AND THE FLOW STRIP ON EVERY CARD THAT HAS ONE (#1549). The window draws it
+        # above each table; the phone carries the same badge in the card's own head, out
+        # of the same module, so the two front-ends cannot disagree about whether a feed
+        # is arriving. Attached here rather than typed into nine card literals: a tenth
+        # page is then one line in the table below and not a tenth place to forget.
+        for card in screen["cards"]:
+            page = self.FLOW_CARDS.get(card.get("title"))
+            said = (self._star_web_flow() if page == "" else
+                    getattr(self, page).web_flow() if page else None)
+            if said:
+                card["flow"] = said
+        return screen
+
+    #: WHICH CARD DRAWS WHICH PAGE'S FLOW STRIP — card title -> the attribute holding the
+    #: grid, or `""` for the ★ list, which the tab draws itself (#1549). A card with no
+    #: entry has no stream behind it (the picker, the two standing orders) and gets no
+    #: strip, exactly as the window gives none to a page with no `INTAKE`.
+    FLOW_CARDS = {
+        "secrettasks.page.stars": "",
+        "secrettasks.alliance": "alliance",
+        "secrettasks.ghost": "ghost",
+        "secrettasks.ghost.allies": "ghost_allies",
+        "secrettasks.ghost.map": "ghost_map",
+        "world.mines": "mines",
+        "world.monsters": "monsters",
+        "world.trains": "trains",
+        "world.trucks": "trucks",
+    }
 
     def _count_rows(self, page=None) -> list:
         """One card's «Показано / Скрыто» pair, for the phone (#1272).
@@ -4434,6 +4610,13 @@ class SecretTasksTab(PanelTab):
             # which is why it is a press the phone may make at all.
             self.post(self._read_monsters)
             return {"ok": True}
+        if action == "follow_monsters":
+            # The window's own checkbox, flipped from the phone (#1549). It changes a
+            # SETTING and starts nothing: the poll's chain re-reads the box on its next
+            # tick, so turning it on here fills the page within one interval.
+            self.monsters.follow_var.set(not self.monsters.follow_var.get())
+            self.post(self.monsters.refilter)
+            return {"ok": True, "on": bool(self.monsters.follow_var.get())}
         if action == "ask_monsters":
             # The register. It moves the camera at the ★ lap's pace and asks a question;
             # nothing is pressed in the game, and the whole of it is one scenario.
@@ -4977,6 +5160,14 @@ class SecretTasksTab(PanelTab):
             self.ghost.tick()
             self.ghost_allies.tick()
             self.ghost_map.tick()
+            # …and the flow strip on every page, including the four world ones, which
+            # have no countdown and therefore no `tick` of their own (#1549). It is a
+            # dict read and a `set` on a Tk variable — the strip must move on its own
+            # second, because «идут ли данные ПРЯМО СЕЙЧАС» is the whole question it
+            # answers and a strip that only moves when a row does cannot answer it.
+            for page in self._grid_pages():
+                page.refresh_flow()
+            self._refresh_star_flow()
         finally:
             # Named, so the countdown is one chain however often `_start_ticking` is
             # reached.

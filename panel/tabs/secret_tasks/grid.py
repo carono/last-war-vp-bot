@@ -628,6 +628,13 @@ class TaskGrid:
     #: land in one another's slot (#1251).
     CONFIG_KEY = ""
 
+    #: WHICH RECEIVER FEEDS THIS PAGE — a name in `panel/runtime/intake.py`, or `""` for
+    #: a page nothing streams into (#1549). Naming one is what puts the flow strip above
+    #: the table: «идут ли данные, берём ли мы их, когда пришло последнее». An empty
+    #: table cannot say which of those it is, and four different failures drawing one
+    #: blank page is what «грид не заполняется» has meant every time it was reported.
+    INTAKE = ""
+
     def __init__(self, tab) -> None:
         self.tab = tab
         # EVERY page carries its own level range (#1251). One range on top of the tab
@@ -644,6 +651,10 @@ class TaskGrid:
         self._empty = None
         self._sort = None            # (column id, reversed) once a heading is clicked
         self._count_var = tk_stringvar(tab.rt.root)
+        # The flow strip above the table (#1549) — the receiver's own numbers, in words.
+        # Made here and drawn in `build`, like everything else on a LAZY page.
+        self._flow_var = tk_stringvar(tab.rt.root)
+        self._flow_label = None
 
     # -- building ---------------------------------------------------------------
     def build(self, parent) -> "ttk.Frame":
@@ -655,6 +666,7 @@ class TaskGrid:
                               justify="left"), self.HINT_KEY).pack(side="left")
         ttk.Label(head, textvariable=self._count_var, foreground="#888").pack(
             side="right")
+        self.build_flow(frame)
         self.build_filters(frame)
 
         wrap = ttk.Frame(frame)
@@ -673,6 +685,50 @@ class TaskGrid:
         self.retranslate()
         self._update_count()
         return frame
+
+    # -- the flow strip (#1549) -----------------------------------------------
+    def build_flow(self, parent) -> None:
+        """«Идут ли данные» — one line between the hint and the boxes.
+
+        Only for a page that names an :attr:`INTAKE`. A page filled by a press and
+        nothing else has no stream to report on, and a strip saying «ни разу» for ever
+        would be noise rather than an answer.
+        """
+        if not self.INTAKE:
+            return
+        self._flow_label = ttk.Label(parent, textvariable=self._flow_var)
+        self._flow_label.pack(fill="x", anchor="w", pady=(3, 0))
+        self.refresh_flow()
+
+    def flow_badge(self) -> dict:
+        """This page's receiver, as `panel/runtime/flow.py` sees it. Never raises."""
+        from ...runtime import flow
+
+        return flow.badge(self.tab.rt, self.INTAKE)
+
+    def refresh_flow(self) -> None:
+        """Rewrite the strip from the ledger — called on the page's own second."""
+        if not self.INTAKE or self._flow_label is None:
+            return
+        from ...runtime import flow
+
+        said = flow.line(self.flow_badge())
+        self._flow_var.set(self.tab.t(said["key"], **said["fmt"]))
+        try:
+            self._flow_label.configure(foreground=said["colour"])
+        except tk.TclError:
+            pass
+
+    def web_flow(self) -> "dict | None":
+        """The same badge for the phone — the card's `flow`, or None for a page with no
+        stream behind it. Data, never words: the browser says them out of `/api/i18n`."""
+        if not self.INTAKE:
+            return None
+        from ...runtime import flow
+
+        said = flow.line(self.flow_badge())
+        return {"key": said["key"], "fmt": said["fmt"], "colour": said["colour"],
+                "state": self.flow_badge().get("state")}
 
     def build_filters(self, parent) -> None:
         """The page's own boxes, between the hint and the table.
@@ -828,6 +884,7 @@ class TaskGrid:
         """
         if self._tree is None:
             return
+        self.refresh_flow()
         moved = self.advance()
         expired, changed = self._refresh_timers()
         for key in expired:

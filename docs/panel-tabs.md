@@ -773,6 +773,59 @@ languages has not come back.
 
 ---
 
+## Is the feed arriving? — the flow strip on a grid (#1549)
+
+**A table that is empty says nothing about why.** Four completely different things draw
+the same blank page: nothing is being sent, something IS being sent and the tab is not
+taking it, it was taken and thrown away, or the source is dead. Telling those apart by
+hand is what «грид не заполняется» has cost, repeatedly — the last time, a monster page
+showed 1 row while the client's own register held 176.
+
+So a grid that is fed by a stream names its RECEIVER, and the panel draws the answer
+above the table:
+
+```python
+class MineGrid(WorldGrid):
+    INTAKE = "world.checkpoint"        # a name in panel/runtime/intake.py
+```
+
+That is the whole declaration. `TaskGrid.build` then draws the strip, `TaskGrid.tick`
+rewrites it once a second, and `TaskGrid.web_flow()` hands the same badge to the phone —
+attach it to the card as `"flow"` and the browser's one renderer draws it:
+
+```python
+{"title": "world.mines", "items": ..., "flow": self.mines.web_flow()}
+```
+
+A tab whose list is not a `TaskGrid` (the ★ table, the rally block, the chat pane) asks
+`panel/runtime/flow.py` directly and draws the same three things — `flow.badge(rt, name)`
+for the record, `flow.line(badge)` for `{key, fmt, colour}`, and `self.t(key, **fmt)` for
+the words.
+
+**What the strip distinguishes, and why it is the point:**
+
+| state      | what it means                                            |
+|------------|----------------------------------------------------------|
+| `flowing`  | something arrived within the last minute                  |
+| `quiet`    | it worked, and has said nothing for a while               |
+| `never`    | nothing has ever arrived here                             |
+| `starving` | **the source IS heard from and we are taking none of it** |
+| `losing`   | something was accepted and thrown away — never ordinary   |
+| `dead`     | the source that should feed this receiver is not running  |
+
+`starving` against `never` / `quiet` is the distinction the module exists for: «данных
+нет, потому что их не присылают» and «данные идут, но мы их не берём» lead a person to do
+opposite things, and drawing them alike is what cost the days.
+
+**Freshness is of an ARRIVAL, never of a refusal.** `intake.Counter.last_in` moves on
+`seen` and on nothing else, so a poll that records a `dropped` every twenty seconds while
+the client is in the base does not paint the page green.
+
+**A receiver with no listener behind it has no source, and says so.** The monster page is
+ASKED (nothing on the wire names a monster), so `flow.SOURCES["world.monsters"]` is empty
+and the badge never claims a dead capture it does not have. A new receiver is one line in
+that table — `tests/test_panel_flow.py` fails on an `INTAKE` the table has never heard of.
+
 ## The phone's copy of this tab, and keeping it in step
 
 The panel has two front-ends: this window and the web one a phone opens

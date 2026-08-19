@@ -438,6 +438,13 @@ class RallyTab(PanelTab):
         head = ttk.Frame(box)
         head.pack(fill="x")
         ttk.Label(head, textvariable=self._roster_count).pack(side="left")
+        # IS THE RALLY SNIFFER STILL TALKING TO US (#1549). The block looks the same
+        # whether the alliance has nothing standing or the capture child exited an hour
+        # ago, which is the exact ambiguity the flow strip exists to end. Same module,
+        # same six states and the same colours as every other fed list in the panel.
+        self._flow_var = tk_stringvar(self.rt.root)
+        self._flow_label = ttk.Label(head, textvariable=self._flow_var)
+        self._flow_label.pack(side="left", padx=(12, 0))
         # A button that STARTS a reading, not one that marks anything: the block is a
         # board of readings and pressing this asks the game again (CLAUDE.md).
         self.tr(ttk.Button(head, command=self.roster.refresh_async),
@@ -447,6 +454,39 @@ class RallyTab(PanelTab):
         self.tr(ttk.Label(box, foreground="#888", wraplength=620, justify="left"),
                 "rally_roster.hint").pack(anchor="w", pady=(6, 0))
         self._paint_roster()
+        self._flow_tick()
+
+    def _flow_tick(self) -> None:
+        """Rewrite the block's flow strip every second (#1549).
+
+        A chain of its own, not a repaint of the block: the strip has to move while the
+        model stands still, because «ничего не приходит» is precisely the case in which
+        nothing else on this frame changes.
+        """
+        try:
+            if getattr(self, "_flow_label", None) is None:
+                return
+            from ...runtime import flow
+            from .roster import INTAKE_RALLY
+
+            said = flow.line(flow.badge(self.rt, INTAKE_RALLY))
+            self._flow_var.set(self.t(said["key"], **said["fmt"]))
+            try:
+                self._flow_label.configure(foreground=said["colour"])
+            except Exception:              # noqa: BLE001 — a destroyed widget, no more
+                pass
+        finally:
+            self.rt.tick.arm("rally_flow", 1000, self._flow_tick)
+
+    def _web_flow(self) -> dict:
+        """The same badge for the phone — data, never words (#1549)."""
+        from ...runtime import flow
+        from .roster import INTAKE_RALLY
+
+        badge = flow.badge(self.rt, INTAKE_RALLY)
+        said = flow.line(badge)
+        return {"key": said["key"], "fmt": said["fmt"], "colour": said["colour"],
+                "state": badge.get("state")}
 
     def _roster_changed(self) -> None:
         """The model moved — repaint, on the Tk thread whichever thread said so."""
@@ -718,6 +758,7 @@ class RallyTab(PanelTab):
         """
         live, gone = self.roster.counts()
         head = {"title": "rally_roster.frame",
+                "flow": self._web_flow(),
                 "rows": [{"label": "rally_roster.live", "value": str(live)},
                          {"label": "rally_roster.ended", "value": str(gone)}],
                 "items": [],

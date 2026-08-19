@@ -335,6 +335,7 @@ class GhostGrid(_GhostGrid):
     """MY OWN squads: where my three are, and when each of them is back."""
 
     CONFIG_KEY = "ghost"
+    INTAKE = "ghost.squads"
     TITLE_KEY = "secrettasks.ghost"
     HINT_KEY = "secrettasks.ghost.hint"
     EMPTY_KEY = "secrettasks.ghost.empty"
@@ -386,6 +387,7 @@ class GhostMapGrid(_GhostGrid):
     """
 
     CONFIG_KEY = "ghost_map"
+    INTAKE = "ghost.map"
     TITLE_KEY = "secrettasks.ghost.map"
     HINT_KEY = "secrettasks.ghost.map.hint"
     EMPTY_KEY = "secrettasks.ghost.map.empty"
@@ -527,6 +529,7 @@ class GhostAllianceGrid(_GhostGrid):
     """
 
     CONFIG_KEY = "ghost_allies"
+    INTAKE = "ghost.squads"
     TITLE_KEY = "secrettasks.ghost.allies"
     HINT_KEY = "secrettasks.ghost.allies.hint"
     EMPTY_KEY = "secrettasks.ghost.allies.empty"

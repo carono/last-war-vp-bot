@@ -57,6 +57,10 @@ _PHOTO_TOK = re.compile(r"\[photo:(\d+)\]")
 # so those messages were counted and shown nowhere.
 CHAT_TABS: tuple = ("world", "alliance", "national", "dm", "other", "system")
 
+#: This tab's receiver in `panel/runtime/intake.py` (#1549) — what the reader child hands
+#: over, and what the pump takes. The flow strip in the bottom bar is drawn from it.
+INTAKE_CHAT = "chat.messages"
+
 # Lazy-load: chat history lives in the per-profile SQLite store; only the newest
 # CHAT_PAGE of a tab is read into memory and rendered at startup, and a scroll to the
 # top pages the next CHAT_PAGE in from the store. CHAT_MSGS_MAX caps the in-memory
@@ -186,7 +190,7 @@ class ChatTab(PanelTab):
             if not rows and chat_type not in ("world", "alliance", "dm"):
                 continue                       # a quiet corner is not worth a card
             cards.append({"title": f"chat.tab.{chat_type}", "items": rows,
-                          "empty": "chat.empty"})
+                          "empty": "chat.empty", "flow": self._web_flow()})
         return {"cards": cards, "now": _time.time(),
                 "actions": []}
 
@@ -314,6 +318,14 @@ class ChatTab(PanelTab):
         self._chat_count_var = tk.StringVar(value=self.t("chat.count", n=0))
         ttk.Label(bot, textvariable=self._chat_count_var, foreground="#888").pack(
             side="right", padx=8)
+        # IS THE READER STILL TALKING TO US (#1549). The chat window has looked exactly
+        # the same when the reader had exited as when the alliance simply had nothing to
+        # say, and «чат молчит» is the most common way a dead child shows itself. The
+        # same strip every fed grid in the panel has, out of the same module.
+        self._flow_var = tk.StringVar(value="")
+        self._flow_label = ttk.Label(bot, textvariable=self._flow_var)
+        self._flow_label.pack(side="left", padx=(12, 0))
+        self._refresh_flow()
         self.rt.i18n.hook(self._retranslate_chat_bottom)
 
         self._pump_chat()
@@ -968,6 +980,28 @@ class ChatTab(PanelTab):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _refresh_flow(self) -> None:
+        """Rewrite the reader's own flow strip (#1549) — same module, same six states."""
+        if getattr(self, "_flow_label", None) is None:
+            return
+        from ..runtime import flow
+
+        said = flow.line(flow.badge(self.rt, INTAKE_CHAT))
+        self._flow_var.set(self.t(said["key"], **said["fmt"]))
+        try:
+            self._flow_label.configure(foreground=said["colour"])
+        except tk.TclError:
+            pass
+
+    def _web_flow(self) -> dict:
+        """The same badge for the phone — data, never words (#1549)."""
+        from ..runtime import flow
+
+        badge = flow.badge(self.rt, INTAKE_CHAT)
+        said = flow.line(badge)
+        return {"key": said["key"], "fmt": said["fmt"], "colour": said["colour"],
+                "state": badge.get("state")}
+
     def _pump_chat(self) -> None:
         """Drain the chat queue and refresh treeviews — scheduled every 1 s."""
         changed: set = set()
@@ -976,6 +1010,7 @@ class ChatTab(PanelTab):
         try:
             while True:
                 record = self._chat_q.get_nowait()
+                self.take(INTAKE_CHAT).kept()
                 self._met_in_chat(met, record)
                 chat_type = record.get("chat_type", "other")
                 if chat_type not in self._chat_msgs:
@@ -1050,6 +1085,9 @@ class ChatTab(PanelTab):
         total = (self._chat_store.total() if self._chat_store is not None
                  else sum(len(v) for v in self._chat_msgs.values()))
         self._chat_count_var.set(self.t("chat.count", n=total))
+        # …and the flow strip on the same second (#1549): «идут ли данные ПРЯМО СЕЙЧАС»
+        # is a question only a moving strip can answer.
+        self._refresh_flow()
         self.rt.tick.arm("chat", 1000, self._pump_chat)
 
     def _dm_append(self, record: dict) -> bool:
@@ -1226,6 +1264,11 @@ class ChatTab(PanelTab):
             try:
                 record = json.loads(line)
                 if isinstance(record, dict):
+                    # ONE MESSAGE REACHED THE PANEL'S DOOR (#1549). Counted here rather
+                    # than in the pump, because the two answer different questions: this
+                    # is «the reader is talking to us» and the pump is «we did something
+                    # with it», and the gap between them is what a flow strip is for.
+                    self.take(INTAKE_CHAT).seen()
                     self._chat_q.put(record)
             except json.JSONDecodeError:
                 pass

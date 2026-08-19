@@ -426,3 +426,14 @@ input[type=checkbox]:disabled { opacity: .5; }
   main { max-width: 640px; margin: 0 auto; }
   nav { position: sticky; bottom: 0; max-width: 640px; margin: 0 auto; }
 }
+
+/* The flow strip on a card that is fed by a stream (#1549). Small and quiet: it is read
+   at a glance beside the data, not instead of it. The colour is the badge's own, set
+   inline out of panel/runtime/flow.py, so the six states are the same shade here and in
+   the window. */
+.card .flow {
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 2px 0 6px;
+  opacity: 0.92;
+}
