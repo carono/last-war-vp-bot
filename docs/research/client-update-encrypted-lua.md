@@ -89,6 +89,30 @@ LENC <ChaCha8 keystream XOR> ( raw source | zlib stream )
   source otherwise. The game's own scripts are all deflated bytecode (`1B 4C 75 61 53`,
   Lua 5.3); ours are source, which is shorter than a deflate of itself at chunk sizes.
 
+**Where the gate is, and why nothing below the managed layer escapes it.** The check is
+not in a loader the game installs from C#, and there is no managed «decrypt this for me»
+helper to borrow: the decryption is wired in by **`lua_load` itself**. `lua_load` (exported
+under its hashed name; the function at RVA `0x1888` on this build) takes the caller's
+`lua_Reader`, parks it in a small struct, and hands the parser a reader of ITS OWN — the
+function at `0x14f4`, which drains the whole stream, compares the first four bytes with
+`LENC`, decrypts, inflates if it has to, and only then lets the lexer see anything. Every
+way in sits above that: `luaL_loadbufferx`, `luaL_loadfilex`, Lua's own `load` and
+`loadstring`, and `LuaEnv.DoString` in both its overloads. That is read off the
+disassembly, and it agrees with the measurement that started the task — a comment-only
+chunk failing is exactly a buffer rejected before the lexer.
+
+Two consequences, both worth writing down because both were plans:
+
+* **«call the game's own decrypt» has nothing to call.** The routine is inside `lua_load`,
+  reachable only by loading a chunk — which is the thing that is failing. So the algorithm
+  has to be reimplemented on our side, and it was.
+* **«go below the managed layer» does not buy the bypass it looks like it buys.** The
+  native exports are all still there (renamed), but calling `luaL_loadbuffer` by address
+  lands in the same `lua_load` and the same gate. The one native route that WOULD bypass
+  it is calling `lua_load` with a reader of our own — and that means running our own
+  callback inside the client, next to an anti-cheat, to save work we no longer have to do.
+  Kept as a note, not as a plan.
+
 **Where the key is.** Not in the file as a run of bytes — it is assembled at use, and
 that is why searching for it finds nothing. Two 44-way jump tables, each arm a
 `mov al, imm8 ; ret`, are walked index by index and XORed together: bytes 0..31 are the
