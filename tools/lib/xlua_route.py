@@ -173,10 +173,18 @@ class X:
         """The DoString overload whose first parameter is `want`, and its param count.
 
         `want` is matched inside the il2cpp type name, so ``"String"`` picks the source
-        overload and ``"Byte"`` the buffer one. When several match, the one with the
-        FEWEST parameters wins — each parameter is another managed object to build, and
-        every one of those is a hijack.
+        overload and ``"Byte"`` the buffer one.
+
+        **Asked by name first, and walked only if that misses.** Every step of this runs
+        on the game's main thread through a gated hijack, and an evaluator is built by
+        every thread that finds the daemon down — so a walk of a hundred methods is not a
+        tidy way to do it twice, it is a hundred hijacks the rest of the panel is queuing
+        behind. `get_method_from_name` costs three, and on this build it lands on the
+        overload we want.
         """
+        mi, _, _ = self.gmfn(cls, "DoString", 3)
+        if mi and want in self.method_param0_type(mi):
+            return mi, 3
         gm = self.e["il2cpp_class_get_methods"]
         gmn = self.e["il2cpp_method_get_name"]
         gmpc = self.e["il2cpp_method_get_param_count"]
@@ -195,9 +203,11 @@ class X:
             t0 = self.method_param0_type(m)
             print(f"    DoString overload MI=0x{m:x} params={pc} param0={t0}")
             found.append((m, pc, t0))
-        matched = sorted((pc, m) for m, pc, t0 in found if want in t0)
-        if matched:
-            return matched[0][1], matched[0][0]
+            if want in t0:
+                break            # the walk is expensive; stop the moment it has answered
+        for m, pc, t0 in found:
+            if want in t0:
+                return m, pc
         return (found[0][0], found[0][1]) if found else (0, 0)
 
     def find_dostring_string(self, cls):
