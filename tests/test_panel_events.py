@@ -325,6 +325,11 @@ class _Skip(Exception):
     """This test needs the tab module, and this python has no tkinter."""
 
 
+#: A golden-zombie reading with energy to spend, and one without.
+GOLDEN_OPEN = "energy=55 cost=10 attacks=5 seen=135"
+GOLDEN_SPENT = "energy=3 cost=10 attacks=0 seen=0"
+
+
 def _tab_class():
     try:
         from panel.tabs.events.tab import EventsTab
@@ -339,6 +344,9 @@ class _Runtime:
     def __init__(self, plays=True) -> None:
         self.plays = plays
         self.played: list = []
+        #: The golden-zombie tally lives in `panel.db`; nothing here needs one, and a
+        #: `None` store is what `panel/golden_zombies.py` reads as «no history yet».
+        self.store = None
 
     def play_async(self, name, *a, **kw) -> bool:
         if not self.plays:
@@ -353,7 +361,7 @@ class _Runtime:
         pass
 
 
-def _tab(raw=SHUT, plays=True):
+def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     cls = _tab_class()
     tab = cls.__new__(cls)
     tab.rt = _Runtime(plays)
@@ -365,6 +373,15 @@ def _tab(raw=SHUT, plays=True):
     tab._attack_button = None
     tab._daily_button = None
     tab._sent_key = None
+    # «Золотые зомби» — its own reading, its own press, its own day.
+    tab._golden = modelmod.parse(golden, at=1.0) if golden is not None else None
+    tab._golden_busy = False
+    tab._golden_running = False
+    tab._golden_button = None
+    tab._squad = modelmod.GOLDEN_SQUAD_DEFAULT
+    tab._squad_var = None
+    tab._tally = {}
+    tab._chain_golden = False
     return tab
 
 
@@ -410,22 +427,78 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
         assert tab.web_press("no-such-action-ever", {}).get("error") == "unknown"
 
 
+def _card_actions(tab, title):
+    """The action ids offered on one card of the screen — the others are not the point."""
+    for card in tab.web_view()["cards"]:
+        if card.get("title") == title:
+            return [a["id"] for a in card.get("actions") or ()]
+    return []
+
+
 def test_the_phone_is_offered_the_attack_only_while_the_event_is_running():
     shut = _tab(SHUT)
-    assert not [a for c in shut.web_view()["cards"] for a in c.get("actions") or ()]
+    assert _card_actions(shut, "events.group.codename") == []
     assert shut.web_press("attack_codename", {}) == {"error": "closed"}
     assert shut.web_press("daily_codename", {}) == {"error": "closed"}
     assert shut.rt.played == [], "a press reached the game with the event shut"
 
     live = _tab(OPEN)
-    ids = [a["id"] for c in live.web_view()["cards"] for a in c.get("actions") or ()]
-    assert ids == ["attack_codename", "daily_codename"]
+    assert _card_actions(live, "events.group.codename") == ["attack_codename",
+                                                           "daily_codename"]
     assert live.web_press("attack_codename", {}) == {"ok": True}
     assert live.rt.played == [modelmod.CODENAME_ATTACK]
 
     day = _tab(OPEN)
     assert day.web_press("daily_codename", {}) == {"ok": True}
     assert day.rt.played == [modelmod.CODENAME_DAILY]
+
+
+def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
+    """The same rule as the boss: a reading that SAYS «no energy» kills the button."""
+    spent = _tab(golden=GOLDEN_SPENT)
+    assert _card_actions(spent, "events.group.golden") == []
+    assert spent.web_press("hunt_golden", {}) == {"error": "closed"}
+    assert spent.rt.played == [], "a hunt reached the game with an empty purse"
+
+    live = _tab(golden=GOLDEN_OPEN)
+    assert _card_actions(live, "events.group.golden") == ["hunt_golden", "squad_next"]
+    assert live.web_press("hunt_golden", {}) == {"ok": True}
+    assert live.rt.played == [modelmod.GOLDEN_ATTACK]
+
+    # …and a reading nobody could take leaves it alive: «nobody knows» is not «you may
+    # not», and the scenario holds its own gates.
+    unknown = _tab(golden=None)
+    assert _card_actions(unknown, "events.group.golden") == ["hunt_golden", "squad_next"]
+
+
+def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
+    """One setting, two front-ends: the pick walks the slots and both read `squad()`."""
+    tab = _tab()
+    assert tab.squad() == modelmod.GOLDEN_SQUAD_DEFAULT
+    first = tab.web_press("squad_next", {})
+    assert first == {"ok": True, "squad": 2}
+    assert tab.squad() == 2
+    assert tab.config() == {modelmod.GOLDEN_SQUAD_KEY: 2}
+    assert tab.rt.played == [], "picking a squad is a setting, not a press at the game"
+
+    # …and it wraps rather than running off the end of the slots that exist.
+    for _ in modelmod.GOLDEN_SQUADS:
+        tab.web_press("squad_next", {})
+    assert tab.squad() in modelmod.GOLDEN_SQUADS
+
+    tab.apply_config({modelmod.GOLDEN_SQUAD_KEY: 3})
+    assert tab.squad() == 3
+    tab.apply_config({modelmod.GOLDEN_SQUAD_KEY: 99})
+    assert tab.squad() == modelmod.GOLDEN_SQUAD_DEFAULT, \
+        "a slot that does not exist must not be sent anywhere"
+
+
+def test_the_golden_board_never_reads_could_not_ask_as_none_found():
+    """`seen = -1` is «the base is on screen», and it is not zero zombies."""
+    silent = modelmod.golden_state(modelmod.parse("energy=55 cost=10 attacks=5 seen=-1"))
+    assert modelmod.seen(silent) == "—"
+    none = modelmod.golden_state(modelmod.parse("energy=55 cost=10 attacks=5 seen=0"))
+    assert modelmod.seen(none) == "0"
 
 
 def test_a_closed_event_still_has_its_card_on_the_phone():

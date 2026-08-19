@@ -1056,3 +1056,63 @@ def get(name: str) -> Button | None:
 
 def names() -> list[str]:
     return sorted(BUTTONS)
+
+
+# --- golden zombies: scan the map, then a chain of solo marches ---------------
+# Task #1519. Seven presses, none of which opens a window, and only one of which sends
+# anything to the server:
+#
+#     golden_arm -> golden_scan -> golden_pick -> [golden_touch -> golden_grab] -> golden_send
+#
+# WHICH squad, HOW WIDE a scan and WHETHER the squad comes home are parked in
+# `DataCenter.__lw_gold_*` by the recipe, because `TAP` carries no arguments of its own.
+# The recipe is actions/attack_golden_zombies.md; the reverse-engineering, and what of it
+# is proven live, is docs/research/golden-zombies.md.
+BUTTONS["golden_arm"] = Button(
+    # Not a press: the run's setup. Which squad, what the game charges for one attack,
+    # and how much energy there is to charge it against.
+    lua=_lua_actions.golden_arm(),
+    wait=0.2, label="arm the golden-zombie run (squad + energy + price)",
+)
+BUTTONS["golden_scan"] = Button(
+    # A READ, and the only thing on this list that can be pressed as often as you like:
+    # every call adds what is newly in view and forgets nothing.
+    lua=_lua_actions.golden_scan(),
+    wait=0.2, label="add the golden zombies in view to the queue",
+)
+BUTTONS["golden_pick"] = Button(
+    # The nearest one to WHERE THE SQUAD IS — the base before the first send, the last
+    # tile it was sent to after that. This is the whole ability.
+    lua=_lua_actions.golden_pick(),
+    wait=0.1, label="pick the nearest golden zombie to the squad",
+)
+BUTTONS["golden_touch"] = Button(
+    # Only for a target found as a drawn clone, which knows its tile and not its uuid.
+    # One `TouchObjectEventTrigger:OnClick()` — the tap-resolution path with no tap.
+    lua=_lua_actions.golden_touch(),
+    wait=1.2, label="ask the server about the chosen zombie",
+)
+BUTTONS["golden_grab"] = Button(
+    # …and take the uuid off the popup, then close the POPUP — never the HUD with it.
+    lua=_lua_actions.golden_grab(),
+    wait=0.4, label="take the zombie's uuid off its popup and close it",
+)
+BUTTONS["golden_send"] = Button(
+    # The attack: one `SendCreateMarchMessage`, scheduled on the main thread because a
+    # cold send from the hijack thread is built and then dropped by the server.
+    lua=_lua_actions.golden_send(),
+    wait=1.5, label="send the squad at the golden zombie",
+)
+BUTTONS["golden_confirm"] = Button(
+    # Not a press either: the tally, moved only after the GAME has been seen holding a
+    # march of ours. A send that returned cleanly proves nothing.
+    lua=_lua_actions.golden_confirm(),
+    wait=0.1, label="count the attack the game has confirmed",
+)
+BUTTONS["golden_home"] = Button(
+    # The same send with `back = 1`: the march that brings the squad home. The recipe
+    # raises the parked flag before pressing it, so this is `golden_send` with a promise
+    # rather than a second copy of it.
+    lua=_lua_actions.golden_send(),
+    wait=1.5, label="send the last march, and bring the squad home after it",
+)

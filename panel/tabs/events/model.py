@@ -42,6 +42,21 @@ CODENAME_ATTACK = "attack_codename_boss"
 #: the person makes one march at a time.
 CODENAME_DAILY = "attack_codename_daily"
 
+#: The reading behind the «Золотые зомби» group, and the variable it lands in.
+GOLDEN_ACTION = "read_golden_zombies"
+GOLDEN_VARIABLE = "golden"
+
+#: …and the chain one press starts: scan the map, then attack the nearest golden
+#: zombie to wherever the squad is standing, until the energy runs out.
+GOLDEN_ATTACK = "attack_golden_zombies"
+
+#: Which squad the chain sends, by the SLOT the player sees. Saved in the tab's own
+#: block (`tabs.config.events`), because it is a choice about THIS account and not
+#: about the machine.
+GOLDEN_SQUAD_KEY = "golden_squad"
+GOLDEN_SQUADS: tuple = (1, 2, 3, 4)
+GOLDEN_SQUAD_DEFAULT = 1
+
 # -- the three states an event can be in ------------------------------------
 OPEN = "open"
 CLOSED = "closed"
@@ -79,9 +94,18 @@ class Group:
 #: never «осталось из пяти».
 CODENAME = "codename"
 
+#: «Золотые зомби» — the invasion event's small monster, config id 1030000.
+#:
+#: Nothing here is rationed by the day: what the chain can do is bounded by the
+#: ENERGY purse and by how many of them the client has loaded, which is why the two
+#: numbers under the heading are «energy / price» and «seen», and never «N of M made
+#: today». The day's tally is drawn separately and is the PANEL's own history of what
+#: it sent — never a claim about what the account did (`panel/golden_zombies.py`).
+GOLDEN = "golden"
+
 #: The groups, in the order they are drawn. One so far, and the shape is what matters:
 #: a second event is one entry here, one `Group`, and its own reading.
-GROUPS: tuple = (Group(CODENAME),)
+GROUPS: tuple = (Group(CODENAME), Group(GOLDEN))
 
 
 class Reading:
@@ -246,3 +270,95 @@ def ago(seconds) -> str:
     """`0:42` — how long ago something was read, in the same shape as the countdown."""
     seconds = max(0, int(seconds))
     return "%d:%02d" % (seconds // 60, seconds % 60)
+
+
+class GoldenState:
+    """What the golden-zombie hunt has to work with right now — the whole group.
+
+    ``energy`` is the purse, ``cost`` what the game charges for one attack, ``attacks``
+    how many that buys and ``seen`` how many golden zombies the CLIENT knows about.
+    ``None`` anywhere means the game would not answer, and the tab draws that as words.
+
+    ``seen`` has a third answer the others do not: **-1 is «could not be asked»** — the
+    base is on screen and the world's own controller only exists on the map. It is kept
+    distinct from 0 all the way to the widget, because «nobody looked» and «none there»
+    lead a person to do different things.
+    """
+
+    __slots__ = ("state", "energy", "cost", "attacks", "seen")
+
+    def __init__(self, state: str, energy=None, cost=None, attacks=None,
+                 seen=None) -> None:
+        self.state = state
+        self.energy = energy
+        self.cost = cost
+        self.attacks = attacks
+        self.seen = seen
+
+    @property
+    def open(self) -> bool:
+        return self.state == OPEN
+
+    @property
+    def can_attack(self) -> bool:
+        """May the chain be started?
+
+        Only a reading that SAYS the purse cannot pay for one march kills the button.
+        UNKNOWN leaves it alive, exactly as «Кодовое имя» does and for the same reason:
+        the ability holds its own gates (`CLAUDE.md`), and a panel refusing on its own
+        behalf is a second, worse copy of them that the two front-ends then disagree on.
+        """
+        return self.state != CLOSED
+
+    def __repr__(self) -> str:
+        return f"<golden {self.state} energy={self.energy} seen={self.seen}>"
+
+
+def golden_state(reading) -> "GoldenState":
+    """The golden-zombie group against one reading. No answer is `unknown`, never `closed`."""
+    if reading is None or reading.error:
+        return GoldenState(UNKNOWN)
+    energy = reading.get("energy")
+    cost = reading.get("cost")
+    if energy is None or cost is None:
+        return GoldenState(UNKNOWN, energy=energy, cost=cost,
+                           attacks=reading.get("attacks"), seen=reading.get("seen"))
+    state = OPEN if (cost > 0 and energy >= cost) else CLOSED
+    return GoldenState(state, energy=energy, cost=cost,
+                       attacks=reading.get("attacks"), seen=reading.get("seen"))
+
+
+def energy(state) -> str:
+    """`55 / 10` — what is in the purse against what one attack costs."""
+    if state.energy is None or state.cost is None:
+        return "—"
+    return "%d / %d" % (state.energy, state.cost)
+
+
+def seen(state) -> str:
+    """How many are known — `—` for «could not be asked», which is not the same as none."""
+    if state.seen is None or state.seen < 0:
+        return "—"
+    return str(state.seen)
+
+
+def affordable(state) -> str:
+    """How many attacks the purse still buys."""
+    if state.attacks is None:
+        return "—"
+    return str(state.attacks)
+
+
+def tally(row) -> str:
+    """`6 · 60` — the day's attacks and the energy they cost, as this panel sent them."""
+    row = row or {}
+    return "%d · %d" % (int(row.get("attacks", 0) or 0), int(row.get("spent", 0) or 0))
+
+
+def squad_of(raw) -> int:
+    """A saved squad slot, clamped to one that exists. Anything odd reads as the first."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return GOLDEN_SQUAD_DEFAULT
+    return value if value in GOLDEN_SQUADS else GOLDEN_SQUAD_DEFAULT

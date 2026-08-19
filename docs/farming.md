@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **32%** — 47 of 146
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥  **32%** — 47 of 147
 
-🟩 47 done · 🟨 61 partly · 🟥 38 not automated
+🟩 47 done · 🟨 62 partly · 🟥 38 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -114,6 +114,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - ❌ Alliance exercises
 - ✅ Codename — the panel shows what the event owes and sends a squad at the boss. «События» keeps a block for it, and so does the checklist: how many attacks have gone out of the three that earn the reward, and the biggest single hit, which is what the daily ranking is made of. Both numbers are the game's own and are re-read, so an attack made in the game itself counts exactly as much as one the panel sent. «Атаковать сейчас» sends the first squad standing in the base — one attack a press, since the game rations no attempts and a fourth hit is still worth making for the ranking. On Sunday, the one day the event does not run, the block goes grey and the button dies rather than disappearing — «nothing to do today» must not look like «this panel has never heard of it». Both are confirmed against a live running event. The reading had been calling the event shut on every day of the week, because the game answers «shut» to a panel that has not asked it for the day's boss — it now asks. The attack is one press and no windows: the person's own route is five screens and a camera flight across the map, and all of it ends at one send, so the panel makes that send and the boss is hit from wherever the game happens to be. It proves itself by the count the game keeps, and a press that did not land says so instead of pretending. The biggest hit is drawn beside it but is a record, so it moves only when a hit beats the best one so far — the count is what says an attack happened
+- 🟡 Golden zombies — one press scans the whole map, then hunts them one after another until the energy runs out. The golden ones are the invasion event's small zombies sitting on piles of coins; the panel tells them apart by what the game calls them and not by how they look, so a re-skin cannot fool it. The chain is the point: the next target is the nearest one to **where the squad is standing**, not to the base, and every march but the last leaves the squad on the tile it has just cleared — a hunt that always started from home would walk the same ground three times over for the same kills. The last march brings the squad back, because a squad left out on the map is a squad somebody else can hit. Which squad goes is chosen on «События», beside the block that shows the energy, what one attack costs, how many attacks that buys and how many zombies the game has actually found; the day's tally of what the panel sent sits underneath. Nothing is counted from a press: an attack is written down only once the game has taken the energy for it, and a squad that is already out is waited for and then honestly reported rather than ordered about. Confirmed live as far as the first kill — the scan found 135 of them and the attack went out and was paid for; the second kill of a chain has not yet had a free squad to prove itself on
 - ❌ Desert Storm
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot runs it by

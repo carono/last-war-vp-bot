@@ -9038,3 +9038,570 @@ def radar_free_places() -> str:
     return ("(function() local cap = %s local now = %s "
             "local d = cap - now if d < 0 then d = 0 end return d end)()"
             % (radar_capacity(), radar_board_count()))
+
+
+# ---------------------------------------------------------------------------
+# Golden zombies («золотые зомби») — scan the map, then a chain of solo marches
+# ---------------------------------------------------------------------------
+# Task #1519. The «golden zombie» the player means is the invasion event's own small
+# monster, and it is told apart by ONE number and never by its picture: config id
+# **1030000** in the client's `lw_world_monster` table. Read live off the running
+# client on 2026-08-19:
+#
+#     id=1030000  level=10  type=7  special=9  size=1  recommend_power=670000
+#     expire=720  is_stop=1  speed=0.75  worldmap_icon=zyf_daditu_guaiwu_huang0
+#
+# `type=7` is the zombie line, `special=9` is `WorldMonsterSpecialType.MonsterInvasion`,
+# and `huang` in the icon name is the yellow one on the gold piles. Nothing here is read
+# from a sprite: the whitelist below is the config id, so a re-skin of the model changes
+# nothing and a monster that merely LOOKS golden is not attacked.
+#
+# ## The energy, and why it is asked rather than counted
+#
+# One solo attack costs whatever the game says it costs:
+#
+#     MarchUtil.GetCostStaminaByTargetType(MarchTargetType.ATTACK_MONSTER) -> 10
+#
+# and the purse is `LuaEntry.Player.stamina` (120 on a full account, so twelve attacks).
+# Both are read every lap of the chain — never decremented by us — for the same reason
+# the panel keeps no counters: a person attacking on the screen in front of them spends
+# from the same purse, and a number we kept would be confidently wrong within a minute.
+#
+# ## The chain, and why it is not a fan out of the base
+#
+# The next target is the nearest one to WHERE THE SQUAD IS, not to home. That is the
+# whole ability: `back_home = 0` on the intermediate marches leaves the squad standing
+# on the tile it just cleared, so the following march starts from there. A run that
+# picked «nearest to base» every time would walk the same ground three times over.
+#
+# The first pick has no previous kill to measure from, so it uses the game's own
+# `SceneUtils.TileDistanceToMyHome(pointIndex, serverId)` — the distance from the
+# player's base, which is where the squad is standing before the first send. Every pick
+# after it is a plain distance from the last target's tile.
+#
+# ## The send
+#
+# `MarchUtil.SendCreateMarchMessage(formation, ATTACK_MONSTER, pid, uuid, 1, backHome,
+# false, serverId, nil)` — the same primitive every other launch in this file uses, and
+# the same rule: **scheduled through `TimerManager:GetInstance():DelayInvoke`.** A cold
+# send from the hijack thread returns `true` and is dropped by the server
+# (docs/research/world-monsters.md, Finding 17). `CROSS_ATTACK_MONSTER` when the target
+# sits on another warzone.
+#
+# ## Two ways to find one, in this order
+#
+#   1. `WorldScene:GetMonsterListInArea(centre, size, {1030000: 1}, out)` — the invasion
+#      enumerator. It answers `uuid -> tile` for every golden zombie in the area, which
+#      is everything the send needs, with no window opened and nothing tapped. Golden
+#      zombies are invasion monsters, so this is their enumerator and not a stretch of
+#      one (Finding 10: it is invasion-ONLY, which is exactly the case here).
+#   2. the drawn clones — `WorldMonster…invasion(Clone)` game objects around the camera.
+#      A clone knows its tile and NOT its uuid (the uuid is the server's answer), so a
+#      target found this way is completed by one `TouchObjectEventTrigger:OnClick()`
+#      that opens the point popup, has its uuid read off it and is closed again with
+#      `Ctrl:CloseSelf()` — never `DestroyAllWindow()`, which destroys the HUD for good.
+#
+# NOT PROVEN AGAINST A LIVE GOLDEN ZOMBIE (#1519): the account's invasion was between
+# waves while this was written (`GetInvasionSummonProgress() = 0`, zero monsters of any
+# config in a 600-tile radius), so the config read, the energy read, the cost read and
+# the enumerator's plumbing were verified live and the kill itself was not.
+
+#: The config id of the golden / invading zombie. The one number that identifies it.
+GOLDEN_ZOMBIE_CFG = 1030000
+
+#: Fallback cost of one solo attack, when the game will not price it. The live answer
+#: on 2026-08-19 was 10; this is only what keeps the gate honest if the call fails.
+GOLDEN_ATTACK_COST = 10
+
+#: Where the run's own state is parked in the game VM, so it survives between presses
+#: (`TAP` carries no arguments) and a panel restart.
+_GOLD = "DataCenter.__lw_gold"
+
+_GOLD_P = "local p = %s or {} " % _GOLD
+
+
+def golden_energy() -> str:
+    """Lua *expression* -> the player's energy right now, as a whole number.
+
+    `LuaEntry.Player.stamina` is the purse the game spends on a monster march; the
+    method form is asked second because it is the one that exists on older builds.
+    """
+    return ("(function() local v = nil "
+            "pcall(function() v = tonumber(LuaEntry.Player.stamina) end) "
+            "if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end "
+            "return math.floor(v or 0) end)()")
+
+
+def golden_attack_cost() -> str:
+    """Lua *expression* -> what ONE solo attack costs in energy, the game's own answer."""
+    return ("(function() local v = nil "
+            "pcall(function() v = tonumber(MarchUtil.GetCostStaminaByTargetType("
+            "MarchTargetType.ATTACK_MONSTER)) end) "
+            "if v == nil or v <= 0 then return %d end return math.floor(v) end)()"
+            % GOLDEN_ATTACK_COST)
+
+
+#: Find the `WorldScene` MonoBehaviour and cache it. The world's controller is the only
+#: thing that can enumerate monsters, and it exists only in the world scene.
+_GOLD_WS = (
+    "local ws = _G.__LW_GOLD_WS "
+    "local alive = false "
+    "pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) "
+    "if not alive then ws = nil "
+    "pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType("
+    "typeof(CS.UnityEngine.MonoBehaviour)) "
+    "for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil "
+    "pcall(function() n = mb:GetType().Name end) "
+    "if n == 'WorldScene' then ws = mb break end end end) "
+    "_G.__LW_GOLD_WS = ws end "
+)
+
+
+def golden_arm() -> str:
+    """Set the run up: which squad, where home is, what an attack costs, what energy there is.
+
+    Reads and parks, presses nothing. The squad is addressed by its SLOT — the 1/2/3/4
+    the player sees and the panel offers — because a slot is what a person can choose;
+    the formation uuid it resolves to is what the send needs, and it is looked up here
+    rather than typed anywhere (docs/research/rally-squad-identity.md).
+
+    **It does NOT work out where home is, and that is the second lesson of #1519.** The
+    world scene opens on the player's own base, so «the tile under the camera» looks like
+    a free answer — and it is one only if the scene was just entered. A client the panel
+    keeps on the map has its camera wherever the last lap of `scan_map` left it, and the
+    run that took that for home measured every distance from a corner of the world. The
+    game answers the question properly: `SceneUtils.TileDistanceToMyHome(pid, serverId)`
+    reads 0 at the base and 492 at a tile 492 away, and `golden_pick` uses it for the
+    first pick.
+
+    A squad reading zero soldiers is reported as empty and NOT sent: on this client that
+    usually means «the army was never fetched», which `fill_empty_squads.md` fixes in
+    about a third of a second — so the recipe calls that first and this arm is what
+    decides whether it worked.
+    """
+    return (
+        "local p = {} "
+        "p.cfg = %(cfg)d "
+        "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
+        "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "
+        "p.back = math.floor(tonumber(%(gold)s_back) or 0) "
+        "p.limit = math.floor(tonumber(%(gold)s_limit) or 0) "
+        "p.targets = {} p.used = {} p.attacks = 0 p.spent = 0 p.found = 0 "
+        "pcall(function() p.server = math.floor(tonumber(LuaEntry.Player:GetSelfServerId()) or 0) end) "
+        "p.cost = %(cost)s "
+        "p.energy = %(energy)s "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if math.floor(tonumber(v.index) or -1) == p.squad then "
+        "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
+        "p.state = math.floor(tonumber(v.state) or 0) end end end) "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_arm squad="..tostring(p.squad)'
+        '.." formation="..tostring(p.formation).." soldiers="..tostring(p.soldiers)'
+        '.." energy="..tostring(p.energy).." cost="..tostring(p.cost)'
+        '.." server="..tostring(p.server))'
+        % {"cfg": GOLDEN_ZOMBIE_CFG, "gold": _GOLD,
+           "cost": golden_attack_cost(), "energy": golden_energy()}
+    )
+
+def golden_armed() -> str:
+    """Lua *expression* -> 1 all set, 0 no such squad, -1 the squad has no soldiers."""
+    return ("(function() " + _GOLD_P +
+            "if p.formation == nil then return 0 end "
+            "if (tonumber(p.soldiers) or 0) <= 0 then return -1 end "
+            "return 1 end)()")
+
+
+def golden_scan() -> str:
+    """Look for golden zombies around the camera and add what is new to the queue.
+
+    Two sources, merged and de-duplicated by uuid (and by tile for the ones that have no
+    uuid yet). Nothing is opened, nothing is tapped and nothing already attacked this run
+    comes back: a tile in `used` is skipped on the way in.
+
+    Run it as often as the camera moves — every call adds, none of them forgets.
+    """
+    return (
+        _GOLD_P +
+        "if p.targets == nil then p.targets = {} end "
+        "if p.used == nil then p.used = {} end " +
+        _GOLD_WS +
+        "if ws == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_scan skipped=not-in-world") return end '
+        "local seen = {} "
+        "for _, t in ipairs(p.targets) do seen[tostring(t.pid)] = true end "
+        "local added = 0 "
+        # -- 1. the invasion enumerator: uuid -> tile, everything the send needs
+        "pcall(function() "
+        "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
+        "ids:Add(p.cfg, 1) "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "ws:GetMonsterListInArea(ws.CurTilePos, p.radius, ids, res) "
+        "local e = res:GetEnumerator() "
+        "while e:MoveNext() do "
+        "local uuid, tile = e.Current.Key, e.Current.Value "
+        "local pid = nil pcall(function() pid = ws:TilePosToIndex(tile) end) "
+        "if pid ~= nil and not seen[tostring(pid)] and not p.used[tostring(uuid)] then "
+        "seen[tostring(pid)] = true added = added + 1 "
+        "p.targets[#p.targets + 1] = {pid = pid, uuid = uuid, x = tile.x, y = tile.y, "
+        "src = 'area'} end end end) "
+        # -- 2. the drawn clones: a tile, and a handle that can fetch the uuid later
+        "pcall(function() "
+        "local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) "
+        "for i = 0, arr.Length - 1 do local mb = arr[i] local cn = nil "
+        "pcall(function() cn = mb:GetType().Name end) "
+        "if cn == 'TouchObjectEventTrigger' then "
+        "local go, root, guard = mb.gameObject, nil, 0 "
+        "while go ~= nil and guard < 8 do local nm = nil pcall(function() nm = go.name end) "
+        "if nm ~= nil and string.find(nm, 'WorldMonster') then root = go break end "
+        "local nxt = nil pcall(function() if go.transform.parent ~= nil then "
+        "nxt = go.transform.parent.gameObject end end) go = nxt guard = guard + 1 end "
+        "if root ~= nil then local nm = tostring(root.name) "
+        "if string.find(string.lower(nm), 'invasion') then "
+        "local pid = nil pcall(function() "
+        "pid = SceneUtils.WorldToTileIndex(root.transform.position) end) "
+        "if pid ~= nil and not seen[tostring(pid)] then "
+        "local tp = nil pcall(function() tp = SceneUtils.IndexToTilePos(pid) end) "
+        "seen[tostring(pid)] = true added = added + 1 "
+        "p.targets[#p.targets + 1] = {pid = pid, uuid = 0, trig = mb, "
+        "x = (tp and tp.x or -1), y = (tp and tp.y or -1), src = 'clone'} end end end "
+        "end end end) "
+        "p.found = #p.targets "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_scan added="..tostring(added)'
+        '.." queued="..tostring(p.found))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_queued() -> str:
+    """Lua *expression* -> how many golden zombies are queued and not yet attacked."""
+    return ("(function() " + _GOLD_P +
+            "local n = 0 for _, t in ipairs(p.targets or {}) do "
+            "if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()")
+
+
+def golden_found() -> str:
+    """Lua *expression* -> how many golden zombies this run has seen at all."""
+    return "(function() " + _GOLD_P + "return math.floor(tonumber(p.found) or 0) end)()"
+
+
+def golden_pick() -> str:
+    """Choose the nearest golden zombie to WHERE THE SQUAD IS, and park it as the target.
+
+    The anchor is the last tile a squad was sent to this run; before the first send there
+    is none, and the game's own `SceneUtils.TileDistanceToMyHome(pid, serverId)` answers
+    from the base instead — which is where the squad is standing. Live it reads 0 at the
+    base tile and 492 at a tile 492 tiles away, with or without the server id.
+
+    Distance after that is a plain tile distance from the anchor. It has to be: the
+    home-distance call knows only one origin, and the entire point of the ability is that
+    the second target is measured from the first and not from the house.
+
+    **A first pick 500 tiles away is not a bug** — measured live, the nearest of 134
+    golden zombies to the base was 492 tiles out, because they cluster in their own
+    region of the map and not around anybody's alliance. That is precisely why the chain
+    is worth having: the walk out is paid once, and every kill after it is a few tiles.
+    """
+    return (
+        _GOLD_P +
+        "p.cur = nil "
+        "local best, bestd = nil, nil "
+        "for _, t in ipairs(p.targets or {}) do "
+        "if not (p.used or {})[tostring(t.pid)] then "
+        "local d = nil "
+        "if p.anchor ~= nil then "
+        "local dx, dy = (t.x - p.anchor.x), (t.y - p.anchor.y) "
+        "d = math.sqrt(dx * dx + dy * dy) "
+        "else pcall(function() d = tonumber("
+        "SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end "
+        "if d == nil then d = 1e9 end "
+        "if bestd == nil or d < bestd then best, bestd = t, d end end end "
+        "if best ~= nil then p.cur = best p.curdist = math.floor(bestd + 0.5) end "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_pick pid="..tostring(p.cur and p.cur.pid)'
+        '.." uuid="..tostring(p.cur and p.cur.uuid).." dist="..tostring(p.curdist))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_picked() -> str:
+    """Lua *expression* -> 1 a target is armed, 0 the queue is empty."""
+    return "(function() " + _GOLD_P + "return (p.cur ~= nil) and 1 or 0 end)()"
+
+
+def golden_needs_uuid() -> str:
+    """Lua *expression* -> 1 when the armed target still has to be asked about.
+
+    A target found by the invasion enumerator arrives with its uuid; one found as a drawn
+    clone does not, because the uuid is the SERVER's answer and the client never stores
+    it. `uuid = 0` is refused by the send, so that one has to be touched first.
+    """
+    return ("(function() " + _GOLD_P +
+            "if p.cur == nil then return 0 end "
+            "return ((tonumber(p.cur.uuid) or 0) == 0) and 1 or 0 end)()")
+
+
+def golden_touch() -> str:
+    """Open the armed target's own point popup, so the server hands over its uuid.
+
+    `TouchObjectEventTrigger:OnClick()` is the genuine tap-resolution path with no tap —
+    it fetches the point detail and opens `UIWorldPoint` for that exact monster
+    (docs/research/world-monsters.md, Finding 17). A no-op when the uuid is already
+    known, which is the ordinary case.
+    """
+    return (
+        _GOLD_P +
+        "if p.cur == nil or (tonumber(p.cur.uuid) or 0) ~= 0 then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_touch skipped=have-uuid") return end '
+        "if p.cur.trig == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_touch skipped=no-handle") return end '
+        "local ok, err = pcall(function() p.cur.trig:OnClick() end) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_touch ok="..tostring(ok).." err="..tostring(err))'
+    )
+
+
+def golden_grab() -> str:
+    """Take the uuid off the open popup and close it again — the popup ONLY.
+
+    `Ctrl:CloseSelf()`, never `UIManager:DestroyAllWindow()`: the latter destroys the
+    persistent HUD and nothing brings it back (Finding 16). A popup that turns out to be
+    something other than a golden zombie is dropped from the queue rather than attacked.
+    """
+    return (
+        _GOLD_P +
+        "if p.cur == nil or (tonumber(p.cur.uuid) or 0) ~= 0 then return end "
+        "local w = nil pcall(function() w = UIManager.Instance:GetStackTopWindow() end) "
+        "local c = nil pcall(function() if w ~= nil and tostring(w.Name) == 'UIWorldPoint' "
+        "then c = w.Ctrl end end) "
+        "if c == nil then "
+        "p.used[tostring(p.cur.pid)] = true p.cur = nil %(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_grab miss=no-popup") return end '
+        "local uuid, pid, srv = nil, nil, nil "
+        "pcall(function() uuid = c.uuid pid = c.pointId srv = c.serverId end) "
+        "local lvl = nil "
+        "pcall(function() local md = c:GetMonsterData(c.uuid) if md ~= nil then "
+        "lvl = tonumber(md.level) end end) "
+        "pcall(function() c:CloseSelf() end) "
+        "if uuid == nil or (tonumber(uuid) or 0) == 0 then "
+        "p.used[tostring(p.cur.pid)] = true p.cur = nil %(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_grab miss=no-uuid") return end '
+        "p.cur.uuid = uuid "
+        "if pid ~= nil then p.cur.pid = pid end "
+        "if srv ~= nil then p.cur.server = math.floor(tonumber(srv) or 0) end "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_grab uuid="..tostring(uuid)'
+        '.." pid="..tostring(p.cur.pid).." level="..tostring(lvl))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_send() -> str:
+    """Send the chosen squad at the armed golden zombie — one call, no window.
+
+    `back = 0` on the ordinary lap of the chain, so the squad STAYS on the tile it just
+    cleared and the next pick is measured from there. The caller raises it to 1 for the
+    last march of the run, which is what brings the squad home.
+
+    Scheduled through `TimerManager:GetInstance():DelayInvoke`, like every other launch in
+    this file: a cold `SendCreateMarchMessage` from the hijack thread returns `true` and
+    is dropped by the server (docs/research/world-monsters.md, Finding 17).
+    """
+    return (
+        _GOLD_P +
+        "if p.cur == nil or p.formation == nil then error('nothing armed for this run') end "
+        "local t = p.cur "
+        "local srv = math.floor(tonumber(t.server or p.server) or 0) "
+        "local kind = MarchTargetType.ATTACK_MONSTER "
+        "if p.server ~= nil and srv ~= 0 and srv ~= p.server then "
+        "kind = MarchTargetType.CROSS_ATTACK_MONSTER end "
+        "local back = math.floor(tonumber(%(gold)s_back) or p.back or 0) "
+        "local f, pid, uuid = p.formation, t.pid, t.uuid "
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, back, false, srv, nil) end) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_send ok="..tostring(ok).." err="..tostring(err)) '
+        "end, 0.5) "
+        "p.used[tostring(t.pid)] = true "
+        "p.anchor = {x = t.x, y = t.y} "
+        "p.pending = {pid = pid, uuid = uuid} "
+        "p.before = %(energy)s "
+        "p.cur = nil "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_send scheduled pid="..tostring(pid)'
+        '.." uuid="..tostring(uuid).." back="..tostring(back).." attack="..tostring(p.attacks))'
+        % {"gold": _GOLD, "energy": golden_energy()}
+    )
+
+
+def golden_confirm() -> str:
+    """Count the attack — but only once the GAME holds a march of ours.
+
+    The send is not the attack. `SendCreateMarchMessage` returns cleanly whether or not
+    the server honoured it (docs/research/world-monsters.md, Findings 13 and 16), so a
+    run that counted its own presses would report five attacks over an evening in which
+    nothing left the base. This is pressed after the march has been seen in
+    `WorldMarchDataManager`, and it is the only thing that moves the tally.
+    """
+    return (
+        _GOLD_P +
+        "if p.pending == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_confirm skipped=nothing-pending") return end '
+        "p.attacks = (tonumber(p.attacks) or 0) + 1 "
+        "p.spent = (tonumber(p.spent) or 0) + (tonumber(p.cost) or 0) "
+        "local pid = p.pending.pid "
+        "p.pending = nil "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_confirm pid="..tostring(pid)'
+        '.." attacks="..tostring(p.attacks).." spent="..tostring(p.spent))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_marching() -> str:
+    """Lua *expression* -> 1 while the run's own squad is out marching, else 0.
+
+    The squad's own `state` on `ArmyFormationDataManager.ArmyFormationList`, and not the
+    world's march list: another squad of the same account may be gathering somewhere and
+    has nothing to do with this chain. Measured live on 2026-08-19 — a squad standing in
+    the base reads `state = 0` and one that has just been sent reads `1`.
+
+    `WorldMarchDataManager:GetOwnerFormationMarch` looks like the right question and is
+    not usable here: its real signature is `(ownerUid, formationUuid, allianceUid)` and it
+    answers `nil` for every argument we could give it, including the formation's own
+    `ownerUid`, while the account genuinely held four marches.
+    """
+    return ("(function() " + _GOLD_P +
+            "if p.formation == nil then return 0 end local st = nil "
+            "pcall(function() "
+            "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+            "if tostring(v.uuid) == tostring(p.formation) then "
+            "st = math.floor(tonumber(v.state) or 0) end end end) "
+            "return ((st or 0) == 1) and 1 or 0 end)()")
+
+
+def golden_settled() -> str:
+    """Lua *expression* -> 1 once the SERVER has charged the energy for the last send.
+
+    The proof an attack really went out, and the only one that does not depend on how the
+    client files its own marches. A send returns cleanly whether or not the server
+    honoured it (docs/research/world-monsters.md, Findings 13 and 16); the purse moving is
+    the server's own answer, and it moved by exactly the price of one attack — 55 to 45 —
+    on the first live run of this recipe (#1519).
+
+    `1` when nothing is pending, so a caller that polls this after a skipped send is not
+    left waiting for a charge nobody asked for.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "if p.pending == nil then return 1 end "
+        "local before = tonumber(p.before) "
+        "if before == nil then return 1 end "
+        "local cost = math.floor(tonumber(p.cost) or %(fallback)d) "
+        "return (%(energy)s <= (before - cost)) and 1 or 0 end)()"
+        % {"energy": golden_energy(), "fallback": GOLDEN_ATTACK_COST}
+    )
+
+
+def golden_can_go() -> str:
+    """Lua *expression* -> 1 while there is energy, a target and room in the day's limit.
+
+    The energy is ASKED every lap, never subtracted by us: the same purse is spent by a
+    person playing on the screen at the time, and a number we kept would go wrong within
+    a minute of them touching anything.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local left = %(energy)s "
+        "local cost = math.floor(tonumber(p.cost) or %(fallback)d) "
+        "if cost <= 0 then cost = %(fallback)d end "
+        "if left < cost then return 0 end "
+        "local lim = math.floor(tonumber(p.limit) or 0) "
+        "if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end "
+        "return (%(queued)s > 0) and 1 or 0 end)()"
+        % {"energy": golden_energy(), "fallback": GOLDEN_ATTACK_COST,
+           "queued": golden_queued()}
+    )
+
+
+def golden_last_march() -> str:
+    """Lua *expression* -> 1 when the march about to go out is the last this run can make.
+
+    The one that has to bring the squad HOME: everything before it deliberately leaves it
+    standing on the map so the chain is short, and a squad left out there when the run
+    ends is a squad somebody else can hit.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local left = %(energy)s "
+        "local cost = math.floor(tonumber(p.cost) or %(fallback)d) "
+        "if cost <= 0 then cost = %(fallback)d end "
+        "if left < cost * 2 then return 1 end "
+        "local lim = math.floor(tonumber(p.limit) or 0) "
+        "if lim > 0 and (tonumber(p.attacks) or 0) + 1 >= lim then return 1 end "
+        "return (%(queued)s <= 1) and 1 or 0 end)()"
+        % {"energy": golden_energy(), "fallback": GOLDEN_ATTACK_COST,
+           "queued": golden_queued()}
+    )
+
+
+def golden_attacks() -> str:
+    """Lua *expression* -> how many marches this run has sent."""
+    return "(function() " + _GOLD_P + "return math.floor(tonumber(p.attacks) or 0) end)()"
+
+
+def golden_spent() -> str:
+    """Lua *expression* -> how much energy this run has spent, at the game's own price."""
+    return "(function() " + _GOLD_P + "return math.floor(tonumber(p.spent) or 0) end)()"
+
+
+def golden_report() -> str:
+    """Lua *expression* -> one line of `key=value` the panel parses and files away.
+
+    The run's whole tally in one round trip: what was found, what was sent, what it cost
+    and what is left. The panel stores it (`panel.db`) and draws it; it counts nothing
+    itself.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. "
+        "' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. "
+        "' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. "
+        "' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. "
+        "' energy=' .. tostring(%(energy)s) .. "
+        "' queued=' .. tostring(%(queued)s) .. "
+        "' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)()"
+        % {"energy": golden_energy(), "queued": golden_queued()}
+    )
+
+
+def golden_survey() -> str:
+    """Lua *expression* -> one line of `key=value`: the board the panel draws, in one ask.
+
+    A READ and nothing else — it arms nothing, queues nothing and touches no state the
+    run keeps, so the panel may poll it while a run is in flight without disturbing it.
+
+    ``seen`` is how many golden zombies the CLIENT currently knows about, which is as
+    wide as what it has loaded and not as wide as the map: it was 11 straight after
+    entering the world and 135 after one lap of the server (#1519). ``-1`` means the
+    question could not be asked at all — the base is on screen, and the world's own
+    controller does not exist there.
+    """
+    return (
+        "(function() local energy = %(energy)s local cost = %(cost)s "
+        "local seen = -1 "
+        "%(ws)s"
+        "if ws ~= nil then seen = 0 pcall(function() "
+        "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
+        "ids:Add(%(cfg)d, 1) "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "ws:GetMonsterListInArea(ws.CurTilePos, 2000, ids, res) "
+        "seen = res.Count end) end "
+        "local can = 0 if cost > 0 then can = math.floor(energy / cost) end "
+        "return 'energy=' .. tostring(energy) .. ' cost=' .. tostring(cost) .. "
+        "' attacks=' .. tostring(can) .. ' seen=' .. tostring(seen) end)()"
+        % {"energy": golden_energy(), "cost": golden_attack_cost(),
+           "ws": _GOLD_WS, "cfg": GOLDEN_ZOMBIE_CFG}
+    )
