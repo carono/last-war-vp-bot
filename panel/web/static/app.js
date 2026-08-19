@@ -171,6 +171,16 @@ function paintState(state) {
     recEl.textContent = T('web.ui.recovery.daemon',
                           { n: rec.daemon_stale || 0, of: rec.daemon_strikes || 0,
                             done: rec.daemon_restarts || 0 });
+  } else if (rec.stalled_for) {
+    /* THE CLOSED DOOR (#1549): the client is up, connected and not in the game — server
+     * maintenance, or the login screen. The one restart in the panel that does NOT mean
+     * something is broken, so it must not be drawn like the ones that do: it says how
+     * long the door has been shut and when the next knock is. The window's strip says
+     * the same thing beside it. */
+    recEl.textContent = T('web.ui.recovery.stalled',
+                          { mins: Math.floor((rec.stalled_for || 0) / 60),
+                            next: Math.ceil((rec.stalled_next || 0) / 60),
+                            n: rec.stalled_restarts || 0 });
   } else if (rec.fruitless) {
     recEl.textContent = T('web.ui.recovery.fruitless', { n: rec.fruitless });
   } else if (rec.barren_of && rec.barren >= rec.barren_of) {

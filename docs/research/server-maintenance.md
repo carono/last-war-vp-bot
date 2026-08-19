@@ -193,10 +193,23 @@ Said plainly, because a gap nobody names is a gap nobody closes:
 * **the daemon's attached pid against the client's** (§3). One reading, and it decides
   whether the VM silence in this file is the game's or the toolkit's.
 
-## 6. What the panel should do about it — a proposal, not a change
+## 6. What the panel should do about it
 
-Nothing in this file has been acted on; it is written down so the next window is spent
-confirming rather than rediscovering.
+**One of these is now done.** The operator's instruction was one sentence — «при
+техобслуживании клиент перезапускай каждые 15 минут» — and it is
+`Recovery.note_session` (`panel/runtime/recovery.py`, pinned by
+`tests/test_panel_maintenance_knock.py`): a client that is up, connected and NOT in the
+game for longer than the grace is restarted, then once every fifteen minutes for as long
+as that lasts. A restart cannot reopen a server; what it does is KNOCK, because a client
+left on the maintenance dialog does not come back by itself when the door opens, and this
+way the account is playing again within a quarter hour of the server returning instead of
+whenever somebody notices. The grace is deliberately longer than a login takes (`launch_game`
+waits up to 300 s for the city scene), a person at the machine still wins, and a kick's
+own wait is not interrupted to knock. Both front-ends draw «не в игре N мин — перезапуск
+через M» rather than silence.
+
+The rest is still a proposal, written down so the next window is spent confirming rather
+than rediscovering.
 
 1. **Name the state.** A fifth verdict beside `online` / `offline` / `lost` /
    `session_unknown`, recognised by the game's own keys — §4a has them now, and
@@ -207,6 +220,8 @@ confirming rather than rediscovering.
 2. **Park, do not spend.** Every errand currently FAILS once per fire, which burns retry
    budgets and fills the log with the same sentence twenty times. A recognised maintenance
    state should hold the queue the way a refused gate already does (#1416) and say so once.
+   The knock above does NOT do this: it puts the client back and says so, and the errands
+   in between still fail one by one.
 3. **Stop conflating «cannot say» with «is not there».** `not_in_world` must mean the
    client answered and said «city»; a VM that answers nothing deserves its own reason, and
    the flow strip already has the vocabulary for it (`panel/runtime/flow.py`, `refused`).

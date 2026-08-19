@@ -3709,7 +3709,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._dbg_status(ok, warm, found.link, stale),
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
-                self._recovery_check(found, kicked, stale, warm),
+                self._recovery_check(found, kicked, stale, warm, session),
                 self._paint_panic(),
                 self._paint_gate(),
                 self._watchdog_check(ok)))
@@ -3777,7 +3777,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         return self._rt.game.health(found.pid) == runtime.daemon.DAEMON_STALE
 
     def _recovery_check(self, found, kicked: bool = False,
-                        stale: bool = False, warm: bool = True) -> None:
+                        stale: bool = False, warm: bool = True,
+                        session: str = "") -> None:
         """Restart a client the server has stopped hearing — the other half of a crash.
 
         The watchdog below notices the PROCESS going away. This notices the account
@@ -3826,6 +3827,21 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._act_on(self._rt.recovery.note(found.link, now,
                                             idle_sec=game_link.idle_sec(),
                                             kicked=kicked))
+        # …AND THE CLOSED DOOR (#1549). Last, because every branch above it is a fault
+        # and this one is not: the client is fine and the server is shut, which is the
+        # state recorded in docs/research/server-maintenance.md where `game=up
+        # link=online daemon=warm` held for the whole window and nothing had a cure.
+        #
+        # `session` is `game_clock`'s three-valued answer and it is passed through as
+        # three: `in_session` is playing, `login` is demonstrably not, and «не смог
+        # спросить» is `None` — which maintenance also looks like from here, and which
+        # `note_session` deliberately treats as not-playing after its grace.
+        import game_clock                     # lazy: tools/lib, and only on this path
+
+        playing = (True if session == game_clock.IN_SESSION
+                   else False if session == game_clock.LOGIN_SCREEN else None)
+        self._act_on(self._rt.recovery.note_session(
+            playing, found.link, now, idle_sec=game_link.idle_sec()))
 
     def _act_on(self, said) -> None:
         """Say what the recovery decided, and do it. One door for both decisions.
@@ -4018,6 +4034,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
                            n=st.get("daemon_stale", 0),
                            of=st.get("daemon_strikes", 0),
                            done=st.get("daemon_restarts", 0))
+        elif st.get("stalled_for"):
+            # THE CLOSED DOOR (#1549). Above `fruitless` and below the two deliberate
+            # holds, because it is a state of the WORLD rather than a fault: the client
+            # is fine, the server is not letting it in, and the panel is knocking on a
+            # clock. A person seeing this must not go looking for something broken — and
+            # must not see «ничего не происходит» either, which is what the strip said
+            # for the whole of the window this was written from.
+            text = self._t("status.recovery.stalled",
+                           mins=int(st.get("stalled_for", 0) // 60),
+                           next=-(-int(st.get("stalled_next", 0)) // 60),
+                           n=st.get("stalled_restarts", 0))
         elif st.get("fruitless"):
             # The evidence, while it is still evidence: two restarts spent with the link
             # never back means the panel is about to change its mind about the diagnosis.

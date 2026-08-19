@@ -288,6 +288,34 @@ KICK_STABILITY_SEC = 600.0
 #: was ever true.
 BARREN = 8
 
+#: HOW LONG A CLIENT MAY BE UP, CONNECTED AND STILL NOT IN A SESSION before it is put
+#: back — the maintenance case (#1549), and the login screen with it.
+#:
+#: The state was recorded live on 2026-08-19 (docs/research/server-maintenance.md): the
+#: process was there, the sockets were established, the daemon was warm, the panel's own
+#: line read `game=up link=online daemon=warm` for the whole window — and the account was
+#: not in the game, because the server was closed. Every reading this module already
+#: takes says «fine». `link` is ONLINE, so :meth:`note` does nothing; there is no kick;
+#: the daemon is neither stale nor down. **Nothing in the panel had a cure for it**, and
+#: the operator's own instruction is the cure: «при техобслуживании клиент перезапускай
+#: каждые 15 минут».
+#:
+#: Why a restart helps at all, since it plainly cannot reopen the server: a client left
+#: on the maintenance dialog does not come back by itself when the door opens. The
+#: restart is how the panel KNOCKS — and the account is playing again within a quarter
+#: hour of the server returning instead of whenever somebody notices.
+#:
+#: The grace is deliberately longer than a login takes. `launch_game` waits up to 300 s
+#: for `scene == city`, so anything shorter would fight an ordinary start-up and put a
+#: client back that was three seconds from being in the game.
+STALLED_GRACE_SEC = 420.0
+
+#: …and how often it may be knocked on. The operator's own number, and the same one a
+#: kick already uses, for a related reason: this is a wait on something outside the
+#: machine, and there is nothing to be gained by asking more often than the thing can
+#: change.
+STALLED_COOLDOWN_SEC = 900.0
+
 
 class Recovery:
     """One client's answer to «has it been deaf long enough to restart?»
@@ -302,7 +330,10 @@ class Recovery:
                  "_daemon_last", "_daemon_restarts", "_daemon_held",
                  "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said",
                  "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held",
-                 "_kick_wait", "_kick_acted")
+                 "_kick_wait", "_kick_acted",
+                 "stalled_grace_sec", "stalled_cooldown_sec",
+                 "_stalled_since", "_stalled_last", "_stalled_held",
+                 "_stalled_restarts")
 
     def __init__(self) -> None:
         #: Consecutive `lost` readings so far.
@@ -380,6 +411,29 @@ class Recovery:
         # between two readings.
         self._kick_wait = 0.0
         self._kick_acted = 0.0
+        # THE MAINTENANCE / LOGIN-SCREEN CASE (#1549). Public and writable like
+        # `kick_hold_sec`, and for the same reason: how long to leave a closed server
+        # alone is a decision about the world rather than about a client, so the panel
+        # writes both off the profile on every poll.
+        self.stalled_grace_sec = STALLED_GRACE_SEC
+        self.stalled_cooldown_sec = STALLED_COOLDOWN_SEC
+        #: When this client was first seen up-and-connected-but-not-playing, **-1.0 for
+        #: «it is playing»**. An ABSOLUTE stamp rather than a run of readings: the session
+        #: question is throttled to once every 24 s and the poll is faster than that, so
+        #: counting readings would measure the poll and not the fault.
+        #:
+        #: The «never» value is -1 and not 0 on purpose. Every other clock in this file
+        #: uses 0.0 because it is compared against `time.time()`, which is never zero —
+        #: but this one is also the flag for «is it stalled at all», and `if not
+        #: self._stalled_since` reads a legitimate stamp of zero as «no». The first draft
+        #: did exactly that and never knocked once under a test clock starting at 0.
+        self._stalled_since = -1.0
+        #: When it was last knocked on, and whether the wait has already been said.
+        self._stalled_last = 0.0
+        self._stalled_held = False
+        #: How many of the restarts above were this — drawn apart from the others,
+        #: because «сервер закрыт, стучимся» and «клиент оглох» mean different things.
+        self._stalled_restarts = 0
 
     # -- reading -------------------------------------------------------------
     @property
@@ -461,7 +515,32 @@ class Recovery:
                 "fruitless": self._fruitless,
                 # …and the reading that says nothing is reaching the game at all, while
                 # every other one still looks healthy: errands that pressed nothing.
-                "barren": self._barren, "barren_of": BARREN}
+                "barren": self._barren, "barren_of": BARREN,
+                # …AND THE CLOSED-DOOR CASE (#1549): how long this client has been up,
+                # connected and not in the game, how long until the next knock, and how
+                # many knocks it has had. Its own three numbers rather than a share of
+                # the client's, because every other restart in this module means «что-то
+                # сломано» and this one means «сервер закрыт, ждём» — and a person told
+                # the wrong one of those does the wrong thing about it.
+                "stalled_for": self.stalled_for(now),
+                "stalled_of": int(self.stalled_grace_sec),
+                "stalled_next": self.stalled_next(now),
+                "stalled_restarts": self._stalled_restarts}
+
+    def stalled_for(self, now: float) -> int:
+        """Seconds this client has been up-and-connected without being in a session."""
+        if self._stalled_since < 0:
+            return 0
+        return int(max(0.0, now - self._stalled_since))
+
+    def stalled_next(self, now: float) -> int:
+        """Seconds until the next knock — 0 when one may be made right now."""
+        if self._stalled_since < 0:
+            return 0
+        due = self._stalled_since + self.stalled_grace_sec
+        if self._stalled_last:
+            due = max(due, self._stalled_last + self.stalled_cooldown_sec)
+        return max(0, int(due - now))
 
     # -- deciding ------------------------------------------------------------
     def note(self, link: str, now: float,
@@ -658,6 +737,87 @@ class Recovery:
             self._kicks += 1
             return (ACT_KICK, {})
         return (ACT, {"secs": STRIKES * 8})
+
+    def note_session(self, playing: "bool | None", link: str, now: float,
+                     idle_sec: "float | None" = None) -> "tuple | None":
+        """The client is up and connected — but is it IN THE GAME? (#1549)
+
+        THE STATE NOTHING HAD A CURE FOR. Every other branch in this module is fed by a
+        reading that goes bad: the sockets half-close, the account is taken, the daemon
+        points at a dead pid. Server maintenance breaks none of them. Recorded live
+        (docs/research/server-maintenance.md): `game=up link=online daemon=warm` for the
+        whole window, no kick, no stale daemon — and the account sitting on «Сервер
+        находится на техническом обслуживании» while every errand failed one by one.
+
+        So this asks the one question the others do not: is the client PLAYING. The
+        answer comes from `game_clock.session_state` by way of the panel's own poll, in
+        three values and all three matter:
+
+        * ``True``  — in a session. The clock is cleared and nothing is owed.
+        * ``False`` — the login screen, demonstrably. The state this cures.
+        * ``None``  — nobody could ask (the VM will not answer, which is ALSO what
+          maintenance looks like from here). Treated as not-playing, deliberately: a
+          client the panel cannot talk to for seven minutes is no more use than one at
+          the login screen, and the cure is the same knock.
+
+        **A restart cannot reopen a server, and that is not what it is for.** A client
+        left on the maintenance dialog stays there after the door opens; the knock is how
+        the account is playing again within a quarter hour of the server coming back
+        rather than whenever somebody notices.
+
+        Every gate the other cures have applies here unchanged and in the same order:
+        an OFFLINE or LOST client is somebody else's business (the watchdog's, and
+        :meth:`note`'s), a person at the machine wins, and a kick's wait is not
+        interrupted to knock on a door.
+        """
+        if link != game_link.ONLINE:
+            # Not this branch's client: no process, or a link that has gone. Both have
+            # their own cure and two of them must not restart one client.
+            self._stalled_clear()
+            return None
+        if playing:
+            # It is in the game. Whatever this was, it is over — including the count,
+            # so a day with three separate maintenance windows reads as three.
+            self._stalled_clear()
+            return None
+        if self._stalled_since < 0:
+            self._stalled_since = now
+            return None
+        if self.stalled_next(now) > 0:
+            return None
+
+        # SOMEBODY IS AT THE MACHINE — the same first gate as every other cure here, and
+        # first for the same reason: this would close the window they are looking at, and
+        # a person staring at a maintenance dialog is exactly the person most likely to
+        # be sitting in front of one.
+        if idle_sec is not None and idle_sec < PLAYER_QUIET_SEC:
+            self._why = "player"
+            return None
+        # …AND A KICK'S WAIT IS NOT INTERRUPTED TO KNOCK ON A DOOR (#1291). A kicked
+        # client is not in a session either, so without this the two cures would take
+        # turns on the same client and the kick's whole patience would be spent.
+        if self.kick_hold_left(now) > 0:
+            self._why = "kick"
+            return None
+
+        self._stalled_last = now
+        self._stalled_restarts += 1
+        self._restarts += 1
+        self._held = False
+        self._why = "stalled"
+        self._blame = "client"
+        return (ACT_STALLED, {"mins": int(self.stalled_for(now) // 60),
+                              "again": int(self.stalled_cooldown_sec // 60),
+                              "n": self._stalled_restarts})
+
+    def _stalled_clear(self) -> None:
+        """It is playing (or gone): forget the clock, the wait and the count."""
+        self._stalled_since = -1.0
+        self._stalled_last = 0.0
+        self._stalled_held = False
+        self._stalled_restarts = 0
+        if self._why == "stalled":
+            self._why = ""
 
     def _kick_next_wait(self, now: float) -> float:
         """How long THIS kick is given — 15 → 30 → 45 min while they keep coming back.
@@ -893,6 +1053,11 @@ BUSY = "log.game.deaf_busy"
 #: (`tools/lib/game_kick.py`, the game's key `E100083`). Worth its own sentence,
 #: because «связь пропала» and «у вас забрали аккаунт» want different things done.
 ACT_KICK = "log.game.kick_restart"
+
+#: …AND THE CLOSED DOOR (#1549). Its own key rather than a share of `ACT`, because it is
+#: the one restart in this module that does not mean anything is broken: the client is
+#: fine, the server is shut, and the knock is how the panel finds out it has opened.
+ACT_STALLED = "log.game.stalled_restart"
 #: …and the wait in front of it: the account is on another device, and it is being left
 #: there for :data:`KICK_HOLD_SEC` before anything is done about it (#1291). Said once
 #: per kick with the minutes left, and drawn as a countdown by both front-ends — a panel
@@ -932,7 +1097,7 @@ SAY_BARREN = "log.game.barren"
 #: the ten-minute cooldown started), and nothing touched the client. Live that left it
 #: deaf from 22:48 to 23:07, when it finally died on its own and the process watchdog —
 #: the other half — picked it up. A third act is one line here and works everywhere.
-RESTARTS = frozenset({ACT, ACT_KICK})
+RESTARTS = frozenset({ACT, ACT_KICK, ACT_STALLED})
 
 #: …and the subset that means «this restart is because the account was TAKEN». Asked as a
 #: set for the same reason as above: `key == ACT` is what once left a kicked client
