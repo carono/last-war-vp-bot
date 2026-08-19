@@ -115,6 +115,11 @@ BUNDLE_CACHE_SUBDIR = "AssetBundles"
 #: The bundle root, relative to the installation folder — the arrangement an install
 #: that never chose otherwise has.
 DEFAULT_BUNDLE_SUBDIR = "Cache"
+#: The native Lua plugin, relative to the installation folder. It carries the loader
+#: that decides what a chunk must look like, so it is read rather than guessed at.
+XLUA_DLL_SUBPATH = os.path.join("Game", "LastWar_Data", "Plugins", "x86_64", "xlua.dll")
+#: The client's Lua archive, relative to its DOWNLOAD tree — a hot-update rewrites it.
+LUA_BUNDLE_SUBPATH = ("lwScripts", "LWScripts.data")
 #: The client itself, relative to the installation folder (the launcher's sibling).
 GAME_EXE_SUBDIR = "Game"
 #: The game's own translations — one directory per build, one `<lang>.bin` per language
@@ -512,6 +517,26 @@ def _asset_cache_candidates() -> tuple:
          os.path.join(bundle_root(), BUNDLE_CACHE_SUBDIR) if bundle_root() else ""),
         ("default", os.path.join(game_dir(), ASSET_CACHE_SUBPATH)),
     )
+
+
+def xlua_dll() -> str:
+    """The native half of the client's Lua layer, on THIS desktop.
+
+    Worth naming because it is the only thing on the machine that knows how a chunk
+    must be wrapped before the VM will parse it — see `tools/lib/lua_chunk_enc.py`.
+    `LW_XLUA_DLL` names it outright for a build that keeps its plugins elsewhere.
+    """
+    return _env("LW_XLUA_DLL", os.path.join(game_dir(), XLUA_DLL_SUBPATH))
+
+
+def lua_bundle() -> str:
+    """The client's own archive of Lua scripts, in its download tree.
+
+    Every chunk in it is wrapped the way the VM wants, which makes it the sample a
+    guessed wrapping is checked against — no live game needed, and it is rewritten by
+    every hot-update, so it always describes the build that is installed right now.
+    """
+    return _env("LW_LUA_BUNDLE", os.path.join(data_dir(), *LUA_BUNDLE_SUBPATH))
 
 
 def locale_root() -> str:

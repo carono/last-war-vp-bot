@@ -1,6 +1,6 @@
 # The client update of 2026-08-19: encrypted Lua chunks, and a moved server port
 
-**Task #1555.** On 2026-08-19, after a morning of server maintenance, the panel stopped
+**Tasks #1555 (what broke) and #1556 (how the bridge was reopened).** On 2026-08-19, after a morning of server maintenance, the panel stopped
 being able to drive the game — while every indicator it draws stayed green. Two separate
 things changed in the client that day, and a third was a reading of ours that had been
 wrong for as long as it had existed. This file records all three, because a client update
@@ -52,14 +52,85 @@ lwScripts\LWScripts.data   41 MB, rewritten at 12:41
 So the build now runs an **encrypted-chunk** Lua: the loader decrypts every buffer before
 parsing it, our plaintext decrypts to noise, and the parser says the only thing it can.
 The native side is `xlua.dll`, which exports `luaopen_*` and `xlua_pack_*` and **no**
-`lua_*` / `luaL_*` by name — so the decryption sits below the managed API, and Lua's own
-`load` is behind the same door as `DoString`. There is no cheap way round it: this is a
-reversing job on `xlua.dll` (find the decrypt, encrypt our chunks the same way, or call
-the post-decrypt entry point), and it is its own task.
+`lua_*` / `luaL_*` by name — and that reading was half right for the wrong reason. The
+exports are all still THERE — 255 in both builds, and the 231 that used to be the Lua
+core now export under names of the shape `x` + eight hex digits. Nothing was removed and
+nothing moved below the managed API; the plugin simply stopped saying what its functions
+are called. (The mapping was never needed: the decrypt was found by the string `LENC` in
+`.rdata` and its one cross-reference, not by a symbol.)
 
-**Everything the bot does goes through this bridge.** Until it is solved the panel can
-read the wire (the captures are untouched — rally pushes, map tiles and secret tasks all
-still decode) but it cannot press anything.
+**Everything the bot does goes through this bridge**, so while it was refusing us the
+panel could read the wire (the captures were untouched — rally pushes, map tiles and
+secret tasks all still decoded) and press nothing at all. §2.1 is how it was reopened.
+
+## 2.1 What the loader actually wants — and how it was read (#1556)
+
+The whole answer is on disk, in two files the client keeps for itself, and it took no
+live game to get at: the install keeps the plugin it replaced beside the new one
+(`Plugins\x86_64\xlua.dll.bak`, and six more builds of it under `Temp\`), which makes
+the update an A/B rather than a guess.
+
+**The format.** A chunk is refused unless it arrives as:
+
+```
+LENC <ChaCha8 keystream XOR> ( raw source | zlib stream )
+```
+
+* `LENC` is four bytes and it is MANDATORY. The loader reads the whole buffer through
+  the reader callback, compares the first four bytes, and on a mismatch returns failure
+  before a single character is lexed. That is the entire outage: our plaintext never
+  reached a parser, so the parser's only possible complaint — «syntax error» — is what
+  came back, comment or no comment.
+* the body is XORed with a **ChaCha8** keystream: four double rounds, 32-byte key,
+  12-byte nonce, block counter starting at 0 — and **no final feed-forward addition** of
+  the starting state. That last omission is what makes it not ChaCha20 and not any
+  published ChaCha; a stock implementation decrypts it into noise.
+* what comes out is inflated when it begins with a zlib header (`78 DA`) and taken as
+  source otherwise. The game's own scripts are all deflated bytecode (`1B 4C 75 61 53`,
+  Lua 5.3); ours are source, which is shorter than a deflate of itself at chunk sizes.
+
+**Where the key is.** Not in the file as a run of bytes — it is assembled at use, and
+that is why searching for it finds nothing. Two 44-way jump tables, each arm a
+`mov al, imm8 ; ret`, are walked index by index and XORed together: bytes 0..31 are the
+key, 32..43 the nonce. The dispatchers have a shape that is easy to recognise and hard
+to confuse with anything else:
+
+```asm
+cmp cl, 44
+jae  short
+movzx eax, ecx
+lea  rcx, [rip + table]
+jmp  qword ptr [rcx + rax*8]
+```
+
+**So nothing here is written down as a constant.** `tools/lib/lua_chunk_enc.py` reads the
+scheme out of the INSTALLED plugin at start-up, by that shape, and then checks the result
+by decrypting the first chunk of the client's own `lwScripts\LWScripts.data` — which the
+hot-update rewrites, so the sample always describes the build that is running. A patch
+that rolls the key is followed silently; a patch that changes the CIPHER stops with a
+sentence naming this file, instead of quietly producing chunks the game refuses. The
+round count and the feed-forward flag are part of what the check chooses, so a rebuild
+that merely re-tunes those is followed too. Sixteen milliseconds, once per process.
+
+**And the way in had to change with it.** `XLuaManager.SafeDoString` takes a
+`System.String`, and xLua UTF-8 encodes it on the way to the VM — which mangles every
+byte above 0x7F, and half of a keystream is above 0x7F. So an encrypted build is driven
+through `LuaEnv.DoString(byte[], string, LuaTable)` instead: the wrapper is built on this
+side, handed over as a managed `byte[]` (`il2cpp_array_new`, written with
+`WriteProcessMemory`), and arrives byte for byte. `LuaEval` picks the route from what the
+plugin says rather than from a setting, so a client patched back to plain source goes
+back to `SafeDoString` by itself, and `LW_LUA_ENC=off` forces that by hand.
+
+One thing improves in passing: `DoString` does NOT swallow errors the way `SafeDoString`
+does, so a chunk that will not COMPILE — which never reaches the `pcall` the answer
+wrapper puts around it — now says so in the daemon's log instead of vanishing.
+
+**What was NOT needed, and is worth not repeating.** No patching of the client's memory
+(the LENC compare is one `jne` away from being nopped, and an anti-cheat is in the
+process — feeding the loader what it asks for is both cheaper and quieter), no calling
+the renamed native exports, and no rewriting the repository's ~280 chunks as calls into
+the game's own functions. Every one of those was on the table before the two files were
+compared.
 
 ## 3. The game's port moved: `:10012` -> `:10935`
 

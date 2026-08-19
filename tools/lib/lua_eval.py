@@ -477,28 +477,86 @@ def harvest(pending: "Pending") -> list:
 
 
 class LuaEval:
-    """Reusable SafeDoString driver — resolve once, run many chunks."""
+    """Reusable chunk driver — resolve once, run many chunks.
+
+    Two ways in, and which one is used is the CLIENT's choice rather than a setting:
+
+    * a build whose Lua loader takes plain source is driven through
+      `XLuaManager.SafeDoString(string)`, exactly as it always was;
+    * a build whose loader wants its chunks wrapped (`tools/lib/lua_chunk_enc.py`,
+      #1556) is driven through `LuaEnv.DoString(byte[], string, LuaTable)`, because the
+      wrapper is arbitrary bytes and the string overload UTF-8 encodes what it is given
+      — which mangles every byte above 0x7F and hands the VM noise.
+
+    The wrapping is read out of the installed `xlua.dll` at start-up, so a client that
+    is patched back, or forward, moves this by itself.
+    """
 
     def __init__(self):
         import xlua_route as XR
+        import lua_chunk_enc
         self.x = XR.X()
-        self.x.find_luaenv_class()  # sets gameentry_cls / xluamgr_cls
+        luaenv_cls = self.x.find_luaenv_class()  # sets gameentry_cls / xluamgr_cls
         m, _, _ = self.x.gmfn(self.x.gameentry_cls, "get_Lua", 0)
         self.mgr, exc = self.x.invoke(m, 0, [], "GameEntry.get_Lua")
         if not self.mgr or exc:
             raise SystemExit(f"GameEntry.get_Lua failed mgr=0x{self.mgr:x} exc=0x{exc:x}")
-        self.sd, _, _ = self.x.gmfn(self.x.xluamgr_cls, "SafeDoString", 1)
-        if not self.sd:
-            raise SystemExit("XLuaManager.SafeDoString not resolved")
+        self.enc = lua_chunk_enc.scheme()
+        self.sd = self.luaenv = self.ds_mi = self.ds_pc = 0
+        if self.enc is None:
+            self.sd, _, _ = self.x.gmfn(self.x.xluamgr_cls, "SafeDoString", 1)
+            if not self.sd:
+                raise SystemExit("XLuaManager.SafeDoString not resolved")
+        else:
+            print(f"[lua] chunks are wrapped: {self.enc.describe()}", flush=True)
+            self.luaenv = self._live_luaenv(luaenv_cls)
+            self.ds_mi, self.ds_pc = self.x.find_dostring_bytes(luaenv_cls)
+            if not self.ds_mi:
+                raise SystemExit("LuaEnv.DoString(byte[]) not resolved")
         self.log = player_log_path()
         self.answers = answer_log_path()
         # Whatever a previous evaluator left behind when it died mid-call. Once per
         # build, which for a daemon is once per client.
         _sweep_per_call(self.answers)
 
+    def _live_luaenv(self, luaenv_cls):
+        """The XLuaManager's own LuaEnv — by reading its fields, not by calling it.
+
+        The class pointer is exact, and a field scan is plain memory reads: no hijack,
+        no side effect, and nothing invoked on a manager to find out what it returns.
+        The getter walk is kept behind it for a build that keeps the env somewhere a
+        scan cannot see.
+        """
+        import il2cpp_dump as D
+        import il2cpp_probe as P
+        for off in range(0x10, 0x2000, 8):
+            p = D.u64(P.rpm(self.x.h, self.mgr + off, 8), 0)
+            if not (0x10000 < p < 0x7FFFFFFFFFFF) or (p & 7):
+                continue
+            if D.u64(D.rpm_safe(self.x.h, p, 8) or b"\x00" * 8, 0) == luaenv_cls:
+                return p
+        env = self.x.luaenv_via_manager_method(self.mgr, luaenv_cls)
+        if not env:
+            raise SystemExit("the live LuaEnv was not found on XLuaManager")
+        return env
+
     def _send(self, chunk) -> None:
-        s = self.x.il2_string_new(chunk)
-        self.x.invoke(self.sd, self.mgr, [("ref", s)], "SafeDoString")
+        if self.enc is None:
+            s = self.x.il2_string_new(chunk)
+            self.x.invoke(self.sd, self.mgr, [("ref", s)], "SafeDoString")
+            return
+        arr = self.x.il2_bytes_new(self.enc.pack(chunk))
+        args = [("ref", arr)]
+        if self.ds_pc >= 2:
+            args.append(("ref", self.x.il2_string_new("lw")))
+        if self.ds_pc >= 3:
+            args.append(("ref", 0))
+        _ret, exc = self.x.invoke(self.ds_mi, self.luaenv, args, "DoString(bytes)")
+        if exc:
+            # `SafeDoString` swallowed these; `DoString` does not, and a chunk that
+            # would not COMPILE never reaches the pcall `wrap_chunk` put around it —
+            # so this is the only place such a chunk can say anything at all.
+            print(f"[lua] DoString refused the chunk: {self.x.excdesc(exc)}", flush=True)
 
     def send(self, chunk, marker=None, settle=1.2, early=False, sentinel=None,
              private: bool = False) -> "Pending":

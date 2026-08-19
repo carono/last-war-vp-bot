@@ -143,9 +143,40 @@ class X:
         nm = self.hj(self.e["il2cpp_type_get_name"], [p], "typename")
         return D.cstr(self.h, nm) if nm else "?"
 
-    def find_dostring_string(self, cls):
-        """Iterate LuaEnv methods, return the DoString overload whose first
-        parameter is System.String (not byte[]) with 3 params."""
+    def il2_bytes_new(self, data: bytes):
+        """Create a managed ``byte[]`` holding `data` (runs on main).
+
+        The way a chunk reaches an encrypted-Lua build: its wrapper is arbitrary bytes
+        (`tools/lib/lua_chunk_enc.py`), and the only string this side can build is one
+        that will be UTF-8 encoded on the way into the VM — which mangles every byte
+        above 0x7F. An array is handed over as it is written.
+        """
+        if not getattr(self, "_byte_cls", 0):
+            corlib = self.hj(self.e["il2cpp_get_corlib"], [], "corlib")
+            self._byte_cls = self.hj(self.e["il2cpp_class_from_name"],
+                                     [corlib, self.cstr("System"), self.cstr("Byte")],
+                                     "Byte cls")
+            if not self._byte_cls:
+                raise SystemExit("System.Byte not resolved — cannot build a byte[]")
+            # Asked rather than assumed: the header is the object plus its bounds and
+            # length, and il2cpp is the only thing entitled to say how big that is.
+            self._arr_head = self.hj(self.e["il2cpp_array_object_header_size"], [],
+                                     "array header")
+        arr = self.hj(self.e["il2cpp_array_new"], [self._byte_cls, len(data)], "array_new")
+        if not arr:
+            raise SystemExit("il2cpp_array_new returned null")
+        P.WriteProcessMemory(self.h, C.c_void_p(arr + self._arr_head), data, len(data),
+                             C.byref(C.c_size_t(0)))
+        return arr
+
+    def find_dostring(self, cls, want="String"):
+        """The DoString overload whose first parameter is `want`, and its param count.
+
+        `want` is matched inside the il2cpp type name, so ``"String"`` picks the source
+        overload and ``"Byte"`` the buffer one. When several match, the one with the
+        FEWEST parameters wins — each parameter is another managed object to build, and
+        every one of those is a hijack.
+        """
         gm = self.e["il2cpp_class_get_methods"]
         gmn = self.e["il2cpp_method_get_name"]
         gmpc = self.e["il2cpp_method_get_param_count"]
@@ -164,10 +195,18 @@ class X:
             t0 = self.method_param0_type(m)
             print(f"    DoString overload MI=0x{m:x} params={pc} param0={t0}")
             found.append((m, pc, t0))
-        for m, pc, t0 in found:
-            if "String" in t0:
-                return m, pc
+        matched = sorted((pc, m) for m, pc, t0 in found if want in t0)
+        if matched:
+            return matched[0][1], matched[0][0]
         return (found[0][0], found[0][1]) if found else (0, 0)
+
+    def find_dostring_string(self, cls):
+        """The DoString overload that takes source — what a plain build is driven with."""
+        return self.find_dostring(cls, "String")
+
+    def find_dostring_bytes(self, cls):
+        """The DoString overload that takes a buffer — what an encrypted build needs."""
+        return self.find_dostring(cls, "Byte")
 
     def field_validity(self, obj, span=0x80):
         """Count how many qword fields (0x10..span) are valid heap-object
@@ -282,9 +321,16 @@ class X:
         # not a hard gate — the typed getter already vouches for the instance.
         if not (g == "LuaTable" and tr == "ObjectTranslator"):
             print("    (signature names undecodable on this build — trusting typed getter)")
-        # step 3 — pick the DoString(string,...) overload (not byte[])
+        # step 3 — pick the overload this BUILD can be driven with: a build whose
+        # loader wants its chunks wrapped takes them as bytes and only as bytes
+        # (tools/lib/lua_chunk_enc.py).
         print("[3] DoString overloads:")
-        ds_mi, ds_pc = self.find_dostring_string(luaenv_cls)
+        import lua_chunk_enc
+        self.enc = lua_chunk_enc.scheme()
+        if self.enc is not None:
+            print(f"    chunks are wrapped: {self.enc.describe()}")
+        ds_mi, ds_pc = (self.find_dostring_bytes(luaenv_cls) if self.enc is not None
+                        else self.find_dostring_string(luaenv_cls))
         if not ds_mi:
             raise SystemExit("DoString not found")
         print(f"    -> DoString(String) MI=0x{ds_mi:x} params={ds_pc}")
@@ -296,7 +342,9 @@ class X:
         NOTE: LuaEnv.DoString does NOT swallow Lua errors (unlike XLuaManager
         .SafeDoString) — a bad chunk surfaces in the exc slot. Requires
         setup_luaenv() to have run first."""
-        chunk_s = self.il2_string_new(chunk)
+        enc = getattr(self, "enc", None)
+        chunk_s = (self.il2_bytes_new(enc.pack(chunk)) if enc is not None
+                   else self.il2_string_new(chunk))
         name_s = self.il2_string_new(name)
         args = [("ref", chunk_s)]
         if self.ds_pc >= 2:
