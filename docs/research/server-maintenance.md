@@ -113,20 +113,77 @@ NOT the half-closed `LOST` state (`docs/research/server-link-status.md`), which 
 different failure that happens to look the same from the outside. The client kept opening
 fresh connections rather than sitting on a dead one.
 
+## 4a. THE GAME'S OWN WORDS — the key, found (2026-08-19)
+
+The one artefact §5 called the most valuable, read out loud by the person at the machine
+and then looked up in the client's own tables (`tools/game_locale.py`, all nineteen
+languages ship on disk). It is not a guess: the sentence matches a key exactly.
+
+**`login_err_tips_maintenance_new`** — what was on screen:
+
+```
+en  The server is under maintenance.\nPlease wait a moment, we'll be back with you shortly!
+ru  Сервер находится на техническом обслуживании.\nПодождите немного, мы скоро встретимся!
+```
+
+It is one of a small family, and the differences matter to whoever writes the gate:
+
+| key | what it is |
+|---|---|
+| `login_err_tips_maintenance_new` | **the one shown here** — no code, no time |
+| `login_err_tips_maintenance` | the older wording, and it carries a code: `({0}) Server is under maintenance.` |
+| `E100069` | «Server under maintenance, login later!» — the ERROR-CODE namespace, the same family the session kick lives in (`E100083`, docs/research/session-kick.md) |
+| `129012` | «Server maintenance in progress. Please log in later.» |
+| `2700002` / `2700003` | «Under Maintenance» / the update-notice title |
+| `brickweb_desc_error5` | «Servers under maintenance» — the web view's wording |
+| `server_open_tips001` | «The target warzone is under maintenance» — a CROSS-SERVER jump refused, not this account's own zone |
+| `server_maintenance_001` | «the opponent's server is under maintenance» — a duel refused, ditto |
+
+The last two are worth keeping apart from the rest: they say somebody ELSE'S warzone is
+closed while this one is playable, which is a completely different thing to do about.
+
+**So the recognisable sign exists and it is a key, not a sentence.** Any of
+`login_err_tips_maintenance_new`, `login_err_tips_maintenance`, `E100069` or `129012`
+showing in the client is «the server is closed», in whatever language that client runs.
+Reading which key a dialog was built from still needs the Lua VM — which is exactly what
+was silent (§3) — so the practical order stays: try the VM, and fall back to matching the
+rendered text against these keys read out of the game's own tables.
+
+## 4b. Is there a finish time? Not in this message — but a WARNING exists
+
+The login message carries neither a deadline nor a code. Two other keys say the game does
+announce the shutdown BEFORE it happens:
+
+```
+120036  The server will shut down for maintenance in {0}-min
+120037  The server will shut down for maintenance in {0}s
+```
+
+…and the season variant is the only one that estimates the length at all:
+
+```
+season_close_tips01  The season has ended, and the server is currently under maintenance.
+                     (Estimated time: 10-30 minutes)
+```
+
+**That changes the shape of the fix.** A panel cannot ask «when does it end» — nothing
+offers that — but it CAN hear «it starts in {0} minutes» and park the queue before the
+door closes rather than discovering it shut. Whether those two arrive as a push or only
+as a client-side countdown was not established and is the next thing to read.
+
 ## 5. What was NOT captured, and how to catch it next time
 
 Said plainly, because a gap nobody names is a gap nobody closes:
 
-* **the game's own words.** The exact on-screen text and, more importantly, the LOCALE KEY
-  behind it and any error code the server sent. This is the single most valuable artefact
-  — a key like `E1000xx` is how the state gets recognised in code — and it could not be
-  read, because the Lua VM answered nothing (§3). Next time: ask the person at the machine
-  to read the dialog out loud BEFORE trying anything clever, and take a `tools/…` packet
-  capture on `10935` while the dialog is up.
-* **whether the game says when it ends.** Nothing was readable, so it is unknown whether a
-  finish time is offered at all. If it is, it is a ready-made gate: the panel could park
-  every errand until then instead of failing each one on its own clock. Worth one probe
-  the moment a VM answers during a window.
+* ~~the game's own words~~ — **got them** (§4a), and the way it was done is the lesson:
+  the person at the machine read the dialog out loud and the key fell out of the client's
+  own tables in one lookup. Ask for the sentence FIRST, before anything clever.
+* ~~whether the game says when it ends~~ — **answered** (§4b): it does not, but it warns
+  before it starts.
+* **which key the dialog was actually built from.** §4a matches the rendered text, which
+  is one step short of reading the key off the window itself. That still needs the VM.
+* **whether `120036`/`120037` arrive as a push** or are drawn from a client-side clock.
+  If they are on the wire, the panel can hear the door closing.
 * **the frames on `10935`.** Nobody decoded them; the captures were filtered for the
   panel's own patterns and reported zero map responses, which says only that nothing they
   KNOW about arrived.
@@ -142,15 +199,21 @@ Nothing in this file has been acted on; it is written down so the next window is
 confirming rather than rediscovering.
 
 1. **Name the state.** A fifth verdict beside `online` / `offline` / `lost` /
-   `session_unknown`, recognised by the game's own message key once §5 has it. Until then
-   a HEURISTIC is available and cheap: link `ONLINE`, VM answering `None` to everything,
-   warzone reading `0`, and no traffic on the game port for N minutes.
+   `session_unknown`, recognised by the game's own keys — §4a has them now, and
+   `docs/research/session-kick.md` is the worked example of reading exactly this kind of
+   sign off a live client. The heuristic stays useful as a second rung for a client whose
+   VM will not answer: link `ONLINE`, VM answering `None` to everything, warzone reading
+   `0`, and no traffic on the game port for N minutes.
 2. **Park, do not spend.** Every errand currently FAILS once per fire, which burns retry
    budgets and fills the log with the same sentence twenty times. A recognised maintenance
    state should hold the queue the way a refused gate already does (#1416) and say so once.
 3. **Stop conflating «cannot say» with «is not there».** `not_in_world` must mean the
    client answered and said «city»; a VM that answers nothing deserves its own reason, and
    the flow strip already has the vocabulary for it (`panel/runtime/flow.py`, `refused`).
-4. **Say it in one place.** The profile light should read «сервер на обслуживании», not
+4. **Hear the door closing.** `120036`/`120037` count the shutdown down in minutes and
+   then seconds. If they are readable, the honest behaviour is to stop starting new
+   errands a minute before the server goes rather than to have twenty of them fail after
+   it has.
+5. **Say it in one place.** The profile light should read «сервер на обслуживании», not
    «не удалось спросить клиент» — the person then knows to wait rather than to restart the
    client, which is what «не удалось спросить» invites and what makes it worse.
