@@ -160,20 +160,21 @@ LWLuaFile is current. local=LwLuaState { version: 7, … }, remote_version=7, fo
 agent to tell at a glance whether a build is still on it. A build that goes back to
 plain source will say so there before anything else on the machine does.
 
-**What is proven and what is not, as of 2026-08-19 evening.** Proven: the scheme
-(the key read out of the plugin decrypts the client's own scripts into Lua 5.3 bytecode),
-and the route (the live panel resolved `DoString` with `param0=System.Byte[]` on the
-running client and logged `chunks are wrapped: ChaCha8 rounds=8 feedforward=False …`).
-**Not yet proven: one chunk landing and writing its line back.** It could not be, on
-that evening, for a reason that has nothing to do with the wrapping — the client would
-not stay in the game. It crashed on the loading screen once (`Curl error 6: Could not
-resolve host`, then the crash handler), and the instance launched after it sat on the
-loading screen for twenty-five minutes and exited without ever reaching the account. A
-client whose main thread is parked in the crash handler, or which has no window yet, is
-one nothing can attach to at all — which is what the daemon's log says now that it has
-one. **So the first thing to do when the client is playable again is the round trip**, and
-if it fails, the sentence to look for is `DoString refused the chunk:` in the daemon's log:
-that is the wrapping being wrong, and anything else is not.
+**Proven live, 2026-08-19 18:00.** The daemon says `warm — LuaEval resolved`, the answer
+file beside `Player.log` fills up with the markers of ordinary chunks — the scene read, the
+session-identity read, the kick check — and `Player.log` has **not one** `xLua exception`
+in the whole of the client's life. Chunks reach the VM, run, and write their lines back.
+The panel's timers and triggers are running against the game again.
+
+It took two goes, and the second one is the lesson. The first live daemon reported
+`the probe did not reach the client`, three in a row, and let go of the port — which reads
+exactly like the game refusing the chunk, and was in fact
+`unsupported operand type(s) for ^: 'str' and 'int'`: the wrapper was typed for bytes and
+every caller in this tree holds a chunk as a `str`, so the XOR met a character. **A type
+error inside the sender is indistinguishable, from outside, from the far end saying no**,
+and no amount of offline testing was going to find it because the offline tests were the
+thing that had been written to the type. The fix is one line and a test; the point is the
+shape of the report, which is why it is written down here.
 
 **What was NOT needed, and is worth not repeating.** No patching of the client's memory
 (the LENC compare is one `jne` away from being nopped, and an anti-cheat is in the
