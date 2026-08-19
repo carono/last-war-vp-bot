@@ -63,7 +63,15 @@ READ_LUA (function() … SceneUtils.GetIsInCity() … end)() INTO probe1
 → READ_LUA probe1 = None
 ```
 
-`None` twice, on two separate runs, while `daemon=warm` and the run itself reported `OK`.
+`None` on six runs spread over ten minutes, while `daemon=warm` and every run itself
+reported `OK`.
+
+**And here is the caveat that keeps this honest:** the client's process was replaced at
+least twice inside the window. A daemon pinned to a process that no longer exists answers
+exactly the same way — warm, `OK`, nothing back — so the VM's silence cannot be blamed on
+maintenance alone from this recording. What settles it costs one reading and was not
+taken: **compare the daemon's attached pid with the client's live pid**. Do that first
+next time; if they match, the silence is the game's.
 So during maintenance the VM is reachable enough for the interpreter to call it and
 returns nothing usable. **Everything that reads the game therefore answers «unknown»
 rather than failing** — which is why the monster poll's own reason came out as
@@ -94,6 +102,12 @@ client was using while the game was closed, and it was not in use before 13:03 i
 covering the whole day. Two readings would settle it, and neither was taken: whether
 `10935` is also used during an ordinary login, and what the frames on it actually carry.
 
+**And it came back on the game port before the game did.** At 13:13 the client was
+dialling `<gw5>:10012` again — the ordinary game port — with a third process id, and the
+VM was still answering nothing and every errand still failing on the same gate. So «the
+game port is back» is not «the server is back», and a panel that waited on the port alone
+would resume too early.
+
 **The sockets did not close.** The link verdict stayed `ONLINE` the whole time — this is
 NOT the half-closed `LOST` state (`docs/research/server-link-status.md`), which is a
 different failure that happens to look the same from the outside. The client kept opening
@@ -116,9 +130,11 @@ Said plainly, because a gap nobody names is a gap nobody closes:
 * **the frames on `10935`.** Nobody decoded them; the captures were filtered for the
   panel's own patterns and reported zero map responses, which says only that nothing they
   KNOW about arrived.
-* **whether the client was kicked or restarted into this state.** The client's process
-  changed around the same minute as a panel restart, so the two cannot be told apart from
-  this log.
+* **whether the client was kicked or restarted into this state.** Its process changed at
+  least twice during the window, once in the same minute as a panel restart, so nothing
+  here separates «maintenance replaced the client» from «the panel's own recovery did».
+* **the daemon's attached pid against the client's** (§3). One reading, and it decides
+  whether the VM silence in this file is the game's or the toolkit's.
 
 ## 6. What the panel should do about it — a proposal, not a change
 
