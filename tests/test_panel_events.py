@@ -382,7 +382,7 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._squad_var = None
     tab._tally = {}
     tab._chain_golden = False
-    tab._approach = True
+    tab._approach = False
     tab._approach_var = None
     return tab
 
@@ -500,17 +500,18 @@ def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
 def test_the_fast_approach_is_a_switch_on_both_front_ends():
     """The ride is a choice about how the chain TRAVELS, so it is set, not inferred."""
     tab = _tab()
-    assert tab.approach() is True, "the ride should be on out of the box"
-    assert tab.config()[modelmod.GOLDEN_APPROACH_KEY] is True
-    assert tab.web_press("approach_toggle", {}) == {"ok": True, "approach": False}
-    assert tab.approach() is False
-    assert tab.rt.played == [], "a switch pressed something at the game"
-    tab.apply_config({modelmod.GOLDEN_APPROACH_KEY: True})
+    assert tab.approach() is False, \
+        "the ride ships off — the attack from the far end is refused in silence (#1519)"
+    assert tab.config()[modelmod.GOLDEN_APPROACH_KEY] is False
+    assert tab.web_press("approach_toggle", {}) == {"ok": True, "approach": True}
     assert tab.approach() is True
+    assert tab.rt.played == [], "a switch pressed something at the game"
+    tab.apply_config({modelmod.GOLDEN_APPROACH_KEY: False})
+    assert tab.approach() is False
     # …and the phone SAYS which way it is set, in words rather than a bare true/false.
     rows = {r["label"]: r["value"] for c in tab.web_view()["cards"]
             for r in c.get("rows") or ()}
-    assert rows["events.golden.approach"] == "events.golden.approach.on"
+    assert rows["events.golden.approach"] == "events.golden.approach.off"
 
 
 def test_the_two_march_speeds_reach_the_board_as_numbers_a_person_reads():

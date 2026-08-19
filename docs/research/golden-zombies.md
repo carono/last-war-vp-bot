@@ -257,13 +257,30 @@ chain is on the newest own march's `endTime` — the server's own arrival stamp,
 one that came within two seconds of the prediction. This corrects §5 below: the state
 reading tells «out» from «at home» and nothing finer.
 
-**The risk, plainly.** A squad that lands at a mine is GATHERING, and issuing the attack
-from there is the same move the chain's second kill already needs: a march from where the
-squad stands rather than from home. That is not proven live yet and this feature inherits
-it exactly. What IS known: **the ride is free** — `GetCostStaminaByTargetType(COLLECT)`
-is **0** against 10 for an attack — so a plan that turns out to be impossible costs travel
-time and not one point of the day's purse, and the recipe still proves every attack by the
-energy the server takes.
+### And it does not finish — measured, not feared
+
+The whole manoeuvre was run end to end: a ride was planned, sent, waited out, and then
+the attack was issued from the mine. **The server did not take the energy** — fourteen
+seconds of polling, `charged: 0`, with the squad landed (`state = 1`), the purse at 98
+and the target parked. So a bare `SendCreateMarchMessage` does not move an army off a
+resource node: a squad that has arrived at a mine is GATHERING, and the game holds it
+there.
+
+That is the same missing step the chain's second kill needs — a march issued from where
+the squad stands rather than from home — and this feature inherits it exactly. **So the
+switch ships OFF.** Turning it on today would send the squad on a fast ride to a mine and
+leave it there having bought nothing.
+
+What is missing is one call: how the game takes an army off a resource node without
+walking it home. `MarchUtil.OnBackHome` exists and is the wrong shape (it walks it home,
+which is what the chain is built to avoid). Nothing else was tried, and nothing should be
+guessed at — the last three times a march primitive was guessed at in this repository it
+returned `true` and did nothing (`world-monsters.md`, Findings 11 to 16).
+
+**The ride itself is free**, which is why the machinery is kept rather than deleted:
+`GetCostStaminaByTargetType(COLLECT)` is **0** against 10 for an attack, so the failed
+attempt cost travel time and not one point of the day's purse — and the recipe still
+proves every attack by the energy the server takes, which is exactly what caught this.
 
 ## 5 — the chain: why the squad does not go home in between
 

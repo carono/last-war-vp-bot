@@ -39,6 +39,30 @@
 # recipe, and unmoved on the second, where the chosen squad turned out to be already out
 # on the map and every send was refused in silence.
 #
+# ## The ride, and why it is off until the game lets go of the squad
+#
+# A march is priced by the ORDER, not by the distance: live,
+# `CalcMarchSpeedByConfig(ATTACK_MONSTER)` is 0.765 tiles a second and `COLLECT` is
+# 1.930 — **2.52 times faster**, out of two bonuses the player levels separately. Since
+# golden zombies live several hundred tiles from anybody's base, the haul is most of the
+# cost of a kill: across the live queue of 80, the farthest was 680 tiles — **888 s
+# marched straight there against 361 s ridden**. The ride is free, too:
+# `GetCostStaminaByTargetType(COLLECT)` is 0.
+#
+# All of that is real and measured, including the clock: a plan priced a ride at 285 s
+# and the march the server actually made answered 271 s to arrival.
+#
+# **And the manoeuvre still does not finish.** The squad rode out, landed at the mine,
+# and the attack sent from there was refused in silence — fourteen seconds of polling and
+# the server never took the energy. A squad that has arrived at a mine is GATHERING, and
+# the game does not let a bare `SendCreateMarchMessage` move it on. That is the same
+# missing step the chain's second kill needs, and until it is solved a ride would strand
+# the squad at a mine having bought nothing.
+#
+# So the switch ships OFF. Everything it needs is here and measured; what is missing is
+# one call — how the game takes an army off a resource node without walking it home —
+# and docs/research/golden-zombies.md says exactly what was tried.
+#
 # ## The scan
 #
 # `scan = 1` walks the camera over the whole server first (`scan_map.md`), which is what
@@ -65,6 +89,10 @@
 #               client's own, so a wide ask is «everything you know» and costs nothing.
 #   scan        1 to walk the whole map first, 0 to work with what is already loaded.
 #   limit       stop after this many attacks; 0 means «as many as the energy allows».
+#   approach    ride to a far target on a gather order before attacking it. **OFF by
+#               default, and the reason is a measurement rather than caution** — see
+#               «the ride» below. Turn it on from «События» when the missing step is
+#               solved.
 #   march_wait  how many three-second beats to wait for one march before giving up on it.
 #               The default is ten minutes because the FIRST march of a chain is long:
 #               live, the nearest of 134 golden zombies to the base was 492 tiles away —
@@ -87,7 +115,7 @@ ARGS radius = 2000
 ARGS scan = 1
 ARGS limit = 0
 ARGS march_wait = 200
-ARGS approach = 1
+ARGS approach = 0
 ARGS approach_sec = 60
 ARGS approach_reach = 12
 

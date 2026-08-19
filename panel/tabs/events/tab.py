@@ -131,9 +131,11 @@ class EventsTab(PanelTab):
         #: answer `config()` (`docs/panel-tabs.md`).
         self._squad = modelmod.GOLDEN_SQUAD_DEFAULT
         self._squad_var = None
-        #: Whether the chain rides to a far target on a gather order first. A switch,
-        #: because the gain comes from two bonuses the player levels separately.
-        self._approach = True
+        #: Whether the chain rides to a far target on a gather order first. OFF until
+        #: the game lets a squad leave a mine without walking home: the ride itself is
+        #: measured and worth minutes, and the attack from the far end is refused in
+        #: silence (#1519).
+        self._approach = False
         self._approach_var = None
         #: The day's tally, read out of `panel.db` the first time anybody looks.
         self._tally = None
@@ -659,7 +661,7 @@ class EventsTab(PanelTab):
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
-        self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, True))
+        self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
         try:
             if self._squad_var is not None:
                 self._squad_var.set(str(self._squad))
