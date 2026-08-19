@@ -47,6 +47,7 @@ being how the panel talks to itself.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
@@ -530,6 +531,19 @@ class GameLink:
         rdp_instance.start_daemon(session, port,
                                   say=lambda msg: self._log.put(f"[daemon] {msg}"))
 
+    def _log_path(self) -> str:
+        """Where this desktop's daemon writes what it says — one file per PORT.
+
+        Per port and not per profile, because the port is what identifies a daemon to
+        everything else here, and two profiles sharing one are sharing the daemon too.
+        Beside the second-session daemon's log, under the repository rather than under
+        `%TEMP%`: `tools/rdp_instance.py` put it there so another account could read it,
+        and one place for both is worth more than a tidier path for one.
+        """
+        folder = os.path.join(self._cwd, "results", "logs")
+        os.makedirs(folder, exist_ok=True)
+        return os.path.join(folder, f"lua_daemon_{self.port()}.log")
+
     def ensure(self) -> bool:
         """Make sure the daemon is up AND on the client that is running. Blocks; off Tk.
 
@@ -586,11 +600,19 @@ class GameLink:
                 if user:
                     self._start_in_session(user, port)
                 else:
-                    subprocess.Popen(
-                        [self._python(), self._script], cwd=self._cwd,
-                        creationflags=NO_WINDOW | DETACHED, env=self._env(),
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        stdin=subprocess.DEVNULL)
+                    # Its output goes to a FILE, not to DEVNULL. A daemon that cannot
+                    # attach says why — in one line, on its own stdout — and throwing
+                    # that away is how a client the panel could not drive at all read as
+                    # «came up, but never took hold of the client» for hours with no
+                    # further detail anywhere (#1555, #1556). The second-session daemon
+                    # has had such a log since it was written; this one had none.
+                    with open(self._log_path(), "a", encoding="utf-8",
+                              errors="replace") as sink:
+                        subprocess.Popen(
+                            [self._python(), self._script], cwd=self._cwd,
+                            creationflags=NO_WINDOW | DETACHED, env=self._env(),
+                            stdout=sink, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL)
             except Exception as exc:                  # noqa: BLE001
                 self._log.say("daemon", "log.daemon.launch_failed", error=exc)
                 self._note_error("launch failed")
