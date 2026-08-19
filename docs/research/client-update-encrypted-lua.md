@@ -78,13 +78,39 @@ was being outvoted by a live CONTROL one. Here it fired the other way round: the
 conversation was the abandoned old port, the live one was the game on `:10935`, and
 sockets alone cannot tell those two apart.
 
-**The rule was deliberately left as it is.** It leans towards `lost` because the two errors
-are not symmetric — a wrong `online` is silent and costs a night, a wrong `lost` is loud
-and costs one restart — and the lean did its job here: the restart is what dropped the
-stale `:10012` corpses, after which the reading went green and stayed green. What is worth
-knowing is the shape of it, so the next port move is recognised in minutes: **a client that
-is plainly receiving traffic while the panel reads `lost` is a client whose old
-conversation has not been cleaned up. Restart it once and the reading corrects itself.**
+**A restart does NOT cure it, and the first draft of this file said it did.** Measured on
+a client eight minutes old, started long after the update, while the game was plainly
+running:
+
+```
+conversations = {10012: (None, 6),  10935: (<established>, 0)}
+classify      = ("lost", None, 6)
+```
+
+Six half-closed sockets on the OLD port, to three different gateway addresses, on a client
+that has never seen the old server come up. So the client still DIALS `:10012` on every
+login — the old address is in the list it works through — the far end refuses, and the six
+corpses stay for the session while the game runs on `:10935`. `lost` is therefore the
+**permanent** reading on an updated client, not a leftover that one restart sweeps away.
+
+**And by the socket table alone it is indistinguishable from #1266.** That night was six
+half-closed sockets on one port and one established socket of another conversation — the
+same two rows, differing only in which port number is which. Nothing else in the table
+tells them apart, and this file is not going to guess: the last four times somebody
+decided which conversation was the game from its shape, it cost a night each time.
+
+What HAS changed under the rule is the assumption `conversations()` is written on — «one
+conversation is many addresses on ONE port», because the client greets several gateways
+and keeps one. The patch broke that: the race now runs across **two ports**, and grouping
+by port cuts one race in half and reports the losing half as a dead conversation. That is
+the thing to fix, and it needs a second reading to fix it honestly — the wire, which the
+capture is already watching (`GAME STREAM FOUND — …:10935` is exactly the missing fact).
+Left as its own task rather than guessed at here.
+
+Also gone from the table: `:17935`, the control channel, entirely. Everything that is not
+the game is now on `:443`, which was already excluded — so on THIS build the only
+non-`:443` established conversation is the game. That is an observation, not a rule: it is
+the very shape of reasoning that bought #1266.
 
 ## 4. The false green, and where it was manufactured
 
@@ -124,24 +150,90 @@ start, then `daemon=down`, and «демон не работает — тайме
 запускается» in the log — where the three hours before it had said `warm` without a
 break.
 
-**And it loops, on purpose rather than by accident.** The daemon leaves because it cannot
-drive the client; the panel starts another because a port nothing answers is a state it
-knows how to cure. Against a client whose Lua is refusing everything, neither can win, so
-a fresh daemon is built roughly every twenty-five seconds for as long as the client is
-left running. That is loud, which is what this file's other rule says a wrong reading
-should be, and it is not worth damping: the loop is a symptom of a client the panel cannot
-use at all, and a backoff would only make the same uselessness quieter. If a future
-client is unusable for a LONG period the answer is to close it, not to teach the panel to
-sit patiently beside it.
+**And it settles into a cycle, which is the recovery working rather than thrashing.** The
+daemon leaves because it cannot drive the client; the panel starts another because a port
+nothing answers is a state it knows how to cure. Against a client whose Lua refuses
+everything neither can win, so a fresh daemon is built once every `DAEMON_COOLDOWN_SEC`
+(two minutes) — the log says «служебный демон недавно уже запускался — жду 2 мин» in
+between, and that damper was already there. It is loud, which is what a wrong reading is
+supposed to be, and it is not worth quietening: the cycle is a symptom of a client the
+panel cannot use at all.
 
-## 5. What to check first, next time the client updates
+## 5. The checklist for the next client patch — with this patch's answers
 
-In order, and none of them takes more than a minute:
+A client update will happen again. This is the order to walk, what each step costs, and
+what it answered on 2026-08-19, so the next agent reads a table instead of repeating two
+hours of probing. Every one of them is asked of the LIVE machine; not one is answered from
+a constant in this repository.
 
-1. `%LOCALAPPDATA_LOW%\<publisher>\<product>\xlua_version.txt` and the mtime of
-   `lwScripts\LWScripts.data` — a rewrite there is a scripting-layer change.
-2. the tail of `Player.log` — `xLua exception` lines say the bridge is refusing us, and
-   nothing else in the panel will say so.
-3. the client's socket table — which remote port carries the established conversation, and
-   whether corpses of an older one are still hanging about.
-4. the daemon's ping — `last_ok_age` and `misses`, which are now trustworthy again.
+### 5.1 Is the daemon holding the client that is actually running?
+
+The cheapest and the most often guilty: a client that updates is a NEW process, and a
+daemon left on the old pid answers its port perfectly and drives nothing — from outside,
+indistinguishable from maintenance.
+
+Ask: the live client's pid (the process list, or `game_client.target_pid`) against the
+`pid` field of a `{"op":"ping"}` to the profile's daemon port.
+
+> **2026-08-19: NOT the fault.** Checked twice, across two different clients — ping said
+> `pid 47292` while the live client was 47292, and later the daemon had already let go of
+> the port with the live client at 12320. The binding was right the whole time.
+
+### 5.2 Have the addresses and the paths moved?
+
+Ask the live socket table for the port, never a constant, and
+`tools/lib/game_paths.py`'s own `report()` for the install, the data folder, the download
+tree and the bundle cache.
+
+> **2026-08-19: the port moved, `:10012` → `:10935`.** The captures followed by
+> themselves (they read the port off the socket table). Install, data folder, bundle
+> cache and download tree were unchanged, and `game_paths.game_port()`'s historical
+> `17935` is only a last-resort fallback, so nothing had to be edited. The trap here is
+> §3 above: the corpses of the old port make the link read `lost` for ever.
+
+### 5.3 Does the way INTO the game still exist under the names we use?
+
+This is the expensive one, and it splits into two questions that look like one. First,
+whether the names still resolve — a patch renames and moves C# classes, and everything we
+reach is reached by name. Second, whether a chunk that reaches the VM actually runs.
+
+Ask, in this order, and stop at the first that fails:
+`GameEntry.get_Lua` resolves and is static → it returns a manager → `XLuaManager
+.SafeDoString` resolves → `il2cpp_string_new` gives back a string that reads out of the
+client's memory as the text we sent → the chunk produces its line.
+
+> **2026-08-19: the names were all fine and the last step failed.** `get_Lua` resolved
+> and returned a manager with no exception, `SafeDoString` resolved, and the string read
+> back byte for byte (`len 15`, `-- LW1555 audit`). The chunk still came back as
+> `xLua exception : syntax error` — so the break is the Lua PARSER, past everything we
+> control (§2). Resolving the names and running a chunk are two different proofs; a patch
+> can break either, and only the second one was broken here.
+
+### 5.4 Is the reading empty because the client is new?
+
+A panel restart does not clear the game's own Lua state, but a client update clears
+everything: caches, managers, whatever a collector had accumulated. An empty reading right
+after a patch is a new client, not a broken collector — do not go hunting the collector.
+
+> **2026-08-19: not reached.** The VM answers nothing at all, so there is no empty reading
+> to misread. Noted so the next patch — where the VM DOES answer — is not misdiagnosed.
+
+### 5.5 Is the recovery fighting the patch?
+
+A client that is downloading or applying an update is a client that is not in the game,
+and the «knock on a client that is connected but not playing» cure will restart it out
+from under the download.
+
+> **2026-08-19: it behaved.** Two client restarts in the hour (15:53 and 16:01), then
+> `«клиент не слышен, но недавно уже перезапускался — жду 7 мин»`. After `FRUITLESS = 2`
+> restarts that changed nothing the blame moved off the client by itself (`blame:
+> daemon`), which is what that counter is for. The patch had already been downloaded and
+> applied at 12:41, so nothing was interrupted. Worth re-checking mid-download, where the
+> `STALLED_GRACE_SEC` of seven minutes is the only thing standing between the cure and a
+> half-applied patch.
+
+### 5.6 And read the two logs that say it out loud
+
+`Player.log` — `xLua exception` lines are the bridge refusing us, and nothing in the panel
+says so. The daemon's ping — `last_ok_age` and `misses`, which mean something again since
+§4.
