@@ -134,6 +134,16 @@ def test_pack_wears_the_magic_and_unpacks():
     assert scheme.unpack(blob) == b"-- LW1556"
 
 
+def test_pack_takes_the_text_every_caller_actually_holds():
+    """A chunk is a `str` everywhere in the tree, and it must not have to be encoded.
+
+    It did once, and the daemon reported the resulting TypeError as "the probe did not
+    reach the client" — indistinguishable, from outside, from the game refusing us.
+    """
+    scheme = enc.Scheme(KEY, NONCE, 4, False)
+    assert scheme.pack("-- LW1556") == scheme.pack(b"-- LW1556")
+
+
 def test_unpack_inflates_what_the_client_stores():
     """The client's own chunks are deflated inside the encryption; ours are not."""
     scheme = enc.Scheme(KEY, NONCE, 4, False)

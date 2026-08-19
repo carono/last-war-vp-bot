@@ -123,9 +123,16 @@ class Scheme:
         self.rounds, self.feedforward = rounds, feedforward
         self.source, self.verified = source, verified
 
-    def pack(self, chunk: bytes) -> bytes:
-        """`chunk` — plain Lua source — as the loader expects to receive it."""
-        return MAGIC + crypt(self.key, self.nonce, chunk, self.rounds, self.feedforward)
+    def pack(self, chunk) -> bytes:
+        """`chunk` — plain Lua source — as the loader expects to receive it.
+
+        Takes text or bytes. Every caller in the tree holds a chunk as `str`, and the
+        one that did not encode it first got `unsupported operand type(s) for ^: 'str'
+        and 'int'` out of the daemon — five probes deep, against a live client, where a
+        type error reads exactly like the game refusing us.
+        """
+        raw = chunk.encode("utf-8") if isinstance(chunk, str) else bytes(chunk)
+        return MAGIC + crypt(self.key, self.nonce, raw, self.rounds, self.feedforward)
 
     def unpack(self, blob: bytes) -> bytes:
         """The other direction, for reading the client's own scripts."""
