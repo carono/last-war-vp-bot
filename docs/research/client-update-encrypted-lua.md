@@ -176,6 +176,15 @@ and no amount of offline testing was going to find it because the offline tests 
 thing that had been written to the type. The fix is one line and a test; the point is the
 shape of the report, which is why it is written down here.
 
+**If it ever stops working, read one line.** A wrapping the loader does not accept comes
+back as `DoString refused the chunk:` in the daemon's own log
+(`results/logs/lua_daemon_<port>.log`) — that, and only that, is the wrapping being wrong.
+`the probe did not reach the client`, `never took hold of the client` or a gated-hijack
+abort are the client not being drivable at all: a client mid-boot, without a window, or
+parked in its crash handler. The two look identical from the panel and have nothing to do
+with each other, which cost this task an afternoon. And if a patch has moved the scheme,
+`python3 tools/lib/lua_chunk_enc.py` says so in one line without a game running.
+
 **What was NOT needed, and is worth not repeating.** No patching of the client's memory
 (the LENC compare is one `jne` away from being nopped, and an anti-cheat is in the
 process — feeding the loader what it asks for is both cheaper and quieter), no calling
