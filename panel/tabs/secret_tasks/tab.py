@@ -4340,7 +4340,15 @@ class SecretTasksTab(PanelTab):
                                       # side by side; the phone reads the number here
                                       # and flips the box with the action below.
                                       {"label": "world.monsters.follow_secs",
-                                       "value": str(self.monsters.follow_seconds())}],
+                                       "value": str(self.monsters.follow_seconds())}]
+                                   # …and how many the «простые» box is holding back
+                                   # (#1549). The window draws it beside the box; a card
+                                   # has rows, so here it is a row — and it is only there
+                                   # when something IS hidden, like every other counter
+                                   # on this screen.
+                                   + ([{"label": "world.monsters.plain_hidden_row",
+                                        "value": str(self.monsters.plain_hidden())}]
+                                      if self.monsters.plain_hidden() else []),
                            "empty": "world.monsters.empty",
                            # The one card whose feed is a game read rather than the
                            # sniffer, so it says so and offers the read itself — and the
@@ -4363,6 +4371,13 @@ class SecretTasksTab(PanelTab):
                                         "label": ("world.monsters.follow.off"
                                                   if self.monsters.follow_var.get()
                                                   else "world.monsters.follow.on")},
+                                       # …and the window's «Скрывать простых» (#1549),
+                                       # worded by what pressing it will do. It HIDES:
+                                       # the rows stay in the model either way.
+                                       {"id": "hide_plain_monsters",
+                                        "label": ("world.monsters.plain.show"
+                                                  if self.monsters.hide_plain_var.get()
+                                                  else "world.monsters.plain.hide")},
                                        self._clear_action("monsters")]},
                           {"title": "world.trains",
                            "items": self.trains.web_items(),
@@ -4610,6 +4625,12 @@ class SecretTasksTab(PanelTab):
             # which is why it is a press the phone may make at all.
             self.post(self._read_monsters)
             return {"ok": True}
+        if action == "hide_plain_monsters":
+            # A DISPLAY RULE, flipped from the phone — nothing is read, nothing is
+            # robbed and nothing leaves the list (#1549).
+            self.monsters.hide_plain_var.set(not self.monsters.hide_plain_var.get())
+            self.post(self.monsters.refilter)
+            return {"ok": True, "on": bool(self.monsters.hide_plain_var.get())}
         if action == "follow_monsters":
             # The window's own checkbox, flipped from the phone (#1549). It changes a
             # SETTING and starts nothing: the poll's chain re-reads the box on its next

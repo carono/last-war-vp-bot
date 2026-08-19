@@ -65,6 +65,43 @@ MONSTER_TYPE_KEYS = {
     8: "world.monster.type.doom",
 }
 
+#: WHAT «ПРОСТОЙ МОНСТР» IS, by the only name a row carries (#1549).
+#:
+#: The prefab, normalised — `lw_world_monster.pic_name`, which is what both monster reads
+#: answer with. Everything under this mask is an ordinary field target: live, one register
+#: answer held 197 of them (`world_monster_boss_bread` 73, `world_monster_boss_coin_2` 68,
+#: `world_monster_boss_iron` 56, levels 1…35) against 152 golden zombies, and nothing else.
+#:
+#: **ONE CAVEAT, and it is written here rather than discovered later.** The mask also
+#: covers `world_monster_boss_invasion`, `_1` and `_2` — the invasion event's real bosses,
+#: levels 5…150 (`special = 10`, docs/research/golden-zombies.md §1b). None was on the map
+#: when this was measured, because the event was between waves. If those should stay
+#: visible the exact sign is the family: the same mask minus anything starting
+#: `world_monster_boss_invasion`. It is one line, and it is not guessed at here because
+#: the operator named this mask and a filter that quietly means something else is worse
+#: than one that means too much.
+PLAIN_PREFIX = "world_monster_boss_"
+
+#: The same mask NORMALISED — lower-case with everything but letters and digits dropped.
+#: The two monster sources spell a prefab differently: the register answers with the
+#: config's own `pic_name` (`world_monster_boss_iron`) and a drawn clone answers with the
+#: object's name (`WorldMonster_Boss01`). The game's own lookup normalises both before
+#: comparing them (`monster_prefab_lookup` in tools/lib/lua_actions.py), and so does this,
+#: or the box would hide the register's rows and leave the drawn ones on the table.
+_PLAIN_NORM = "".join(ch for ch in PLAIN_PREFIX if ch.isalnum())
+
+
+def is_plain(row) -> bool:
+    """Whether this row is an ordinary field monster — see :data:`PLAIN_PREFIX`.
+
+    A row with NO prefab name at all is not called plain: a drawn clone the config could
+    not resolve says nothing about what it is, and hiding it on a guess is how a list
+    loses the rows nobody can account for.
+    """
+    name = str(row.get("kind_name") or "")
+    return "".join(ch for ch in name if ch.isalnum()).lower().startswith(_PLAIN_NORM)
+
+
 #: What a mine yields — `lastwar_proto.MINE_RESOURCES`, said in the person's language.
 #: A family nobody has named (the fourth one, four tiles in a whole lap) says so rather
 #: than being given an invented name.
@@ -543,6 +580,19 @@ class MonsterGrid(WorldGrid):
         self.follow_var = tk.BooleanVar(master=tab.rt.root, value=True)
         self.follow_secs_var = tk_stringvar(tab.rt.root)
         self.follow_secs_var.set(self.DEFAULT_FOLLOW)
+        #: «Скрывать простых» — ON for a profile that has never been asked. The ordinary
+        #: field monsters are most of the page (197 of 349 in the live reading this was
+        #: measured on) and the operator asked not to be shown them; the box is what
+        #: brings them back rather than what takes them away.
+        #:
+        #: IT HIDES, IT DOES NOT DROP. Nothing leaves `self._rows`, nothing leaves the
+        #: checkpoint: `narrow` is a display rule, so the count beside the box says how
+        #: many are being held back and one tick puts them all on the table again.
+        self.hide_plain_var = tk.BooleanVar(master=tab.rt.root, value=True)
+        #: …and that count, drawn next to the box rather than only in the page's own
+        #: «показано / скрыто» pair: a number at the far end of the header answers «is
+        #: something hidden», and the question here is «is THIS filter hiding it».
+        self.plain_count_var = tk_stringvar(tab.rt.root)
 
     def extra_filters(self, bar) -> None:
         """The lap's own controls, on the page the lap fills.
@@ -573,12 +623,52 @@ class MonsterGrid(WorldGrid):
         NumericEntry(bar, textvariable=self.follow_secs_var, width=4).pack(side="left")
         self.tab.tr(ttk.Label(bar), "world.monsters.follow_secs").pack(side="left",
                                                                       padx=(2, 0))
+        # …and the one display rule this page has (#1549): hide the ordinary field
+        # monsters. A SECOND LINE of the filter bar, because the first one already holds
+        # the level range, the lap's two numbers, three buttons and the follow clock —
+        # and a box nobody can find is a box nobody unticks when a row goes missing.
+        # `bar.master` is the page frame, and `build_filters` runs before the table is
+        # packed, so this lands between the bar and the table.
+        row = ttk.Frame(bar.master)
+        row.pack(fill="x", pady=(4, 0))
+        self.tab.tr(ttk.Checkbutton(row, variable=self.hide_plain_var,
+                                    command=self.refilter),
+                    "world.monsters.hide_plain").pack(side="left")
+        ttk.Label(row, textvariable=self.plain_count_var,
+                  foreground="#888").pack(side="left", padx=(6, 0))
+
+    # -- what is SHOWN, which is never what is kept -------------------------
+    def narrow(self, rows) -> list:
+        """Hold back the ordinary field monsters when the box asks for it (#1549).
+
+        A DISPLAY RULE and nothing else, which is the rule of this repository and the one
+        that has cost most when it was got wrong: the rows stay in the model, stay in the
+        checkpoint and come straight back when the box is unticked. Only `visible_rows`
+        goes through here.
+        """
+        if not self.hide_plain_var.get():
+            return rows
+        return [r for r in rows if not is_plain(r)]
+
+    def plain_hidden(self) -> int:
+        """How many rows THIS box is holding back — the number beside it."""
+        if not self.hide_plain_var.get():
+            return 0
+        return sum(1 for r in self._rows.values()
+                   if is_plain(r) and self.in_level_range(r))
+
+    def _update_count(self) -> None:
+        super()._update_count()
+        hidden = self.plain_hidden()
+        self.plain_count_var.set(
+            self.tab.t("world.monsters.plain_hidden", n=hidden) if hidden else "")
 
     def config(self) -> dict:
         return dict(super().config(), pace=self.pace_var.get(),
                     stages=self.stages_var.get(),
                     follow=bool(self.follow_var.get()),
-                    follow_secs=self.follow_secs_var.get())
+                    follow_secs=self.follow_secs_var.get(),
+                    hide_plain=bool(self.hide_plain_var.get()))
 
     def apply_config(self, raw) -> None:
         super().apply_config(raw)
@@ -586,10 +676,12 @@ class MonsterGrid(WorldGrid):
         grid.take(raw, "stages", self.stages_var, str)
         grid.take(raw, "follow", self.follow_var)
         grid.take(raw, "follow_secs", self.follow_secs_var, str)
+        grid.take(raw, "hide_plain", self.hide_plain_var)
 
     def persist_vars(self) -> list:
         return super().persist_vars() + [self.pace_var, self.stages_var,
-                                         self.follow_var, self.follow_secs_var]
+                                         self.follow_var, self.follow_secs_var,
+                                         self.hide_plain_var]
 
     def follow_seconds(self) -> int:
         """How often the register is asked, never so often that it is all the panel does.
