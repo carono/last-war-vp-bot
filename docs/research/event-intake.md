@@ -177,6 +177,75 @@ zombies with it and this page cannot count the map with it.
 
 ---
 
+## The OTHER source: the world's own register, and what it really answers
+
+The lap above reads what the client has DRAWN. There is a second source, and the operator
+asked for it to be taken apart: `WorldScene:GetMonsterListInArea(centre, size,
+cfgIdWhitelist, out)`. Everything below is live, on one warzone.
+
+### The whitelist — where the config ids come from
+
+`LocalController.instance():getTable("lw_world_monster").data` is a plain Lua table keyed
+by config id: **12 115 rows, walked in 31 ms**. Grouped by the `pic_name` column it makes
+**107 distinct prefabs** — the same census #1519 made from the other end, and the same
+`world_monster_general_invasion` (ids 1030000/1/2, level 10, type 7, special 9) that the
+golden zombie is.
+
+Two things about the whitelist matter:
+
+* **an empty one answers nothing.** It is a filter, not a wildcard, so «ask for
+  everything» means literally handing over all 12 115 ids. Building that C# dictionary
+  costs **52 ms**, once.
+* **a prefab cannot say the level.** Its rows differ by nothing else — iron 1…35, bread
+  1…35 — so a whitelist of a whole prefab answers «here they are» and cannot say which row
+  each one is. That is why the register is asked TWICE: once per prefab to find which
+  kinds are on the map at all (107 asks), then once per config id inside the prefabs that
+  answered (108 asks on this map). Every monster then carries its own row.
+
+### What it answers, and what feeds it
+
+| question | answer |
+|---|---|
+| does the radius bound it? | **no.** At the camera, at the middle of the map and with a radius of 5 000 the same client answered the same **28**. One call is «tell me everything». |
+| does the camera position matter? | **no**, only through what it has loaded. |
+| what feeds it? | **loading, not drawing.** 36 rows before a lap → **178 after a FAST lap of 8 s** → still 178 ten seconds later. The 147-second slow lap added **nothing**. |
+| does a high lap help? | **it destroys it.** After a lap at height 1199 the same call answered **0** — that height loads the coarse big-map layer and the client lets the fine one go. |
+| what does the asking cost? | **36 ms** for 178 monsters over 108 second-pass calls. |
+| how good are the rows? | **every one with an exact level, and with the game's own uuid** — the one field a march cannot be sent without, and the one a drawn clone never has. |
+
+### So: is a camera walk needed?
+
+**Yes, but the CHEAP one.** The register is empty about ground the client has not loaded,
+and the only thing that loads ground is moving the camera over it. But loading is all it
+needs — 8 seconds at the ★ lap's own pace, against 147 for the drawing. The slow lap buys
+this source nothing at all.
+
+### What it is NOT
+
+It is not every monster on the map. On the shipping path, pressed live: **321 monsters in
+9 seconds, all 321 with a uuid and a level** — 133 golden zombies, 65 iron, 62 coin, 61
+bread. The plain roaming squads the client draws as `WorldMonster_Boss01` and friends are
+**not in the register at all**; those are the ones the slow lap picks up (897 in 147 s,
+with no uuid).
+
+So the two sources are complementary and both are kept:
+
+| | «Спросить мир» (register) | «Обойти за монстрами» (drawing) |
+|---|---|---|
+| time | **9 s** | 147 s |
+| rows | 321 | 897 |
+| uuid | **all of them** | none |
+| level | all of them, exact | off the tag |
+| kinds | resource bosses + invasion (incl. the golden zombie) | everything the client draws |
+
+### For the attack chain (#1519)
+
+What this hands over, in `panel.db`'s `world_state_monsters` blob and in the scenario's
+own answer: `game_uuid` (the march target), `cfg_id`, `level`, `monster_type`,
+`kind_name` (the prefab, so `world_monster_general_invasion` IS the golden zombie) and the
+tile. `actions/list_world_monsters.md` returns the same records directly for a recipe that
+would rather not go through the page.
+
 ## Where the numbers are read
 
 «Разработка» → «Занятость» → **«Приёмники»**: one row per receiver, the four numbers, the

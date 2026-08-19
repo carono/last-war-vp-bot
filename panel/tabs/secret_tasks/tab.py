@@ -2846,6 +2846,66 @@ class SecretTasksTab(PanelTab):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def ask_world_monsters(self) -> None:
+        """«Спросить мир» — the register, not the camera (#1523).
+
+        THE OTHER SOURCE, and the fast one. `scan_map_monsters.md` walks the map slowly
+        and reads what the client has DRAWN — 897 monsters in 147 s, none of them with a
+        uuid. This plays `actions/list_world_monsters.md`, which laps at the ★ lap's own
+        pace to LOAD the map and then asks `WorldScene`'s own register: measured live,
+        **178 monsters in 8 s of camera and 36 ms of asking, every one with an exact
+        level and the game's own uuid**.
+
+        The two are not rivals and neither replaces the other: the register keeps the
+        resource bosses and the invasion monsters (iron, bread, coin, the golden zombie)
+        and knows nothing of the plain roaming squads, which only the drawing has. Both
+        land in the same page under the same merge rule, and a row the register answered
+        for keeps its uuid whatever the slow lap says about that tile afterwards.
+        """
+        if self._monster_busy:
+            self.take(INTAKE_MONSTERS).dropped(reason="already_reading")
+            return
+        self._monster_busy = True
+        srv = self.coord_srv_var.get().strip()
+        server = int(srv) if srv.isdigit() else 0
+        self.say("coord", "log.monsters.asking")
+
+        def work() -> None:
+            take = self.take(INTAKE_MONSTERS)
+            found: list = []
+            why = ""
+            try:
+                if not self.rt.game.ready():
+                    why = "no_game"
+                else:
+                    outcome = self.rt.actions.play(
+                        "list_world_monsters", {"server": server},
+                        on_event=lambda _m: None)
+                    ctx = getattr(outcome, "ctx", None)
+                    raw = (getattr(ctx, "vars", {}) or {}).get("monsters")
+                    if not outcome.ok:
+                        why = "read_failed"
+                    elif isinstance(raw, str):
+                        found = world.parse_monsters(
+                            raw, server=self._own_server or None)
+                    else:
+                        why = "no_answer"
+            except Exception as exc:           # noqa: BLE001 — a read, never the window
+                why = "read_failed"
+                self.rt.dbg("secret").warning("monster register failed: %s", exc,
+                                              exc_info=True)
+            take.seen(len(found))
+            take.kept(len(found))
+            if why:
+                self._say_monsters((why,), "log.monsters.unread", why=why)
+            else:
+                self._say_monsters(("world", len(found)), "log.monsters.asked",
+                                   n=len(found),
+                                   named=sum(1 for r in found if r.get("game_uuid")))
+            self.after(lambda: self._monsters_landed(found))
+
+        threading.Thread(target=work, daemon=True).start()
+
     @staticmethod
     def _monster_lap_seconds(pace: float, stages) -> float:
         """Roughly how long the whole thing takes, so the line can say it before it does.
@@ -4149,6 +4209,12 @@ class SecretTasksTab(PanelTab):
                                         "label": "world.monsters.read"},
                                        {"id": "sweep_monsters",
                                         "label": "world.monsters.sweep"},
+                                       # …and the fast one beside it (#1523): the world's
+                                       # own register, 8 s against 147, with the uuid a
+                                       # march needs. Two presses because they answer two
+                                       # different questions, not one dressed twice.
+                                       {"id": "ask_monsters",
+                                        "label": "world.monsters.ask"},
                                        self._clear_action("monsters")]},
                           {"title": "world.trains",
                            "items": self.trains.web_items(),
@@ -4367,6 +4433,11 @@ class SecretTasksTab(PanelTab):
             # The monster page's own feed. A READ — it presses nothing in the game —
             # which is why it is a press the phone may make at all.
             self.post(self._read_monsters)
+            return {"ok": True}
+        if action == "ask_monsters":
+            # The register. It moves the camera at the ★ lap's pace and asks a question;
+            # nothing is pressed in the game, and the whole of it is one scenario.
+            self.post(self.ask_world_monsters)
             return {"ok": True}
         if action == "sweep_monsters":
             # The lap that FILLS the page. It moves the camera and nothing else — no

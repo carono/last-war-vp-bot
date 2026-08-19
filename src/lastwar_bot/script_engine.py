@@ -280,6 +280,14 @@ _LUA_RE = re.compile(r"^LUA\s+(.+)$", re.IGNORECASE)
 _READ_LUA_RE = re.compile(
     r"^READ_LUA\s+(.+)\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
 )
+# …and the world's own monster REGISTER, which is a question and not a look (#1523). It
+# is a statement of its own rather than a `READ_LUA` with a chunk in the recipe, because
+# the chunk walks a 12 115-row config table and asks the scene a hundred times: a copy of
+# that in a `.md` is a copy that drifts (`docs/research/golden-zombies.md`, «a recipe
+# embeds a COPY of any helper it uses»).
+_SCAN_MONSTERS_RE = re.compile(
+    r"^SCAN_MONSTERS\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
+)
 # Numeric variable condition: `attempts > 0`, `haswin == 0`, etc. Evaluated after
 # the screen/profile/missions predicates so those keywords keep priority.
 _VAR_COND_RE = re.compile(
@@ -470,6 +478,18 @@ class LuaStmt(_Stmt):
 class ReadLuaStmt(_Stmt):
     """Evaluate a Lua expression and store its value in the script variable `var`."""
     expr: str
+    var: str
+
+
+@dataclass(slots=True)
+class ScanMonstersStmt(_Stmt):
+    """Ask the world for every monster it holds, and put the answer in `var` (#1523).
+
+    Not a camera walk and not a look at what is drawn: `WorldScene:GetMonsterListInArea`
+    answers out of what the client has LOADED, so one call covers the whole map and the
+    lap in front of it may be the cheap one. See `lua_actions.MONSTER_REGISTER` for the
+    three measurements that decide how a caller uses it.
+    """
     var: str
 
 
@@ -852,6 +872,10 @@ def _parse_one(lines, i, indent):
         else:
             count = int(raw)
         return TapStmt(text=text, line_no=ln, name=m.group(1), count=count), i + 1
+
+    m = _SCAN_MONSTERS_RE.match(text)
+    if m:
+        return ScanMonstersStmt(text=text, line_no=ln, var=m.group(1)), i + 1
 
     m = _READ_LUA_RE.match(text)
     if m:
@@ -1438,6 +1462,8 @@ class Interpreter:
                 self._do_next_star_server(stmt)
             case ReadLuaStmt():
                 self._do_read_lua(stmt)
+            case ScanMonstersStmt():
+                self._do_scan_monsters(stmt)
 
     # ---- conditions ----
 
@@ -2617,6 +2643,35 @@ class Interpreter:
                     value = _coerce(raw)
         self.ctx.vars[stmt.var] = value
         self._log(f"READ_LUA {stmt.var} = {value!r}")
+
+    def _do_scan_monsters(self, stmt: ScanMonstersStmt) -> None:
+        """Ask the world's own register, and say how many it answered with (#1523).
+
+        The whole implementation is `lua_actions.monster_register()` — one expression, so
+        it goes through the very path `READ_LUA` uses and gets the same answer channel.
+        The count is logged because a register that answers nothing and a map with nothing
+        on it look identical otherwise, which is the fault this task exists for.
+        """
+        self._tools_lib_on_path()
+        import lua_actions
+
+        chunk = (
+            'local ok,v=pcall(function() return %s end) '
+            'CS.UnityEngine.Debug.LogError("RLUA "..(ok and tostring(v) or ("ERR:"..tostring(v))))'
+            % lua_actions.monster_register()
+        )
+        value: Any = None
+        for ln in self._run_lua(chunk, marker="RLUA"):
+            if "RLUA " in ln:
+                raw = ln.split("RLUA ", 1)[1].strip()
+                if raw.startswith("ERR:"):
+                    self._log(f"SCAN_MONSTERS error: {raw[4:]}")
+                    value = None
+                else:
+                    value = raw
+        self.ctx.vars[stmt.var] = value
+        found = 0 if not value else len(str(value).split("|"))
+        self._log(f"SCAN_MONSTERS -> {found} monster(s) INTO {stmt.var}")
 
     def _do_collect_vs_duel(self, stmt: CollectVsDuelStmt) -> None:
         """Read the alliance duel and, when asked, write it into a ranking history.

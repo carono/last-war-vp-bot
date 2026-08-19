@@ -779,6 +779,46 @@ Three things to know:
   slope — somewhere around a second the client's region loader starts keeping up — so a
   harvesting lap at the ★ lap's pace looks like it worked and collects almost nothing.
 
+### `SCAN_MONSTERS INTO <var>`
+
+Ask the world for **every monster it holds** — the register, not the camera (#1523).
+
+`WorldScene:GetMonsterListInArea` answers `uuid -> tile` out of what the client has
+LOADED, so one call covers the whole map. The statement walks `lw_world_monster`
+(12 115 rows, grouped into 107 prefabs and cached in the game's own `_G`), asks once per
+prefab to find which kinds are on the map at all, then once per config id inside those —
+which is what makes the LEVEL exact, since a prefab's rows differ by nothing else.
+
+```
+SWEEP_MAP ZOOM 600 STEP 90 EVERY 0.05    # load the map — the CHEAP lap is enough
+SCAN_MONSTERS INTO monsters
+```
+
+The answer is one string of `key=value` records separated by « | », the same shape
+`read_world_monsters.md` uses, with two fields the drawn-clone reads can never carry:
+
+```
+src=world pid=485343 x=342 y=485 uuid=<the game's own> cfg=1030000 type=7 level=10 kind=world_monster_general_invasion
+```
+
+Four things were measured live and each decides how a caller uses it:
+
+- **the radius is not a window.** Asked at the camera, at the middle of the map and with
+  a radius of 5 000, the same client answered the same 28. One call is «tell me
+  everything»; walking the map with the QUESTION buys nothing.
+- **it is fed by LOADING, not by drawing.** 36 rows before a lap, **178 after a FAST one
+  (8 s, the ★ lap's pace)**, still 178 ten seconds later — and the slow monster lap
+  (147 s of standing at every stop) added **nothing**. Put the cheap lap in front of it.
+- **a lap at 1199 empties it to 0.** That height loads the coarse big-map layer and the
+  client lets the fine one go, so ask at the bottom of a multi-height walk, never the top.
+- **it costs 36 ms** for 178 monsters over 108 second-pass calls, every one with an exact
+  level.
+
+**What it does NOT answer:** the plain roaming squads the client draws as `WorldMonster*`
+clones are not in the register. Those need `scan_map_monsters.md`, which is 147 s and has
+no uuid. The two are different questions, and `actions/list_world_monsters.md` is the
+recipe for this one.
+
 ### `VISIT_MAP POINTS x,y;x,y [ZOOM height] [EVERY seconds] SERVER id`
 
 Walk the camera over the tiles you **name**, instead of over the whole map. The

@@ -473,7 +473,8 @@ class MonsterGrid(WorldGrid):
         "state": lambda r: (str(r.get("source") or ""), str(r["uuid"])),
     }
     PERSIST_KEYS = WorldGrid.PERSIST_KEYS + ("monster_type", "kind_name",
-                                             "cfg_id", "source", "point_id")
+                                             "cfg_id", "source", "point_id",
+                                             "game_uuid")
 
     #: THE ONE PAGE THAT KEEPS ITS OWN LIST — nothing else remembers it. The other three
     #: are re-read from the capture's checkpoint; a monster read leaves nothing behind
@@ -541,6 +542,10 @@ class MonsterGrid(WorldGrid):
         ttk.Entry(bar, textvariable=self.stages_var, width=12).pack(side="left")
         self.tab.tr(ttk.Button(bar, command=self.tab.sweep_monsters),
                     "world.monsters.sweep").pack(side="left", padx=(8, 0))
+        # …and the FAST one beside it (#1523): the world's own register instead of a look
+        # at what is drawn — 8 s against 147, and the only source that carries the uuid.
+        self.tab.tr(ttk.Button(bar, command=self.tab.ask_world_monsters),
+                    "world.monsters.ask").pack(side="left", padx=(4, 0))
 
     def config(self) -> dict:
         return dict(super().config(), pace=self.pace_var.get(),
@@ -592,14 +597,28 @@ class MonsterGrid(WorldGrid):
     def decorate(self, row, record) -> None:
         super().decorate(row, record)
         row["monster_type"] = record.get("monster_type")
+        # …and the game's own uuid, which only the register answers with. NEVER cleared
+        # by a later read that lacks it: a lap of the drawn clones re-sees the same tile
+        # and knows no uuid, and dropping the one the register gave would take the march
+        # away from a row that had it (#1523).
+        if record.get("game_uuid"):
+            row["game_uuid"] = record.get("game_uuid")
         row["kind_name"] = record.get("kind_name") or ""
         row["cfg_id"] = record.get("cfg_id")
         row["source"] = record.get("source")
         row["point_id"] = record.get("point_id")
 
     def state_key(self, row, record) -> str:
-        return ("world.monster.src.invasion" if record.get("source") == "invasion"
-                else "world.monster.src.scene")
+        source = record.get("source")
+        if source == "invasion":
+            return "world.monster.src.invasion"
+        # A row the world's own register answered for — the one kind that carries a uuid
+        # and is therefore the one an attack can actually be aimed at (#1523).
+        if source == "world":
+            return "world.monster.src.world"
+        if source == "lap":
+            return "world.monster.src.lap"
+        return "world.monster.src.scene"
 
     def rank(self, row) -> tuple:
         """The highest level first — the one worth a rally is the one worth showing."""
@@ -1034,8 +1053,16 @@ def parse_monsters(text, server=None, now=None) -> list:
         # is kept apart from a level all the way to the cell: «уровень 0» over a level-10
         # zombie is a lie, and a lie is worse than a dash (#1519).
         level = number("level")
+        # THE GAME'S OWN UUID, kept beside the tile key and never instead of it (#1523).
+        # A drawn clone has none until it is selected, so the ROW is still identified by
+        # its tile — but the world's own register (`SCAN_MONSTERS`) answers with the real
+        # uuid, and that is the one field a march cannot be sent without. Carried through
+        # so an ability that attacks a monster has it without asking again, and left out
+        # rather than zeroed when nobody could say.
+        game_uuid = str(fields.get("uuid") or "").strip()
         out.append({
             "uuid": "%s:%s" % (server or 0, pid),
+            "game_uuid": game_uuid if game_uuid.isdigit() and game_uuid != "0" else None,
             "point_id": int(pid),
             "server": server,
             "x": number("x"), "y": number("y"),

@@ -401,6 +401,85 @@ def test_the_lap_reaches_the_phone_as_well_as_the_window():
     assert '"world.monsters.sweep"' in world, "the window's own button is missing"
 
 
+def test_the_world_register_is_a_primitive_and_not_a_chunk_in_a_recipe():
+    """`SCAN_MONSTERS` is a statement, and the Lua behind it lives in ONE place (#1523).
+
+    A recipe embeds a COPY of any helper it uses — the DSL has no include — and the copy
+    drifts (`docs/research/golden-zombies.md`). This chunk walks a 12 115-row config
+    table and asks the scene a hundred times, so it is a primitive instead.
+    """
+    import lua_actions
+    from lastwar_bot import script_engine as se
+
+    program = se.parse_text("SCAN_MONSTERS INTO monsters")
+    assert type(program[0]).__name__ == "ScanMonstersStmt"
+    assert program[0].var == "monsters"
+    chunk = lua_actions.monster_register()
+    assert "GetMonsterListInArea" in chunk
+    assert "lw_world_monster" in chunk
+    # …and no placeholder survived into what is sent to the game.
+    assert "__CX__" not in chunk and "__SIZE__" not in chunk and "__CFG__" not in chunk
+    recipes = (_REPO / "src" / "lastwar_bot" / "actions")
+    for name in ("list_world_monsters.md", "scan_map_monsters.md"):
+        text = (recipes / name).read_text("utf-8")
+        assert "GetMonsterListInArea" not in text, f"{name} carries a copy of the register"
+
+
+def test_the_register_recipe_laps_cheaply_and_can_be_told_not_to():
+    """The lap in front of the register is for LOADING, and loading is cheap (#1523).
+
+    Measured: the register held 36 rows before a lap, 178 after a FAST one of 8 s, and
+    the 147-second slow lap added nothing. So this recipe walks at the ★ lap's own pace,
+    and a caller who has just lapped for another reason can skip it.
+    """
+    import pathlib
+
+    from lastwar_bot import script_engine as se
+
+    text = (_REPO / "src" / "lastwar_bot" / "actions"
+            / "list_world_monsters.md").read_text("utf-8")
+    defaults, rest = se.extract_defaults(text)
+    assert defaults["lap"] == 1 and float(defaults["every"]) <= 0.1, defaults
+    # NEVER 1199: a lap at that height empties the register to zero, measured.
+    assert int(defaults["zoom"]) == 600, defaults
+    program = se.parse_text(se.substitute(rest, defaults))
+    kinds = [type(st).__name__ for st in program]
+    assert kinds[-1] == "ScanMonstersStmt", kinds
+
+
+def test_a_monster_keeps_the_uuid_a_march_needs():
+    """The register's one irreplaceable field, and it may never be cleared (#1523)."""
+    from panel.tabs.secret_tasks.world import MonsterGrid
+
+    # Invented values of the right shape — `CLAUDE.md` forbids a live one.
+    parse = _real_parse()
+    rows = parse(
+        "src=world pid=485343 x=342 y=485 uuid=1000000000000000001 cfg=1030000 "
+        "type=7 level=10 kind=world_monster_general_invasion", server=1)
+    assert rows[0]["game_uuid"] == "1000000000000000001"
+    assert rows[0]["level"] == 10 and rows[0]["cfg_id"] == 1030000
+    assert "game_uuid" in MonsterGrid.PERSIST_KEYS, MonsterGrid.PERSIST_KEYS
+
+    # …and a later read of the DRAWN clone, which knows no uuid, must not take it away.
+    page = object.__new__(MonsterGrid)
+    row = {"game_uuid": "1000000000000000001"}
+    MonsterGrid.decorate(page, row, {"source": "lap", "kind_name": "WorldMonster_Boss01"})
+    assert row["game_uuid"] == "1000000000000000001"
+
+    # A record with no uuid at all says so rather than carrying a zero.
+    plain = parse("src=lap pid=1 x=1 y=1 uuid=0 cfg=0 type=0 level=3 "
+                  "kind=WorldMonster_Boss01", server=1)
+    assert plain[0]["game_uuid"] is None
+
+
+def test_the_register_reaches_the_phone_too():
+    source = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text("utf-8")
+    world = (_REPO / "panel" / "tabs" / "secret_tasks" / "world.py").read_text("utf-8")
+    assert '"id": "ask_monsters"' in source, "the phone cannot ask the register"
+    assert "def ask_world_monsters" in source, "the window has no button behind it"
+    assert '"world.monsters.ask"' in world, "the window's own button is missing"
+
+
 class _Var:
     """A stand-in for a Tk variable — just `.get()` / `.set()`."""
 
@@ -478,6 +557,13 @@ def _tab(checkpoint=None, game_ready: bool = True):
     from panel.tabs.secret_tasks import tab as st
     from panel.tabs.secret_tasks import world as worldmod
 
+    # The stand-ins below replace the module's own parsers for the rest of the run, so the
+    # REAL ones are kept once and reachable — a test that wants to check the parser itself
+    # must not get whatever the last harness left behind.
+    global _REAL_PARSE_MONSTERS
+    if _REAL_PARSE_MONSTERS is None:
+        _REAL_PARSE_MONSTERS = worldmod.parse_monsters
+
     tab = object.__new__(st.SecretTasksTab)
     rt = _Runtime(game_ready=game_ready)
     tab.rt = rt
@@ -531,6 +617,16 @@ def _tab(checkpoint=None, game_ready: bool = True):
         play=lambda *a, **k: types.SimpleNamespace(
             ok=True, ctx=types.SimpleNamespace(vars={"monsters": "src=scene pid=1"})))
     return tab, rt
+
+
+#: The module's own `parse_monsters`, saved before `_tab()` swaps it for a stand-in.
+_REAL_PARSE_MONSTERS = None
+
+
+def _real_parse():
+    from panel.tabs.secret_tasks import world as worldmod
+
+    return _REAL_PARSE_MONSTERS or worldmod.parse_monsters
 
 
 def _run_sync(call) -> None:

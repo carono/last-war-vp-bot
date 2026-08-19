@@ -210,6 +210,145 @@ FIND_WORLD_SCENE = (
     'WS=arr[i] break end end _G.WS=WS end ')
 
 
+#: THE CONFIG ROW EVERY COLUMN NUMBER IS READ OFF. Any row of `lw_world_monster` would
+#: do — the metadata is the table's, not the row's — and this is the one the repository
+#: already names elsewhere, so there is one number to change if the table ever moves.
+MONSTER_META_CFG = 1030000
+
+#: THE WORLD'S OWN MONSTER REGISTER, asked instead of looked at (#1523).
+#:
+#: `WorldScene:GetMonsterListInArea(centre, size, cfgIdWhitelist, out)` answers
+#: `uuid -> tile` for every monster the client HOLDS whose config id is on the whitelist.
+#: Three things about it were measured live rather than assumed, and each changes what a
+#: caller must do:
+#:
+#: * **`size` and `centre` are not a window.** Asked at the camera, at the middle of the
+#:   map and with a radius of 5 000, the same client answered the same 28 — so one call is
+#:   «tell me everything», and walking the map with the QUESTION buys nothing.
+#: * **it is fed by LOADING, not by drawing.** 36 before a lap, **178 after a FAST one**
+#:   (8 seconds, the ★ lap's own pace), and still 178 ten seconds later. The slow monster
+#:   lap — 147 seconds of standing at every stop — added not one row to it. So the cheap
+#:   lap this repository has always had is exactly the right one in front of this question.
+#: * **a lap at 1199 EMPTIES it.** After a high lap the same call answered **0**: that
+#:   height loads the coarse big-map layer and the client lets the fine one go. A caller
+#:   walking several heights asks at the bottom of the walk, never at the top.
+#:
+#: **The whitelist is compulsory and an empty one answers nothing** (world-monsters.md,
+#: Finding 6), so the ids come out of `lw_world_monster` — 12 115 rows, walked in 31 ms
+#: through `getTable(...).data`, grouped by `pic_name` into 107 prefabs and parked in
+#: `_G.__LW_MON_GROUPS`. Two passes: the prefab says whether anything of that kind is on
+#: the map at all (107 asks), and then each of ITS config ids is asked on its own, so that
+#: every monster carries the row it came from — which is the only way the LEVEL is exact,
+#: because a prefab's rows differ by nothing else (iron 1…35, bread 1…35).
+#:
+#: Measured end to end on a live warzone after an 8-second lap: **178 monsters, all 178
+#: with a level, in 36 ms** of asking over 108 second-pass calls. Four prefabs answered —
+#: iron 35, bread 31, coin 40, and 72 golden zombies at level 10.
+#:
+#: WHAT IT IS NOT. It is not every monster on the map: the plain roaming squads the client
+#: draws as `WorldMonster*` clones are NOT in it, and those are what
+#: `scan_map_monsters.md` collects the slow way. What this has and a clone never does is
+#: **the uuid**, which is the one thing a march cannot be sent without.
+MONSTER_REGISTER = """
+(function()
+  local WS = nil
+  pcall(function()
+    local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour))
+    for i = 0, arr.Length - 1 do
+      local mb = arr[i]
+      local n = nil
+      pcall(function() n = mb:GetType().Name end)
+      if n == "WorldScene" then WS = mb break end
+    end
+  end)
+  if WS == nil then return "" end
+  local inst = LocalController.instance()
+  local groups = _G.__LW_MON_GROUPS
+  if groups == nil or groups.v ~= 1 then
+    local built = {}
+    pcall(function()
+      local data = inst:getTable("lw_world_monster").data
+      local md = inst:getLine("lw_world_monster", __CFG__):getMetaData()
+      local function col(n) local c = md[n] if type(c) == "table" then c = c[1] end return tonumber(c) end
+      local cpic, clv, cty = col("pic_name"), col("level"), col("type")
+      if cpic == nil or data == nil then return end
+      for id, row in pairs(data) do
+        local ld = row
+        if type(row) == "table" and row._lineData ~= nil then ld = row._lineData end
+        if type(ld) == "table" then
+          local pic = ld[cpic]
+          if pic ~= nil and tostring(pic) ~= "" then
+            local key = tostring(pic)
+            local g = built[key]
+            if g == nil then g = {ids = {}, lv = {}, ty = {}} built[key] = g end
+            g.ids[#g.ids + 1] = id
+            g.lv[tostring(id)] = tonumber(ld[clv])
+            g.ty[tostring(id)] = tonumber(ld[cty])
+          end
+        end
+      end
+    end)
+    groups = {v = 1, map = built}
+    _G.__LW_MON_GROUPS = groups
+  end
+  local V2 = CS.UnityEngine.Vector2Int
+  local function ask(ids)
+    local d = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)()
+    for i = 1, #ids do pcall(function() d:Add(tonumber(ids[i]), 1) end) end
+    local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)()
+    pcall(function() WS:GetMonsterListInArea(V2(__CX__, __CY__), __SIZE__, d, res) end)
+    return res
+  end
+  local out, seen = {}, {}
+  for key, g in pairs(groups.map) do
+    local coarse = ask(g.ids)
+    local any = 0
+    pcall(function() any = coarse.Count end)
+    if any > 0 then
+      for i = 1, #g.ids do
+        local id = g.ids[i]
+        local one = ask({id})
+        local lv = g.lv[tostring(id)] or 0
+        local ty = g.ty[tostring(id)] or 0
+        pcall(function()
+          local it = one:GetEnumerator()
+          while it:MoveNext() do
+            local cur = it.Current
+            local uuid = tostring(cur.Key)
+            if seen[uuid] == nil then
+              seen[uuid] = true
+              local pid = -1
+              pcall(function() pid = WS:TilePosToIndex(cur.Value) end)
+              out[#out + 1] = "src=world pid=" .. tostring(pid)
+                .. " x=" .. tostring(cur.Value.x) .. " y=" .. tostring(cur.Value.y)
+                .. " uuid=" .. uuid .. " cfg=" .. tostring(id)
+                .. " type=" .. tostring(ty) .. " level=" .. tostring(lv)
+                .. " kind=" .. tostring(key)
+            end
+          end
+        end)
+      end
+    end
+  end
+  return table.concat(out, " | ")
+end)()
+"""
+
+
+def monster_register(centre: tuple = (500, 500), size: int = 2000) -> str:
+    """The chunk above with its numbers in — what `SCAN_MONSTERS` runs.
+
+    `centre` and `size` are arguments for completeness and are measured to make no
+    difference (see above); they are here so a caller who finds a build where they DO can
+    say so without editing Lua.
+    """
+    return (MONSTER_REGISTER
+            .replace("__CX__", str(int(centre[0])))
+            .replace("__CY__", str(int(centre[1])))
+            .replace("__SIZE__", str(int(size)))
+            .replace("__CFG__", str(int(MONSTER_META_CFG))))
+
+
 #: THE MONSTER SAMPLER a lap runs at every waypoint (#1523), installed once per lap.
 #:
 #: WHY IT HAS TO BE INSIDE THE GAME. A monster is not on the wire at all — placement is
