@@ -54,6 +54,13 @@ GOLDEN_ATTACK = "attack_golden_zombies"
 #: block (`tabs.config.events`), because it is a choice about THIS account and not
 #: about the machine.
 GOLDEN_SQUAD_KEY = "golden_squad"
+
+#: Whether the chain rides to a far target on a GATHER order before attacking it. The
+#: game prices a march per ORDER — live, a gather march is 2.52x an attack one — so a
+#: long haul is worth riding to a mine beside the zombie and paying only the last few
+#: tiles at attack speed. A switch rather than a fact, because the two speeds come from
+#: separate bonuses and an account that has levelled neither gains nothing.
+GOLDEN_APPROACH_KEY = "golden_approach"
 GOLDEN_SQUADS: tuple = (1, 2, 3, 4)
 GOLDEN_SQUAD_DEFAULT = 1
 
@@ -285,15 +292,21 @@ class GoldenState:
     lead a person to do different things.
     """
 
-    __slots__ = ("state", "energy", "cost", "attacks", "seen")
+    __slots__ = ("state", "energy", "cost", "attacks", "seen", "atk", "col", "ratio")
 
     def __init__(self, state: str, energy=None, cost=None, attacks=None,
-                 seen=None) -> None:
+                 seen=None, atk=None, col=None, ratio=None) -> None:
         self.state = state
         self.energy = energy
         self.cost = cost
         self.attacks = attacks
         self.seen = seen
+        #: What the game prices an attack march and a gather march at, and the one over
+        #: the other. Tenths, because the reading carries them as thousandths of a tile
+        #: per second and nobody reads that.
+        self.atk = atk
+        self.col = col
+        self.ratio = ratio
 
     @property
     def open(self) -> bool:
@@ -320,12 +333,16 @@ def golden_state(reading) -> "GoldenState":
         return GoldenState(UNKNOWN)
     energy = reading.get("energy")
     cost = reading.get("cost")
+    speeds = {"atk": reading.get("atk"), "col": reading.get("col"),
+              "ratio": reading.get("ratio")}
     if energy is None or cost is None:
         return GoldenState(UNKNOWN, energy=energy, cost=cost,
-                           attacks=reading.get("attacks"), seen=reading.get("seen"))
+                           attacks=reading.get("attacks"), seen=reading.get("seen"),
+                           **speeds)
     state = OPEN if (cost > 0 and energy >= cost) else CLOSED
     return GoldenState(state, energy=energy, cost=cost,
-                       attacks=reading.get("attacks"), seen=reading.get("seen"))
+                       attacks=reading.get("attacks"), seen=reading.get("seen"),
+                       **speeds)
 
 
 def energy(state) -> str:
@@ -347,6 +364,20 @@ def affordable(state) -> str:
     if state.attacks is None:
         return "—"
     return str(state.attacks)
+
+
+def speed(state) -> str:
+    """`0.77 / 1.93 · x2.5` — the attack march, the gather march, and the gain.
+
+    The reading carries them as thousandths (the game's own number times a thousand, so
+    they survive the `key=value` line as whole numbers); a person wants two decimals and
+    the ratio, which is the only part of it that decides anything.
+    """
+    if not state.atk or not state.col:
+        return "—"
+    atk, col = state.atk / 1000.0, state.col / 1000.0
+    ratio = (state.ratio or 0) / 100.0
+    return "%.2f / %.2f · ×%.1f" % (atk, col, ratio)
 
 
 def tally(row) -> str:

@@ -131,6 +131,10 @@ class EventsTab(PanelTab):
         #: answer `config()` (`docs/panel-tabs.md`).
         self._squad = modelmod.GOLDEN_SQUAD_DEFAULT
         self._squad_var = None
+        #: Whether the chain rides to a far target on a gather order first. A switch,
+        #: because the gain comes from two bonuses the player levels separately.
+        self._approach = True
+        self._approach_var = None
         #: The day's tally, read out of `panel.db` the first time anybody looks.
         self._tally = None
         #: Whether the golden reading should follow the codename one home.
@@ -376,6 +380,15 @@ class EventsTab(PanelTab):
                 pass
         return modelmod.squad_of(self._squad)
 
+    def approach(self) -> bool:
+        """Is the fast approach on? The widget while the tab is drawn, the saved value else."""
+        if self._approach_var is not None:
+            try:
+                return bool(self._approach_var.get())
+            except tk.TclError:            # the window is going away
+                pass
+        return bool(self._approach)
+
     def hunt(self) -> bool:
         """Start the chain: scan the map, then attack until the energy runs out.
 
@@ -390,7 +403,9 @@ class EventsTab(PanelTab):
         self._golden_running = True
         self._paint_golden_button()
         started = self.rt.play_async(
-            modelmod.GOLDEN_ATTACK, {"squad": self.squad()}, tag="events",
+            modelmod.GOLDEN_ATTACK,
+            {"squad": self.squad(), "approach": 1 if self.approach() else 0},
+            tag="events",
             on_result=self._hunt_back, on_done=self._hunt_done)
         if not started:
             self._golden_running = False
@@ -526,6 +541,7 @@ class EventsTab(PanelTab):
         self._row(rows, "events.golden.energy", modelmod.energy(state), grey)
         self._row(rows, "events.golden.affordable", modelmod.affordable(state), grey)
         self._row(rows, "events.golden.seen", modelmod.seen(state), grey)
+        self._row(rows, "events.golden.speed", modelmod.speed(state), grey)
         self._row(rows, "events.golden.today", modelmod.tally(self.today()), grey)
 
         # The one thing on this board a person SETS. A slot, because a slot is what the
@@ -544,6 +560,16 @@ class EventsTab(PanelTab):
         ttk.Combobox(pick, textvariable=self._squad_var, width=4, state="readonly",
                      values=[str(n) for n in modelmod.GOLDEN_SQUADS]).pack(
                          side="left", padx=(8, 0))
+
+        # …and whether the long haul is ridden on a gather order first. It is a choice
+        # about how the chain travels, so it sits beside the squad rather than in the
+        # scenario's defaults.
+        if self._approach_var is None:
+            self._approach_var = tk.BooleanVar(self.rt.root)
+        self._approach = self.approach()
+        self._approach_var.set(self._approach)
+        self.tr(ttk.Checkbutton(pick, variable=self._approach_var),
+                "events.golden.approach").pack(side="left", padx=(16, 0))
 
         press = ttk.Frame(self._body)
         press.pack(fill="x", padx=28, pady=(4, 8))
@@ -627,19 +653,23 @@ class EventsTab(PanelTab):
         restored value answers when it is not — a tab nobody has opened must still hand
         back what it was given (`docs/panel-tabs.md`).
         """
-        return {modelmod.GOLDEN_SQUAD_KEY: self.squad()}
+        return {modelmod.GOLDEN_SQUAD_KEY: self.squad(),
+                modelmod.GOLDEN_APPROACH_KEY: self.approach()}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
-        if self._squad_var is not None:
-            try:
+        self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, True))
+        try:
+            if self._squad_var is not None:
                 self._squad_var.set(str(self._squad))
-            except tk.TclError:             # the window is going away
-                pass
+            if self._approach_var is not None:
+                self._approach_var.set(self._approach)
+        except tk.TclError:                 # the window is going away
+            pass
 
     def persist_vars(self) -> list:
-        return [self._squad_var] if self._squad_var is not None else []
+        return [v for v in (self._squad_var, self._approach_var) if v is not None]
 
     # -- the phone's copy ---------------------------------------------------
     def web_view(self) -> "dict | None":
@@ -682,13 +712,19 @@ class EventsTab(PanelTab):
             {"label": "events.golden.energy", "value": modelmod.energy(gold)},
             {"label": "events.golden.affordable", "value": modelmod.affordable(gold)},
             {"label": "events.golden.seen", "value": modelmod.seen(gold)},
+            {"label": "events.golden.speed", "value": modelmod.speed(gold)},
             {"label": "events.golden.today", "value": modelmod.tally(self.today())},
             {"label": "events.golden.squad", "value": str(self.squad())},
+            {"label": "events.golden.approach",
+             "value": self.t("events.golden.approach."
+                             + ("on" if self.approach() else "off"))},
         ]}
         if gold.can_attack and not self._golden_running:
             gcard["actions"] = [{"id": "hunt_golden", "label": "events.golden.hunt"},
                                 {"id": "squad_next",
-                                 "label": "events.golden.squad.next"}]
+                                 "label": "events.golden.squad.next"},
+                                {"id": "approach_toggle",
+                                 "label": "events.golden.approach.toggle"}]
         else:
             gcard["items"] = [{"label": "events.golden.hunt",
                                "pill": "events.codename.attack.off"}]
@@ -725,6 +761,16 @@ class EventsTab(PanelTab):
                 except tk.TclError:         # the window is going away
                     pass
             return {"ok": True, "squad": wanted}
+        if action == "approach_toggle":
+            # A setting, like the squad: it changes how the next hunt travels and
+            # presses nothing at the game.
+            self._approach = not self.approach()
+            if self._approach_var is not None:
+                try:
+                    self._approach_var.set(self._approach)
+                except tk.TclError:         # the window is going away
+                    pass
+            return {"ok": True, "approach": self._approach}
         if action == "hunt_golden":
             if not self.golden().can_attack:
                 return {"error": "closed"}

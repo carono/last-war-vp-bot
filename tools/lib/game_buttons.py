@@ -1103,6 +1103,29 @@ BUTTONS["golden_send"] = Button(
     lua=_lua_actions.golden_send(),
     wait=1.5, label="send the squad at the golden zombie",
 )
+BUTTONS["golden_look"] = Button(
+    # The camera onto the target, so the client streams that district's tiles in. Without
+    # it the ring scan below asks about tiles the client has never heard of and finds no
+    # mine at all — which is what «no-mine» meant on a map full of them.
+    lua=_lua_actions.golden_look(),
+    wait=2.0, label="look at the target, so its district loads",
+)
+BUTTONS["golden_approach_arm"] = Button(
+    # Not a press: the arithmetic. The game prices a march per ORDER — a gather order is
+    # 2.5x faster than an attack one — so a long haul is worth riding to a mine beside
+    # the target and paying only the last few tiles at attack speed. This decides whether
+    # that wins, and picks the mine that makes the WHOLE journey shortest.
+    lua=_lua_actions.golden_approach_arm(),
+    wait=0.2, label="work out whether to ride to the target on a gather order",
+)
+BUTTONS["golden_ride"] = Button(
+    # The ride itself: a COLLECT march at a mine the client already knows about, with
+    # «come home» off so the squad lands beside the zombie. It costs no energy —
+    # `GetCostStaminaByTargetType(COLLECT)` is 0 — so a ride that leads nowhere is paid
+    # for in travel time and nothing else.
+    lua=_lua_actions.golden_approach_send(),
+    wait=1.5, label="ride to the mine beside the target",
+)
 BUTTONS["golden_confirm"] = Button(
     # Not a press either: the tally, moved only after the GAME has been seen holding a
     # march of ours. A send that returned cleanly proves nothing.

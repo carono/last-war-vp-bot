@@ -44,7 +44,8 @@ READING_MONSTERS = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
 
 #: The presses the recipe plays, and the order they only make sense in.
 PRESSES = ("golden_arm", "golden_scan", "golden_pick", "golden_touch", "golden_grab",
-           "golden_send", "golden_home", "golden_confirm")
+           "golden_send", "golden_home", "golden_confirm", "golden_look",
+           "golden_approach_arm", "golden_ride")
 
 
 def _source(path: Path, variables=None):
@@ -290,18 +291,55 @@ def test_a_level_nobody_could_read_is_a_dash_and_never_a_zero():
     assert worldmod.MonsterGrid.level_text({"level": 0}) == "—"
 
 
+def test_the_ride_is_only_taken_when_the_arithmetic_wins():
+    """A gather order is faster than an attack one — but not on every hop.
+
+    Measured live on 2026-08-19 with the game's own pricing function: an attack march is
+    0.765 tiles a second and a gather march 1.930 — 2.52x. On the live queue the farthest
+    of 80 golden zombies was 680 tiles out: 888 s by attack march against 361 s ridden,
+    527 s saved. On a target eleven seconds away the plan is dropped, which is what the
+    threshold is for.
+    """
+    arm = lua_actions.golden_approach_arm()
+    assert "CalcMarchSpeedByConfig" in arm, "the speeds are guessed rather than priced"
+    assert "approach_sec" in arm, "there is no threshold — a short hop would be ridden"
+    assert "bestsec = direct" not in arm or "local best, bestsec = nil, direct" in arm, \
+        "the plan is kept without being compared against marching straight there"
+    assert "if sa <= 0 or sc <= sa then" in arm, \
+        "an account with no gathering bonus would still be sent the long way round"
+    ride = lua_actions.golden_approach_send()
+    assert "MarchTargetType.COLLECT" in ride, "the ride is not a gather order"
+    assert "DelayInvoke" in ride, "the ride is not scheduled — it will be dropped"
+    assert "false, srv, nil" in ride and ", 1, 0, " in ride, \
+        "the ride must not bring the squad home — it has to land beside the target"
+
+
+def test_the_ride_looks_at_the_target_before_it_hunts_for_a_mine():
+    """`HasPointInfo` can only answer for a district the client has actually loaded."""
+    body, _ = _source(RECIPE)
+    look = body.index("TAP golden_look")
+    plan = body.index("TAP golden_approach_arm")
+    assert look < plan, "the mine search runs before the camera has loaded the district"
+    arm = lua_actions.golden_approach_arm()
+    assert "ResPointInfo" in arm, \
+        "the point kind is read as a number — it is an enum and `tonumber` is nil on it"
+
+
 def test_the_lua_of_every_press_compiles():
     try:
         import lupa
     except ImportError:                      # the offline interpreter is not there
         return
     runtime = lupa.LuaRuntime()
+    #: The catalogue's name -> the function behind it, where the two differ.
+    behind = {"golden_ride": "golden_approach_send"}
     for name in PRESSES:
         if name == "golden_home":            # the same chunk as golden_send
             continue
-        runtime.compile(getattr(lua_actions, name)())
+        runtime.compile(getattr(lua_actions, behind.get(name, name))())
     runtime.compile(lua_actions.monster_prefab_lookup() + " return 1")
-    for name in ("monster_prefab_probe", "golden_armed", "golden_queued",
+    for name in ("monster_prefab_probe", "golden_speeds", "golden_approach_planned",
+                 "golden_rode", "golden_approach_report", "golden_armed", "golden_queued",
                  "golden_found", "golden_picked",
                  "golden_needs_uuid", "golden_marching", "golden_settled",
                  "golden_can_go", "golden_last_march", "golden_attacks",

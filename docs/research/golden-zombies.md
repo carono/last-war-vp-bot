@@ -191,6 +191,72 @@ Tile index arithmetic is never done by hand here: `ws:TilePosToIndex(tile)` and
 `IndexToTilePos(500600) = (599,500)`), which is exactly the sort of off-by-one that puts a
 squad on the wrong tile.
 
+## 4b — the fast approach: ride out on a GATHER order, attack from beside the target
+
+The operator's idea, and the game's own arithmetic backs it. `MarchUtil` prices a march
+per ORDER, not per distance:
+
+```lua
+MarchUtil.CalcMarchSpeedByConfig(targetType, formationUuid, nil, nil)
+```
+
+Live, same formation, same call:
+
+| order | speed | |
+|---|---|---|
+| `ATTACK_MONSTER` (1) | **0.765** | what a kill costs to reach |
+| `ATTACK_CITY` (11) | 0.815 | |
+| `COLLECT` (2) | **1.930** | **×2.52** |
+| `DETECT_TREASURE` (50) | 1.930 | |
+
+Two separate bonuses stand behind that rather than one — `GetFormationSpeedAddByIndex`
+and `GetFormationCollectSpeedAdd` are different numbers on the same squad — so the ratio
+is an account's own and the panel shows it rather than assuming it.
+
+**The unit is tiles per second, and the stopwatch says so.** A plan for a live target 704
+seconds away by attack march priced the ride at 285 s; the COLLECT march was then really
+sent and the game's own march object answered `endTime − now = 271 s`. Take off the last
+twelve tiles at attack speed (16 s) and the prediction was 269 against the server's 271 —
+**two seconds apart**.
+
+**What it is worth.** Across the live queue of 80 golden zombies, the farthest was 680
+tiles out: **888 s marched straight there against 361 s ridden — 527 s saved**, on one
+target. That is the case the feature exists for; the zombies live in their own region and
+the haul out is most of the cost of a kill.
+
+**When it is NOT taken.** Only when the direct march is over the caller's threshold AND
+the two-leg route is actually shorter:
+
+```
+direct  = dist(squad -> target) / speed_attack
+two-leg = dist(squad -> mine) / speed_collect + dist(mine -> target) / speed_attack
+```
+
+Live, a target 22 s away was correctly left alone (`why=short`), and one 11 s away was
+still left alone by the arithmetic even with the threshold forced to zero — until a mine
+close enough turned up, at which point `direct=11 via=7`.
+
+**Finding the mine.** `WorldScene.PointManager:GetPointInfo(pid)` answers `ResPointInfo`
+with `pointType = WorldResource: 7` for a mine and `BuildPointInfo` / `PlayerBuilding: 6`
+for somebody's base — the same `f2` split as the wire (`world-tiles.md`). Two traps, both
+paid for:
+
+* **`pointType` is an ENUM, not a number.** It prints as `WorldResource: 7` and
+  `tonumber` on it is `nil`, so the first version found «no mine» on a map covered in
+  them. The digits at the end of its own name are the value.
+* **`HasPointInfo` only knows the districts the CLIENT has loaded**, and the target is
+  usually one it has never been to — the mines are on the wire and in the panel's own
+  map, and the client still says nothing. So the camera is put on the target first
+  (`GoToUtil.MoveToWorldPoint`), given a beat, and only then is the ring scanned.
+
+**The risk, plainly.** A squad that lands at a mine is GATHERING, and issuing the attack
+from there is the same move the chain's second kill already needs: a march from where the
+squad stands rather than from home. That is not proven live yet and this feature inherits
+it exactly. What IS known: **the ride is free** — `GetCostStaminaByTargetType(COLLECT)`
+is **0** against 10 for an attack — so a plan that turns out to be impossible costs travel
+time and not one point of the day's purse, and the recipe still proves every attack by the
+energy the server takes.
+
 ## 5 — the chain: why the squad does not go home in between
 
 Every march but the last goes out with `autoBackHome = 0`, so the squad stands on the tile

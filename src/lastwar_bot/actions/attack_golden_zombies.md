@@ -87,6 +87,9 @@ ARGS radius = 2000
 ARGS scan = 1
 ARGS limit = 0
 ARGS march_wait = 200
+ARGS approach = 1
+ARGS approach_sec = 60
+ARGS approach_reach = 12
 
 # The map, first. Everything below reads the world's own controller, which does not
 # exist while the base is on screen — and the camera lands on the base, which is what
@@ -107,6 +110,8 @@ LUA DataCenter.__lw_gold_squad = {squad}
 LUA DataCenter.__lw_gold_radius = {radius}
 LUA DataCenter.__lw_gold_limit = {limit}
 LUA DataCenter.__lw_gold_back = 0
+LUA DataCenter.__lw_gold_approach_sec = {approach_sec}
+LUA DataCenter.__lw_gold_approach_reach = {approach_reach}
 
 TAP golden_arm
 
@@ -171,6 +176,25 @@ WHILE go == 1 LIMIT 24
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO picked
 
         IF picked == 1
+            # THE RIDE. A gather order travels 2.5x faster than an attack one, so a long
+            # haul is ridden to a mine beside the zombie and only the last few tiles are
+            # paid at attack speed. Taken only when the arithmetic wins — a short hop
+            # loses more to the extra stop than it saves.
+            IF approach == 1
+                # The camera first: `HasPointInfo` can only answer for a district
+                # the client has actually loaded, and the target is usually one
+                # it has never been to.
+                TAP golden_look
+                TAP golden_approach_arm
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.approach ~= nil) and 1 or 0 end)() INTO riding
+                IF riding == 1
+                    READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'why=' .. tostring(p.why or '-') .. ' direct=' .. tostring(math.floor(tonumber(p.direct_sec) or 0)) .. ' via=' .. tostring(math.floor(tonumber(p.approach_sec) or 0)) .. ' rode=' .. tostring(math.floor(tonumber(p.rode) or 0)) .. ' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. ' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)() INTO ride_report
+                    LOG "riding to a mine beside the target — {ride_report}"
+                    TAP golden_ride
+                    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local st = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then st = math.floor(tonumber(v.state) or 0) end end end) return ((st or 0) == 1) and 1 or 0 end)() INTO marching
+                    WHILE marching == 1 LIMIT {march_wait}
+                        WAIT 3
+                        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local st = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then st = math.floor(tonumber(v.state) or 0) end end end) return ((st or 0) == 1) and 1 or 0 end)() INTO marching
             # The last march of the run is the one that brings the squad home; every one
             # before it deliberately leaves it standing where it killed.
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost * 2 then return 1 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) + 1 >= lim then return 1 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() <= 1) and 1 or 0 end)() INTO last_one
@@ -202,8 +226,10 @@ WHILE go == 1 LIMIT 24
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. ' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. ' energy=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) .. ' queued=' .. tostring((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()) .. ' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)() INTO golden_report
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.attacks) or 0) end)() INTO attacks
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.spent) or 0) end)() INTO spent
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.rode) or 0) end)() INTO rode
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'why=' .. tostring(p.why or '-') .. ' direct=' .. tostring(math.floor(tonumber(p.direct_sec) or 0)) .. ' via=' .. tostring(math.floor(tonumber(p.approach_sec) or 0)) .. ' rode=' .. tostring(math.floor(tonumber(p.rode) or 0)) .. ' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. ' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)() INTO ride_report
 
 IF attacks == 0
     FAIL "nothing was sent — {golden_report}"
 
-LOG "golden zombies: {attacks} attack(s) sent, {spent} energy spent — {golden_report}"
+LOG "golden zombies: {attacks} attack(s) sent, {spent} energy spent, {rode} ride(s) — {golden_report} · {ride_report}"

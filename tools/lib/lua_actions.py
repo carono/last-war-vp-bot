@@ -9847,8 +9847,19 @@ def golden_survey() -> str:
         "ws:GetMonsterListInArea(ws.CurTilePos, 2000, ids, res) "
         "seen = res.Count end) end "
         "local can = 0 if cost > 0 then can = math.floor(energy / cost) end "
+        "local f = nil pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if f == nil then f = v.uuid end end end) "
+        "local function sp(k) local v = nil "
+        "pcall(function() v = MarchUtil.CalcMarchSpeedByConfig(k, f, nil, nil) end) "
+        "return tonumber(v) or 0 end "
+        "local sa, sc = sp(MarchTargetType.ATTACK_MONSTER), sp(MarchTargetType.COLLECT) "
+        "local ratio = 0 if sa > 0 then ratio = sc / sa end "
         "return 'energy=' .. tostring(energy) .. ' cost=' .. tostring(cost) .. "
-        "' attacks=' .. tostring(can) .. ' seen=' .. tostring(seen) end)()"
+        "' attacks=' .. tostring(can) .. ' seen=' .. tostring(seen) .. "
+        "' atk=' .. tostring(math.floor(sa * 1000 + 0.5)) .. "
+        "' col=' .. tostring(math.floor(sc * 1000 + 0.5)) .. "
+        "' ratio=' .. tostring(math.floor(ratio * 100 + 0.5)) end)()"
         % {"energy": golden_energy(), "cost": golden_attack_cost(),
            "ws": _GOLD_WS, "cfg": GOLDEN_ZOMBIE_CFG}
     )
@@ -9982,4 +9993,247 @@ def monster_prefab_probe() -> str:
         "' level=' .. tostring(e and e.level) .. ' type=' .. tostring(e and e.type) .. "
         "' special=' .. tostring(e and e.special) end)()"
         % {"cfg": GOLDEN_ZOMBIE_CFG}
+    )
+
+
+# ---------------------------------------------------------------------------
+# The fast approach — ride to the target on a GATHER order, then attack
+# ---------------------------------------------------------------------------
+# The operator's own idea, and the game's own numbers back it. `MarchUtil` prices a march
+# per ORDER, not per distance:
+#
+#     MarchUtil.CalcMarchSpeedByConfig(targetType, formationUuid, nil, nil)
+#
+# and on a live account, same formation, same call:
+#
+#     ATTACK_MONSTER (1)     0.765          <- what a kill costs to reach
+#     ATTACK_CITY   (11)     0.815
+#     COLLECT        (2)     1.930          <- 2.52x faster
+#     DETECT_TREASURE (50)   1.930
+#
+# So the long haul out to a golden zombie — they live in their own region, several
+# hundred tiles from anybody's base — can be ridden on a GATHER order to a mine beside
+# the target, and only the last few tiles paid at attack speed. Two separate bonuses back
+# that up rather than one: `GetFormationSpeedAddByIndex` and `GetFormationCollectSpeedAdd`
+# are different numbers on the same squad.
+#
+# **The plan is only taken when the arithmetic says it wins**, and never on a hop where
+# the extra stop costs more than it saves:
+#
+#     direct  = dist(squad -> target) / speed_attack
+#     two-leg = dist(squad -> mine) / speed_collect + dist(mine -> target) / speed_attack
+#
+# and the approach is used when `direct` is over the caller's threshold AND `two-leg` is
+# actually shorter. Speed is read as tiles per second: 0.765 against a 492-tile haul is
+# eleven minutes, which is the order of what a live run measured.
+#
+# **What the mine is for is the RIDE, not the ore.** The squad is sent with
+# `MarchTargetType.COLLECT` at a resource tile the client already knows about —
+# `WorldScene.PointManager:GetPointInfo(pid)` answers `ResPointInfo` with
+# `pointType = 7` for a mine and `BuildPointInfo` / `6` for somebody's base — and the
+# attack goes out once it has arrived.
+#
+# THE RISK, SAID PLAINLY. A squad that has arrived at a mine is GATHERING, and issuing
+# the attack from there is the same move the chain's second kill already needs: a march
+# sent from where the squad stands rather than from home. That is not proven live yet
+# (docs/research/golden-zombies.md), and this feature inherits it exactly. What IS known:
+# the ride itself costs no energy — `GetCostStaminaByTargetType(COLLECT)` is 0 against 10
+# for an attack — so a plan that turns out to be impossible wastes travel time and not a
+# single point of the day's purse. The recipe still proves every attack by the energy the
+# server takes, so an attack that cannot be issued from the field ends the run saying so.
+
+#: `MarchTargetType.COLLECT` — the gather order, and the fast one.
+MARCH_COLLECT = 2
+
+#: `WorldPointType.WorldResource` — what `GetPointInfo` calls a mine (`f2 = 7` on the
+#: wire, `docs/research/world-tiles.md`).
+POINT_MINE = 7
+
+
+def golden_speeds() -> str:
+    """Lua *expression* -> `attack=<n> collect=<n> ratio=<n>`, the game's own numbers.
+
+    A READ: it prices the two orders for the run's own squad and presses nothing. The
+    ratio is what says whether the approach is worth having at all on this account —
+    the bonuses behind the two are separate, so a player who has levelled one and not
+    the other will see a different number from the 2.52 measured on 2026-08-19.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local f = p.formation "
+        "if f == nil then pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if f == nil then f = v.uuid end end end) end "
+        "local function s(t) local v = nil "
+        "pcall(function() v = MarchUtil.CalcMarchSpeedByConfig(t, f, nil, nil) end) "
+        "return tonumber(v) or 0 end "
+        "local a, c = s(MarchTargetType.ATTACK_MONSTER), s(MarchTargetType.COLLECT) "
+        "local r = 0 if a > 0 then r = c / a end "
+        "return 'attack=' .. string.format('%.3f', a) .. "
+        "' collect=' .. string.format('%.3f', c) .. "
+        "' ratio=' .. string.format('%.2f', r) .. "
+        "' cost_collect=' .. tostring(MarchUtil.GetCostStaminaByTargetType("
+        "MarchTargetType.COLLECT)) end)()"
+    )
+
+
+#: How the squad's distance to a tile is worked out, wherever it happens to be. The
+#: anchor is the last tile it was sent to this run; before the first send there is none
+#: and the game answers from the base instead. Same rule as `golden_pick`, so the two
+#: cannot drift into disagreeing about which target is nearer.
+_GOLD_DIST = (
+    "local function _dist(pid, x, y) "
+    "if p.anchor ~= nil then local dx, dy = (x - p.anchor.x), (y - p.anchor.y) "
+    "return math.sqrt(dx * dx + dy * dy) end "
+    "local d = nil "
+    "pcall(function() d = tonumber(SceneUtils.TileDistanceToMyHome(pid, p.server)) end) "
+    "return d or 1e9 end "
+)
+
+
+def golden_look() -> str:
+    """Put the camera on the armed target, so the client streams the tiles around it in.
+
+    Nothing is pressed and nothing is sent: the camera is the only thing that makes the
+    client ask the server for a district's tiles, and `HasPointInfo` can only answer for
+    tiles it has. Live, a plan for a target 700 seconds away came back `no-mine` for
+    exactly that reason — the mines were on the wire and in the panel's own map, and the
+    CLIENT had never loaded that corner (#1519).
+
+    `GoToUtil.MoveToWorldPoint(pointId)` is the tile-accurate mover — the world-position
+    calls take world units and land the camera at half the tile asked for
+    (docs/research/world-monsters.md, Finding 9).
+    """
+    return (
+        _GOLD_P +
+        "local t = p.cur "
+        "if t == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_look skipped=no-target") return end '
+        "local ok, err = pcall(function() GoToUtil.MoveToWorldPoint(t.pid) end) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_look ok="..tostring(ok).." err="..tostring(err)'
+        '.." at="..tostring(t.x)..","..tostring(t.y))'
+    )
+
+
+def golden_approach_arm() -> str:
+    """Work out whether to ride to the armed target on a gather order, and where to stop.
+
+    Reads and parks; sends nothing. It prices both orders, measures the direct haul, and
+    only then goes looking for a mine — a short hop never pays for the extra stop and is
+    dropped before a single tile is scanned.
+
+    The mine is chosen to minimise the WHOLE journey, not to be nearest the target: a
+    mine one tile from the zombie is no good if it is on the far side of the map. Only a
+    plan that beats the direct march is kept, and `p.approach` stays nil otherwise.
+    """
+    return (
+        _GOLD_P + _GOLD_DIST +
+        "p.approach = nil p.why = '' "
+        "local t = p.cur "
+        "if t == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=no-target") return end '
+        "local function sp(k) local v = nil "
+        "pcall(function() v = MarchUtil.CalcMarchSpeedByConfig(k, p.formation, nil, nil) end) "
+        "return tonumber(v) or 0 end "
+        "local sa, sc = sp(MarchTargetType.ATTACK_MONSTER), sp(MarchTargetType.COLLECT) "
+        "p.speed_atk, p.speed_col = sa, sc "
+        "if sa <= 0 or sc <= sa then p.why = 'no-gain' %(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=no-gain atk="..tostring(sa)'
+        '.." col="..tostring(sc)) return end '
+        "local far = _dist(t.pid, t.x, t.y) "
+        "local direct = far / sa "
+        "p.direct_sec = math.floor(direct) "
+        "local limit = tonumber(%(gold)s_approach_sec) or 60 "
+        "if direct <= limit then p.why = 'short' %(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=short sec="..tostring(math.floor(direct))) '
+        "return end "
+        # -- the mines the client already knows about, in a ring around the target
+        "local ws = _G.__LW_GOLD_WS "
+        "local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) "
+        "if not alive then p.why = 'not-in-world' %(gold)s = p return end "
+        "local reach = math.floor(tonumber(%(gold)s_approach_reach) or 12) "
+        "local best, bestsec = nil, direct "
+        "local looked, mines = 0, 0 "
+        "pcall(function() local pm = ws.PointManager "
+        "for dx = -reach, reach do for dy = -reach, reach do "
+        "local mx, my = t.x + dx, t.y + dy "
+        "if mx >= 0 and my >= 0 then "
+        "local pid = nil "
+        "pcall(function() pid = ws:TilePosToIndex(CS.UnityEngine.Vector2Int(mx, my)) end) "
+        "if pid ~= nil then looked = looked + 1 "
+        "local has = false pcall(function() has = ws:HasPointInfo(pid) end) "
+        "if has then local pi = nil pcall(function() pi = pm:GetPointInfo(pid) end) "
+        "local kind, cls = nil, '' "
+        "pcall(function() local pt = pi.pointType kind = tonumber(pt) "
+        "if kind == nil then kind = tonumber(string.match(tostring(pt), '(%%d+)%%s*$')) end end) "
+        "pcall(function() cls = tostring(pi:GetType().Name) end) "
+        "if kind == %(mine)d or cls == 'ResPointInfo' then mines = mines + 1 "
+        "local ride = _dist(pid, mx, my) / sc "
+        "local hop = math.sqrt(dx * dx + dy * dy) / sa "
+        "if (ride + hop) < bestsec then best = {pid = pid, x = mx, y = my} "
+        "bestsec = ride + hop end end end end end end end end) "
+        "if best == nil then p.why = 'no-mine' else "
+        "p.approach = best p.approach_sec = math.floor(bestsec) p.why = 'planned' end "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_approach why="..tostring(p.why)'
+        '.." direct="..tostring(math.floor(direct)).." via="..tostring(math.floor(bestsec))'
+        '.." mines="..tostring(mines).." looked="..tostring(looked)'
+        '.." at="..tostring(best and best.x)..","..tostring(best and best.y))'
+        % {"gold": _GOLD, "mine": POINT_MINE}
+    )
+
+
+def golden_approach_planned() -> str:
+    """Lua *expression* -> 1 when a ride has been planned for the armed target, else 0."""
+    return ("(function() " + _GOLD_P +
+            "return (p.approach ~= nil) and 1 or 0 end)()")
+
+
+def golden_approach_send() -> str:
+    """Send the squad at the mine on a GATHER order — the ride, not the ore.
+
+    The same `SendCreateMarchMessage` every launch in this file uses, with
+    `MarchTargetType.COLLECT` and `autoBackHome = 0` so the squad STAYS beside the target
+    when it lands. Scheduled on the main thread, for the reason all of them are.
+
+    The ride is free: `GetCostStaminaByTargetType(COLLECT)` is 0, so a plan that turns out
+    to be impossible costs travel time and no energy.
+    """
+    return (
+        _GOLD_P +
+        "local a = p.approach "
+        "if a == nil or p.formation == nil then error('nothing to ride to') end "
+        "local srv = math.floor(tonumber(p.server) or 0) "
+        "local f, pid = p.formation, a.pid "
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(f, MarchTargetType.COLLECT, pid, 0, 1, 0, "
+        "false, srv, nil) end) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_ride ok="..tostring(ok).." err="..tostring(err)) '
+        "end, 0.5) "
+        "p.rode = (tonumber(p.rode) or 0) + 1 "
+        "p.anchor = {x = a.x, y = a.y} "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_ride scheduled pid="..tostring(pid)'
+        '.." at="..tostring(a.x)..","..tostring(a.y).." saved="'
+        '..tostring((tonumber(p.direct_sec) or 0) - (tonumber(p.approach_sec) or 0)).."s")'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_rode() -> str:
+    """Lua *expression* -> how many rides this run has taken."""
+    return "(function() " + _GOLD_P + "return math.floor(tonumber(p.rode) or 0) end)()"
+
+
+def golden_approach_report() -> str:
+    """Lua *expression* -> one line about the last plan, for the log and the panel."""
+    return (
+        "(function() " + _GOLD_P +
+        "return 'why=' .. tostring(p.why or '-') .. "
+        "' direct=' .. tostring(math.floor(tonumber(p.direct_sec) or 0)) .. "
+        "' via=' .. tostring(math.floor(tonumber(p.approach_sec) or 0)) .. "
+        "' rode=' .. tostring(math.floor(tonumber(p.rode) or 0)) .. "
+        "' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. "
+        "' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)()"
     )

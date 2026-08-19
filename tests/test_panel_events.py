@@ -326,7 +326,7 @@ class _Skip(Exception):
 
 
 #: A golden-zombie reading with energy to spend, and one without.
-GOLDEN_OPEN = "energy=55 cost=10 attacks=5 seen=135"
+GOLDEN_OPEN = "energy=55 cost=10 attacks=5 seen=135 atk=765 col=1930 ratio=252"
 GOLDEN_SPENT = "energy=3 cost=10 attacks=0 seen=0"
 
 
@@ -382,6 +382,8 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._squad_var = None
     tab._tally = {}
     tab._chain_golden = False
+    tab._approach = True
+    tab._approach_var = None
     return tab
 
 
@@ -461,14 +463,16 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     assert spent.rt.played == [], "a hunt reached the game with an empty purse"
 
     live = _tab(golden=GOLDEN_OPEN)
-    assert _card_actions(live, "events.group.golden") == ["hunt_golden", "squad_next"]
+    assert _card_actions(live, "events.group.golden") == [
+        "hunt_golden", "squad_next", "approach_toggle"]
     assert live.web_press("hunt_golden", {}) == {"ok": True}
     assert live.rt.played == [modelmod.GOLDEN_ATTACK]
 
     # …and a reading nobody could take leaves it alive: «nobody knows» is not «you may
     # not», and the scenario holds its own gates.
     unknown = _tab(golden=None)
-    assert _card_actions(unknown, "events.group.golden") == ["hunt_golden", "squad_next"]
+    assert _card_actions(unknown, "events.group.golden") == [
+        "hunt_golden", "squad_next", "approach_toggle"]
 
 
 def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
@@ -478,7 +482,7 @@ def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
     first = tab.web_press("squad_next", {})
     assert first == {"ok": True, "squad": 2}
     assert tab.squad() == 2
-    assert tab.config() == {modelmod.GOLDEN_SQUAD_KEY: 2}
+    assert tab.config()[modelmod.GOLDEN_SQUAD_KEY] == 2
     assert tab.rt.played == [], "picking a squad is a setting, not a press at the game"
 
     # …and it wraps rather than running off the end of the slots that exist.
@@ -491,6 +495,30 @@ def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
     tab.apply_config({modelmod.GOLDEN_SQUAD_KEY: 99})
     assert tab.squad() == modelmod.GOLDEN_SQUAD_DEFAULT, \
         "a slot that does not exist must not be sent anywhere"
+
+
+def test_the_fast_approach_is_a_switch_on_both_front_ends():
+    """The ride is a choice about how the chain TRAVELS, so it is set, not inferred."""
+    tab = _tab()
+    assert tab.approach() is True, "the ride should be on out of the box"
+    assert tab.config()[modelmod.GOLDEN_APPROACH_KEY] is True
+    assert tab.web_press("approach_toggle", {}) == {"ok": True, "approach": False}
+    assert tab.approach() is False
+    assert tab.rt.played == [], "a switch pressed something at the game"
+    tab.apply_config({modelmod.GOLDEN_APPROACH_KEY: True})
+    assert tab.approach() is True
+    # …and the phone SAYS which way it is set, in words rather than a bare true/false.
+    rows = {r["label"]: r["value"] for c in tab.web_view()["cards"]
+            for r in c.get("rows") or ()}
+    assert rows["events.golden.approach"] == "events.golden.approach.on"
+
+
+def test_the_two_march_speeds_reach_the_board_as_numbers_a_person_reads():
+    """The reading carries thousandths; the row shows two decimals and the gain."""
+    st = modelmod.golden_state(modelmod.parse(GOLDEN_OPEN))
+    assert modelmod.speed(st) == "0.77 / 1.93 · ×2.5"
+    blank = modelmod.golden_state(modelmod.parse("energy=55 cost=10"))
+    assert modelmod.speed(blank) == "—", "a speed nobody read must not print as zero"
 
 
 def test_the_golden_board_never_reads_could_not_ask_as_none_found():
