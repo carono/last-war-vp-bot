@@ -41,6 +41,16 @@ class X:
         self.h = P.OpenProcess(0x1FFFFF, False, self.pid)
         self.e = P.parse_exports(self.h, self.gb)
         self.mt = R.main_thread_tid(self.pid)
+        if self.mt is None:
+            # The main thread is found through the client's own WINDOW, so «no window»
+            # and «no thread» are the same answer here — a client still on its loading
+            # screen, one whose window has not appeared, or one on a desktop this
+            # session cannot see. Said in a sentence because the alternative is what it
+            # used to be: `argument 3: TypeError: 'NoneType' object cannot be
+            # interpreted as an integer`, five times a minute, in the daemon's log.
+            raise SystemExit(f"the client at pid {self.pid} has no window this session "
+                             "can see, so its main thread cannot be found — nothing can "
+                             "be run in it yet")
         self.sr = R.learn_safe_rip(self.pid, self.mt, n=40)[0]
         self.sc = int(P.VirtualAllocEx(self.h, None, 0x400, 0x3000, 4))
         self._s = {}
