@@ -187,8 +187,8 @@ def test_the_badge_carries_no_words_at_all():
 
 
 def test_every_state_has_a_key_and_a_colour():
-    for state in (flowmod.LOSING, flowmod.STARVING, flowmod.DEAD, flowmod.NEVER,
-                  flowmod.FLOWING, flowmod.QUIET):
+    for state in (flowmod.LOSING, flowmod.STARVING, flowmod.DEAD, flowmod.OFF,
+                  flowmod.NEVER, flowmod.FLOWING, flowmod.QUIET):
         assert state in flowmod.LINE_KEYS
         assert state in flowmod.COLOURS
 
@@ -198,14 +198,22 @@ def test_every_named_receiver_gets_a_row_even_before_it_has_fired():
 
     With nothing started at all, a receiver that is ASKED (no listener behind it) has
     simply never heard anything; one that is TOLD by a capture child has a source that
-    is not running, which is a different sentence and a different thing to do about it.
+    was never started, which is a switch to flip rather than a bug to chase.
     """
     rt = _rt()
     board = flowmod.build(rt)
     for name in flowmod.SOURCES:
         assert name in board, name
-        want = flowmod.NEVER if not flowmod.sources_of(name) else flowmod.DEAD
+        want = flowmod.NEVER if not flowmod.sources_of(name) else flowmod.OFF
         assert board[name]["state"] == want, (name, board[name]["state"])
+
+
+def test_a_source_never_started_is_not_the_same_as_one_that_died():
+    """«Не запущен» sends a person to a checkbox; «умер» sends them to a log (#1549)."""
+    never_started = _rt()                                   # no children at all
+    assert flowmod.badge(never_started, "chat.messages")["state"] == flowmod.OFF
+    died = _rt(_Child("chat_reader.py", alive=False, lines=8, last=1.0))
+    assert flowmod.badge(died, "chat.messages")["state"] == flowmod.DEAD
 
 
 def test_a_receiver_with_no_listener_behind_it_has_no_source_rather_than_a_dead_one():

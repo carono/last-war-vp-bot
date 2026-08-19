@@ -811,7 +811,8 @@ the words.
 | `never`    | nothing has ever arrived here                             |
 | `starving` | **the source IS heard from and we are taking none of it** |
 | `losing`   | something was accepted and thrown away — never ordinary   |
-| `dead`     | the source that should feed this receiver is not running  |
+| `dead`     | the source ran and is not running any more                |
+| `off`      | the source has never been started — a switch, not a bug   |
 
 `starving` against `never` / `quiet` is the distinction the module exists for: «данных
 нет, потому что их не присылают» and «данные идут, но мы их не берём» lead a person to do

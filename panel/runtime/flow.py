@@ -70,8 +70,13 @@ QUIET_SEC = intakemod.QUIET_SEC
 LOSING = "losing"
 #: The source is heard from and the receiver has taken nothing. THE ONE THIS EXISTS FOR.
 STARVING = "starving"
-#: The source that should be feeding this receiver is not running.
+#: The source that should be feeding this receiver ran and is not running any more.
 DEAD = "dead"
+#: …and it has NEVER been started, which is a switch to flip rather than a bug to chase
+#: (#1549). Kept apart from :data:`DEAD` after the first live reading said «источник не
+#: работает» about a chat sniffer nobody had switched on — true, and the wrong thing to
+#: send somebody looking for.
+OFF = "off"
 #: Nothing has ever arrived here, from anywhere.
 NEVER = "never"
 #: Something arrived within :data:`FRESH_SEC` — the live signal.
@@ -86,6 +91,7 @@ COLOURS = {
     LOSING: "#e04f4f",
     STARVING: "#e0a84f",
     DEAD: "#e04f4f",
+    OFF: "#888888",
     NEVER: "#888888",
     FLOWING: "#4fe08a",
     QUIET: "#e0d84f",
@@ -141,7 +147,9 @@ def _state(row: dict, source: "dict | None") -> str:
     if source is not None and not source.get("alive"):
         # A dead source with nothing taken is a dead source; a dead source we DID take
         # from is still a dead source — the rows on screen are the last it ever sent.
-        return DEAD
+        # …and one that was never STARTED says that instead: the answer to it is a
+        # switch, not a bug report.
+        return DEAD if source.get("known") else OFF
     if seen == 0:
         # THE SPLIT THIS MODULE EXISTS FOR. Heard something and took none of it is not
         # the same fact as «nobody sent anything», and drawing them alike is what cost
@@ -247,6 +255,7 @@ LINE_KEYS = {
     LOSING: "flow.state.losing",
     STARVING: "flow.state.starving",
     DEAD: "flow.state.dead",
+    OFF: "flow.state.off",
     NEVER: "flow.state.never",
     FLOWING: "flow.state.flowing",
     QUIET: "flow.state.quiet",
