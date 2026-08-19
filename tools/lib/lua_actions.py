@@ -9212,6 +9212,28 @@ def golden_armed() -> str:
             "return 1 end)()")
 
 
+def _golden_prefab_helpers() -> str:
+    """Lua *statements* -> `_goldpic()` and `_goldids()`, on top of the prefab map.
+
+    WHAT a golden zombie looks like on the map is asked of the config rather than spelled
+    out here: `pic_name` of the golden row is the prefab the client builds the clone from,
+    and every config row sharing that prefab is a golden zombie too — three of them, live.
+
+    `world_monster_boss_invasion` is a DIFFERENT prefab and a level 5..75 boss, which is
+    exactly what the first version of this — «the clone's name contains `invasion`» —
+    would have marched a squad at.
+    """
+    return (
+        "local function _goldpic() local v = nil pcall(function() "
+        "v = LocalController.instance():getValue('lw_world_monster', "
+        "%(cfg)d, 'pic_name', nil) end) return _norm(v) end "
+        "local function _goldids() local e = _monmap()[_goldpic()] "
+        "if e ~= nil and e.ids ~= nil and #e.ids > 0 then return e.ids end "
+        "return {%(cfg)d} end "
+        % {"cfg": GOLDEN_ZOMBIE_CFG}
+    )
+
+
 def golden_scan() -> str:
     """Look for golden zombies around the camera and add what is new to the queue.
 
@@ -9222,6 +9244,7 @@ def golden_scan() -> str:
     Run it as often as the camera moves — every call adds, none of them forgets.
     """
     return (
+        monster_prefab_lookup() + _golden_prefab_helpers() +
         _GOLD_P +
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end " +
@@ -9234,7 +9257,7 @@ def golden_scan() -> str:
         # -- 1. the invasion enumerator: uuid -> tile, everything the send needs
         "pcall(function() "
         "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
-        "ids:Add(p.cfg, 1) "
+        "for _, id in ipairs(_goldids()) do pcall(function() ids:Add(id, 1) end) end "
         "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
         "CS.UnityEngine.Vector2Int)() "
         "ws:GetMonsterListInArea(ws.CurTilePos, p.radius, ids, res) "
@@ -9258,7 +9281,7 @@ def golden_scan() -> str:
         "local nxt = nil pcall(function() if go.transform.parent ~= nil then "
         "nxt = go.transform.parent.gameObject end end) go = nxt guard = guard + 1 end "
         "if root ~= nil then local nm = tostring(root.name) "
-        "if string.find(string.lower(nm), 'invasion') then "
+        "if _norm(nm) == _goldpic() then "
         "local pid = nil pcall(function() "
         "pid = SceneUtils.WorldToTileIndex(root.transform.position) end) "
         "if pid ~= nil and not seen[tostring(pid)] then "
@@ -9604,4 +9627,135 @@ def golden_survey() -> str:
         "' attacks=' .. tostring(can) .. ' seen=' .. tostring(seen) end)()"
         % {"energy": golden_energy(), "cost": golden_attack_cost(),
            "ws": _GOLD_WS, "cfg": GOLDEN_ZOMBIE_CFG}
+    )
+
+
+# ---------------------------------------------------------------------------
+# What a drawn monster IS — the prefab name, looked up in the game's own config
+# ---------------------------------------------------------------------------
+# Task #1519, and it is the same lesson the secret tasks taught (#1281): **the digits in
+# a thing's identifier lie, and the real answer is a row in the client's config.** A
+# roaming monster the client has DRAWN says nothing about itself before it is selected —
+# no uuid, no config id, no level — except the name of the prefab it was made from:
+#
+#     WorldMonster_General_invasion(Clone)
+#
+# and that name is a column of `lw_world_monster`. Read live on 2026-08-19:
+#
+#     cfg 1030000  pic_name = world_monster_general_invasion  level = 10  type = 7  special = 9
+#
+# — the same string as the clone's, bar the case and the underscores. So a prefab name
+# normalised (lower-cased, everything but letters and digits dropped) is a key into the
+# config, and the level comes back as the game's own number instead of the 0 that the
+# «уровень» column had been showing for every scene-read monster.
+#
+# **A prefab is not always ONE monster, and the difference decides what may be said.**
+# Census of every `pic_name` in the table, live:
+#
+#     world_monster_general_invasion   3 rows, all level 10, type 7   <- the golden zombie
+#     world_monster_boss_invasion     30 rows, levels 5..75, type 7   <- its boss
+#     world_monster_boss_iron         35 rows, levels 1..35, type 1
+#     …
+#
+# So the rule is unanimity: a prefab whose rows AGREE on a field answers it, and one
+# whose rows disagree answers `nil` and the reading falls back to the level label drawn
+# over the monster. A number invented for a boss that could be level 5 or level 75 is
+# worse than no number at all, which is the whole reason the column was wrong in the
+# first place.
+
+#: Bump this whenever :func:`monster_prefab_lookup` changes what it builds.
+#:
+#: **A panel restart does NOT clear the game's Lua globals** — that is the mirror image
+#: of the rule in `CLAUDE.md`. The panel was restarted onto a fixed map builder twice
+#: and went on reading the EMPTY map the broken one had parked in `_G`, because the game
+#: VM had not gone anywhere; the fix looked like it had failed when it had never run
+#: (#1519). Anything cached in the VM therefore carries the version of the code that
+#: built it, and is rebuilt when they disagree.
+MON_MAP_VERSION = 4
+
+
+def monster_prefab_lookup() -> str:
+    """Lua *statements* defining `_norm(s)` and `_monmap()` — the prefab -> config map.
+
+    Built once and parked in `_G.__LW_MON_PREFAB`: the table has 12 115 rows and walking
+    it per read would be paid on every poll. Two ways in, and the second exists because
+    the first depends on the shape of `LocalController:getTable`:
+
+      1. the whole table at once — `getTable('lw_world_monster')` hands back
+         `{index = <column name -> column id>, data = <id -> row>}`, which is plain Lua
+         and costs no per-row call into the engine;
+      2. failing that, the golden zombie's own row through `getValue`, which is the call
+         this repository has used since #1281 and is certain of. It is three lookups, so
+         the one prefab named here always resolves even if the table cannot be walked.
+
+    Each entry is `{ids = {…}, level = <n or nil>, type = <n or nil>, special = <n or
+    nil>, n = <rows> }`, where a field is `nil` when the rows behind that prefab disagree.
+    """
+    return (
+        "local function _norm(s) "
+        "return (string.gsub(string.lower(tostring(s or '')), '[^%%w]', '')) end "
+        "local function _monmap() "
+        "local c = _G.__LW_MON_PREFAB "
+        "if c ~= nil and c.v == %(ver)d then return c.map end "
+        "local m = {} local walked, why = 0, '' "
+        "local okwalk, err = pcall(function() "
+        "local inst = LocalController.instance() "
+        "local data = inst:getTable('lw_world_monster').data "
+        "local md = inst:getLine('lw_world_monster', %(cfg)d):getMetaData() "
+        "local function _col(n) local c = md[n] "
+        "if type(c) == 'table' then c = c[1] end return tonumber(c) end "
+        "local cpic, clv, cty, csp = _col('pic_name'), _col('level'), "
+        "_col('type'), _col('special') "
+        "if cpic == nil or data == nil then return end "
+        "for id, row in pairs(data) do "
+        "local ld = row "
+        "if type(row) == 'table' and row._lineData ~= nil then ld = row._lineData end "
+        "if type(ld) == 'table' then local pic = ld[cpic] "
+        "if pic ~= nil and tostring(pic) ~= '' then "
+        "local key = _norm(pic) local e = m[key] "
+        "local lv, ty, sp = tonumber(ld[clv]), tonumber(ld[cty]), tonumber(ld[csp]) "
+        "if e == nil then m[key] = {ids = {id}, n = 1, level = lv, type = ty, special = sp} "
+        "else e.n = e.n + 1 "
+        "if #e.ids < 32 then e.ids[#e.ids + 1] = id end "
+        "if e.level ~= lv then e.level = nil end "
+        "if e.type ~= ty then e.type = nil end "
+        "if e.special ~= sp then e.special = nil end end end "
+        "walked = walked + 1 end end end) "
+        "if not okwalk then why = tostring(err) end "
+        "_G.__LW_MON_DIAG = {walked = walked, why = why} "
+        # …and the one prefab this repository names by hand, so it resolves whatever the
+        # table's shape turns out to be on the next build of the game.
+        "pcall(function() "
+        "local inst = LocalController.instance() "
+        "local function v(f) return tonumber(inst:getValue('lw_world_monster', %(cfg)d, f, nil)) end "
+        "local pic = inst:getValue('lw_world_monster', %(cfg)d, 'pic_name', nil) "
+        "if pic ~= nil and tostring(pic) ~= '' then local key = _norm(pic) "
+        "if m[key] == nil then m[key] = {ids = {%(cfg)d}, n = 1, level = v('level'), "
+        "type = v('type'), special = v('special')} end end end) "
+        "_G.__LW_MON_PREFAB = {v = %(ver)d, map = m} return m end "
+        % {"cfg": GOLDEN_ZOMBIE_CFG, "ver": MON_MAP_VERSION}
+    )
+
+
+def monster_prefab_probe() -> str:
+    """Lua *expression* -> one `key=value` line about the prefab map, for a person to read.
+
+    What it says: how many prefabs the map holds, and what it makes of the golden
+    zombie's own — the config ids behind it, its level and its type. `n=0` means the map
+    could not be built at all, which is the one answer worth acting on.
+    """
+    return (
+        "(function() " + monster_prefab_lookup() +
+        "local m = _monmap() local n = 0 for _ in pairs(m) do n = n + 1 end "
+        "local pic = nil pcall(function() "
+        "pic = LocalController.instance():getValue('lw_world_monster', %(cfg)d, 'pic_name', nil) end) "
+        "local e = m[_norm(pic)] "
+        "local ids = '' if e ~= nil then for _, id in ipairs(e.ids) do ids = ids .. id .. ',' end end "
+        "local d = _G.__LW_MON_DIAG or {} "
+        "return 'prefabs=' .. n .. ' walked=' .. tostring(d.walked) .. "
+        "' why=' .. tostring(d.why) .. ' golden_pic=' .. tostring(pic) .. "
+        "' rows=' .. tostring(e and e.n) .. ' ids=' .. ids .. "
+        "' level=' .. tostring(e and e.level) .. ' type=' .. tostring(e and e.type) .. "
+        "' special=' .. tostring(e and e.special) end)()"
+        % {"cfg": GOLDEN_ZOMBIE_CFG}
     )

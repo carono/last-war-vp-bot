@@ -517,17 +517,29 @@ class MonsterGrid(WorldGrid):
         name = row.get("kind_name") or ""
         return name or self.tab.t("world.monster.type.unknown")
 
+    @staticmethod
+    def level_text(row) -> str:
+        """The level, or a dash for the one the game would not name.
+
+        NOT `0`. A drawn monster carries no config id, so for as long as this page has
+        existed every scene-read row showed «0» — including a level-10 golden zombie,
+        which is the reading that sent #1519 looking. The recipe now answers `-1` where
+        nobody could say, and a dash is what that looks like: it reads as «unknown» to a
+        person, sorts to the bottom, and cannot be mistaken for a weak monster.
+        """
+        level = row.get("level")
+        return str(int(level)) if level else "—"
+
     def row_values(self, row) -> tuple:
         return (_coords(row),
                 self.tab.t("secrettasks.server", srv=row.get("server")),
                 self.species_text(row),
-                str(int(row.get("level") or 0)),
+                self.level_text(row),
                 row["timer"].get())
 
     def web_facts(self, row) -> list:
         return [{"label": "world.col.species", "value": self.species_text(row)},
-                {"label": "secrettasks.col.level",
-                 "value": str(int(row.get("level") or 0))},
+                {"label": "secrettasks.col.level", "value": self.level_text(row)},
                 {"label": "secrettasks.col.state",
                  "value": self.tab.t(row.get("state_key")
                                      or "world.monster.src.scene")}]
@@ -915,12 +927,16 @@ def parse_monsters(text, server=None, now=None) -> list:
         def number(name):
             raw = fields.get(name) or ""
             return int(raw) if raw.lstrip("-").isdigit() else 0
+        # -1 is the reading's own «nobody could say» (`read_world_monsters.md`), and it
+        # is kept apart from a level all the way to the cell: «уровень 0» over a level-10
+        # zombie is a lie, and a lie is worse than a dash (#1519).
+        level = number("level")
         out.append({
             "uuid": "%s:%s" % (server or 0, pid),
             "point_id": int(pid),
             "server": server,
             "x": number("x"), "y": number("y"),
-            "level": number("level"),
+            "level": (level if level > 0 else None),
             "monster_type": number("type"),
             "cfg_id": number("cfg") or None,
             "kind_name": fields.get("kind") or "",

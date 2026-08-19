@@ -39,6 +39,77 @@ re-skin would break a picture match and cannot break this one;
 `tests/test_golden_zombies.py` fails if `worldmap_icon`, `pic_name` or `huang` ever
 appears in the scan.
 
+## 1b — the PREFAB name is how a drawn one is recognised, and the level lives in the config
+
+The operator's own hint, and it was the right way in: on the panel's monster grid a golden
+zombie already shows up as **`WorldMonster_General_invasion`** — with the level column
+reading **0**, which is what sent this section looking.
+
+**The prefab name is a column of `lw_world_monster`.** `pic_name` of config 1030000 reads
+`world_monster_general_invasion`: the clone's own name, bar the case and the underscores.
+So normalise both (lower-case, drop everything but letters and digits) and the drawn
+object is a key into the config.
+
+**Is the name enough on its own? Yes, for this one.** Census of every `pic_name` in the
+table, live — 12 115 rows, 107 distinct prefabs:
+
+| prefab | rows | levels | type |
+|---|---|---|---|
+| `world_monster_general_invasion` | **3** | **10, and only 10** | 7 |
+| `world_monster_boss_invasion` | 30 | 5 … 75 | 7 |
+| `world_monster_boss_invasion_1` | 10 | 80 … 100 | 7 |
+| `world_monster_boss_invasion_2` | 10 | 105 … 150 | 7 |
+| `world_monster_boss_iron` | 35 | 1 … 35 | 1 |
+| `world_monster_boss_coin_2` | 35 | 1 … 35 | 5 |
+| … | | | |
+
+So `WorldMonster_General_invasion` **is** the golden zombie and nothing else: the event's
+boss is a DIFFERENT prefab (`world_monster_boss_invasion*`, `special = 10` against the
+general's `9`). The three rows behind it — 1030000, 1030001, 1030002 — agree on level,
+type and special, so all three go into the enumerator's whitelist. The first version of
+the scan tested «the clone's name contains `invasion`», which is also true of a level-75
+boss; that is fixed.
+
+**The rule is unanimity.** A prefab whose rows agree on a field answers it; one whose rows
+disagree answers nothing and the reading falls back to the level label drawn over the
+monster, and to «nobody could say» when there is no label either. Caught live doing
+exactly that: `WorldMonster_Boss_invasion_2` in view resolved to `type = 7` (all ten rows
+agree) and `level = nil` (they span 105…150). A level guessed for something that could be
+105 or 150 is the same lie the column already had.
+
+### The level column showed 0, and 0 is a lie
+
+Every scene-read monster had come back `type=0 level=0` since the page existed, because a
+drawn clone carries no config id and the label over it is not always readable. Zero is the
+worst possible answer — it is a NUMBER, so the column drew it, and «уровень 0» over a
+level-10 zombie sends a person hunting for a bug in the game. The reading now answers
+**`-1` for «nobody could say»**, the grid draws that as **«—»**, and a row saved by an
+older panel (a literal 0) is drawn as «—» too.
+
+### Two traps that made the fix look like it had failed
+
+Both cost a full round of «restart, re-read, still wrong», and both are general:
+
+* **A panel restart does NOT clear the game's Lua globals.** The prefab map is built once
+  and parked in `_G`; the panel was restarted onto a fixed builder twice and went on
+  answering from the EMPTY map the broken one had left behind, because the game VM had
+  not gone anywhere. Anything cached in the VM now carries the version of the code that
+  built it (`MON_MAP_VERSION`) and is rebuilt when they disagree. This is the mirror image
+  of the restart rule in `CLAUDE.md`: restarting the panel is necessary and is not always
+  sufficient.
+* **A recipe embeds a COPY of any helper it uses.** The DSL has no include, so
+  `read_world_monsters.md` carries the text of `monster_prefab_lookup()` inside its
+  `READ_LUA`. The module was fixed and the copy was not, so every level still read `-1`
+  while the module was right. `tests/test_golden_zombies.py` now fails when the two drift.
+
+And one dead end worth not repeating: **`getTable(name).index` is not the way to the
+column numbers.** `getTable` does answer `{index = …, data = <id -> row>}` and `data` is
+exactly what is wanted — a plain Lua table, 12 115 rows, keyed by config id, each row
+keyed by column NUMBER. But `index[<column name>]` hands back a little table whose shape
+we could not pin down, every lookup through it was nil, and the walk built an empty map in
+silence. The column numbers come from `getLine(id):getMetaData()` instead, which is the
+reading this repository has used since #1281.
+
 ## 2 — the price of one attack, and the purse
 
 **live.** `MarchUtil.GetCostStaminaByTargetType` has the signature
@@ -174,6 +245,14 @@ is on another warzone.
 **Proven on 2026-08-19, against the running client:**
 
 * the config read of `1030000` and every column above;
+* the prefab map: 12 115 rows walked, **107 distinct prefabs**, no error, and
+  `world_monster_general_invasion` resolving to ids 1030000/1/2, level 10, type 7,
+  special 9;
+* the unanimity rule, caught doing its job on a monster that was actually on screen —
+  `WorldMonster_Boss_invasion_2` answered `type = 7` and refused a level, because its ten
+  rows span 105…150;
+* a clone whose prefab is not a `pic_name` at all (`WorldMonster_Boss01`) reading as
+  «nobody could say» rather than as level 0;
 * the energy purse and the price of one attack (10);
 * the squad lookup by slot, and the `state` reading that says whether it is free;
 * the enumerator: 11 golden zombies before a lap of the map, **135 after one**, each with
@@ -197,6 +276,10 @@ is on another warzone.
   enumerator with its uuid attached, so `golden_touch` / `golden_grab` never ran against a
   real one. The pieces they are made of are proven elsewhere (world-monsters.md, Findings
   16 and 17); the wiring is not.
+* **a golden clone in view at the moment of a read.** The map resolves its prefab and the
+  clone's name was read off the map live — but the two were never observed in the same
+  second, because the things live twelve minutes and respawn elsewhere. The hop between
+  them is a table lookup on a key seen live on both sides.
 
 ## 8 — where the code is
 
