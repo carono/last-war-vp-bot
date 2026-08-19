@@ -95,6 +95,31 @@ def test_a_run_that_comes_back_stamps_the_pulse() -> None:
     assert daemon.pulse.age() is not None and daemon.pulse.age() < 1.0
 
 
+def test_a_run_that_comes_back_empty_proves_nothing() -> None:
+    """#1555: an empty run is not evidence, and it used to be stamped as success.
+
+    The client hot-updated to encrypted Lua chunks; every `SafeDoString` failed and
+    nothing ran for three hours, while the panel's own errands went on resetting the
+    landing clock and the ping answered `warm, misses 0`. An empty run must leave the
+    age exactly where it was — and must not be counted as a failure either, because a
+    chunk that logs nothing legitimately returns nothing.
+    """
+    daemon, _ = _daemon(answer=[])
+    assert daemon.run("silent()", "X", 0.1) == []
+    assert daemon.pulse.age() is None, "nothing landed, so nothing may be stamped"
+    assert daemon.pulse.misses() == 0, "…and an empty answer is not a strike either"
+
+
+def test_an_empty_run_leaves_the_self_probe_due() -> None:
+    """…so the one reading that CAN tell goes and asks. That is the whole cure."""
+    daemon, ev = _daemon(answer=[])
+    daemon.run("silent()", "X", 0.1)
+    assert daemon.pulse.due(), "the age never moved, so a probe is owed"
+    assert daemon.heartbeat() is False, "the probe knows what its own chunk prints"
+    assert daemon.pulse.misses() == 1
+    assert ev.chunks == ["silent()", lua_daemon.PROBE_CHUNK]
+
+
 def test_a_working_daemon_never_probes() -> None:
     daemon, ev = _daemon()
     daemon.run("errand()", "X", 0.1)

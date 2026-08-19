@@ -118,7 +118,21 @@ serving nothing but silent chunks — which is what that interval was already pr
 With that in place the same client reads `daemon=stale`, then `daemon=none` once the
 daemon lets go of the port after three failed probes. The words already existed
 (`daemon.warm` / `daemon.stale` / `daemon.none`, `health.daemon_stale`) in all eleven
-locales; nothing new had to be said, the panel simply had to stop lying.
+locales; nothing new had to be said, the panel simply had to stop lying. Measured on the
+live client immediately afterwards: `daemon=warm` for about twenty seconds after each
+start, then `daemon=down`, and «демон не работает — таймеры и триггеры ждут, ничего не
+запускается» in the log — where the three hours before it had said `warm` without a
+break.
+
+**And it loops, on purpose rather than by accident.** The daemon leaves because it cannot
+drive the client; the panel starts another because a port nothing answers is a state it
+knows how to cure. Against a client whose Lua is refusing everything, neither can win, so
+a fresh daemon is built roughly every twenty-five seconds for as long as the client is
+left running. That is loud, which is what this file's other rule says a wrong reading
+should be, and it is not worth damping: the loop is a symptom of a client the panel cannot
+use at all, and a backoff would only make the same uselessness quieter. If a future
+client is unusable for a LONG period the answer is to close it, not to teach the panel to
+sit patiently beside it.
 
 ## 5. What to check first, next time the client updates
 
