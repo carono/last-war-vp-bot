@@ -451,6 +451,11 @@ def test_the_watch_trigger_re_arms_the_hook():
     assert trig.scenario == ("watch_fireworks",), trig.scenario
     assert not trig.enabled, "a trigger that acts on its own ships switched off"
     assert trig.interval_sec >= 60, "re-arming is bookkeeping, not a poll for fireworks"
+    # A POLL with a check, never a bare interval: a wire trigger with no event pattern
+    # is dropped at load with «не указано, какое событие ждать» and looks switched off.
+    assert trig.kind == triggers.KIND_POLL, trig.kind
+    assert "__LW_FWW" in trig.check, trig.check
+    assert not trig.event_pattern, trig.event_pattern
     import json                                    # noqa: PLC0415
     for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
         words = json.loads(path.read_text(encoding="utf-8"))

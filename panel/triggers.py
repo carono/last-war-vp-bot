@@ -620,6 +620,16 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         # for KEEPING THE HOOK ALIVE: a client restart takes the VM and everything parked
         # in it, and a watcher nobody re-armed is a watcher that reports zero pushes for
         # ever. Re-playing the recipe is one round trip and says «already on» when it is.
+        #
+        # A POLL, and its check is the hook's own flag — so the ordinary answer is «no»
+        # and the scenario is played only when the watch is genuinely gone. #1854 shipped
+        # this as a bare interval first: with no `kind` it defaulted to a wire trigger,
+        # and the profile's catalogue refused it at load with «не указано, какое событие
+        # ждать — пропущен». A trigger that is silently skipped looks exactly like one
+        # that is switched off.
+        kind=KIND_POLL,
+        check=("(function() local B = _G.__LW_FWW "
+               "return (B == nil) or (not B.on) end)()"),
         interval_sec=180,
         cooldown_sec=170,
         scenario=("watch_fireworks",),
