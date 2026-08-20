@@ -23,7 +23,7 @@
 # The answer lands in ONE variable, `items`, as records separated by « #|# », each of
 # them six fields separated by « ;; » with the NAME last:
 #
-#     850113;;12;;5;;137;;icon_item_850409;;0;;Shard of Some Hero
+#     850113;;12;;5;;137;;icon_item_850409;;0;;4;;Shard of Some Hero
 #
 #   * id     — the item's config id (`itemId`).
 #   * count  — how many, summed over every stack of that id.
@@ -41,6 +41,13 @@
 #              panel draws a «Использовать» button for a 1 and nothing for a 0, which is
 #              the whole reason it is in the reading rather than in the tab: what an item
 #              IS is the game's answer, not the window's.
+#   * tab    — which of the BAG'S OWN TABS the item belongs to, 1..6 (#1702). The set
+#              and the order are the client's own (`UIBagTab`: Special, Resource,
+#              SpeedUp, Hero, Equip, Gift); which tab a given item falls into is not
+#              something the client hands over, so the types are mapped in
+#              `tools/lib/lua_actions.py` (`BAG_TAB_OF_TYPE`) and anything unclassified
+#              lands in `Special`, which is where the game itself puts what it cannot
+#              file.
 #   * name   — the item's name, in the player's language, from the game's own table. Any
 #              white space inside it is flattened to single spaces: an answer travels
 #              back as ONE line, so a newline in the middle of one would end the reading
@@ -53,4 +60,4 @@
 # of it, and the bag grid does not show it; `read_inventory_item.md` fetches one on
 # demand when somebody opens a cell.
 
-READ_LUA (function() local D=DataCenter.ItemData local T=DataCenter.ItemTemplateManager if D==nil then return '' end local agg,order={},{} for _,v in pairs(D.ItemInfos or {}) do local id=nil pcall(function() id=tonumber(v.itemId) end) if id~=nil then local a=agg[id] if a==nil then a=0 order[#order+1]=id end agg[id]=a+(tonumber(v.count) or 0) end end local out={} for _,id in ipairs(order) do local nm,ic,co,ty='','',0,0 pcall(function() nm=tostring(T:GetName(id) or '') end) local tpl=nil pcall(function() tpl=T:GetItemTemplate(id) end) if tpl~=nil then pcall(function() ic=tostring(tpl.icon or '') end) pcall(function() co=tonumber(tpl.color) or 0 end) pcall(function() ty=tonumber(tpl.type) or 0 end) end nm=nm:gsub('%s+',' ') local us=((function(i) local k = -1 pcall(function() k = math.floor(tonumber(DataCenter.ItemTemplateManager:GetItemTemplate(i).type) or -1) end) for _, t in ipairs({2, 3, 5, 59, 109, 150}) do if t == k then return 1 end end return 0 end)(id)) out[#out+1]=id..';;'..agg[id]..';;'..co..';;'..ty..';;'..ic..';;'..us..';;'..nm end return table.concat(out,' #|# ') end)() INTO items
+READ_LUA (function() local D=DataCenter.ItemData local T=DataCenter.ItemTemplateManager if D==nil then return '' end local agg,order={},{} for _,v in pairs(D.ItemInfos or {}) do local id=nil pcall(function() id=tonumber(v.itemId) end) if id~=nil then local a=agg[id] if a==nil then a=0 order[#order+1]=id end agg[id]=a+(tonumber(v.count) or 0) end end local out={} for _,id in ipairs(order) do local nm,ic,co,ty='','',0,0 pcall(function() nm=tostring(T:GetName(id) or '') end) local tpl=nil pcall(function() tpl=T:GetItemTemplate(id) end) if tpl~=nil then pcall(function() ic=tostring(tpl.icon or '') end) pcall(function() co=tonumber(tpl.color) or 0 end) pcall(function() ty=tonumber(tpl.type) or 0 end) end nm=nm:gsub('%s+',' ') local us=((function(i) local k = -1 pcall(function() k = math.floor(tonumber(DataCenter.ItemTemplateManager:GetItemTemplate(i).type) or -1) end) for _, t in ipairs({2, 3, 5, 59, 109, 150}) do if t == k then return 1 end end return 0 end)(id)) out[#out+1]=id..';;'..agg[id]..';;'..co..';;'..ty..';;'..ic..';;'..us..';;'..((function(i) local k = -1 pcall(function() k = math.floor(tonumber(DataCenter.ItemTemplateManager:GetItemTemplate(i).type) or -1) end) local m = {} m[2] = 3 m[3] = 2 m[5] = 6 m[59] = 6 m[99] = 4 m[103] = 5 m[109] = 6 m[132] = 5 m[137] = 4 m[141] = 4 m[142] = 4 m[143] = 5 m[150] = 6 return m[k] or 1 end)(id))..';;'..nm end return table.concat(out,' #|# ') end)() INTO items

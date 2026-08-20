@@ -33,8 +33,8 @@ RECIPE = _REPO_ROOT / "src" / "lastwar_bot" / "actions" / "use_item.md"
 READING = _REPO_ROOT / "src" / "lastwar_bot" / "actions" / "read_inventory.md"
 TAB = _REPO_ROOT / "panel" / "tabs" / "inventory.py"
 
-USABLE = "400401;;93;;3;;3;;Common_icon_stamina;;1;;50 stamina"
-SHARD = "850113;;12;;5;;137;;icon_item_850409;;0;;Shard of Someone"
+USABLE = "400401;;93;;3;;3;;Common_icon_stamina;;1;;2;;50 stamina"
+SHARD = "850113;;12;;5;;137;;icon_item_850409;;0;;4;;Shard of Someone"
 
 
 def _items():
@@ -53,10 +53,15 @@ def test_the_reading_says_which_items_can_be_used():
 
 
 def test_a_reading_saved_by_an_older_panel_still_parses():
-    from panel.tabs.inventory import parse_items
-    old = parse_items("850113;;12;;5;;137;;icon_item_850409;;Shard of Someone")
-    assert old and old[0]["name"] == "Shard of Someone"
-    assert old[0]["usable"] is False, "an old reading offers a button it cannot honour"
+    from panel.tabs.inventory import parse_items, BAG_TAB_SPECIAL
+    oldest = parse_items("850113;;12;;5;;137;;icon_item_850409;;Shard of Someone")
+    assert oldest and oldest[0]["name"] == "Shard of Someone"
+    assert oldest[0]["usable"] is False, "an old reading offers a button it cannot honour"
+    assert oldest[0]["tab"] == BAG_TAB_SPECIAL, "an old reading files itself nowhere"
+    # …and the one from between the two changes: «usable», no tab (#1702).
+    middle = parse_items("400401;;93;;3;;3;;Common_icon_stamina;;1;;50 stamina")
+    assert middle[0]["usable"] is True and middle[0]["tab"] == BAG_TAB_SPECIAL
+    assert middle[0]["name"] == "50 stamina"
 
 
 def test_the_recipe_parses_and_the_press_is_in_the_catalogue():
@@ -126,6 +131,43 @@ def test_neither_front_end_offers_more_than_the_bag_holds():
     assert 'min(count, max(0, int(item.get("count") or 0)))' in source, \
         "the phone would ask for more than there is"
     assert '"count": have' in source, "«use all» does not mean what the bag holds"
+
+
+def test_the_bag_is_divided_the_way_the_game_divides_it():
+    """#1702: «вкладки с типами вещей, как в игре».
+
+    The SET and the ORDER are the client's own `UIBagTab` — Special, Resource, SpeedUp,
+    Hero, Equip, Gift — and which item falls into which is answered by the READING, so the
+    panel files nothing itself. What the client does not hand over is the mapping from an
+    item's type to a tab, so that is written down once, in the scenario's own module, and
+    anything unclassified lands in the game's own catch-all first tab.
+    """
+    import lua_actions as la
+    from panel.tabs.inventory import BAG_TABS, BAG_TAB_SPECIAL
+    assert [n for n, _ in BAG_TABS] == [0, 1, 2, 3, 4, 5, 6], \
+        "the tabs are not the game's six, in the game's order (0 is the panel's «Все»)"
+    assert la.BAG_TAB_SPECIAL == BAG_TAB_SPECIAL == 1
+    assert la.item_tab_expr("id") in READING.read_text(encoding="utf-8"), \
+        "the reading does not carry the tab — the panel would be filing the bag itself"
+    items = _items()
+    assert items[0]["tab"] == 2 and items[1]["tab"] == 4
+
+    # …the window filters by it, and the phone draws one card per category.
+    source = TAB.read_text(encoding="utf-8")
+    assert "_in_tab" in source and "_tab_var" in source, "the window has no categories"
+    assert "by_tab" in source and "cards.append" in source, \
+        "the phone still gets one flat list — the two front-ends would differ"
+    assert 'if here:' in source, "an empty category is drawn as a heading over nothing"
+
+
+def test_every_category_has_a_name_in_every_locale():
+    import json
+    from panel.tabs.inventory import BAG_TABS
+    root = _REPO_ROOT / "panel" / "locales"
+    for path in sorted(root.glob("*.json")):
+        table = json.loads(path.read_text(encoding="utf-8"))
+        for _number, key in BAG_TABS:
+            assert key in table, f"{path.name} is missing {key}"
 
 
 def _run_standalone() -> int:

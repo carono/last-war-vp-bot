@@ -9405,6 +9405,39 @@ STAMINA_ITEMS = ((400401, 50), (400402, 10))
 USABLE_ITEM_TYPES = (2, 3, 5, 59, 109, 150)
 
 
+#: THE BAG'S OWN TABS, in the game's own order (#1702). The client spells them itself —
+#: `UIBagTab` reads `Special = 1, Resource = 2, SpeedUp = 3, Hero = 4, Equip = 5,
+#: Gift = 6` — so the SET and the ORDER are the game's, not ours.
+#:
+#: What the client does NOT hand over is which tab an item falls into: the row it keeps
+#: carries a `type` and nothing about the bag's own filing. So the types are mapped here,
+#: read off the player's own bag by name — a speed-up is a speed-up, an «Осколок» is a
+#: hero piece, a «Сундук» is a gift. **A type nobody has classified falls into the game's
+#: own first tab, `Special`**, which is where the game itself puts what it cannot file.
+BAG_TABS = (1, 2, 3, 4, 5, 6)
+BAG_TAB_SPECIAL = 1
+BAG_TAB_OF_TYPE = {
+    2: 3,                                     # speed-ups
+    3: 2,                                     # resource packs, potions, diamonds
+    5: 6, 59: 6, 109: 6, 150: 6,              # chests and boxes
+    99: 4, 137: 4, 141: 4, 142: 4,            # hero shards and fragments
+    103: 5, 132: 5, 143: 5,                   # equipment and its pieces
+}
+
+
+def item_tab_expr(id_expr: str = "id") -> str:
+    """Lua *expression* -> which of the bag's own tabs an item belongs to (1..6)."""
+    pairs = " ".join("m[%d] = %d" % (kind, tab) for kind, tab in sorted(BAG_TAB_OF_TYPE.items()))
+    return (
+        "((function(i) local k = -1 "
+        "pcall(function() k = math.floor(tonumber("
+        "DataCenter.ItemTemplateManager:GetItemTemplate(i).type) or -1) end) "
+        "local m = {} %(pairs)s "
+        "return m[k] or %(special)d end)(%(id)s))"
+        % {"pairs": pairs, "special": BAG_TAB_SPECIAL, "id": id_expr}
+    )
+
+
 def use_bag_item() -> str:
     """Use `DataCenter.__lw_use_num` of item `DataCenter.__lw_use_id`, stack by stack.
 

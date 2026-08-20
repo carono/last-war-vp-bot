@@ -30,6 +30,20 @@ from ._data import DataTab, _group, _stringvar
 BAG_BLOB = "inventory_state"
 DESC_BLOB = "inventory_descs"
 
+#: THE BAG'S OWN TABS (#1702) — the set and the order are the client's own `UIBagTab`
+#: (`Special = 1, Resource = 2, SpeedUp = 3, Hero = 4, Equip = 5, Gift = 6`); which item
+#: falls into which is answered by the READING (`read_inventory.md`), not decided here.
+#: «Все» is the panel's own and comes first, because a bag of four hundred rows is most
+#: often searched rather than browsed.
+BAG_TAB_SPECIAL = 1
+BAG_TABS = ((0, "inventory.tab.all"),
+            (1, "inventory.tab.special"),
+            (2, "inventory.tab.resource"),
+            (3, "inventory.tab.speedup"),
+            (4, "inventory.tab.hero"),
+            (5, "inventory.tab.equip"),
+            (6, "inventory.tab.gift"))
+
 #: How many ids one description read asks for. The whole set is ~58 KB of text and the
 #: first run of a fresh profile asks for all of it, so it goes in slices — a Lua answer
 #: is one line through the daemon and a line has a size somebody eventually finds.
@@ -47,13 +61,16 @@ def parse_items(text: str) -> list:
         record = record.strip()
         if not record:
             continue
-        fields = record.split(";;", 6)
+        fields = record.split(";;", 7)
         if len(fields) < 6:
             continue
-        # A reading saved by an older panel has six fields and no «usable» (#1702); it
-        # keeps working and simply offers no button until the next refresh.
+        # A reading saved by an older panel is shorter (#1702): six fields is one from
+        # before «usable», seven is one from before the bag's own tab. Both keep working —
+        # no button, everything in the first tab — until the next refresh.
         if len(fields) == 6:
-            fields = fields[:5] + ["0"] + fields[5:]
+            fields = fields[:5] + ["0", str(BAG_TAB_SPECIAL)] + fields[5:]
+        elif len(fields) == 7:
+            fields = fields[:6] + [str(BAG_TAB_SPECIAL)] + fields[6:]
         try:
             item_id = int(fields[0])
         except ValueError:
@@ -63,8 +80,9 @@ def parse_items(text: str) -> list:
                     "colour": _int_or(fields[2]),
                     "type": _int_or(fields[3]),
                     "usable": _int_or(fields[5]) == 1,
+                    "tab": _int_or(fields[6], BAG_TAB_SPECIAL) or BAG_TAB_SPECIAL,
                     "icon": fields[4],
-                    "name": fields[6] or f"#{item_id}"})
+                    "name": fields[7] or f"#{item_id}"})
     return out
 
 
@@ -169,6 +187,18 @@ class InventoryTab(DataTab):
         self._status_var = _stringvar(self.rt)
         ttk.Label(top, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
+
+        # THE BAG'S OWN TABS (#1702), in the game's own order. Radio buttons rather than a
+        # notebook: they cost one widget each against a page each, and the grid below is
+        # already the thing that repaints.
+        tabrow = ttk.Frame(self.parent)
+        tabrow.pack(fill="x", padx=10, pady=(0, 4))
+        self._tab_var = _stringvar(self.rt)
+        self._tab_var.set("0")
+        for number, key in BAG_TABS:
+            self.rt.tr(ttk.Radiobutton(tabrow, value=str(number),
+                                       variable=self._tab_var,
+                                       command=self._redraw_soon), key).pack(side="left")
 
         searchrow = ttk.Frame(self.parent)
         searchrow.pack(fill="x", padx=10, pady=(0, 6))
@@ -350,13 +380,22 @@ class InventoryTab(DataTab):
             child.destroy()
         query = (self._query.get() or "").strip().lower()
         shown = [it for it in self._items
-                 if not query or query in str(it.get("name", "")).lower()]
+                 if (not query or query in str(it.get("name", "")).lower())
+                 and self._in_tab(it)]
         if not shown:
             self.rt.tr(ttk.Label(scroll, foreground="#888"),
                        "inventory.empty").grid(row=0, column=0, sticky="w", pady=6)
             return
         for index, item in enumerate(shown):
             self._draw_cell(scroll, item, index // self.COLUMNS, index % self.COLUMNS)
+
+    def _in_tab(self, item) -> bool:
+        """Is this item in the category the window is showing? «Все» (0) is everything."""
+        try:
+            wanted = int(self._tab_var.get() or 0)
+        except Exception:                   # noqa: BLE001 — the window is going away
+            return True
+        return wanted == 0 or int(item.get("tab") or BAG_TAB_SPECIAL) == wanted
 
     def _draw_cell(self, parent, item, row: int, column: int) -> None:
         """One cell: the game's two sprites, the count under them, the name as a hint."""
@@ -507,8 +546,26 @@ class InventoryTab(DataTab):
                     {"id": "use", "label": "inventory.use.all",
                      "args": {"item": item.get("id"), "count": have}})
             rows.append(row)
-        return [{"title": "tab.inventory", "items": rows, "search": True,
-                 "empty": "inventory.empty"}]
+        # THE SAME TABS THE WINDOW HAS, drawn the way a thumb can hit them: one CARD per
+        # category (#1702). The phone's renderer draws a card as a titled block, so the
+        # bag arrives already divided and scrolling to «Ускорения» is a flick rather than
+        # a hunt for a four-pixel tab. Empty categories are left out entirely — a heading
+        # over nothing is a row of noise on a screen that has none to spare.
+        by_tab: dict = {}
+        for row, item in zip(rows, items or ()):
+            by_tab.setdefault(int(item.get("tab") or BAG_TAB_SPECIAL), []).append(row)
+        cards = []
+        for number, key in BAG_TABS:
+            if number == 0:
+                continue
+            here = by_tab.get(number) or []
+            if here:
+                cards.append({"title": key, "items": here, "search": True,
+                              "empty": "inventory.empty"})
+        if not cards:
+            cards = [{"title": "tab.inventory", "items": [], "search": True,
+                      "empty": "inventory.empty"}]
+        return cards
 
     def web_press(self, action: str, args) -> dict:
         """«Использовать» from the phone — the same scenario the window plays.
