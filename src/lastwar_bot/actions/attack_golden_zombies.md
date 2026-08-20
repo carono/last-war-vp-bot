@@ -374,8 +374,14 @@ WHILE go == 1 LIMIT 24
                 # a snapshot, and the server refuses an order at a monster that is not
                 # there. That is worth another target, not the end of the run — but a
                 # client that has gone deaf refuses everything, so two in a row stop it.
-                LOG "the send never became a march — that zombie is gone; trying the next one"
+                LOG "the send never became a march — that zombie is gone, or this squad has forgotten its army; trying the next one"
                 TAP golden_miss
+                # A SQUAD THE CLIENT HAS FORGOTTEN THE ARMY OF reads zero soldiers, and the
+                # server refuses a march for an empty formation — silently, exactly like a
+                # dead target (#1285, #1702). Live: the run armed cleanly with three squads
+                # loaded and four minutes later every one of them read zero. One question
+                # puts them back, and it costs a third of a second.
+                CALL fill_empty_squads
                 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.misses) or 0) end)() INTO misses
                 IF misses > {miss_limit}
                     LOG "several sends in a row went nowhere — stopping rather than giving orders nobody is receiving"

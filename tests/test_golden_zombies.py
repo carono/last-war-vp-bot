@@ -156,13 +156,18 @@ def test_a_send_that_never_became_a_march_moves_on_rather_than_ending_the_run():
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     assert "TAP golden_miss" in lines, "a refused send has no way out but ending the run"
     i = lines.index("TAP golden_miss")
-    tail = lines[i:i + 6]
+    tail = lines[i:i + 10]
     assert any(w.startswith("IF misses >") for w in tail), \
         "misses are written down and never acted on — a deaf client would spin for ever"
     assert "ARGS miss_limit" in RECIPE.read_text(encoding="utf-8"), \
         "how many refusals in a row are tolerated is not the operator's to set"
     miss = lua_actions.golden_note_miss()
     assert "p.misses" in miss and "p.pending = nil" in miss
+    # …and a refusal asks the client for the armies again: a squad whose army the client
+    # has forgotten reads zero soldiers, and the server refuses ITS marches in exactly the
+    # same silence as a dead target (#1285, #1702).
+    assert "CALL fill_empty_squads" in lines[i:i + 10], \
+        "a refused send never asks whether the squad still holds an army"
     assert "p.misses = 0" in lua_actions.golden_confirm(), \
         "the miss streak is never cleared, so two refusals a chain apart end the run"
 
