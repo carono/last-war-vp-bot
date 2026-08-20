@@ -110,56 +110,9 @@ CODENAME = "codename"
 #: it sent — never a claim about what the account did (`panel/golden_zombies.py`).
 GOLDEN = "golden"
 
-#: «Салют» — the firework a player lights over their own base, which drops gift boxes
-#: for everyone who can see it while it burns.
-#:
-#: THE ONE BLOCK ON THIS BOARD WITH NO READING SCENARIO, and for a reason no reading can
-#: fix: a box is announced, taken and gone inside seconds, and the game keeps no answer
-#: to «how many did you get today» — `LWFireworkGiftManager.giftUuid2TimeTable` holds
-#: the account's lifetime record and nothing per day. So what is drawn here is the WIRE's
-#: own history (`panel/runtime/firework_wire.py`): announcements heard, boxes that
-#: actually arrived, when the last one did, and how long after the announcement. It is
-#: the same standing as the golden-zombie tally above — the panel's record of what it
-#: saw happen, never a claim about what the account has.
-FIREWORKS = "fireworks"
-
 #: The groups, in the order they are drawn. One so far, and the shape is what matters:
 #: a second event is one entry here, one `Group`, and its own reading.
-GROUPS: tuple = (Group(CODENAME), Group(GOLDEN), Group(FIREWORKS))
-
-
-def when(stamp: float) -> str:
-    """A unix stamp as `дд.мм чч:мм`, or `—` when nothing has happened yet.
-
-    Local time on purpose: this is «когда я его забрал», read by the person sitting at
-    the machine, and the game's own clock (`tools/lib/game_clock.py`) answers a different
-    question — which SERVER day a thing belongs to, which is what `day` already carries.
-    """
-    try:
-        stamp = float(stamp or 0.0)
-    except (TypeError, ValueError):
-        return "—"
-    if stamp <= 0.0:
-        return "—"
-    import datetime as _dt                              # noqa: PLC0415 — one format
-    return _dt.datetime.fromtimestamp(stamp).strftime("%d.%m %H:%M")
-
-
-def reaction(last: int, best: int) -> str:
-    """`120 мс (лучшее 90)` — how fast the announcement was answered, or `—`.
-
-    Milliseconds because that is the size the answer turned out to be: the press is made
-    inside the client, in the same call that delivered the announcement
-    (`actions/watch_fireworks.md`), so this number is a network round trip and not a
-    panel's reaction time.
-    """
-    try:
-        last, best = int(last), int(best)
-    except (TypeError, ValueError):
-        return "—"
-    if last < 0:
-        return "—"
-    return f"{last} ms" if best < 0 or best == last else f"{last} ms ({best} ms)"
+GROUPS: tuple = (Group(CODENAME), Group(GOLDEN))
 
 
 class Reading:

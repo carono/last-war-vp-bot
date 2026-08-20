@@ -327,6 +327,7 @@ class Recovery:
 
     __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_down_run", "_down_last", "_down_wait", "_down_held",
+                 "_down_took",
                  "_daemon_last", "_daemon_restarts", "_daemon_held",
                  "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said",
                  "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held",
@@ -361,6 +362,7 @@ class Recovery:
         #: — see :meth:`note_daemon_down`.
         self._down_last = 0.0
         self._down_wait = 0.0
+        self._down_took = False
         #: Whether the current wait has already been said. Its own flag for the same
         #: reason: `_daemon_held` is cleared by the stale branch on every poll, and a
         #: down daemon is never stale, so sharing it said the line every eight seconds.
@@ -991,6 +993,17 @@ class Recovery:
             # …and the growth is spent: a port that answers is the only evidence there is
             # that a start took, so the NEXT incident begins at the ordinary wait again.
             self._down_wait = 0.0
+            # AND THE WAIT ITSELF IS SPENT, ONCE (#1854). `_down_wait` went back to the
+            # ordinary two minutes, but `_down_last` stayed where the successful start
+            # put it — so a daemon that came up in a second and was then taken away by
+            # the panel's OWN client restart was held for the rest of those two minutes,
+            # with every timer and trigger of the profile stopped behind it. Live on
+            # 2026-08-21 that was six of ten outages in two hours: the watchdog relaunches
+            # the client at 01:55:35, the daemon is down at 01:55:43, and the next start
+            # is refused until 01:57:29 for no reason but the clock. One free start is
+            # granted for the next incident; a daemon that binds and dies again inside
+            # the wait spends it and is held exactly as before.
+            self._down_took = True
             if self._why.startswith("daemon"):
                 self._why = ""
             if self._blame == "daemon" and not self._stale_run:
@@ -1002,7 +1015,7 @@ class Recovery:
         if self._down_run < DOWN_STRIKES:
             return None
 
-        left = self.down_wait_left(now)
+        left = 0.0 if self._down_took else self.down_wait_left(now)
         if left > 0:
             # ITS OWN «said once», and that is not tidiness (#1410). `_daemon_held`
             # belongs to the stale branch, which is fed on every poll too and clears the
@@ -1028,6 +1041,9 @@ class Recovery:
         self._down_wait = (min(self._down_wait * 2, DOWN_WAIT_MAX_SEC)
                            if self._down_wait else DAEMON_COOLDOWN_SEC)
         self._down_last = now
+        # The free start is spent whether or not it works: what earns another one is a
+        # port that answers again.
+        self._down_took = False
         self._daemon_restarts += 1
         self._down_run = 0
         self._down_held = False
@@ -1035,7 +1051,12 @@ class Recovery:
         return (ACT_DAEMON_DOWN, {})
 
     def down_wait_left(self, now: float) -> float:
-        """Seconds before another daemon may be STARTED — 0.0 when one may be now."""
+        """Seconds before another daemon may be STARTED — 0.0 when one may be now.
+
+        The wait the LAST START earned, and nothing else: a port that has answered since
+        then buys one start straight away (`_down_took`), which
+        :meth:`note_daemon_down` applies rather than this.
+        """
         if not self._down_last:
             return 0.0
         wait = self._down_wait or DAEMON_COOLDOWN_SEC

@@ -584,59 +584,6 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.treasure_auto",
     ),
     Trigger(
-        name="firework_collect",
-        # A firework burning over somebody's base drops gift boxes for everyone around,
-        # and the game announces every box that is taken — ours and everyone else's — as
-        # `push.get.fireworks.gift`. That push is the ONLY announcement a firework ever
-        # gets: there is no periodic list to sweep, and asking `get.fireworks.info.list`
-        # only helps once you already know to ask. So the ear IS the ability.
-        #
-        # Firing on the gift push rather than on our own reply is what keeps this from
-        # looping: `get.fireworks.gift` (no `push.`) is the answer to our own press and
-        # does not match. Firing on somebody ELSE's box being taken is the point — it
-        # says the firework is still up, and the recipe's own gate
-        # (`IsHasAvailableBoxForMeByUid`) makes a run with nothing left a clean no-op.
-        kind=KIND_WIRE,
-        event_pattern="push.get.fireworks.gift",
-        scenario=("collect_fireworks",),
-        enabled=False,
-        # «Сразу, без очереди» (#1288), for the reason that flag exists: a firework burns
-        # for a couple of minutes and everyone who can see it is taking from it. A press
-        # that waits out the ordinary schedule arrives at a firework that has gone out.
-        immediate=True,
-        label_key="triggers.item.firework_collect",
-    ),
-    Trigger(
-        name="firework_watch",
-        # THE SAME LESSON AS THE TREASURE WATCH ABOVE (#1318), on an ability decided even
-        # faster. A firework's box is gone in seconds, and every link between the push and
-        # the press costs some of them: the capture's child decodes the frame, the hub
-        # reads the line, the schedule accepts an errand, a worker claims the client, and
-        # only then does a round trip leave for the game VM. `watch_fireworks` removes the
-        # whole chain by pressing where the announcement ARRIVES — a wrapper on the
-        # client's own `SFSNetwork.HandleMessage`, inside the same call that delivered it.
-        #
-        # So what this poll is for is not hearing the firework — the hook does that. It is
-        # for KEEPING THE HOOK ALIVE: a client restart takes the VM and everything parked
-        # in it, and a watcher nobody re-armed is a watcher that reports zero pushes for
-        # ever. Re-playing the recipe is one round trip and says «already on» when it is.
-        #
-        # A POLL, and its check is the hook's own flag — so the ordinary answer is «no»
-        # and the scenario is played only when the watch is genuinely gone. #1854 shipped
-        # this as a bare interval first: with no `kind` it defaulted to a wire trigger,
-        # and the profile's catalogue refused it at load with «не указано, какое событие
-        # ждать — пропущен». A trigger that is silently skipped looks exactly like one
-        # that is switched off.
-        kind=KIND_POLL,
-        check=("(function() local B = _G.__LW_FWW "
-               "return (B == nil) or (not B.on) end)()"),
-        interval_sec=180,
-        cooldown_sec=170,
-        scenario=("watch_fireworks",),
-        enabled=False,
-        label_key="triggers.item.firework_watch",
-    ),
-    Trigger(
         name="ghost_recon_alliance",
         # The alliance's ghost-recon squads announce themselves on the wire
         # (push.ghost.recon.alliance.single, add/change/remove). The client keeps the

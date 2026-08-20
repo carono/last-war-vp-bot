@@ -1042,6 +1042,42 @@ def test_a_second_start_waits_and_says_so_once_however_many_polls_it_takes():
     assert r.state(1050.0)["daemon_restarts"] == 1
 
 
+def test_a_client_restart_does_not_have_to_wait_out_the_last_start():
+    """THE OUTAGE THE PANEL CAUSED ITSELF (#1854).
+
+    Live on 2026-08-21, six of ten daemon outages in two hours had one shape: a daemon
+    is started and answers in a second, the panel's OWN watchdog then relaunches the
+    client, the daemon that was holding it goes down eight seconds later — and the start
+    that would have cured it in one second is refused for the rest of the two minutes the
+    SUCCESSFUL start had earned. Every timer and trigger of the profile waits behind it.
+
+    A port that answered since the last start buys one start straight away. The free one
+    is spent by using it, so a daemon that binds and dies again inside the wait is held
+    exactly as it was before, and the growth in the test above is untouched.
+    """
+    r = rec.Recovery()
+    for i in range(rec.DOWN_STRIKES):                     # …the first incident
+        said = r.note_daemon_down(True, 1000.0 + i * 8)
+    assert said and said[0] == rec.ACT_DAEMON_DOWN, said
+    assert r.note_daemon_down(False, 1008.0) is None       # the start took
+
+    acts = []
+    for i in range(rec.DOWN_STRIKES):                     # the client is relaunched…
+        said = r.note_daemon_down(True, 1016.0 + i * 8)   # …and the daemon goes with it
+        if said:
+            acts.append(said)
+    assert [a[0] for a in acts] == [rec.ACT_DAEMON_DOWN], \
+        f"a daemon taken away by our own client restart waited: {acts}"
+
+    # …and the free start is spent: this one binds nothing, so the wait applies again.
+    held = []
+    for i in range(rec.DOWN_STRIKES + 2):
+        said = r.note_daemon_down(True, 1100.0 + i * 8)
+        if said:
+            held.append(said[0])
+    assert held == [rec.HOLD_DAEMON_DOWN], f"the wait stopped holding anything: {held}"
+
+
 def _down_acts(r, rounds, t0=1000.0):
     """When each start was asked for, driving the clock by the wait it is owed."""
     at, now = [], t0
@@ -1080,7 +1116,11 @@ def test_a_daemon_that_answers_forgets_the_grown_wait():
     assert r.down_wait_left(at[-1] + 8) <= rec.DAEMON_COOLDOWN_SEC, \
         "the grown wait outlived the daemon coming back"
     again = _down_acts(r, 3, t0=at[-1] + 16)
-    assert round(again[-1] - again[-2]) <= rec.DAEMON_COOLDOWN_SEC + 60, \
+    # The FIRST of the new incident, not the last: since #1854 a port that answered buys
+    # one start straight away, so the new incident is «free, then two minutes, then four»
+    # — and what is pinned here is that it begins again at two minutes rather than at the
+    # half hour the previous incident had grown to.
+    assert round(again[1] - again[0]) <= rec.DAEMON_COOLDOWN_SEC + 60, \
         "the growth outlived the incident that earned it"
 
 
