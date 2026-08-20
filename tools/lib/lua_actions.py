@@ -9478,10 +9478,19 @@ _GOLD_HOME = (
     "local u = (d0 * d0 - d1 * d1 + ax * ax) / (2 * ax) "
     "local v = (d0 * d0 - d2 * d2 + ay * ay) / (2 * ay) "
     "local hx, hy = math.floor(cx + u + 0.5), math.floor(cy + v + 0.5) "
-    "local best, bd = nil, nil "
-    "for dx = -3, 3 do for dy = -3, 3 do local dd = _d(hx + dx, hy + dy) "
-    "if dd ~= nil and (bd == nil or dd < bd) then bd = dd "
-    "best = {x = hx + dx, y = hy + dy} end end end "
+    # THE SWEEP IS A DESCENT, and it has to be (#1702). The oracle answers whole tiles, so
+    # at five hundred tiles out the two squared readings the guess is built from carry a
+    # rounding error worth several tiles — live, the guess missed and a fixed ±3 sweep
+    # found nothing, which left the run with no base tile at all and every pick falling
+    # back to asking the oracle per target. Coarse first, then fine, from wherever the
+    # camera happens to be.
+    "local best, bd = {x = hx, y = hy}, _d(hx, hy) "
+    "for _, step in ipairs({8, 4, 2, 1}) do "
+    "for dx = -3, 3 do for dy = -3, 3 do "
+    "local nx, ny = best.x + dx * step, best.y + dy * step "
+    "local dd = _d(nx, ny) "
+    "if dd ~= nil and (bd == nil or dd < bd) then bd = dd best = {x = nx, y = ny} end "
+    "end end end "
     "if best == nil or bd == nil or bd > 1.5 then return nil end "
     "pcall(function() best.pid = ws:TilePosToIndex("
     "CS.UnityEngine.Vector2Int(best.x, best.y)) end) "

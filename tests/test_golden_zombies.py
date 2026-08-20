@@ -656,6 +656,37 @@ def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_kn
     assert send and min(send) > second, "the run sends before it has re-picked"
 
 
+def test_the_base_tile_is_solved_from_anywhere_on_the_map():
+    """#1702: at five hundred tiles out the guess missed and the run lost its origin.
+
+    The oracle answers whole tiles, so the two squared readings the guess is built from
+    carry a rounding error worth several tiles at long range. A fixed ±3 sweep then found
+    nothing, `p.home` stayed nil, and every pick fell back to asking the oracle per target
+    — which still measures from the base, but says `origin=nil` in the log and cannot be
+    compared with the chain's own arithmetic. Run offline against a fake oracle that
+    rounds exactly as the game does.
+    """
+    import lupa
+    for camera in ((894, 891), (566, 473), (10, 990)):
+        rt = lupa.LuaRuntime()
+        rt.execute("CS = {UnityEngine = {Vector2Int = function(x, y) return {x = x, y = y} end}}")
+        rt.execute("""
+        HOME = {x = 564, y = 468}
+        SceneUtils = {TileDistanceToMyHome = function(pid)
+          local x, y = math.floor(pid / 10000), pid %% 10000
+          local dx, dy = x - HOME.x, y - HOME.y
+          return math.floor(math.sqrt(dx * dx + dy * dy) + 0.5)
+        end}
+        WS = {CurTilePos = {x = %d, y = %d},
+              TilePosToIndex = function(self, t) return t.x * 10000 + t.y end}
+        """ % camera)
+        rt.execute(lua_actions._GOLD_HOME + " RESULT = _goldhome(WS, 1)")
+        found = rt.eval("RESULT")
+        assert found is not None, f"no base tile found with the camera at {camera}"
+        assert (found.x, found.y) == (564, 468), \
+            f"the base came out at {(found.x, found.y)} with the camera at {camera}"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
