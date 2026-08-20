@@ -78,9 +78,21 @@ IF squad_free == -2
 WHILE squad_free == 0 LIMIT 60
     WAIT 2
     READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+# A SECOND CHANCE AT THE ARMY, and it is not politeness (#1702). A squad that has just
+# been recalled reads «no army» for a beat or two while the client catches up — measured,
+# a hunt ended on exactly that, one lap after the fuse had correctly saved it from a mine.
+# «No army» is the one refusal with a cure, so it is worth asking twice before a run is
+# ended over it; «busy» is not, because waiting IS the cure and it has already been waited.
+IF squad_free == -2
+    LOG "still no army after the recall — asking once more before giving up"
+    CALL fill_empty_squads
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+    WHILE squad_free == 0 LIMIT 15
+        WAIT 2
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
 IF squad_free == 0
     LOG "the squad has been busy for two minutes and still takes no orders — stopping rather than waiting on it"
     READ_LUA (0) INTO go
 IF squad_free == -2
-    LOG "the squad still holds no army after being asked for one — stopping rather than sending orders it cannot carry out"
+    LOG "the squad still holds no army after being asked for it twice — stopping rather than sending orders it cannot carry out"
     READ_LUA (0) INTO go

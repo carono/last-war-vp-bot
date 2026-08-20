@@ -10656,12 +10656,17 @@ def golden_eta_left() -> str:
 
     **AND ONLY FOR A MARCH THIS HUNT DID NOT ORDER (#1702).** The ceiling exists to stop
     the chain waiting out a mine being gathered or a rally somebody else's press sent the
-    squad into. Applied to the hunt's OWN march it does the exact opposite: live, a ride
-    the planner had quoted at 40 seconds was really flying for 213, the guard read that as
-    «not ours» and RECALLED IT — the chain cancelling its own order mid-flight, which is
-    the very «меняет маршрут, когда уже идёт» this task is about. `p.pending` is set the
-    moment the chain sends, so a parked order of ours answers `-1` here and is waited out
-    on its own clock like any other.
+    squad into. Applied to the hunt's OWN march it would do the exact opposite — cancel
+    an order in flight, which is the very «меняет маршрут, когда уже идёт» this task is
+    about. `p.pending` is set the moment the chain sends, so a parked order of ours
+    answers `-1` here and is waited out on its own clock like any other.
+
+    To be exact about what was and was not observed: a ride the planner quoted at 40
+    seconds really did fly for 213, and the recall that followed was the RIDE'S FUSE
+    doing its job at the mine, not this ceiling. The ceiling never saw that march, because
+    a ride is waited out inside the send. The guard is here because nothing stopped it
+    seeing the next one, and a rule that can cancel the hunt's own attack is not a rule
+    worth leaving to luck.
     """
     return ("(function() " + _GOLD_P +
             "if p.pending ~= nil then return -1 end "
