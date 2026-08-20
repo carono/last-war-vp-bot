@@ -257,7 +257,29 @@ chain is on the newest own march's `endTime` — the server's own arrival stamp,
 one that came within two seconds of the prediction. This corrects §5 below: the state
 reading tells «out» from «at home» and nothing finer.
 
-### And it does not finish — measured, not feared
+### It DOES finish — and the diagnosis below was ours, not the game's (#1702)
+
+**Everything from here to the end of this section was wrong, and it is kept because the
+way it was wrong is the lesson.** The attack issued from beside the mine was refused over
+and over, and that was written down as a rule of the game. The operator — who plays this
+account by hand — said plainly that they attack from a mine and from the road every day.
+
+They were right. The uuid of a monster is a C# `Int64` the enumerator hands over, and the
+queue was keeping a REFERENCE to it; by the time a chain's second target was sent,
+`tostring()` on it answered `<invalid c# object>`. Nothing was being refused, because
+nothing was arriving: the send carried a dead reference. The queue keeps the TEXT of the
+uuid now and the live object is fetched again at the moment of the send.
+
+Proven live on 2026-08-20, with the ride threshold lowered so short hops would plan one:
+three rides, two attacks launched from beside the mine (`launched = 1`, the game holding
+the march), one zombie confirmed gone, and four stale targets dropped without an order
+being wasted on them.
+
+The lesson is the one this repository keeps paying for: **a refusal that cannot be
+reproduced by hand is a bug in the sender, not a rule of the game.** Ask the person who
+plays it.
+
+### The old reading — And it does not finish — measured, not feared
 
 The whole manoeuvre was run end to end: a ride was planned, sent, waited out, and then
 the attack was issued from the mine. **The server did not take the energy** — fourteen
