@@ -262,16 +262,28 @@ class EventMonitor(LiveDecoder):
         command = proto.envelope_command(env) or ""
         # Down only: the up direction carries our own answers, and firing on those
         # would be a loop waiting to happen.
-        if direction != "down" or not any(p in command for p in self.patterns):
+        if direction != "down":
             return
-        self.matches += 1
+        watched = any(p in command for p in self.patterns)
+        # A `--fields` FAMILY IS ENOUGH TO KEEP THE FRAME (#1854). The two lists are not
+        # the same list: `--match` names what somebody wants to be WOKEN by, `--fields`
+        # names what somebody wants to READ. The answer to our own press
+        # (`get.fireworks.gift`) is the second kind and can never be the first — no
+        # trigger may fire on it — and gating the whole frame on `--match` meant its
+        # fields line was never built, so the book that counts boxes ARRIVING counted
+        # none, for ever, while the announcements piled up beside it.
+        wanted = bool(self.fields) and any(p in command for p in self.fields)
+        if not watched and not wanted:
+            return
+        if watched:
+            self.matches += 1
         # THE FIELDS LINE IS NOT COOLED DOWN, and that is deliberate (#1323). The
         # cooldown exists so a burst of one command cannot fill a log with markers —
         # a press is coalesced by the panel's queue anyway. This line is not a press
         # and never reaches a log: it is one banner's own numbers, and during an event
         # ten banners announce themselves inside one throttle window. Cooling it would
         # leave nine of them unnamed, which is the very state this exists to end.
-        if self.fields and any(p in command for p in self.fields):
+        if wanted:
             try:
                 built = _fields_for(command, proto.envelope_payload(env))
                 if built:
@@ -279,6 +291,10 @@ class EventMonitor(LiveDecoder):
                     self.field_lines += 1
             except Exception:        # noqa: BLE001 — never let a field kill the ear
                 pass
+        # …and a command nobody asked to be woken by stops here: no marker, no cooldown
+        # entry, nothing a trigger can act on.
+        if not watched:
+            return
         now = time.time()
         if now - self._last_fire.get(command, 0.0) < self.cooldown:
             return

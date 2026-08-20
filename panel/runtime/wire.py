@@ -77,7 +77,10 @@ FIELDS_FIREWORK = "push.get.fireworks.gift"
 #: …and the ANSWER to our own press, which is the only place a box can be seen ARRIVING
 #: (#1854). The announcement says a firework exists; this says whether what we asked for
 #: was given. It is not a trigger and fires nothing — no subscription matches it, because
-#: every firework subscription names the `push.` form — it only feeds the book.
+#: every firework subscription names the `push.` form — it only feeds the book. That is
+#: also why the child had to learn that a `--fields` family KEEPS a frame on its own: it
+#: used to drop everything `--match` did not name, so this line was never built and the
+#: book counted no boxes at all while the announcements piled up beside it.
 #:
 #: One pattern, not two: `get.fireworks.gift` is a substring of the push's own name, so
 #: the child matches both on it and prints ONE fields line per message either way. What

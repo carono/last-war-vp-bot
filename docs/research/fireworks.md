@@ -148,6 +148,13 @@ index>, <ends at, ms>)` and a `FireworkWorldBuildBubble` over the base.
   routes the line to `panel/runtime/firework_wire.py::FireworkBook`, which is the
   receiver: counted on the profile's intake ledger as `fireworks.push`, kept per tile,
   and checkpointed into the profile's own database under the `firework_state` blob.
+* **The answer had to be let past the ear's own gate.** `tools/wire_event_monitor.py`
+  dropped every frame whose command no `--match` pattern named, and no firework
+  subscription can name `get.fireworks.gift` — a trigger firing on our own answer is a
+  loop. So the fields line was never built: a live profile sat on **59 announcements
+  heard and 0 boxes counted** while the watch inside the client was demonstrably taking
+  them. A `--fields` family now keeps a frame by itself, and such a frame yields its
+  fields line and NO marker.
 * The trigger `firework_collect` (off by default, «сразу, без очереди») plays
   `src/lastwar_bot/actions/collect_fireworks.md` on every such push.
 * The recipe walks the queue map and presses `get.fireworks.gift` for each box that is

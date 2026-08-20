@@ -462,6 +462,69 @@ def test_the_watch_trigger_re_arms_the_hook():
         assert trig.label_key in words, f"{path.name} is missing {trig.label_key}"
 
 
+def test_a_fields_family_is_enough_to_keep_the_frame():
+    """The answer to our own press reaches the fields line WITHOUT being subscribed.
+
+    `--match` names what wakes somebody; `--fields` names what somebody reads. The
+    reply `get.fireworks.gift` is the second kind and can never be the first — a
+    trigger firing on our own answer is a loop — and while the child gated the whole
+    frame on `--match`, the book that counts boxes ARRIVING was fed nothing at all: a
+    live profile sat on 59 announcements heard and 0 boxes counted (#1854).
+
+    So a fields-only command yields its fields line and NO marker, and a subscribed
+    command still yields both.
+    """
+    mon = _module(ROOT / "tools" / "wire_event_monitor.py", "wire_event_monitor")
+    printed: list = []
+
+    class _Proto:
+        @staticmethod
+        def envelope_command(env):
+            return env["cmd"]
+
+        @staticmethod
+        def envelope_payload(env):
+            return env.get("payload") or {}
+
+    ear = mon.EventMonitor.__new__(mon.EventMonitor)
+    ear.patterns = ("push.get.fireworks.gift",)
+    ear.fields = ("get.fireworks.gift",)
+    ear.cooldown = 0.0
+    ear.quiet = True
+    ear.matches = 0
+    ear.fired = 0
+    ear.field_lines = 0
+    ear._last_fire = {}
+
+    old_proto, old_print = mon.proto, mon.print if hasattr(mon, "print") else None
+    mon.proto = _Proto()
+    mon.print = lambda *a, **k: printed.append(a[0] if a else "")
+    try:
+        ear.emit("down", {"cmd": "get.fireworks.gift", "payload": {"itemId": 200}})
+        assert ear.field_lines == 1, "the answer to our own press must be read"
+        assert ear.fired == 0, "…and must never wake a trigger"
+        assert ear.matches == 0, "…nor be counted as something somebody watched"
+        assert any(line.startswith(mon.FIELDS) for line in printed), printed
+        assert not any(line.startswith(mon.FIRE) for line in printed), printed
+
+        printed.clear()
+        ear.emit("down", {"cmd": "push.get.fireworks.gift", "payload": {"pointId": 1}})
+        assert ear.matches == 1 and ear.fired == 1, (ear.matches, ear.fired)
+        assert ear.field_lines == 2, ear.field_lines
+
+        printed.clear()
+        ear.emit("down", {"cmd": "something.else", "payload": {}})
+        assert printed == [], printed
+        ear.emit("up", {"cmd": "get.fireworks.gift", "payload": {}})
+        assert printed == [], "the up direction is our own send, never read back"
+    finally:
+        mon.proto = old_proto
+        if old_print is None:
+            del mon.print
+        else:
+            mon.print = old_print
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
