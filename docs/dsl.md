@@ -316,6 +316,15 @@ base":
 ```
 IF scene != city
     FAIL "not on the base (need the city scene) — retry later"
+```
+
+**`{name}` is filled in from the script's variables**, exactly as in `LOG` — and for a
+stronger reason: a log line is one of hundreds, while a failure reason is THE sentence the
+panel shows, a tab paints and a person reads. The same is true of `STOP`.
+
+```
+READ_LUA (…) INTO report
+FAIL "nothing was sent — {report}"
 TAP collect_visitor_gifts xall
 ```
 

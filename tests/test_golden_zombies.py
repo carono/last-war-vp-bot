@@ -1322,6 +1322,31 @@ def test_a_lap_does_not_begin_until_the_squad_is_free():
         "the run carries on sending orders at a squad that will not take them"
 
 
+def test_a_failure_says_the_numbers_it_is_about():
+    """#1702, off the live log: «nothing was sent — {golden_report}».
+
+    `{name}` was filled in for `LOG` and not for `FAIL`, which is backwards — a log line
+    is one of hundreds and a failure reason is the sentence the panel shows and a person
+    reads. The report it was naming was sitting in the variables at the time.
+    """
+    ctx = engine.new_context(0, lambda _m: None)
+    interp = engine.Interpreter(ctx)
+    ctx.vars["report"] = "found=183 attacks=0"
+    for stmt, attr, flag in ((engine.FailStmt(text="", line_no=1,
+                                              reason="nothing was sent — {report}"),
+                              "fail_reason", "failed"),
+                             (engine.StopStmt(text="", line_no=1,
+                                              reason="stopped — {report}"),
+                              "halt_reason", "halt")):
+        try:
+            interp._run_stmt(stmt)
+        except Exception:                # noqa: BLE001 — the signal is the point
+            pass
+        assert "found=183" in getattr(ctx, attr), \
+            f"{attr} lost the numbers it was about: {getattr(ctx, attr)!r}"
+        setattr(ctx, flag, False)
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

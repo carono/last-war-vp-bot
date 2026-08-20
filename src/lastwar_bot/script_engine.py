@@ -1431,12 +1431,21 @@ class Interpreter:
                 self._log(f'LOG "{self._fill(stmt.message)}"')
             case StopStmt():
                 self.ctx.halt = True
-                self.ctx.halt_reason = stmt.reason or f"STOP at line {stmt.line_no}"
+                # …and so does a halt, for the same reason (#1702).
+                self.ctx.halt_reason = (self._fill(stmt.reason) if stmt.reason
+                                        else f"STOP at line {stmt.line_no}")
                 self._log(f"STOP -> halt requested ({self.ctx.halt_reason})")
                 raise _HaltSignal()
             case FailStmt():
                 self.ctx.failed = True
-                self.ctx.fail_reason = stmt.reason or f"FAIL at line {stmt.line_no}"
+                # A FAILURE CARRIES ITS NUMBERS TOO (#1702). `{name}` was filled in for
+                # `LOG` and not for `FAIL`, which is exactly backwards: a log line is one
+                # of hundreds and a failure is THE sentence the panel shows, the tab
+                # paints and the person reads. Live, a hunt ended with «nothing was sent —
+                # {golden_report}» and the report it was naming was right there in the
+                # variables. Same filler, same rule for an unknown name.
+                self.ctx.fail_reason = (self._fill(stmt.reason) if stmt.reason
+                                        else f"FAIL at line {stmt.line_no}")
                 self._log(f"FAIL -> {self.ctx.fail_reason}")
                 raise _FailSignal()
             case CloseWindowStmt():
