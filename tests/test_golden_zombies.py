@@ -599,7 +599,12 @@ def test_a_dead_target_is_dropped_before_a_send_is_wasted_on_it():
     _body, choose = _brick("golden_choose_a_target")
     _body, send = _brick("golden_send_the_squad")
     assert "TAP golden_drop_target" in choose
-    here = [i for i, w in enumerate(choose) if w.startswith("READ_LUA") and " INTO here" in w]
+    # The lenient «is it on the map» reading moved OUT of the chain and the STRICT one
+    # took its place (#1702): before a march is spent, «the client cannot name that uuid»
+    # is reason enough to choose again. `golden_here` stays as the module's careful
+    # reading for anything that touches the REGISTRY, where the trade runs the other way.
+    here = [i for i, w in enumerate(choose)
+            if w.startswith("READ_LUA") and " INTO target_live" in w]
     assert here, "nothing asks whether the armed target is still on the map"
     i = min(here)
     _body, judge = _brick("golden_judge_the_kill")
@@ -708,16 +713,16 @@ def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_kn
     # candidate; the queue is reaped by every scan now, so what it holds is what the map
     # last said, and the re-pick belongs behind the refresh threshold and nowhere else.
     body, lines = _chain()
-    picks = [i for i, w in enumerate(lines) if w == "TAP golden_pick"]
-    assert len(picks) >= 2, "the choice is never revisited, even once the ground is stale"
-    first, second = picks[0], picks[1]
-    between = lines[first:second]
-    assert "IF needs_refresh == 1" in between and "TAP golden_refresh" in between, \
-        "the second pick is not behind the staleness threshold — it re-flies every kill"
-    assert "TAP golden_scan" in between, \
-        "the second pick reads the same queue as the first — it would choose the same"
+    pick = lines.index("TAP golden_pick")
+    loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE looking == 1 LIMIT"))
+    assert loop < pick, "the pick is not inside the choosing loop — one stale row ends the lap"
+    tries = int(lines[loop].rsplit(" ", 1)[-1])
+    assert 3 <= tries <= 10, "the chain either gives up on one stale row or spins on them"
+    before = lines[:loop]
+    assert "IF needs_refresh == 1" in before and "TAP golden_refresh" in before, \
+        "the redraw is not behind the staleness threshold — it would re-fly every kill"
     send = [i for i, w in enumerate(lines) if w == "TAP golden_send"]
-    assert send and min(send) > second, "the run sends before it has re-picked"
+    assert send and min(send) > loop, "the run sends before it has chosen"
 
 
 def test_the_base_tile_is_solved_from_anywhere_on_the_map():
@@ -840,7 +845,7 @@ def test_a_target_uuid_is_fetched_again_before_it_is_sent():
         assert "t.key or t.uuid" in check, \
             "a check compares against a reference that may have died"
     body, _lines = _chain()
-    assert lua_actions.golden_here() in body and lua_actions.golden_gone() in body, \
+    assert lua_actions.golden_target_live() in body and lua_actions.golden_gone() in body, \
         "the recipe's copies of the checks are older than the module's"
 
 
@@ -1410,6 +1415,35 @@ def test_the_ride_is_skipped_once_after_a_recall():
     # which is what the FUSE is for, and it is a different decision with a different cause.
     assert int(rt.eval("DataCenter.__lw_gold.skip_ride")) == 0, \
         "one recall switches the ride off for good"
+
+
+def test_a_stale_row_costs_a_pick_and_not_a_whole_lap():
+    """Measured live: nine of fifteen laps of a run ended in `dropped=stale` (#1702).
+
+    The client had already forgotten those uuids, and the SEND was where that came out —
+    so a whole lap had been spent choosing, checking and arming a target that could never
+    be marched at. The same question asked at the moment of choosing costs a fifth of a
+    second and the answer is «pick again», in the same lap.
+
+    Strict here and lenient in the registry, and the asymmetry is the point: this is one
+    target a march is about to be spent on, while a REGISTRY row wrongly dropped is a
+    zombie nothing can re-add.
+    """
+    import lupa
+    live = lua_actions.golden_target_live()
+    assert "_freshuuid" in live, "the strict check is not the one the send makes"
+    assert "HasPointInfo" not in live, \
+        "the strict check borrowed the registry's leniency — it would arm dead targets"
+
+    _body, choose = _brick("golden_choose_a_target")
+    i = next(k for k, w in enumerate(choose) if " INTO target_live" in w)
+    tail = choose[i:i + 6]
+    assert "TAP golden_drop_target" in tail, "a target the client cannot name is armed anyway"
+    assert "IF target_live == 1" in tail, "the reading is taken and not acted on"
+
+    # …and nothing in the brick that CHOOSES is allowed to give an order.
+    assert not any(w in ("TAP golden_send", "TAP golden_home", "TAP golden_ride")
+                   for w in choose), "the choosing brick gives orders"
 
 
 def _run_standalone() -> int:

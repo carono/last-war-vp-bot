@@ -10570,6 +10570,29 @@ def golden_here() -> str:
     )
 
 
+def golden_target_live() -> str:
+    """Lua *expression* -> 1 when the client can still hand over the armed target's uuid.
+
+    **The STRICT question, and it is strict on purpose (#1702).** `golden_here` is
+    deliberately lenient — an unread district can never say «gone», because a row wrongly
+    dropped is a zombie the registry can never get back. This one is the opposite trade,
+    and it is asked of ONE target that a march is about to be spent on: if the client
+    cannot name that uuid at that tile right now, the order would be sent at nothing.
+
+    It is the same check `golden_send` makes a moment later (`dropped=stale`), moved to
+    where it is cheap. Measured live: of fifteen laps of a run, **nine ended in
+    `dropped=stale`** — a whole lap each, spent choosing a target the client had already
+    forgotten. Asked here, the chain simply picks again and sends in the same lap.
+    """
+    return (
+        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
+        "if ws == nil then return 1 end "
+        "local t = p.cur "
+        "if t == nil then return 0 end "
+        "return (_freshuuid(ws, p, t) ~= nil) and 1 or 0 end)()"
+    )
+
+
 def golden_drop_target() -> str:
     """Take the armed target off the queue without sending anything at it.
 
