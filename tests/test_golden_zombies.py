@@ -1257,10 +1257,23 @@ def test_the_gap_after_an_attack_is_kept_short_on_purpose():
         "the settle is paid on every lap instead of only when the camera really flew"
     _body, send = _brick("golden_send_the_squad")
     assert "WAIT 0.4" in send, "the launch proof is polled coarsely on the hot path"
+    # THE PATIENCE CAME DOWN TOO, and deliberately (#1702). The proof is instant when the
+    # order was taken — the squad goes busy the moment the game accepts it — so the whole
+    # of this poll is time spent on orders that were REFUSED, and live half the sends of a
+    # run were refusals at zombies somebody else had already killed. Six seconds is still
+    # far longer than the server takes to answer; what it is not is ten seconds of
+    # patience that only ever pays out on failure.
     poll = next(w for w in send if w.startswith("WHILE launched == 0 LIMIT"))
     beats = int(poll.rsplit(" ", 1)[-1])
-    assert beats * 0.4 >= 9.5, \
-        "the launch proof lost patience as well as latency — that is a different change"
+    assert 5.0 <= beats * 0.4 <= 7.0, \
+        "the launch proof waits either less than a server round trip or a refusal's worth"
+    assert "canMarch" in lua_actions.golden_launched(), \
+        "the patience was cut without the instant half of the proof to justify it"
+
+    # …and the ride's camera flight is bought only when the sums ask for it.
+    look = send.index("TAP golden_look")
+    assert any(w.startswith("IF needs_district ==") for w in send[max(0, look - 3):look]), \
+        "the hunt flies to its candidate on every lap again — it costs three seconds a kill"
 
 
 def test_every_recipe_carries_the_modules_copy_of_every_shared_expression():

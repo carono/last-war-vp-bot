@@ -11272,6 +11272,23 @@ def golden_approach_arm() -> str:
     )
 
 
+def golden_needs_district() -> str:
+    """Lua *expression* -> 1 when a ride is worth looking for a mine for, else 0.
+
+    The planner bails on the arithmetic — «short», «no-gain», «no-ride», «after-recall» —
+    without touching the map, and only reaches the mine hunt when the haul is long enough
+    to be worth one. `no-mine` therefore means «the sums say ride, and the client has not
+    been shown that corner of the map»: exactly the case where flying the camera there and
+    asking again is worth its three seconds.
+
+    Measured (#1702): the flight ran on EVERY lap of a run with the ride switched on —
+    twelve times in one run — and cost 2 s of button settle plus a second of waiting plus
+    a scan, on hops of four and six tiles that the planner then dismissed as «short».
+    """
+    return ("(function() " + _GOLD_P +
+            "return (tostring(p.why or '') == 'no-mine') and 1 or 0 end)()")
+
+
 def golden_approach_planned() -> str:
     """Lua *expression* -> 1 when a ride has been planned for the armed target, else 0."""
     return ("(function() " + _GOLD_P +

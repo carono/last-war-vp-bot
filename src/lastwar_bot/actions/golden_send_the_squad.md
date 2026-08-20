@@ -56,10 +56,20 @@ IF picked == 1
         # fetches it. The chain itself does not: the pick works off the reaped
         # registry, and the flight used to be paid on every kill for a re-pick
         # that the reaping has made unnecessary.
-        TAP golden_look
-        WAIT 1
-        TAP golden_scan
+        # THE SUMS FIRST, THE CAMERA ONLY IF THE SUMS ASK FOR IT (#1702). The planner
+        # bails on «short» and «no-gain» without touching the map, so asking it first
+        # costs a fifth of a second and answers most laps. It is only when it gets as far
+        # as hunting for a mine and finds none — «no-mine», which on an unloaded corner of
+        # the map means «nobody has shown me» — that the flight is worth its three
+        # seconds. Measured: the flight ran on all twelve laps of one run, on hops of four
+        # and six tiles the planner then called short.
         TAP golden_approach_arm
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (tostring(p.why or '') == 'no-mine') and 1 or 0 end)() INTO needs_district
+        IF needs_district == 1
+            TAP golden_look
+            WAIT 1
+            TAP golden_scan
+            TAP golden_approach_arm
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.approach ~= nil) and 1 or 0 end)() INTO riding
         IF riding == 1
             READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'why=' .. tostring(p.why or '-') .. ' direct=' .. tostring(math.floor(tonumber(p.direct_sec) or 0)) .. ' via=' .. tostring(math.floor(tonumber(p.approach_sec) or 0)) .. ' rode=' .. tostring(math.floor(tonumber(p.rode) or 0)) .. ' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. ' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)() INTO ride_report
@@ -109,7 +119,13 @@ IF picked == 1
     # a half times as closely (#1702). This poll is on the hot path: it is the last thing
     # between an order and the chain moving on, and every beat of it is dead time on a
     # send that was accepted at once. Nothing here is a timeout being shortened.
-    WHILE launched == 0 LIMIT 25
+    # SIX SECONDS, NOT TEN (#1702). The proof is instant when the order was taken — the
+    # squad goes busy the moment the game accepts it — so the whole of this poll is time
+    # spent on orders that were REFUSED. Live, half the sends of a run were refusals at
+    # zombies somebody else had already killed, and each cost the full ten seconds. Six is
+    # still far longer than the server takes to answer; what it is not is a patience that
+    # only ever pays out on failure.
+    WHILE launched == 0 LIMIT 15
         WAIT 0.4
         READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
 
