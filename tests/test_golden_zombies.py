@@ -112,9 +112,17 @@ def test_the_send_does_not_count_the_attack_and_the_confirm_does():
 
 def test_the_proof_of_an_attack_is_the_energy_the_server_took():
     settled = lua_actions.golden_settled()
-    assert "p.before" in settled and "p.cost" in settled, \
-        "the proof must be the purse moving by the price of one attack"
+    assert "p.before" in settled, "the proof must be the purse moving"
     assert "stamina" in settled, "the purse is the player's stamina"
+    # …and it is «it went DOWN», never «it went down by the QUOTED price» (#1702): live,
+    # the game quoted 10 and the server charged 8, so the strict form called a real attack
+    # a failure and stopped the chain over a squad that was already marching.
+    assert "p.cost" not in settled, \
+        "the proof is priced off the quote, which the server does not have to honour"
+    assert "before - 1" in settled
+    confirm = lua_actions.golden_confirm()
+    assert "before - " in confirm, \
+        "the tally records the quote rather than what the server actually took"
 
 
 def test_the_chain_measures_from_the_squad_and_not_from_home():
@@ -171,6 +179,13 @@ def test_the_last_march_of_a_run_brings_the_squad_home():
         "the chain never switches «come home» off — every march would walk back"
     last = lua_actions.golden_last_march()
     assert "cost * 2" in last, "the last march is not worked out from what is left"
+
+
+def test_the_recipe_carries_the_CURRENT_copy_of_the_settle_check():
+    """The DSL has no include, so the recipe embeds the text — and it goes stale (#1702)."""
+    body, _ = _source(RECIPE)
+    assert lua_actions.golden_settled() in body, \
+        "the recipe's copy of the settle check is not the module's"
 
 
 def test_the_energy_is_asked_and_never_kept():

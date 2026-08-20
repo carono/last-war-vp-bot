@@ -227,6 +227,10 @@ WHILE go == 1 LIMIT 24
         WAIT 1.5
         TAP golden_scan
         TAP golden_pick
+        # WHICH zombie, how far from the origin the pick used, and how far the same
+        # tile is from the base — the two numbers that say the chain is a chain.
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return 'none' end local o = p.anchor or p.home local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. ' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. ' from=' .. tostring(p.curfrom or '-') .. ' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' src=' .. tostring(c.src or '-') .. ' queued=' .. tostring(#(p.targets or {})) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)() INTO pick_report
+        LOG "target: {pick_report}"
         READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.cur == nil then return 0 end return ((tonumber(p.cur.uuid) or 0) == 0) and 1 or 0 end)() INTO needs_uuid
 
         # A target found as a drawn clone knows its tile and not its uuid, and a send
@@ -273,10 +277,10 @@ WHILE go == 1 LIMIT 24
 
             # The proof is the SERVER charging the energy, never the send returning
             # cleanly.
-            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local before = tonumber(p.before) if before == nil then return 1 end local cost = math.floor(tonumber(p.cost) or 10) return ((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() <= (before - cost)) and 1 or 0 end)() INTO settled
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local before = tonumber(p.before) if before == nil then return 1 end return ((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() <= (before - 1)) and 1 or 0 end)() INTO settled
             WHILE settled == 0 LIMIT 10
                 WAIT 0.7
-                READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local before = tonumber(p.before) if before == nil then return 1 end local cost = math.floor(tonumber(p.cost) or 10) return ((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() <= (before - cost)) and 1 or 0 end)() INTO settled
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local before = tonumber(p.before) if before == nil then return 1 end return ((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() <= (before - 1)) and 1 or 0 end)() INTO settled
 
             IF settled == 0
                 LOG "the squad was sent and the energy was not charged — stopping rather than spending the rest of it on sends nobody is receiving"

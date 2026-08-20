@@ -9716,6 +9716,33 @@ def golden_look_from() -> str:
     )
 
 
+def golden_pick_report() -> str:
+    """Lua *expression* -> one line about the armed target, for the log (#1702).
+
+    What a person watching a chain needs to see, and could not until now: WHERE the
+    target is, how far it is FROM THE ORIGIN the pick used, which origin that was — the
+    base for the first kill, the last kill afterwards — and, as the check on both, how far
+    the same tile is from the base. On the first lap the two distances agree; on every lap
+    after it the home one grows while the near one stays small, which is the chain doing
+    exactly what it is for.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local c = p.cur if c == nil then return 'none' end "
+        "local o = p.anchor or p.home "
+        "local hd = nil "
+        "pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) "
+        "return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. "
+        "' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. "
+        "' from=' .. tostring(p.curfrom or '-') .. "
+        "' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. "
+        "' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. "
+        "' src=' .. tostring(c.src or '-') .. "
+        "' queued=' .. tostring(#(p.targets or {})) .. "
+        "' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)()"
+    )
+
+
 def golden_picked() -> str:
     """Lua *expression* -> 1 a target is armed, 0 the queue is empty."""
     return "(function() " + _GOLD_P + "return (p.cur ~= nil) and 1 or 0 end)()"
@@ -9839,13 +9866,21 @@ def golden_confirm() -> str:
         "if p.pending == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_confirm skipped=nothing-pending") return end '
         "p.attacks = (tonumber(p.attacks) or 0) + 1 "
-        "p.spent = (tonumber(p.spent) or 0) + (tonumber(p.cost) or 0) "
+        # WHAT THE SERVER TOOK, not what it quoted (#1702): live, a 10-energy attack was
+        # charged 8. The quote is the fallback for the case where the purse could not be
+        # read at all.
+        "local charged = nil "
+        "local before = tonumber(p.before) "
+        "if before ~= nil then charged = before - %(energy)s end "
+        "if charged == nil or charged <= 0 then charged = tonumber(p.cost) or 0 end "
+        "p.spent = (tonumber(p.spent) or 0) + charged "
         "local pid = p.pending.pid "
         "p.pending = nil "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_confirm pid="..tostring(pid)'
-        '.." attacks="..tostring(p.attacks).." spent="..tostring(p.spent))'
-        % {"gold": _GOLD}
+        '.." attacks="..tostring(p.attacks).." spent="..tostring(p.spent)'
+        '.." charged="..tostring(charged))'
+        % {"gold": _GOLD, "energy": golden_energy()}
     )
 
 
@@ -9877,8 +9912,16 @@ def golden_settled() -> str:
     The proof an attack really went out, and the only one that does not depend on how the
     client files its own marches. A send returns cleanly whether or not the server
     honoured it (docs/research/world-monsters.md, Findings 13 and 16); the purse moving is
-    the server's own answer, and it moved by exactly the price of one attack — 55 to 45 —
-    on the first live run of this recipe (#1519).
+    the server's own answer.
+
+    **It is «the purse went DOWN», not «it went down by the quoted price» (#1702).** The
+    price the game quotes and the price the server charges are two different numbers: live
+    on 2026-08-20 `GetCostStaminaByTargetType(ATTACK_MONSTER)` answered 10 and the server
+    took 8 (91 → 83, unmoved for the next eighty seconds, so no regeneration is hiding in
+    it). The strict form declared that attack a failure, stopped a chain that had just
+    sent one, and reported «nothing was sent» over a squad that was visibly marching. What
+    the quote is still good for is the BUDGET — how many attacks the purse might buy — and
+    it is used for nothing else.
 
     `1` when nothing is pending, so a caller that polls this after a skipped send is not
     left waiting for a charge nobody asked for.
@@ -9888,9 +9931,8 @@ def golden_settled() -> str:
         "if p.pending == nil then return 1 end "
         "local before = tonumber(p.before) "
         "if before == nil then return 1 end "
-        "local cost = math.floor(tonumber(p.cost) or %(fallback)d) "
-        "return (%(energy)s <= (before - cost)) and 1 or 0 end)()"
-        % {"energy": golden_energy(), "fallback": GOLDEN_ATTACK_COST}
+        "return (%(energy)s <= (before - 1)) and 1 or 0 end)()"
+        % {"energy": golden_energy()}
     )
 
 
