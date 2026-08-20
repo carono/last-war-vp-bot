@@ -110,6 +110,11 @@
 #               default, and the reason is a measurement rather than caution** — see
 #               «the ride» below. Turn it on from «События» when the missing step is
 #               solved.
+#   miss_limit  how many sends in a row may produce no march before the run stops. The
+#               ordinary reason for one is a zombie that was already dead — the client's
+#               list is a snapshot and the ground near a base is farmed by everybody — so
+#               a couple in a row says nothing about the client. Past this many it is the
+#               link, not the map, and the run stops.
 #   march_wait  how many three-second beats to wait for one march before giving up on it.
 #               The default is ten minutes because the FIRST march of a chain can be long:
 #               live, the nearest of 134 golden zombies to the base was once 492 tiles
@@ -139,6 +144,7 @@ ARGS march_wait = 200
 ARGS approach = 0
 ARGS approach_sec = 60
 ARGS approach_reach = 12
+ARGS miss_limit = 3
 
 # This run may take a march's worth of minutes; nothing else waits for it (docs/dsl.md).
 DETACH
@@ -371,8 +377,8 @@ WHILE go == 1 LIMIT 24
                 LOG "the send never became a march — that zombie is gone; trying the next one"
                 TAP golden_miss
                 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.misses) or 0) end)() INTO misses
-                IF misses > 1
-                    LOG "two sends in a row went nowhere — stopping rather than giving orders nobody is receiving"
+                IF misses > {miss_limit}
+                    LOG "several sends in a row went nowhere — stopping rather than giving orders nobody is receiving"
                     READ_LUA (0) INTO go
             ELSE
                 # The tally moves HERE and nowhere else. What the attack COST is read off

@@ -159,6 +159,8 @@ def test_a_send_that_never_became_a_march_moves_on_rather_than_ending_the_run():
     tail = lines[i:i + 6]
     assert any(w.startswith("IF misses >") for w in tail), \
         "misses are written down and never acted on — a deaf client would spin for ever"
+    assert "ARGS miss_limit" in RECIPE.read_text(encoding="utf-8"), \
+        "how many refusals in a row are tolerated is not the operator's to set"
     miss = lua_actions.golden_note_miss()
     assert "p.misses" in miss and "p.pending = nil" in miss
     assert "p.misses = 0" in lua_actions.golden_confirm(), \
