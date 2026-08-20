@@ -28,10 +28,20 @@ IF picked == 1
     # One read, and it is the client's own answer about our own formation. A squad that
     # cannot march is RECALLED rather than shouted at — the recall is the same press that
     # takes a squad off dirty ground, because from here the two are the same thing.
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can = false, nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) end end end) if not seen or can == nil then return -1 end return can and 1 or 0 end)() INTO squad_free
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
     IF squad_free == 0
         LOG "the squad cannot take an order where it stands — recalling it instead of sending orders nobody can carry out"
         TAP golden_unstick
+        READ_LUA (0) INTO picked
+    # …and «no army loaded» is NOT «busy» (#1702): a squad the client is holding no
+    # soldiers for reads `canMarch = false` while standing at home doing nothing. One
+    # question puts them back; only if that fails is the order withheld.
+    IF squad_free == -2
+        LOG "the client is holding no army for the squad — asking for it before giving any order"
+        CALL fill_empty_squads
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+    IF squad_free == -2
+        LOG "the squad still holds no army — no order is given"
         READ_LUA (0) INTO picked
 
 IF picked == 1
@@ -70,7 +80,7 @@ IF picked == 1
             # first one switches the ride off for the rest of the run, recalls the
             # squad, and the hunt carries on at attack speed. The person's own
             # setting is untouched — this is a fuse inside one run.
-            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can = false, nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) end end end) if not seen or can == nil then return -1 end return can and 1 or 0 end)() INTO squad_free
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
             IF squad_free == 0
                 LOG "the ride ended in a gather — the squad is working the mine and takes no orders; recalling it and hunting on foot for the rest of this run"
                 TAP golden_no_ride

@@ -1151,16 +1151,32 @@ def test_no_order_is_given_to_a_squad_that_cannot_take_one():
     expr = lua_actions.golden_squad_free()
     assert "canMarch" in expr and "p.formation" in expr
     import lupa
-    for can, want in ((True, 1), (False, 0)):
+
+    def ask(can, soldiers=100):
         rt = lupa.LuaRuntime()
         rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
                    "ArmyFormationDataManager = {ArmyFormationList = "
-                   "{{uuid = '77', canMarch = %s}}}}" % ("true" if can else "false"))
-        assert int(rt.eval(expr)) == want
+                   "{{uuid = '77', canMarch = %s, totalSoldierNum = %d}}}}"
+                   % ("true" if can else "false", soldiers))
+        return int(rt.eval(expr))
+
+    assert ask(True) == 1
+    assert ask(False) == 0
+    # «CANNOT MARCH» IS TWO FACTS (#1702). Measured live on a client that had just
+    # restarted: `squad3 state=0 canMarch=false soldiers=0` — a squad standing AT HOME,
+    # free, whose army the client had never fetched. Reading that as «busy» waits two
+    # minutes and stops the hunt on a perfectly good squad.
+    assert ask(False, soldiers=0) == -2, \
+        "a squad whose army the client has forgotten reads as busy — the hunt would wait it out"
     rt = lupa.LuaRuntime()          # …and a squad nobody can find is «ask again», not «no»
     rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
                "ArmyFormationDataManager = {ArmyFormationList = {}}}")
     assert int(rt.eval(expr)) == -1, "an unreadable squad reads as a refusal"
+
+    # …and the wait brick acts on the difference rather than lumping them together.
+    _body, wait = _brick("golden_wait_for_the_march")
+    assert "IF squad_free == -2" in wait and "CALL fill_empty_squads" in wait, \
+        "an army the client has forgotten is waited out instead of asked for"
 
 
 def test_one_ride_that_ends_in_a_gather_switches_the_ride_off_for_the_run():

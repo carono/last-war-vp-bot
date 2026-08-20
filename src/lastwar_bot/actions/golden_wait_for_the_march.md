@@ -62,13 +62,25 @@ IF arrived == 0
 # answers «has our order landed»; this answers «will the game accept the next one», and
 # only the second one is what the send actually needs.
 #
+# «CANNOT MARCH» IS TWO FACTS, and telling them apart is most of this block. Measured on
+# a client that had just restarted: `squad3 state=0 canMarch=false soldiers=0` — a squad
+# standing AT HOME, free, whose army the client had simply never fetched. Waiting for
+# that to «finish» would wait for ever; one question puts the soldiers back.
+#
 # Bounded, and it says so when the bound is reached: a hunt that waits for ever is the
 # thing being fixed, so two minutes of a squad that will not move ends the run with a
 # reason instead of hanging in front of it.
-READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can = false, nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) end end end) if not seen or can == nil then return -1 end return can and 1 or 0 end)() INTO squad_free
+READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+IF squad_free == -2
+    LOG "the client is holding no army for the squad — asking for it rather than waiting"
+    CALL fill_empty_squads
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
 WHILE squad_free == 0 LIMIT 60
     WAIT 2
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can = false, nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) end end end) if not seen or can == nil then return -1 end return can and 1 or 0 end)() INTO squad_free
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
 IF squad_free == 0
     LOG "the squad has been busy for two minutes and still takes no orders — stopping rather than waiting on it"
+    READ_LUA (0) INTO go
+IF squad_free == -2
+    LOG "the squad still holds no army after being asked for one — stopping rather than sending orders it cannot carry out"
     READ_LUA (0) INTO go

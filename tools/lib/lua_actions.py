@@ -10673,20 +10673,35 @@ def golden_squad_free() -> str:
       not listed yet reads as a refusal, so the chain wrote the target off and ordered
       the squad somewhere else — and the game re-routed a squad that was already walking.
 
-    `canMarch` is the client's own answer about our own formation, so it costs one read
-    and it is true the moment the squad is free. `-1` (the squad cannot be found at all)
-    is not a «no»: the caller decides, and the chain treats it as «ask again».
+    **`canMarch = false` is TWO different facts, and reading them as one is a bug this
+    very reading nearly shipped (#1702).** Measured live on an account whose client had
+    just restarted: `squad3 state=0 canMarch=false soldiers=0` — a squad standing AT HOME,
+    perfectly free, whose army the client has simply never fetched. A gate that treats
+    that as «busy» waits two minutes and stops the hunt on a good squad.
+
+    So there are four answers, and the caller is expected to act on the difference:
+
+    ``1``   the squad can be given an order right now.
+    ``0``   the game says it cannot: it is marching, gathering, or standing on dirty
+            ground. Waiting is the right thing.
+    ``-2``  the client is holding no army for it. Nothing is wrong with the squad —
+            `fill_empty_squads.md` puts the soldiers back in about a third of a second,
+            and the reading is then worth taking again (#1285).
+    ``-1``  the squad cannot be found at all. Neither a yes nor a no; ask again.
     """
     return (
         "(function() " + _GOLD_P +
         "if p.formation == nil then return -1 end "
-        "local seen, can = false, nil "
+        "local seen, can, n = false, nil, 0 "
         "pcall(function() "
         "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
         "if tostring(v.uuid) == tostring(p.formation) then seen = true "
-        "can = (v.canMarch == true) end end end) "
+        "can = (v.canMarch == true) "
+        "n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) "
         "if not seen or can == nil then return -1 end "
-        "return can and 1 or 0 end)()"
+        "if can then return 1 end "
+        "if n <= 0 then return -2 end "
+        "return 0 end)()"
     )
 
 

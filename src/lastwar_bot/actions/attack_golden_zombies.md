@@ -186,6 +186,16 @@ IF armed == 0
 IF armed < 0
     FAIL "the chosen squad has no soldiers in it — fill it and try again"
 
+# IS THIS SQUAD ALSO THE RALLY'S? (#1702) Measured live, and it explains an evening of
+# «залипаний» that were nothing of the kind: the auto-join was set to squads 1, 2 and 3 —
+# every squad the account HAS — so an alliance banner took the hunt's squad within seconds
+# of it coming home, over and over, and the hunt spent its laps waiting for a squad that
+# was standing in somebody's rally. That is a настройка and not a bug, so the run says it
+# plainly once and carries on rather than deciding for the person.
+READ_LUA (function() local want = math.floor(tonumber((DataCenter.__lw_gold or {}).squad) or 0) local t = DataCenter.__lw_rally_squads if type(t) ~= 'table' then return 0 end for _, v in ipairs(t) do if math.floor(tonumber(v) or -1) == want then return 1 end end return 0 end)() INTO squad_is_rallying
+IF squad_is_rallying == 1
+    LOG "heads up: the squad this hunt uses is also one the rally auto-join takes, so a banner can walk off with it mid-hunt"
+
 READ_LUA (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() INTO energy
 READ_LUA (function() local v = nil pcall(function() v = tonumber(MarchUtil.GetCostStaminaByTargetType(MarchTargetType.ATTACK_MONSTER)) end) if v == nil or v <= 0 then return 10 end return math.floor(v) end)() INTO cost
 
