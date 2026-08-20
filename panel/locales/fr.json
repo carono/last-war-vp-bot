@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Recruter les survivants qui attendent",
   "timers.item.restart_game": "Relancer le client du jeu",
   "timers.item.sweep_star_servers": "Tournée ★ : zones de guerre en jour de missions étoilées",
+  "timers.item.upgrade_decorations": "Améliorer les décorations de la base, dès qu'un double de rechange est en réserve",
   "timers.log.already_queued": "{name} : déjà en file, il attend son tour",
   "timers.log.already_running": "{name} : déjà en cours — impossible de revenir en arrière, laisse finir",
   "timers.log.cancelled": "{name} : retiré de la file",

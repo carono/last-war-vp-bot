@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Tuyển những người sống sót đang chờ",
   "timers.item.restart_game": "Khởi động lại client trò chơi",
   "timers.item.sweep_star_servers": "Vòng ★: các vùng chiến sự đang đến ngày nhiệm vụ sao",
+  "timers.item.upgrade_decorations": "Nâng cấp vật trang trí căn cứ khi có bản sao dự phòng",
   "timers.log.already_queued": "{name}: đã ở trong hàng đợi, đang chờ tới lượt",
   "timers.log.already_running": "{name}: đang chạy rồi — không rút lại được, hãy chờ nó xong",
   "timers.log.cancelled": "{name}: đã lấy khỏi hàng đợi",

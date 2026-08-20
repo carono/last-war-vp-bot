@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Recruit waiting survivors",
   "timers.item.restart_game": "Restart the game client",
   "timers.item.sweep_star_servers": "★ round: walk the warzones having their star-task day",
+  "timers.item.upgrade_decorations": "Upgrade base decorations, whenever a spare duplicate is banked",
   "timers.log.already_queued": "{name}: already queued, waiting its turn",
   "timers.log.already_running": "{name}: already running — cannot be taken back, wait it out",
   "timers.log.cancelled": "{name}: taken off the queue",

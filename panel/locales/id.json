@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Merekrut penyintas yang menunggu",
   "timers.item.restart_game": "Memulai ulang klien permainan",
   "timers.item.sweep_star_servers": "Putaran ★: zona perang yang sedang hari tugas berbintang",
+  "timers.item.upgrade_decorations": "Meningkatkan dekorasi markas, saat ada duplikat cadangan tersimpan",
   "timers.log.already_queued": "{name}: sudah di antrean, menunggu giliran",
   "timers.log.already_running": "{name}: sudah berjalan — tidak bisa ditarik, tunggu selesai",
   "timers.log.cancelled": "{name}: diambil dari antrean",

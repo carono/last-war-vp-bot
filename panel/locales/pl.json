@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Zwerbować czekających ocalałych",
   "timers.item.restart_game": "Uruchomić klienta gry ponownie",
   "timers.item.sweep_star_servers": "Obchód ★: strefy wojny w dniu gwiezdnych zadań",
+  "timers.item.upgrade_decorations": "Ulepszać dekoracje bazy, gdy jest zapasowy duplikat",
   "timers.log.already_queued": "{name}: już w kolejce, czeka na swoją kolej",
   "timers.log.already_running": "{name}: już się wykonuje — nie da się wycofać, poczekaj",
   "timers.log.cancelled": "{name}: zdjęte z kolejki",

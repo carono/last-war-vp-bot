@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Reclutare i sopravvissuti in attesa",
   "timers.item.restart_game": "Riavviare il client del gioco",
   "timers.item.sweep_star_servers": "Giro ★: zone di guerra nel giorno degli incarichi stellati",
+  "timers.item.upgrade_decorations": "Migliorare le decorazioni della base, quando è disponibile un duplicato di scorta",
   "timers.log.already_queued": "{name}: già in coda, aspetta il suo turno",
   "timers.log.already_running": "{name}: già in corso — non si può ritirare, aspetta che finisca",
   "timers.log.cancelled": "{name}: tolto dalla coda",

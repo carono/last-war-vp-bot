@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Wartende Überlebende anwerben",
   "timers.item.restart_game": "Spielclient neu starten",
   "timers.item.sweep_star_servers": "★-Runde: Kriegszonen mit ihrem Stern-Auftragstag abfahren",
+  "timers.item.upgrade_decorations": "Basis-Deko-Gebäude verbessern, wenn ein Ersatzstück bereitliegt",
   "timers.log.already_queued": "{name}: steht schon in der Warteschlange und wartet",
   "timers.log.already_running": "{name}: läuft schon — nicht mehr zurückzunehmen, warte es ab",
   "timers.log.cancelled": "{name}: aus der Warteschlange genommen",

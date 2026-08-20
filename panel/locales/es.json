@@ -892,6 +892,7 @@
   "timers.item.recruit_survivors": "Reclutar a los supervivientes que esperan",
   "timers.item.restart_game": "Reiniciar el cliente del juego",
   "timers.item.sweep_star_servers": "Ronda ★: zonas de guerra en su día de tareas estelares",
+  "timers.item.upgrade_decorations": "Mejorar las decoraciones de la base, cuando hay un duplicado de repuesto",
   "timers.log.already_queued": "{name}: ya está en cola, esperando su turno",
   "timers.log.already_running": "{name}: ya está corriendo — no se puede retirar, espera a que acabe",
   "timers.log.cancelled": "{name}: sacada de la cola",

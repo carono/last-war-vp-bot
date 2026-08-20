@@ -486,6 +486,23 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         enabled=False,
         label_key="timers.item.restart_game",
     ),
+    Timer(
+        name="upgrade_decorations",
+        scenario=("upgrade_decorations",),
+        # Four hours (#1560). A step costs one spare duplicate of the same decoration,
+        # and a spare is a rare thing to be holding — nothing forces this to run any
+        # oftener than the ordinary play that turns those spares up, and the scenario's
+        # own gate (`upgrade_decorations.md`) reads the count before pressing anything,
+        # so a tick that finds none ready costs one Lua round trip and says so with
+        # numbers rather than pressing blind.
+        interval_sec=14400,
+        # Five minutes. A run FAILS only when the client is not answering, which mends
+        # itself soon — the gate itself never fails, it STOPs cleanly with nothing to do.
+        retry_sec=300,
+        # OFF by default, like every other errand here.
+        enabled=False,
+        label_key="timers.item.upgrade_decorations",
+    ),
 )
 
 
