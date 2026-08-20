@@ -75,6 +75,7 @@
   "autostart.error.admin": "Windows menolak: membuat tugas ini perlu hak administrator. Jalankan panel sebagai administrator lalu centang lagi. ({error})",
   "autostart.error.failed": "Penjadwal tugas menolak: {error}",
   "busy": "sibuk — tunggu tindakan yang sedang berjalan selesai",
+  "action.detached": "«{name}» berjalan sendiri — tidak ada yang menunggunya",
   "busy.elsewhere": "permainan sedang dipakai — {owner} menjalankannya sejak {sec} d",
   "busy.foreground": "layar sedang dipakai — {owner} sedang mengeklik di dalamnya; «{name}» dilewati",
   "capture.ghost_op": "Operasi Hantu",

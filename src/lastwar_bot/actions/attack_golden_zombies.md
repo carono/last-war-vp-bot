@@ -14,15 +14,32 @@
 # march but the last goes out with «come home afterwards» switched OFF, so the squad
 # stands on the tile it has just cleared and the following pick is measured from there.
 # The naive version — nearest to home, every time — walks the same ground over and over
-# for the same twelve kills.
+# for the same twelve kills. Only the LAST march brings the squad back, because a squad
+# left standing on the world map when a run ends is a squad somebody else can hit.
 #
-# The first pick has no previous kill to measure from, so it asks the game the one
-# question that answers itself — `SceneUtils.TileDistanceToMyHome`, the distance from the
-# base, which is where the squad is standing before the first march. **Not the tile under
-# the camera**: that is the base only if the world scene was just entered, and a client
-# the panel keeps on the map has its camera wherever the last lap of `scan_map` left it.
-# Only the LAST march brings the squad back, because a squad left standing on the world
-# map when a run ends is a squad somebody else can hit.
+# **The FIRST zombie is the one nearest the BASE, and getting that right took two
+# corrections.** The base is where the squad stands before the first march, so it is the
+# origin the first pick is measured from — never the tile under the camera, which is the
+# base only if the world scene was just entered.
+#
+#   * the base's own tile is worked out from the game's distance oracle: three readings of
+#     `SceneUtils.TileDistanceToMyHome` around the camera and one small sweep to place it
+#     exactly. Every pick then compares tile against tile — the first one against the
+#     base, the rest against the last kill — instead of comparing two different kinds of
+#     number;
+#   * and the camera is put back on that origin before every scan. The client's monster
+#     list only holds what it has LOADED, and a lap of `scan_map` ends at the far side of
+#     the warzone with the tiles around the base long since evicted. «The nearest zombie»
+#     was then the nearest of the far ones — five minutes of marching with a dozen sitting
+#     beside the house.
+#
+# ## It does not hold the panel up
+#
+# `DETACH`, on the line below the arguments: a chain of marches lasts as long as the
+# marches do, and nothing else in the panel may queue behind it. The run gets a worker of
+# its own, at a priority below an ordinary errand, and steps aside at the first statement
+# boundary anybody else wants the client — so the timers, the rally joins and a person's
+# button all go on exactly as they would with this run absent (docs/dsl.md, `DETACH`).
 #
 # ## The energy is the clock, and it is the GAME'S energy
 #
@@ -119,6 +136,9 @@ ARGS approach = 0
 ARGS approach_sec = 60
 ARGS approach_reach = 12
 
+# This run may take a march's worth of minutes; nothing else waits for it (docs/dsl.md).
+DETACH
+
 # The map, first. Everything below reads the world's own controller, which does not
 # exist while the base is on screen — and the camera lands on the base, which is what
 # the arm below takes for home.
@@ -165,6 +185,11 @@ IF has_energy == 0
 IF scan == 1
     CALL scan_map
 
+# THE CAMERA BACK ONTO THE ORIGIN, and only then the scan. The client answers about the
+# monsters it has loaded, and a lap of the map above leaves it holding the far end of the
+# warzone; the origin of the first pick is the base.
+TAP golden_look_from
+WAIT 1.5
 TAP golden_scan
 
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() INTO queued
@@ -196,6 +221,11 @@ WHILE go == 1 LIMIT 24
         READ_LUA (0) INTO go
 
     IF go == 1
+        # Where the next pick is measured from — the last kill, or the base before the
+        # first one — so the district around it is loaded before it is asked about.
+        TAP golden_look_from
+        WAIT 1.5
+        TAP golden_scan
         TAP golden_pick
         READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.cur == nil then return 0 end return ((tonumber(p.cur.uuid) or 0) == 0) and 1 or 0 end)() INTO needs_uuid
 

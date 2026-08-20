@@ -282,6 +282,58 @@ returned `true` and did nothing (`world-monsters.md`, Findings 11 to 16).
 attempt cost travel time and not one point of the day's purse — and the recipe still
 proves every attack by the energy the server takes, which is exactly what caught this.
 
+## 4c — the base's OWN TILE, out of the same oracle (#1702)
+
+Live, 2026-08-20. There is no call that hands the player's own tile over: `SceneUtils`
+carries exactly one home-flavoured function and it answers a distance
+(`pairs(SceneUtils)` matching `Home|Self|My` → `TileDistanceToMyHome`, and nothing else;
+`LuaEntry.Player` exposes no tile at all, `GoToUtil` no `*Home*`).
+
+It does not need to. **The distance field is plain Euclid** — measured, a tile 64 east of
+home reads `64.0` — so three readings solve it:
+
+```
+d0 = d(C)      d1 = d(C + (a, 0))      d2 = d(C + (0, b))
+u  = (d0² - d1² + a²) / 2a      v = (d0² - d2² + b²) / 2b      H = C + (u, v)
+```
+
+with a 7×7 sweep around the rounded guess to place it exactly, and the answer refused
+unless the winning tile reads under 1.5. Live check with the camera parked at home:
+`d0 = 0, d1 = 64, d2 = 64 → guess (564,468), d at guess = 0`, and the sweep found nothing
+nearer. `golden_arm` parks it as `p.home`, so the FIRST pick compares a tile against a
+tile exactly as every later one compares against the last kill — one metric for the whole
+chain instead of one call for the first pick and arithmetic for the rest.
+
+## 4d — «the nearest» is only as near as what the CLIENT has loaded (#1702)
+
+The operator's report was «ближайший берётся в 5 минутах пути, хотя рядом полно зомби»,
+and §4 above is what made it worth a second look: the 492 tiles of #1519 were real, so a
+far pick is not by itself evidence of anything.
+
+This one was. `WorldScene:GetMonsterListInArea` answers out of the client's own loaded
+tiles, not out of the server — and the recipe scanned once, straight after a lap of
+`scan_map`, which leaves the camera at the far end of the warzone with the districts
+around the base long since evicted. The list handed to the pick then genuinely has no
+near zombie in it, and «the nearest» is the nearest of the far ones.
+
+Measured on 2026-08-20, one account, minutes apart:
+
+| when | camera | golden zombies the enumerator knew | nearest to home |
+|---|---|---|---|
+| camera sitting on the base | (566,473) | 188 | 27 tiles |
+| after the client had been walked elsewhere | (564,471) | 0 | — |
+| straight after re-entering the world scene | — | 0 | — |
+
+Same account, same warzone, same invasion. The fix is one press with nothing sent:
+`golden_look_from` puts the camera on the ORIGIN of the next pick — the base before the
+first kill, the last kill afterwards — the recipe waits a beat and scans again, and only
+then picks. `GoToUtil.MoveToWorldPoint(pid)` is the tile-accurate mover (§4).
+
+The general lesson, and it is not about zombies: **any reading taken through
+`GetMonsterListInArea`, `HasPointInfo` or `GetPointInfo` is a reading about the CLIENT's
+memory, and a camera that has moved is a different memory.** A sweep of the map fills it
+and evicts what it filled it with an hour ago.
+
 ## 5 — the chain: why the squad does not go home in between
 
 Every march but the last goes out with `autoBackHome = 0`, so the squad stands on the tile

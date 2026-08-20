@@ -79,6 +79,47 @@ Callers: the panel's Develop tab has an «аргументы (JSON)» box, a tim
 its `args` block (see `panel/timers.py`), and from Python it is
 `run_action(name, hwnd=0, variables={...})`.
 
+### `DETACH`
+
+Declare that this scenario **must not hold the rest of the panel up**. Like `ARGS`, it
+describes the file rather than a step in it: it takes no arguments, it is stripped
+before parsing, and it may sit anywhere — under the arguments is where a reader looks
+for it.
+
+```
+ARGS squad = 1
+
+# This run may take a march's worth of minutes; nothing else waits for it.
+DETACH
+```
+
+What the player does with it (`panel/runtime/host.py::play_async`,
+`panel/runtime/schedule.py::run_errand`):
+
+- the run gets **a worker thread of its own**, so the press — a button, a screen on the
+  phone, a timer coming due — is answered as soon as the run has been accepted, and the
+  scheduler's clock goes straight on to the next errand instead of blocking for the
+  length of this one;
+- it claims the client at **`claims.DETACHED`**, which is *below* an ordinary background
+  errand. Everything outranks it: a person's press, an errand marked «сразу», and the
+  ordinary timers too;
+- and it carries **the step-aside hook**, so at every statement boundary — and between
+  the polls of a `WAIT` — it checks whether somebody is waiting for the client, parks if
+  they are, and picks its lease up again afterwards. Both halves are said in the log, so
+  a run that stopped and a run that resumed are visible rather than mysterious.
+
+The result is the promise the declaration makes: **every other scenario goes on being
+played exactly as it would with this one absent.** What it is *not* is a second
+scenario running side by side with the first — one client is driven by one run at a
+time, and a detached run simply never makes anybody wait for its own length.
+
+Use it for an ability whose duration is the GAME's rather than the panel's: a chain of
+marches, a sweep that waits for a squad to land, anything with a ten-minute `WAIT` in
+it. `actions/attack_golden_zombies.md` is the worked example.
+
+A detached scenario is still one run, and it is still on «Прервать»: the register does
+not care which thread a run is on.
+
 ### `IF condition` / `ELSE`
 
 Run the indented block when the condition is true (or false for `ELSE`).

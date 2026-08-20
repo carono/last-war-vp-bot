@@ -300,8 +300,22 @@ class ActionRunner:
         except OSError:
             return False
 
+    @staticmethod
+    def detached(name: str) -> bool:
+        """Does the named scenario declare `DETACH`? (#1702)
+
+        The player's side of the declaration, and the only thing this class has to know
+        about it: WHERE a detached run goes — its own worker, at
+        :data:`~panel.runtime.claims.DETACHED`, carrying a step-aside hook — is decided by
+        whoever presses it (`panel/runtime/host.py::play_async`,
+        `panel/runtime/schedule.py::run_errand`), because that is where the claim and the
+        thread already live.
+        """
+        from lastwar_bot import script_engine
+        return bool(script_engine.action_detached(name))
+
     def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
-             on_event=None, cancel=None, **kw) -> Outcome:
+             on_event=None, cancel=None, yield_to=None, **kw) -> Outcome:
         """Play the named scenario and report HOW it ended, not just whether.
 
         Use this wherever the answer to "why not?" is worth showing. `run()` stays for
@@ -312,8 +326,12 @@ class ActionRunner:
         this method always builds it. A Stop that quietly did nothing would be worse
         than no Stop at all.
         """
+        # `yield_to` is named for the same reason `cancel` is: this method always builds
+        # the context, so anything left in ``kw`` would reach :meth:`run` — which has a
+        # context already and drops it. A step-aside hook that quietly did nothing is a
+        # detached run nobody can get past (#1702).
         ctx = self.context(on_event=on_event, hwnd=hwnd, variables=args or {},
-                           cancel=cancel)
+                           cancel=cancel, yield_to=yield_to)
         ok = self.run(name, args, hwnd=hwnd, ctx=ctx, **kw)
         reason = str(getattr(ctx, "fail_reason", "") or "").strip()
         if not reason and getattr(ctx, "cancelled", False):

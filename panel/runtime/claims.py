@@ -68,6 +68,13 @@ FOREGROUND = "foreground"
 #: behind the ordinary queue. One queue for everything prices a button press at whatever
 #: the longest background errand happens to be (`restart_game` holds it for a median of
 #: 304 s).
+#: A scenario that declared `DETACH` (#1702) — it may run for as long as it likes, and
+#: EVERYTHING outranks it, an ordinary errand included. That is the whole meaning of the
+#: declaration: the run holds the client only between other people's turns, parks at the
+#: first statement boundary anybody else asks for it, and is never the reason a timer
+#: waited. Below :data:`BACKGROUND` on purpose, because a background errand is somebody's
+#: schedule and a detached run is a march that will still be walking in ten minutes.
+DETACHED = -1
 BACKGROUND = 0     #: the schedule's ordinary errands, the rally loops, a sweep
 EXPRESS = 1        #: an errand whose catalogue entry says «сразу» — it must not queue
 HUMAN = 2          #: somebody is at a button, in the window or on the phone

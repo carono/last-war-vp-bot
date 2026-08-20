@@ -661,9 +661,48 @@ def parse_file(path: Path) -> list[Any]:
 # `ARGS leader = Rock` read naturally.
 _ARGS_RE = re.compile(rf"^ARGS\s+({_IDENT})\s*=\s*(.*?)\s*$", re.IGNORECASE)
 
+# `DETACH` declares that this scenario MUST NOT hold up the rest of the panel (#1702).
+# It is a property of the whole file rather than a step in it — like `ARGS`, and unlike
+# every other line in the DSL — so it is stripped off with the arguments and never
+# reaches the parser. What it MEANS is in :func:`declares_detach`.
+_DETACH_RE = re.compile(r"^DETACH\s*$", re.IGNORECASE)
+
+
+def declares_detach(text: str) -> bool:
+    """Does this DSL source carry the ``DETACH`` declaration? (#1702)
+
+    A detached scenario is one whose run may take as long as it likes without the rest
+    of the panel queueing behind it: the player runs it on a worker of its own, at a
+    priority BELOW an ordinary background errand, and hands it a step-aside hook — so
+    every other scenario goes on being played exactly as it would with this one absent.
+
+    The declaration lives HERE, in the scenario, because the length of a run is a
+    property of the ability and not of the button that pressed it: the golden-zombie
+    chain marches a squad across half a warzone and waits ten minutes for it to land, and
+    the same file is played by a timer, by the window and by the phone.
+    """
+    return any(_DETACH_RE.match(line.strip()) for line in text.splitlines())
+
+
+def action_detached(name: str) -> bool:
+    """Does the named scenario declare ``DETACH``? ``False`` for one that is not there.
+
+    Read off the FILE rather than a parsed tree, for the same reason
+    `panel/runtime/actions.py::needs_foreground` is: it is asked before every run, the
+    answer is a property of the text, and parsing costs more than a scan of a few dozen
+    lines.
+    """
+    path = resolve_action(name)
+    if path is None:
+        return False
+    try:
+        return declares_detach(path.read_text(encoding="utf-8"))
+    except OSError:
+        return False
+
 
 def extract_defaults(text: str) -> tuple[dict, str]:
-    """Split `ARGS` declarations off a script; return ``(defaults, rest)``.
+    """Split `ARGS` and `DETACH` declarations off a script; return ``(defaults, rest)``.
 
     The declarations are removed from the source, so the parser never sees them —
     they are about the script's signature, not its body. Blank lines take their
@@ -672,6 +711,9 @@ def extract_defaults(text: str) -> tuple[dict, str]:
     defaults: dict = {}
     lines = []
     for raw in text.splitlines():
+        if _DETACH_RE.match(raw.strip()):
+            lines.append("")              # a declaration, not a step — see `declares_detach`
+            continue
         m = _ARGS_RE.match(raw.strip())
         if m is None:
             lines.append(raw)

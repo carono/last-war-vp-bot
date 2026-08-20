@@ -75,6 +75,7 @@
   "autostart.error.admin": "Windows ha rifiutato: creare questo compito richiede diritti di amministratore. Avvia il pannello come amministratore e rispuntalo. ({error})",
   "autostart.error.failed": "L'utilità di pianificazione ha rifiutato: {error}",
   "busy": "occupato — aspetta che finisca l'azione in corso",
+  "action.detached": "«{name}» procede per conto suo — nient'altro lo aspetta",
   "busy.elsewhere": "il gioco è occupato — {owner} lo guida da {sec} s",
   "busy.foreground": "lo schermo è occupato — {owner} ci sta cliccando; «{name}» saltato",
   "capture.ghost_op": "Operazioni Fantasma",

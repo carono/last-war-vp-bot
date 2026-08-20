@@ -1110,6 +1110,14 @@ BUTTONS["golden_look"] = Button(
     lua=_lua_actions.golden_look(),
     wait=2.0, label="look at the target, so its district loads",
 )
+BUTTONS["golden_look_from"] = Button(
+    # The camera onto the ORIGIN of the next pick — the last kill, or the base before the
+    # first one. The enumerator answers out of what the client has loaded, so after a lap
+    # of the map the tiles around the base are gone and «the nearest zombie» is chosen
+    # among far ones only (#1702). Pressed before every scan of the chain.
+    lua=_lua_actions.golden_look_from(),
+    wait=2.0, label="look where the next target is measured from",
+)
 BUTTONS["golden_approach_arm"] = Button(
     # Not a press: the arithmetic. The game prices a march per ORDER — a gather order is
     # 2.5x faster than an attack one — so a long haul is worth riding to a mine beside

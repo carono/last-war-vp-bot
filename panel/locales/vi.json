@@ -75,6 +75,7 @@
   "autostart.error.admin": "Windows từ chối: tạo tác vụ này cần quyền quản trị. Hãy chạy bảng với quyền quản trị rồi đánh dấu lại. ({error})",
   "autostart.error.failed": "Bộ lập lịch tác vụ từ chối: {error}",
   "busy": "đang bận — chờ hành động hiện tại xong đã",
+  "action.detached": "«{name}» chạy độc lập — không gì khác phải chờ nó",
   "busy.elsewhere": "trò chơi đang bận — {owner} đã điều khiển nó {sec} giây",
   "busy.foreground": "màn hình đang bận — {owner} đang bấm trong đó; bỏ qua «{name}»",
   "capture.ghost_op": "Chiến Dịch Linh Hồn",

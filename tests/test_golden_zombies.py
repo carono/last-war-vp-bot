@@ -121,8 +121,46 @@ def test_the_chain_measures_from_the_squad_and_not_from_home():
     pick = lua_actions.golden_pick()
     assert "p.anchor" in pick, "the pick does not measure from the squad"
     send = lua_actions.golden_send()
-    assert "p.anchor = {x = t.x, y = t.y}" in send, \
+    assert "p.anchor = {x = t.x, y = t.y, pid = t.pid}" in send, \
         "the send does not move the anchor to where the squad went"
+    # …and the FIRST pick, which has no anchor yet, measures from the BASE'S OWN TILE
+    # rather than from whatever tile the camera happens to be over (#1702).
+    assert "p.home" in pick, "the first pick does not measure from the base"
+    arm = lua_actions.golden_arm()
+    assert "_goldhome(" in arm, "the run never works out where the base is"
+
+
+def test_the_camera_is_put_on_the_origin_before_every_scan():
+    """#1702: the enumerator answers out of what the CLIENT has loaded.
+
+    A lap of `scan_map` ends at the far side of the warzone, so a scan taken from there
+    knows no zombie near the base and «the nearest» is a five-minute march with a dozen
+    sitting beside the house. The camera goes back to the origin of the next pick — the
+    base, or the last kill — and only then is the client asked.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    looks = [i for i, line in enumerate(lines) if line == "TAP golden_look_from"]
+    assert looks, "the recipe never puts the camera on the origin"
+    for i in looks:
+        rest = lines[i + 1:i + 4]
+        assert "TAP golden_scan" in rest, \
+            "the camera is moved and the client is not re-asked"
+    for i, line in enumerate(lines):
+        if line == "TAP golden_pick":
+            before = lines[max(0, i - 4):i]
+            assert "TAP golden_scan" in before, \
+                "a pick is made off a list nobody refreshed for this origin"
+    look = lua_actions.golden_look_from()
+    assert "p.anchor or p.home" in look, \
+        "the camera does not follow the same origin the pick measures from"
+
+
+def test_the_chain_does_not_hold_the_panel_up():
+    """#1702: a run that lasts a march may not be the reason a timer waited."""
+    text = RECIPE.read_text(encoding="utf-8")
+    assert engine.declares_detach(text), "the chain does not declare DETACH"
+    assert engine.action_detached("attack_golden_zombies")
 
 
 def test_the_last_march_of_a_run_brings_the_squad_home():

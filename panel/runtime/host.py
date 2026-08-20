@@ -651,6 +651,16 @@ class PanelRuntime:
         if not self._relaunch_lock(name, tag):
             return False
 
+        # A SCENARIO THAT SAID IT MUST NOT HOLD THE PANEL UP (#1702). `DETACH` in the file
+        # drops the run to :data:`claims.DETACHED` — below an ordinary errand, so anybody
+        # who wants the client outranks it — and hands it the step-aside hook, so it lets
+        # go at the first statement boundary they ask. The press is answered the same way
+        # it always was: this returns as soon as the run has been accepted.
+        detached = self.actions.detached(name)
+        if detached:
+            priority = claims.DETACHED
+            self.log.say(tag, "action.detached", name=name)
+
         held = self.game.reserve(tag, priority)
         if not held and not self.game.outranks(priority):
             # Nothing to be done: whoever has the client is at least as urgent as this
@@ -692,12 +702,18 @@ class PanelRuntime:
                 return
             try:
                 on_event = lambda msg: self.log.put(f"[{tag}] {msg}")   # noqa: E731
+                # The step-aside hook goes to the DETACHED run only: an ordinary press is
+                # already the most urgent thing there is, and one that parked for a
+                # background errand would be the queue this whole area exists to remove.
+                step_aside = self.yield_hook(tag) if detached else None
                 if on_result is None:
                     self.actions.run(name, args, hwnd=0, on_event=on_event,
-                                     profile=None, cancel=cancel, tag=tag)
+                                     profile=None, cancel=cancel, tag=tag,
+                                     yield_to=step_aside)
                 else:
                     outcome = self.actions.play(name, args, hwnd=0, on_event=on_event,
-                                                profile=None, cancel=cancel, tag=tag)
+                                                profile=None, cancel=cancel, tag=tag,
+                                                yield_to=step_aside)
             except Exception as exc:                   # noqa: BLE001 — never the panel
                 raised = str(exc)
                 self.log.put(f"[{tag}] {name}: error: {exc}")

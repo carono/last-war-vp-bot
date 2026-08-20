@@ -504,13 +504,30 @@ class Schedule:
         # one either. Everything else is BACKGROUND and carries the step-aside hook, so
         # a press can get in between two of its statements.
         express = bool(getattr(errand, "immediate", False))
+        # A SCENARIO THAT DECLARED `DETACH` IS NOT RUN HERE AT ALL (#1702). This method
+        # blocks the scheduler thread for as long as the errand lasts — which is what
+        # keeps two due errands from pressing at once — and the golden-zombie chain lasts
+        # a march. So it is handed to `play_async`, which gives it a worker of its own at
+        # :data:`claims.DETACHED`, and the clock goes straight back to the next errand.
+        if self._detached_errand(errand):
+            return self._run_detached(errand)
         # An EXPRESS errand does not merely ASK for the client — it hangs a demand on
         # the door and waits the short while it takes an ordinary errand to reach a
         # statement boundary and park. A plain `claim` would be refused and the errand
         # would go back on the queue it was marked to skip.
-        got = (self.rt.game.claim_soon("timer", claims.EXPRESS,
-                                       daemonmod.YIELD_WAIT_SEC) if express
-               else self.rt.game.claim("timer", claims.BACKGROUND))
+        if express:
+            got = self.rt.game.claim_soon("timer", claims.EXPRESS,
+                                          daemonmod.YIELD_WAIT_SEC)
+        elif claims.level(self.rt.game.endpoint()) < claims.BACKGROUND:
+            # A DETACHED run is holding the client (#1702), and an ordinary errand
+            # outranks it by declaration. A plain `claim` would be refused and the errand
+            # would go back on the queue behind a march that may take ten minutes — which
+            # is precisely what `DETACH` promises will not happen. So it hangs a demand on
+            # the door and waits the short while it takes the detached run to park.
+            got = self.rt.game.claim_soon("timer", claims.BACKGROUND,
+                                          daemonmod.YIELD_WAIT_SEC)
+        else:
+            got = self.rt.game.claim("timer", claims.BACKGROUND)
         if not got:
             return False
         ctx = None
@@ -597,6 +614,60 @@ class Schedule:
             self._note_presses(ctx)
             self.rt.game.release()
             self.rt.game.on_settled()
+
+    def _detached_errand(self, errand) -> bool:
+        """Is this errand ONE scenario, and does that scenario declare `DETACH`? (#1702)
+
+        One step, deliberately. An errand of several steps runs under one claim and one
+        context on purpose — nothing may slip between the halves — and starting all of
+        them at once would play them side by side instead of in order. A multi-step
+        errand whose steps are detached therefore runs the ordinary way; the ability that
+        wants a worker of its own says so by BEING one scenario, which is the rule this
+        repository is built on anyway.
+        """
+        steps = list(getattr(errand, "scenario", ()) or ())
+        if len(steps) != 1:
+            return False
+        name = str(steps[0]).strip()
+        if self.rt.actions.resolve(name) is None:
+            return False                      # inline DSL, not a scenario file
+        return bool(self.rt.actions.detached(name))
+
+    def _run_detached(self, errand) -> bool:
+        """Start a detached errand on a worker of its own. ``True`` — it was accepted.
+
+        The gate is still asked HERE, before anything is started: a budget that says «no
+        more today» is a clean no-op and must not cost a thread, a claim or a line. What
+        happens AFTER the run is the same pair of hooks the ordinary path uses, played on
+        the run's own outcome — the report the errand's tab writes and the tally its
+        module keeps (:meth:`register_report`, :meth:`register_gate`).
+        """
+        name = getattr(errand, "name", "")
+        step = str(list(getattr(errand, "scenario", ()) or ())[0]).strip()
+        gate, record = self._gates.get(name, (None, None))
+        spent = None
+        if gate is not None:
+            spent = gate()
+            if spent is not None and not spent:
+                return True                   # the budget says no — a clean no-op
+        report = self._reports.get(name)
+
+        def done(outcome) -> None:
+            ctx = getattr(outcome, "ctx", None)
+            self._note_presses(ctx)
+            if ctx is None:
+                return
+            if report is not None:
+                try:
+                    report(ctx)
+                except Exception:            # noqa: BLE001 — a sentence, never the run
+                    self.rt.dbg("timers").warning("report of %s failed", name,
+                                                  exc_info=True)
+            if spent and record is not None:
+                record(ctx)
+
+        return bool(self.rt.play_async(step, self.args(errand), tag="timer",
+                                       on_result=done))
 
     def _note_presses(self, ctx) -> None:
         """Tell the recovery whether this errand pressed anything at all.

@@ -75,6 +75,7 @@
   "autostart.error.admin": "O Windows recusou: criar esta tarefa precisa de direitos de administrador. Inicie o painel como administrador e marque de novo. ({error})",
   "autostart.error.failed": "O agendador de tarefas recusou: {error}",
   "busy": "ocupado — espere a ação atual terminar",
+  "action.detached": "«{name}» corre por conta própria — nada mais espera por ele",
   "busy.elsewhere": "o jogo está ocupado — {owner} está conduzindo há {sec} s",
   "busy.foreground": "a tela está ocupada — {owner} está clicando nela; «{name}» ignorado",
   "capture.ghost_op": "Operações Fantasmas",

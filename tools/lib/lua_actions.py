@@ -9435,6 +9435,47 @@ _GOLD_WS = (
 )
 
 
+#: WHERE THE BASE IS, worked out from the game's own distance oracle (#1702).
+#:
+#: There is no call that hands the player's own tile over — `SceneUtils` carries exactly
+#: one home-flavoured function, and it answers a DISTANCE. That is enough: a distance
+#: field with a single minimum is solved by three readings and one small refine.
+#:
+#: `d(P) = |P - H|` is plain Euclid (measured live: 64 tiles east of home reads 64.0), so
+#: with `C` the camera tile and two samples a step away on each axis,
+#:
+#:     u = (d0² - d1² + a²) / 2a        v = (d0² - d2² + b²) / 2b        H = C + (u, v)
+#:
+#: and the 7x7 sweep around the guess covers the rounding. `nil` when the oracle will not
+#: answer — a caller then falls back to asking it per target, which is what the recipe
+#: did before this existed.
+_GOLD_HOME = (
+    "local function _goldhome(ws, srv) "
+    "if ws == nil then return nil end "
+    "local function _d(x, y) if x < 0 or y < 0 then return nil end local v = nil "
+    "pcall(function() local pid = ws:TilePosToIndex(CS.UnityEngine.Vector2Int(x, y)) "
+    "v = tonumber(SceneUtils.TileDistanceToMyHome(pid, srv)) end) return v end "
+    "local cam = ws.CurTilePos local cx, cy = cam.x, cam.y "
+    "local step = 64 "
+    "local d0 = _d(cx, cy) if d0 == nil then return nil end "
+    "local ax, ay = step, step "
+    "local d1 = _d(cx + ax, cy) if d1 == nil then ax = -step d1 = _d(cx + ax, cy) end "
+    "local d2 = _d(cx, cy + ay) if d2 == nil then ay = -step d2 = _d(cx, cy + ay) end "
+    "if d1 == nil or d2 == nil then return nil end "
+    "local u = (d0 * d0 - d1 * d1 + ax * ax) / (2 * ax) "
+    "local v = (d0 * d0 - d2 * d2 + ay * ay) / (2 * ay) "
+    "local hx, hy = math.floor(cx + u + 0.5), math.floor(cy + v + 0.5) "
+    "local best, bd = nil, nil "
+    "for dx = -3, 3 do for dy = -3, 3 do local dd = _d(hx + dx, hy + dy) "
+    "if dd ~= nil and (bd == nil or dd < bd) then bd = dd "
+    "best = {x = hx + dx, y = hy + dy} end end end "
+    "if best == nil or bd == nil or bd > 1.5 then return nil end "
+    "pcall(function() best.pid = ws:TilePosToIndex("
+    "CS.UnityEngine.Vector2Int(best.x, best.y)) end) "
+    "return best end "
+)
+
+
 def golden_arm() -> str:
     """Set the run up: which squad, where home is, what an attack costs, what energy there is.
 
@@ -9458,6 +9499,7 @@ def golden_arm() -> str:
     decides whether it worked.
     """
     return (
+        _GOLD_WS + _GOLD_HOME +
         "local p = {} "
         "p.cfg = %(cfg)d "
         "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
@@ -9466,6 +9508,8 @@ def golden_arm() -> str:
         "p.limit = math.floor(tonumber(%(gold)s_limit) or 0) "
         "p.targets = {} p.used = {} p.attacks = 0 p.spent = 0 p.found = 0 "
         "pcall(function() p.server = math.floor(tonumber(LuaEntry.Player:GetSelfServerId()) or 0) end) "
+        "p.anchor = nil "
+        "p.home = _goldhome(ws, p.server) "
         "p.cost = %(cost)s "
         "p.energy = %(energy)s "
         "pcall(function() "
@@ -9477,7 +9521,8 @@ def golden_arm() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_arm squad="..tostring(p.squad)'
         '.." formation="..tostring(p.formation).." soldiers="..tostring(p.soldiers)'
         '.." energy="..tostring(p.energy).." cost="..tostring(p.cost)'
-        '.." server="..tostring(p.server))'
+        '.." server="..tostring(p.server)'
+        '.." home="..tostring(p.home and p.home.x)..","..tostring(p.home and p.home.y))'
         % {"cfg": GOLDEN_ZOMBIE_CFG, "gold": _GOLD,
            "cost": golden_attack_cost(), "energy": golden_energy()}
     )
@@ -9600,30 +9645,74 @@ def golden_pick() -> str:
     home-distance call knows only one origin, and the entire point of the ability is that
     the second target is measured from the first and not from the house.
 
-    **A first pick 500 tiles away is not a bug** — measured live, the nearest of 134
-    golden zombies to the base was 492 tiles out, because they cluster in their own
-    region of the map and not around anybody's alliance. That is precisely why the chain
-    is worth having: the walk out is paid once, and every kill after it is a few tiles.
+    **THE ORIGIN IS A TILE, AND THE FIRST ONE IS THE BASE'S** (#1702). `golden_arm` works
+    the base tile out of the oracle (:data:`_GOLD_HOME`), so the first pick and every one
+    after it are the same arithmetic on the same kind of number — a plain tile distance
+    from a tile. Asking the oracle per target is kept as the fallback for a client that
+    would not give the base up, and a target the oracle cannot price either is passed over
+    rather than picked: `1e9` used to be the answer for ALL of them at once, and a queue
+    of equals is picked in whatever order the enumerator happened to fill it.
+
+    **A first pick 500 tiles away is not always a bug** — the invasion clusters in its own
+    region of the map, so a base far from it pays that walk once. What IS a bug, and is
+    what #1702 fixed, is a far pick made while near ones exist: `GetMonsterListInArea`
+    answers out of what the CLIENT has loaded, and a lap of `scan_map` leaves the camera
+    at the far end of the server with the tiles around the base long since evicted. So the
+    recipe puts the camera back on the origin and re-scans before every pick.
     """
     return (
         _GOLD_P +
         "p.cur = nil "
+        "local ox, oy, from = nil, nil, 'oracle' "
+        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
+        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
         "local best, bestd = nil, nil "
         "for _, t in ipairs(p.targets or {}) do "
         "if not (p.used or {})[tostring(t.pid)] then "
         "local d = nil "
-        "if p.anchor ~= nil then "
-        "local dx, dy = (t.x - p.anchor.x), (t.y - p.anchor.y) "
+        "if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) "
         "d = math.sqrt(dx * dx + dy * dy) "
         "else pcall(function() d = tonumber("
         "SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end "
-        "if d == nil then d = 1e9 end "
-        "if bestd == nil or d < bestd then best, bestd = t, d end end end "
-        "if best ~= nil then p.cur = best p.curdist = math.floor(bestd + 0.5) end "
+        "if d ~= nil and (bestd == nil or d < bestd) then best, bestd = t, d end end end "
+        "if best ~= nil then p.cur = best p.curdist = math.floor(bestd + 0.5) "
+        "p.curfrom = from end "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_pick pid="..tostring(p.cur and p.cur.pid)'
-        '.." uuid="..tostring(p.cur and p.cur.uuid).." dist="..tostring(p.curdist))'
+        '.." uuid="..tostring(p.cur and p.cur.uuid).." dist="..tostring(p.curdist)'
+        '.." from="..tostring(from).." at="..tostring(ox)..","..tostring(oy))'
         % {"gold": _GOLD}
+    )
+
+
+def golden_look_from() -> str:
+    """Put the camera where the next pick is measured FROM — the last kill, or the base.
+
+    Nothing is pressed and nothing is sent: the camera is the only thing that makes the
+    client ask the server for a district's tiles, and `GetMonsterListInArea` can only
+    answer out of what the client holds. That is the whole of #1702: after a lap of
+    `scan_map` the camera stands at the far end of the server, the tiles around the base
+    have been evicted, and «the nearest golden zombie» is chosen from a list that has no
+    near ones in it at all — a five-minute march with a dozen zombies sitting beside the
+    house.
+
+    So it runs before every scan of the chain: the base for the first pick, the tile of
+    the last kill for the rest — the same origin `golden_pick` measures from.
+    """
+    return (
+        _GOLD_P + _GOLD_WS +
+        "local at = p.anchor or p.home "
+        "if at == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=no-origin") return end '
+        "local pid = at.pid "
+        "if pid == nil and ws ~= nil then pcall(function() "
+        "pid = ws:TilePosToIndex(CS.UnityEngine.Vector2Int(at.x, at.y)) end) end "
+        "if pid == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=no-tile") return end '
+        "local ok, err = pcall(function() GoToUtil.MoveToWorldPoint(pid) end) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_look_from ok="..tostring(ok)'
+        '.." err="..tostring(err).." at="..tostring(at.x)..","..tostring(at.y)'
+        '.." origin="..tostring(p.anchor ~= nil and "anchor" or "home"))'
     )
 
 
@@ -9725,7 +9814,7 @@ def golden_send() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_send ok="..tostring(ok).." err="..tostring(err)) '
         "end, 0.5) "
         "p.used[tostring(t.pid)] = true "
-        "p.anchor = {x = t.x, y = t.y} "
+        "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
         "p.pending = {pid = pid, uuid = uuid} "
         "p.before = %(energy)s "
         "p.cur = nil "
@@ -10137,7 +10226,8 @@ def golden_speeds() -> str:
 #: cannot drift into disagreeing about which target is nearer.
 _GOLD_DIST = (
     "local function _dist(pid, x, y) "
-    "if p.anchor ~= nil then local dx, dy = (x - p.anchor.x), (y - p.anchor.y) "
+    "local o = p.anchor or p.home "
+    "if o ~= nil then local dx, dy = (x - o.x), (y - o.y) "
     "return math.sqrt(dx * dx + dy * dy) end "
     "local d = nil "
     "pcall(function() d = tonumber(SceneUtils.TileDistanceToMyHome(pid, p.server)) end) "
@@ -10266,7 +10356,7 @@ def golden_approach_send() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_ride ok="..tostring(ok).." err="..tostring(err)) '
         "end, 0.5) "
         "p.rode = (tonumber(p.rode) or 0) + 1 "
-        "p.anchor = {x = a.x, y = a.y} "
+        "p.anchor = {x = a.x, y = a.y, pid = a.pid} "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_ride scheduled pid="..tostring(pid)'
         '.." at="..tostring(a.x)..","..tostring(a.y).." saved="'

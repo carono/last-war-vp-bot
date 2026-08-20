@@ -75,6 +75,7 @@
   "autostart.error.admin": "Windows a refusé : créer cette tâche demande des droits d'administrateur. Lance le panneau en administrateur et recoche. ({error})",
   "autostart.error.failed": "Le planificateur de tâches a refusé : {error}",
   "busy": "occupé — attends la fin de l'action en cours",
+  "action.detached": "« {name} » tourne de son côté — rien d'autre ne l'attend",
   "busy.elsewhere": "le jeu est pris — {owner} le pilote depuis {sec} s",
   "busy.foreground": "l'écran est pris — {owner} y clique ; «{name}» ignoré",
   "capture.ghost_op": "Opérations Fantômes",
