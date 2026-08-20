@@ -441,9 +441,16 @@ def test_the_gap_between_two_kills_carries_no_waiting_nobody_needs():
     look = lua_actions.golden_look_from()
     assert "p.looked" in look and "skipped=near" in look, \
         "the look flies the camera even when it is already in the right district"
-    # …the arrival poll is a one-second beat, not three
-    assert [w for w in lines if w == "WAIT 1"], "the arrival poll is still a slow beat"
-    assert not [w for w in lines if w == "WAIT 3"]
+    # …the arrival wait is two-tier: coarse beats while the march is far, one-second ones
+    # for the last few seconds, so a two-tile hop is not rounded up to a three-second beat
+    # and a march across the map does not spend a checkpoint a second
+    assert [w for w in lines if w == "WAIT 1"], "nothing watches the end of a march closely"
+    assert [w for w in lines if w == "WAIT 3"], "the whole flight is polled every second"
+    far = [i for i, w in enumerate(lines) if w.startswith("WHILE far == 1")]
+    near = [i for i, w in enumerate(lines) if w.startswith("WHILE arrived == 0")]
+    assert far and near and min(far) < min(near), \
+        "the coarse half of the arrival wait does not come first"
+    assert "GOLDEN_ETA_NEAR_MS" in Path(lua_actions.__file__).read_text(encoding="utf-8")
     # …and nothing scans straight after a send, because the next lap scans anyway
     for i, line in enumerate(lines):
         if line == "TAP golden_eta":

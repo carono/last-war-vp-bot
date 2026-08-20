@@ -9387,6 +9387,12 @@ def radar_free_places() -> str:
 #: The config id of the golden / invading zombie. The one number that identifies it.
 GOLDEN_ZOMBIE_CFG = 1030000
 
+#: How close to landing a march has to be before the wait switches from three-second
+#: beats to one-second ones (#1702). Four seconds: long enough that an ordinary hop of a
+#: chain — two tiles, about three seconds — is watched closely from the start, short
+#: enough that a march across the map is not.
+GOLDEN_ETA_NEAR_MS = 4000
+
 #: How far the origin has to move before the camera is flown to it again (#1702). The
 #: client keeps a district loaded around where it is looking, and a chain's kills are a
 #: handful of tiles apart — measured live, two tiles — so a flight per kill buys nothing
@@ -9967,6 +9973,27 @@ def golden_settled() -> str:
         "if before == nil then return 1 end "
         "return (%(energy)s <= (before - 1)) and 1 or 0 end)()"
         % {"energy": golden_energy()}
+    )
+
+
+def golden_far() -> str:
+    """Lua *expression* -> 1 while the parked march is still more than a few seconds out.
+
+    The COARSE half of the arrival wait (#1702). Polling a five-minute march every second
+    buys nothing and costs a checkpoint a second — and every checkpoint is a moment the
+    run may be asked to step aside, which under a busy schedule is where the lease
+    exchanges go wrong. So the flight is watched in three-second beats and only the last
+    few seconds are watched closely (:func:`golden_marching` … see the recipe).
+
+    `0` when nothing is parked, so a caller with no march to wait for falls straight
+    through to the fine loop and out.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local due = tonumber(p.eta_ms) "
+        "if due == nil then return 0 end "
+        "return ((due - (%(now)s)) > %(near)d) and 1 or 0 end)()"
+        % {"now": _GAME_NOW_MS, "near": GOLDEN_ETA_NEAR_MS}
     )
 
 

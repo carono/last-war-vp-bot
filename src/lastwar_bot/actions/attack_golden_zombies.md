@@ -110,14 +110,15 @@
 #               default, and the reason is a measurement rather than caution** — see
 #               «the ride» below. Turn it on from «События» when the missing step is
 #               solved.
-#   march_wait  how many ONE-SECOND beats to wait for one march before giving up on it.
+#   march_wait  how many three-second beats to wait for one march before giving up on it.
 #               The default is ten minutes because the FIRST march of a chain can be long:
 #               live, the nearest of 134 golden zombies to the base was once 492 tiles
 #               away — they cluster in their own region of the map — and that leg took
 #               over four minutes. Every march after it is a few tiles, which is the whole
-#               point, and that is why the beat is a second: a three-second one spent an
-#               average of a second and a half of every kill waiting for a march that had
-#               already landed (#1702).
+#               point — and the last four seconds of every march are watched in
+#               one-second beats instead, because a three-second beat spent an average of
+#               a second and a half of every kill waiting for a squad that had already
+#               landed (#1702).
 #
 # ## What is proven, and what is not
 #
@@ -134,7 +135,7 @@ ARGS squad = 1
 ARGS radius = 2000
 ARGS scan = 1
 ARGS limit = 0
-ARGS march_wait = 600
+ARGS march_wait = 200
 ARGS approach = 0
 ARGS approach_sec = 60
 ARGS approach_reach = 12
@@ -217,7 +218,16 @@ WHILE go == 1 LIMIT 24
     # ride still read «out» at 485 seconds. Nothing parked means nothing to wait for,
     # which is the first lap.
     READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
-    WHILE arrived == 0 LIMIT {march_wait}
+    # FAR, in three-second beats: a march across the map polled every second buys
+    # nothing and spends a checkpoint a second, and every checkpoint is a moment this
+    # run may be asked to step aside (#1702).
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 0 end return ((due - ((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)())) > 4000) and 1 or 0 end)() INTO far
+    WHILE far == 1 LIMIT {march_wait}
+        WAIT 3
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 0 end return ((due - ((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)())) > 4000) and 1 or 0 end)() INTO far
+
+    # …and the last few seconds closely, so a two-tile hop is not rounded up to three.
+    WHILE arrived == 0 LIMIT 15
         WAIT 1
         READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
 
@@ -273,7 +283,7 @@ WHILE go == 1 LIMIT 24
                     # reading «out» for as long as it works there.
                     READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
                     WHILE arrived == 0 LIMIT {march_wait}
-                        WAIT 1
+                        WAIT 3
                         READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
             # The last march of the run is the one that brings the squad home; every one
             # before it deliberately leaves it standing where it killed.
