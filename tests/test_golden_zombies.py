@@ -583,6 +583,35 @@ def test_the_ride_is_still_wired_and_waits_on_its_own_march():
     assert "p.why = 'short'" in arm and "p.why = 'no-mine'" in arm
 
 
+def test_the_lap_of_the_map_is_harvested_where_it_ENDS():
+    """#1702 regression: «not one golden zombie» over a warzone full of them.
+
+    The map lap loads district after district and the client keeps what it has LOADED. The
+    camera-onto-the-origin rule went in front of the first scan, so the run flew home
+    BEFORE asking — and the entire catch of the lap had been evicted by the time it did.
+    Live, from the panel's own button: a full lap, then `queued = 0`, then a FAIL, while
+    the panel's own monster registry was holding four hundred.
+
+    So the lap is harvested where it ends, and the queue — which only ever grows — is
+    topped up again once the camera is on the origin.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    lap = lines.index("CALL scan_map")
+    nxt = [i for i, w in enumerate(lines[lap:], lap)
+           if w in ("TAP golden_scan", "TAP golden_look_from")]
+    assert nxt and lines[nxt[0]] == "TAP golden_scan", \
+        "the camera leaves before the lap's catch is taken — the queue comes back empty"
+    look = lines.index("TAP golden_look_from")
+    assert any(w == "TAP golden_scan" for w in lines[look:look + 8]), \
+        "the queue is never topped up around the origin"
+    # …and every lap of the chain does the same: take what is here, then move.
+    loop = [i for i, w in enumerate(lines) if w == "TAP golden_look_from"]
+    for i in loop:
+        assert "TAP golden_scan" in lines[max(0, i - 3):i] or i == look, \
+            "a camera move throws away what the client is holding right now"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

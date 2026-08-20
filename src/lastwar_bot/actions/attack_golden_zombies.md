@@ -188,10 +188,15 @@ IF has_energy == 0
 # second run a minute later is working with the same map.
 IF scan == 1
     CALL scan_map
+    # TAKE WHAT THE LAP LOADED, WHERE IT ENDED — before the camera goes anywhere (#1702).
+    # The queue only ever grows, and the client answers about the districts it HOLDS:
+    # flying home first and asking there threw the whole lap's catch away, and a press
+    # over a warzone with hundreds of them answered «not one golden zombie on the map».
+    TAP golden_scan
 
-# THE CAMERA BACK ONTO THE ORIGIN, and only then the scan. The client answers about the
-# monsters it has loaded, and a lap of the map above leaves it holding the far end of the
-# warzone; the origin of the first pick is the base.
+# …and then the camera onto the origin, and ask again — so the far catch of the lap and
+# the near one around the base both end up in the same queue. The origin of the first pick
+# is the base, which is where the squad is standing.
 TAP golden_look_from
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
 IF looked_moved == 1
@@ -236,8 +241,10 @@ WHILE go == 1 LIMIT 24
         READ_LUA (0) INTO go
 
     IF go == 1
-        # Where the next pick is measured from — the last kill, or the base before the
-        # first one — so the district around it is loaded before it is asked about.
+        # What is loaded right now, before the camera moves off it (#1702) …
+        TAP golden_scan
+        # … and then where the next pick is measured from — the last kill, or the base
+        # before the first one — so that district is loaded before it is asked about.
         TAP golden_look_from
         # …and the settle only when it really flew: a kill two tiles from the last one is
         # inside the district the client is already holding (#1702).
