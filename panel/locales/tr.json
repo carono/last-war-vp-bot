@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "İzlemeyi durdur",
   "priority.ahead": "oyun {owner} elinde — «{name}» o kenara çekilir çekilmez öne geçecek",
   "priority.parked": "{owner} oyunu istiyor — bu çalışma kenara çekilip bekliyor",
+  "priority.waiting": "oyunu hâlâ {owner} tutuyor — sıranın gelmesini bekliyorum",
   "priority.resumed": "{owner} bitirdi — bu çalışma kaldığı yerden sürüyor",
   "priority.lost": "{owner} için kenara çekildikten sonra oyun geri alınamadı",
   "world.page.mines": "Madenler",

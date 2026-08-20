@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Beobachtung stoppen",
   "priority.ahead": "{owner} führt das Spiel — «{name}» kommt zuerst dran, sobald jener beiseitetritt",
   "priority.parked": "{owner} will das Spiel — dieser Lauf tritt beiseite und wartet",
+  "priority.waiting": "{owner} hält das Spiel weiterhin — warte auf die nächste Gelegenheit",
   "priority.resumed": "{owner} ist fertig — weiter an der Stelle, an der dieser Lauf stand",
   "priority.lost": "das Spiel liess sich nach dem Beiseitetreten für {owner} nicht zurückholen",
   "world.page.mines": "Minen",

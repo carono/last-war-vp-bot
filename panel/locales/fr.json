@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Arrêter l'écoute",
   "priority.ahead": "{owner} tient le jeu — « {name} » passera dès qu'il s'écartera",
   "priority.parked": "{owner} demande le jeu — cette exécution s'écarte et attend",
+  "priority.waiting": "{owner} tient toujours le jeu — j'attends une autre occasion",
   "priority.resumed": "{owner} a fini — on reprend là où cette exécution s'était arrêtée",
   "priority.lost": "impossible de reprendre le jeu après s'être écarté pour {owner}",
   "world.page.mines": "Mines",

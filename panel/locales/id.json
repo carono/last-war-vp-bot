@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Hentikan pemantauan",
   "priority.ahead": "permainan dipegang {owner} — «{name}» jalan duluan begitu ia menepi",
   "priority.parked": "{owner} meminta permainan — jalannya menepi dan menunggu",
+  "priority.waiting": "{owner} masih memegang permainan — menunggu giliran lagi",
   "priority.resumed": "{owner} sudah selesai — dilanjutkan dari tempat jalannya berhenti",
   "priority.lost": "permainan tidak bisa diambil kembali setelah menepi untuk {owner}",
   "world.page.mines": "Tambang",

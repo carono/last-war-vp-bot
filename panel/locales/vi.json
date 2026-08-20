@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Dừng theo dõi",
   "priority.ahead": "trò chơi đang do {owner} giữ — «{name}» sẽ đi trước ngay khi bên kia nhường",
   "priority.parked": "{owner} cần trò chơi — lượt chạy này nhường chỗ và chờ",
+  "priority.waiting": "{owner} vẫn đang giữ trò chơi — chờ lượt khác",
   "priority.resumed": "{owner} đã xong — chạy tiếp từ chỗ lượt chạy này dừng lại",
   "priority.lost": "không lấy lại được trò chơi sau khi nhường cho {owner}",
   "world.page.mines": "Mỏ",

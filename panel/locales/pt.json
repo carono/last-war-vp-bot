@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Parar escuta",
   "priority.ahead": "o jogo está com {owner} — «{name}» passa assim que ele se afastar",
   "priority.parked": "{owner} pede o jogo — esta execução afasta-se e espera",
+  "priority.waiting": "{owner} ainda está com o jogo — espero outra vez",
   "priority.resumed": "{owner} terminou — segue-se de onde esta execução ficou",
   "priority.lost": "não foi possível retomar o jogo depois de ceder a vez a {owner}",
   "world.page.mines": "Minas",

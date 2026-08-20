@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Detener escucha",
   "priority.ahead": "{owner} lleva el juego — «{name}» pasará en cuanto se aparte",
   "priority.parked": "{owner} pide el juego — esta ejecución se aparta y espera",
+  "priority.waiting": "{owner} sigue con el juego — espero otro turno",
   "priority.resumed": "{owner} ha terminado — se sigue donde esta ejecución se quedó",
   "priority.lost": "no se pudo recuperar el juego tras apartarse para {owner}",
   "world.page.mines": "Minas",

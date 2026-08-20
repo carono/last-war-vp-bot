@@ -91,13 +91,32 @@ def test_the_press_drops_the_priority_and_hands_over_the_step_aside_hook():
         "play_async never asks whether the scenario is detached"
     assert "priority = claims.DETACHED" in src, \
         "a detached run claims the client at an ordinary priority"
-    assert "self.yield_hook(tag) if detached else None" in src, \
+    assert "self.yield_hook(tag, patient=True) if detached else None" in src, \
         "a detached run carries no step-aside hook — the priority is a note nobody reads"
     assert re.search(r"yield_to=step_aside", src), \
         "the hook is built and never handed to the run"
     # …and `play` has to take it by name: it always builds the context itself, so a hook
     # left in **kw would reach `run`, which has a context already and drops it.
     assert "yield_to=None, **kw" in ACTIONS.read_text(encoding="utf-8")
+
+
+def test_a_detached_run_is_patient_about_getting_the_client_back():
+    """#1702: it died at its third kill because the account's own rally traffic won.
+
+    Everything outranks a detached run by declaration, so on a busy schedule it parks
+    constantly — and one failed re-claim used to end it («не удалось вернуть игру после
+    уступки», live, mid-chain with a squad already marching). It holds nothing while it
+    waits, so trying again costs the wait and nothing else.
+    """
+    src = HOST.read_text(encoding="utf-8")
+    assert "def yield_hook(self, tag: str = \"timer\", patient: bool = False)" in src
+    assert "patient=True) if detached else None" in src, \
+        "the detached run is handed the impatient hook — one busy minute kills it"
+    assert "PARK_TRIES" in src and "PARK_RETRY_SEC" in src
+    # …and an ordinary background errand still fails fast: its retry is the schedule's.
+    body = src[src.index("def yield_hook"):src.index("def regain_hook")]
+    assert "if not got and patient:" in body, \
+        "every run now retries, which turns a timer's honest failure into a long wait"
 
 
 def test_the_clock_does_not_block_on_a_detached_errand():

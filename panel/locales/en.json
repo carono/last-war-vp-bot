@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Stop watching",
   "priority.ahead": "{owner} has the game — «{name}» goes first the moment it steps aside",
   "priority.parked": "{owner} wants the game — this run steps aside and waits",
+  "priority.waiting": "{owner} is still holding the game — waiting for another turn",
   "priority.resumed": "{owner} is done — carrying on where this run stood",
   "priority.lost": "could not get the game back after standing aside for {owner}",
   "world.page.mines": "Mines",

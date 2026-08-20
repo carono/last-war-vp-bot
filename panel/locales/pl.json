@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Zatrzymaj nasłuch",
   "priority.ahead": "grę prowadzi {owner} — «{name}» pójdzie pierwszy, gdy tylko tamten ustąpi",
   "priority.parked": "{owner} prosi o grę — ten przebieg ustępuje i czeka",
+  "priority.waiting": "{owner} wciąż trzyma grę — czekam na kolejną okazję",
   "priority.resumed": "{owner} skończył — ciąg dalszy tam, gdzie ten przebieg stanął",
   "priority.lost": "nie udało się odzyskać gry po ustąpieniu miejsca: {owner}",
   "world.page.mines": "Kopalnie",

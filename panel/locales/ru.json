@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Остановить наблюдение",
   "priority.ahead": "игру ведёт {owner} — «{name}» пойдёт первым, как только тот уступит",
   "priority.parked": "игру просит {owner} — этот прогон уступает и ждёт",
+  "priority.waiting": "игру всё ещё держит {owner} — жду следующей возможности",
   "priority.resumed": "{owner} закончил — продолжаю с того места, где стоял",
   "priority.lost": "не удалось вернуть игру после уступки: {owner}",
   "world.page.mines": "Шахты",

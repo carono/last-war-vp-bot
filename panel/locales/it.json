@@ -1687,6 +1687,7 @@
   "treasure_debug.web.stop": "Ferma l'ascolto",
   "priority.ahead": "il gioco è in mano a {owner} — «{name}» passerà appena si farà da parte",
   "priority.parked": "{owner} chiede il gioco — questa esecuzione si fa da parte e aspetta",
+  "priority.waiting": "{owner} tiene ancora il gioco — aspetto un altro turno",
   "priority.resumed": "{owner} ha finito — si riprende da dove questa esecuzione era rimasta",
   "priority.lost": "non è stato possibile riprendere il gioco dopo essersi fatti da parte per {owner}",
   "world.page.mines": "Miniere",

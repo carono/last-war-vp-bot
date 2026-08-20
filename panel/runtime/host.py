@@ -457,7 +457,16 @@ class PanelRuntime:
         self.log.put(line)
 
     # -- stepping aside for something more urgent (#1288) --------------------
-    def yield_hook(self, tag: str = "timer"):
+    #: How many times a PATIENT run tries to take the client back after standing aside,
+    #: and how long it waits between attempts (#1702). A detached chain lives for the
+    #: length of a march, this account's schedule fires a rally join every few seconds,
+    #: and every one of them outranks it — so «could not get the game back» is an ordinary
+    #: minute rather than a broken client, and killing the run over it lost a chain that
+    #: was three seconds from its next kill. Sixty seconds of `park` a time, five times.
+    PARK_TRIES = 5
+    PARK_RETRY_SEC = 1.0
+
+    def yield_hook(self, tag: str = "timer", patient: bool = False):
         """A step-aside callable for a BACKGROUND run, or ``None`` when it cannot park.
 
         Handed to the interpreter as `Context.yield_to`, which calls it between
@@ -481,7 +490,19 @@ class PanelRuntime:
             if who is None:
                 return
             self.log.say(tag, "priority.parked", owner=who)
-            if not self.game.park(tag):
+            got = self.game.park(tag)
+            if not got and patient:
+                # A DETACHED run does not die because the schedule was busy (#1702). It
+                # holds nothing while it waits, so the only cost of trying again is the
+                # wait — and the alternative, live, was a chain killed at its third kill
+                # by the account's own rally traffic.
+                for _ in range(self.PARK_TRIES - 1):
+                    time.sleep(self.PARK_RETRY_SEC)
+                    self.log.say(tag, "priority.waiting", owner=who)
+                    if self.game.park(tag):
+                        got = True
+                        break
+            if not got:
                 raise RuntimeError(self.t("priority.lost", owner=who))
             # THE LEASE IS A NEW ONE. Standing aside let the old one go, and the run's
             # context is carrying both the token it was granted and an evaluator built
@@ -705,7 +726,7 @@ class PanelRuntime:
                 # The step-aside hook goes to the DETACHED run only: an ordinary press is
                 # already the most urgent thing there is, and one that parked for a
                 # background errand would be the queue this whole area exists to remove.
-                step_aside = self.yield_hook(tag) if detached else None
+                step_aside = self.yield_hook(tag, patient=True) if detached else None
                 if on_result is None:
                     self.actions.run(name, args, hwnd=0, on_event=on_event,
                                      profile=None, cancel=cancel, tag=tag,
