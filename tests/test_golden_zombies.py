@@ -217,7 +217,7 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
             before = lines[max(0, i - 20):i]
             assert "TAP golden_scan" in before, \
                 "a pick is made off a list nobody refreshed for this origin"
-            assert "TAP golden_look_from" in before, \
+            assert "TAP golden_look_from" in before or "TAP golden_look" in before, \
                 "the scan the pick reads was taken from somewhere else"
     look = lua_actions.golden_look_from()
     assert "p.anchor or p.home" in look, \
@@ -548,7 +548,7 @@ def test_a_dead_target_is_dropped_before_a_send_is_wasted_on_it():
     here = [i for i, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO here" in w]
     assert here, "nothing asks whether the armed target is still on the map"
     i = min(here)
-    before = lines[max(0, i - 5):i]
+    before = lines[max(0, i - 12):i]
     assert "TAP golden_look" in before and "TAP golden_scan" in before, \
         "the target is checked without looking at it — the answer is the old snapshot"
     send = [j for j, w in enumerate(lines) if w == "TAP golden_send"]
@@ -610,6 +610,50 @@ def test_the_lap_of_the_map_is_harvested_where_it_ENDS():
     for i in loop:
         assert "TAP golden_scan" in lines[max(0, i - 3):i] or i == look, \
             "a camera move throws away what the client is holding right now"
+
+
+def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_known():
+    """#1702: «выбрана НЕ ближайшая цель» — and the sort was never the problem.
+
+    Run offline, against the real Lua of `golden_pick` with a made-up queue: the first
+    pick of a run measures from the BASE and returns the smallest of them, cross-server
+    arithmetic and all. What went wrong live is what was IN the queue — the client knows
+    only the districts it has loaded, so the choice was the minimum over a partial map:
+    500 tiles out, while a scan taken once the camera was on that target turned up one at
+    484. So the recipe looks at its first choice, scans, and chooses again over the bigger
+    queue — a second pick from the same origin can only be nearer.
+    """
+    import lupa
+    rt = lupa.LuaRuntime()
+    rt.execute("CS = {UnityEngine = {Debug = {LogError = function() end}}}")
+    rt.execute("""
+    DataCenter = {__lw_gold = {home = {x = 100, y = 100}, server = 1, used = {},
+      targets = {{pid = 1, x = 130, y = 100, uuid = 11},
+                 {pid = 2, x = 110, y = 100, uuid = 22},
+                 {pid = 3, x = 150, y = 150, uuid = 33}}}}
+    """)
+    rt.execute(lua_actions.golden_pick())
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, "the pick is not the nearest to home"
+    assert rt.eval("DataCenter.__lw_gold.curfrom") == "home"
+    assert rt.eval("DataCenter.__lw_gold.curdist") == 10
+    # …and once a kill has happened the origin is that kill, not the base again.
+    rt.execute("DataCenter.__lw_gold.anchor = {x = 150, y = 150}")
+    rt.execute(lua_actions.golden_pick())
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 33, "the chain went back to measuring from home"
+    assert rt.eval("DataCenter.__lw_gold.curfrom") == "anchor"
+
+    # …and the recipe picks TWICE: once off what is known, then again once the target's
+    # own district has been scanned.
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    picks = [i for i, w in enumerate(lines) if w == "TAP golden_pick"]
+    assert len(picks) >= 2, "the choice is never revisited after the district is loaded"
+    first, second = picks[0], picks[1]
+    between = lines[first:second]
+    assert "TAP golden_look" in between and "TAP golden_scan" in between, \
+        "the second pick reads the same queue as the first — it would choose the same"
+    send = [i for i, w in enumerate(lines) if w == "TAP golden_send"]
+    assert send and min(send) > second, "the run sends before it has re-picked"
 
 
 def _run_standalone() -> int:

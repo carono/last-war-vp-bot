@@ -267,30 +267,28 @@ WHILE go == 1 LIMIT 24
             TAP golden_kill_drop
 
         TAP golden_pick
-        # WHICH zombie, how far from the origin the pick used, and how far the same
-        # tile is from the base — the two numbers that say the chain is a chain.
         READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return 'none' end local o = p.anchor or p.home local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. ' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. ' from=' .. tostring(p.curfrom or '-') .. ' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' src=' .. tostring(c.src or '-') .. ' queued=' .. tostring(#(p.targets or {})) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)() INTO pick_report
-        LOG "target: {pick_report}"
-        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.cur == nil then return 0 end return ((tonumber(p.cur.uuid) or 0) == 0) and 1 or 0 end)() INTO needs_uuid
-
-        # A target found as a drawn clone knows its tile and not its uuid, and a send
-        # with `uuid = 0` is refused in silence. One popup open, one read, one close —
-        # of the POPUP, never of the HUD with it.
-        IF needs_uuid == 1
-            TAP golden_touch
-            TAP golden_grab
-
+        LOG "first choice: {pick_report}"
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO picked
 
-        # IS IT STILL THERE? Asked with the camera ON the target, because the client's list
-        # is a snapshot of the districts it has loaded and the next target of a chain is
-        # usually twenty tiles away in one nobody has looked at since the sweep. Live, two
-        # sends in four went at zombies that were already dead, each costing the ten
-        # seconds the launch proof waits before giving up (#1702).
+        # THE CLIENT ONLY KNOWS THE DISTRICTS IT HAS LOADED, so the first choice is the
+        # minimum over what was known — and looking AT it teaches the client its
+        # neighbours (#1702). Live: the chain chose one 500 tiles from the base, the scan
+        # taken once the camera was on it turned up one at 484, and the operator saw the
+        # bot walk past the nearer zombie. So the choice is made again over the bigger,
+        # fresher queue; a second pick can only be nearer, because it is the minimum over
+        # a superset measured from the same origin.
         IF picked == 1
             TAP golden_look
             WAIT 1
             TAP golden_scan
+            TAP golden_pick
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return 'none' end local o = p.anchor or p.home local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. ' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. ' from=' .. tostring(p.curfrom or '-') .. ' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' src=' .. tostring(c.src or '-') .. ' queued=' .. tostring(#(p.targets or {})) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)() INTO pick_report
+            LOG "target: {pick_report}"
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.cur == nil then return 0 end return ((tonumber(p.cur.uuid) or 0) == 0) and 1 or 0 end)() INTO needs_uuid
+            IF needs_uuid == 1
+                TAP golden_touch
+                TAP golden_grab
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.cur if t == nil then return 1 end local ws = _G.__LW_GOLD_WS local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) _G.__LW_GOLD_WS = ws end if ws == nil then return 1 end local want = tostring(t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 1 or 0 end)() INTO here
             IF here == 0
                 LOG "that zombie is not on the map any more — dropping it and picking another"
