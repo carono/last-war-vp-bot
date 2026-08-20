@@ -7215,6 +7215,17 @@ def ghost_recon_steal_cap() -> str:
 # 2 -> 1, so the press moved real progress and the game charged for it. The uuid it sent is
 # the one `GetMaxLvBuildDataByBuildId` resolves — the same identity both hand recordings
 # put on the wire for their own groups.
+#
+# **`num > 1` in one send, proven live on 2026-08-20 (task #1560).** §7 of the research
+# note had this as the one thing not yet shown: the panel's own long press reads the same
+# `curCanUpgradeNum` this button computes, and nothing in the trace said a bigger number
+# in the SAME message would not just be refused down to 1. It is not refused: decoration
+# 103502000 read `needScore=52 cnt=2` (two spares banked, two points short of the next
+# star), one message carried `num=2`, and the very next read came back `needScore=54
+# cnt=0` — the score crossed the whole gap in the one round trip that used to take two
+# presses. So `upgrade_all_decorations_now` below sends each ready group its WHOLE
+# available count in ONE message rather than stepping it by ones — the wire already
+# supported this, the recipe just never asked for more than 1.
 
 _DECOR_UPGRADE_MSG_KEY = "MsgDefines.DecoratorProgressUpgradeMessage"
 
@@ -7272,6 +7283,49 @@ def upgrade_next_decoration(count: int = 1) -> str:
         "fired=true return true end end) "
         'if not fired then CS.UnityEngine.Debug.LogError("ACT decor_upgrade_skip nothing ready") end'
         % (_DECOR_SCAN, int(count), _DECOR_UPGRADE_MSG_KEY)
+    )
+
+
+def upgrade_all_decorations_now() -> str:
+    """Lua *expression* -> spend EVERY banked spare in ONE game-VM call, and report it.
+
+    One message per ready group, each carrying that group's WHOLE available count —
+    not one step at a time. A round trip to the VM costs ~0.15 s and the loop inside it
+    is free (the same reasoning `alliance_donate_batch` spends a whole quota on), so a
+    base with a dozen ready groups is one call instead of a dozen presses.
+
+    This is safe to fire at every group in the SAME pass because each group gets
+    exactly ONE send: nothing here re-reads a group's cell after sending to it, so
+    there is no risk of a second send inside this call pricing itself off a count the
+    first send has already spent but the client has not yet heard back about (the
+    trap `alliance_donate_batch`'s own comment names, avoided here by never sending
+    twice to the same group). A group whose spares outrun the immediate next star
+    threshold spends only what that threshold prices — `count` is already capped to
+    it (§4 of docs/research/decoration-upgrade.md) — and whatever is left over is
+    picked up on the NEXT run once the game exposes the following star's cell.
+
+    Returns one string: a summary line, a semicolon-separated line per group that was
+    actually sent (`item: before->after/goal (+steps)`), and, when any exist, a short
+    tail naming the groups this pass could not touch and why (no spare banked).
+    """
+    return (
+        "(function() %s local checked,ready,total=0,0,0 local sent_lines,why={},{} "
+        "scan(function(itemId,d,steps) checked=checked+1 "
+        "local score,goal='?','?' "
+        "pcall(function() local cells=BuildingUtils.GetDecorateUpLevelBuilds(d) "
+        "for _,c in pairs(cells or {}) do goal=c.nextScore "
+        "if tonumber(c.count) and tonumber(c.count)>0 then score=c.needScore end end end) "
+        "if steps>0 then ready=ready+1 total=total+steps "
+        "pcall(function() SFSNetwork.SendMessage(%s, d.uuid, steps) end) "
+        "sent_lines[#sent_lines+1]=tostring(itemId)..': '..tostring(score)..'->'"
+        "..tostring((tonumber(score) or 0)+steps)..'/'..tostring(goal)..' (+'..tostring(steps)..')' "
+        "else why[#why+1]=tostring(itemId)..' (goal '..tostring(goal)..')' end end) "
+        "local out='checked '..tostring(checked)..', '..tostring(ready)"
+        "..' upgraded now, '..tostring(total)..' step(s) sent total' "
+        "if #sent_lines>0 then out=out..' :: '..table.concat(sent_lines,'; ') end "
+        "if #why>0 then out=out..' :: no spare banked for: '..table.concat(why,', ') end "
+        "return out end)()"
+        % (_DECOR_SCAN, _DECOR_UPGRADE_MSG_KEY)
     )
 
 
@@ -10237,60 +10291,3 @@ def golden_approach_report() -> str:
         "' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. "
         "' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)()"
     )
-
-
-#: The SERVER's clock in milliseconds, which is what a march's `endTime` is stamped in.
-#: The PC's own clock is not it (docs/research/game-clock.md), so it is only the fallback
-#: of last resort — a few seconds out either way is harmless for a wait, and being an
-#: hour out is not.
-_GAME_NOW_MS = (
-    "(function() local t = nil "
-    "pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) "
-    "if t == nil then pcall(function() "
-    "t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end "
-    "if t == nil then t = os.time() * 1000 end return t end)()"
-)
-
-
-def golden_note_eta() -> str:
-    """Park when the march that has just gone out is due to land.
-
-    **The squad's `state` cannot answer «has it arrived».** Measured live: a ride of 271
-    seconds left the formation reading `state = 1` for 485 seconds and counting, because
-    a squad that has landed at a mine is GATHERING and the client makes no distinction
-    between «on the road» and «at work». A chain that waits for `state` to clear waits
-    for ever.
-
-    The march's own clock does answer. The newest of our marches is the one just created —
-    it is the one that lands last — and its `endTime` is the server's own arrival stamp,
-    within two seconds of what the speed function predicts. Where the list cannot be read
-    the prediction is parked instead, so the wait is bounded either way.
-    """
-    return (
-        _GOLD_P +
-        "local latest = nil "
-        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
-        "if ms == nil then return end "
-        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
-        "if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) "
-        "if e ~= nil and e > 0 and (latest == nil or e > latest) then latest = e end end end end) "
-        "if latest == nil then "
-        "local guess = tonumber(p.approach_sec) or 60 "
-        "latest = (%(now)s) + math.floor(guess * 1000) end "
-        "p.eta_ms = latest "
-        "%(gold)s = p "
-        'CS.UnityEngine.Debug.LogError("ACT golden_eta in="'
-        '..tostring(math.floor((latest - (%(now)s)) / 1000)).."s")'
-        % {"gold": _GOLD, "now": _GAME_NOW_MS}
-    )
-
-
-def golden_arrived() -> str:
-    """Lua *expression* -> 1 once the parked march is due to have landed, else 0.
-
-    `1` when nothing is parked, so a caller that polls this after a step which sent
-    nothing is not left waiting on a clock nobody wound.
-    """
-    return ("(function() " + _GOLD_P +
-            "local due = tonumber(p.eta_ms) if due == nil then return 1 end "
-            "return ((%s) >= due) and 1 or 0 end)()" % _GAME_NOW_MS)

@@ -184,14 +184,20 @@ the `IsExistAdvanceUpgrade` refusal, the spare-copy gate across all 61 groups, a
 do-nothing path (22 of the 23 eligible groups hold no spare, and the press correctly sends
 nothing).
 
-**Not** proven: `num > 1` in a single send. The long press exists in the panel and the
-count is read from the same cell, but every send so far carried 1. The button deliberately
-keeps to one step per press so each press re-reads what the last reply left behind.
+**`num > 1` in a single send, proven live on 2026-08-20 (#1560).** Decoration 103502000
+read `needScore=52 cnt=2` (two spares, two points short of the next star); one message
+carried `num=2`; the next read came back `needScore=54 cnt=0` — the whole gap crossed in
+one round trip. Scaled up the same session on three groups at once, in one game-VM call:
+103401000 read 25 spares banked and moved `461->486/486` (the star reached) on a single
+`num=25` send; 103402000 moved `481->486/486` (+5); 103514000 moved `156->162/162` (+6).
+`upgrade_all_decorations_now` in `tools/lib/lua_actions.py` sends every ready group its
+whole available count this way, all inside one call — no more one step per press.
 
 ## 8. Code
 
-* Lua chunks: `tools/lib/lua_actions.py` — `upgrade_next_decoration`, `decoration_upgrade`,
-  `decoration_upgrade_ready_count`, `decoration_state_dump`, `decorations_window`.
+* Lua chunks: `tools/lib/lua_actions.py` — `upgrade_all_decorations_now`,
+  `upgrade_next_decoration`, `decoration_upgrade`, `decoration_upgrade_ready_count`,
+  `decoration_state_dump`, `decorations_window`.
 * Buttons: `upgrade_decoration`, `dump_decorations`, `decorations` in
   `tools/lib/game_buttons.py`.
 * Recipe: `src/lastwar_bot/actions/upgrade_decorations.md`.
