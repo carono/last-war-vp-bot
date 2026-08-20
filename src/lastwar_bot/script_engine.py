@@ -3220,6 +3220,17 @@ class Interpreter:
         builds a fresh local `LuaEval`, which resolves the live client by itself. Only
         then does a local reading make sense — and it is a same-session one, because
         a client in somebody else's session is not this profile's to report as up.
+
+        WHICH IS WHY `ctx.game_user` HAS TO REACH THAT READING TOO (#1854). A profile
+        whose client lives in another Windows session has no client of its own in THIS
+        one — so `running_pid`, documented as «the client of this session», answers with
+        the NEIGHBOUR'S, and the restart declared itself finished on another account's
+        game. Live on 2026-08-21 the second profile logged
+        «ATTACH_GAME -> client pid 66068» twice, and 66068 was the first profile's
+        client: its own had not been confirmed at all, and half-closed sockets turned up
+        two minutes later. `game_client.target_pid` is the reading that knows about the
+        session — the same one `QUIT_GAME` already uses, for the same reason and one
+        sharper: what follows a wrong answer there is a kill.
         """
         self._tools_lib_on_path()
         import game_client
@@ -3228,6 +3239,15 @@ class Interpreter:
         self._detach()
         forget_link_verdict()                 # the client is a new one; so is its link
         port = self._game_port()
+        user = (self.ctx.game_user or "").strip() or None
+
+        def _ours() -> "int | None":
+            """This profile's client, and never another session's."""
+            if user:
+                return game_client.target_pid(port=port, user=user,
+                                              log=lambda msg: self._log(f"  {msg}"))
+            return game_client.running_pid()
+
         deadline = time.time() + float(stmt.timeout)
         seen = None
         while True:
@@ -3237,15 +3257,15 @@ class Interpreter:
                 except Exception:             # noqa: BLE001 — not warm yet; try again
                     pass
                 pid = game_client.attached_pid(port)
-                if pid:
+                if pid and (not user or pid == _ours()):
                     self._log(f"ATTACH_GAME -> daemon attached to client pid {pid}")
                     return
             else:
-                pid = game_client.running_pid()
+                pid = _ours()
                 if pid:
                     self._log(f"ATTACH_GAME -> client pid {pid} (no daemon to re-point)")
                     return
-            seen = seen or game_client.running_pid()
+            seen = seen or _ours()
             if time.time() >= deadline:
                 break
             self._nap(2.0)                   # a minute of waiting for a client, stoppable

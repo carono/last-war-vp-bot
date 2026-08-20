@@ -1104,6 +1104,46 @@ def test_attach_believes_the_daemon_over_a_local_pid_lookup():
     assert client.attached == 31337, client.attached
 
 
+def test_attach_never_reports_the_neighbours_client_as_this_profiles(): 
+    """THE OTHER HALF OF THE RESTART HAD THE BUG THE KILL WAS FIXED FOR (#1854).
+
+    A profile whose client lives in another Windows session has none of its own in
+    THIS one, and `running_pid` is documented as «the client of this session» — so the
+    fallback answered with the NEIGHBOUR'S client and the restart declared itself
+    finished on another account's game. Live on 2026-08-21 the second profile logged
+    «ATTACH_GAME -> client pid 66068» twice; 66068 was the first profile's client.
+
+    With a session named, the reading is `target_pid` — which knows about sessions —
+    and when nobody is logged on there the restart FAILS in words instead of borrowing
+    somebody else's client.
+    """
+    client = FakeClient(pid=66068, attached=None)      # …the NEIGHBOUR'S, in this session
+    client.target_pid = lambda port=None, game_exe=None, user=None, log=None: (
+        client.asked_for.append(user) or None)         # nobody is logged on as `user`
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval(),
+                     game_user="second")
+    with _fakes(client, daemon_up=False):
+        assert se.run_text("ATTACH_GAME WITHIN 1s", ctx=ctx) is False
+    assert ctx.failed, "a client that never came back must fail the recipe"
+    assert "66068" not in (ctx.fail_reason or ""), ctx.fail_reason
+    assert client.asked_for and set(client.asked_for) == {"second"}, client.asked_for
+
+
+def test_attach_ignores_a_daemon_holding_a_client_of_another_session():
+    """A daemon started on the wrong desktop binds the right port and hijacks the
+    wrong client (#1218). Believing its pid would hand this profile the neighbour's
+    game with a line saying the handover worked."""
+    client = FakeClient(pid=66068, attached=66068)     # the daemon holds the neighbour's
+    client.target_pid = lambda port=None, game_exe=None, user=None, log=None: 4242
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval(),
+                     game_user="second")
+    said = []
+    ctx.on_event = said.append
+    with _fakes(client, daemon_up=True):
+        assert se.run_text("ATTACH_GAME WITHIN 1s", ctx=ctx) is False
+    assert not any("66068" in line for line in said), said
+
+
 def test_a_restart_never_reaches_another_windows_session():
     """The bug this cost a live run to find: with the client of this session killed,
     the ordinary lookup answered with the SECOND account's client, in another
