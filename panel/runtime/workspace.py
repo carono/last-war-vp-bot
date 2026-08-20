@@ -237,6 +237,27 @@ class Workspace:
     def start_all(self) -> None:
         self.each(lambda s: s.start())
 
+    def set_language(self, lang: str) -> bool:
+        """Switch EVERY open session to ``lang`` at once (#1515).
+
+        The language is a window setting, like the remote-control knobs — one choice,
+        applied to whoever is looking at this panel right now, not a page that goes on
+        speaking the old one until its profile is reopened. Returns whether anything
+        changed, so a caller only re-draws its own chrome when it did.
+        """
+        changed = False
+        for session in self._sessions:
+            rt = getattr(session, "rt", None)
+            if rt is None:
+                continue
+            try:
+                if rt.i18n.set_lang(lang):
+                    changed = True
+                    rt.i18n.retranslate()
+            except Exception:                # noqa: BLE001 — one session, not the window
+                pass
+        return changed
+
     def shutdown(self) -> None:
         """The window is closing. Every session, then the record of what was open."""
         self._remember()

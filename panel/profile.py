@@ -1101,6 +1101,61 @@ def _sweep_web_leftovers(manager: "ProfileManager", name: str) -> None:
         _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), own)
 
 
+# -- the language: panel-wide too, for the same reason (#1515) -------------------
+#
+# Which language the panel is drawn in has one right answer per WINDOW, not per open
+# profile — same reasoning as the «Веб» block above, and the same failure mode: a
+# profile used to carry its own `language`, so switching which page was on screen
+# switched the language with it, and a window with several profiles open showed
+# whichever one had been touched last. The stored preference itself lives in
+# `profiles/settings.json` under the key `panel.i18n` already reads and writes
+# (`panel/i18n.py::load_pref`/`save_pref`) — this only sweeps up what a profile's own
+# file left behind from before the fix.
+
+#: The key inside a profile's OWN `config.json`, from before #1515. Read once, by the
+#: migration, and by nothing else — a live session never looks at it again.
+LEGACY_PROFILE_LANGUAGE = "language"
+
+
+def migrate_profile_language() -> "str | None":
+    """Bring a profile's own ``language`` into the panel-wide file, and sweep it out
+    of every profile's own — once each, and safe to call on every boot after that.
+
+    Returns the profile the panel-wide answer was TAKEN FROM, or ``None`` when nothing
+    was decided here — either a fresh install, or `profiles/settings.json` already
+    named a language (from `~/.last_war_panel.json`, or a previous run of this very
+    migration) before any profile's own value was looked at.
+
+    WHICH PROFILE WINS, when several kept their own copy and the panel-wide file had
+    none yet: the default profile's, since it is the base every other one layers onto
+    and the likeliest to be the one somebody actually set; otherwise the first other
+    profile, in `list()` order, that had one.
+    """
+    manager = ProfileManager()
+    names = manager.list()
+    ordered = ([DEFAULT_PROFILE] if DEFAULT_PROFILE in names else []) + \
+              [n for n in names if n != DEFAULT_PROFILE]
+    owns = {name: manager._load_own(name) for name in ordered}
+    if not any(LEGACY_PROFILE_LANGUAGE in own for own in owns.values()):
+        return None                          # nothing left to sweep — already done
+    source = None
+    if LEGACY_PROFILE_LANGUAGE not in ProfileManager._read_settings():
+        for name in ordered:
+            lang = owns[name].get(LEGACY_PROFILE_LANGUAGE)
+            if isinstance(lang, str) and lang.strip():
+                source = name
+                data = ProfileManager._read_settings()
+                data[LEGACY_PROFILE_LANGUAGE] = lang.strip()
+                _write_json(SETTINGS_FILE, data)
+                break
+    for name, own in owns.items():
+        if LEGACY_PROFILE_LANGUAGE in own:
+            own = dict(own)
+            del own[LEGACY_PROFILE_LANGUAGE]
+            _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), own)
+    return source
+
+
 def update_channel() -> str:
     """The channel name `panel/runtime/updates.py` speaks — `"dev"` or `"release"`.
 

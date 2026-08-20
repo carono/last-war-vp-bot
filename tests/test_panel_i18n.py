@@ -397,34 +397,109 @@ def test_a_profile_naming_a_language_with_no_file_falls_back_and_says_so():
         root.destroy()
 
 
-def test_switching_to_a_profile_with_a_missing_language_says_so_too():
-    """The same rule on the other door: a profile SWITCHED TO, not opened with.
+class _FakeI18n:
+    """Stands in for `panel.runtime.i18n.Translator` — just `set_lang`/`retranslate`,
+    and a counter for each so a test can tell "changed" from "asked"."""
 
-    `Panel._profile_language` called unbound against a stand-in — no window, no profile
-    on disk, no game.
-    """
+    def __init__(self, lang: str = "en") -> None:
+        self.lang = lang
+        self.retranslated = 0
+
+    def set_lang(self, lang: str) -> bool:
+        if lang == self.lang:
+            return False
+        self.lang = lang
+        return True
+
+    def retranslate(self) -> None:
+        self.retranslated += 1
+
+
+def _fake_session(name, *, root=None, defaults=None, scope=None, daemon_state=None):
     import types
+    session = types.SimpleNamespace(
+        name=name, scope=scope, state={}, page=None,
+        rt=types.SimpleNamespace(i18n=_FakeI18n()))
+    session.start = lambda: None
+    session.stop = lambda: None
+    session.shutdown = lambda: None
+    return session
 
-    from panel import __main__ as pm
 
-    said = []
-    stand_in = types.SimpleNamespace(
-        _settings={"language": "zq"},
-        _i18n=types.SimpleNamespace(known=i18n.known),
-        _say=lambda tag, key, **fmt: said.append((tag, key, fmt)),
-    )
-    assert pm.Panel._profile_language(stand_in) == i18n.DEFAULT_LANG
-    assert said and said[0][1] == "log.lang.unknown", said
-    assert said[0][2]["lang"] == "zq", said
+def test_a_language_switch_reaches_every_open_profile_not_just_the_one_on_screen():
+    """The bug #1515 was filed over: switching the page on screen used to switch the
+    language with it, and a profile not currently showing kept speaking the old one
+    until it was reopened. `Workspace.set_language` is the fix — one call, every
+    session's translator moves together."""
+    import tempfile
 
-    said.clear()
-    stand_in._settings = {"language": "ru"}
-    assert pm.Panel._profile_language(stand_in) == "ru"
-    assert said == [], said
-    # A profile with no language at all is not a complaint either — it is the default.
-    stand_in._settings = {}
-    assert not pm.Panel._profile_language(stand_in)
-    assert said == [], said
+    from panel import profile as profilemod
+    from panel.runtime import workspace as wsmod
+
+    tmp = tempfile.TemporaryDirectory()
+    saved = (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE, wsmod.ProfileSession)
+    profilemod.PROFILES_DIR = os.path.join(tmp.name, "profiles")
+    profilemod.SETTINGS_FILE = os.path.join(tmp.name, "settings.json")
+    wsmod.ProfileSession = _fake_session
+    try:
+        ws = wsmod.Workspace(root=None, defaults={})
+        shown = ws.open("main")
+        hidden = ws.open("alt", make_current=False)
+        assert ws.current is shown and hidden is not shown
+
+        assert ws.set_language("ru") is True
+        assert shown.rt.i18n.lang == "ru" and shown.rt.i18n.retranslated == 1
+        # THE ONE NOT ON SCREEN moved too — this is the whole point.
+        assert hidden.rt.i18n.lang == "ru" and hidden.rt.i18n.retranslated == 1
+
+        # Asking for what is already showing changes nothing and says so.
+        assert ws.set_language("ru") is False
+        assert shown.rt.i18n.retranslated == 1 and hidden.rt.i18n.retranslated == 1
+    finally:
+        (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE,
+         wsmod.ProfileSession) = saved
+        tmp.cleanup()
+
+
+def test_a_profiles_own_language_is_migrated_once_and_swept():
+    """A checkout from before #1515 may have several profiles each carrying their own
+    `language`. The default profile's own value wins (it is the base every other one
+    layers onto); every profile — the winner included — has the key swept out of its
+    own file afterwards, so there is nowhere left for the two to disagree."""
+    import tempfile
+
+    from panel import profile as profilemod
+
+    tmp = tempfile.TemporaryDirectory()
+    saved = (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE, i18n._PREF_FILE)
+    profilemod.PROFILES_DIR = os.path.join(tmp.name, "profiles")
+    profilemod.SETTINGS_FILE = os.path.join(tmp.name, "settings.json")
+    i18n._PREF_FILE = profilemod.SETTINGS_FILE
+    try:
+        mgr = profilemod.ProfileManager()
+        mgr.create("alt")
+        mgr.save({"language": "ru", "daemon_port": 1}, name=profilemod.DEFAULT_PROFILE)
+        mgr.save({"language": "de"}, name="alt")
+        assert "language" not in profilemod.ProfileManager._read_settings()
+
+        source = profilemod.migrate_profile_language()
+        assert source == profilemod.DEFAULT_PROFILE, source
+        assert profilemod.ProfileManager._read_settings()["language"] == "ru"
+        # …and swept from BOTH profiles' own files, winner included.
+        assert "language" not in mgr._load_own(profilemod.DEFAULT_PROFILE)
+        assert "language" not in mgr._load_own("alt")
+        # The default's other setting survived the sweep.
+        assert mgr.load(profilemod.DEFAULT_PROFILE)["daemon_port"] == 1
+
+        # Reading it back through the same mechanism the panel opens with:
+        assert i18n.load_pref() == "ru"
+
+        # Idempotent: nothing left to migrate, nothing left to sweep.
+        assert profilemod.migrate_profile_language() is None
+    finally:
+        (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE,
+         i18n._PREF_FILE) = saved
+        tmp.cleanup()
 
 
 def test_the_default_language_is_always_offerable():

@@ -17,7 +17,9 @@ be built silently redefines the first — so each is pinned here:
   * two debug-log scopes are two files, and an unscoped call still means the shared
     one;
   * a PINNED profile manager moves itself and never the panel's saved pointer;
-  * a translator built for one open profile does not rename the machine's language;
+  * the language is the WINDOW's — every translator a session builds writes and reads
+    the one panel-wide preference, and switching which profile is on screen must not
+    change it (#1515);
   * and, with two clients actually up, a profile that names no Windows session means
     THIS desktop's client rather than whichever one the process list happened to list
     first — which is what made both profiles' status strips point at one pid.
@@ -568,27 +570,33 @@ def test_an_unpinned_manager_is_the_panels_own_and_still_writes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# the language of one open profile is not the machine's
+# the language is the WINDOW's, not any one open profile's (#1515)
 # ---------------------------------------------------------------------------
 
-def test_a_non_persisting_translator_leaves_the_machine_wide_choice_alone() -> None:
+def test_every_translator_writes_the_one_panel_wide_choice() -> None:
+    """There used to be a `persist=False` translator for a second open profile, so
+    switching pages did not rename the machine's language out from under whichever
+    profile had never touched it. That is gone: the language is a WINDOW setting now,
+    like the remote-control knobs, so EVERY translator a session builds writes the
+    same one preference — `Workspace.set_language` (panel/runtime/workspace.py) is
+    what reaches every open profile at once, not a per-session flag."""
     langs = i18nmod.available_langs()
     other = next((code for code in langs if code != i18nmod.DEFAULT_LANG), None)
     assert other, "the repo ships more than one locale"
 
     written: list = []
-    saved = i18nmod.I18n._save_pref
-    i18nmod.I18n._save_pref = lambda self, lang: written.append(lang)
+    saved = i18nmod.save_pref
+    i18nmod.save_pref = written.append
     try:
-        quiet = i18nmod.I18n(i18nmod.DEFAULT_LANG, persist=False)
-        assert quiet.set_lang(other) is True and quiet.lang == other
-        assert written == [], "an open profile must not rename the machine's language"
+        first = i18nmod.I18n(i18nmod.DEFAULT_LANG)
+        assert first.set_lang(other) is True
+        assert written == [other]
 
-        loud = i18nmod.I18n(i18nmod.DEFAULT_LANG)
-        assert loud.set_lang(other) is True
-        assert written == [other], "the panel's own window still remembers"
+        second = i18nmod.I18n(i18nmod.DEFAULT_LANG)
+        assert second.set_lang(other) is True
+        assert written == [other, other], "a second open profile writes it too"
     finally:
-        i18nmod.I18n._save_pref = saved
+        i18nmod.save_pref = saved
 
 
 # ---------------------------------------------------------------------------

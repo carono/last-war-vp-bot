@@ -297,8 +297,7 @@ def test_the_boot_repairs_what_it_can_and_only_names_the_rest() -> None:
         env.write("bbb", {"daemon_port": port, "rdp_session": True, "rdp_user": "u4"})
 
         shell = types.SimpleNamespace(
-            _boot_profiles=env.profiles,
-            _boot_i18n=runtime.Translator("en", persist=False))
+            _boot_i18n=runtime.Translator("en"))
         shell._t_boot = types.MethodType(pm.Panel._t_boot, shell)
         notes = pm.Panel._sort_out_clients(shell, env.profiles)
 

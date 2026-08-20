@@ -765,7 +765,7 @@ directory and has to survive it:
 | no `language.name` in the file | it still appears, labelled with its bare code |
 | a key the file does not translate | falls back to English — a half-finished locale is usable |
 | the file is not valid JSON | an empty locale, everything falls back; not a crash |
-| the profile names a language with no file | English **and a line in the log** naming it; the remembered choice is not rewritten, so the language returns by itself when the file does |
+| the panel's saved preference names a language with no file | English **and a line in the log** naming it; the remembered choice is not rewritten, so the language returns by itself when the file does |
 
 What this means for a tab author is only what it always meant: put your keys in **every**
 shipped file. `tests/test_panel_i18n.py` pins the rest, including that the table of

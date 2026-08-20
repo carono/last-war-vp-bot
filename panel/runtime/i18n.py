@@ -35,11 +35,8 @@ REGISTRY_SWEEP = 1000
 class Translator:
     """Locale lookup + the retranslation registry. No Tk of its own beyond `configure`."""
 
-    def __init__(self, lang: str | None = None, persist: bool = True) -> None:
-        # `persist` — whether choosing a language here also writes the machine-wide
-        # fallback. See `panel.i18n.I18n`: a second open profile must not rename the
-        # first one's language.
-        self._i18n = i18nmod.I18n(lang, persist=persist)
+    def __init__(self, lang: str | None = None) -> None:
+        self._i18n = i18nmod.I18n(lang)
         # (weakref-to-widget, option, key, fmt) — retranslated in place.
         self._widgets: list = []
         self._watermark = REGISTRY_SWEEP

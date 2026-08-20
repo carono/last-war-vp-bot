@@ -136,11 +136,22 @@ what is about the *window*.
 | the account summary strip, the map sweep, the watchdog counters | | ✅ |
 | the DSL command line | | ✅ |
 
-The one genuinely awkward case is **the language**. It is per profile (it is in
-`config.json`) but the menu bar is the window's. Resolution: the Language menu acts on
-the session whose page is showing, and the window's chrome is drawn in that session's
-language. Switching pages re-renders the chrome. This is honest — the person is looking
-at one profile at a time — and it is what already happens on a profile switch.
+**SUPERSEDED BY #1515.** The language used to be per profile (it was in `config.json`),
+with the paragraph below as the resolution — the Language menu acted on the session
+whose page was showing, and switching pages switched the language with it. The operator
+rejected that: a profile is an account, and the language is a fact about the WINDOW, like
+the remote-control knobs and the update channel — one answer, applied to every open
+profile at once. `panel/i18n.py::I18n` reads and writes the one preference in
+`profiles/settings.json` regardless of which session built it, `Workspace.set_language`
+broadcasts a switch to every open session in one call, and `panel/profile.py::
+migrate_profile_language` brings a pre-#1515 profile's own copy across once. Left here
+for the reasoning that got it wrong, not as the current answer:
+
+> The one genuinely awkward case is **the language**. It is per profile (it is in
+> `config.json`) but the menu bar is the window's. Resolution: the Language menu acts on
+> the session whose page is showing, and the window's chrome is drawn in that session's
+> language. Switching pages re-renders the chrome. This is honest — the person is looking
+> at one profile at a time — and it is what already happens on a profile switch.
 
 ### 3.3 Everything runs; only the drawing follows the notebook
 
@@ -701,7 +712,9 @@ is the one a reader needs before touching a `config.json` rather than after: **�
 
 The translator is already per runtime, and its widget registry holds weak references to
 that session's widgets. The window's chrome is drawn in the showing session's language and
-re-rendered on a page switch (§3.2). `tests/test_panel_i18n.py` keeps its teeth either
+re-rendered on a page switch (§3.2) — moot since #1515 made the language one panel-wide
+preference every runtime's translator agrees on, but the per-runtime widget registry and
+the switch-triggered redraw are unchanged. `tests/test_panel_i18n.py` keeps its teeth either
 way. The eleven locale files are unaffected — the new strings are the ones in §6.2.
 
 ### 7.6 Child processes and captures — **low**

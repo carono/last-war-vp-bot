@@ -84,23 +84,16 @@ class PanelRuntime:
         if root is not None:
             self.settings.create_vars(root)
 
-        # A profile — or a `--lang` on the command line — may name a language whose
-        # locale file is not on this machine: somebody's own translation, a panel copied
-        # somewhere else, a file moved out of panel/locales. That is English and a line
-        # in the log, never a crash and never a menu the language is missing from.
-        # `Translator(DEFAULT_LANG)` rather than `set_lang` on purpose: a fallback must
-        # not rewrite the remembered choice, so the language comes back by itself the
-        # moment the file does.
-        saved_lang = lang or self.settings.values.get("language")
-        unknown_lang = saved_lang if (saved_lang
-                                      and not i18nmod.known(saved_lang)) else None
-        # A SCOPED runtime is one of several open profiles, and its language is that
-        # profile's business alone: writing the machine-wide fallback there would rename
-        # the language of every OTHER profile that has never chosen one (#1206).
-        self.i18n = Translator(i18nmod.DEFAULT_LANG if unknown_lang else None,
-                               persist=scope is None)
-        if saved_lang and not unknown_lang:
-            self.i18n.set_lang(saved_lang)
+        # The language is a PANEL setting, not a profile's (#1515) — one answer, read
+        # off `profiles/settings.json` and applied to every open profile alike. `lang`
+        # is only ever a `--lang` on the command line, overriding it for this one run.
+        # A saved or requested language whose locale file is not on this machine —
+        # somebody's own translation, a panel copied somewhere else, a file moved out
+        # of panel/locales — is English and a line in the log, never a crash and never
+        # a menu the language is missing from.
+        saved_lang = lang or i18nmod.load_pref()
+        unknown_lang = saved_lang if not i18nmod.known(saved_lang) else None
+        self.i18n = Translator(i18nmod.DEFAULT_LANG if unknown_lang else saved_lang)
 
         dbgmod.configure(self.profiles.debug_log(), scope=self.scope)
         self.log = LogBus(translate=self.i18n.t,

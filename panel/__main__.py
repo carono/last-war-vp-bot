@@ -548,6 +548,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # already holding the old file in its widgets would write the retired block
         # straight back on its next save. Once per installation; a no-op ever after.
         moved = profilemod.migrate_web_settings()
+        # …and the same for a language a profile used to carry on its own (#1515):
+        # sweep it out of every profile's `config.json` before a session opens one and
+        # `_collect_settings` no longer has anywhere to put it back.
+        moved_lang = profilemod.migrate_profile_language()
         # BEFORE ANY SESSION IS BUILT, because a session reads its port on the way up and
         # a link built on the wrong one drives the wrong client for the rest of the run
         # (#1224). Only the half that needs nothing asked — see `_sort_out_clients`.
@@ -577,6 +581,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # their profiles the surviving answer came from.
         if moved:
             self._say("web", "log.web.migrated", name=moved)
+        # …and whose LANGUAGE became the panel's, the same reason and the same rule —
+        # a profile's own choice used to decide what the whole window looked like the
+        # moment it was opened, and now it decides once, for everyone (#1515).
+        if moved_lang:
+            self._say("panel", "log.language.migrated", name=moved_lang)
         # …and which folders in `profiles/` are NOT accounts, said rather than skipped
         # (#1306). A profile is a directory with a `config.json`, and a directory
         # without one is passed over — which is indistinguishable from «there was
@@ -1658,9 +1667,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._i18n.hook(func, key)
 
     def _set_language(self, lang: str) -> None:
-        if self._i18n.set_lang(lang):
+        """Switch the language of the WHOLE PANEL — every open profile (#1515), not
+        just the page on screen. `Workspace.set_language` does the broadcast and the
+        write; nothing here saves it into a profile any more."""
+        if self._workspace.set_language(lang):
             self._apply_language()
-            self._save_settings()   # language is a per-profile setting
 
     def _apply_language(self) -> None:
         self.title(self._t("app.title"))
@@ -2113,35 +2124,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         webctl.follow(self._workspace)
         self._say("profile", "log.profile.closed", name=name)
 
-    def _profile_language(self) -> str | None:
-        """The language the active profile asks for — or English, said out loud.
-
-        A profile carries a language code, and it may have been written on a machine
-        that had `de.json` when this one does not. The panel must not follow it into a
-        language it cannot render, and must not go quiet about why: English, and a line
-        naming the missing file. Nothing is rewritten, so the profile's choice comes
-        back by itself once the locale is put back (panel/runtime/host.py does the same
-        for the language a window opens with).
-        """
-        lang = self._settings.get("language")
-        if lang and not self._i18n.known(lang):
-            self._say("panel", "log.lang.unknown", lang=lang,
-                      used=i18nmod.DEFAULT_LANG)
-            return i18nmod.DEFAULT_LANG
-        return lang
-
-    def _reload_active_profile(self) -> None:
-        """Re-apply language, all UI values, and monitor state from self._settings."""
-        lang = self._profile_language()
-        if lang and lang != self._i18n.lang and self._i18n.set_lang(lang):
-            self._apply_language()
-        self._apply_settings_to_ui()
-        self._open_panel_log()                # the mirror follows the active profile
-        self._configure_debug_log()           # …and so does the debug log
-        self._dbg.info("active profile is now %r", self._profiles.active)
-        self._rebind_daemon()                 # …and so does the client it drives
-        self._sync_monitors()                 # restart captures into the new profile's logs
-
     def _error_text(self, exc: Exception) -> str:
         """A refusal in the person's language when it named itself, its own words if not.
 
@@ -2263,7 +2245,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         being built.
         """
         notes = []
-        self._boot_profiles = profiles
         try:
             moved = runtime.provision.repair_ports(profiles)
             stranded = runtime.provision.needs_own_client(profiles)
@@ -2285,18 +2266,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _t_boot(self, key: str) -> str:
         """Translate before there is a session to translate with.
 
-        `self._t` is the SHOWING session's translator and nothing is showing yet. This
-        builds one off the profile the panel is about to open, with `persist=False` so a
-        boot-time lookup cannot rename the machine's language.
+        `self._t` is the SHOWING session's translator and nothing is showing yet. The
+        language is a panel setting (#1515), so this reads the same panel-wide
+        preference every session does — there is no profile to ask any more.
         """
         cached = getattr(self, "_boot_i18n", None)
         if cached is None:
-            lang = None
-            try:
-                lang = getattr(self, "_boot_profiles").load().get("language")
-            except Exception:                # noqa: BLE001
-                lang = None
-            cached = self._boot_i18n = runtime.Translator(lang, persist=False)
+            cached = self._boot_i18n = runtime.Translator()
         return cached.t(key)
 
     # `_separate_clients` and `_ask_client_logins` stood here until #1263. They asked a
@@ -2553,7 +2529,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _collect_settings(self) -> dict:
         """Snapshot every persisted panel setting into a plain dict."""
         out = {
-            "language": self._i18n.lang,
+            # `language` is no longer written here (#1515) — it is a panel setting,
+            # not a profile's, and lives in `profiles/settings.json` alone
+            # (`Workspace.set_language`).
             # `coord_x` / `coord_y` / `coord_server` / `coord_history` are no longer
             # written: the block they belonged to is gone (#1183). A profile saved by
             # an older panel still carries them — they are simply ignored, and drop
@@ -5288,15 +5266,15 @@ def _already_open(profile: str | None) -> bool:
 
     Said BEFORE anything is built — no window, no runtime, no daemon, no captures — and
     the window they already have is brought to the front, because that is what clicking
-    a shortcut twice is asking for. In the profile's own language: there is no panel yet
-    to ask, so the translator is built from what that profile saved.
+    a shortcut twice is asking for. In the panel's own language: there is no window yet
+    to ask, so the translator is built off the panel-wide preference (#1515).
     """
     profiles = profilemod.ProfileManager()
     name = profilemod.sanitize(profile or "") or profiles.active
     if not autostartmod.locked(profiles, name):
         return False
 
-    say = i18nmod.I18n(profiles.load(name).get("language")).t
+    say = i18nmod.I18n().t
     root = None
     try:
         root = tk.Tk()

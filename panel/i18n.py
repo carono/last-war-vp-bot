@@ -18,6 +18,13 @@ deliberately no table of languages here to keep in step with the directory.
 The active language is persisted to ``profiles/settings.json`` — beside the profiles,
 inside the project — and restored on the next launch. Default language is English.
 
+IT IS A PANEL SETTING, NOT A PROFILE ONE (#1515). One answer, for the whole window,
+applied to every open profile at once — same as the remote-control knobs and the update
+channel. There used to be a per-profile ``language`` inside a profile's own
+``config.json``, which meant switching the page on screen switched the language with
+it; a profile that predates the fix is migrated once by
+:func:`panel.profile.migrate_profile_language`.
+
 It used to be written to ``~/.last_war_panel.json``, in the operator's home directory,
 and was the ONE thing the panel kept outside the project altogether: a copy of the whole
 project folder came up speaking the original's language with nothing on disk to explain
@@ -186,21 +193,43 @@ def translated(t, value) -> str:
     return t(key, **getattr(src, "fmt", {}))
 
 
+def load_pref() -> str:
+    """The panel-wide language, read straight off disk — the default if none is set."""
+    try:
+        with open(_PREF_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return DEFAULT_LANG
+    lang = data.get(_PREF_KEY) if isinstance(data, dict) else None
+    return lang if isinstance(lang, str) and lang else DEFAULT_LANG
+
+
+def save_pref(lang: str) -> None:
+    """Remember ``lang`` for the WHOLE panel — every window, every open profile."""
+    data = {}
+    try:
+        with open(_PREF_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data[_PREF_KEY] = lang
+    try:
+        os.makedirs(os.path.dirname(_PREF_FILE), exist_ok=True)
+        with open(_PREF_FILE, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
 class I18n:
-    """Locale lookup for one window, and the machine-wide fallback language.
+    """Locale lookup, for one window — the language is the PANEL's (see module docstring),
+    so every `I18n` a window builds, whichever profile it belongs to, reads and writes
+    the same preference."""
 
-    ``persist`` is what writes the chosen language to `profiles/settings.json`, which
-    is only ever a FALLBACK: the language a profile is set to lives in that profile's
-    own `config.json` and is applied when the profile is opened. With one profile open
-    the two agree and writing it costs nothing. With two (#1206) they do not — whichever
-    window's language was changed last would become the machine's, and the other
-    profile would come back in it — so a window that belongs to a profile is built with
-    ``persist=False`` and the profile alone remembers.
-    """
-
-    def __init__(self, lang: str | None = None, persist: bool = True) -> None:
-        self.persist = persist
-        self.lang = lang or self._load_pref()
+    def __init__(self, lang: str | None = None) -> None:
+        self.lang = lang or load_pref()
         if self.lang not in available_langs():
             self.lang = DEFAULT_LANG
 
@@ -227,32 +256,5 @@ class I18n:
         if lang not in available_langs() or lang == self.lang:
             return False
         self.lang = lang
-        if self.persist:
-            self._save_pref(lang)
+        save_pref(lang)
         return True
-
-    def _load_pref(self) -> str:
-        try:
-            with open(_PREF_FILE, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            return DEFAULT_LANG
-        lang = data.get(_PREF_KEY) if isinstance(data, dict) else None
-        return lang if isinstance(lang, str) and lang else DEFAULT_LANG
-
-    def _save_pref(self, lang: str) -> None:
-        data = {}
-        try:
-            with open(_PREF_FILE, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
-        data[_PREF_KEY] = lang
-        try:
-            os.makedirs(os.path.dirname(_PREF_FILE), exist_ok=True)
-            with open(_PREF_FILE, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, ensure_ascii=False, indent=2)
-        except OSError:
-            pass

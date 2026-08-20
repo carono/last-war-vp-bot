@@ -191,7 +191,7 @@ def test_the_screen_is_keys_and_data_and_never_a_sentence():
     tab = _needs_tk("the screen is keys")
     if tab is None:
         return
-    en = i18nmod.I18n("en", persist=False)
+    en = i18nmod.I18n("en")
     seen = set()
     for key in ("tab.treasure_debug", "treasure_debug.hint",
                 "treasure_debug.web.state", "treasure_debug.web.counts",
