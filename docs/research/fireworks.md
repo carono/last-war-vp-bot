@@ -43,6 +43,31 @@ There is no «a firework has started» push at all. A firework becomes known to 
 because a box was taken off it, or because the client asked. That is why the ear is the
 ability: a periodic sweep would have to guess when to ask.
 
+### The announcement, field by field (measured 2026-08-20, #1854)
+
+§6 of the first write-up left these unknown — the recording's traffic file was empty and
+no firework was in reach. They were read in the end by wrapping the client's own
+`SFSNetwork.HandleMessage` in the live VM and printing the message's keys:
+
+```
+push.get.fireworks.gift
+    configId    661502              -- WHICH firework: a row of the `firework` table
+    pointId     400001              -- WHICH SQUARE it is standing over
+    uid         1000000000000001    -- who has just TAKEN a box (not the owner)
+    name        Player1             -- …their nickname, in full
+    pic  picVer  headSkinId  headSkinET  isDouble   -- their avatar
+```
+
+**There is no box uuid in it and no `ownerUid`.** The push says «somebody took a box from
+the firework on that square», and it names the TAKER rather than the prize — so a press
+cannot be built out of it, in any spelling, and the client's own queue map is the only
+source there is. That is not a gap to be closed later: it is why the collector reads
+`LWFireworkGiftManager` and why the watcher below presses from inside the client.
+
+It is also why the ear prints two fields and drops the rest: `tile=` and `kind=`. A push
+carrying a player's nickname must not reach `panel.log` (#1293), and this one carries it
+on every single announcement.
+
 ### The press, field by field
 
 Off the trace, `SFSNetwork.SendMessage` → `SFSObject.Put*`, in the order the client
@@ -102,15 +127,23 @@ index>, <ends at, ms>)` and a `FireworkWorldBuildBubble` over the base.
   2026-08-20 while the account was on a cross-server map. The client's queue map is then
   whatever it last heard and the refresh is a no-op; the recipe reports it as
   `boxes=0` rather than failing.
+* **A firework outside the alliance is heard and not taken.** Measured 2026-08-20 by
+  pressing one anyway: the server answers `errorCode = zombieRush_tips_19`,
+  `errorMsg = "not same alliance"`. Nothing local says so first — the box's own
+  `isAvailable` was already `false` and `IsHasAvailableBoxForMeByUid` already `false`, so
+  the local gates and the server's agree; what the reply adds is the REASON, which is why
+  a panel full of `push.get.fireworks.gift` can sit beside `taken=0` all evening and
+  nothing is broken.
 * **Lighting one needs the item**: `HasAnyFireworkGoods()` was false on the measured
   account, and the trace has 39 `UIFireworkGoodsLack` — the player had run out.
 
 ## 5. What the panel does with it
 
 * `tools/wire_event_monitor.py::_firework_fields` builds the machine-only fields line for
-  `push.get.fireworks.gift`: `gift=<box uuid> tile=<square> type=<kind>`, and `n=1` when
-  the server spelled its fields some other way. **`ownerUid` is deliberately not in it**
-  — a player id in a line the parent writes to `panel.log` is exactly #1293.
+  `push.get.fireworks.gift`: `tile=<square> kind=<configId>`, and `n=1` when the server
+  spelled its fields some other way. **Nothing that names a person is in it** — the push
+  carries the taker's uid, nickname and avatar, and a line the parent writes to
+  `panel.log` is exactly #1293.
 * `panel/runtime/wire.py` asks the one ear for that family beside the rally one and
   routes the line to `panel/runtime/firework_wire.py::FireworkBook`, which is the
   receiver: counted on the profile's intake ledger as `fireworks.push`, kept per tile,
@@ -121,16 +154,54 @@ index>, <ends at, ms>)` and a `FireworkWorldBuildBubble` over the base.
   `get.fireworks.gift` for each box that is still ours to take. It never marks anything:
   what it reports afterwards is read back out of `giftUuid2TimeTable`.
 
-## 6. What is still unproven
+## 6. The press had never worked, and why nobody could tell (#1854)
 
-The field NAMES of `push.get.fireworks.gift` itself. The recording's traffic file is
-empty and no firework was burning within reach of the measured account for the whole
-session (`uid2FireworkGiftQueueMap` held 12 owners with 0 boxes between them, and
-`GetRandomAvailableFireworkBoxPlayerUid()` answered nil), so the payload was never seen
-decoded. The fields builder therefore tries four spellings of «the box»
-(`uuid`/`giftUuid`/`fireworksUuid`/`id`) and five of «the square»
-(`pointId`/`tileIndex`/`pId`/`posId`/`point`), and **falls back to `n=1` rather than to
-nothing** — a push it cannot name is still counted as one push, and the receiver drops it
-with the reason `no-tile`. The recipe does the same on its side: it reports the field
-names of the first box it finds (`fields=[…]`), so the first live firework says in one
-log line which spelling this server uses.
+The recipe shipped in #1677 wrote the three fields as three positional arguments:
+
+```lua
+SFSNetwork.SendMessage(MsgDefines.GetFireworksGift, uuid, ownerUid, type)   -- throws
+```
+
+The client refuses that before a byte leaves the machine —
+`GetFireworksGiftMessage.lua:13: attempt to index a number value (local 'param')` —
+and the throw happened inside the recipe's own `pcall`, where it was counted as
+«unreadable» and the run went on to report success. One profile's log holds **553 runs
+with `taken=0` in every single one**. The 28 boxes on that account's record were all
+collected by hand.
+
+Both shapes were sent at the same box to settle it:
+
+```
+positional = false   GetFireworksGiftMessage.lua:13: attempt to index a number value
+table      = true    -- and the server answered, refusing on its own grounds
+```
+
+**The message takes one table**, `{uuid, ownerUid, type}` — exactly what the client's own
+send builds. A press that throws is now reported as `failed=` with the error text, so the
+next version of this mistake is one line in the log rather than a year of silence.
+
+## 7. Taking the box in milliseconds — the watch inside the game
+
+A box is decided in seconds, and hearing the announcement in the PANEL costs most of
+them: the capture's child decodes the frame, writes a line, the hub reads it, the
+schedule accepts an errand, a worker claims the client, and only then does a Lua round
+trip go out. `actions/watch_fireworks.md` removes the whole chain the way the treasure
+watch did before it (#1318): a wrapper on the client's own `SFSNetwork.HandleMessage`
+that presses **inside the same call that delivered the push**, when the queue map has
+just been updated by the client's own handling of it.
+
+* `watch_fireworks.md` arms it. Idempotent — a second play says «already on» and installs
+  nothing. It also asks `get.fireworks.info.list` when a push found nothing to take, at
+  most once every three seconds, and presses again on the reply.
+* `read_fireworks_watch.md` reads back `on / pushes / presses / taken / failed / lastMs /
+  bestMs / onRecord` and empties the ring. `lastMs` is the milliseconds between the push
+  arriving and the press leaving — the number the ability is measured by.
+* `unwatch_fireworks.md` turns the flag off; the wrapper stays a pass-through, because
+  unwrapping safely means knowing nobody wrapped it afterwards, and nobody can know that.
+* The trigger `firework_watch` (off by default, every 180 s) exists only to RE-ARM: a
+  client restart takes the VM and everything parked in it.
+
+`collect_fireworks.md` remains the press-on-demand version and is what the wire trigger
+`firework_collect` plays. It no longer opens with a refresh and a 1.5 s wait — it presses
+first, on what the client already knows, and only asks the server when that found
+nothing.

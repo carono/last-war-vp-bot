@@ -96,16 +96,27 @@ def test_parse_fields_keeps_only_pairs():
 
 
 def test_the_builder_never_names_a_player():
-    """The ear's own builder, on a payload shaped like the recorded push."""
+    """The ear's own builder, on the shape the live announcement really has (#1854).
+
+    Measured 2026-08-20: `push.get.fireworks.gift` carries `{configId, pointId, uid,
+    name, pic, picVer, headSkinId, headSkinET, isDouble}` — no box uuid, no owner, and
+    the NICKNAME of whoever has just taken a box. Two fields may leave the builder; the
+    player must not, in any spelling.
+    """
     mon = _module(ROOT / "tools" / "wire_event_monitor.py", "wire_event_monitor")
 
-    built = mon._firework_fields({"uuid": 1000000000000000001, "ownerUid": "1000000000000001",
-                                  "ownerName": "Player1", "pointId": 400001, "type": 0})
-    assert "gift=1000000000000000001" in built, built
+    built = mon._firework_fields({"configId": 661502, "pointId": 400001,
+                                  "uid": "1000000000000001", "name": "Player1",
+                                  "pic": "", "picVer": 377, "headSkinId": 25000,
+                                  "headSkinET": 0, "isDouble": False})
     assert "tile=400001" in built, built
-    assert "type=0" in built, built
-    for forbidden in ("ownerUid", "1000000000000001", "Player1"):
+    assert "kind=661502" in built, built
+    for forbidden in ("uid", "1000000000000001", "Player1", "picVer", "headSkin"):
         assert forbidden not in built, built
+
+    # …and the press's own spelling still answers, for a server that uses it.
+    assert "kind=0" not in mon._firework_fields({"pointId": 400001, "type": 0})
+    assert "kind=3" in mon._firework_fields({"pointId": 400001, "type": 3})
 
 
 def test_the_builder_is_never_empty():
@@ -264,6 +275,62 @@ def test_the_recipe_exists_and_presses_the_recorded_command():
     assert "IsHasAvailableBoxForMeByUid" in text        # the gate
     assert "IsThisGiftUuidGot" in text                  # …and the per-box one
     assert "# ru:" in text
+
+
+def test_the_press_is_a_table_and_never_three_arguments():
+    """#1854: the shape that threw inside the client must not come back.
+
+    `SFSNetwork.SendMessage(cmd, uuid, ownerUid, type)` raises
+    `GetFireworksGiftMessage.lua:13: attempt to index a number value (local 'param')` —
+    measured live by sending both shapes at the same box. It threw inside the recipe's
+    own `pcall`, so 553 runs reported success and collected nothing. Every send of this
+    command, in every recipe, hands over ONE TABLE.
+    """
+    actions = ROOT / "src" / "lastwar_bot" / "actions"
+    for name in ("collect_fireworks.md", "watch_fireworks.md"):
+        text = (actions / name).read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "SendMessage(MsgDefines.GetFireworksGift" in line and not line.startswith("#"):
+                for call in line.split("SendMessage(MsgDefines.GetFireworksGift")[1:]:
+                    assert call.lstrip().startswith(", {"), f"{name}: {call[:60]}"
+                    assert "uuid =" in call[:120], f"{name}: no uuid field"
+                    assert "ownerUid =" in call[:200], f"{name}: no ownerUid field"
+
+
+def test_the_watcher_presses_inside_the_game_and_can_be_read_and_stopped():
+    """The three halves of the in-VM watch, and the number it exists to report."""
+    actions = ROOT / "src" / "lastwar_bot" / "actions"
+    arm = (actions / "watch_fireworks.md").read_text(encoding="utf-8")
+    read = (actions / "read_fireworks_watch.md").read_text(encoding="utf-8")
+    stop = (actions / "unwatch_fireworks.md").read_text(encoding="utf-8")
+
+    # it presses where the announcement arrives, not on a poll
+    assert "SFSNetwork.HandleMessage" in arm
+    assert "push.get.fireworks.gift" in arm
+    # …re-arming is free, and stopping is a flag the wrapper itself checks
+    assert "already on" in arm
+    assert "B.on and (" in arm, "the hook must obey the off switch"
+    assert "B.on = false" in stop
+    # …and the reading carries the milliseconds from push to press
+    assert "lastMs" in arm and "lastMs" in read
+    assert "giftUuid2TimeTable" in read, "the count is the client's, never the panel's"
+    for text in (arm, read, stop):
+        assert "# ru:" in text
+
+
+def test_the_watch_trigger_re_arms_the_hook():
+    import panel.triggers as triggers              # noqa: PLC0415
+
+    found = [t for t in triggers.DEFAULT_TRIGGERS if t.name == "firework_watch"]
+    assert found, "the firework watch is not in the catalogue"
+    trig = found[0]
+    assert trig.scenario == ("watch_fireworks",), trig.scenario
+    assert not trig.enabled, "a trigger that acts on its own ships switched off"
+    assert trig.interval_sec >= 60, "re-arming is bookkeeping, not a poll for fireworks"
+    import json                                    # noqa: PLC0415
+    for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
+        words = json.loads(path.read_text(encoding="utf-8"))
+        assert trig.label_key in words, f"{path.name} is missing {trig.label_key}"
 
 
 def _main() -> int:

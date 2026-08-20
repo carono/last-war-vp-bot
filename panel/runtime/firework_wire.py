@@ -174,7 +174,11 @@ class FireworkBook:
             row = self._tiles.setdefault(tile, {"seen": 0, "heard": 0.0, "type": ""})
             row["seen"] += 1
             row["heard"] = time.monotonic()
-            kind = str((fields or {}).get("type") or "")
+            # `kind` is what the ear calls it since #1854 measured the push: the field
+            # is the client's `configId`, a row of the `firework` config table rather
+            # than the press's own `type`. `type` is still read so a book written by an
+            # older build, or an ear from one, keeps its column.
+            kind = str((fields or {}).get("kind") or (fields or {}).get("type") or "")
             if kind:
                 row["type"] = kind
             self._save_maybe()

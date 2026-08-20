@@ -607,6 +607,26 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.firework_collect",
     ),
     Trigger(
+        name="firework_watch",
+        # THE SAME LESSON AS THE TREASURE WATCH ABOVE (#1318), on an ability decided even
+        # faster. A firework's box is gone in seconds, and every link between the push and
+        # the press costs some of them: the capture's child decodes the frame, the hub
+        # reads the line, the schedule accepts an errand, a worker claims the client, and
+        # only then does a round trip leave for the game VM. `watch_fireworks` removes the
+        # whole chain by pressing where the announcement ARRIVES — a wrapper on the
+        # client's own `SFSNetwork.HandleMessage`, inside the same call that delivered it.
+        #
+        # So what this poll is for is not hearing the firework — the hook does that. It is
+        # for KEEPING THE HOOK ALIVE: a client restart takes the VM and everything parked
+        # in it, and a watcher nobody re-armed is a watcher that reports zero pushes for
+        # ever. Re-playing the recipe is one round trip and says «already on» when it is.
+        interval_sec=180,
+        cooldown_sec=170,
+        scenario=("watch_fireworks",),
+        enabled=False,
+        label_key="triggers.item.firework_watch",
+    ),
+    Trigger(
         name="ghost_recon_alliance",
         # The alliance's ghost-recon squads announce themselves on the wire
         # (push.ghost.recon.alliance.single, add/change/remove). The client keeps the
