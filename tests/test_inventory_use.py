@@ -168,6 +168,21 @@ def test_every_category_has_a_name_in_every_locale():
         table = json.loads(path.read_text(encoding="utf-8"))
         for _number, key in BAG_TABS:
             assert key in table, f"{path.name} is missing {key}"
+            assert str(table[key]).strip(), f"{path.name} leaves {key} empty"
+
+
+def test_the_categories_are_the_words_the_operator_approved():
+    """#1702: the six were shown to the player and confirmed word for word.
+
+    Pinned because they are the panel's OWN words — the client would not give up the text
+    behind its tab enum — so nothing else would notice them drifting.
+    """
+    import json
+    russian = json.loads((_REPO_ROOT / "panel" / "locales" / "ru.json").read_text(encoding="utf-8"))
+    from panel.tabs.inventory import BAG_TABS
+    approved = ["Все", "Особые", "Ресурсы", "Ускорения", "Герои", "Снаряжение", "Подарки"]
+    assert [russian[key] for _n, key in BAG_TABS] == approved
+    assert [n for n, _k in BAG_TABS] == [0, 1, 2, 3, 4, 5, 6], "the order changed"
 
 
 def _run_standalone() -> int:
