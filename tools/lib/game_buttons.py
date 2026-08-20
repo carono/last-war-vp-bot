@@ -1204,6 +1204,15 @@ BUTTONS["golden_drop_target"] = Button(
     lua=_lua_actions.golden_drop_target(),
     wait=0.1, label="drop a target that is no longer on the map",
 )
+BUTTONS["golden_no_ride"] = Button(
+    # THE FUSE (#1702). A ride is a gather order, and a squad that lands on a mine works
+    # it: measured live, `canMarch = false` with the march's own clock 109 minutes out.
+    # Every attack sent into that window is refused in silence. One such ride per run is
+    # a mistake; two is a policy, so the first one switches the ride off for the rest of
+    # the run. The person's own setting is untouched.
+    lua=_lua_actions.golden_no_ride(),
+    wait=0.1, label="stop riding for the rest of this run",
+)
 BUTTONS["golden_unstick"] = Button(
     # A squad standing on DIRTY GROUND takes neither an attack nor a move (#1702, the
     # operator's own finding). The refusal is silent and looks like every other one, so

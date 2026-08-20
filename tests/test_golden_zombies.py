@@ -52,6 +52,34 @@ def _source(path: Path, variables=None):
     return engine.prepare_source(path.read_text(encoding="utf-8"), variables or {})
 
 
+
+def _chain():
+    """The chain's lap AS IT RUNS — every `CALL golden_*` brick expanded in place.
+
+    The hunt is four bricks now (#1702) and the ordering rules the tests below pin — the
+    camera before the scan, the scan before the judgement, the check before the send —
+    are rules about the ORDER THINGS HAPPEN IN, not about which file they live in. So the
+    tests read the flattened lap: it is what the interpreter walks, and a brick that is
+    reordered or dropped from the lap shows up here immediately.
+    """
+    body, _ = _source(RECIPE)
+    out = []
+    for line in body.splitlines():
+        w = line.strip()
+        if w.startswith("CALL golden_"):
+            sub, _ = _source(_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+                             / (w.split()[1] + ".md"))
+            out += [x for x in sub.splitlines()]
+        else:
+            out.append(line)
+    text = "\n".join(out)
+    # Comments are dropped from the LINE view on purpose: every ordering test below asks
+    # «is there a scan within N steps of that camera move», and a paragraph of reasoning
+    # between the two is not a step. The text view keeps them.
+    return text, [x.strip() for x in out
+                  if x.strip() and not x.strip().startswith("#")]
+
+
 def test_both_recipes_parse_and_declare_what_they_take():
     body, args = _source(RECIPE)
     assert engine.parse_text(body), "the chain parsed to nothing"
@@ -63,7 +91,7 @@ def test_both_recipes_parse_and_declare_what_they_take():
 
 
 def test_every_press_the_chain_plays_is_in_the_catalogue():
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     played = {line.split()[1] for line in body.splitlines()
               if line.strip().upper().startswith("TAP ")}
     for name in played:
@@ -127,13 +155,13 @@ def test_the_proof_of_an_attack_is_a_march_and_never_the_purse():
         "the send proof is still priced off the purse"
     send = lua_actions.golden_send()
     assert "p.march_before" in send, "the send never writes down what was flying before it"
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     assert launched in body, "the recipe's copy of the send proof is not the module's"
 
 
 def test_an_energy_refill_in_the_middle_does_not_lose_an_attack():
     """The «purse went down» reading is gone from every gate the chain branches on."""
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     branches = [line.strip() for line in body.splitlines()
                 if line.strip().startswith("READ_LUA") and " INTO launched" in line]
     assert branches, "nothing reads the launch proof"
@@ -152,14 +180,15 @@ def test_a_send_that_never_became_a_march_moves_on_rather_than_ending_the_run():
     an order at a monster that is not there. That is worth the next target — and NOT worth
     an endless one, because a client that has gone deaf refuses everything the same way.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    _body, lines = _brick("golden_send_the_squad")
     assert "TAP golden_miss" in lines, "a refused send has no way out but ending the run"
     i = lines.index("TAP golden_miss")
     tail = lines[i:i + 10]
     assert any(w.startswith("IF misses >") for w in tail), \
         "misses are written down and never acted on — a deaf client would spin for ever"
-    assert "ARGS miss_limit" in RECIPE.read_text(encoding="utf-8"), \
+    brick = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+             / "golden_send_the_squad.md").read_text(encoding="utf-8")
+    assert "ARGS miss_limit" in brick, \
         "how many refusals in a row are tolerated is not the operator's to set"
     miss = lua_actions.golden_note_miss()
     assert "p.misses" in miss and "p.pending = nil" in miss
@@ -177,8 +206,7 @@ def test_a_zombie_somebody_else_killed_does_not_stall_the_chain():
     gone = lua_actions.golden_gone()
     assert "p.hit" in gone and "GetMonsterListInArea" in gone
     assert "return 1 end" in gone, "nothing to look for must answer «gone»"
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     assert "TAP golden_kill" in lines, "a confirmed kill is never counted"
     assert "TAP golden_kill_drop" in lines, \
         "a zombie that outlives the wait has no way out — the chain would stall on it"
@@ -211,8 +239,7 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
     sitting beside the house. The camera goes back to the origin of the next pick — the
     base, or the last kill — and only then is the client asked.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     looks = [i for i, line in enumerate(lines) if line == "TAP golden_look_from"]
     assert looks, "the recipe never puts the camera on the origin"
     for i in looks:
@@ -240,7 +267,7 @@ def test_the_chain_does_not_hold_the_panel_up():
 
 
 def test_the_last_march_of_a_run_brings_the_squad_home():
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     assert "DataCenter.__lw_gold_back = 1" in body, \
         "nothing ever raises «come home» — a run would leave the squad on the map"
     assert "DataCenter.__lw_gold_back = 0" in body, \
@@ -251,7 +278,7 @@ def test_the_last_march_of_a_run_brings_the_squad_home():
 
 def test_the_recipe_carries_the_CURRENT_copy_of_the_proofs():
     """The DSL has no include, so the recipe embeds the text — and it goes stale (#1702)."""
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     for name in ("golden_launched", "golden_gone", "golden_report"):
         assert getattr(lua_actions, name)() in body, \
             f"the recipe's copy of {name} is not the module's"
@@ -444,7 +471,7 @@ def test_every_wait_is_on_the_marchs_clock_and_not_on_the_squads_state():
     both waits are on the march's own `endTime` — the server's arrival stamp, which came
     within two seconds of what the speed function predicted.
     """
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     marching = lua_actions.golden_marching()
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     # The state may be ASKED — once, to find out whether there is a march to wait for at
@@ -469,7 +496,7 @@ def test_every_wait_is_on_the_marchs_clock_and_not_on_the_squads_state():
 
 def test_the_ride_looks_at_the_target_before_it_hunts_for_a_mine():
     """`HasPointInfo` can only answer for a district the client has actually loaded."""
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     look = body.index("TAP golden_look")
     plan = body.index("TAP golden_approach_arm")
     assert look < plan, "the mine search runs before the camera has loaded the district"
@@ -510,8 +537,7 @@ def test_the_gap_between_two_kills_carries_no_waiting_nobody_needs():
     throws away, and an arrival poll in three-second beats for a march that takes three.
     Each of the four is pinned here, because each of them reads as harmless in isolation.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     # the settle after a look is CONDITIONAL on the look having flown
     for i, line in enumerate(lines):
         if line == "TAP golden_look_from":
@@ -548,8 +574,7 @@ def test_the_kill_is_judged_off_a_district_that_was_just_refreshed():
     run). The kill's own tile IS the origin of the next pick, so the look and the scan
     that were already there serve both; the check simply belongs after them.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     gone = [i for i, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO gone" in w]
     assert gone, "nothing checks whether the zombie went"
     first = min(gone)
@@ -568,17 +593,22 @@ def test_a_dead_target_is_dropped_before_a_send_is_wasted_on_it():
     meant anything; the flight is gone (the registry is reaped by every scan instead), so
     the proof moved INTO the check — an unread district can no longer say «gone».
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
-    assert "TAP golden_drop_target" in lines
-    here = [i for i, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO here" in w]
+    # The check and the send live in different bricks now (#1702), which is the point of
+    # the split: the target is armed and proved by `golden_choose_a_target`, and only a
+    # brick that never chooses anything is allowed to give an order.
+    _body, choose = _brick("golden_choose_a_target")
+    _body, send = _brick("golden_send_the_squad")
+    assert "TAP golden_drop_target" in choose
+    here = [i for i, w in enumerate(choose) if w.startswith("READ_LUA") and " INTO here" in w]
     assert here, "nothing asks whether the armed target is still on the map"
     i = min(here)
-    before = lines[max(0, i - 12):i]
-    assert "TAP golden_scan" in before, \
+    _body, judge = _brick("golden_judge_the_kill")
+    assert "TAP golden_scan" in judge or "TAP golden_scan" in choose[max(0, i - 12):i], \
         "the target is checked without the client having been asked at all"
-    send = [j for j, w in enumerate(lines) if w == "TAP golden_send"]
-    assert send and min(send) > i, "the check comes after the send it is meant to save"
+    assert not any(w in ("TAP golden_send", "TAP golden_home") for w in choose), \
+        "the brick that chooses a target also gives orders"
+    assert any(w in ("TAP golden_send", "TAP golden_home") for w in send), \
+        "nothing sends the squad at all"
     drop = lua_actions.golden_drop_target()
     assert "p.used" in drop and "p.misses" not in drop, \
         "dropping a dead target counts as a refused order — two of them would end the run"
@@ -601,8 +631,7 @@ def test_the_ride_is_still_wired_and_waits_on_its_own_march():
     assert "p.march_before" in ride, \
         "the ride does not park the marches before it — its wait is on somebody else's clock"
     assert "MarchTargetType.COLLECT" in ride, "the ride is not a gather order any more"
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     assert "IF approach == 1" in lines, "the approach branch is gone from the recipe"
     i = lines.index("IF approach == 1")
     # Sixteen, not twelve: the branch fetches the target's district itself now (#1702) —
@@ -628,8 +657,7 @@ def test_the_lap_of_the_map_is_harvested_where_it_ENDS():
     So the lap is harvested where it ends, and the queue — which only ever grows — is
     topped up again once the camera is on the origin.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     lap = lines.index("CALL scan_map")
     nxt = [i for i, w in enumerate(lines[lap:], lap)
            if w in ("TAP golden_scan", "TAP golden_look_from")]
@@ -679,8 +707,7 @@ def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_kn
     # (#1702). It used to re-pick after every kill, behind a camera flight to the
     # candidate; the queue is reaped by every scan now, so what it holds is what the map
     # last said, and the re-pick belongs behind the refresh threshold and nowhere else.
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     picks = [i for i, w in enumerate(lines) if w == "TAP golden_pick"]
     assert len(picks) >= 2, "the choice is never revisited, even once the ground is stale"
     first, second = picks[0], picks[1]
@@ -753,8 +780,7 @@ def test_a_zombie_sixty_tiles_from_the_base_beats_one_five_hundred_away():
     # scan reaps what the map was read at and did not return.
     assert not hasattr(lua_actions, "golden_sweep_home"), \
         "the ring sweep is back — a second walk of the ground the lap already gave"
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     assert "TAP golden_ring" not in lines, "the recipe still rides the ring around the base"
     assert not any(" INTO swept" in w for w in lines), \
         "the run still waits out a sweep before it may choose"
@@ -769,16 +795,20 @@ def test_a_squad_that_is_still_out_is_waited_for_before_the_first_send():
     at once, the server refused it in silence, and after the second refusal the chain
     stopped — with the pick, the sweep and everything else working perfectly.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     out = [i for i, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO squad_out" in w]
     assert out, "nothing asks whether the squad is already out"
     i = out[0]
     tail = lines[i:i + 4]
     assert "IF squad_out == 1" in tail and "TAP golden_eta" in tail, \
         "the answer is read and never acted on"
-    first_send = min(j for j, w in enumerate(lines) if w in ("TAP golden_send", "TAP golden_home"))
-    assert i < first_send, "the check comes after the send it is meant to hold back"
+    # The send lives in its own brick now (#1702), so «before the first send» means
+    # «before the loop that calls it», which is stricter and easier to read.
+    loop = next(j for j, w in enumerate(lines) if w.startswith("WHILE go == 1"))
+    assert i < loop, "the check comes after the lap that would send"
+    _own, own_lines = _brick("attack_golden_zombies")
+    assert not any(w in ("TAP golden_send", "TAP golden_home") for w in own_lines), \
+        "the chain gives an order itself instead of through the send brick"
     assert lua_actions.golden_marching() in "\n".join(lines), \
         "the recipe's copy of the squad reading is not the module's"
 
@@ -809,7 +839,7 @@ def test_a_target_uuid_is_fetched_again_before_it_is_sent():
     for check in (lua_actions.golden_here(), lua_actions.golden_gone()):
         assert "t.key or t.uuid" in check, \
             "a check compares against a reference that may have died"
-    body, _ = _source(RECIPE)
+    body, _lines = _chain()
     assert lua_actions.golden_here() in body and lua_actions.golden_gone() in body, \
         "the recipe's copies of the checks are older than the module's"
 
@@ -835,16 +865,21 @@ def test_a_squad_that_cannot_act_where_it_stands_is_walked_off_it():
         "being stuck counts against the deaf-client streak — a live squad would end the run"
     assert "p.unstuck" in free and "p.unstuck" in lua_actions.golden_report(), \
         "the run does not say how often it had to free the squad"
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
-    assert stuck in "\n".join(lines), "the recipe's copy of the reading is not the module's"
-    i = next(k for k, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO stuck" in w)
-    window = lines[i:i + 10]
-    assert "IF stuck == 1" in window and "TAP golden_unstick" in window
-    assert "ELSE" in window and "TAP golden_miss" in window, \
-        "a refusal that is NOT the ground no longer counts as a miss at all"
-    miss = lines.index("TAP golden_miss")
-    assert miss > i, "the miss is counted before the ground is ruled out"
+    # THE READING MOVED IN FRONT OF THE SEND (#1702), and the branch that used to run
+    # AFTER one is gone. Dirty ground, a mine being gathered and a march already out are
+    # the same fact to a caller — the game will not take an order — so they are asked
+    # once, before the order, by `golden_squad_free`. Asking again afterwards was worse
+    # than redundant: `canMarch == false` after a send is what an ACCEPTED order looks
+    # like, and reading it as dirt is how a squad already walking got re-routed.
+    _body, lines = _brick("golden_send_the_squad")
+    assert not any(" INTO stuck" in w for w in lines), \
+        "the post-send «is it stuck» branch is back"
+    i = next(k for k, w in enumerate(lines) if " INTO squad_free" in w)
+    window = lines[i:i + 4]
+    assert "IF squad_free == 0" in window and "TAP golden_unstick" in window
+    send = min(k for k, w in enumerate(lines)
+               if w in ("TAP golden_send", "TAP golden_home", "TAP golden_ride"))
+    assert i < send, "the ground is ruled out only after the order has been refused"
 
 
 def test_the_queue_is_refreshed_while_the_squad_is_walking():
@@ -855,8 +890,7 @@ def test_the_queue_is_refreshed_while_the_squad_is_walking():
     coarse wait is already beating every three seconds — a scan on that beat costs a fifth
     of a second and the queue only grows.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     far = next(i for i, w in enumerate(lines) if w.startswith("WHILE far == 1"))
     inside = lines[far:far + 10]
     assert "TAP golden_scan" in inside, \
@@ -1016,8 +1050,7 @@ def test_the_expensive_refresh_waits_for_two_to_five_disappearances():
         "the refresh either cannot finish or costs more than the sweep it replaced"
 
     # …and the recipe WAITS for the ring instead of guessing how long it takes.
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     for i, w in enumerate(lines):
         if w != "TAP golden_refresh":
             continue
@@ -1033,8 +1066,7 @@ def test_the_map_is_walked_ONCE_and_never_again():
     stops in rings around the base, and a flight to the candidate before every single kill
     — is gone, and the reaping is what replaced both.
     """
-    body, _ = _source(RECIPE)
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    body, lines = _chain()
     assert lines.count("CALL scan_map") == 1, \
         "the recipe walks the whole map more than once"
     assert not any(w.startswith("SWEEP_MAP") for w in lines), \
@@ -1049,6 +1081,245 @@ def test_the_map_is_walked_ONCE_and_never_again():
     body_after = lines[loop:]
     assert body_after.count("TAP golden_look") <= 1, \
         "the chain still flies to its candidate on every kill"
+
+
+# ---------------------------------------------------------------------------
+# The chain is four bricks, and the three faults the operator named (#1702)
+# ---------------------------------------------------------------------------
+
+BRICKS = ("golden_wait_for_the_march", "golden_judge_the_kill",
+          "golden_choose_a_target", "golden_send_the_squad")
+
+
+def _brick(name):
+    path = _REPO_ROOT / "src" / "lastwar_bot" / "actions" / (name + ".md")
+    body, _ = _source(path)
+    return body, [line.strip() for line in body.splitlines()
+                  if line.strip() and not line.strip().startswith("#")]
+
+
+def test_the_chain_is_four_bricks_each_runnable_on_its_own():
+    """The operator's method, and the reason for it: «тестировать ЧАСТИ, а не всё в одном
+    цикле за раз, иначе любой небольшой сбой — и мы зависаем».
+
+    Each brick is a scenario in its own right, so a hunt that stumbles is debugged one
+    press at a time. The chain only assembles them, and it assembles them in the order of
+    the facts: nothing is chosen while the squad is still walking, nothing is judged
+    before the march has landed, nothing is sent at a target that has not been checked.
+    """
+    body, lines = _brick("attack_golden_zombies")
+    loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE go == 1"))
+    calls = [w.split()[1] for w in lines[loop:] if w.startswith("CALL ")]
+    assert calls == list(BRICKS), f"the chain's lap is {calls}"
+    for i, w in enumerate(lines[loop:], loop):
+        assert not w.startswith("TAP "), \
+            f"the chain still presses {w!r} itself instead of through a brick"
+    for name in BRICKS:
+        brick_body, brick_lines = _brick(name)
+        assert engine.parse_text(brick_body), f"{name} parsed to nothing"
+        assert brick_lines, f"{name} is empty"
+        assert not any(w.startswith("CALL " + name) for w in brick_lines), \
+            f"{name} calls itself"
+
+
+def test_no_order_is_given_to_a_squad_that_cannot_take_one():
+    """«Залипание на шахте», and the invariant that ends it (#1702).
+
+    Measured live on the chosen squad the moment after a ride landed:
+
+        squad=2 state=1 canMarch=false soldiers=2631
+        marches=2   m0 endTime=…452468   m1 endTime=…929588   now=…393277
+
+    — the second march is **109 minutes** out. That is a mine being gathered, and every
+    attack sent into that window is refused in silence. The old chain proved it the
+    expensive way: ten seconds of launch polling, a target written off, and the next one
+    tried, for as long as the run lasted.
+
+    So the send brick asks first, and a squad that cannot march is RECALLED rather than
+    shouted at.
+    """
+    _body, lines = _brick("golden_send_the_squad")
+    free = lines.index(next(w for w in lines if " INTO squad_free" in w))
+    send = min(i for i, w in enumerate(lines)
+               if w in ("TAP golden_send", "TAP golden_home", "TAP golden_ride"))
+    assert free < send, "the squad is ordered about before anybody asks whether it can move"
+    gate = lines[free:free + 4]
+    assert "IF squad_free == 0" in gate, "the reading is taken and not acted on"
+    assert "TAP golden_unstick" in gate, "a squad that cannot march is not recalled"
+
+    # …and the reading itself is the client's own answer about our own formation.
+    expr = lua_actions.golden_squad_free()
+    assert "canMarch" in expr and "p.formation" in expr
+    import lupa
+    for can, want in ((True, 1), (False, 0)):
+        rt = lupa.LuaRuntime()
+        rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
+                   "ArmyFormationDataManager = {ArmyFormationList = "
+                   "{{uuid = '77', canMarch = %s}}}}" % ("true" if can else "false"))
+        assert int(rt.eval(expr)) == want
+    rt = lupa.LuaRuntime()          # …and a squad nobody can find is «ask again», not «no»
+    rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
+               "ArmyFormationDataManager = {ArmyFormationList = {}}}")
+    assert int(rt.eval(expr)) == -1, "an unreadable squad reads as a refusal"
+
+
+def test_one_ride_that_ends_in_a_gather_switches_the_ride_off_for_the_run():
+    """One such ride is a mistake; two would be a policy (#1702).
+
+    A ride is a GATHER order. If the squad comes back «cannot march» after it lands, the
+    ride has parked the hunt for as long as the mine takes — so the fuse blows, the squad
+    is recalled, and the rest of the run is plain attack marches. The person's own setting
+    is untouched: this is a fuse inside one run, not a preference being overridden.
+    """
+    body, lines = _brick("golden_send_the_squad")
+    ride = lines.index("TAP golden_ride")
+    tail = lines[ride:ride + 14]
+    assert any(" INTO squad_free" in w for w in tail), \
+        "nothing asks whether the ride ended in a gather"
+    assert "TAP golden_no_ride" in tail, "a ride that parks the squad may happen again"
+    assert "TAP golden_unstick" in tail, "the squad is left working the mine"
+
+    # …and the planner honours the fuse, so no branch in the recipe has to.
+    import lupa
+    arm = lua_actions.golden_approach_arm()
+    rt = lupa.LuaRuntime()
+    rt.execute("CS = {UnityEngine = {Debug = {LogError = function() end}}}")
+    rt.execute("DataCenter = {__lw_gold = {no_ride = 1, cur = {pid = 1, x = 1, y = 1}}}")
+    rt.execute(arm)
+    assert rt.eval("DataCenter.__lw_gold.approach") is None, \
+        "the planner still plans a ride after the fuse has blown"
+    assert rt.eval("DataCenter.__lw_gold.why") == "no-ride"
+
+
+def test_an_accepted_order_is_never_written_off_as_a_refusal():
+    """«Меняет маршрут, когда уже идёт на зомби» — and it was the PROOF that was wrong.
+
+    The march list belongs to the client, and the client lists a march when it gets round
+    to it. A send that was accepted but not yet listed read as a refusal, so the chain
+    wrote the target off and ordered the squad somewhere else — re-routing a squad that
+    was already walking. The squad going busy is the same proof, and it is instant: the
+    chain never sends unless the squad is free, so «busy now» can only be the order we
+    just gave.
+    """
+    import lupa
+    proof = lua_actions.golden_launched()
+    assert "canMarch" in proof, "the proof still waits on the client's own bookkeeping"
+
+    def answer(fresh_march, can_march):
+        rt = lupa.LuaRuntime()
+        rt.execute("DataCenter = {__lw_gold = {pending = 1, formation = '77', "
+                   "march_before = {}}, WorldMarchDataManager = {GetOwnerMarches = "
+                   "function() return %s end}, ArmyFormationDataManager = "
+                   "{ArmyFormationList = {{uuid = '77', canMarch = %s}}}}"
+                   % ("{Count = 1, [0] = {uuid = 'new'}}" if fresh_march else "nil",
+                      "true" if can_march else "false"))
+        return int(rt.eval(proof))
+
+    assert answer(True, True) == 1, "a fresh march is not proof enough"
+    assert answer(False, False) == 1, \
+        "a squad that has gone busy still reads as a send nobody received"
+    assert answer(False, True) == 0, \
+        "a squad that is free with no march reads as a launch — that is a refusal"
+
+    # …and the branch that used to fire after a failed send is gone, because it asked the
+    # same question with the opposite meaning.
+    body, lines = _brick("golden_send_the_squad")
+    assert not any(" INTO stuck" in w for w in lines), \
+        "the post-send «is it stuck» branch is back — it reads an accepted order as dirt"
+
+
+def test_the_gap_after_an_attack_is_kept_short_on_purpose():
+    """«Медлительность после завершения атаки» — measured, then spent down (#1702).
+
+    From `arrived = 1` to the next order leaving: **9 seconds median** over the old
+    chain's last laps (8, 9, 9, 10, 10, 10), and 3–4 once the per-kill re-aim went. What
+    is left is polls, and they are pinned here so nobody quietly puts a second back.
+    """
+    _body, judge = _brick("golden_judge_the_kill")
+    settle = judge.index("WAIT 0.8")
+    assert judge[settle - 1] == "IF looked_moved == 1", \
+        "the settle is paid on every lap instead of only when the camera really flew"
+    _body, send = _brick("golden_send_the_squad")
+    assert "WAIT 0.4" in send, "the launch proof is polled coarsely on the hot path"
+    poll = next(w for w in send if w.startswith("WHILE launched == 0 LIMIT"))
+    beats = int(poll.rsplit(" ", 1)[-1])
+    assert beats * 0.4 >= 9.5, \
+        "the launch proof lost patience as well as latency — that is a different change"
+
+
+def test_every_recipe_carries_the_modules_copy_of_every_shared_expression():
+    """The DSL has no include, so a `READ_LUA` line is a COPY, and copies go stale (#1702).
+
+    It has happened twice, and both times it looked like a bug in the chain rather than a
+    line of Lua that had been corrected somewhere else. The mapping lives in
+    `tools/lib/golden_sync.py`; this is the half that fails when a copy has drifted.
+
+        python3 tools/lib/golden_sync.py --write
+    """
+    sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import golden_sync
+
+    stale = []
+    for name in golden_sync.RECIPES:
+        path = _REPO_ROOT / "src" / "lastwar_bot" / "actions" / (name + ".md")
+        if not path.exists():
+            continue
+        stale += [(name, line, var)
+                  for line, var in golden_sync.drift(path.read_text(encoding="utf-8"))]
+    assert not stale, \
+        "stale copies (run tools/lib/golden_sync.py --write): %r" % (stale,)
+
+
+def test_the_hunt_never_waits_out_a_march_that_is_not_its_own():
+    """The other half of «залипание на шахте», and it is a WAIT rather than a send (#1702).
+
+    Measured live on the chosen squad: two marches out, the second one's own clock **109
+    minutes** away — a mine being gathered. The hunt's own hops are seconds and its
+    longest ride is a minute, so a clock that far out is never this chain's march. The old
+    wait sat in front of it for as long as `march_wait` allowed, doing nothing, and that
+    reads from outside exactly like a hung bot.
+    """
+    import lupa
+    assert 60 <= lua_actions.GOLDEN_WAIT_CEILING <= 300, \
+        "the ceiling is either shorter than a legitimate ride or long enough to hang on"
+    left = lua_actions.golden_eta_left()
+    for parked, now, want in ((None, 1000, -1), (61000, 1000, 60), (1000, 61000, -60)):
+        rt = lupa.LuaRuntime()
+        rt.execute("DataCenter = {__lw_gold = {%s}} "
+                   "UITimeManager = {Instance = {GetServerTime = function() return %d end}}"
+                   % ("" if parked is None else ("eta_ms = %d" % parked), now))
+        assert int(rt.eval(left)) == want
+
+    _body, wait = _brick("golden_wait_for_the_march")
+    i = next(k for k, w in enumerate(wait) if " INTO eta_left" in w)
+    guard = wait[i:i + 4]
+    assert any(w.startswith("IF eta_left >") for w in guard), \
+        "the reading is taken and the hunt waits anyway"
+    assert "TAP golden_unstick" in guard, "a march that is not ours is waited out, not ended"
+
+    # …and the recall drops the clock with it, or the guard fires again for ever.
+    assert "p.eta_ms = nil" in lua_actions.golden_unstick(), \
+        "the recall leaves the clock it was triggered by standing"
+
+
+def test_a_lap_does_not_begin_until_the_squad_is_free():
+    """One rule for every reason a squad will not take an order (#1702).
+
+    Still walking, working a mine, standing on dirty ground, recalled a moment ago — the
+    send does not care which, it cares whether the next order will be accepted. So the
+    wait brick ends on that question and nothing else, bounded, with the bound spoken:
+    a hunt that waits for ever is the thing being fixed.
+    """
+    _body, wait = _brick("golden_wait_for_the_march")
+    i = max(k for k, w in enumerate(wait) if " INTO squad_free" in w)
+    loop = next(w for w in wait if w.startswith("WHILE squad_free == 0 LIMIT"))
+    beats = int(loop.rsplit(" ", 1)[-1])
+    assert 30 <= beats <= 120, "the patience is either a blink or a hang"
+    tail = wait[i:]
+    assert any(w.startswith("LOG ") for w in tail), \
+        "a run that gives up on a busy squad does so in silence"
+    assert "READ_LUA (0) INTO go" in tail, \
+        "the run carries on sending orders at a squad that will not take them"
 
 
 def _run_standalone() -> int:

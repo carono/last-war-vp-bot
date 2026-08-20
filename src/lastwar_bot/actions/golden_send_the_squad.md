@@ -1,0 +1,141 @@
+# Send the squad at the armed target — the only brick that gives an order.
+# ru: Отправить отряд на выбранную цель — единственный кирпич, который отдаёт приказ.
+#
+# The ride (when it is on and has not been fused off), the march itself, and the proof
+# that an order became a march. Everything that can refuse in silence is handled here and
+# nowhere else, so there is one place to look when a hunt stops moving.
+#
+# Runnable on its own (#1702) — it will send the squad at whatever `golden_choose_a_target`
+# last armed, which is exactly what a person debugging the send wants.
+
+ARGS approach = 0
+ARGS march_wait = 200
+ARGS miss_limit = 6
+
+IF picked == 1
+    # THE INVARIANT, AND EVERYTHING ELSE HERE RESTS ON IT (#1702): never give an order to
+    # a squad the game says cannot take one. Both of the operator's worst complaints are
+    # this rule being broken.
+    #
+    #  * «залипание на шахте» — the ride is a GATHER order and a squad that lands on a
+    #    mine works it: measured live, `canMarch = false` with the march's own clock 109
+    #    minutes out. Every attack sent into that window was refused in silence and cost
+    #    ten seconds to prove, over and over, for as long as the run lasted.
+    #  * «меняет маршрут, когда уже идёт на зомби» — an order that WAS accepted but whose
+    #    march the client had not listed yet read as a refusal, so the chain wrote the
+    #    target off and ordered the squad somewhere else, re-routing a squad mid-walk.
+    #
+    # One read, and it is the client's own answer about our own formation. A squad that
+    # cannot march is RECALLED rather than shouted at — the recall is the same press that
+    # takes a squad off dirty ground, because from here the two are the same thing.
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can = false, nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) end end end) if not seen or can == nil then return -1 end return can and 1 or 0 end)() INTO squad_free
+    IF squad_free == 0
+        LOG "the squad cannot take an order where it stands — recalling it instead of sending orders nobody can carry out"
+        TAP golden_unstick
+        READ_LUA (0) INTO picked
+
+IF picked == 1
+    # THE RIDE. A gather order travels 2.5x faster than an attack one, so a long
+    # haul is ridden to a mine beside the zombie and only the last few tiles are
+    # paid at attack speed. Taken only when the arithmetic wins — a short hop
+    # loses more to the extra stop than it saves.
+    IF approach == 1
+        # THE RIDE, AND ONLY THE RIDE, STILL FLIES THE CAMERA (#1702). The mine
+        # hunt below asks `HasPointInfo` about the tiles around the target, and
+        # the client can only answer for a district it holds — so this branch
+        # fetches it. The chain itself does not: the pick works off the reaped
+        # registry, and the flight used to be paid on every kill for a re-pick
+        # that the reaping has made unnecessary.
+        TAP golden_look
+        WAIT 1
+        TAP golden_scan
+        TAP golden_approach_arm
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.approach ~= nil) and 1 or 0 end)() INTO riding
+        IF riding == 1
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'why=' .. tostring(p.why or '-') .. ' direct=' .. tostring(math.floor(tonumber(p.direct_sec) or 0)) .. ' via=' .. tostring(math.floor(tonumber(p.approach_sec) or 0)) .. ' rode=' .. tostring(math.floor(tonumber(p.rode) or 0)) .. ' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. ' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)() INTO ride_report
+            LOG "riding to a mine beside the target — {ride_report}"
+            TAP golden_ride
+            TAP golden_eta
+            # The march's OWN clock, never the squad's state: a squad
+            # that has landed at a mine is gathering, and it goes on
+            # reading «out» for as long as it works there.
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
+            WHILE arrived == 0 LIMIT {march_wait}
+                WAIT 3
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
+            # …AND THEN THE FUSE (#1702). A ride that lands on a mine and starts
+            # GATHERING has parked the squad — measured live, 109 minutes of
+            # `canMarch = false`, during which every attack is refused in silence.
+            # One such ride per run is a mistake; two would be a policy. So the
+            # first one switches the ride off for the rest of the run, recalls the
+            # squad, and the hunt carries on at attack speed. The person's own
+            # setting is untouched — this is a fuse inside one run.
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can = false, nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) end end end) if not seen or can == nil then return -1 end return can and 1 or 0 end)() INTO squad_free
+            IF squad_free == 0
+                LOG "the ride ended in a gather — the squad is working the mine and takes no orders; recalling it and hunting on foot for the rest of this run"
+                TAP golden_no_ride
+                TAP golden_unstick
+                READ_LUA (0) INTO picked
+    # The last march of the run is the one that brings the squad home; every one
+    # before it deliberately leaves it standing where it killed.
+
+IF picked == 1
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost * 2 then return 1 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) + 1 >= lim then return 1 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() <= 1) and 1 or 0 end)() INTO last_one
+    IF last_one == 1
+        LUA DataCenter.__lw_gold_back = 1
+        TAP golden_home
+    ELSE
+        TAP golden_send
+
+    # THE PROOF THAT THE ATTACK IS UNDER WAY IS A MARCH OF OURS THAT WAS NOT
+    # THERE A MOMENT AGO (#1702) — the operator's own model, and a fact about the
+    # order rather than about what was paid for it. The purse decided this until
+    # now, and it was wrong twice: the server does not always charge the price it
+    # quotes (10 quoted, 8 taken, live), and the purse does not only go down — an
+    # energy refill mid-chain made three marches that had all gone out look like
+    # sends nobody received.
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
+    # 0.4 SECONDS, TWENTY-FIVE TIMES — the same ten seconds of patience, watched two and
+    # a half times as closely (#1702). This poll is on the hot path: it is the last thing
+    # between an order and the chain moving on, and every beat of it is dead time on a
+    # send that was accepted at once. Nothing here is a timeout being shortened.
+    WHILE launched == 0 LIMIT 25
+        WAIT 0.4
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
+
+    IF launched == 0
+        # A ZOMBIE SOMEBODY ELSE KILLED FIRST, nearly always: the client's list is a
+        # snapshot, and the server refuses an order at a monster that is not there. That
+        # is worth another target, not the end of the run — but a client that has gone
+        # deaf refuses everything, so a handful in a row stop it.
+        #
+        # THERE IS NO «IS THE SQUAD STUCK» BRANCH HERE ANY MORE (#1702), and its absence
+        # is the fix rather than a simplification. It used to run AFTER a send had spent
+        # ten seconds failing, and it read `canMarch == false` as «dirty ground». Two
+        # things are wrong with that. A squad that cannot march is now caught BEFORE the
+        # send by the gate at the top of this brick, so ten seconds are never spent on a
+        # doomed order; and `canMarch == false` after a send is what an ACCEPTED order
+        # looks like, which is why the launch proof reads it as success. Asking the same
+        # question in two places with two opposite meanings is how a chain ends up
+        # re-routing a squad that was already walking.
+        LOG "the send never became a march — that zombie is gone, or this squad has forgotten its army; trying the next one"
+        TAP golden_miss
+        # A SQUAD THE CLIENT HAS FORGOTTEN THE ARMY OF reads zero soldiers, and the
+        # server refuses a march for an empty formation — silently, exactly like a dead
+        # target (#1285, #1702). One question puts them back, and it costs a third of a
+        # second.
+        CALL fill_empty_squads
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.misses) or 0) end)() INTO misses
+        IF misses > {miss_limit}
+            LOG "several sends in a row went nowhere — stopping rather than giving orders nobody is receiving"
+            READ_LUA (0) INTO go
+    ELSE
+        # The tally moves HERE and nowhere else. What the attack COST is read off
+        # the purse for the books, and cannot decide anything.
+        TAP golden_confirm
+        # …and when this march is due to land, so the next lap knows what to
+        # wait for.
+        TAP golden_eta
+        # No scan here: the lap below re-asks the client after it has looked at the
+        # origin of the next pick, and asking twice cost most of a second per kill
+        # for a list that is thrown away and rebuilt anyway (#1702).

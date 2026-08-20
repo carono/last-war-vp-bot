@@ -10421,6 +10421,18 @@ def golden_launched() -> str:
     energy up mid-chain (56 → 102, live) makes an unmoved purse look like a send nobody
     received, and the chain stopped over three marches that had all gone out.
 
+    **THE SQUAD GOING BUSY IS THE SAME PROOF, and it had to be added (#1702.)** The march
+    list is the client's, and the client lists a march when it gets round to it; a send
+    that WAS accepted but whose march had not been listed yet read as a refusal, the chain
+    wrote the target off and ordered the squad somewhere else — and the game re-routed a
+    squad that was already walking. That is the operator's «меняет маршрут, когда уже идёт
+    на зомби», and it is a bug in the proof, not in the send.
+
+    So either half is enough: a march that was not there before, OR the game answering
+    `canMarch = false` for our formation when it answered `true` the moment before the
+    send. The chain never sends unless the squad is free (:func:`golden_squad_free`), so
+    «busy now» can only be the order we just gave.
+
     `1` when nothing is pending, so a caller polling this after a skipped send is not left
     waiting for a march nobody ordered.
     """
@@ -10434,7 +10446,13 @@ def golden_launched() -> str:
         "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
         "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
         "if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) "
-        "return (fresh > 0) and 1 or 0 end)()"
+        "if fresh > 0 then return 1 end "
+        "local busy = false "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if tostring(v.uuid) == tostring(p.formation) then "
+        "busy = (v.canMarch ~= true) end end end) "
+        "return busy and 1 or 0 end)()"
     )
 
 
@@ -10599,6 +10617,10 @@ def golden_unstick() -> str:
         "if not ok then ok = pcall(function() MarchUtil.OnBackHome(f, true) end) end end "
         "p.unstuck = (tonumber(p.unstuck) or 0) + 1 "
         "p.misses = 0 "
+        # THE PARKED CLOCK GOES WITH IT (#1702). `eta_ms` is what the chain waits on, and
+        # a recall makes the march it belonged to meaningless — left standing, the wait
+        # that triggered the recall triggers it again on the next lap, for ever.
+        "p.eta_ms = nil "
         "p.pending = nil p.hit = nil p.cur = nil "
         "if p.home ~= nil then p.anchor = nil end "
         "%(gold)s = p "
@@ -10606,6 +10628,91 @@ def golden_unstick() -> str:
         '.." unstuck="..tostring(p.unstuck))'
         % {"gold": _GOLD}
     )
+
+
+#: How long a march the chain is willing to WAIT OUT before deciding the squad is not on
+#: a hunt at all (#1702). A hop between two golden zombies is seconds; the longest ride
+#: the planner will take is `approach_sec` (60 by default) plus the last few tiles. A
+#: clock three minutes out is therefore never this chain's march — it is a mine being
+#: gathered, a rally, a treasure run, something the person sent by hand. Measured live:
+#: 109 minutes, and the hunt sat in front of it.
+GOLDEN_WAIT_CEILING = 180
+
+
+def golden_eta_left() -> str:
+    """Lua *expression* -> seconds until the parked march lands; -1 when nothing is parked.
+
+    The same clock every wait in the chain uses — the server's own `endTime` for the
+    newest march of ours — but as a NUMBER rather than as a yes/no, so a caller can tell
+    «nearly there» from «this is not our march at all» (:data:`GOLDEN_WAIT_CEILING`).
+    """
+    return ("(function() " + _GOLD_P +
+            "local due = tonumber(p.eta_ms) "
+            "if due == nil then return -1 end "
+            "local now = nil "
+            "pcall(function() now = tonumber(UITimeManager.Instance:GetServerTime()) end) "
+            "if now == nil then pcall(function() "
+            "now = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end "
+            "if now == nil then now = os.time() * 1000 end "
+            "return math.floor((due - now) / 1000) end)()")
+
+
+def golden_squad_free() -> str:
+    """Lua *expression* -> 1 the squad can be given an order, 0 it cannot, -1 unreadable.
+
+    **The invariant the whole chain now hangs on (#1702): never give an order to a squad
+    the game says cannot take one.** Breaking it is how both of the operator's worst
+    complaints happen.
+
+    * «Залипание на шахте». The ride is a GATHER order, and a squad that lands on a mine
+      starts working it — measured live, `canMarch = false` with the march's own
+      `endTime` **109 minutes** away. Every attack sent into that window is refused in
+      silence, and the old chain spent ten seconds proving it, wrote the target off, and
+      tried the next one, for as long as the run lasted.
+    * «Меняет маршрут на ходу». A send that IS accepted but whose march the client has
+      not listed yet reads as a refusal, so the chain wrote the target off and ordered
+      the squad somewhere else — and the game re-routed a squad that was already walking.
+
+    `canMarch` is the client's own answer about our own formation, so it costs one read
+    and it is true the moment the squad is free. `-1` (the squad cannot be found at all)
+    is not a «no»: the caller decides, and the chain treats it as «ask again».
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "if p.formation == nil then return -1 end "
+        "local seen, can = false, nil "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if tostring(v.uuid) == tostring(p.formation) then seen = true "
+        "can = (v.canMarch == true) end end end) "
+        "if not seen or can == nil then return -1 end "
+        "return can and 1 or 0 end)()"
+    )
+
+
+def golden_no_ride() -> str:
+    """Switch the fast approach off for the REST of this run, and say why (#1702).
+
+    One ride that ends in a gather parks the squad for an hour or more, so the chain does
+    not get to make that mistake twice: the first time a ride lands and the squad comes
+    back «cannot march», the ride is disowned for the run and the remaining kills are
+    plain attack marches. The setting the person chose is untouched — this is a
+    within-run fuse, not a preference.
+    """
+    return (
+        _GOLD_P +
+        "p.no_ride = 1 "
+        "p.rides_dropped = (tonumber(p.rides_dropped) or 0) + 1 "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_no_ride dropped="..tostring(p.rides_dropped))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_riding_off() -> str:
+    """Lua *expression* -> 1 when this run has disowned the ride (:func:`golden_no_ride`)."""
+    return ("(function() " + _GOLD_P +
+            "return (math.floor(tonumber(p.no_ride) or 0) == 1) and 1 or 0 end)()")
 
 
 def golden_stuck() -> str:
@@ -11066,6 +11173,9 @@ def golden_approach_arm() -> str:
     return (
         _GOLD_P + _GOLD_DIST +
         "p.approach = nil p.why = '' "
+"if math.floor(tonumber(p.no_ride) or 0) == 1 then p.why = 'no-ride' "
+"%(gold)s = p "
+'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=no-ride") return end '
         "local t = p.cur "
         "if t == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=no-target") return end '
