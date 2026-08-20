@@ -22,19 +22,28 @@ does is four integer adds and a dict write, there is nothing here that can decli
 run, and nothing is deferred to a thread that might not exist. A push it cannot make
 sense of is `dropped` with the reason that says so — never silently swallowed.
 
-NOTHING HERE IS A PERSON. The fields line the ear hands over carries `gift`, `tile` and
-`type` — the id of a box, the square it fell on and which firework it was — because
+NOTHING HERE IS A PERSON. The fields line the ear hands over carries `tile` and `kind` —
+the square the firework stands on and which firework it is — because
 `tools/wire_event_monitor.py` builds it from an allow-list and never from the payload
-(#1293). The push itself also carries `ownerUid`, the account the firework belongs to,
-and it does not cross the pipe: the collector reads the owner out of the client's own
-`LWFireworkGiftManager` at the moment it presses, where it never leaves the game VM.
+(#1293). The push itself carries the uid, the NICKNAME and the avatar of whoever has just
+taken a box (measured #1854), and none of it crosses the pipe: the collector reads what it
+needs out of the client's own `LWFireworkGiftManager` at the moment it presses, where it
+never leaves the game VM.
 
 WHAT IS KEPT AND WHERE. The count of what was heard today, by tile, in the profile's own
 database (`store.blob_get`/`blob_set` under :data:`BLOB`) — game data, so a row and not a
-file (`CLAUDE.md`, «Game data lives only in the database»). What was actually COLLECTED
-is not written down here and must not be: the client keeps that itself, in
-`LWFireworkGiftManager.giftUuid2TimeTable`, and a second copy the panel maintains is the
-one that is wrong the first time the two disagree.
+file (`CLAUDE.md`, «Game data lives only in the database»). It is a named blob rather
+than a table of its own because it is read and written WHOLE and never queried by a
+`WHERE` clause, which is exactly the rule `docs/panel-storage.md` gives for the choice.
+
+AND THE TAKES, WITH THEIR TIMES — but never as a second version of the total (#1854).
+The client's `LWFireworkGiftManager.giftUuid2TimeTable` is still the authority on «how
+many boxes has this account ever been given», and the panel does not keep a rival count
+of that: what a tab shows as the total is READ out of the game. What lives here is the
+HISTORY the client has no answer for — which day each box was taken on, when the last one
+was, and how long the panel took to answer the announcement. A per-day count and a
+reaction time are events of the WIRE, and nothing in the game can be asked for them after
+the fact.
 
 Read with no window and no game at all:
 
@@ -48,6 +57,16 @@ import time
 
 #: This receiver's row on «Занятость». One name, because there is one ear and one book.
 INTAKE = "fireworks.push"
+
+#: …and the second, for the answers to our own presses. A separate row on purpose: «the
+#: sky is busy and we took nothing» and «the ear has gone deaf» look identical on one
+#: counter, and the first of those is the ordinary state of a firework outside the
+#: alliance (`docs/research/fireworks.md` §4).
+INTAKE_GOT = "fireworks.got"
+
+#: How many days of takes the book keeps. A month is enough to answer «сколько и когда»
+#: and small enough that the blob stays one short row.
+KEEP_DAYS = 30
 
 #: Where the day's tally lives in the profile's database.
 BLOB = "firework_state"
@@ -120,6 +139,19 @@ class FireworkBook:
         # would carry one account's tally into the next — the failure
         # `docs/research/profile-isolation.md` is a list of.
         self._loaded = ""
+        # THE TAKES (#1854). `_taken_day` is today's, `_days` is day -> count for the
+        # last :data:`KEEP_DAYS`, `_last_ts` is when the last box came in (unix seconds,
+        # so a tab can print a clock time and a restart does not lose it). The reaction
+        # is measured off `_heard_mono`, the monotonic stamp of the last announcement:
+        # the answer to our press arriving N ms after it is the whole number this
+        # ability is judged by, and nothing in the game records it.
+        self._taken_day = 0
+        self._days: dict = {}
+        self._last_ts = 0.0
+        self._heard_mono = 0.0
+        self._react_last = -1
+        self._react_best = -1
+        self._refused = 0
         # ON THE LEDGER BEFORE THE FIRST PUSH (#1523's other half). A row made on first
         # arrival cannot tell «the ear is listening and the sky is empty» from «there is
         # no such receiver», and the first of those is the ordinary state of this one:
@@ -127,6 +159,7 @@ class FireworkBook:
         led = self._intake()
         if led is not None:
             led.declare(INTAKE)
+            led.declare(INTAKE_GOT)
 
     # -- the ledger ----------------------------------------------------------
     def _intake(self):
@@ -162,6 +195,10 @@ class FireworkBook:
         self._roll()
         with self._lock:
             self._heard += 1
+            # WHEN it was heard, whatever else can be made of it: the reaction time is
+            # measured from here, and a push whose fields this build cannot name is still
+            # the moment the race started.
+            self._heard_mono = time.monotonic()
             tile = str((fields or {}).get("tile") or "")
             if not tile:
                 # Heard, counted, and honestly not understood: the push's own field names
@@ -202,11 +239,92 @@ class FireworkBook:
         return rows
 
     def tally(self) -> dict:
-        """`{"day", "heard", "named", "tiles"}` — the day's numbers, for a report."""
+        """The day's numbers, for a report and for the «Салюты» block on «События».
+
+        `heard` / `named` / `tiles` are the announcements; `taken` / `refused` are the
+        answers to our own presses, today; `taken_all` is every day this book still holds
+        (:data:`KEEP_DAYS`) and is NOT the account's lifetime total — that one is the
+        client's own and is read from the game. `last_ts` is unix seconds, `react_*` are
+        milliseconds from an announcement to the box arriving, `-1` for «never yet».
+        """
         self._roll()
         with self._lock:
             return {"day": self._day, "heard": self._heard, "named": self._named,
-                    "tiles": len(self._tiles)}
+                    "tiles": len(self._tiles), "taken": self._taken_day,
+                    "refused": self._refused,
+                    "taken_all": sum(int(n) for n in self._days.values()),
+                    "last_ts": self._last_ts,
+                    "react_last": self._react_last, "react_best": self._react_best}
+
+    # -- what was actually taken ---------------------------------------------
+    def collected(self, fields: dict) -> bool:
+        """One answer to one of our own presses. Returns whether a box came in.
+
+        **The answer to `get.fireworks.gift`, not the announcement.** It arrives on the
+        same ear, and it is the only moment the panel can see with its own eyes that a
+        box was taken rather than merely asked for: the server refuses one it will not
+        give (`errorCode = zombieRush_tips_19`, «not same alliance» — the ordinary answer
+        for a firework outside the alliance), and a refusal counted as a take would make
+        every number on the tab a wish.
+
+        What it writes down is the HISTORY — this day's count, when the last box came in,
+        and how long after the announcement it did. Never a rival total: «how many has
+        this account ever been given» is the client's own `giftUuid2TimeTable`, read from
+        the game when a tab wants it.
+        """
+        led = self._intake()
+        if led is not None:
+            led.seen(INTAKE_GOT)
+        self._roll()
+        ok = str((fields or {}).get("got") or "") == "1"
+        with self._lock:
+            if not ok:
+                self._refused += 1
+                self._save_maybe()
+                if led is not None:
+                    led.dropped(INTAKE_GOT, reason="refused")
+                return False
+            self._taken_day += 1
+            self._days[self._day] = int(self._days.get(self._day) or 0) + 1
+            self._trim()
+            self._last_ts = time.time()
+            if self._heard_mono > 0.0:
+                ms = int(max(0.0, time.monotonic() - self._heard_mono) * 1000)
+                self._react_last = ms
+                if self._react_best < 0 or ms < self._react_best:
+                    self._react_best = ms
+            # A take is written down at once — see `_save_maybe`.
+            self._save_maybe(force=True)
+        if led is not None:
+            led.kept(INTAKE_GOT)
+        return True
+
+    def history(self, limit: int = KEEP_DAYS) -> list:
+        """`[{"day", "taken"}]`, newest day first — «сколько и когда», by day."""
+        self._roll()
+        with self._lock:
+            days = sorted(self._days.items(), reverse=True)[:max(1, int(limit))]
+        return [{"day": day, "taken": int(n)} for day, n in days]
+
+    def _load_history(self, saved) -> None:
+        """The parts of the blob that outlive a day. Called with `_lock` held."""
+        if not isinstance(saved, dict):
+            return
+        days = saved.get("days")
+        self._days = {str(k): int(v) for k, v in days.items()} if isinstance(days, dict) else {}
+        try:
+            self._last_ts = float(saved.get("last_ts") or 0.0)
+            self._react_last = int(saved.get("react_last") if saved.get("react_last") is not None else -1)
+            self._react_best = int(saved.get("react_best") if saved.get("react_best") is not None else -1)
+        except Exception:                      # noqa: BLE001 — a reading, never the ear
+            self._last_ts, self._react_last, self._react_best = 0.0, -1, -1
+
+    def _trim(self) -> None:
+        """Keep the last :data:`KEEP_DAYS` days. Called with `_lock` held."""
+        if len(self._days) <= KEEP_DAYS:
+            return
+        for day in sorted(self._days)[:-KEEP_DAYS]:
+            self._days.pop(day, None)
 
     # -- the day, and the database -------------------------------------------
     def _profile(self) -> str:
@@ -227,15 +345,20 @@ class FireworkBook:
                 self._tiles.clear()
                 self._saved = 0.0
                 saved = self._read_blob()
+                self._load_history(saved)
                 if isinstance(saved, dict) and str(saved.get("day") or "") == today:
                     self._day = today
                     self._heard = int(saved.get("heard") or 0)
                     self._named = int(saved.get("named") or 0)
+                    self._taken_day = int(saved.get("taken") or 0)
+                    self._refused = int(saved.get("refused") or 0)
                 else:
                     self._day, self._heard, self._named = today, 0, 0
+                    self._taken_day, self._refused = 0, 0
                 return
             if self._day != today:
                 self._day, self._heard, self._named = today, 0, 0
+                self._taken_day, self._refused = 0, 0
                 self._tiles.clear()
                 self._saved = 0.0
 
@@ -248,14 +371,19 @@ class FireworkBook:
         except Exception:                      # noqa: BLE001 — a reading, never the ear
             return None
 
-    def _save_maybe(self) -> None:
+    def _save_maybe(self, force: bool = False) -> None:
         """Checkpoint the day's counts, at most every :data:`SAVE_EVERY_SEC`.
+
+        ``force`` writes at once, whatever the clock says. A push is one of hundreds and
+        can wait for the next window; a BOX TAKEN is rare, hard-won and the thing a person
+        opens the tab to see, so it is never left to a checkpoint that a restart might
+        beat.
 
         Called with `_lock` held, so it must not raise and must not be slow — a failed
         write costs the checkpoint and never the push that was being counted.
         """
         now = time.monotonic()
-        if now - self._saved < SAVE_EVERY_SEC:
+        if not force and now - self._saved < SAVE_EVERY_SEC:
             return
         self._saved = now
         rt = self._rt
@@ -263,6 +391,12 @@ class FireworkBook:
             return
         try:
             rt.store.blob_set(BLOB, {"day": self._day, "heard": self._heard,
-                                     "named": self._named})
+                                     "named": self._named,
+                                     "taken": self._taken_day,
+                                     "refused": self._refused,
+                                     "days": dict(self._days),
+                                     "last_ts": self._last_ts,
+                                     "react_last": self._react_last,
+                                     "react_best": self._react_best})
         except Exception:                      # noqa: BLE001 — a checkpoint, never the ear
             pass

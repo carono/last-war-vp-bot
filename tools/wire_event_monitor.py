@@ -171,6 +171,37 @@ def _firework_fields(payload) -> str:
     return " ".join(out) or "n=1"
 
 
+def _firework_got(payload) -> str:
+    """`got=1` or `got=0 why=<code>` off the answer to our own `get.fireworks.gift`.
+
+    THE ONLY PLACE THE PANEL CAN SEE A BOX ARRIVE. The announcement says a firework
+    exists; this says whether the press we made against it was given anything. A refusal
+    is the ordinary answer for a firework outside the alliance —
+    `errorCode = zombieRush_tips_19`, `errorMsg = "not same alliance"` (#1854) — so
+    counting one as a take would make every number downstream a wish.
+
+    The error CODE travels and the error TEXT does not: a code is a constant of the game,
+    a message is a sentence the server may build out of anything, including a name.
+    """
+    if not isinstance(payload, dict):
+        return "got=1"
+    try:
+        code = payload.get("errorCode")
+        if code in (None, "", 0):
+            return "got=1"
+        code = str(code)[:40]
+        return f"got=0 why={code}" if code.replace("_", "").isalnum() else "got=0"
+    except Exception:                              # noqa: BLE001 — a field, never the ear
+        return "got=0"
+
+
+#: The commands whose fields line is built by NAME rather than by family, tried first.
+#: `get.fireworks.gift` is a substring of `push.get.fireworks.gift` and means something
+#: else entirely — the answer to our own press against the announcement — so it cannot be
+#: matched the way the families below are.
+_EXACT_BUILDERS = {"get.fireworks.gift": _firework_got}
+
+
 #: Which commands get a fields line, and what builds it. One entry, and the shape is
 #: the point: a new one is a named command family plus a function that may only ever
 #: return numbers of THINGS. Matched by substring, first entry wins.
@@ -185,6 +216,9 @@ def _fields_for(command: str, payload) -> str:
     a guess — `summarise()` would answer, and what it answers with is the payload,
     player names and all (#1293).
     """
+    exact = _EXACT_BUILDERS.get(command)
+    if exact is not None:
+        return exact(payload)
     for family, build in _FIELD_BUILDERS:
         if family in command:
             return build(payload)

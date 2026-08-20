@@ -150,9 +150,17 @@ index>, <ends at, ms>)` and a `FireworkWorldBuildBubble` over the base.
   and checkpointed into the profile's own database under the `firework_state` blob.
 * The trigger `firework_collect` (off by default, «сразу, без очереди») plays
   `src/lastwar_bot/actions/collect_fireworks.md` on every such push.
-* The recipe refreshes the list, walks the queue map, and presses
-  `get.fireworks.gift` for each box that is still ours to take. It never marks anything:
-  what it reports afterwards is read back out of `giftUuid2TimeTable`.
+* The recipe walks the queue map and presses `get.fireworks.gift` for each box that is
+  still ours to take. It never marks anything: what it reports afterwards is read back
+  out of `giftUuid2TimeTable`.
+* **The ANSWER to that press is heard too** (#1854), on the same ear:
+  `get.fireworks.gift` with no `push.` in front of it. It is the only place the panel can
+  watch a box ARRIVE — `got=1`, or `got=0 why=<code>` when the server refuses — so the
+  book counts takes and refusals apart, keeps a count per day for a month, stamps when
+  the last box came in and measures the milliseconds from the announcement to it. The
+  «Салют» block on «События» draws exactly that, in the window and on the phone.
+  The account's LIFETIME total stays the client's own (`giftUuid2TimeTable`) and is read
+  from the game, never kept twice.
 
 ## 6. The press had never worked, and why nobody could tell (#1854)
 

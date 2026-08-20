@@ -74,10 +74,20 @@ FIELDS_PATTERN = "push.alliance.march"
 #: (`tools/wire_event_monitor.py::_firework_fields`).
 FIELDS_FIREWORK = "push.get.fireworks.gift"
 
+#: …and the ANSWER to our own press, which is the only place a box can be seen ARRIVING
+#: (#1854). The announcement says a firework exists; this says whether what we asked for
+#: was given. It is not a trigger and fires nothing — no subscription matches it, because
+#: every firework subscription names the `push.` form — it only feeds the book.
+#:
+#: One pattern, not two: `get.fireworks.gift` is a substring of the push's own name, so
+#: the child matches both on it and prints ONE fields line per message either way. What
+#: tells them apart is the command NAME, on this side, in :meth:`WireHub._on_fields`.
+FIELDS_FIREWORK_GOT = "get.fireworks.gift"
+
 #: Every family asked for with `--fields`, in the order the child is told about them.
 #: Growing this is how a new book gets fed; the dispatch is by command name in
 #: :meth:`WireHub._on_fields`.
-FIELDS_PATTERNS = (FIELDS_PATTERN, FIELDS_FIREWORK)
+FIELDS_PATTERNS = (FIELDS_PATTERN, FIELDS_FIREWORK_GOT)
 
 #: How often the ear may say what it has been hearing. Every match used to print a line
 #: of its own — the command plus a summary of its payload — and a live day carried 6 307
@@ -312,7 +322,11 @@ class WireHub:
         command = parts[1].strip() if len(parts) > 1 else ""
         built = parts[2] if len(parts) > 2 else ""
         try:
-            if FIELDS_FIREWORK in command:
+            if command == FIELDS_FIREWORK_GOT:
+                # OUR OWN PRESS, ANSWERED — checked by exact name and first, because the
+                # announcement's name ends with this one and means the opposite thing.
+                self._rt.fireworks.collected(firework_wire.parse_fields(built))
+            elif FIELDS_FIREWORK in command:
                 self._rt.fireworks.note(command, firework_wire.parse_fields(built))
             else:
                 self._rt.banners.note(rally_wire.parse_fields(built))

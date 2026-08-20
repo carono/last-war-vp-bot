@@ -481,6 +481,8 @@ class EventsTab(PanelTab):
                 self._render_codename(group)
             elif group.key == modelmod.GOLDEN:
                 self._render_golden(group)
+            elif group.key == modelmod.FIREWORKS:
+                self._render_fireworks(group)
         self._refresh_status()
 
     def _render_codename(self, group) -> None:
@@ -581,6 +583,99 @@ class EventsTab(PanelTab):
         self.tr(ttk.Label(press, foreground=_GREY),
                 "events.golden.hunt.hint").pack(side="left", padx=(10, 0))
         self._paint_golden_button()
+
+    # -- «Салют» -------------------------------------------------------------
+    def fireworks(self) -> dict:
+        """This profile's firework book, as numbers. Never asks the game anything.
+
+        The book hangs off the runtime and is filled by the ear, so it answers on a
+        profile with no window open on this tab and on one with no game running at all —
+        which is the whole reason it lives there and not here.
+        """
+        book = getattr(self.rt, "fireworks", None)
+        if book is None:
+            return {}
+        try:
+            return dict(book.tally())
+        except Exception:                       # noqa: BLE001 — a reading, never the tab
+            return {}
+
+    def fireworks_days(self, limit: int = 7) -> list:
+        book = getattr(self.rt, "fireworks", None)
+        if book is None:
+            return []
+        try:
+            return list(book.history(limit))
+        except Exception:                       # noqa: BLE001 — a reading, never the tab
+            return []
+
+    def collect_fireworks(self) -> bool:
+        """Press «Забрать сейчас» — one scenario, and then the block re-reads itself.
+
+        A press that STARTS something, which is the ordinary and wanted kind: the row
+        above it moves when the READING moves, and a run that took nothing leaves it
+        exactly where it was (`CLAUDE.md`).
+        """
+        started = self.rt.play_async("collect_fireworks", tag="events",
+                                     on_done=lambda: self.post(self._render))
+        if not started:
+            self.say("events", "events.codename.log.busy")
+        return started
+
+    def _render_fireworks(self, group) -> None:
+        """«Салют»: what the ear heard, what actually arrived, and when.
+
+        No state glyph and no «открыто / закрыто»: a firework is not a window in the day,
+        it is somebody else lighting one, and the honest heading is the count of what has
+        been heard today.
+        """
+        tally = self.fireworks()
+        heard = int(tally.get("heard") or 0)
+        grey = _LIVE if heard else _GREY
+
+        head = ttk.Frame(self._body)
+        head.pack(fill="x", padx=6, pady=(10, 2))
+        glyph, colour = _GLYPH.get(modelmod.OPEN if heard else modelmod.UNKNOWN,
+                                   _GLYPH[modelmod.UNKNOWN])
+        ttk.Label(head, text=glyph, foreground=colour, width=2).pack(side="left")
+        self.tr(ttk.Label(head, font=ui_font(weight="bold"),
+                          foreground=grey or "#000000"), group.title_key).pack(side="left")
+
+        rows = ttk.Frame(self._body)
+        rows.pack(fill="x", padx=4, pady=(0, 2))
+        self._row(rows, "events.fireworks.today", str(int(tally.get("taken") or 0)), grey)
+        self._row(rows, "events.fireworks.heard", str(heard), grey)
+        self._row(rows, "events.fireworks.last",
+                  modelmod.when(tally.get("last_ts") or 0.0), grey)
+        self._row(rows, "events.fireworks.react",
+                  modelmod.reaction(tally.get("react_last", -1),
+                                    tally.get("react_best", -1)), grey)
+        self._row(rows, "events.fireworks.refused",
+                  str(int(tally.get("refused") or 0)), grey)
+        self._row(rows, "events.fireworks.month",
+                  str(int(tally.get("taken_all") or 0)), grey)
+
+        days = self.fireworks_days()
+        if days:
+            hist = ttk.Frame(self._body)
+            hist.pack(fill="x", padx=4, pady=(2, 2))
+            self.tr(ttk.Label(hist, foreground=_GREY), "events.fireworks.history").pack(
+                anchor="w", padx=22)
+            for row in days:
+                line = ttk.Frame(hist)
+                line.pack(fill="x", padx=22, pady=1)
+                line.columnconfigure(0, weight=1)
+                ttk.Label(line, text=row["day"], foreground=_GREY).grid(
+                    row=0, column=0, sticky="w")
+                ttk.Label(line, text=str(row["taken"]), font=ui_font(weight="bold"),
+                          foreground=_GREY).grid(row=0, column=1, sticky="e", padx=(8, 8))
+
+        press = ttk.Frame(self._body)
+        press.pack(fill="x", padx=28, pady=(4, 6))
+        self.tr(ttk.Button(press, command=self.collect_fireworks),
+                "events.fireworks.collect").pack(side="left")
+        self.tr(ttk.Label(press, foreground=_GREY),
+                "events.fireworks.collect.hint").pack(side="left", padx=(10, 0))
 
     def _paint_golden_button(self) -> None:
         """Dead while a chain is on its way, and while the purse cannot pay for one march."""
@@ -731,6 +826,31 @@ class EventsTab(PanelTab):
             gcard["items"] = [{"label": "events.golden.hunt",
                                "pill": "events.codename.attack.off"}]
 
+        # …and «Салют», which needs no reading at all: the book is filled by the ear and
+        # is already in memory, so this card answers on a phone whose game is asleep. The
+        # press is the same scenario the window plays, so it travels (`CLAUDE.md`).
+        fw = self.fireworks()
+        fcard = {"title": "events.group." + modelmod.FIREWORKS, "rows": [
+            {"label": "events.fireworks.today", "value": str(int(fw.get("taken") or 0))},
+            {"label": "events.fireworks.heard", "value": str(int(fw.get("heard") or 0))},
+            {"label": "events.fireworks.last",
+             "value": modelmod.when(fw.get("last_ts") or 0.0)},
+            {"label": "events.fireworks.react",
+             "value": modelmod.reaction(fw.get("react_last", -1),
+                                        fw.get("react_best", -1))},
+            {"label": "events.fireworks.refused",
+             "value": str(int(fw.get("refused") or 0))},
+            {"label": "events.fireworks.month",
+             "value": str(int(fw.get("taken_all") or 0))},
+        ],
+            # The history goes in `items` and not in `rows`: a row's label is a KEY the
+            # browser translates, and a date is data. An item's `text` is the free half
+            # of the card (docs/panel-tabs.md), which is exactly what a day is.
+            "items": [{"text": row["day"], "detail": str(row["taken"])}
+                      for row in self.fireworks_days()],
+            "actions": [{"id": "collect_fireworks",
+                         "label": "events.fireworks.collect"}]}
+
         return {"cards": [
             {"title": None, "rows": [
                 {"label": "events.web.read",
@@ -738,6 +858,7 @@ class EventsTab(PanelTab):
                            and not self._reading.error else "—")}]},
             card,
             gcard,
+            fcard,
         ], "now": time.time(),
             "actions": [{"id": "refresh", "label": "events.refresh"}]}
 
@@ -745,6 +866,8 @@ class EventsTab(PanelTab):
         """The same three presses the window has, and nothing the window has not."""
         if action == "refresh":
             return {"ok": self.refresh_both()}
+        if action == "collect_fireworks":
+            return {"ok": self.collect_fireworks()}
         if action in ("attack_codename", "daily_codename"):
             if not self.codename().can_attack:
                 return {"error": "closed"}

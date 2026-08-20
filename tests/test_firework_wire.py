@@ -242,11 +242,19 @@ def test_the_ear_asks_the_child_for_the_firework_fields():
     runs on an interpreter with no Tk (which is the point of the book living apart)."""
     text = (ROOT / "panel" / "runtime" / "wire.py").read_text(encoding="utf-8")
     assert 'FIELDS_FIREWORK = "push.get.fireworks.gift"' in text
-    assert "FIELDS_PATTERNS = (FIELDS_PATTERN, FIELDS_FIREWORK)" in text
+    assert 'FIELDS_FIREWORK_GOT = "get.fireworks.gift"' in text
+    # ONE pattern covers both: the announcement's name ends with the answer's, so the
+    # child matches either on it and prints one fields line per message.
+    assert "FIELDS_PATTERNS = (FIELDS_PATTERN, FIELDS_FIREWORK_GOT)" in text
     # …and the child is told about every one of them, not just the first.
     assert "for family in FIELDS_PATTERNS:" in text
     assert 'cmd += ["--fields", family]' in text
-    # …and the fields line is routed to the book that keeps it.
+    # …and the two are told apart HERE, by exact name and answer-first — the opposite
+    # order would send every announcement to the collector's book (#1854).
+    got_at = text.index("if command == FIELDS_FIREWORK_GOT:")
+    push_at = text.index("elif FIELDS_FIREWORK in command:")
+    assert got_at < push_at, "the answer must be matched before the announcement"
+    assert "self._rt.fireworks.collected(firework_wire.parse_fields(built))" in text
     assert "self._rt.fireworks.note(command, firework_wire.parse_fields(built))" in text
 
 
@@ -275,6 +283,122 @@ def test_the_recipe_exists_and_presses_the_recorded_command():
     assert "IsHasAvailableBoxForMeByUid" in text        # the gate
     assert "IsThisGiftUuidGot" in text                  # …and the per-box one
     assert "# ru:" in text
+
+
+# -- what actually arrived (#1854) --------------------------------------------------
+def test_a_refusal_is_never_counted_as_a_box():
+    """`not same alliance` is the ordinary answer, and it must not become a number."""
+    rt = _Runtime()
+    book = _book(rt)
+
+    assert book.collected({"got": "0", "why": "zombieRush_tips_19"}) is False
+    assert book.collected({}) is False               # a line with no verdict is no box
+    tally = book.tally()
+    assert tally["taken"] == 0, tally
+    assert tally["refused"] == 2, tally
+    assert tally["last_ts"] == 0.0, tally
+
+
+def test_a_box_is_counted_with_its_day_and_its_time():
+    rt = _Runtime()
+    book = _book(rt)
+
+    assert book.collected({"got": "1"}) is True
+    tally = book.tally()
+    assert tally["taken"] == 1, tally
+    assert tally["taken_all"] == 1, tally
+    assert tally["last_ts"] > 0.0, tally
+    history = book.history()
+    assert len(history) == 1 and history[0]["taken"] == 1, history
+    assert history[0]["day"] == tally["day"], history
+
+
+def test_the_reaction_is_measured_from_the_announcement():
+    rt = _Runtime()
+    book = _book(rt)
+
+    # …with no announcement first, there is nothing to measure from
+    book.collected({"got": "1"})
+    assert book.tally()["react_last"] == -1, book.tally()
+
+    book.note("push.get.fireworks.gift", {"tile": "400001", "kind": "661502"})
+    book.collected({"got": "1"})
+    tally = book.tally()
+    assert tally["react_last"] >= 0, tally
+    assert tally["react_best"] == tally["react_last"], tally
+
+
+def test_a_take_is_checkpointed_at_once_and_survives_a_reload():
+    """A push may wait for the next window; a box may not — a restart would lose it."""
+    rt = _Runtime()
+    book = _book(rt)
+    book.collected({"got": "1"})
+    assert rt.store.writes >= 1, "the take was not written down"
+
+    again = _book(rt)                              # same profile, fresh book
+    tally = again.tally()
+    assert tally["taken"] == 1, tally
+    assert tally["taken_all"] == 1, tally
+    assert tally["last_ts"] > 0.0, tally
+    assert again.history()[0]["taken"] == 1
+
+
+def test_the_answer_gets_its_own_row_on_the_ledger():
+    """«Небо занято, а мы ничего не взяли» must not look like «ухо оглохло»."""
+    rt = _Runtime()
+    book = _book(rt)
+    names = [row["what"] for row in rt.intake.report()]
+    assert firework_wire.INTAKE_GOT in names, names
+
+    book.collected({"got": "0"})
+    row = [r for r in rt.intake.report() if r["what"] == firework_wire.INTAKE_GOT][0]
+    assert row["seen"] == 1 and row["kept"] == 0, row
+
+
+def test_the_ear_tells_a_refusal_from_a_box():
+    mon = _module(ROOT / "tools" / "wire_event_monitor.py", "wire_event_monitor")
+
+    assert mon._firework_fields is not None
+    assert mon._fields_for("get.fireworks.gift", {"itemId": 200}) == "got=1"
+    built = mon._fields_for("get.fireworks.gift", {"errorCode": "zombieRush_tips_19",
+                                                  "errorMsg": "not same alliance"})
+    assert built == "got=0 why=zombieRush_tips_19", built
+    # …the server's SENTENCE never travels: it is a string it may build out of anything
+    assert "not same alliance" not in built
+    # …and the announcement is still built by the family builder, not by this one
+    push = mon._fields_for("push.get.fireworks.gift", {"pointId": 400001,
+                                                      "configId": 661502})
+    assert push == "tile=400001 kind=661502", push
+
+
+def test_the_block_is_on_both_front_ends():
+    """A tab edit is not done while the phone still shows the old panel (`CLAUDE.md`)."""
+    tab = (ROOT / "panel" / "tabs" / "events" / "tab.py").read_text(encoding="utf-8")
+    model = (ROOT / "panel" / "tabs" / "events" / "model.py").read_text(encoding="utf-8")
+
+    assert 'FIREWORKS = "fireworks"' in model
+    assert "Group(FIREWORKS)" in model
+    # the window draws it…
+    assert "def _render_fireworks(self, group)" in tab
+    assert "events.fireworks.collect" in tab
+    # …and the phone gets the same rows and the same press
+    web = tab[tab.index("def web_view"):]
+    for key in ("events.fireworks.today", "events.fireworks.heard",
+                "events.fireworks.last", "events.fireworks.react",
+                "events.fireworks.refused", "events.fireworks.month",
+                "events.fireworks.collect"):
+        assert key in web, f"{key} is missing from the phone's copy"
+    assert '"collect_fireworks"' in tab[tab.index("def web_press"):]
+    # …and every one of those words is a key in all eleven locales
+    import json                                    # noqa: PLC0415
+    keys = ["events.group.fireworks", "events.fireworks.today", "events.fireworks.heard",
+            "events.fireworks.last", "events.fireworks.react", "events.fireworks.refused",
+            "events.fireworks.month", "events.fireworks.history",
+            "events.fireworks.collect", "events.fireworks.collect.hint"]
+    for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
+        words = json.loads(path.read_text(encoding="utf-8"))
+        missing = [k for k in keys if k not in words]
+        assert not missing, f"{path.name} is missing {missing}"
 
 
 def test_the_press_is_a_table_and_never_three_arguments():
