@@ -110,19 +110,77 @@ def test_the_send_does_not_count_the_attack_and_the_confirm_does():
     assert "p.spent" in confirm
 
 
-def test_the_proof_of_an_attack_is_the_energy_the_server_took():
-    settled = lua_actions.golden_settled()
-    assert "p.before" in settled, "the proof must be the purse moving"
-    assert "stamina" in settled, "the purse is the player's stamina"
-    # …and it is «it went DOWN», never «it went down by the QUOTED price» (#1702): live,
-    # the game quoted 10 and the server charged 8, so the strict form called a real attack
-    # a failure and stopped the chain over a squad that was already marching.
-    assert "p.cost" not in settled, \
-        "the proof is priced off the quote, which the server does not have to honour"
-    assert "before - 1" in settled
+def test_the_proof_of_an_attack_is_a_march_and_never_the_purse():
+    """#1702, the operator's model: a march appearing IS the attack going out.
+
+    The purse decided this until now and it was wrong twice — the server does not always
+    charge the price it quotes (10 quoted, 8 taken, live), and the purse does not only go
+    DOWN. A refill mid-chain (56 → 102, live) made three marches that had all gone out
+    read as sends nobody received, and the run reported two attacks out of three.
+    """
+    launched = lua_actions.golden_launched()
+    assert "GetOwnerMarches" in launched, "the proof does not look at our marches at all"
+    assert "march_before" in launched, \
+        "the proof counts marches rather than noticing a NEW one — another squad's rally "\
+        "would answer for this attack"
+    assert "stamina" not in launched and "p.cost" not in launched, \
+        "the send proof is still priced off the purse"
+    send = lua_actions.golden_send()
+    assert "p.march_before" in send, "the send never writes down what was flying before it"
+    body, _ = _source(RECIPE)
+    assert launched in body, "the recipe's copy of the send proof is not the module's"
+
+
+def test_an_energy_refill_in_the_middle_does_not_lose_an_attack():
+    """The «purse went down» reading is gone from every gate the chain branches on."""
+    body, _ = _source(RECIPE)
+    branches = [line.strip() for line in body.splitlines()
+                if line.strip().startswith("READ_LUA") and " INTO launched" in line]
+    assert branches, "nothing reads the launch proof"
+    for line in branches:
+        assert "stamina" not in line, \
+            "an attack is still declared by the purse — a refill would lose it"
+    # …and the tally still RECORDS what it cost, which is what the purse is good for.
     confirm = lua_actions.golden_confirm()
-    assert "before - " in confirm, \
-        "the tally records the quote rather than what the server actually took"
+    assert "p.spent" in confirm and "before - " in confirm
+
+
+def test_a_send_that_never_became_a_march_moves_on_rather_than_ending_the_run():
+    """#1702: the commonest refusal is a zombie that was already dead when we asked.
+
+    The client's list is a snapshot; another player gets there first; the server refuses
+    an order at a monster that is not there. That is worth the next target — and NOT worth
+    an endless one, because a client that has gone deaf refuses everything the same way.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    assert "TAP golden_miss" in lines, "a refused send has no way out but ending the run"
+    i = lines.index("TAP golden_miss")
+    tail = lines[i:i + 6]
+    assert any(w.startswith("IF misses >") for w in tail), \
+        "misses are written down and never acted on — a deaf client would spin for ever"
+    miss = lua_actions.golden_note_miss()
+    assert "p.misses" in miss and "p.pending = nil" in miss
+    assert "p.misses = 0" in lua_actions.golden_confirm(), \
+        "the miss streak is never cleared, so two refusals a chain apart end the run"
+
+
+def test_a_zombie_somebody_else_killed_does_not_stall_the_chain():
+    """#1702: the monster going is the proof the attack is OVER — from whoever's hand."""
+    gone = lua_actions.golden_gone()
+    assert "p.hit" in gone and "GetMonsterListInArea" in gone
+    assert "return 1 end" in gone, "nothing to look for must answer «gone»"
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    assert "TAP golden_kill" in lines, "a confirmed kill is never counted"
+    assert "TAP golden_kill_drop" in lines, \
+        "a zombie that outlives the wait has no way out — the chain would stall on it"
+    i = lines.index("TAP golden_kill_drop")
+    assert not any(w.startswith("FAIL") for w in lines[i - 3:i + 3]), \
+        "another player's kill is treated as a failure of ours"
+    assert "p.kills" in lua_actions.golden_note_kill()
+    assert "p.kills" not in lua_actions.golden_drop_kill(), \
+        "a zombie nobody saw die is counted as ours"
 
 
 def test_the_chain_measures_from_the_squad_and_not_from_home():
@@ -156,9 +214,11 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
             "the camera is moved and the client is not re-asked"
     for i, line in enumerate(lines):
         if line == "TAP golden_pick":
-            before = lines[max(0, i - 4):i]
+            before = lines[max(0, i - 20):i]
             assert "TAP golden_scan" in before, \
                 "a pick is made off a list nobody refreshed for this origin"
+            assert "TAP golden_look_from" in before, \
+                "the scan the pick reads was taken from somewhere else"
     look = lua_actions.golden_look_from()
     assert "p.anchor or p.home" in look, \
         "the camera does not follow the same origin the pick measures from"
@@ -181,11 +241,12 @@ def test_the_last_march_of_a_run_brings_the_squad_home():
     assert "cost * 2" in last, "the last march is not worked out from what is left"
 
 
-def test_the_recipe_carries_the_CURRENT_copy_of_the_settle_check():
+def test_the_recipe_carries_the_CURRENT_copy_of_the_proofs():
     """The DSL has no include, so the recipe embeds the text — and it goes stale (#1702)."""
     body, _ = _source(RECIPE)
-    assert lua_actions.golden_settled() in body, \
-        "the recipe's copy of the settle check is not the module's"
+    for name in ("golden_launched", "golden_gone", "golden_report"):
+        assert getattr(lua_actions, name)() in body, \
+            f"the recipe's copy of {name} is not the module's"
 
 
 def test_the_energy_is_asked_and_never_kept():
@@ -414,7 +475,7 @@ def test_the_lua_of_every_press_compiles():
                  "golden_rode", "golden_approach_report", "golden_arrived",
                  "golden_armed", "golden_queued",
                  "golden_found", "golden_picked",
-                 "golden_needs_uuid", "golden_marching", "golden_settled",
+                 "golden_needs_uuid", "golden_marching", "golden_launched", "golden_gone",
                  "golden_can_go", "golden_last_march", "golden_attacks",
                  "golden_spent", "golden_report", "golden_survey", "golden_energy",
                  "golden_attack_cost"):
@@ -456,6 +517,45 @@ def test_the_gap_between_two_kills_carries_no_waiting_nobody_needs():
         if line == "TAP golden_eta":
             assert lines[i + 1] != "TAP golden_scan", \
                 "the queue is rebuilt twice per kill and one of them is thrown away"
+
+
+def test_the_kill_is_judged_off_a_district_that_was_just_refreshed():
+    """#1702: «gone» read off tiles nobody re-fetched answers «gone» about everything.
+
+    Measured live: the check ran one second after the squad landed, from wherever the
+    camera had been, and answered «gone» every time — so the chain moved on while the
+    fight was still running and the next send was refused (twice in a row, which ended the
+    run). The kill's own tile IS the origin of the next pick, so the look and the scan
+    that were already there serve both; the check simply belongs after them.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    gone = [i for i, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO gone" in w]
+    assert gone, "nothing checks whether the zombie went"
+    first = min(gone)
+    before = lines[:first]
+    assert "TAP golden_scan" in before and "TAP golden_look_from" in before, \
+        "the kill is judged before the client has been asked about that district"
+    kill = lines.index("TAP golden_kill")
+    assert kill > first, "the kill is counted before it is checked"
+
+
+def test_a_dead_target_is_dropped_before_a_send_is_wasted_on_it():
+    """#1702: the client's list is a snapshot; the map has moved on since the sweep."""
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    assert "TAP golden_drop_target" in lines
+    here = [i for i, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO here" in w]
+    assert here, "nothing asks whether the armed target is still on the map"
+    i = min(here)
+    before = lines[max(0, i - 5):i]
+    assert "TAP golden_look" in before and "TAP golden_scan" in before, \
+        "the target is checked without looking at it — the answer is the old snapshot"
+    send = [j for j, w in enumerate(lines) if w == "TAP golden_send"]
+    assert send and min(send) > i, "the check comes after the send it is meant to save"
+    drop = lua_actions.golden_drop_target()
+    assert "p.used" in drop and "p.misses" not in drop, \
+        "dropping a dead target counts as a refused order — two of them would end the run"
 
 
 def _run_standalone() -> int:

@@ -1153,6 +1153,35 @@ BUTTONS["golden_confirm"] = Button(
     lua=_lua_actions.golden_confirm(),
     wait=0.1, label="count the attack the game has confirmed",
 )
+BUTTONS["golden_kill"] = Button(
+    # Not a press either: the KILL, written down once the zombie has gone off the map
+    # (#1702). The march says an attack went out; the monster vanishing says it is over,
+    # and the two are counted separately because they are two different facts.
+    lua=_lua_actions.golden_note_kill(),
+    wait=0.1, label="count the zombie that has gone",
+)
+BUTTONS["golden_kill_drop"] = Button(
+    # …and giving up on one that will not go: somebody else's kill, or a fight still
+    # running. Never a failure — the chain moves on and the report shows one more attack
+    # than kills, which is the honest shape of it.
+    lua=_lua_actions.golden_drop_kill(),
+    wait=0.1, label="stop waiting for a zombie that will not go",
+)
+BUTTONS["golden_drop_target"] = Button(
+    # A zombie that is not there any anymore, taken off the queue with nothing sent at it
+    # (#1702). Not a miss: no order was given and nothing was refused, so the streak that
+    # stops a deaf run is left alone.
+    lua=_lua_actions.golden_drop_target(),
+    wait=0.1, label="drop a target that is no longer on the map",
+)
+BUTTONS["golden_miss"] = Button(
+    # A send that produced no march — nearly always a zombie somebody else had already
+    # killed, because the client's list is a snapshot (#1702). Written off, counted, and
+    # the chain tries the next target; two in a row and the run stops, because a client
+    # that has gone deaf refuses everything.
+    lua=_lua_actions.golden_note_miss(),
+    wait=0.1, label="write off a send that never became a march",
+)
 BUTTONS["golden_home"] = Button(
     # The same send with `back = 1`: the march that brings the squad home. The recipe
     # raises the parked flag before pressing it, so this is `golden_send` with a promise

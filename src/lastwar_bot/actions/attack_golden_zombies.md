@@ -245,6 +245,20 @@ WHILE go == 1 LIMIT 24
         IF looked_moved == 1
             WAIT 1.5
         TAP golden_scan
+        # THE ATTACK IS OVER WHEN THE ZOMBIE IS GONE (#1702). The march is the order; the
+        # monster vanishing off the map is the fight. A zombie somebody else killed first
+        # answers the same way, which is right — the question is whether it is still there to
+        # be fought — and one that outlives the wait costs the chain nothing but the wait.
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.hit if t == nil then return 1 end local ws = _G.__LW_GOLD_WS local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) _G.__LW_GOLD_WS = ws end if ws == nil then return 1 end local want = tostring(t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 0 or 1 end)() INTO gone
+        WHILE gone == 0 LIMIT 8
+            WAIT 1
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.hit if t == nil then return 1 end local ws = _G.__LW_GOLD_WS local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) _G.__LW_GOLD_WS = ws end if ws == nil then return 1 end local want = tostring(t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 0 or 1 end)() INTO gone
+        IF gone == 1
+            TAP golden_kill
+        ELSE
+            LOG "the zombie is still standing — another player's kill, or a fight still running; moving on"
+            TAP golden_kill_drop
+
         TAP golden_pick
         # WHICH zombie, how far from the origin the pick used, and how far the same
         # tile is from the base — the two numbers that say the chain is a chain.
@@ -260,6 +274,21 @@ WHILE go == 1 LIMIT 24
             TAP golden_grab
 
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO picked
+
+        # IS IT STILL THERE? Asked with the camera ON the target, because the client's list
+        # is a snapshot of the districts it has loaded and the next target of a chain is
+        # usually twenty tiles away in one nobody has looked at since the sweep. Live, two
+        # sends in four went at zombies that were already dead, each costing the ten
+        # seconds the launch proof waits before giving up (#1702).
+        IF picked == 1
+            TAP golden_look
+            WAIT 1
+            TAP golden_scan
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.cur if t == nil then return 1 end local ws = _G.__LW_GOLD_WS local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) _G.__LW_GOLD_WS = ws end if ws == nil then return 1 end local want = tostring(t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 1 or 0 end)() INTO here
+            IF here == 0
+                LOG "that zombie is not on the map any more — dropping it and picking another"
+                TAP golden_drop_target
+                READ_LUA (0) INTO picked
 
         IF picked == 1
             # THE RIDE. A gather order travels 2.5x faster than an attack one, so a long
@@ -294,18 +323,32 @@ WHILE go == 1 LIMIT 24
             ELSE
                 TAP golden_send
 
-            # The proof is the SERVER charging the energy, never the send returning
-            # cleanly.
-            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local before = tonumber(p.before) if before == nil then return 1 end return ((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() <= (before - 1)) and 1 or 0 end)() INTO settled
-            WHILE settled == 0 LIMIT 10
+            # THE PROOF THAT THE ATTACK IS UNDER WAY IS A MARCH OF OURS THAT WAS NOT
+            # THERE A MOMENT AGO (#1702) — the operator's own model, and a fact about the
+            # order rather than about what was paid for it. The purse decided this until
+            # now, and it was wrong twice: the server does not always charge the price it
+            # quotes (10 quoted, 8 taken, live), and the purse does not only go down — an
+            # energy refill mid-chain made three marches that had all gone out look like
+            # sends nobody received.
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) return (fresh > 0) and 1 or 0 end)() INTO launched
+            WHILE launched == 0 LIMIT 15
                 WAIT 0.7
-                READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local before = tonumber(p.before) if before == nil then return 1 end return ((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() <= (before - 1)) and 1 or 0 end)() INTO settled
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) return (fresh > 0) and 1 or 0 end)() INTO launched
 
-            IF settled == 0
-                LOG "the squad was sent and the energy was not charged — stopping rather than spending the rest of it on sends nobody is receiving"
-                READ_LUA (0) INTO go
+            IF launched == 0
+                # A ZOMBIE SOMEBODY ELSE KILLED FIRST, nearly always: the client's list is
+                # a snapshot, and the server refuses an order at a monster that is not
+                # there. That is worth another target, not the end of the run — but a
+                # client that has gone deaf refuses everything, so two in a row stop it.
+                LOG "the send never became a march — that zombie is gone; trying the next one"
+                TAP golden_miss
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.misses) or 0) end)() INTO misses
+                IF misses > 1
+                    LOG "two sends in a row went nowhere — stopping rather than giving orders nobody is receiving"
+                    READ_LUA (0) INTO go
             ELSE
-                # The tally moves HERE and nowhere else.
+                # The tally moves HERE and nowhere else. What the attack COST is read off
+                # the purse for the books, and cannot decide anything.
                 TAP golden_confirm
                 # …and when this march is due to land, so the next lap knows what to
                 # wait for.
@@ -313,12 +356,12 @@ WHILE go == 1 LIMIT 24
                 # No scan here: the lap below re-asks the client after it has looked at the
                 # origin of the next pick, and asking twice cost most of a second per kill
                 # for a list that is thrown away and rebuilt anyway (#1702).
-
         IF go == 1
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost then return 0 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() > 0) and 1 or 0 end)() INTO go
 
-READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. ' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. ' energy=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) .. ' queued=' .. tostring((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()) .. ' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)() INTO golden_report
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. ' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. ' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. ' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. ' energy=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) .. ' queued=' .. tostring((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()) .. ' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)() INTO golden_report
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.attacks) or 0) end)() INTO attacks
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.kills) or 0) end)() INTO kills
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.spent) or 0) end)() INTO spent
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.rode) or 0) end)() INTO rode
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'why=' .. tostring(p.why or '-') .. ' direct=' .. tostring(math.floor(tonumber(p.direct_sec) or 0)) .. ' via=' .. tostring(math.floor(tonumber(p.approach_sec) or 0)) .. ' rode=' .. tostring(math.floor(tonumber(p.rode) or 0)) .. ' atk=' .. string.format('%.3f', tonumber(p.speed_atk) or 0) .. ' col=' .. string.format('%.3f', tonumber(p.speed_col) or 0) end)() INTO ride_report
@@ -326,4 +369,4 @@ READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'why=' .. tostr
 IF attacks == 0
     FAIL "nothing was sent — {golden_report}"
 
-LOG "golden zombies: {attacks} attack(s) sent, {spent} energy spent, {rode} ride(s) — {golden_report} · {ride_report}"
+LOG "golden zombies: {attacks} attack(s) sent, {kills} confirmed gone, {spent} energy spent, {rode} ride(s) — {golden_report} · {ride_report}"

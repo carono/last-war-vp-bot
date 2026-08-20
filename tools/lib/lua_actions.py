@@ -9627,6 +9627,7 @@ def golden_scan() -> str:
         "x = (tp and tp.x or -1), y = (tp and tp.y or -1), src = 'clone'} end end end "
         "end end end) "
         "p.found = #p.targets "
+        "p.ids = _goldids() "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_scan added="..tostring(added)'
         '.." queued="..tostring(p.found))'
@@ -9882,7 +9883,17 @@ def golden_send() -> str:
         "end, 0.5) "
         "p.used[tostring(t.pid)] = true "
         "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
-        "p.pending = {pid = pid, uuid = uuid} "
+        "p.pending = {pid = pid, uuid = uuid, x = t.x, y = t.y} "
+        # THE MARCHES THAT EXIST BEFORE THE SEND (#1702). The proof that a send reached
+        # the server is a march of ours that was not there a moment ago, so the «before»
+        # set is taken here — and the one that appears against it is this attack, which
+        # is also the march whose clock the wait should be on.
+        "p.march_before = {} "
+        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+        "if ms == nil then return end "
+        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+        "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
+        "if u ~= nil then p.march_before[u] = true end end end end) "
         "p.before = %(energy)s "
         "p.cur = nil "
         "%(gold)s = p "
@@ -9906,6 +9917,7 @@ def golden_confirm() -> str:
         "if p.pending == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_confirm skipped=nothing-pending") return end '
         "p.attacks = (tonumber(p.attacks) or 0) + 1 "
+        "p.misses = 0 "
         # WHAT THE SERVER TOOK, not what it quoted (#1702): live, a 10-energy attack was
         # charged 8. The quote is the fallback for the case where the purse could not be
         # read at all.
@@ -9915,6 +9927,9 @@ def golden_confirm() -> str:
         "if charged == nil or charged <= 0 then charged = tonumber(p.cost) or 0 end "
         "p.spent = (tonumber(p.spent) or 0) + charged "
         "local pid = p.pending.pid "
+        # THE TARGET MOVES TO THE KILL WATCH (#1702): the march proves the attack went,
+        # and the zombie vanishing proves it is over — two facts, counted separately.
+        "p.hit = p.pending "
         "p.pending = nil "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_confirm pid="..tostring(pid)'
@@ -9922,6 +9937,193 @@ def golden_confirm() -> str:
         '.." charged="..tostring(charged))'
         % {"gold": _GOLD, "energy": golden_energy()}
     )
+
+
+def golden_launched() -> str:
+    """Lua *expression* -> 1 once a march of OURS exists that did not exist before the send.
+
+    **THE PROOF THAT AN ATTACK IS UNDER WAY** (#1702), and it is the operator's own model:
+    a march appearing in the game's list is the send having reached the server, and it is
+    a fact about the ORDER rather than about anything we paid for it.
+
+    What it replaces is «the purse went down by what the attack cost», which was wrong
+    twice over. The server does not always charge the quoted price — live, a 10-energy
+    attack was taken at 8 — and the purse does not only go DOWN: a player who tops their
+    energy up mid-chain (56 → 102, live) makes an unmoved purse look like a send nobody
+    received, and the chain stopped over three marches that had all gone out.
+
+    `1` when nothing is pending, so a caller polling this after a skipped send is not left
+    waiting for a march nobody ordered.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "if p.pending == nil then return 1 end "
+        "local seen = p.march_before or {} "
+        "local fresh = 0 "
+        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+        "if ms == nil then return end "
+        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+        "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
+        "if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) "
+        "return (fresh > 0) and 1 or 0 end)()"
+    )
+
+
+def golden_gone() -> str:
+    """Lua *expression* -> 1 when the zombie this run last hit is no longer on the map.
+
+    **THE PROOF THAT THE ATTACK IS OVER** (#1702). The march says the order went out; the
+    monster vanishing says the fight happened. It is asked around the target's own tile,
+    with the golden config ids as the whitelist, so a different monster standing nearby
+    cannot answer for it.
+
+    `1` when there is nothing to look for. A zombie somebody ELSE killed first answers `1`
+    too, and that is right: the question is «is it still there to be fought», not «was it
+    ours». The caller treats a `0` that never clears as «moving on», never as a failure —
+    a monster that outlives the wait costs the chain nothing but the wait.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local t = p.hit "
+        "if t == nil then return 1 end " +
+        _GOLD_WS +
+        "if ws == nil then return 1 end "
+        "local want = tostring(t.uuid or 0) "
+        "local there = false "
+        "pcall(function() "
+        "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
+        "for _, id in ipairs(p.ids or {%(cfg)d}) do pcall(function() ids:Add(id, 1) end) end "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) "
+        "local e = res:GetEnumerator() "
+        "while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) "
+        "return there and 0 or 1 end)()"
+        % {"cfg": GOLDEN_ZOMBIE_CFG}
+    )
+
+
+def golden_note_kill() -> str:
+    """Count the zombie that has gone, and stop looking for it.
+
+    Kept apart from the attack tally on purpose (#1702): a march that went out and a
+    zombie that fell are two different facts, and a run that sent three orders and saw two
+    of the three vanish should say exactly that rather than round either number to the
+    other.
+    """
+    return (
+        _GOLD_P +
+        "if p.hit == nil then return end "
+        "p.kills = (tonumber(p.kills) or 0) + 1 "
+        "local uuid = p.hit.uuid "
+        "p.hit = nil "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_note_kill uuid="..tostring(uuid)'
+        '.." kills="..tostring(p.kills))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_drop_kill() -> str:
+    """Stop waiting for a zombie that will not go — somebody else's kill, or a long fight.
+
+    Not a failure and never counted: the chain moves on, and the run's report shows one
+    more attack than kills, which is the honest shape of what happened.
+    """
+    return (
+        _GOLD_P +
+        "if p.hit == nil then return end "
+        "local uuid = p.hit.uuid "
+        "p.hit = nil "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_drop_kill uuid="..tostring(uuid))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_here() -> str:
+    """Lua *expression* -> 1 when the armed target is still on the map, 0 when it is gone.
+
+    **Asked with the camera ON the target** (#1702), which is the whole point: the client's
+    monster list is a snapshot of districts it has loaded, and a chain's next target is
+    usually twenty tiles away in a district nobody has looked at since the sweep. Live, two
+    sends out of four went to zombies that were already dead — each cost the ten seconds
+    the launch proof waits before it gives up, and two in a row ended the run.
+
+    A camera move re-fetches the district, so this answers about the CURRENT map. `1` when
+    there is nothing armed, so the caller falls through to its own «nothing picked» branch.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local t = p.cur "
+        "if t == nil then return 1 end " +
+        _GOLD_WS +
+        "if ws == nil then return 1 end "
+        "local want = tostring(t.uuid or 0) "
+        "local there = false "
+        "pcall(function() "
+        "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
+        "for _, id in ipairs(p.ids or {%(cfg)d}) do pcall(function() ids:Add(id, 1) end) end "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) "
+        "local e = res:GetEnumerator() "
+        "while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) "
+        "return there and 1 or 0 end)()"
+        % {"cfg": GOLDEN_ZOMBIE_CFG}
+    )
+
+
+def golden_drop_target() -> str:
+    """Take the armed target off the queue without sending anything at it.
+
+    For a zombie that is not there any more (:func:`golden_here`). It is NOT a miss — no
+    order was given, nothing was refused, and the run has no reason to think the game has
+    stopped listening — so the miss streak is left alone and the chain simply picks again.
+    """
+    return (
+        _GOLD_P +
+        "if p.cur == nil then return end "
+        "local pid, uuid = p.cur.pid, p.cur.uuid "
+        "p.used[tostring(pid)] = true "
+        "p.dropped = (tonumber(p.dropped) or 0) + 1 "
+        "p.cur = nil "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_drop_target pid="..tostring(pid)'
+        '.." uuid="..tostring(uuid).." dropped="..tostring(p.dropped))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_note_miss() -> str:
+    """A send that produced no march of ours: write it off and let the chain try another.
+
+    **Not a failure of the run** (#1702). The commonest reason is the honest one: the
+    zombie was already dead — the client's list is a snapshot and another player got there
+    first — and the server simply refuses an order at a monster that is not there. Trying
+    the next target is exactly right, and stopping the whole chain over it is what the
+    strict version did.
+
+    What it must NOT do is spin: a client that has gone deaf refuses everything, and a run
+    that answers that by picking another target for ever is a busy loop against a dead
+    link. So the misses are counted and the caller stops at the second one in a row.
+    """
+    return (
+        _GOLD_P +
+        "p.misses = (tonumber(p.misses) or 0) + 1 "
+        "local uuid = p.pending and p.pending.uuid "
+        "p.pending = nil p.hit = nil "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_note_miss uuid="..tostring(uuid)'
+        '.." misses="..tostring(p.misses))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_misses() -> str:
+    """Lua *expression* -> how many sends in a row produced no march."""
+    return ("(function() " + _GOLD_P +
+            "return math.floor(tonumber(p.misses) or 0) end)()")
 
 
 def golden_marching() -> str:
@@ -9944,57 +10146,6 @@ def golden_marching() -> str:
             "if tostring(v.uuid) == tostring(p.formation) then "
             "st = math.floor(tonumber(v.state) or 0) end end end) "
             "return ((st or 0) == 1) and 1 or 0 end)()")
-
-
-def golden_settled() -> str:
-    """Lua *expression* -> 1 once the SERVER has charged the energy for the last send.
-
-    The proof an attack really went out, and the only one that does not depend on how the
-    client files its own marches. A send returns cleanly whether or not the server
-    honoured it (docs/research/world-monsters.md, Findings 13 and 16); the purse moving is
-    the server's own answer.
-
-    **It is «the purse went DOWN», not «it went down by the quoted price» (#1702).** The
-    price the game quotes and the price the server charges are two different numbers: live
-    on 2026-08-20 `GetCostStaminaByTargetType(ATTACK_MONSTER)` answered 10 and the server
-    took 8 (91 → 83, unmoved for the next eighty seconds, so no regeneration is hiding in
-    it). The strict form declared that attack a failure, stopped a chain that had just
-    sent one, and reported «nothing was sent» over a squad that was visibly marching. What
-    the quote is still good for is the BUDGET — how many attacks the purse might buy — and
-    it is used for nothing else.
-
-    `1` when nothing is pending, so a caller that polls this after a skipped send is not
-    left waiting for a charge nobody asked for.
-    """
-    return (
-        "(function() " + _GOLD_P +
-        "if p.pending == nil then return 1 end "
-        "local before = tonumber(p.before) "
-        "if before == nil then return 1 end "
-        "return (%(energy)s <= (before - 1)) and 1 or 0 end)()"
-        % {"energy": golden_energy()}
-    )
-
-
-def golden_far() -> str:
-    """Lua *expression* -> 1 while the parked march is still more than a few seconds out.
-
-    The COARSE half of the arrival wait (#1702). Polling a five-minute march every second
-    buys nothing and costs a checkpoint a second — and every checkpoint is a moment the
-    run may be asked to step aside, which under a busy schedule is where the lease
-    exchanges go wrong. So the flight is watched in three-second beats and only the last
-    few seconds are watched closely (:func:`golden_marching` … see the recipe).
-
-    `0` when nothing is parked, so a caller with no march to wait for falls straight
-    through to the fine loop and out.
-    """
-    return (
-        "(function() " + _GOLD_P +
-        "local due = tonumber(p.eta_ms) "
-        "if due == nil then return 0 end "
-        "return ((due - (%(now)s)) > %(near)d) and 1 or 0 end)()"
-        % {"now": _GAME_NOW_MS, "near": GOLDEN_ETA_NEAR_MS}
-    )
 
 
 def golden_can_go() -> str:
@@ -10060,6 +10211,8 @@ def golden_report() -> str:
         "(function() " + _GOLD_P +
         "return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. "
         "' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. "
+        "' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. "
+        "' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. "
         "' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. "
         "' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. "
         "' energy=' .. tostring(%(energy)s) .. "
@@ -10515,12 +10668,21 @@ def golden_note_eta() -> str:
     """
     return (
         _GOLD_P +
-        "local latest = nil "
+        "local latest, fresh = nil, nil "
+        "local seen = p.march_before or {} "
         "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
         "if ms == nil then return end "
         "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
-        "if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) "
-        "if e ~= nil and e > 0 and (latest == nil or e > latest) then latest = e end end end end) "
+        "if m ~= nil then local e, u = nil, nil "
+        "pcall(function() e = tonumber(m.endTime) end) "
+        "pcall(function() u = tostring(m.uuid) end) "
+        "if e ~= nil and e > 0 then "
+        "if u ~= nil and not seen[u] and (fresh == nil or e > fresh) then fresh = e end "
+        "if latest == nil or e > latest then latest = e end end end end end) "
+        # THE MARCH THIS SEND MADE, when it can be told apart (#1702). «The latest of all
+        # our marches» is another squad's rally or radar errand as often as not, and
+        # waiting for that one is minutes of a chain spent standing still.
+        "if fresh ~= nil then latest = fresh end "
         "if latest == nil then "
         "local guess = tonumber(p.approach_sec) or 60 "
         "latest = (%(now)s) + math.floor(guess * 1000) end "
