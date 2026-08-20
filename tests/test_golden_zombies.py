@@ -558,6 +558,31 @@ def test_a_dead_target_is_dropped_before_a_send_is_wasted_on_it():
         "dropping a dead target counts as a refused order — two of them would end the run"
 
 
+def test_the_ride_is_still_wired_and_waits_on_its_own_march():
+    """#1702: the approach branch survived the proof rewrite — and needed one fix.
+
+    Both senders have to park the marches that existed before them, because that set is
+    what tells the run's own march from another squad's rally afterwards. The attack send
+    got it in the rewrite; the RIDE did not, so a ride's wait fell back to «the latest
+    march we hold» — which on the first lap of a run is whatever else is out.
+    """
+    ride = lua_actions.golden_approach_send()
+    assert "p.march_before" in ride, \
+        "the ride does not park the marches before it — its wait is on somebody else's clock"
+    assert "MarchTargetType.COLLECT" in ride, "the ride is not a gather order any more"
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    assert "IF approach == 1" in lines, "the approach branch is gone from the recipe"
+    i = lines.index("IF approach == 1")
+    tail = lines[i:i + 12]
+    assert "TAP golden_approach_arm" in tail and "TAP golden_ride" in tail, \
+        "the branch no longer plans or takes the ride"
+    assert "TAP golden_eta" in tail, "a ride nobody times is a chain that never resumes"
+    # …and the plan is still measured against the direct march, never taken blindly
+    arm = lua_actions.golden_approach_arm()
+    assert "p.why = 'short'" in arm and "p.why = 'no-mine'" in arm
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

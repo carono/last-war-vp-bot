@@ -296,10 +296,9 @@ WHILE go == 1 LIMIT 24
             # paid at attack speed. Taken only when the arithmetic wins — a short hop
             # loses more to the extra stop than it saves.
             IF approach == 1
-                # The camera first: `HasPointInfo` can only answer for a district
-                # the client has actually loaded, and the target is usually one
-                # it has never been to.
-                TAP golden_look
+                # No camera move here any more: the check above (#1702) has just flown to
+                # this very target and re-scanned, which is the same district
+                # `HasPointInfo` needs for the mine hunt below.
                 TAP golden_approach_arm
                 READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.approach ~= nil) and 1 or 0 end)() INTO riding
                 IF riding == 1

@@ -10613,6 +10613,16 @@ def golden_approach_send() -> str:
         "end, 0.5) "
         "p.rode = (tonumber(p.rode) or 0) + 1 "
         "p.anchor = {x = a.x, y = a.y, pid = a.pid} "
+        # THE MARCHES THAT EXIST BEFORE THE RIDE (#1702), exactly as the attack send parks
+        # them: the ride's own march is the one that appears against this set, and it is
+        # the clock the wait afterwards must be on. Without it the wait falls back to «the
+        # latest march we hold», which on the first lap of a run is another squad's rally.
+        "p.march_before = {} "
+        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+        "if ms == nil then return end "
+        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+        "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
+        "if u ~= nil then p.march_before[u] = true end end end end) "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_ride scheduled pid="..tostring(pid)'
         '.." at="..tostring(a.x)..","..tostring(a.y).." saved="'
