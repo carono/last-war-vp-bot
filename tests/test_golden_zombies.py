@@ -1306,6 +1306,16 @@ def test_the_hunt_never_waits_out_a_march_that_is_not_its_own():
                    % ("" if parked is None else ("eta_ms = %d" % parked), now))
         assert int(rt.eval(left)) == want
 
+    # …AND NEVER ABOUT A MARCH THIS HUNT ORDERED (#1702). Applied to our own march the
+    # ceiling does the opposite of its job: live, a ride the planner had quoted at 40
+    # seconds was really flying for 213, the guard read it as «not ours» and recalled it —
+    # the chain cancelling its own order mid-flight.
+    rt = lupa.LuaRuntime()
+    rt.execute("DataCenter = {__lw_gold = {eta_ms = 999000, pending = 1}} "
+               "UITimeManager = {Instance = {GetServerTime = function() return 1000 end}}")
+    assert int(rt.eval(left)) == -1, \
+        "the ceiling can recall the hunt's own march — it would cancel its own attack"
+
     _body, wait = _brick("golden_wait_for_the_march")
     i = next(k for k, w in enumerate(wait) if " INTO eta_left" in w)
     guard = wait[i:i + 4]
@@ -1361,6 +1371,32 @@ def test_a_failure_says_the_numbers_it_is_about():
         assert "found=183" in getattr(ctx, attr), \
             f"{attr} lost the numbers it was about: {getattr(ctx, attr)!r}"
         setattr(ctx, flag, False)
+
+
+def test_the_ride_is_skipped_once_after_a_recall():
+    """A recalled squad is at neither origin the chain measures from (#1702).
+
+    Every distance the hunt works out is measured from `anchor or home`, and a squad that
+    has just been recalled is at neither — it is wherever the cancelled order left it,
+    walking. The planner then prices BOTH the direct march and the ride off the wrong
+    origin, so the comparison it makes is meaningless: live, a ride quoted at 40 seconds
+    was still flying after two hundred. The next send is therefore a plain attack march,
+    and the ride resumes after it.
+    """
+    import lupa
+    assert "p.skip_ride = 1" in lua_actions.golden_unstick(), \
+        "a recall leaves the next ride to be priced from an origin the squad is not at"
+    arm = lua_actions.golden_approach_arm()
+    rt = lupa.LuaRuntime()
+    rt.execute("CS = {UnityEngine = {Debug = {LogError = function() end}}}")
+    rt.execute("DataCenter = {__lw_gold = {skip_ride = 1, cur = {pid = 1, x = 1, y = 1}}}")
+    rt.execute(arm)
+    assert rt.eval("DataCenter.__lw_gold.approach") is None, "the ride was planned anyway"
+    assert rt.eval("DataCenter.__lw_gold.why") == "after-recall"
+    # …ONCE. The flag clears itself, or a single recall would end riding for the run —
+    # which is what the FUSE is for, and it is a different decision with a different cause.
+    assert int(rt.eval("DataCenter.__lw_gold.skip_ride")) == 0, \
+        "one recall switches the ride off for good"
 
 
 def _run_standalone() -> int:

@@ -10621,6 +10621,14 @@ def golden_unstick() -> str:
         # a recall makes the march it belonged to meaningless — left standing, the wait
         # that triggered the recall triggers it again on the next lap, for ever.
         "p.eta_ms = nil "
+        # …AND THE NEXT RIDE IS SKIPPED, ONCE (#1702). Every distance the chain works out
+        # is measured from `anchor or home`, and a recalled squad is at neither: it is
+        # wherever it happened to be when the order was cancelled, walking. The planner
+        # then prices both the direct march and the ride off the wrong origin, and live
+        # that is a ride quoted at 40 seconds that took more than two hundred. The
+        # comparison is meaningless until the squad is somewhere the chain knows about,
+        # so the next send is a plain attack march and the ride resumes after it.
+        "p.skip_ride = 1 "
         "p.pending = nil p.hit = nil p.cur = nil "
         "if p.home ~= nil then p.anchor = nil end "
         "%(gold)s = p "
@@ -10645,8 +10653,18 @@ def golden_eta_left() -> str:
     The same clock every wait in the chain uses — the server's own `endTime` for the
     newest march of ours — but as a NUMBER rather than as a yes/no, so a caller can tell
     «nearly there» from «this is not our march at all» (:data:`GOLDEN_WAIT_CEILING`).
+
+    **AND ONLY FOR A MARCH THIS HUNT DID NOT ORDER (#1702).** The ceiling exists to stop
+    the chain waiting out a mine being gathered or a rally somebody else's press sent the
+    squad into. Applied to the hunt's OWN march it does the exact opposite: live, a ride
+    the planner had quoted at 40 seconds was really flying for 213, the guard read that as
+    «not ours» and RECALLED IT — the chain cancelling its own order mid-flight, which is
+    the very «меняет маршрут, когда уже идёт» this task is about. `p.pending` is set the
+    moment the chain sends, so a parked order of ours answers `-1` here and is waited out
+    on its own clock like any other.
     """
     return ("(function() " + _GOLD_P +
+            "if p.pending ~= nil then return -1 end "
             "local due = tonumber(p.eta_ms) "
             "if due == nil then return -1 end "
             "local now = nil "
@@ -11188,6 +11206,10 @@ def golden_approach_arm() -> str:
     return (
         _GOLD_P + _GOLD_DIST +
         "p.approach = nil p.why = '' "
+"if math.floor(tonumber(p.skip_ride) or 0) == 1 then p.skip_ride = 0 "
+"p.why = 'after-recall' "
+"%(gold)s = p "
+'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=after-recall") return end '
 "if math.floor(tonumber(p.no_ride) or 0) == 1 then p.why = 'no-ride' "
 "%(gold)s = p "
 'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=no-ride") return end '
