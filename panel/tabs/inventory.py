@@ -47,9 +47,13 @@ def parse_items(text: str) -> list:
         record = record.strip()
         if not record:
             continue
-        fields = record.split(";;", 5)
+        fields = record.split(";;", 6)
         if len(fields) < 6:
             continue
+        # A reading saved by an older panel has six fields and no «usable» (#1702); it
+        # keeps working and simply offers no button until the next refresh.
+        if len(fields) == 6:
+            fields = fields[:5] + ["0"] + fields[5:]
         try:
             item_id = int(fields[0])
         except ValueError:
@@ -58,8 +62,9 @@ def parse_items(text: str) -> list:
                     "count": _int_or(fields[1]),
                     "colour": _int_or(fields[2]),
                     "type": _int_or(fields[3]),
+                    "usable": _int_or(fields[5]) == 1,
                     "icon": fields[4],
-                    "name": fields[5] or f"#{item_id}"})
+                    "name": fields[6] or f"#{item_id}"})
     return out
 
 
@@ -183,6 +188,25 @@ class InventoryTab(DataTab):
                   font=ui_font(weight="bold")).pack(side="left")
         ttk.Label(detail, textvariable=self._detail_text, foreground="#888",
                   wraplength=520, justify="left").pack(side="left", padx=(10, 0))
+
+        # THE USE ROW (#1702). The bag's own button, for the item the grid has selected:
+        # how many, and «Использовать». It is disabled until something usable is picked,
+        # because a button that answers «этот предмет не используется» after the press is
+        # a button that looked like it would work.
+        userow = ttk.Frame(self.parent)
+        userow.pack(fill="x", padx=10, pady=(0, 6))
+        self._use_label = self.rt.tr(ttk.Label(userow), "inventory.use.count")
+        self._use_label.pack(side="left")
+        self._use_count = _stringvar(self.rt)
+        self._use_count.set("1")
+        self._use_spin = ttk.Spinbox(userow, from_=1, to=1, width=8,
+                                     textvariable=self._use_count)
+        self._use_spin.pack(side="left", padx=(6, 8))
+        self._use_button = self.rt.tr(
+            ttk.Button(userow, width=16, command=self._use_selected), "inventory.use")
+        self._use_button.pack(side="left")
+        self._use_button.state(["disabled"])
+        self._use_spin.state(["disabled"])
 
         self._scroll = ScrollableFrame(self.parent)
         self._scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
@@ -358,6 +382,54 @@ class InventoryTab(DataTab):
         self._detail_name.set(
             f"{item.get('name', '')} ×{_group(item.get('count'))}")
         self._detail_text.set(self._descs.get(str(item.get("id")), ""))
+        self._arm_use(item)
+
+    def _arm_use(self, item) -> None:
+        """Point the use row at ``item`` — or grey it out when it cannot be used."""
+        if getattr(self, "_use_button", None) is None:
+            return
+        have = max(0, int(item.get("count") or 0))
+        usable = bool(item.get("usable")) and have > 0
+        state = "!disabled" if usable else "disabled"
+        self._use_button.state([state])
+        self._use_spin.state([state])
+        if usable:
+            # The count is capped by what is in the bag: a spinbox that offers to use a
+            # hundred of something there are three of is a promise the game will refuse.
+            self._use_spin.configure(from_=1, to=have)
+            self._use_count.set("1")
+
+    def _use_selected(self) -> None:
+        """Play `use_item.md` for the selected cell, then re-read the bag.
+
+        The panel decides nothing about what the press MEANS: which item, how many, and
+        whether the kind can be used at all are the scenario's business (`CLAUDE.md`).
+        """
+        item = self._selected or {}
+        item_id = int(item.get("id") or 0)
+        have = max(0, int(item.get("count") or 0))
+        try:
+            count = int(str(self._use_count.get() or "1").strip() or 1)
+        except ValueError:
+            count = 1
+        count = max(1, min(count, have))
+        if item_id <= 0 or not item.get("usable") or count <= 0:
+            return
+        self._use_button.state(["disabled"])
+        self.rt.play_async("use_item", {"item": item_id, "count": count},
+                           tag="inventory", on_result=self._used,
+                           on_done=lambda: self._arm_use(self._selected or {}))
+
+    def _used(self, outcome) -> None:
+        """Say what the run reported, in its own words, and re-read the bag."""
+        ctx = getattr(outcome, "ctx", None)
+        report = str((getattr(ctx, "vars", {}) or {}).get("use_report") or "")
+        if getattr(outcome, "ok", False):
+            self.say("inventory", "inventory.use.done", report=report)
+        else:
+            reason = str(getattr(outcome, "reason", "") or report or "?")
+            self.say("inventory", "inventory.use.failed", error=reason)
+        self.refresh()
 
     def _cell_image(self, item):
         """A cached Tk image of the composed cell, or ``None`` (no extraction, no PIL).
@@ -417,9 +489,53 @@ class InventoryTab(DataTab):
             picture = cell_url(item.get("icon"), item.get("colour"))
             if picture:
                 row["icon"] = picture
+            # THE SAME BUTTON THE WINDOW HAS (#1702), and the same choice of how many.
+            # The window offers a spinbox and the phone three quick amounts, because one
+            # thumb on a list of two hundred rows is not a numeric field — the ABILITY is
+            # the same one and the press plays the same scenario with the same argument.
+            have = max(0, int(item.get("count") or 0))
+            if item.get("usable") and have > 0:
+                row["actions"] = [
+                    {"id": "use", "label": "inventory.use.one",
+                     "args": {"item": item.get("id"), "count": 1}},
+                ]
+                if have >= 10:
+                    row["actions"].append(
+                        {"id": "use", "label": "inventory.use.ten",
+                         "args": {"item": item.get("id"), "count": 10}})
+                row["actions"].append(
+                    {"id": "use", "label": "inventory.use.all",
+                     "args": {"item": item.get("id"), "count": have}})
             rows.append(row)
         return [{"title": "tab.inventory", "items": rows, "search": True,
                  "empty": "inventory.empty"}]
+
+    def web_press(self, action: str, args) -> dict:
+        """«Использовать» from the phone — the same scenario the window plays.
+
+        The count is checked against what the bag holds HERE as well as in the scenario:
+        the phone's own copy of a row can be minutes old, and a press that asks for a
+        hundred of something there are three of should spend three rather than be refused.
+        """
+        if action != "use":
+            # …and everything else is still the base tab's — «Обновить» above all, which
+            # every data screen offers and which this override would otherwise swallow.
+            return super().web_press(action, args)
+        data = args or {}
+        try:
+            item_id = int(data.get("item") or 0)
+            count = int(data.get("count") or 0)
+        except (TypeError, ValueError):
+            return {"error": "bad_args"}
+        item = next((it for it in (self._last_data or ())
+                     if int(it.get("id") or 0) == item_id), None)
+        if item is None or not item.get("usable"):
+            return {"error": "not_usable"}
+        count = max(1, min(count, max(0, int(item.get("count") or 0))))
+        if item_id <= 0:
+            return {"error": "bad_args"}
+        return {"ok": self.rt.play_async("use_item", {"item": item_id, "count": count},
+                                         tag="inventory", on_result=self._used)}
 
 
 # ---------------------------------------------------------------------------

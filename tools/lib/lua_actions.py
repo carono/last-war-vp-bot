@@ -9392,6 +9392,85 @@ def radar_free_places() -> str:
 STAMINA_ITEMS = ((400401, 50), (400402, 10))
 
 
+#: WHICH KINDS OF ITEM THE BAG WILL USE (#1702). The client exposes no «can this be
+#: used» flag at all — the row it keeps carries `id`, `icon`, `type` and `type2` and
+#: nothing else, `CheckUseStateTool` answers `true` for a hero shard as readily as for a
+#: stamina potion, and there is no `lw_item` config table to ask. So the kinds are listed,
+#: and the list was read off the player's own bag by name: speed-ups, resource packs and
+#: potions, and every flavour of chest. Everything else — shards, tokens, fragments,
+#: coupons — shows no button at all.
+#:
+#: **A kind that is not here is not offered, ever.** Spending somebody's item because a
+#: guess said it was consumable is not a bug that can be apologised for afterwards.
+USABLE_ITEM_TYPES = (2, 3, 5, 59, 109, 150)
+
+
+def use_bag_item() -> str:
+    """Use `DataCenter.__lw_use_num` of item `DataCenter.__lw_use_id`, stack by stack.
+
+    The general form of what `use_stamina_items` does for energy: the bag keeps one entry
+    per STACK, so a hundred of something may be several, and each is spent no further than
+    it goes. The send is `item.use` with a TABLE — `{uuid = <the stack's own uuid>,
+    num = n}` — which is the only shape of five tried live that this client will serialise
+    (docs/research/inventory.md).
+
+    It never spends more than was asked for and never more than the bag holds, and it
+    refuses outright for a kind that is not in :data:`USABLE_ITEM_TYPES`.
+    """
+    return (
+        "local id = math.floor(tonumber(DataCenter.__lw_use_id) or 0) "
+        "local want = math.floor(tonumber(DataCenter.__lw_use_num) or 0) "
+        "local D, T = DataCenter.ItemData, DataCenter.ItemTemplateManager "
+        "local used, why = 0, '' "
+        "local kind = -1 "
+        "pcall(function() kind = math.floor(tonumber(T:GetItemTemplate(id).type) or -1) end) "
+        "local ok_kind = false "
+        "for _, k in ipairs({%(kinds)s}) do if k == kind then ok_kind = true end end "
+        "if id <= 0 or want <= 0 then why = 'nothing-asked' "
+        "elseif not ok_kind then why = 'not-usable' "
+        "elseif D == nil then why = 'no-bag' else "
+        "local stacks = {} "
+        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "if math.floor(tonumber(v.itemId) or 0) == id then "
+        "stacks[#stacks + 1] = {uuid = v.uuid, n = math.floor(tonumber(v.count) or 0)} "
+        "end end end) "
+        "for _, st in ipairs(stacks) do local left = want - used "
+        "if left > 0 and st.n > 0 then local n = math.min(left, st.n) "
+        "local sent = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.ItemUse, {uuid = st.uuid, num = n}) end) "
+        "if sent then used = used + n end end end "
+        "if used == 0 and why == '' then why = 'none-in-bag' end end "
+        "DataCenter.__lw_use = {id = id, want = want, used = used, kind = kind, why = why} "
+        'CS.UnityEngine.Debug.LogError("ACT use_item id="..tostring(id).." want="..tostring(want)'
+        '.." used="..tostring(used).." kind="..tostring(kind).." why="..tostring(why))'
+        % {"kinds": ", ".join(str(k) for k in USABLE_ITEM_TYPES)}
+    )
+
+
+def bag_use_report() -> str:
+    """Lua *expression* -> one line about the last item use, for the log and the panel."""
+    return (
+        "(function() local u = DataCenter.__lw_use or {} "
+        "return 'id=' .. tostring(math.floor(tonumber(u.id) or 0)) .. "
+        "' want=' .. tostring(math.floor(tonumber(u.want) or 0)) .. "
+        "' used=' .. tostring(math.floor(tonumber(u.used) or 0)) .. "
+        "' kind=' .. tostring(math.floor(tonumber(u.kind) or -1)) .. "
+        "' why=' .. tostring(u.why or '-') end)()"
+    )
+
+
+def item_usable_expr(id_expr: str = "id") -> str:
+    """Lua *expression* -> 1 when an item of that id is one the bag will use."""
+    return (
+        "((function(i) local k = -1 "
+        "pcall(function() k = math.floor(tonumber("
+        "DataCenter.ItemTemplateManager:GetItemTemplate(i).type) or -1) end) "
+        "for _, t in ipairs({%(kinds)s}) do if t == k then return 1 end end "
+        "return 0 end)(%(id)s))"
+        % {"kinds": ", ".join(str(k) for k in USABLE_ITEM_TYPES), "id": id_expr}
+    )
+
+
 def use_stamina_items() -> str:
     """Spend stamina items out of the bag until `DataCenter.__lw_stam_want` is bought.
 
