@@ -151,7 +151,7 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
     looks = [i for i, line in enumerate(lines) if line == "TAP golden_look_from"]
     assert looks, "the recipe never puts the camera on the origin"
     for i in looks:
-        rest = lines[i + 1:i + 4]
+        rest = lines[i + 1:i + 7]
         assert "TAP golden_scan" in rest, \
             "the camera is moved and the client is not re-asked"
     for i, line in enumerate(lines):
@@ -419,6 +419,36 @@ def test_the_lua_of_every_press_compiles():
                  "golden_spent", "golden_report", "golden_survey", "golden_energy",
                  "golden_attack_cost"):
         runtime.compile("return " + getattr(lua_actions, name)())
+
+
+def test_the_gap_between_two_kills_carries_no_waiting_nobody_needs():
+    """#1702: 13 s between two kills two tiles apart, and 10 of them were ours.
+
+    Measured off the live log, per kill: a two-second camera flight to a district the
+    client already held, the 1.5 s settle behind it, a scan whose answer the next lap
+    throws away, and an arrival poll in three-second beats for a march that takes three.
+    Each of the four is pinned here, because each of them reads as harmless in isolation.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    # the settle after a look is CONDITIONAL on the look having flown
+    for i, line in enumerate(lines):
+        if line == "TAP golden_look_from":
+            window = lines[i + 1:i + 5]
+            assert any(w.startswith("READ_LUA") and "looked_moved" in w for w in window), \
+                "the recipe waits for a camera flight without asking whether there was one"
+            assert "IF looked_moved == 1" in window
+    look = lua_actions.golden_look_from()
+    assert "p.looked" in look and "skipped=near" in look, \
+        "the look flies the camera even when it is already in the right district"
+    # …the arrival poll is a one-second beat, not three
+    assert [w for w in lines if w == "WAIT 1"], "the arrival poll is still a slow beat"
+    assert not [w for w in lines if w == "WAIT 3"]
+    # …and nothing scans straight after a send, because the next lap scans anyway
+    for i, line in enumerate(lines):
+        if line == "TAP golden_eta":
+            assert lines[i + 1] != "TAP golden_scan", \
+                "the queue is rebuilt twice per kill and one of them is thrown away"
 
 
 def _run_standalone() -> int:

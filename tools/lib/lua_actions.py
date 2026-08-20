@@ -9387,6 +9387,13 @@ def radar_free_places() -> str:
 #: The config id of the golden / invading zombie. The one number that identifies it.
 GOLDEN_ZOMBIE_CFG = 1030000
 
+#: How far the origin has to move before the camera is flown to it again (#1702). The
+#: client keeps a district loaded around where it is looking, and a chain's kills are a
+#: handful of tiles apart — measured live, two tiles — so a flight per kill buys nothing
+#: and costs the settle that follows it. Eight tiles is comfortably inside one district
+#: and comfortably smaller than the hop that would leave it.
+GOLDEN_LOOK_AGAIN = 8
+
 #: Fallback cost of one solo attack, when the game will not price it. The live answer
 #: on 2026-08-19 was 10; this is only what keeps the gate honest if the call fails.
 GOLDEN_ATTACK_COST = 10
@@ -9698,22 +9705,49 @@ def golden_look_from() -> str:
 
     So it runs before every scan of the chain: the base for the first pick, the tile of
     the last kill for the rest — the same origin `golden_pick` measures from.
+
+    **It moves the camera only when the origin has actually MOVED** (#1702, the lag
+    measurement). A kill two tiles from the last one is inside the district the client
+    already holds, and a camera flight it does not need costs the flight AND the settle
+    the caller waits afterwards — measured, 3.5 s of a 13-second gap between two kills two
+    tiles apart. So the tile last looked at is remembered and anything within
+    :data:`GOLDEN_LOOK_AGAIN` tiles of it is left alone; `p.looked_moved` says which
+    happened, and the recipe only pays the settle when it was a real move.
     """
     return (
         _GOLD_P + _GOLD_WS +
+        "p.looked_moved = 0 "
         "local at = p.anchor or p.home "
-        "if at == nil then "
+        "if at == nil then %(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=no-origin") return end '
+        "local seen = p.looked "
+        "if seen ~= nil then local dx, dy = (at.x - seen.x), (at.y - seen.y) "
+        "if math.sqrt(dx * dx + dy * dy) <= %(near)d then %(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=near at="'
+        '..tostring(at.x)..","..tostring(at.y)) return end end '
         "local pid = at.pid "
         "if pid == nil and ws ~= nil then pcall(function() "
         "pid = ws:TilePosToIndex(CS.UnityEngine.Vector2Int(at.x, at.y)) end) end "
-        "if pid == nil then "
+        "if pid == nil then %(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=no-tile") return end '
         "local ok, err = pcall(function() GoToUtil.MoveToWorldPoint(pid) end) "
+        "if ok then p.looked = {x = at.x, y = at.y} p.looked_moved = 1 end "
+        "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_look_from ok="..tostring(ok)'
         '.." err="..tostring(err).." at="..tostring(at.x)..","..tostring(at.y)'
         '.." origin="..tostring(p.anchor ~= nil and "anchor" or "home"))'
+        % {"gold": _GOLD, "near": GOLDEN_LOOK_AGAIN}
     )
+
+
+def golden_looked_moved() -> str:
+    """Lua *expression* -> 1 when the last look really moved the camera, else 0.
+
+    What the recipe waits on: streaming a district in takes a moment, and NOT streaming
+    one takes none.
+    """
+    return ("(function() " + _GOLD_P +
+            "return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)()")
 
 
 def golden_pick_report() -> str:

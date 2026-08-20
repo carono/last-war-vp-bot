@@ -110,11 +110,14 @@
 #               default, and the reason is a measurement rather than caution** — see
 #               «the ride» below. Turn it on from «События» when the missing step is
 #               solved.
-#   march_wait  how many three-second beats to wait for one march before giving up on it.
-#               The default is ten minutes because the FIRST march of a chain is long:
-#               live, the nearest of 134 golden zombies to the base was 492 tiles away —
-#               they cluster in their own region of the map — and that leg took over four
-#               minutes. Every march after it is a few tiles, which is the whole point.
+#   march_wait  how many ONE-SECOND beats to wait for one march before giving up on it.
+#               The default is ten minutes because the FIRST march of a chain can be long:
+#               live, the nearest of 134 golden zombies to the base was once 492 tiles
+#               away — they cluster in their own region of the map — and that leg took
+#               over four minutes. Every march after it is a few tiles, which is the whole
+#               point, and that is why the beat is a second: a three-second one spent an
+#               average of a second and a half of every kill waiting for a march that had
+#               already landed (#1702).
 #
 # ## What is proven, and what is not
 #
@@ -131,7 +134,7 @@ ARGS squad = 1
 ARGS radius = 2000
 ARGS scan = 1
 ARGS limit = 0
-ARGS march_wait = 200
+ARGS march_wait = 600
 ARGS approach = 0
 ARGS approach_sec = 60
 ARGS approach_reach = 12
@@ -189,7 +192,9 @@ IF scan == 1
 # monsters it has loaded, and a lap of the map above leaves it holding the far end of the
 # warzone; the origin of the first pick is the base.
 TAP golden_look_from
-WAIT 1.5
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
+IF looked_moved == 1
+    WAIT 1.5
 TAP golden_scan
 
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() INTO queued
@@ -213,7 +218,7 @@ WHILE go == 1 LIMIT 24
     # which is the first lap.
     READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
     WHILE arrived == 0 LIMIT {march_wait}
-        WAIT 3
+        WAIT 1
         READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
 
     IF arrived == 0
@@ -224,7 +229,11 @@ WHILE go == 1 LIMIT 24
         # Where the next pick is measured from — the last kill, or the base before the
         # first one — so the district around it is loaded before it is asked about.
         TAP golden_look_from
-        WAIT 1.5
+        # …and the settle only when it really flew: a kill two tiles from the last one is
+        # inside the district the client is already holding (#1702).
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
+        IF looked_moved == 1
+            WAIT 1.5
         TAP golden_scan
         TAP golden_pick
         # WHICH zombie, how far from the origin the pick used, and how far the same
@@ -264,7 +273,7 @@ WHILE go == 1 LIMIT 24
                     # reading «out» for as long as it works there.
                     READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
                     WHILE arrived == 0 LIMIT {march_wait}
-                        WAIT 3
+                        WAIT 1
                         READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
             # The last march of the run is the one that brings the squad home; every one
             # before it deliberately leaves it standing where it killed.
@@ -291,8 +300,9 @@ WHILE go == 1 LIMIT 24
                 # …and when this march is due to land, so the next lap knows what to
                 # wait for.
                 TAP golden_eta
-                # The event keeps spawning while the squad is out.
-                TAP golden_scan
+                # No scan here: the lap below re-asks the client after it has looked at the
+                # origin of the next pick, and asking twice cost most of a second per kill
+                # for a list that is thrown away and rebuilt anyway (#1702).
 
         IF go == 1
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost then return 0 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() > 0) and 1 or 0 end)() INTO go

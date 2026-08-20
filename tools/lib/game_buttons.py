@@ -1100,8 +1100,11 @@ BUTTONS["golden_grab"] = Button(
 BUTTONS["golden_send"] = Button(
     # The attack: one `SendCreateMarchMessage`, scheduled on the main thread because a
     # cold send from the hijack thread is built and then dropped by the server.
+    # 0.6 s, not 1.5: the send is scheduled 0.5 s out and the PROOF is the purse moving,
+    # which the caller polls for anyway — the extra second was pure lag between kills
+    # (#1702).
     lua=_lua_actions.golden_send(),
-    wait=1.5, label="send the squad at the golden zombie",
+    wait=0.6, label="send the squad at the golden zombie",
 )
 BUTTONS["golden_look"] = Button(
     # The camera onto the target, so the client streams that district's tiles in. Without
@@ -1115,8 +1118,11 @@ BUTTONS["golden_look_from"] = Button(
     # first one. The enumerator answers out of what the client has loaded, so after a lap
     # of the map the tiles around the base are gone and «the nearest zombie» is chosen
     # among far ones only (#1702). Pressed before every scan of the chain.
+    # The settle is NOT here (#1702): a look that decided the camera is already in the
+    # right district costs nothing and must not be charged two seconds for it. The recipe
+    # waits only when the press says it really flew.
     lua=_lua_actions.golden_look_from(),
-    wait=2.0, label="look where the next target is measured from",
+    wait=0.2, label="look where the next target is measured from",
 )
 BUTTONS["golden_approach_arm"] = Button(
     # Not a press: the arithmetic. The game prices a march per ORDER — a gather order is
