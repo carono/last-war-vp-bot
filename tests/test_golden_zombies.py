@@ -853,6 +853,11 @@ def test_the_queue_is_refreshed_while_the_squad_is_walking():
     defaults, _rest = engine.extract_defaults(RECIPE.read_text(encoding="utf-8"))
     assert defaults.get("miss_limit", 0) >= 6, \
         "a handful of dead targets in a row still ends the run"
+    # …and a run may live long enough to spend a whole purse: a thousand stamina is a
+    # hundred attacks, and every lap that drops a dead target or frees a stuck squad is a
+    # lap too (#1702).
+    assert any(w.startswith("WHILE go == 1 LIMIT") and int(w.rsplit(" ", 1)[-1]) >= 200
+               for w in lines), "the chain is capped below what one purse buys"
 
 
 def _run_standalone() -> int:
