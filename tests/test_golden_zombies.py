@@ -834,6 +834,27 @@ def test_a_squad_that_cannot_act_where_it_stands_is_walked_off_it():
     assert miss > i, "the miss is counted before the ground is ruled out"
 
 
+def test_the_queue_is_refreshed_while_the_squad_is_walking():
+    """#1702: eighteen targets thrown away in one run, all of them from one snapshot.
+
+    The ground near a base is farmed by everybody, so a list read once at the start is
+    stale by the time the squad reaches the first of it. The march is minutes long and the
+    coarse wait is already beating every three seconds — a scan on that beat costs a fifth
+    of a second and the queue only grows.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    far = next(i for i, w in enumerate(lines) if w.startswith("WHILE far == 1"))
+    inside = lines[far:far + 10]
+    assert "TAP golden_scan" in inside, \
+        "the queue is not refreshed while the squad marches — it goes stale in flight"
+    # …and the run is more patient about refusals than it was: three ended runs with a
+    # live squad, a live link and a hundred targets left.
+    defaults, _rest = engine.extract_defaults(RECIPE.read_text(encoding="utf-8"))
+    assert defaults.get("miss_limit", 0) >= 6, \
+        "a handful of dead targets in a row still ends the run"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

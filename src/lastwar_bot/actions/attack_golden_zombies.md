@@ -113,8 +113,9 @@
 #   miss_limit  how many sends in a row may produce no march before the run stops. The
 #               ordinary reason for one is a zombie that was already dead — the client's
 #               list is a snapshot and the ground near a base is farmed by everybody — so
-#               a couple in a row says nothing about the client. Past this many it is the
-#               link, not the map, and the run stops.
+#               a few in a row say nothing about the client. Six, because three ended runs
+#               that had a live squad, a live link and a hundred targets left (#1702).
+#               Past this many it is the link, not the map, and the run stops.
 #   march_wait  how many three-second beats to wait for one march before giving up on it.
 #               The default is ten minutes because the FIRST march of a chain can be long:
 #               live, the nearest of 134 golden zombies to the base was once 492 tiles
@@ -144,7 +145,7 @@ ARGS march_wait = 200
 ARGS approach = 0
 ARGS approach_sec = 60
 ARGS approach_reach = 12
-ARGS miss_limit = 3
+ARGS miss_limit = 6
 
 # This run may take a march's worth of minutes; nothing else waits for it (docs/dsl.md).
 DETACH
@@ -259,6 +260,12 @@ WHILE go == 1 LIMIT 24
     READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 0 end return ((due - ((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)())) > 4000) and 1 or 0 end)() INTO far
     WHILE far == 1 LIMIT {march_wait}
         WAIT 3
+        # …AND ASK THE CLIENT AGAIN WHILE WE WAIT (#1702). The march is minutes and
+        # the beat is already being spent; a scan costs a fifth of a second and the
+        # queue only grows. Live, a run threw away eighteen targets in a snapshot
+        # taken once at the start — near a base everybody farms, a list goes stale
+        # while the squad is still walking to the first of it.
+        TAP golden_scan
         READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 0 end return ((due - ((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)())) > 4000) and 1 or 0 end)() INTO far
 
     # …and the last few seconds closely, so a two-tile hop is not rounded up to three.
