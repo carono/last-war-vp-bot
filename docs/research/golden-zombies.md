@@ -493,6 +493,29 @@ The old post-send «is the squad stuck» branch is gone with it. It asked the sa
 with the opposite meaning (`canMarch = false` → dirty ground), which is how one reading
 came to mean both «the order was taken» and «the order was impossible».
 
+## 4e — what the night's rebuild measures (#1702)
+
+The chain is four scenarios — `golden_wait_for_the_march`, `golden_judge_the_kill`,
+`golden_choose_a_target`, `golden_send_the_squad` — and `attack_golden_zombies.md` only
+assembles them. Each runs from the picker on its own, which is the whole point: a hunt
+that stumbles is pressed one brick at a time instead of debugged inside a loop.
+
+Measured live, same account, same warzone, over the same evening:
+
+| | before | after |
+|---|---|---|
+| from a march landing to the next order leaving | 9 s (8, 9, 9, 10, 10, 10) | **6 s** (4, 5, 5, 6, 6, 9) |
+| camera flights to the candidate, per lap | 1 — always | **0** unless the sums ask |
+| the opening walk before the first pick | 36 s, of which 20 was a ring of 18 stops | **27 s**, ring of 7 |
+| how far the first target was | 488–569 tiles | **15–62 tiles** |
+| sends that became marches | 23 of 129 over the day | **3 of 7**, and 6 zombies counted gone |
+| the longest thing the hunt would wait for | `march_wait` — 109 minutes, seen | **3 minutes**, then the squad is recalled |
+
+The patience that came down did so because the proof went up: the squad going busy is
+`canMarch = false` the instant the game accepts an order, so a poll that used to wait ten
+seconds for the client to list a march now answers in two — and everything past that is
+time spent on orders that were REFUSED, which live is about half of them.
+
 ## 5 — the chain: why the squad does not go home in between
 
 Every march but the last goes out with `autoBackHome = 0`, so the squad stands on the tile
