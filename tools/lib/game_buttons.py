@@ -1113,6 +1113,14 @@ BUTTONS["golden_look"] = Button(
     lua=_lua_actions.golden_look(),
     wait=2.0, label="look at the target, so its district loads",
 )
+BUTTONS["golden_ring"] = Button(
+    # THE NEAR GROUND, SWEPT PROPERLY (#1702). The client draws a window of about sixty
+    # tiles around the camera and answers only about that, so one look at the base is
+    # blind to a zombie the player can see on their own screen. This walks rings around
+    # the base on the game's own timer, reading the enumerator at every stop.
+    lua=_lua_actions.golden_sweep_home(),
+    wait=0.3, label="sweep the ground around the base for golden zombies",
+)
 BUTTONS["golden_look_from"] = Button(
     # The camera onto the ORIGIN of the next pick — the last kill, or the base before the
     # first one. The enumerator answers out of what the client has loaded, so after a lap

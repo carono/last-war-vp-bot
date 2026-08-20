@@ -687,6 +687,47 @@ def test_the_base_tile_is_solved_from_anywhere_on_the_map():
             f"the base came out at {(found.x, found.y)} with the camera at {camera}"
 
 
+def test_a_zombie_sixty_tiles_from_the_base_beats_one_five_hundred_away():
+    """#1702, the operator's own sighting: «ближайший монстр примерно (620,494)».
+
+    Home is (564,468), so that one is 62 tiles out — against the 500-tile target the chain
+    had chosen. Two halves to it, and both are pinned here.
+
+    The arithmetic half, offline against the real Lua: a candidate at 62 tiles must win
+    over one at 500, whatever order the queue happens to be in.
+    """
+    import lupa
+    rt = lupa.LuaRuntime()
+    rt.execute("CS = {UnityEngine = {Debug = {LogError = function() end}}}")
+    rt.execute("""
+    DataCenter = {__lw_gold = {home = {x = 564, y = 468}, server = 935, used = {},
+      targets = {{pid = 1, x = 801, y = 908, uuid = 11},
+                 {pid = 2, x = 620, y = 494, uuid = 22},
+                 {pid = 3, x = 894, y = 891, uuid = 33}}}}
+    """)
+    rt.execute(lua_actions.golden_pick())
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, \
+        "the pick took a target 500 tiles out over one at 62"
+    assert rt.eval("DataCenter.__lw_gold.curdist") == 62
+
+    # The other half is what the queue CONTAINS: the client answers about the window it
+    # has drawn — roughly sixty tiles — so the near ground has to be walked, not glanced
+    # at from the base. Live, a camera move to the operator's tile turned up twelve
+    # golden zombies within sixty tiles that no scan of the run had ever seen.
+    sweep = lua_actions.golden_sweep_home()
+    assert "GetMonsterListInArea" in sweep and "MoveToWorldPoint" in sweep, \
+        "the near sweep does not move the camera and read at every stop"
+    assert "DelayInvoke" in sweep, "the ring is walked by round trips, not by the game"
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    assert "TAP golden_ring" in lines, "nothing sweeps the ground around the base"
+    ring = lines.index("TAP golden_ring")
+    pick = min(i for i, w in enumerate(lines) if w == "TAP golden_pick")
+    assert ring < pick, "the first pick is made before the near ground has been swept"
+    assert any(w.startswith("READ_LUA") and " INTO swept" in w for w in lines[ring:pick]), \
+        "the run picks while the sweep is still walking"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

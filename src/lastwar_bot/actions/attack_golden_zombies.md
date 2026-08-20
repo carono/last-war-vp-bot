@@ -194,9 +194,22 @@ IF scan == 1
     # over a warzone with hundreds of them answered «not one golden zombie on the map».
     TAP golden_scan
 
-# …and then the camera onto the origin, and ask again — so the far catch of the lap and
-# the near one around the base both end up in the same queue. The origin of the first pick
-# is the base, which is where the squad is standing.
+# THE NEAR GROUND, RING BY RING (#1702). The client answers about what it has DRAWN, and
+# it draws a window of some sixty tiles around the camera — so a lap of the whole map
+# leaves the queue holding wherever the lap ended, and one look at the base is blind to a
+# zombie sixty tiles out that the player is looking at on their own screen. Live: 140
+# queued with the nearest 500 tiles away, and twelve within sixty tiles of a tile the
+# operator pointed at. The sweep walks rings around the base on the game's own timer and
+# reads the enumerator at every stop.
+TAP golden_ring
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.sweep_done) or 0) == 1) and 1 or 0 end)() INTO swept
+WHILE swept == 0 LIMIT 27
+    WAIT 1
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.sweep_done) or 0) == 1) and 1 or 0 end)() INTO swept
+
+# …and then the camera onto the origin, and ask again — so the far catch of the lap, the
+# near ring and the base's own district all end up in the same queue. The origin of the
+# first pick is the base, which is where the squad is standing.
 TAP golden_look_from
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
 IF looked_moved == 1

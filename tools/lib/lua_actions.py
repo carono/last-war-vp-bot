@@ -9644,6 +9644,104 @@ def golden_scan() -> str:
     )
 
 
+#: How the near sweep is laid out around the base (#1702). The client draws — and the
+#: enumerator therefore answers about — a window of roughly sixty tiles around wherever
+#: the camera is standing, so a single look at home is blind to a zombie sixty tiles away
+#: that the player can see on their own screen. Rings of eighty tiles, six stops each,
+#: cover everything within about two hundred tiles of the base; a stop is a camera move
+#: and an enumerator read, both inside the game.
+GOLDEN_RING_STEP = 80
+GOLDEN_RING_COUNT = 3
+GOLDEN_RING_STOPS = 6
+#: Seconds between two stops of the near sweep. The client's region loader needs about a
+#: second to draw what it has been sent — measured on the monster lap of #1523, where the
+#: same ground gave 30 monsters at 0.05 s a stop and 970 at 1.2 s.
+GOLDEN_RING_GAP = 1.1
+
+
+def golden_sweep_home() -> str:
+    """Walk the camera in rings around the BASE, harvesting golden zombies at every stop.
+
+    **The client only knows what it has drawn, and it draws a window around the camera**
+    (#1702). A lap of the whole map fills that window district by district and evicts it
+    just as fast, so a scan taken when the lap has finished sees only wherever it ended —
+    and a scan taken at the base sees only the base's own neighbourhood. Live, the queue
+    held 140 zombies with the nearest 500 tiles out, while a camera move to a tile the
+    player was looking at turned up **twelve within sixty tiles** — one of them 62 tiles
+    from the base, and the chain had marched past it to a target eight times farther.
+
+    So the near ground is swept properly: rings around the base, a stop every
+    :data:`GOLDEN_RING_GAP` seconds, the enumerator read at each stop and merged into the
+    same queue. It is scheduled INSIDE the game like `fast_map_sweep` — the whole ring is
+    one call and the camera walks it on the game's own timer — and the camera is put back
+    on the base at the end.
+    """
+    return (
+        _GOLD_P + _GOLD_WS +
+        "if ws == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT golden_sweep skipped=not-in-world") return end '
+        "local home = p.home or {x = ws.CurTilePos.x, y = ws.CurTilePos.y} "
+        "if p.targets == nil then p.targets = {} end "
+        "if p.used == nil then p.used = {} end "
+        "p.sweep_done = 0 "
+        "%(gold)s = p "
+        # -- one stop: move the camera, then read the enumerator around that point
+        "local ids = p.ids or {%(cfg)d} "
+        "local function stop(x, y) "
+        "local g = %(gold)s "
+        "pcall(function() local pid = ws:TilePosToIndex(CS.UnityEngine.Vector2Int(x, y)) "
+        "GoToUtil.MoveToWorldPoint(pid) end) "
+        "pcall(function() "
+        "local w = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
+        "for _, id in ipairs(ids) do pcall(function() w:Add(id, 1) end) end "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(x, y), %(reach)d, w, res) "
+        "local seen = {} "
+        "for _, t in ipairs(g.targets) do seen[tostring(t.pid)] = true end "
+        "local e = res:GetEnumerator() "
+        "while e:MoveNext() do local uuid, tile = e.Current.Key, e.Current.Value "
+        "local pid = nil pcall(function() pid = ws:TilePosToIndex(tile) end) "
+        "if pid ~= nil and not seen[tostring(pid)] and not g.used[tostring(pid)] then "
+        "seen[tostring(pid)] = true "
+        "g.targets[#g.targets + 1] = {pid = pid, uuid = uuid, x = tile.x, y = tile.y, "
+        "src = 'ring'} end end end) "
+        "g.found = #g.targets "
+        "%(gold)s = g end "
+        # -- the ring itself, scheduled on the game's own timer
+        "local tm = TimerManager:GetInstance() "
+        "local n = 0 "
+        "for ring = 1, %(rings)d do "
+        "local r = ring * %(step)d "
+        "for k = 0, %(stops)d - 1 do "
+        "local a = (2 * math.pi * k) / %(stops)d "
+        "local x = math.floor(home.x + r * math.cos(a) + 0.5) "
+        "local y = math.floor(home.y + r * math.sin(a) + 0.5) "
+        "if x >= 0 and y >= 0 then n = n + 1 "
+        "tm:DelayInvoke(function() stop(x, y) end, n * %(gap)f) end end end "
+        # …and home again at the end, so the pick's own look has nothing to do
+        "tm:DelayInvoke(function() stop(home.x, home.y) "
+        "local g = %(gold)s g.sweep_done = 1 g.looked = {x = home.x, y = home.y} "
+        "%(gold)s = g end, (n + 1) * %(gap)f) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_sweep stops="..tostring(n + 1)'
+        '.." home="..tostring(home.x)..","..tostring(home.y))'
+        % {"gold": _GOLD, "cfg": GOLDEN_ZOMBIE_CFG, "reach": GOLDEN_RING_STEP,
+           "rings": GOLDEN_RING_COUNT, "stops": GOLDEN_RING_STOPS,
+           "step": GOLDEN_RING_STEP, "gap": GOLDEN_RING_GAP}
+    )
+
+
+def golden_sweep_done() -> str:
+    """Lua *expression* -> 1 once the ring sweep around the base has finished."""
+    return ("(function() " + _GOLD_P +
+            "return (math.floor(tonumber(p.sweep_done) or 0) == 1) and 1 or 0 end)()")
+
+
+def golden_sweep_seconds() -> float:
+    """How long the ring sweep takes, for the caller that has to wait it out."""
+    return (GOLDEN_RING_COUNT * GOLDEN_RING_STOPS + 2) * GOLDEN_RING_GAP
+
+
 def golden_queued() -> str:
     """Lua *expression* -> how many golden zombies are queued and not yet attacked."""
     return ("(function() " + _GOLD_P +
