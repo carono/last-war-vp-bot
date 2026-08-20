@@ -10068,7 +10068,13 @@ def golden_queued() -> str:
 
 
 def golden_found() -> str:
-    """Lua *expression* -> how many golden zombies this run has seen at all."""
+    """Lua *expression* -> how many golden zombies the registry holds right now.
+
+    It used to mean «how many this run has seen at all», because the queue only ever grew
+    and the two were the same number. They are not any more (#1702): a scan reaps what the
+    map has disowned, so this rises with what is found and falls with what has died.
+    :func:`golden_vanished` is the other half — how many the map has taken out.
+    """
     return "(function() " + _GOLD_P + "return math.floor(tonumber(p.found) or 0) end)()"
 
 
