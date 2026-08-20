@@ -1068,6 +1068,14 @@ def names() -> list[str]:
 # `DataCenter.__lw_gold_*` by the recipe, because `TAP` carries no arguments of its own.
 # The recipe is actions/attack_golden_zombies.md; the reverse-engineering, and what of it
 # is proven live, is docs/research/golden-zombies.md.
+BUTTONS["use_stamina"] = Button(
+    # Spend bag items for march energy (#1702). The send is `item.use` with a TABLE —
+    # `{uuid = <the stack's own uuid>, num = n}` — which is the one shape of five the
+    # client will serialise; a positional pair returns cleanly and does nothing. What to
+    # buy is parked in `DataCenter.__lw_stam_want` by the recipe.
+    lua=_lua_actions.use_stamina_items(),
+    wait=0.4, label="spend bag items for march energy",
+)
 BUTTONS["golden_arm"] = Button(
     # Not a press: the run's setup. Which squad, what the game charges for one attack,
     # and how much energy there is to charge it against.

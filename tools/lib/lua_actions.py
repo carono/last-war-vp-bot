@@ -9384,6 +9384,90 @@ def radar_free_places() -> str:
 # config in a 600-tile radius), so the config read, the energy read, the cost read and
 # the enumerator's plumbing were verified live and the kill itself was not.
 
+#: THE BAG'S STAMINA ITEMS — the game's own item ids, and what each one is worth (#1702).
+#: These are config ids, identical on every account and every machine, exactly like the
+#: golden zombie's own :data:`GOLDEN_ZOMBIE_CFG`. The values are the game's: 400401 is the
+#: fifty, 400402 is the ten. An id the bag holds that is not named here is left alone —
+#: guessing what an item does from its name is how a panel spends somebody's event token.
+STAMINA_ITEMS = ((400401, 50), (400402, 10))
+
+
+def use_stamina_items() -> str:
+    """Spend stamina items out of the bag until `DataCenter.__lw_stam_want` is bought.
+
+    **The send is `item.use` with a TABLE** — `{uuid = <the stack's own uuid>, num = n}`,
+    the shape a live recording of the fireworks caught (docs/research/fireworks.md) and
+    the only one of five tried that the client would serialise: a positional
+    `(uuid, num)` returns cleanly and does nothing, and a table with `count` instead of
+    `num` throws inside the serialiser. Verified live: one ten-point item, purse 135 → 145.
+
+    The big denominations go first, and a stack is spent no further than it goes — the
+    bag keeps one entry per STACK, so a hundred fifties may be several. What it cannot
+    make up exactly it stops short of rather than overshooting: the caller asked for a
+    number, and spending one more item than that is spending somebody's inventory.
+    """
+    return (
+        "local want = math.floor(tonumber(DataCenter.__lw_stam_want) or 0) "
+        "local D = DataCenter.ItemData "
+        "local spent, used = 0, {} "
+        "local before = %(energy)s "
+        "if D ~= nil and want > 0 then "
+        "for _, pair in ipairs({%(items)s}) do "
+        "local id, worth = pair[1], pair[2] "
+        "local stacks = {} "
+        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "if math.floor(tonumber(v.itemId) or 0) == id then "
+        "stacks[#stacks + 1] = {uuid = v.uuid, n = math.floor(tonumber(v.count) or 0)} "
+        "end end end) "
+        "for _, st in ipairs(stacks) do "
+        "local room = math.floor((want - spent) / worth) "
+        "if room > 0 then local n = math.min(room, st.n) "
+        "if n > 0 then "
+        "local ok = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.ItemUse, {uuid = st.uuid, num = n}) end) "
+        "if ok then spent = spent + n * worth "
+        "used[#used + 1] = tostring(id) .. 'x' .. tostring(n) end end end end end end "
+        "DataCenter.__lw_stam = {want = want, spent = spent, before = before, "
+        "used = table.concat(used, ',')} "
+        'CS.UnityEngine.Debug.LogError("ACT use_stamina want="..tostring(want)'
+        '.." spent="..tostring(spent).." used="..tostring(table.concat(used, ",")))'
+        % {"energy": golden_energy(),
+           "items": ", ".join("{%d, %d}" % (i, v) for i, v in STAMINA_ITEMS)}
+    )
+
+
+def stamina_report() -> str:
+    """Lua *expression* -> one line about the last stamina purchase, for the log."""
+    return (
+        "(function() local p = DataCenter.__lw_stam or {} "
+        "return 'want=' .. tostring(math.floor(tonumber(p.want) or 0)) .. "
+        "' bought=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. "
+        "' items=' .. tostring(p.used or '-') .. "
+        "' before=' .. tostring(math.floor(tonumber(p.before) or 0)) .. "
+        "' now=' .. tostring(%(energy)s) end)()"
+        % {"energy": golden_energy()}
+    )
+
+
+def stamina_stock() -> str:
+    """Lua *expression* -> what the bag holds of each stamina item, and what it is worth."""
+    return (
+        "(function() local D = DataCenter.ItemData local T = DataCenter.ItemTemplateManager "
+        "local out = {} "
+        "for _, pair in ipairs({%(items)s}) do local id, worth = pair[1], pair[2] "
+        "local n = 0 "
+        "pcall(function() for _, v in pairs(D.ItemInfos or {}) do "
+        "if math.floor(tonumber(v.itemId) or 0) == id then "
+        "n = n + math.floor(tonumber(v.count) or 0) end end end) "
+        "local nm = '' pcall(function() nm = tostring(T:GetName(id) or '') end) "
+        "out[#out + 1] = tostring(id) .. ':' .. tostring(n) .. 'x' .. tostring(worth) .. "
+        "'=' .. tostring(n * worth) .. ' (' .. nm:gsub('%%s+', ' ') .. ')' end "
+        "return table.concat(out, ' | ') .. ' | stamina=' .. tostring(%(energy)s) end)()"
+        % {"items": ", ".join("{%d, %d}" % (i, v) for i, v in STAMINA_ITEMS),
+           "energy": golden_energy()}
+    )
+
+
 #: The config id of the golden / invading zombie. The one number that identifies it.
 GOLDEN_ZOMBIE_CFG = 1030000
 
