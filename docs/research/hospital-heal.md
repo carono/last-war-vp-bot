@@ -116,9 +116,21 @@ is now impossible: **the client has closed its Lua sandbox.** Measured live on
 2026-08-20 (#1702):
 
 ```
-debug.getupvalue(SFSNetwork.SendMessage, 1)  ->  this API is disabled for security
-string.dump(SFSNetwork.SendMessage)          ->  lua_dump is disabled
+debug.getupvalue  ->  this API is disabled for security
+debug.sethook     ->  this API is disabled for security
+string.dump       ->  lua_dump is disabled
+
+debug.getinfo     ->  OK
+debug.getlocal    ->  OK
+debug.traceback   ->  OK
 ```
+
+Three closed, three still open, and the split is the useful part: what went is every way
+of reading a value or a body OUT of a function (`getupvalue`, `string.dump`) and the
+global call hook (`sethook`). What stayed is everything that describes a frame you are
+already standing in — which is why `tools/lua_trace.py` still traces: it wraps the
+functions it wants and reads `debug.getinfo` from inside the wrapper. Only its optional
+`--hook` flag is dead.
 
 `debug` is still a table and `string.dump` still a function, so both fail at the CALL and
 not at the lookup — a `pcall` around them returns false with those words, and code that

@@ -431,7 +431,9 @@ def main():
                                      "like Manager/Util, they match per-frame names)")
     ap.add_argument("--depth", type=int, default=2, help="how deep to descend nested tables (default 2)")
     ap.add_argument("--hook-all", action="store_true",
-                    help="also arm debug.sethook (fires on EVERY Lua call — heaviest, may stall the game)")
+                    help="also arm debug.sethook — DEAD since 2026-08: the client refuses it with "
+                         "\"this API is disabled for security\" (#1702). The wrapper tracing this "
+                         "tool does by default is unaffected; debug.getinfo is still open.")
     ap.add_argument("--dedup", action="store_true",
                     help="log only the FIRST call of each name (safe discovery pass; default logs every call)")
     ap.add_argument("--exclude",
