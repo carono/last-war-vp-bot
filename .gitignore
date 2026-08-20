@@ -138,6 +138,14 @@ tools/scratch/
 # tools/ path all along).
 tools/archive/
 
+# One-off dev/task probes, underscore-prefixed and usually named after the issue they
+# were written for (`_t1473_radar_hoard.md`, `tools/_hunt.py`) — a scratch scenario or
+# script left behind mid-investigation, never a shipped ability and never something
+# another tool imports. Stay ON DISK for whoever is still using it; the mask, not a
+# name, is what keeps the next one from leaking too (#1610).
+src/lastwar_bot/actions/dev/_*.md
+tools/_*.py
+
 # Multi-instance account lists (tools/launch_as_user.py --config). They name real
 # Windows accounts and MAY carry a password, so no real one belongs in git — only
 # tools/data/accounts.example.json is tracked.
