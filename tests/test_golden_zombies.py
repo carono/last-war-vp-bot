@@ -801,6 +801,39 @@ def test_a_target_uuid_is_fetched_again_before_it_is_sent():
         "the recipe's copies of the checks are older than the module's"
 
 
+def test_a_squad_that_cannot_act_where_it_stands_is_walked_off_it():
+    """#1702, the operator's rule of the game: DIRTY GROUND takes no orders.
+
+    A squad standing on the fouled tiles the invasion leaves accepts neither an attack nor
+    a move, and refuses in exactly the same silence as a dead target — so the chain used to
+    count it against the «the client has gone deaf» streak and stop with a live squad, a
+    live target and a working link.
+
+    The reading is the client's own about OUR formation: an army that is there and a
+    `canMarch` the game says is false. The answer is to take the squad off that ground and
+    carry on from the base, counted apart and clearing the streak.
+    """
+    stuck = lua_actions.golden_stuck()
+    assert "canMarch" in stuck and "totalSoldierNum" in stuck, \
+        "the reading does not ask the game about our own squad"
+    free = lua_actions.golden_unstick()
+    assert "OnBackHome" in free, "nothing takes the squad off the ground"
+    assert "p.misses = 0" in free, \
+        "being stuck counts against the deaf-client streak — a live squad would end the run"
+    assert "p.unstuck" in free and "p.unstuck" in lua_actions.golden_report(), \
+        "the run does not say how often it had to free the squad"
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    assert stuck in "\n".join(lines), "the recipe's copy of the reading is not the module's"
+    i = next(k for k, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO stuck" in w)
+    window = lines[i:i + 10]
+    assert "IF stuck == 1" in window and "TAP golden_unstick" in window
+    assert "ELSE" in window and "TAP golden_miss" in window, \
+        "a refusal that is NOT the ground no longer counts as a miss at all"
+    miss = lines.index("TAP golden_miss")
+    assert miss > i, "the miss is counted before the ground is ruled out"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -374,18 +374,28 @@ WHILE go == 1 LIMIT 24
                 # a snapshot, and the server refuses an order at a monster that is not
                 # there. That is worth another target, not the end of the run — but a
                 # client that has gone deaf refuses everything, so two in a row stop it.
-                LOG "the send never became a march — that zombie is gone, or this squad has forgotten its army; trying the next one"
-                TAP golden_miss
-                # A SQUAD THE CLIENT HAS FORGOTTEN THE ARMY OF reads zero soldiers, and the
-                # server refuses a march for an empty formation — silently, exactly like a
-                # dead target (#1285, #1702). Live: the run armed cleanly with three squads
-                # loaded and four minutes later every one of them read zero. One question
-                # puts them back, and it costs a third of a second.
-                CALL fill_empty_squads
-                READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.misses) or 0) end)() INTO misses
-                IF misses > {miss_limit}
-                    LOG "several sends in a row went nowhere — stopping rather than giving orders nobody is receiving"
-                    READ_LUA (0) INTO go
+                # IS THE SQUAD STUCK WHERE IT STANDS? (#1702) A squad on DIRTY GROUND —
+                # the fouled tiles the invasion leaves — takes neither an attack nor a
+                # move, and refuses in exactly the same silence as a dead target. It reads
+                # as an army that is there and a `canMarch` the game says is false, so the
+                # chain takes the squad off that ground and goes on from the base instead
+                # of counting the refusal against a client that is answering perfectly.
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local n, can = 0, true pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then n = math.floor(tonumber(v.totalSoldierNum) or 0) can = (v.canMarch == true) end end end) return ((n > 0) and (can == false)) and 1 or 0 end)() INTO stuck
+                IF stuck == 1
+                    LOG "the squad will not take orders where it stands — dirty ground; walking it home and carrying on"
+                    TAP golden_unstick
+                ELSE
+                    LOG "the send never became a march — that zombie is gone, or this squad has forgotten its army; trying the next one"
+                    TAP golden_miss
+                    # A SQUAD THE CLIENT HAS FORGOTTEN THE ARMY OF reads zero soldiers,
+                    # and the server refuses a march for an empty formation — silently,
+                    # exactly like a dead target (#1285, #1702). One question puts them
+                    # back, and it costs a third of a second.
+                    CALL fill_empty_squads
+                    READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.misses) or 0) end)() INTO misses
+                    IF misses > {miss_limit}
+                        LOG "several sends in a row went nowhere — stopping rather than giving orders nobody is receiving"
+                        READ_LUA (0) INTO go
             ELSE
                 # The tally moves HERE and nowhere else. What the attack COST is read off
                 # the purse for the books, and cannot decide anything.
@@ -399,7 +409,7 @@ WHILE go == 1 LIMIT 24
         IF go == 1
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost then return 0 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() > 0) and 1 or 0 end)() INTO go
 
-READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. ' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. ' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. ' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. ' energy=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) .. ' queued=' .. tostring((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()) .. ' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)() INTO golden_report
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. ' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. ' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. ' unstuck=' .. tostring(math.floor(tonumber(p.unstuck) or 0)) .. ' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. ' energy=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) .. ' queued=' .. tostring((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()) .. ' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)() INTO golden_report
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.attacks) or 0) end)() INTO attacks
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.kills) or 0) end)() INTO kills
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.spent) or 0) end)() INTO spent

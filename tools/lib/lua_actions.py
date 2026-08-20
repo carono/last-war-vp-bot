@@ -10405,6 +10405,62 @@ def golden_drop_target() -> str:
     )
 
 
+def golden_unstick() -> str:
+    """Walk the squad home, because where it is standing it will not take orders (#1702).
+
+    **The operator's own finding, and it is a rule of the game rather than a bug of
+    ours:** a squad standing on DIRTY GROUND — the fouled tiles the invasion leaves —
+    accepts neither an attack nor a move. From outside it looks exactly like every other
+    silent refusal: the send returns cleanly and no march appears.
+
+    So a refusal at a target the client says is still there, with an army in the squad, is
+    answered by taking the squad OFF the ground it is on instead of by counting another
+    refusal. `MarchUtil.OnBackHome` is the game's own «recall» and is tried in both the
+    shapes this client has been seen to take; the chain then measures from the base again,
+    which is where the squad is going.
+
+    It is counted apart from the misses — `p.unstuck` — and it CLEARS the miss streak,
+    because a squad that could not move is not a client that has gone deaf.
+    """
+    return (
+        _GOLD_P +
+        "local f = p.formation "
+        "local ok = false "
+        "if f ~= nil then "
+        "ok = pcall(function() MarchUtil.OnBackHome(f) end) "
+        "if not ok then ok = pcall(function() MarchUtil.OnBackHome(f, true) end) end end "
+        "p.unstuck = (tonumber(p.unstuck) or 0) + 1 "
+        "p.misses = 0 "
+        "p.pending = nil p.hit = nil p.cur = nil "
+        "if p.home ~= nil then p.anchor = nil end "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_unstick ok="..tostring(ok)'
+        '.." unstuck="..tostring(p.unstuck))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_stuck() -> str:
+    """Lua *expression* -> 1 when the squad looks stuck where it stands, else 0.
+
+    Asked after a send that produced no march. Two readings have to agree: the squad
+    holds an army (so the server is not refusing an empty formation) and the game says it
+    cannot march (`canMarch`), which is what a squad on dirty ground reads. Both are the
+    client's own answers about OUR formation, not a guess about the ground.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "if p.formation == nil then return 0 end "
+        "local n, can = 0, true "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if tostring(v.uuid) == tostring(p.formation) then "
+        "n = math.floor(tonumber(v.totalSoldierNum) or 0) "
+        "can = (v.canMarch == true) end end end) "
+        "return ((n > 0) and (can == false)) and 1 or 0 end)()"
+    )
+
+
 def golden_note_miss() -> str:
     """A send that produced no march of ours: write it off and let the chain try another.
 
@@ -10523,6 +10579,7 @@ def golden_report() -> str:
         "' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. "
         "' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. "
         "' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. "
+        "' unstuck=' .. tostring(math.floor(tonumber(p.unstuck) or 0)) .. "
         "' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. "
         "' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. "
         "' energy=' .. tostring(%(energy)s) .. "

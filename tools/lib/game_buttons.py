@@ -1198,6 +1198,14 @@ BUTTONS["golden_drop_target"] = Button(
     lua=_lua_actions.golden_drop_target(),
     wait=0.1, label="drop a target that is no longer on the map",
 )
+BUTTONS["golden_unstick"] = Button(
+    # A squad standing on DIRTY GROUND takes neither an attack nor a move (#1702, the
+    # operator's own finding). The refusal is silent and looks like every other one, so
+    # the chain answers it by recalling the squad instead of counting it as a deaf
+    # client, and carries on from the base.
+    lua=_lua_actions.golden_unstick(),
+    wait=1.0, label="take the squad off the ground it cannot act from",
+)
 BUTTONS["golden_miss"] = Button(
     # A send that produced no march — nearly always a zombie somebody else had already
     # killed, because the client's list is a snapshot (#1702). Written off, counted, and
