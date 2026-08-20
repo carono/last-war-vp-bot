@@ -10013,7 +10013,16 @@ def golden_send() -> str:
         "local f, pid = p.formation, t.pid "
         # THE uuid IS FETCHED AGAIN HERE (#1702) — see :data:`_GOLD_FRESH_UUID`. The
         # one in the queue is a reference that may have died since the scan.
-        "local uuid = _freshuuid(ws, p, t) or t.uuid "
+        "local uuid = _freshuuid(ws, p, t) "
+        # NO LIVE uuid MEANS NO ZOMBIE (#1702). The game has just been asked about the
+        # very tile, so an answer of «nothing there» is the map having moved on — and a
+        # send at a dead reference is a wasted order and ten seconds of waiting for a
+        # march that cannot come. The target is written off as gone instead.
+        "if uuid == nil then p.used[tostring(t.pid)] = true "
+        "p.dropped = (tonumber(p.dropped) or 0) + 1 p.cur = nil "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_send dropped=stale pid="..tostring(t.pid)) '
+        "return end "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, back, false, srv, nil) end) "

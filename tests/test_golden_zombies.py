@@ -784,6 +784,9 @@ def test_a_target_uuid_is_fetched_again_before_it_is_sent():
     assert "key = tostring(uuid)" in sweep, "the ring sweep keeps dead references"
     send = lua_actions.golden_send()
     assert "_freshuuid" in send, "the send uses the uuid the queue is holding"
+    assert "dropped=stale" in send, \
+        "a target the game no longer knows is still sent at — a wasted order and ten "\
+        "seconds of waiting for a march that cannot come"
     assert "GetMonsterListInArea" in send, "nothing re-reads the target before the send"
     for check in (lua_actions.golden_here(), lua_actions.golden_gone()):
         assert "t.key or t.uuid" in check, \
