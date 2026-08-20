@@ -49,6 +49,7 @@ import threading
 import time
 
 from . import game_process
+from . import firework_wire
 from . import rally_wire
 from .paths import TOOLS
 
@@ -65,6 +66,18 @@ from ..triggers import FIRE_MARKER
 #: read off a frame the ear had in its hands anyway.
 FIELDS_MARKER = "##FIELDS##"
 FIELDS_PATTERN = "push.alliance.march"
+
+#: …and the SECOND command family whose payload the panel cannot do without (#1677). A
+#: firework is announced by nothing except the boxes falling off it
+#: (`push.get.fireworks.gift`), so the ear is the only place its existence is ever
+#: stated; the line carries the box, the square and the kind, and no owner
+#: (`tools/wire_event_monitor.py::_firework_fields`).
+FIELDS_FIREWORK = "push.get.fireworks.gift"
+
+#: Every family asked for with `--fields`, in the order the child is told about them.
+#: Growing this is how a new book gets fed; the dispatch is by command name in
+#: :meth:`WireHub._on_fields`.
+FIELDS_PATTERNS = (FIELDS_PATTERN, FIELDS_FIREWORK)
 
 #: How often the ear may say what it has been hearing. Every match used to print a line
 #: of its own — the command plus a summary of its payload — and a live day carried 6 307
@@ -215,7 +228,8 @@ class WireHub:
         # built for a command already being matched, and a book that starts filling the
         # moment the ear opens is a book that has the banner in it when the trigger
         # fires. It costs a dict write per push and nothing else.
-        cmd += ["--fields", FIELDS_PATTERN]
+        for family in FIELDS_PATTERNS:
+            cmd += ["--fields", family]
         # WHOSE traffic this ear is for. Two accounts of the same game dial the same
         # server port, so the capture filter cannot separate them and every profile's
         # ear has been hearing both — a trigger firing in one account off the other's
@@ -283,7 +297,7 @@ class WireHub:
         return False
 
     def _on_fields(self, line: str):
-        """A fields line: remember the banner it describes, and swallow the line.
+        """A fields line: hand it to the book that keeps that family, and swallow it.
 
         SWALLOWED WHATEVER HAPPENS (`False`), even when nothing could be made of it —
         it is machinery, like the marker, and the one thing it must never do is reach
@@ -295,9 +309,13 @@ class WireHub:
         each banner is going for (`panel/runtime/rally_wire.py`).
         """
         parts = line.split("\t")
+        command = parts[1].strip() if len(parts) > 1 else ""
+        built = parts[2] if len(parts) > 2 else ""
         try:
-            self._rt.banners.note(rally_wire.parse_fields(parts[2] if len(parts) > 2
-                                                          else ""))
+            if FIELDS_FIREWORK in command:
+                self._rt.fireworks.note(command, firework_wire.parse_fields(built))
+            else:
+                self._rt.banners.note(rally_wire.parse_fields(built))
         except Exception:               # noqa: BLE001 — a reading, never the ear
             self._rt.dbg("triggers").error("wire fields line unreadable", exc_info=True)
         return False

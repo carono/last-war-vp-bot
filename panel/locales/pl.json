@@ -1058,6 +1058,7 @@
   "triggers.item.secret_task_share": "Dodawać na żywo udostępnione tajne zadania",
   "triggers.item.treasure_auto": "Ukryte skarby: wysłać najbliższy oddział i odebrać podarunek",
   "triggers.item.ghost_recon_alliance": "Aktualizuj na żywo oddziały Ducha sojuszu",
+  "triggers.item.firework_collect": "Odbieraj prezenty z fajerwerków",
   "secrettasks.hint": "Tajne zadania sojuszu Z GWIAZDKĄ, czytane na żywo z gry, każde z odliczaniem do chwili, gdy da się je ograbić. Gdy odliczanie dojdzie do zera, wiersz się zapala: pole można ograbić, a przy zaznaczonej «Automatycznej grabieży ★» dzieje się to samo. Włącz «secret_task_share» na liście wyzwalaczy, aby pojawiało się tu także to, co udostępni towarzysz.",
   "secrettasks.clear": "Wyczyść listę",
   "secrettasks.empty": "brak zadań z gwiazdką — naciśnij Odśwież (gra musi działać)",

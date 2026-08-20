@@ -584,6 +584,29 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.treasure_auto",
     ),
     Trigger(
+        name="firework_collect",
+        # A firework burning over somebody's base drops gift boxes for everyone around,
+        # and the game announces every box that is taken — ours and everyone else's — as
+        # `push.get.fireworks.gift`. That push is the ONLY announcement a firework ever
+        # gets: there is no periodic list to sweep, and asking `get.fireworks.info.list`
+        # only helps once you already know to ask. So the ear IS the ability.
+        #
+        # Firing on the gift push rather than on our own reply is what keeps this from
+        # looping: `get.fireworks.gift` (no `push.`) is the answer to our own press and
+        # does not match. Firing on somebody ELSE's box being taken is the point — it
+        # says the firework is still up, and the recipe's own gate
+        # (`IsHasAvailableBoxForMeByUid`) makes a run with nothing left a clean no-op.
+        kind=KIND_WIRE,
+        event_pattern="push.get.fireworks.gift",
+        scenario=("collect_fireworks",),
+        enabled=False,
+        # «Сразу, без очереди» (#1288), for the reason that flag exists: a firework burns
+        # for a couple of minutes and everyone who can see it is taking from it. A press
+        # that waits out the ordinary schedule arrives at a firework that has gone out.
+        immediate=True,
+        label_key="triggers.item.firework_collect",
+    ),
+    Trigger(
         name="ghost_recon_alliance",
         # The alliance's ghost-recon squads announce themselves on the wire
         # (push.ghost.recon.alliance.single, add/change/remove). The client keeps the

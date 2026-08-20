@@ -228,6 +228,7 @@ class PanelRuntime:
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
         self._banners = None            # …and what it heard about the banners out
+        self._fireworks = None          # …and about the fireworks going off (#1677)
         self._players = None            # …and the register every source writes into
         self._secret_days = None        # …and the book of star-secret-task days (#1467)
         self._store = None              # …and this profile's database (#1398)
@@ -347,6 +348,21 @@ class PanelRuntime:
             from .rally_wire import BannerBook
             self._banners = BannerBook(self)
         return self._banners
+
+    @property
+    def fireworks(self):
+        """What the wire has said about the fireworks over the map (#1677).
+
+        Plain memory and one row in this profile's database — no game, no thread, no
+        child of its own: the ear above fills it as the gift pushes arrive, because that
+        push is the only announcement a firework ever gets. On the runtime rather than on
+        a tab for the reason `banners` is: a receiver that lives on a page is absent in
+        every profile that does not draw the page (panel/runtime/firework_wire.py).
+        """
+        if self._fireworks is None:
+            from .firework_wire import FireworkBook
+            self._fireworks = FireworkBook(self)
+        return self._fireworks
 
     @property
     def players(self):

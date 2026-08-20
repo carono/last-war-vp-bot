@@ -1058,6 +1058,7 @@
   "triggers.item.secret_task_share": "Paylaşılan gizli görevleri anında ekle",
   "triggers.item.treasure_auto": "Gizli Hazine: en yakın birliği gönder ve hediyeyi al",
   "triggers.item.ghost_recon_alliance": "İttifakın hayalet takımlarını canlı güncelle",
+  "triggers.item.firework_collect": "Havai fişeklerden hediye kutularını al",
   "secrettasks.hint": "İttifakın YILDIZLI gizli görevleri, oyundan anında okunur; her birinde yağmalanabilir olacağı ana kadar geri sayım vardır. Geri sayım sıfırlanınca satır yanar: kare soyulabilir ve «Otomatik ★ yağma» işaretliyse kendiliğinden soyulur. Bir arkadaşın paylaştığının da burada görünmesi için Tetikleyiciler listesinden «secret_task_share»i aç.",
   "secrettasks.clear": "Listeyi temizle",
   "secrettasks.empty": "yıldızlı görev yok — Tazele'ye bas (oyunun çalışıyor olması gerekir)",

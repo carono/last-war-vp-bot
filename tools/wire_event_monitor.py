@@ -121,10 +121,60 @@ def _march_fields(payload) -> str:
     return " ".join(out)
 
 
+#: The keys a firework push may carry the gift's own id under. The client's message
+#: table is decoded by name, and this ear must not depend on which of them the server
+#: chose: a gift is a THING, so whichever of these is a long integer is printed.
+_FW_GIFT_KEYS = ("uuid", "giftUuid", "fireworksUuid", "id")
+
+#: …and where it says WHICH SQUARE OF THE MAP the firework is standing on. A tile index
+#: is a place, not a person.
+_FW_TILE_KEYS = ("pointId", "tileIndex", "pId", "posId", "point")
+
+
+def _firework_fields(payload) -> str:
+    """`gift=… tile=… type=…` off a firework push, or `n=1` when none of it is there.
+
+    NOT ONE PLAYER, and that is the whole reason this is a hand-written builder rather
+    than `summarise()`: the push carries `ownerUid` — the account whose base the firework
+    is standing over — and `summarise` would print it into a log people send each other
+    (#1293). What the panel needs from the wire is that a firework event HAPPENED and
+    how many; who owns it is read out of the client's own manager at collect time, where
+    it never leaves the game VM.
+
+    Never empty, and that is deliberate: the receiver counts events, so a push whose
+    field names this build does not recognise must still arrive as one. `n=1` is that
+    push — heard, unnamed, counted.
+
+    Never raises: this runs in the scapy callback, where an exception closes the capture
+    socket.
+    """
+    if not isinstance(payload, dict):
+        return "n=1"
+    out = []
+    try:
+        for key in _FW_GIFT_KEYS:
+            value = payload.get(key)
+            if isinstance(value, int) and value > 9_999_999_999:
+                out.append(f"gift={value}")
+                break
+        for key in _FW_TILE_KEYS:
+            value = payload.get(key)
+            if isinstance(value, int) and 0 < value < 9_999_999_999:
+                out.append(f"tile={value}")
+                break
+        kind = payload.get("type")
+        if isinstance(kind, int):
+            out.append(f"type={kind}")
+    except Exception:                              # noqa: BLE001 — a field, never the ear
+        return "n=1"
+    return " ".join(out) or "n=1"
+
+
 #: Which commands get a fields line, and what builds it. One entry, and the shape is
 #: the point: a new one is a named command family plus a function that may only ever
-#: return numbers of THINGS.
-_FIELD_BUILDERS = (("alliance.march", _march_fields),)
+#: return numbers of THINGS. Matched by substring, first entry wins.
+_FIELD_BUILDERS = (("alliance.march", _march_fields),
+                   ("fireworks", _firework_fields),)
 
 
 def _fields_for(command: str, payload) -> str:

@@ -1058,6 +1058,7 @@
   "triggers.item.secret_task_share": "Añadir en vivo las tareas secretas compartidas",
   "triggers.item.treasure_auto": "Tesoros Escondidos: enviar la escuadra más cercana y recoger el regalo",
   "triggers.item.ghost_recon_alliance": "Actualizar en vivo los escuadrones fantasma de la alianza",
+  "triggers.item.firework_collect": "Recoger los regalos de los fuegos artificiales",
   "secrettasks.hint": "Las tareas secretas CON ESTRELLA de la alianza, leídas en vivo del juego, cada una con una cuenta atrás hasta que se pueda saquear. Cuando la cuenta atrás llega a cero la fila se enciende: la casilla se puede robar, y con «Saqueo automático ★» marcado se roba sola. Enciende «secret_task_share» en la lista de disparadores para que lo que comparta un compañero aparezca aquí también.",
   "secrettasks.clear": "Vaciar la lista",
   "secrettasks.empty": "no hay tareas con estrella — pulsa Refrescar (el juego tiene que estar en marcha)",

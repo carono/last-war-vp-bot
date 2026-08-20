@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥  **32%** — 47 of 148
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥  **32%** — 47 of 149
 
-🟩 47 done · 🟨 63 partly · 🟥 38 not automated
+🟩 47 done · 🟨 64 partly · 🟥 38 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -169,6 +169,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Sending squads out to gather on the map — the march goes out correctly, but the bot does not choose where to send it
 - 🟡 Seeing every mine on the map — a page of its own listing every resource node the map watch has seen: where it is, what it yields, its level, and whether somebody is already gathering it. The taken ones are kept out of the way unless you ask for them, and the level range narrows the rest. It is filled by the same three-second lap of the map that finds the raids, so it costs no extra pass and no second watcher; a click on a coordinate walks the camera to the tile. Marching a squad to one is still done by hand. The reading was rebuilt from a recorded lap of a real server — nine thousand mines, three kinds, free and taken told apart — but it has not been watched filling up live
 - 🟡 Seeing what is in your bag — an «Инвентарь» tab draws every item the way the game draws it: the item's own picture on the frame its rarity gives it, with the count under it, and a search box that narrows the grid as you type. Clicking a cell says what the item is, in the game's own words and the game's own language — the names and the descriptions are copied out of the game's tables, never translated by the panel. It reads the whole bag in one go with no window opened, re-reads itself whenever the game says a balance moved, and keeps the last reading, so the page opens full before the client has been asked anything. The pictures are the game's own art, taken out of the client that is installed on this computer; a machine that has not done that once shows a box glyph and the list still works. The same items with the same pictures are on the phone. Read live off a real bag — 371 items, every picture found — but not yet lived with through a day of the counts moving
+- 🟡 Taking the gift boxes from fireworks — a firework burning over somebody's base drops presents for everyone who can see it, and the panel listens for them instead of looking: every box anybody takes is announced, and that announcement is the only sign a firework exists at all. While the listener is on, each announcement makes the bot take whatever box is still open to this account — one per firework, headless, no window and no camera move — and it says in numbers how many fireworks it knew of, how many boxes were there, how many were taken and how many were already ours. The listener shows its own signs of life on the «Занятость» page: what it is listening for, whether it is alive, when it last heard anything. Switched off by default. Written from a recorded session and read live off the game, but no firework has been burning within reach since, so an actual box being taken is still unwatched
 
 ### Secret missions
 

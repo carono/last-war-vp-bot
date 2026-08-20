@@ -125,6 +125,18 @@ class Intake:
             row = self._rows[name] = Counter(name)
         return row
 
+    def declare(self, name: str) -> None:
+        """Put a receiver on the ledger before it has ever been handed anything.
+
+        A row is otherwise made on the first event, so a receiver that has heard nothing
+        AT ALL is indistinguishable on «Занятость» from one that does not exist — and
+        «нет строки» is exactly the reading a person needs when asking whether the ear is
+        listening. Declared once, at the receiver's own construction; the row starts at
+        four zeros and the grid draws it as «nothing has arrived yet».
+        """
+        with self._lock:
+            self._row(name)
+
     def seen(self, name: str, n: int = 1) -> None:
         """``n`` events reached this receiver's door."""
         if n <= 0:
@@ -223,6 +235,9 @@ class NullIntake:
     So a receiver never writes `if self.rt.intake is not None` — which is the shape that
     lets an instrumented path quietly stop being instrumented.
     """
+
+    def declare(self, name: str) -> None:
+        pass
 
     def seen(self, name: str, n: int = 1) -> None:
         pass
