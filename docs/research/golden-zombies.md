@@ -418,6 +418,81 @@ This replaced a camera flight to the candidate and a re-pick after EVERY kill �
 of «first choice» → «target» on every single lap of the chain, whether or not anything had
 changed.
 
+## 4c — a squad that will not take an order, and the three ways it happens (#1702)
+
+Every «залипание» this task chased turned out to be the same shape: an order given to a
+squad the game was never going to accept one from. The reading that ended the guessing is
+one press — `actions/dev/golden_squad_state.md` — and it says everything at once:
+
+```
+squad1 state=1 canMarch=false soldiers=0
+squad2 state=1 canMarch=false soldiers=0
+squad3 state=0 canMarch=false soldiers=0
+marches=2 [left=4082s left=-…]
+rally_squads=1,2,3
+```
+
+### `canMarch = false` is not one fact but two
+
+`squad3` above is standing **at home** (`state = 0`) and still refuses to march, because
+the client is holding **no army** for it — the ordinary #1285 case that
+`fill_empty_squads.md` clears in about a third of a second. A gate that reads that as
+«busy» waits its whole patience out and then stops the hunt on a perfectly good squad.
+
+So `golden_squad_free()` answers four things, and the caller acts on the difference:
+
+| answer | means | what to do |
+|---|---|---|
+| `1` | the squad can be ordered | send |
+| `0` | marching, gathering, or on dirty ground | wait, bounded |
+| `-2` | the client holds no army for it | ask for it, then re-read |
+| `-1` | the squad cannot be found | ask again |
+
+### A mine is a trap with a long clock
+
+A ride is a **gather** order, so a squad that lands on a mine starts working it. Measured
+live the moment after a ride landed: `canMarch = false` with the march's own `endTime`
+**109 minutes** away, and on a later run **4 082 seconds** still to go. Every attack sent
+into that window is refused in silence, and the old chain proved it the expensive way —
+ten seconds of launch polling, a target written off, the next one tried — for as long as
+the run lasted. The wait that followed then sat in front of the same clock.
+
+Two rules answer it. A march whose clock is further out than `GOLDEN_WAIT_CEILING` is not
+this hunt's and the squad is recalled rather than waited on; and the first ride that ends
+in a gather blows a fuse (`golden_no_ride`) that switches riding off for the rest of the
+run.
+
+**What the numbers do NOT say.** It is tempting to conclude the ride never works. Counted
+over the whole log: 22 rides, 4 followed by a confirmed attack. But the plain attack march
+scores the same — 129 sends, 23 confirmed — so the ride is not distinctly worse; what was
+failing was the SEND, on both paths, for the reasons in §4d. The fuse is the measured
+safeguard; condemning the ride is not supported by this data.
+
+### The squads may not be the hunt's to use
+
+`rally_squads=1,2,3` is the auto-join's own list, and the account has exactly three
+squads. A banner therefore takes the hunt's squad within seconds of it coming home, over
+and over, and the hunt spends its laps waiting for a squad standing in somebody's rally.
+That is a **setting**, not a fault: the chain says so once, in words, and carries on. The
+squad the rally may use and the squad the hunt uses have to differ, and only the person
+can decide which is which.
+
+## 4d — the launch proof, and «меняет маршрут, когда уже идёт на зомби»
+
+The march list belongs to the client, and the client lists a march when it gets round to
+it. A send that WAS accepted but had not been listed yet read as a refusal: the chain
+wrote the target off, chose another and ordered the squad there — re-routing a squad that
+was already walking, which is exactly what the operator saw.
+
+The proof now takes either half: a march that was not there before, **or** the game
+answering `canMarch = false` for our formation. The second is instant, and it is only
+sound because of the rule above — the chain never sends unless the squad is free, so
+«busy now» can only be the order just given.
+
+The old post-send «is the squad stuck» branch is gone with it. It asked the same question
+with the opposite meaning (`canMarch = false` → dirty ground), which is how one reading
+came to mean both «the order was taken» and «the order was impossible».
+
 ## 5 — the chain: why the squad does not go home in between
 
 Every march but the last goes out with `autoBackHome = 0`, so the squad stands on the tile
