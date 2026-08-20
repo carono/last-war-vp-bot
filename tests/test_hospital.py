@@ -160,7 +160,9 @@ def test_heal_all_never_blames_the_building_queues():
 def test_heal_all_builds_from_the_hospital_rows():
     chunk = lua_actions.hospital_heal_all()
     _check("heal_all reads the hospital", "allHospital" in chunk)
-    _check("...takes the whole wounded batch", "math.floor(h.dead)" in chunk)
+    # The whole batch of each type — read through `tonumber`, because a row is a C#
+    # object and not a Lua table (#1702).
+    _check("...takes the whole wounded batch", "math.floor(tonumber(h.dead) or 0)" in chunk)
     _check("...and sends hospital.cure", "SendLuaMessage('hospital.cure'" in chunk)
 
 

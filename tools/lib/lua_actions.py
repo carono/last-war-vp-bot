@@ -5380,10 +5380,21 @@ def hospital_heal_all() -> str:
         + _HOSPITAL_TRANSPORT +
         "local m = DataCenter and DataCenter.HospitalManager "
         "if not m or type(m.allHospital) ~= 'table' then error('HospitalManager not loaded') end "
+        # A ROW IS NOT A LUA TABLE (#1702). `allHospital` is keyed by army id and its
+        # values are the client's own objects: `type(h)` answers `userdata`, `h.dead`
+        # needs `tonumber`, and the old test — `type(h)=='table' and
+        # type(h.dead)=='number'` — quietly matched nothing at all. The press then
+        # sent an EMPTY army, the transport raised «no wounded soldiers» into its own
+        # pcall, and the run reported a press that had healed no one: live, 698
+        # wounded stayed 698 with the log saying the button had been pressed.
         "local army = {} "
-        "for _, h in pairs(m.allHospital) do "
-        "if type(h)=='table' and h.armyId and type(h.dead)=='number' and h.dead > 0 then "
-        "army[#army+1] = {tostring(h.armyId), math.floor(h.dead)} end end "
+        "for key, h in pairs(m.allHospital) do "
+        "local id, dead = nil, nil "
+        "pcall(function() id = h.armyId end) "
+        "if id == nil then id = key end "
+        "pcall(function() dead = math.floor(tonumber(h.dead) or 0) end) "
+        "if id ~= nil and dead ~= nil and dead > 0 then "
+        "army[#army+1] = {tostring(id), dead} end end "
         "__cure(army) "
         'CS.UnityEngine.Debug.LogError("ACT hospital_heal_all types="..#army) '
         "end) "
