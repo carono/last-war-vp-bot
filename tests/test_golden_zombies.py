@@ -438,8 +438,20 @@ def test_every_wait_is_on_the_marchs_clock_and_not_on_the_squads_state():
     """
     body, _ = _source(RECIPE)
     marching = lua_actions.golden_marching()
-    assert marching not in body, \
-        "a wait is still gated on the squad's state, which never clears while it gathers"
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    # The state may be ASKED — once, to find out whether there is a march to wait for at
+    # all when a run starts (#1702) — but nothing may WAIT on it: a squad standing on the
+    # ground it has cleared reads «out» for ever.
+    for i, line in enumerate(lines):
+        if marching in line:
+            var = line.rsplit(" INTO ", 1)[-1].strip() if " INTO " in line else ""
+            assert var == "squad_out", \
+                f"the squad's state is read into {var!r} — only the one-shot question is allowed"
+            after = lines[i + 1:i + 4]
+            assert not any(w.startswith(("WHILE", "WAIT")) and var in w for w in after), \
+                "a wait is gated on the squad's state, which never clears while it gathers"
+    assert not any(w.startswith("WHILE") and marching in w for w in lines), \
+        "a loop is gated on the squad's state, which never clears while it gathers"
     assert body.count("TAP golden_eta") >= 2, \
         "the arrival clock is not wound after every march the chain sends"
     note = lua_actions.golden_note_eta()
@@ -726,6 +738,27 @@ def test_a_zombie_sixty_tiles_from_the_base_beats_one_five_hundred_away():
     assert ring < pick, "the first pick is made before the near ground has been swept"
     assert any(w.startswith("READ_LUA") and " INTO swept" in w for w in lines[ring:pick]), \
         "the run picks while the sweep is still walking"
+
+
+def test_a_squad_that_is_still_out_is_waited_for_before_the_first_send():
+    """#1702: a fresh run has no march of its own parked, so the gate waves it through.
+
+    Live twice in a row: the squad was out from the run before, the first send went out
+    at once, the server refused it in silence, and after the second refusal the chain
+    stopped — with the pick, the sweep and everything else working perfectly.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    out = [i for i, w in enumerate(lines) if w.startswith("READ_LUA") and " INTO squad_out" in w]
+    assert out, "nothing asks whether the squad is already out"
+    i = out[0]
+    tail = lines[i:i + 4]
+    assert "IF squad_out == 1" in tail and "TAP golden_eta" in tail, \
+        "the answer is read and never acted on"
+    first_send = min(j for j, w in enumerate(lines) if w in ("TAP golden_send", "TAP golden_home"))
+    assert i < first_send, "the check comes after the send it is meant to hold back"
+    assert lua_actions.golden_marching() in "\n".join(lines), \
+        "the recipe's copy of the squad reading is not the module's"
 
 
 def _run_standalone() -> int:

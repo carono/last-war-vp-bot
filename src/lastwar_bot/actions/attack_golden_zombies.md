@@ -184,6 +184,17 @@ READ_LUA (((function() local v = nil pcall(function() v = tonumber(LuaEntry.Play
 IF has_energy == 0
     FAIL "no energy left — one attack costs {cost} and there is {energy}"
 
+# IS THE SQUAD ALREADY OUT? (#1702) A run starts with no march of its own parked, so the
+# arrival gate below has nothing to wait for and the first send goes out at once — into a
+# squad that is still walking, which the server refuses in silence. Live, two runs in a
+# row spent their first two picks that way and stopped. If the squad reads «out», the
+# clock of whatever it is doing is parked here, and the ordinary wait at the top of the
+# chain sits it out before the first send.
+READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local st = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then st = math.floor(tonumber(v.state) or 0) end end end) return ((st or 0) == 1) and 1 or 0 end)() INTO squad_out
+IF squad_out == 1
+    LOG "the chosen squad is still out — waiting for it to land before the first send"
+    TAP golden_eta
+
 # One lap of the whole server, so the client's own invasion list is filled. Skippable: a
 # second run a minute later is working with the same map.
 IF scan == 1
