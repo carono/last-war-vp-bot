@@ -51,3 +51,18 @@ WHILE looking == 1 LIMIT 6
             LOG "the client cannot name that zombie any more — dropping it and choosing again"
             TAP golden_drop_target
             READ_LUA (0) INTO picked
+            # …AND IF THE GROUND HAS GONE BAD, REDRAW IT HERE RATHER THAN NEXT LAP (#1702).
+            # Live, one lap dropped six stale rows and sent nothing at all: the corner the
+            # chain was standing in had been farmed out while it was walking, and going
+            # round again would only have found the next six. Each drop feeds the same
+            # counter the reaping does, so this is the ordinary threshold — asked again
+            # inside the loop, where it can still save the lap.
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} local n = math.floor(tonumber(p.since_refresh) or 0) local lim = math.floor(tonumber(DataCenter.__lw_gold_refresh_after) or 3) if lim <= 0 then return 0 end return (n >= lim) and 1 or 0 end)() INTO needs_refresh
+            IF needs_refresh == 1
+                LOG "the ground here is stale — redrawing it before choosing again"
+                TAP golden_refresh
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+                WHILE refreshed == 0 LIMIT 12
+                    WAIT 1
+                    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+                TAP golden_scan

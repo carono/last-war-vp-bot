@@ -1441,6 +1441,16 @@ def test_a_stale_row_costs_a_pick_and_not_a_whole_lap():
     assert "TAP golden_drop_target" in tail, "a target the client cannot name is armed anyway"
     assert "IF target_live == 1" in tail, "the reading is taken and not acted on"
 
+    # A DROP IS A PROVEN DISAPPEARANCE and feeds the same threshold the reaping does
+    # (#1702). Live, one lap dropped six stale rows and sent nothing: the corner had been
+    # farmed out while the squad was walking, and nothing was telling the threshold.
+    drop = lua_actions.golden_drop_target()
+    assert "p.since_refresh" in drop and "p.vanished" in drop, \
+        "a row the client cannot name is dropped without anything noticing the ground is bad"
+    after = choose[i:i + 14]
+    assert any(w.startswith("IF needs_refresh ==") for w in after), \
+        "the ground is only redrawn on the NEXT lap — this one would drop six and send none"
+
     # …and nothing in the brick that CHOOSES is allowed to give an order.
     assert not any(w in ("TAP golden_send", "TAP golden_home", "TAP golden_ride")
                    for w in choose), "the choosing brick gives orders"

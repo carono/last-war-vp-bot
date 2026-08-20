@@ -10606,6 +10606,14 @@ def golden_drop_target() -> str:
         "local pid, uuid = p.cur.pid, p.cur.uuid "
         "p.used[tostring(pid)] = true "
         "p.dropped = (tonumber(p.dropped) or 0) + 1 "
+        # A DROP IS A PROVEN DISAPPEARANCE, and it counts as one (#1702). The client was
+        # asked about this exact uuid at this exact tile and had no answer — that is the
+        # map speaking, not an absence of looking, so it feeds the same counter the
+        # reaping does and the ground gets redrawn once enough of them pile up. Live, a
+        # lap dropped six stale rows in a row and sent nothing, because nothing was
+        # telling the threshold that the picture had gone bad.
+        "p.vanished = (tonumber(p.vanished) or 0) + 1 "
+        "p.since_refresh = (tonumber(p.since_refresh) or 0) + 1 "
         "p.cur = nil "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_drop_target pid="..tostring(pid)'
