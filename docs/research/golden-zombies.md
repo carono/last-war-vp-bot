@@ -356,6 +356,68 @@ The general lesson, and it is not about zombies: **any reading taken through
 memory, and a camera that has moved is a different memory.** A sweep of the map fills it
 and evicts what it filled it with an hour ago.
 
+## 4b — the registry: one lap, and then the map keeps it honest (#1702)
+
+The operator's model, and the shape the chain has now: **one brisk lap of the map gives
+the list of targets; from the first march onwards the list is checked against the map
+rather than trusted, and the expensive re-look happens on a threshold rather than on a
+clock.** A row leaves the list only where the map SAID it is gone — the secret tasks'
+THE_LIST_RULE (#1272), applied to monsters.
+
+### What the lap does and does not give
+
+A lap moves the camera every 0.05 s. That is far faster than the client's region loader,
+so the lap gives the FAR picture and leaves the ground near the base blank. Measured live
+on 2026-08-21, standing 488 tiles from home after a lap:
+
+| what was asked | answer |
+|---|---|
+| `GetMonsterListInArea(home, 300)` right after the lap | **0** golden zombies |
+| the same call after 13 camera stops around home (~14 s) | **17**, the nearest **14** tiles away |
+
+The ground was never empty. It was never loaded — and neither was the district the pick
+was measured from, which is why the chain's first choice came out 488 tiles away twice in
+a row. **One wide look at the lap's own height does not fix it**: tried, and the first
+pick still came out 488. Only dwell loads a district.
+
+So the run opens with a short ring — `GOLDEN_REFRESH_STOPS` stops on one ring of
+`GOLDEN_REFRESH_RING` tiles plus the origin, on the game's own timer, the enumerator read
+at each stop, about nine seconds. That is the same press the chain uses later, and it
+replaced an eighteen-stop, twenty-second sweep that ran before every first pick.
+
+### Reaping: what takes a row out
+
+`golden_scan` used to only ever ADD, and a queue that only grows is a queue of corpses:
+live, a chain with `queued = 164` walked down it dropping dead target after dead target —
+20 tiles, 23, 37, 50 — at about eight seconds each, discovering one death at a time, at
+the moment of the send.
+
+Every scan now records what the enumerator actually returned (`present`) and drops a
+queued target that is missing from it — **but only where both halves of «we looked» hold**:
+
+* the target is within `GOLDEN_SEEN_REACH` tiles of the camera (the window the client
+  draws), and
+* `WorldScene:HasPointInfo(pid)` says the client holds that tile's district.
+
+Anything else — a far target, an unfetched district, an oracle that will not answer, or a
+read that raised — is «nobody looked there», and the row stays. The asymmetry is
+deliberate: a row wrongly kept costs one refused send, while a row wrongly dropped is a
+zombie the chain can never come back to, because nothing re-adds what the scan cannot see.
+`golden_here`, the last check before a send, obeys the same rule — an unread district can
+no longer answer «gone».
+
+### The threshold
+
+`p.since_refresh` counts PROVEN disappearances and `GOLDEN_REFRESH_AFTER` (3, the middle
+of the operator's «2–5» band, overridable per run with `refresh_after`) is what buys the
+ring. Below it nothing flies anywhere: the camera already stands on the kills, so the
+ordinary scan after each one is a current picture nearly all the time. `refresh_after = 0`
+switches the redraw off and leaves the run on the opening lap and the reaping alone.
+
+This replaced a camera flight to the candidate and a re-pick after EVERY kill — 4 seconds
+of «first choice» → «target» on every single lap of the chain, whether or not anything had
+changed.
+
 ## 5 — the chain: why the squad does not go home in between
 
 Every march but the last goes out with `autoBackHome = 0`, so the squad stands on the tile

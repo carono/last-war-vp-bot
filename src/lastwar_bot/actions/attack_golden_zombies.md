@@ -146,6 +146,10 @@ ARGS approach = 0
 ARGS approach_sec = 60
 ARGS approach_reach = 12
 ARGS miss_limit = 6
+# How many targets have to be PROVEN gone before the ground is worth redrawing.
+# The operator's band is 2–5; 0 switches the redraw off and leaves the run on the
+# opening lap and the reaping alone.
+ARGS refresh_after = 3
 
 # This run may take a march's worth of minutes; nothing else waits for it (docs/dsl.md).
 DETACH
@@ -171,6 +175,7 @@ LUA DataCenter.__lw_gold_limit = {limit}
 LUA DataCenter.__lw_gold_back = 0
 LUA DataCenter.__lw_gold_approach_sec = {approach_sec}
 LUA DataCenter.__lw_gold_approach_reach = {approach_reach}
+LUA DataCenter.__lw_gold_refresh_after = {refresh_after}
 
 TAP golden_arm
 
@@ -212,26 +217,33 @@ IF scan == 1
     # over a warzone with hundreds of them answered «not one golden zombie on the map».
     TAP golden_scan
 
-# THE NEAR GROUND, RING BY RING (#1702). The client answers about what it has DRAWN, and
-# it draws a window of some sixty tiles around the camera — so a lap of the whole map
-# leaves the queue holding wherever the lap ended, and one look at the base is blind to a
-# zombie sixty tiles out that the player is looking at on their own screen. Live: 140
-# queued with the nearest 500 tiles away, and twelve within sixty tiles of a tile the
-# operator pointed at. The sweep walks rings around the base on the game's own timer and
-# reads the enumerator at every stop.
-TAP golden_ring
-READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.sweep_done) or 0) == 1) and 1 or 0 end)() INTO swept
-WHILE swept == 0 LIMIT 27
-    WAIT 1
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.sweep_done) or 0) == 1) and 1 or 0 end)() INTO swept
+# THE SECOND LAP IS GONE, AND SO IS THE RE-PICK AFTER EVERY KILL (#1702). The operator's
+# model — «беглого просмотра карты достаточно… не нужно потом второй раз ходить» — with
+# one correction the client forced and the note below records: a lap alone does not leave
+# a registry, because it outruns the loader. What the lap DOES leave is the far picture,
+# and from the first march onwards the registry is kept honest by the chain itself: every
+# scan REAPS, so a target the map was read at and did not return is taken out, exactly
+# the way a secret task leaves its list (#1272). The expensive redraw then happens on a
+# THRESHOLD of proven disappearances rather than on every kill.
 
-# …and then the camera onto the origin, and ask again — so the far catch of the lap, the
-# near ring and the base's own district all end up in the same queue. The origin of the
-# first pick is the base, which is where the squad is standing.
-TAP golden_look_from
-READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
-IF looked_moved == 1
-    WAIT 1.5
+# …AND THEN THE GROUND THE CHAIN STARTS FROM, DWELT ON RATHER THAN GLANCED AT (#1702).
+#
+# THE MEASUREMENT THIS TURNS ON, because it contradicts the obvious guess: a lap moves the
+# camera every 0.05 s, which is far faster than the client's region loader, so the lap
+# gives the FAR picture and leaves the near ground blank. Standing 488 tiles out after a
+# lap, the client answered «0 golden zombies within 300 tiles of the base». Thirteen
+# camera stops later it answered «17, the nearest 14 tiles away». The ground was never
+# empty — it was never loaded, and one wide look at the lap's own height does not load it
+# either (tried: the first pick still came out 488 tiles away). Only dwell does.
+#
+# So the run opens with the same short ring it uses to redraw stale ground later — seven
+# stops around the origin of the first pick, which is the base, where the squad is
+# standing. Seven, where the old sweep walked eighteen.
+TAP golden_refresh
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+WHILE refreshed == 0 LIMIT 12
+    WAIT 1
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
 TAP golden_scan
 
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() INTO queued
@@ -307,26 +319,37 @@ WHILE go == 1 LIMIT 200
         READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return 'none' end local o = p.anchor or p.home local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. ' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. ' from=' .. tostring(p.curfrom or '-') .. ' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' src=' .. tostring(c.src or '-') .. ' queued=' .. tostring(#(p.targets or {})) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)() INTO pick_report
         LOG "first choice: {pick_report}"
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO picked
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local n = math.floor(tonumber(p.since_refresh) or 0) local lim = math.floor(tonumber(DataCenter.__lw_gold_refresh_after) or 3) if lim <= 0 then return 0 end return (n >= lim) and 1 or 0 end)() INTO needs_refresh
 
-        # THE CLIENT ONLY KNOWS THE DISTRICTS IT HAS LOADED, so the first choice is the
-        # minimum over what was known — and looking AT it teaches the client its
-        # neighbours (#1702). Live: the chain chose one 500 tiles from the base, the scan
-        # taken once the camera was on it turned up one at 484, and the operator saw the
-        # bot walk past the nearer zombie. So the choice is made again over the bigger,
-        # fresher queue; a second pick can only be nearer, because it is the minimum over
-        # a superset measured from the same origin.
+        # A STALE PICTURE IS PAID FOR ONLY WHEN IT HAS BEEN PROVEN STALE (#1702). The
+        # camera stands on the kills, so the ordinary scan above is a current picture
+        # nearly all the time — and the operator's own rule is that the expensive redraw
+        # is worth it only «если 2–5 монстров пропали». So the counter of PROVEN
+        # disappearances drives it: below the threshold nothing flies anywhere, and at it
+        # the ground is redrawn once at the lap height, read again, and the choice is
+        # made over the fresher queue.
+        #
+        # This replaced a flight to the chosen target and a re-pick after EVERY kill.
+        # That existed because the queue only ever grew and a partial map could hide a
+        # nearer zombie; the queue is reaped now, so what it holds is what the map last
+        # said, and re-flying per kill buys a redraw nobody asked for.
         IF picked == 1
-            TAP golden_look
-            WAIT 1
-            TAP golden_scan
-            TAP golden_pick
+            IF needs_refresh == 1
+                LOG "several targets in a row were gone — redrawing the ground before choosing"
+                TAP golden_refresh
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+                WHILE refreshed == 0 LIMIT 12
+                    WAIT 1
+                    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+                TAP golden_scan
+                TAP golden_pick
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return 'none' end local o = p.anchor or p.home local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. ' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. ' from=' .. tostring(p.curfrom or '-') .. ' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' src=' .. tostring(c.src or '-') .. ' queued=' .. tostring(#(p.targets or {})) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)() INTO pick_report
             LOG "target: {pick_report}"
             READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.cur == nil then return 0 end return ((tonumber(p.cur.uuid) or 0) == 0) and 1 or 0 end)() INTO needs_uuid
             IF needs_uuid == 1
                 TAP golden_touch
                 TAP golden_grab
-            READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.cur if t == nil then return 1 end local ws = _G.__LW_GOLD_WS local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) _G.__LW_GOLD_WS = ws end if ws == nil then return 1 end local want = tostring(t.key or t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 1 or 0 end)() INTO here
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.cur if t == nil then return 1 end local ws = _G.__LW_GOLD_WS local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) _G.__LW_GOLD_WS = ws end if ws == nil then return 1 end local want = tostring(t.key or t.uuid or 0) local there = false local ok = pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) if there then return 1 end if not ok then return 1 end local known = nil pcall(function() known = ws:HasPointInfo(t.pid) end) if known ~= true then return 1 end return 0 end)() INTO here
             IF here == 0
                 LOG "that zombie is not on the map any more — dropping it and picking another"
                 TAP golden_drop_target
@@ -338,9 +361,15 @@ WHILE go == 1 LIMIT 200
             # paid at attack speed. Taken only when the arithmetic wins — a short hop
             # loses more to the extra stop than it saves.
             IF approach == 1
-                # No camera move here any more: the check above (#1702) has just flown to
-                # this very target and re-scanned, which is the same district
-                # `HasPointInfo` needs for the mine hunt below.
+                # THE RIDE, AND ONLY THE RIDE, STILL FLIES THE CAMERA (#1702). The mine
+                # hunt below asks `HasPointInfo` about the tiles around the target, and
+                # the client can only answer for a district it holds — so this branch
+                # fetches it. The chain itself does not: the pick works off the reaped
+                # registry, and the flight used to be paid on every kill for a re-pick
+                # that the reaping has made unnecessary.
+                TAP golden_look
+                WAIT 1
+                TAP golden_scan
                 TAP golden_approach_arm
                 READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.approach ~= nil) and 1 or 0 end)() INTO riding
                 IF riding == 1
@@ -416,7 +445,7 @@ WHILE go == 1 LIMIT 200
         IF go == 1
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost then return 0 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() > 0) and 1 or 0 end)() INTO go
 
-READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. ' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. ' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. ' unstuck=' .. tostring(math.floor(tonumber(p.unstuck) or 0)) .. ' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. ' energy=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) .. ' queued=' .. tostring((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()) .. ' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)() INTO golden_report
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return 'found=' .. tostring(math.floor(tonumber(p.found) or 0)) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. ' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. ' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. ' vanished=' .. tostring(math.floor(tonumber(p.vanished) or 0)) .. ' refreshes=' .. tostring(math.floor(tonumber(p.refreshes) or 0)) .. ' unstuck=' .. tostring(math.floor(tonumber(p.unstuck) or 0)) .. ' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. ' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. ' energy=' .. tostring((function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)()) .. ' queued=' .. tostring((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)()) .. ' squad=' .. tostring(math.floor(tonumber(p.squad) or 0)) end)() INTO golden_report
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.attacks) or 0) end)() INTO attacks
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.kills) or 0) end)() INTO kills
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.spent) or 0) end)() INTO spent

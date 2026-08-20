@@ -1129,13 +1129,19 @@ BUTTONS["golden_look"] = Button(
     lua=_lua_actions.golden_look(),
     wait=2.0, label="look at the target, so its district loads",
 )
-BUTTONS["golden_ring"] = Button(
-    # THE NEAR GROUND, SWEPT PROPERLY (#1702). The client draws a window of about sixty
-    # tiles around the camera and answers only about that, so one look at the base is
-    # blind to a zombie the player can see on their own screen. This walks rings around
-    # the base on the game's own timer, reading the enumerator at every stop.
-    lua=_lua_actions.golden_sweep_home(),
-    wait=0.3, label="sweep the ground around the base for golden zombies",
+BUTTONS["golden_refresh"] = Button(
+    # THE EXPENSIVE HALF OF KEEPING THE REGISTRY HONEST (#1702), and it runs on a
+    # THRESHOLD rather than on a clock: the camera sits on the kills, so an ordinary scan
+    # after each one is a current picture almost always. When several targets in a row
+    # have been proven gone, the ground is redrawn once at the lap height and the
+    # ordinary scan that follows reads the wider window.
+    #
+    # This replaced the ring sweep around the base. The ring walked eighteen stops at a
+    # second each because the queue only ever GREW and the near ground had to be
+    # re-collected by hand; the queue is reaped by every scan now, so the near ground is
+    # kept honest by the chain itself and only needs a redraw when it goes stale.
+    lua=_lua_actions.golden_refresh(),
+    wait=0.3, label="redraw the ground around the chain, and re-read it",
 )
 BUTTONS["golden_look_from"] = Button(
     # The camera onto the ORIGIN of the next pick — the last kill, or the base before the

@@ -224,7 +224,8 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
             before = lines[max(0, i - 20):i]
             assert "TAP golden_scan" in before, \
                 "a pick is made off a list nobody refreshed for this origin"
-            assert "TAP golden_look_from" in before or "TAP golden_look" in before, \
+            assert any(w in before for w in ("TAP golden_look_from", "TAP golden_look",
+                                             "TAP golden_refresh")), \
                 "the scan the pick reads was taken from somewhere else"
     look = lua_actions.golden_look_from()
     assert "p.anchor or p.home" in look, \
@@ -560,7 +561,13 @@ def test_the_kill_is_judged_off_a_district_that_was_just_refreshed():
 
 
 def test_a_dead_target_is_dropped_before_a_send_is_wasted_on_it():
-    """#1702: the client's list is a snapshot; the map has moved on since the sweep."""
+    """#1702: the client's list is a snapshot; the map has moved on since the lap.
+
+    The check survives, and what changed is what it is allowed to conclude. It used to be
+    asked with the camera flown onto the target, and that flight was the proof the answer
+    meant anything; the flight is gone (the registry is reaped by every scan instead), so
+    the proof moved INTO the check — an unread district can no longer say «gone».
+    """
     body, _ = _source(RECIPE)
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     assert "TAP golden_drop_target" in lines
@@ -568,13 +575,18 @@ def test_a_dead_target_is_dropped_before_a_send_is_wasted_on_it():
     assert here, "nothing asks whether the armed target is still on the map"
     i = min(here)
     before = lines[max(0, i - 12):i]
-    assert "TAP golden_look" in before and "TAP golden_scan" in before, \
-        "the target is checked without looking at it — the answer is the old snapshot"
+    assert "TAP golden_scan" in before, \
+        "the target is checked without the client having been asked at all"
     send = [j for j, w in enumerate(lines) if w == "TAP golden_send"]
     assert send and min(send) > i, "the check comes after the send it is meant to save"
     drop = lua_actions.golden_drop_target()
     assert "p.used" in drop and "p.misses" not in drop, \
         "dropping a dead target counts as a refused order — two of them would end the run"
+    check = lua_actions.golden_here()
+    assert "HasPointInfo" in check, \
+        "the check drops a target without asking whether that district was ever read"
+    assert "if not ok then return 1 end" in check, \
+        "a read that failed reads as «the zombie is gone» — the row could never come back"
 
 
 def test_the_ride_is_still_wired_and_waits_on_its_own_march():
@@ -593,7 +605,9 @@ def test_the_ride_is_still_wired_and_waits_on_its_own_march():
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     assert "IF approach == 1" in lines, "the approach branch is gone from the recipe"
     i = lines.index("IF approach == 1")
-    tail = lines[i:i + 12]
+    # Sixteen, not twelve: the branch fetches the target's district itself now (#1702) —
+    # the chain stopped flying the camera per kill, and the mine hunt still needs it.
+    tail = lines[i:i + 20]
     assert "TAP golden_approach_arm" in tail and "TAP golden_ride" in tail, \
         "the branch no longer plans or takes the ride"
     assert "TAP golden_eta" in tail, "a ride nobody times is a chain that never resumes"
@@ -661,15 +675,19 @@ def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_kn
     assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 33, "the chain went back to measuring from home"
     assert rt.eval("DataCenter.__lw_gold.curfrom") == "anchor"
 
-    # …and the recipe picks TWICE: once off what is known, then again once the target's
-    # own district has been scanned.
+    # …and the recipe revisits the choice only when the ground has been PROVEN stale
+    # (#1702). It used to re-pick after every kill, behind a camera flight to the
+    # candidate; the queue is reaped by every scan now, so what it holds is what the map
+    # last said, and the re-pick belongs behind the refresh threshold and nowhere else.
     body, _ = _source(RECIPE)
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     picks = [i for i, w in enumerate(lines) if w == "TAP golden_pick"]
-    assert len(picks) >= 2, "the choice is never revisited after the district is loaded"
+    assert len(picks) >= 2, "the choice is never revisited, even once the ground is stale"
     first, second = picks[0], picks[1]
     between = lines[first:second]
-    assert "TAP golden_look" in between and "TAP golden_scan" in between, \
+    assert "IF needs_refresh == 1" in between and "TAP golden_refresh" in between, \
+        "the second pick is not behind the staleness threshold — it re-flies every kill"
+    assert "TAP golden_scan" in between, \
         "the second pick reads the same queue as the first — it would choose the same"
     send = [i for i, w in enumerate(lines) if w == "TAP golden_send"]
     assert send and min(send) > second, "the run sends before it has re-picked"
@@ -729,22 +747,19 @@ def test_a_zombie_sixty_tiles_from_the_base_beats_one_five_hundred_away():
         "the pick took a target 500 tiles out over one at 62"
     assert rt.eval("DataCenter.__lw_gold.curdist") == 62
 
-    # The other half is what the queue CONTAINS: the client answers about the window it
-    # has drawn — roughly sixty tiles — so the near ground has to be walked, not glanced
-    # at from the base. Live, a camera move to the operator's tile turned up twelve
-    # golden zombies within sixty tiles that no scan of the run had ever seen.
-    sweep = lua_actions.golden_sweep_home()
-    assert "GetMonsterListInArea" in sweep and "MoveToWorldPoint" in sweep, \
-        "the near sweep does not move the camera and read at every stop"
-    assert "DelayInvoke" in sweep, "the ring is walked by round trips, not by the game"
+    # The other half is what the queue CONTAINS, and the answer changed with the model
+    # (#1702). The ring of eighteen camera stops around the base is GONE: one brisk lap
+    # is the registry, and what keeps the near ground honest afterwards is that every
+    # scan reaps what the map was read at and did not return.
+    assert not hasattr(lua_actions, "golden_sweep_home"), \
+        "the ring sweep is back — a second walk of the ground the lap already gave"
     body, _ = _source(RECIPE)
     lines = [line.strip() for line in body.splitlines() if line.strip()]
-    assert "TAP golden_ring" in lines, "nothing sweeps the ground around the base"
-    ring = lines.index("TAP golden_ring")
-    pick = min(i for i, w in enumerate(lines) if w == "TAP golden_pick")
-    assert ring < pick, "the first pick is made before the near ground has been swept"
-    assert any(w.startswith("READ_LUA") and " INTO swept" in w for w in lines[ring:pick]), \
-        "the run picks while the sweep is still walking"
+    assert "TAP golden_ring" not in lines, "the recipe still rides the ring around the base"
+    assert not any(" INTO swept" in w for w in lines), \
+        "the run still waits out a sweep before it may choose"
+    scan = lua_actions.golden_scan()
+    assert "_goldreap" in scan, "a scan only adds — a killed zombie stays in the queue for ever"
 
 
 def test_a_squad_that_is_still_out_is_waited_for_before_the_first_send():
@@ -785,8 +800,6 @@ def test_a_target_uuid_is_fetched_again_before_it_is_sent():
     assert "key = tostring(uuid)" in scan, "the scan keeps no stable copy of the uuid"
     assert "math.floor(tile.x + 0.5)" in scan, \
         "the tile is stored as a C# field read, which dies with the enumerator"
-    sweep = lua_actions.golden_sweep_home()
-    assert "key = tostring(uuid)" in sweep, "the ring sweep keeps dead references"
     send = lua_actions.golden_send()
     assert "_freshuuid" in send, "the send uses the uuid the queue is holding"
     assert "dropped=stale" in send, \
@@ -858,6 +871,184 @@ def test_the_queue_is_refreshed_while_the_squad_is_walking():
     # lap too (#1702).
     assert any(w.startswith("WHILE go == 1 LIMIT") and int(w.rsplit(" ", 1)[-1]) >= 200
                for w in lines), "the chain is capped below what one purse buys"
+
+
+# ---------------------------------------------------------------------------
+# The registry: one lap fills it, and it loses a row only where the map was read
+# ---------------------------------------------------------------------------
+
+def _reaper(known, camera=(100, 100)):
+    """A lupa runtime with `_goldreap` loaded and a fake `HasPointInfo` oracle.
+
+    `known` is the set of tile ids the client is pretending to hold; anything else makes
+    the oracle answer `false`, which is «the client has that district and there is nothing
+    of ours in it» — the opposite of «nobody looked», and the two must not be confused.
+    """
+    import lupa
+    rt = lupa.LuaRuntime()
+    rt.execute("KNOWN = {}")
+    for pid in known:
+        rt.execute("KNOWN[%d] = true" % pid)
+    rt.execute("WS = {HasPointInfo = function(self, pid) return KNOWN[pid] == true end}")
+    rt.execute("CAM = {x = %d, y = %d}" % camera)
+    # The helper is a `local function`, so it dies with its chunk — park it globally
+    # in the SAME chunk that defines it.
+    rt.execute(lua_actions._GOLD_REAP + " REAP = _goldreap")
+    return rt
+
+
+def _reap(rt, targets, present):
+    rt.execute("P = {targets = {}}")
+    for t in targets:
+        rt.execute("P.targets[#P.targets + 1] = {pid = %d, x = %d, y = %d}" % t)
+    rt.execute("PRESENT = {}")
+    for pid in present:
+        rt.execute("PRESENT['%d'] = true" % pid)
+    rt.execute("GONE = REAP(P, WS, PRESENT, CAM.x, CAM.y)")
+    left = []
+    n = int(rt.eval("#P.targets"))
+    for i in range(1, n + 1):
+        left.append(int(rt.eval("P.targets[%d].pid" % i)))
+    return int(rt.eval("GONE")), left
+
+
+def test_a_row_leaves_the_registry_only_where_the_map_was_actually_read():
+    """#1702, and it is THE_LIST_RULE of the secret tasks (#1272) word for word.
+
+    A queued zombie the scan did not return may mean two completely different things, and
+    the whole point of the registry is that they are never confused:
+
+      * the client HOLDS that district and did not return it — it is dead, drop it;
+      * the client does not hold it, or it is outside the window the client draws around
+        the camera — nobody looked, and the row stays.
+
+    A row wrongly kept costs one refused send. A row wrongly dropped is a zombie the chain
+    can never come back to, because nothing re-adds what the scan cannot see.
+    """
+    # 1 is standing there, 2 is dead, 3 sits in a district the client never fetched, and
+    # 4 is dead too — but four hundred tiles away, where the client draws nothing.
+    rt = _reaper(known={1, 2, 4})
+    gone, left = _reap(rt,
+                       targets=[(1, 100, 100), (2, 105, 100), (3, 105, 101), (4, 400, 400)],
+                       present=[1])
+    assert gone == 1, f"the reaping took {gone} rows, not the one the map disowned"
+    assert left == [1, 3, 4], f"the registry came back as {left}"
+
+    # …and the counters are what the threshold reads, so they accumulate across scans.
+    assert int(rt.eval("P.vanished")) == 1
+    assert int(rt.eval("P.since_refresh")) == 1
+
+
+def test_a_district_nobody_read_never_empties_the_registry():
+    """The failure mode this rule exists to stop: a scan that saw nothing wipes the lot.
+
+    An oracle that says «I hold no district at all» is exactly what a client looks like
+    while it is loading, changing scene or drawing somewhere else. Under the old
+    add-only queue that was harmless; under a reaping one it would be a run that throws
+    away the whole lap and reports «not one golden zombie on the map».
+    """
+    rt = _reaper(known=set())
+    gone, left = _reap(rt,
+                       targets=[(1, 100, 100), (2, 101, 100), (3, 102, 100)],
+                       present=[])
+    assert gone == 0, "an unread map emptied the registry"
+    assert left == [1, 2, 3]
+
+    # …and the same read against a client that DOES hold the ground says the opposite.
+    rt = _reaper(known={1, 2, 3})
+    gone, left = _reap(rt, targets=[(1, 100, 100), (2, 101, 100), (3, 102, 100)], present=[])
+    assert gone == 3 and left == [], "the map said they are gone and the rows stayed"
+
+
+def test_the_scan_skips_the_reaping_when_the_read_itself_failed():
+    """An empty answer from a read that never happened is «we did not look» (#1702)."""
+    scan = lua_actions.golden_scan()
+    assert "local read_ok = pcall(function()" in scan, \
+        "the scan does not know whether its own read answered"
+    assert "if read_ok then" in scan, \
+        "the reaping runs on a read that may never have happened"
+    assert "present[tostring(pid)] = true" in scan, \
+        "the scan records nothing about what it actually saw"
+
+
+def test_the_expensive_refresh_waits_for_two_to_five_disappearances():
+    """The operator's rule: «зумить не нужно после каждого раза, только если 2–5 пропали».
+
+    The camera stands on the kills, so the ordinary scan after each one is a current
+    picture nearly always. The redraw is the expensive half and it is bought only once the
+    picture has been PROVEN stale — never on a clock, and never per kill.
+    """
+    import lupa
+    assert 2 <= lua_actions.GOLDEN_REFRESH_AFTER <= 5, \
+        "the default threshold is outside the band the operator asked for"
+    defaults, _rest = engine.extract_defaults(RECIPE.read_text(encoding="utf-8"))
+    assert 2 <= defaults["refresh_after"] <= 5, \
+        "the recipe's own default is outside the 2–5 band"
+
+    gate = lua_actions.golden_needs_refresh()
+    for since, limit, want in ((0, 3, 0), (2, 3, 0), (3, 3, 1), (9, 3, 1),
+                               (2, 2, 1), (5, 5, 1), (9, 0, 0)):
+        rt = lupa.LuaRuntime()
+        rt.execute("DataCenter = {__lw_gold = {since_refresh = %d}, "
+                   "__lw_gold_refresh_after = %d}" % (since, limit))
+        got = int(rt.eval(gate))
+        assert got == want, \
+            f"{since} gone against a threshold of {limit} answered {got}, wanted {want}"
+
+    # …and the refresh puts the counter back, so the next one is a whole threshold away.
+    refresh = lua_actions.golden_refresh()
+    assert "p.since_refresh = 0" in refresh, \
+        "the counter is never cleared — every scan after the first refresh would refresh again"
+    # And it DWELLS, because that is the only thing that loads a district (#1702). One
+    # look does not: standing 488 tiles out after a lap, the client said «0 golden zombies
+    # within 300 tiles of the base», and thirteen camera stops turned that into «17, the
+    # nearest 14 tiles away». So the refresh is a short ring on the game's own timer —
+    # and a short one: fewer stops than the sweep it replaced, around the ORIGIN of the
+    # next pick rather than around the base for its own sake.
+    assert "MoveToWorldPoint" in refresh and "GetMonsterListInArea" in refresh, \
+        "the refresh does not move the camera and read at every stop — it loads nothing"
+    assert "DelayInvoke" in refresh, "the ring is walked by round trips, not by the game"
+    assert "p.anchor or p.home" in refresh, \
+        "the refresh is aimed at the base rather than at where the chain is standing"
+    assert lua_actions.GOLDEN_REFRESH_STOPS + 1 <= 12, \
+        "the refresh is as long a walk as the ring it replaced"
+    assert 6.0 <= lua_actions.golden_refresh_seconds() <= 12.0, \
+        "the refresh either cannot finish or costs more than the sweep it replaced"
+
+    # …and the recipe WAITS for the ring instead of guessing how long it takes.
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    for i, w in enumerate(lines):
+        if w != "TAP golden_refresh":
+            continue
+        after = lines[i + 1:i + 6]
+        assert any(" INTO refreshed" in x for x in after), \
+            "a refresh nobody waits for is a scan taken while the camera is still walking"
+
+
+def test_the_map_is_walked_ONCE_and_never_again():
+    """«Беглого просмотра карты достаточно… не нужно потом второй раз ходить» (#1702).
+
+    One lap fills the registry. What used to follow it — a second walk of eighteen camera
+    stops in rings around the base, and a flight to the candidate before every single kill
+    — is gone, and the reaping is what replaced both.
+    """
+    body, _ = _source(RECIPE)
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    assert lines.count("CALL scan_map") == 1, \
+        "the recipe walks the whole map more than once"
+    assert not any(w.startswith("SWEEP_MAP") for w in lines), \
+        "the recipe laps the map itself, on top of the one lap it calls for"
+    lap = lines.index("CALL scan_map")
+    loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE go == 1"))
+    assert lap < loop, "the lap is inside the chain — it would run once per kill"
+    assert "TAP golden_ring" not in lines and "TAP golden_refresh" in lines, \
+        "the ring is still there, or nothing replaced it"
+    # The chain's own camera work: the origin of the next pick, and the ride's district.
+    # Not the candidate, and not on every lap.
+    body_after = lines[loop:]
+    assert body_after.count("TAP golden_look") <= 1, \
+        "the chain still flies to its candidate on every kill"
 
 
 def _run_standalone() -> int:

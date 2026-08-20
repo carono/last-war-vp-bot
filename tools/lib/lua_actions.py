@@ -9616,6 +9616,34 @@ GOLDEN_ETA_NEAR_MS = 4000
 #: and comfortably smaller than the hop that would leave it.
 GOLDEN_LOOK_AGAIN = 8
 
+#: How near the camera a target has to be before its ABSENCE means anything (#1702).
+#: The client draws — and answers about — a window of roughly sixty tiles around wherever
+#: it is looking. Inside that window "the enumerator did not return it" is a fact about
+#: the map; outside it, it is a fact about what nobody has looked at. That distinction is
+#: THE_LIST_RULE (#1272) applied to monsters: a row leaves the registry only when the map
+#: SAID it is gone.
+GOLDEN_SEEN_REACH = 60
+
+#: The shape of the REFRESH — a short ring of camera stops around the origin (#1702).
+#: A stop is a camera move and an enumerator read, and the gap is what the client's region
+#: loader needs to draw what it has been sent. Measured live, and this is the measurement
+#: the whole design rests on: **a lap of the map leaves the client holding the district it
+#: ENDED in and nothing else.** Standing 488 tiles away, `GetMonsterListInArea` answered
+#: `0` golden zombies within 300 tiles of the base; thirteen stops later it answered `17`,
+#: the nearest of them **14 tiles** from the front door. The ground was never empty — it
+#: was never loaded. One wide look at the lap's own height does not fix it either (tried:
+#: the first pick still came out 488 tiles away). Only dwell does.
+GOLDEN_REFRESH_RING = 80
+GOLDEN_REFRESH_STOPS = 6
+GOLDEN_REFRESH_GAP = 1.1
+
+#: How many PROVEN disappearances are worth an expensive refresh of the registry (#1702).
+#: The operator's own number — «только если 2–5 монстров пропали, значит нужно обновить»
+#: — because the camera sits on the kills and the picture is nearly always current; a
+#: refresh after every kill buys a redraw nobody needed. Three is the middle of that
+#: band, and the recipe's `refresh_after` overrides it per run.
+GOLDEN_REFRESH_AFTER = 3
+
 #: Fallback cost of one solo attack, when the game will not price it. The live answer
 #: on 2026-08-19 was 10; this is only what keeps the gate honest if the call fails.
 GOLDEN_ATTACK_COST = 10
@@ -9625,6 +9653,37 @@ GOLDEN_ATTACK_COST = 10
 _GOLD = "DataCenter.__lw_gold"
 
 _GOLD_P = "local p = %s or {} " % _GOLD
+
+
+#: THE REGISTRY LOSES A ROW ONLY WHERE THE MAP WAS READ (#1702) — the secret tasks' rule,
+#: word for word (#1272). `present` is what THIS scan's enumerator returned; a queued
+#: target missing from it is dropped only when both halves of "we looked" hold:
+#:
+#:   * it is inside the drawn window around the camera (:data:`GOLDEN_SEEN_REACH`), and
+#:   * the client says it holds that tile's district (`HasPointInfo`).
+#:
+#: Anything else — a far target, a district the client never fetched, an oracle that will
+#: not answer — is "we did not look there", and the row stays. A row that stays costs one
+#: wasted send at worst; a row wrongly dropped is a zombie the chain can never come back
+#: to, because nothing re-adds what the scan cannot see.
+_GOLD_REAP = (
+    "local function _goldreap(p, ws, present, cx, cy) "
+    "local kept, gone = {}, 0 "
+    "for _, t in ipairs(p.targets or {}) do "
+    "local keep = true "
+    "if not present[tostring(t.pid)] then "
+    "local dx = (tonumber(t.x) or -1e9) - cx local dy = (tonumber(t.y) or -1e9) - cy "
+    "local near = (dx * dx + dy * dy) <= REACH * REACH "
+    "local known = nil "
+    "pcall(function() known = ws:HasPointInfo(t.pid) end) "
+    "if near and known == true then keep = false end end "
+    "if keep then kept[#kept + 1] = t else gone = gone + 1 end end "
+    "p.targets = kept "
+    "if gone > 0 then "
+    "p.vanished = (tonumber(p.vanished) or 0) + gone "
+    "p.since_refresh = (tonumber(p.since_refresh) or 0) + gone end "
+    "return gone end "
+).replace("REACH", str(GOLDEN_SEEN_REACH))
 
 
 def golden_energy() -> str:
@@ -9745,6 +9804,7 @@ def golden_arm() -> str:
         "p.back = math.floor(tonumber(%(gold)s_back) or 0) "
         "p.limit = math.floor(tonumber(%(gold)s_limit) or 0) "
         "p.targets = {} p.used = {} p.attacks = 0 p.spent = 0 p.found = 0 "
+        "p.vanished = 0 p.since_refresh = 0 p.refreshes = 0 "
         "pcall(function() p.server = math.floor(tonumber(LuaEntry.Player:GetSelfServerId()) or 0) end) "
         "p.anchor = nil "
         "p.home = _goldhome(ws, p.server) "
@@ -9796,17 +9856,29 @@ def _golden_prefab_helpers() -> str:
 
 
 def golden_scan() -> str:
-    """Look for golden zombies around the camera and add what is new to the queue.
+    """Read the map around the camera: add what is new, and REAP what the map says is gone.
 
     Two sources, merged and de-duplicated by uuid (and by tile for the ones that have no
     uuid yet). Nothing is opened, nothing is tapped and nothing already attacked this run
     comes back: a tile in `used` is skipped on the way in.
 
-    Run it as often as the camera moves — every call adds, none of them forgets.
+    **The queue used to only ever grow, and that is what changed (#1702).** One brisk lap
+    of the map gives the whole registry; from the first march onwards the chain works off
+    that registry AND off the map, because the zombies in it are being killed — by us and
+    by everybody else — and a row that has died is a march thrown at a corpse. So every
+    scan also reaps: a queued target the enumerator did not return is dropped **only**
+    where the map was actually read (:data:`_GOLD_REAP`), which is the secret tasks'
+    THE_LIST_RULE (#1272) with the camera's drawn window as the proof.
+
+    The reaping is skipped entirely when the enumerator itself failed — an empty answer
+    from a read that did not happen is "we did not look", not "they are all dead".
+
+    Run it as often as the camera moves. `gone=` in its own log line is what feeds the
+    refresh threshold (:func:`golden_needs_refresh`).
     """
     return (
         monster_prefab_lookup() + _golden_prefab_helpers() +
-        _GOLD_P +
+        _GOLD_P + _GOLD_REAP +
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end " +
         _GOLD_WS +
@@ -9814,9 +9886,13 @@ def golden_scan() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_scan skipped=not-in-world") return end '
         "local seen = {} "
         "for _, t in ipairs(p.targets) do seen[tostring(t.pid)] = true end "
+        # WHAT THIS READ ACTUALLY SAW, as opposed to what the queue already held: `seen`
+        # is the de-duplicator and cannot answer "is it still there", because everything
+        # queued is in it before the read begins.
+        "local present = {} "
         "local added = 0 "
         # -- 1. the invasion enumerator: uuid -> tile, everything the send needs
-        "pcall(function() "
+        "local read_ok = pcall(function() "
         "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
         "for _, id in ipairs(_goldids()) do pcall(function() ids:Add(id, 1) end) end "
         "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
@@ -9826,11 +9902,12 @@ def golden_scan() -> str:
         "while e:MoveNext() do "
         "local uuid, tile = e.Current.Key, e.Current.Value "
         "local pid = nil pcall(function() pid = ws:TilePosToIndex(tile) end) "
-        "if pid ~= nil and not seen[tostring(pid)] and not p.used[tostring(uuid)] then "
+        "if pid ~= nil then present[tostring(pid)] = true "
+        "if not seen[tostring(pid)] and not p.used[tostring(uuid)] then "
         "seen[tostring(pid)] = true added = added + 1 "
         "p.targets[#p.targets + 1] = {pid = pid, uuid = uuid, key = tostring(uuid), "
         "x = math.floor(tile.x + 0.5), y = math.floor(tile.y + 0.5), "
-        "src = 'area'} end end end) "
+        "src = 'area'} end end end end) "
         # -- 2. the drawn clones: a tile, and a handle that can fetch the uuid later
         "pcall(function() "
         "local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) "
@@ -9846,64 +9923,68 @@ def golden_scan() -> str:
         "if _norm(nm) == _goldpic() then "
         "local pid = nil pcall(function() "
         "pid = SceneUtils.WorldToTileIndex(root.transform.position) end) "
-        "if pid ~= nil and not seen[tostring(pid)] then "
+        "if pid ~= nil then present[tostring(pid)] = true "
+        "if not seen[tostring(pid)] then "
         "local tp = nil pcall(function() tp = SceneUtils.IndexToTilePos(pid) end) "
         "seen[tostring(pid)] = true added = added + 1 "
         "p.targets[#p.targets + 1] = {pid = pid, uuid = 0, trig = mb, "
         "x = (tp and tp.x or -1), y = (tp and tp.y or -1), src = 'clone'} end end end "
-        "end end end) "
+        "end end end end) "
+        # -- 3. …and only now, with a read that answered, take out what is gone
+        "local gone = 0 "
+        "if read_ok then "
+        "local cam = ws.CurTilePos "
+        "gone = _goldreap(p, ws, present, cam.x, cam.y) end "
         "p.found = #p.targets "
         "p.ids = _goldids() "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_scan added="..tostring(added)'
+        '.." gone="..tostring(gone)'
+        '.." since_refresh="..tostring(math.floor(tonumber(p.since_refresh) or 0))'
         '.." queued="..tostring(p.found))'
         % {"gold": _GOLD}
     )
 
 
-#: How the near sweep is laid out around the base (#1702). The client draws — and the
-#: enumerator therefore answers about — a window of roughly sixty tiles around wherever
-#: the camera is standing, so a single look at home is blind to a zombie sixty tiles away
-#: that the player can see on their own screen. Rings of eighty tiles, six stops each,
-#: cover everything within about two hundred tiles of the base; a stop is a camera move
-#: and an enumerator read, both inside the game.
-GOLDEN_RING_STEP = 80
-GOLDEN_RING_COUNT = 3
-GOLDEN_RING_STOPS = 6
-#: Seconds between two stops of the near sweep. The client's region loader needs about a
-#: second to draw what it has been sent — measured on the monster lap of #1523, where the
-#: same ground gave 30 monsters at 0.05 s a stop and 970 at 1.2 s.
-GOLDEN_RING_GAP = 1.1
+def golden_refresh() -> str:
+    """Walk a short ring of camera stops around the origin, reading the map at each one.
 
+    The expensive half of keeping the registry honest, and it runs on a THRESHOLD rather
+    than on a clock (:data:`GOLDEN_REFRESH_AFTER`): the camera already sits on the kills,
+    so an ordinary scan after each one is a current picture almost all the time. It is
+    when several targets in a row turn out to be gone that the ground is stale enough to
+    be worth paying for.
 
-def golden_sweep_home() -> str:
-    """Walk the camera in rings around the BASE, harvesting golden zombies at every stop.
+    **Why stops and not one look.** The client answers about what it has LOADED, and it
+    loads what the camera dwells on. A lap of the map moves every 0.05 s — far faster than
+    the region loader — so the lap gives the far picture and leaves the near ground blank:
+    live, `0` golden zombies within 300 tiles of the base, and the first pick 488 tiles
+    away, on a map that had 17 of them within 300 and one at 14. A single wide look at the
+    lap's own height changes nothing. Thirteen stops turned the 0 into 17.
 
-    **The client only knows what it has drawn, and it draws a window around the camera**
-    (#1702). A lap of the whole map fills that window district by district and evicts it
-    just as fast, so a scan taken when the lap has finished sees only wherever it ended —
-    and a scan taken at the base sees only the base's own neighbourhood. Live, the queue
-    held 140 zombies with the nearest 500 tiles out, while a camera move to a tile the
-    player was looking at turned up **twelve within sixty tiles** — one of them 62 tiles
-    from the base, and the chain had marched past it to a target eight times farther.
+    So this is the old ring sweep, cut down and re-aimed: :data:`GOLDEN_REFRESH_STOPS`
+    stops on one ring of :data:`GOLDEN_REFRESH_RING` tiles plus the origin itself, walked
+    on the game's own timer, the enumerator read and merged at every stop. Around the
+    ORIGIN of the next pick — the base before the first march, the last kill after it —
+    and never around the base for its own sake.
 
-    So the near ground is swept properly: rings around the base, a stop every
-    :data:`GOLDEN_RING_GAP` seconds, the enumerator read at each stop and merged into the
-    same queue. It is scheduled INSIDE the game like `fast_map_sweep` — the whole ring is
-    one call and the camera walks it on the game's own timer — and the camera is put back
-    on the base at the end.
+    It is also the run's opening move, once, which is what replaced eighteen stops before
+    every first pick with seven.
     """
     return (
         _GOLD_P + _GOLD_WS +
         "if ws == nil then "
-        'CS.UnityEngine.Debug.LogError("ACT golden_sweep skipped=not-in-world") return end '
-        "local home = p.home or {x = ws.CurTilePos.x, y = ws.CurTilePos.y} "
+        'CS.UnityEngine.Debug.LogError("ACT golden_refresh skipped=not-in-world") return end '
+        "local o = p.anchor or p.home "
+        "if o == nil then o = {x = ws.CurTilePos.x, y = ws.CurTilePos.y} end "
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end "
-        "p.sweep_done = 0 "
+        "p.since_refresh = 0 "
+        "p.refreshes = (tonumber(p.refreshes) or 0) + 1 "
+        "p.refresh_done = 0 "
         "%(gold)s = p "
-        # -- one stop: move the camera, then read the enumerator around that point
         "local ids = p.ids or {%(cfg)d} "
+        # -- one stop: move the camera, then read the enumerator around that point
         "local function stop(x, y) "
         "local g = %(gold)s "
         "pcall(function() local pid = ws:TilePosToIndex(CS.UnityEngine.Vector2Int(x, y)) "
@@ -9923,41 +10004,60 @@ def golden_sweep_home() -> str:
         "seen[tostring(pid)] = true "
         "g.targets[#g.targets + 1] = {pid = pid, uuid = uuid, key = tostring(uuid), "
         "x = math.floor(tile.x + 0.5), y = math.floor(tile.y + 0.5), "
-        "src = 'ring'} end end end) "
+        "src = 'refresh'} end end end) "
         "g.found = #g.targets "
         "%(gold)s = g end "
         # -- the ring itself, scheduled on the game's own timer
         "local tm = TimerManager:GetInstance() "
         "local n = 0 "
-        "for ring = 1, %(rings)d do "
-        "local r = ring * %(step)d "
         "for k = 0, %(stops)d - 1 do "
         "local a = (2 * math.pi * k) / %(stops)d "
-        "local x = math.floor(home.x + r * math.cos(a) + 0.5) "
-        "local y = math.floor(home.y + r * math.sin(a) + 0.5) "
+        "local x = math.floor(o.x + %(ring)d * math.cos(a) + 0.5) "
+        "local y = math.floor(o.y + %(ring)d * math.sin(a) + 0.5) "
         "if x >= 0 and y >= 0 then n = n + 1 "
-        "tm:DelayInvoke(function() stop(x, y) end, n * %(gap)f) end end end "
-        # …and home again at the end, so the pick's own look has nothing to do
-        "tm:DelayInvoke(function() stop(home.x, home.y) "
-        "local g = %(gold)s g.sweep_done = 1 g.looked = {x = home.x, y = home.y} "
+        "tm:DelayInvoke(function() stop(x, y) end, n * %(gap)f) end end "
+        # …and the origin last, so the camera ends where the pick is measured from
+        "tm:DelayInvoke(function() stop(o.x, o.y) "
+        "local g = %(gold)s g.refresh_done = 1 g.looked = {x = o.x, y = o.y} "
         "%(gold)s = g end, (n + 1) * %(gap)f) "
-        'CS.UnityEngine.Debug.LogError("ACT golden_sweep stops="..tostring(n + 1)'
-        '.." home="..tostring(home.x)..","..tostring(home.y))'
-        % {"gold": _GOLD, "cfg": GOLDEN_ZOMBIE_CFG, "reach": GOLDEN_RING_STEP,
-           "rings": GOLDEN_RING_COUNT, "stops": GOLDEN_RING_STOPS,
-           "step": GOLDEN_RING_STEP, "gap": GOLDEN_RING_GAP}
+        'CS.UnityEngine.Debug.LogError("ACT golden_refresh at="..tostring(o.x)..","..tostring(o.y)'
+        '.." stops="..tostring(n + 1).." n="..tostring(p.refreshes))'
+        % {"gold": _GOLD, "cfg": GOLDEN_ZOMBIE_CFG, "reach": GOLDEN_REFRESH_RING,
+           "stops": GOLDEN_REFRESH_STOPS, "ring": GOLDEN_REFRESH_RING,
+           "gap": GOLDEN_REFRESH_GAP}
     )
 
 
-def golden_sweep_done() -> str:
-    """Lua *expression* -> 1 once the ring sweep around the base has finished."""
+def golden_refresh_done() -> str:
+    """Lua *expression* -> 1 once the refresh ring has finished walking."""
     return ("(function() " + _GOLD_P +
-            "return (math.floor(tonumber(p.sweep_done) or 0) == 1) and 1 or 0 end)()")
+            "return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)()")
 
 
-def golden_sweep_seconds() -> float:
-    """How long the ring sweep takes, for the caller that has to wait it out."""
-    return (GOLDEN_RING_COUNT * GOLDEN_RING_STOPS + 2) * GOLDEN_RING_GAP
+def golden_refresh_seconds() -> float:
+    """How long the refresh ring takes, for the caller that has to wait it out."""
+    return (GOLDEN_REFRESH_STOPS + 2) * GOLDEN_REFRESH_GAP
+
+
+def golden_needs_refresh() -> str:
+    """Lua *expression* -> 1 when enough targets have been proven gone to redraw the ground.
+
+    The threshold is the run's own `refresh_after` when it set one, and
+    :data:`GOLDEN_REFRESH_AFTER` otherwise. Zero or less switches the refresh off
+    entirely, which is what a run that wants nothing but the opening lap passes.
+    """
+    return ("(function() " + _GOLD_P +
+            "local n = math.floor(tonumber(p.since_refresh) or 0) "
+            "local lim = math.floor(tonumber(%(gold)s_refresh_after) or %(def)d) "
+            "if lim <= 0 then return 0 end "
+            "return (n >= lim) and 1 or 0 end)()"
+            % {"gold": _GOLD, "def": GOLDEN_REFRESH_AFTER})
+
+
+def golden_vanished() -> str:
+    """Lua *expression* -> how many queued targets the map has proven gone this run."""
+    return ("(function() " + _GOLD_P +
+            "return math.floor(tonumber(p.vanished) or 0) end)()")
 
 
 def golden_queued() -> str:
@@ -10407,14 +10507,18 @@ def golden_drop_kill() -> str:
 def golden_here() -> str:
     """Lua *expression* -> 1 when the armed target is still on the map, 0 when it is gone.
 
-    **Asked with the camera ON the target** (#1702), which is the whole point: the client's
-    monster list is a snapshot of districts it has loaded, and a chain's next target is
-    usually twenty tiles away in a district nobody has looked at since the sweep. Live, two
-    sends out of four went to zombies that were already dead — each cost the ten seconds
-    the launch proof waits before it gives up, and two in a row ended the run.
+    The last gate before a send, and it obeys THE_LIST_RULE like everything else that can
+    take a row out (#1702, #1272): `0` means **the map said the zombie is not there**, and
+    an unread district can never say that. So three answers collapse into «still there» —
+    nothing armed, a read that failed, and a tile whose district the client does not hold
+    (`HasPointInfo`) — and only a district the client HAS, answering without this zombie
+    in it, returns `0`.
 
-    A camera move re-fetches the district, so this answers about the CURRENT map. `1` when
-    there is nothing armed, so the caller falls through to its own «nothing picked» branch.
+    It used to be asked with the camera flown onto the target, and that flight is gone:
+    the queue is reaped by every scan now, so a target that survived to be armed has
+    already been checked against the map wherever the map was readable. What is left here
+    is the cheap local confirmation, and it must not turn "I cannot see that far" into a
+    dropped zombie — that is a row the chain could never get back.
     """
     return (
         "(function() " + _GOLD_P +
@@ -10424,7 +10528,7 @@ def golden_here() -> str:
         "if ws == nil then return 1 end "
         "local want = tostring(t.key or t.uuid or 0) "
         "local there = false "
-        "pcall(function() "
+        "local ok = pcall(function() "
         "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
         "for _, id in ipairs(p.ids or {%(cfg)d}) do pcall(function() ids:Add(id, 1) end) end "
         "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
@@ -10432,7 +10536,12 @@ def golden_here() -> str:
         "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) "
         "local e = res:GetEnumerator() "
         "while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) "
-        "return there and 1 or 0 end)()"
+        "if there then return 1 end "
+        "if not ok then return 1 end "
+        "local known = nil "
+        "pcall(function() known = ws:HasPointInfo(t.pid) end) "
+        "if known ~= true then return 1 end "
+        "return 0 end)()"
         % {"cfg": GOLDEN_ZOMBIE_CFG}
     )
 
@@ -10632,6 +10741,8 @@ def golden_report() -> str:
         "' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) .. "
         "' kills=' .. tostring(math.floor(tonumber(p.kills) or 0)) .. "
         "' dropped=' .. tostring(math.floor(tonumber(p.dropped) or 0)) .. "
+        "' vanished=' .. tostring(math.floor(tonumber(p.vanished) or 0)) .. "
+        "' refreshes=' .. tostring(math.floor(tonumber(p.refreshes) or 0)) .. "
         "' unstuck=' .. tostring(math.floor(tonumber(p.unstuck) or 0)) .. "
         "' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. "
         "' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. "
