@@ -5277,43 +5277,52 @@ def _hospital_army_literal(entries) -> str:
     return "{" + ",".join(parts) + "}"
 
 
-# `SFSNetwork.SendMessage("hospital.cure", param)` CANNOT be used for this message.
-# `HospitalCureMessage:OnCreate` silently declines to build `armyArray` from a param
-# handed to it that way — the message goes out with only `gold` + `worldType`, and the
-# server answers `errorCode E000000` (verified live many times, with every spelling of
-# the entry fields, on a clean VM, with and without the hospital window open).
+# `SFSNetwork.SendMessage("hospital.cure", param)` cannot build `armyArray` on its own.
+# `HospitalCureMessage:OnCreate` silently declines to build it from a param handed to it
+# that way — the message goes out with only `gold` + `worldType`, and the server answers
+# `errorCode E000000` (verified live many times, with every spelling of the entry fields,
+# on a clean VM, with and without the hospital window open).
 #
-# What works is to build the message and hand it to the transport directly — which is
-# all `SendMessage` itself does, minus the OnCreate step we cannot make cooperate:
+# So the message is completed on its way OUT, one step short of the wire. `SendMessage`
+# serialises with `msg:ToBinary()`, so the class's `ToBinary` is borrowed for exactly one
+# call — long enough to put the `armyArray` the caller wants onto `msg.sfsObj` — and put
+# back before the original runs.
 #
-#     local cls = GetMsgType("hospital.cure")     -- both live in SendMessage's upvalues
-#     local msg = cls:NewMessage({gold = 0})      -- fills gold + worldType
-#     ... build the SFSArray of {armyId, healNum} by hand ...
-#     msg.sfsObj:PutSFSArray("armyArray", arr)
-#     Network:SendLuaMessage("hospital.cure", msg:ToBinary())
+# THE OLD ROUTE IS GONE, and not because it was wrong (#1702). It used to read
+# `GetMsgType` and the transport out of `SFSNetwork.SendMessage`'s upvalues with
+# `debug.getupvalue` and call `Network:SendLuaMessage` itself. The client has since shut
+# its Lua sandbox: `debug.getupvalue` answers «this API is disabled for security» and
+# `string.dump` «lua_dump is disabled», so nothing can be read out of a function any more.
+# `SFSNetwork` exposes three names — `GetMsgType`, `HandleMessage`, `SendMessage` — and
+# the hook below needs only the first and the last. Nothing else in the repository may
+# reach for the closed pair either: what breaks is silent, since the message is simply
+# never assembled and the press reports success.
 #
-# The command name is required as the first argument — `SendLuaMessage(bin)` alone is
-# accepted by the client and never reaches the server. Proven live 2026-07-29: the
-# server replied `{_id, _time, gold, hospitalArray, queue, resource}` (no errorCode) and
-# 3013 moved dead=39 -> dead=34, heal=5.
+# Proven live 2026-08-20 on this route: 692 wounded across two soldier types went to
+# treatment in one press, `dead` 692 -> 0 and `heal` 0 -> 692.
 _HOSPITAL_TRANSPORT = (
-    "local __f = SFSNetwork.SendMessage local __GMT, __NET local __i = 1 "
-    "while true do local n, v = debug.getupvalue(__f, __i) if not n then break end "
-    "if n == 'GetMsgType' then __GMT = v end "
-    "if n == 'Network' then __NET = v end __i = __i + 1 end "
-    "if not (__GMT and __NET) then error('hospital: transport not found') end "
     "local __cure = function(army) "
     "if #army == 0 then error('no wounded soldiers') end "
-    "local cls = __GMT('hospital.cure') "
-    "local msg = cls:NewMessage({gold = 0}) "
+    "local cls = SFSNetwork.GetMsgType('hospital.cure') "
+    "if type(cls) ~= 'table' then error('hospital: message class not found') end "
+    "local orig = cls.ToBinary "
+    "local injected = false "
+    "rawset(cls, 'ToBinary', function(self, ...) "
+    "rawset(cls, 'ToBinary', nil) "
     "local arr = SFSArray.New() "
     "for _, e in ipairs(army) do "
     "local o = SFSObject.New() "
     "o:PutUtfString('armyId', tostring(e[1])) "
     "o:PutInt('healNum', math.floor(e[2])) "
     "arr:AddSFSObject(o) end "
-    "msg.sfsObj:PutSFSArray('armyArray', arr) "
-    "__NET:SendLuaMessage('hospital.cure', msg:ToBinary()) "
+    "self.sfsObj:PutSFSArray('armyArray', arr) "
+    "injected = true "
+    "return orig(self, ...) end) "
+    "local ok, err = pcall(function() "
+    "SFSNetwork.SendMessage('hospital.cure', { gold = 0 }) end) "
+    "rawset(cls, 'ToBinary', nil) "
+    "if not ok then error(tostring(err)) end "
+    "if not injected then error('hospital: the send never serialised the message') end "
     "return #army end "
 )
 

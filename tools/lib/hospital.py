@@ -14,8 +14,9 @@ treatment. Collecting the healed soldiers is the manager's own
 Both halves are proven live (2026-07-29): one :func:`heal_all` sent 681 wounded for
 treatment, and :func:`collect` brought a finished batch back and freed the hospital.
 
-The message cannot go out through `SFSNetwork.SendMessage` — it is assembled and handed
-to the transport instead, see `lua_actions` and the research note §2a. Building queues are
+`SFSNetwork.SendMessage` sends it, but will not build `armyArray` from the param it is
+given, so the message class's own `ToBinary` is borrowed for one call and the array is put
+on the message there — see `lua_actions` and the research note §2a. Building queues are
 NOT a gate; `errorCode 130069` means the HOSPITAL queue is busy (a heal running, or a
 finished one still waiting to be collected), so collect before healing.
 

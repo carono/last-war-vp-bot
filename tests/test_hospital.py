@@ -163,7 +163,8 @@ def test_heal_all_builds_from_the_hospital_rows():
     # The whole batch of each type — read through `tonumber`, because a row is a C#
     # object and not a Lua table (#1702).
     _check("...takes the whole wounded batch", "math.floor(tonumber(h.dead) or 0)" in chunk)
-    _check("...and sends hospital.cure", "SendLuaMessage('hospital.cure'" in chunk)
+    _check("...and sends hospital.cure",
+           "SFSNetwork.SendMessage('hospital.cure'" in chunk)
 
 
 # -- cure: the message shape -------------------------------------------------
@@ -179,13 +180,33 @@ def test_cure_builds_the_message():
     _check("the entry is carried through", '{"3014",80}' in chunk)
 
 
-def test_cure_sends_through_the_transport_with_the_command_name():
-    # `SendLuaMessage(bin)` without the command is accepted by the client and never
-    # reaches the server — the name is what routes it.
+def test_cure_sends_through_the_hooked_serialiser():
+    # The client closed its Lua sandbox (#1702): `debug.getupvalue` answers "this API is
+    # disabled for security" and `string.dump` "lua_dump is disabled", so the transport
+    # can no longer be read out of `SendMessage`. The send goes through `SendMessage`
+    # itself, with the message class's own `ToBinary` borrowed for one call to add the
+    # armyArray that `OnCreate` refuses to build.
     chunk = lua_actions.hospital_cure([("3014", 1)])
-    _check("resolves the transport", "GetMsgType" in chunk and "Network" in chunk)
-    _check("sends with the command name", "SendLuaMessage('hospital.cure'" in chunk)
-    _check("...and the serialised message", "ToBinary()" in chunk)
+    _check("asks the client for the message class",
+           "GetMsgType('hospital.cure')" in chunk)
+    _check("sends with the command name",
+           "SFSNetwork.SendMessage('hospital.cure'" in chunk)
+    _check("borrows ToBinary for one call", "rawset(cls, 'ToBinary'," in chunk)
+    _check("...and puts it back", "rawset(cls, 'ToBinary', nil)" in chunk)
+    _check("...and refuses to claim a send that never serialised",
+           "the send never serialised the message" in chunk)
+
+
+def test_cure_touches_no_closed_lua_api():
+    # A closed API fails SILENTLY here: the message is simply never assembled, the
+    # transport raises into its own pcall and the press still reports success. So the
+    # ban is a test rather than a comment.
+    for chunk in (lua_actions.hospital_cure([("3014", 1)]),
+                  lua_actions.hospital_heal_all()):
+        for closed in ("debug.getupvalue", "debug.getinfo", "string.dump"):
+            _check("no %s" % closed, closed not in chunk)
+        _check("nothing is handed to a transport by hand",
+               "SendLuaMessage" not in chunk)
 
 
 def test_cure_carries_gold_and_nothing_else():

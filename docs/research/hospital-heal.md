@@ -79,31 +79,69 @@ gold fields, on a freshly restarted client, with the hospital window shut and op
 with `param` confirmed intact *inside* `OnCreate` by a trap. The cause inside `OnCreate`
 was never found; the function does not raise, it simply skips the block.
 
-What works is to assemble the message and hand it to the transport — which is all
-`SendMessage` does anyway, minus the `OnCreate` step:
+What works is to let `SendMessage` do the sending and to complete the message one step
+short of the wire: `SendMessage` serialises with `msg:ToBinary()`, so the message class's
+own `ToBinary` is borrowed for exactly one call.
 
 ```lua
-local GetMsgType, Network = <upvalues of SFSNetwork.SendMessage>
-local cls = GetMsgType("hospital.cure")
-local msg = cls:NewMessage({gold = 0})          -- fills gold + worldType
-local arr = SFSArray.New()
-for _, e in ipairs(entries) do                  -- e = {armyId, count}
-    local o = SFSObject.New()
-    o:PutUtfString("armyId", tostring(e[1]))
-    o:PutInt("healNum", math.floor(e[2]))
-    arr:AddSFSObject(o)
-end
-msg.sfsObj:PutSFSArray("armyArray", arr)
-Network:SendLuaMessage("hospital.cure", msg:ToBinary())
+local cls = SFSNetwork.GetMsgType("hospital.cure")
+local orig = cls.ToBinary                       -- inherited; `rawget` on the class is nil
+rawset(cls, "ToBinary", function(self, ...)
+    rawset(cls, "ToBinary", nil)                -- put back BEFORE anything can raise
+    local arr = SFSArray.New()
+    for _, e in ipairs(entries) do              -- e = {armyId, count}
+        local o = SFSObject.New()
+        o:PutUtfString("armyId", tostring(e[1]))
+        o:PutInt("healNum", math.floor(e[2]))
+        arr:AddSFSObject(o)
+    end
+    self.sfsObj:PutSFSArray("armyArray", arr)
+    return orig(self, ...)
+end)
+SFSNetwork.SendMessage("hospital.cure", { gold = 0 })
 ```
 
-**The command name is required.** `SendLuaMessage(bin)` alone is accepted by the client and
-never reaches the server — no reply, no effect, no error.
+`gold` still has to be in the param: the serialiser packs it as an int and a missing one
+aborts the send (§2). Everything else the message needs it fills in itself.
 
-Proven live on 2026-07-29: the server answered
-`{_id, _time, gold, hospitalArray, queue, resource}` with **no** errorCode, and the whole
-base went to treatment in one press — `3013` dead 34 -> 0 (heal 34), `3014` dead 647 -> 0
-(heal 647), the hospital queue moving to `state=2` with a timer.
+Proven live on 2026-08-20: 692 wounded across two soldier types went to treatment in one
+press — `dead` 692 -> 0, `heal` 0 -> 692, `GetHealCount()` 692.
+
+### 2a-bis. The route that used to be here, and why it cannot come back
+
+Until 2026-08 this note told you to read `GetMsgType` and `Network` out of
+`SFSNetwork.SendMessage`'s upvalues with `debug.getupvalue` and to call
+`Network:SendLuaMessage("hospital.cure", msg:ToBinary())` yourself. That worked, and it
+is now impossible: **the client has closed its Lua sandbox.** Measured live on
+2026-08-20 (#1702):
+
+```
+debug.getupvalue(SFSNetwork.SendMessage, 1)  ->  this API is disabled for security
+string.dump(SFSNetwork.SendMessage)          ->  lua_dump is disabled
+```
+
+`debug` is still a table and `string.dump` still a function, so both fail at the CALL and
+not at the lookup — a `pcall` around them returns false with those words, and code that
+swallows the failure sees nothing wrong. There is no reading a function's upvalues or its
+constants from Lua any more, on any command, so anything in this repository that used to
+identify a value that way has to be rebuilt out of what is still public.
+
+What `SFSNetwork` still exposes is three names, and nothing else:
+
+```
+GetMsgType : function      HandleMessage : function      SendMessage : function
+```
+
+`GetMsgType(cmd)` hands back the message class (a table whose `ToBinary`, `NewMessage`
+and `OnCreate` all come from a base through its metatable — `rawget` on the class itself
+is nil, which is what makes `rawset` a clean one-call shadow). That, plus `SendMessage`,
+is the whole toolkit, and it is what §2a above is built out of.
+
+**Why this failure is worth a section of its own:** it is silent. The transport raised
+into its own `pcall`, the press reported success, and the panel went on saying it had
+healed for as long as anybody let it — 698 wounded stayed 698 while the log said the
+button had been pressed. A closed API here does not look like an error; it looks like a
+heal that did nothing.
 
 ### 2b. `errorCode 130069` — the queue is occupied
 
