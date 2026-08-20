@@ -9612,7 +9612,8 @@ def golden_scan() -> str:
         "local pid = nil pcall(function() pid = ws:TilePosToIndex(tile) end) "
         "if pid ~= nil and not seen[tostring(pid)] and not p.used[tostring(uuid)] then "
         "seen[tostring(pid)] = true added = added + 1 "
-        "p.targets[#p.targets + 1] = {pid = pid, uuid = uuid, x = tile.x, y = tile.y, "
+        "p.targets[#p.targets + 1] = {pid = pid, uuid = uuid, key = tostring(uuid), "
+        "x = math.floor(tile.x + 0.5), y = math.floor(tile.y + 0.5), "
         "src = 'area'} end end end) "
         # -- 2. the drawn clones: a tile, and a handle that can fetch the uuid later
         "pcall(function() "
@@ -9704,7 +9705,8 @@ def golden_sweep_home() -> str:
         "local pid = nil pcall(function() pid = ws:TilePosToIndex(tile) end) "
         "if pid ~= nil and not seen[tostring(pid)] and not g.used[tostring(pid)] then "
         "seen[tostring(pid)] = true "
-        "g.targets[#g.targets + 1] = {pid = pid, uuid = uuid, x = tile.x, y = tile.y, "
+        "g.targets[#g.targets + 1] = {pid = pid, uuid = uuid, key = tostring(uuid), "
+        "x = math.floor(tile.x + 0.5), y = math.floor(tile.y + 0.5), "
         "src = 'ring'} end end end) "
         "g.found = #g.targets "
         "%(gold)s = g end "
@@ -9962,6 +9964,32 @@ def golden_grab() -> str:
     )
 
 
+#: RE-READ THE TARGET'S uuid FROM THE GAME, right before it is used (#1702). A monster's
+#: uuid is a C# `Int64` handed over by the enumerator, and the queue keeps a REFERENCE to
+#: it: minutes later `tostring()` on one answers «<invalid c# object>» — measured live,
+#: with the second target of a chain. Sending that is sending nothing, which is exactly
+#: what «the send never became a march» was, and why the first target of a run always
+#: worked and the next one never did. It cannot be kept as a Lua number either — nineteen
+#: digits is past what one holds exactly — so the queue keeps the TEXT of it and the live
+#: object is fetched again, from a two-tile enumerator call, at the moment of the send.
+_GOLD_FRESH_UUID = (
+    "local function _freshuuid(ws, p, t) "
+    "if ws == nil or t == nil then return nil end "
+    "local want = tostring(t.key or t.uuid or 0) "
+    "local found = nil "
+    "pcall(function() "
+    "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
+    "for _, id in ipairs(p.ids or {" + str(1030000) + "}) do pcall(function() ids:Add(id, 1) end) end "
+    "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+    "CS.UnityEngine.Vector2Int)() "
+    "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 2, ids, res) "
+    "local e = res:GetEnumerator() "
+    "while e:MoveNext() do local k = e.Current.Key "
+    "if tostring(k) == want then found = k end end end) "
+    "return found end "
+)
+
+
 def golden_send() -> str:
     """Send the chosen squad at the armed golden zombie — one call, no window.
 
@@ -9974,7 +10002,7 @@ def golden_send() -> str:
     is dropped by the server (docs/research/world-monsters.md, Finding 17).
     """
     return (
-        _GOLD_P +
+        _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
         "if p.cur == nil or p.formation == nil then error('nothing armed for this run') end "
         "local t = p.cur "
         "local srv = math.floor(tonumber(t.server or p.server) or 0) "
@@ -9982,7 +10010,10 @@ def golden_send() -> str:
         "if p.server ~= nil and srv ~= 0 and srv ~= p.server then "
         "kind = MarchTargetType.CROSS_ATTACK_MONSTER end "
         "local back = math.floor(tonumber(%(gold)s_back) or p.back or 0) "
-        "local f, pid, uuid = p.formation, t.pid, t.uuid "
+        "local f, pid = p.formation, t.pid "
+        # THE uuid IS FETCHED AGAIN HERE (#1702) — see :data:`_GOLD_FRESH_UUID`. The
+        # one in the queue is a reference that may have died since the scan.
+        "local uuid = _freshuuid(ws, p, t) or t.uuid "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, back, false, srv, nil) end) "
@@ -10095,7 +10126,7 @@ def golden_gone() -> str:
         "if t == nil then return 1 end " +
         _GOLD_WS +
         "if ws == nil then return 1 end "
-        "local want = tostring(t.uuid or 0) "
+        "local want = tostring(t.key or t.uuid or 0) "
         "local there = false "
         "pcall(function() "
         "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "
@@ -10166,7 +10197,7 @@ def golden_here() -> str:
         "if t == nil then return 1 end " +
         _GOLD_WS +
         "if ws == nil then return 1 end "
-        "local want = tostring(t.uuid or 0) "
+        "local want = tostring(t.key or t.uuid or 0) "
         "local there = false "
         "pcall(function() "
         "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() "

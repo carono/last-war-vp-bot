@@ -763,6 +763,36 @@ def test_a_squad_that_is_still_out_is_waited_for_before_the_first_send():
         "the recipe's copy of the squad reading is not the module's"
 
 
+def test_a_target_uuid_is_fetched_again_before_it_is_sent():
+    """#1702: «<invalid c# object>» — the queue was holding dead references.
+
+    A monster's uuid is a C# Int64 handed over by the enumerator; what a queue entry keeps
+    is a reference to it. Measured live: the FIRST target of a run sends and marches, and
+    the second one — picked from an entry made minutes earlier — printed
+    `B=<invalid c# object>,<invalid c# object> uuid=<invalid c# object>` and its send never
+    became a march. That is the whole of «the server refuses an attack from a mine»: the
+    server was being sent nothing at all.
+
+    It cannot be kept as a Lua number (nineteen digits), so the queue keeps the text and
+    the live object is fetched again at the moment of the send.
+    """
+    scan = lua_actions.golden_scan()
+    assert "key = tostring(uuid)" in scan, "the scan keeps no stable copy of the uuid"
+    assert "math.floor(tile.x + 0.5)" in scan, \
+        "the tile is stored as a C# field read, which dies with the enumerator"
+    sweep = lua_actions.golden_sweep_home()
+    assert "key = tostring(uuid)" in sweep, "the ring sweep keeps dead references"
+    send = lua_actions.golden_send()
+    assert "_freshuuid" in send, "the send uses the uuid the queue is holding"
+    assert "GetMonsterListInArea" in send, "nothing re-reads the target before the send"
+    for check in (lua_actions.golden_here(), lua_actions.golden_gone()):
+        assert "t.key or t.uuid" in check, \
+            "a check compares against a reference that may have died"
+    body, _ = _source(RECIPE)
+    assert lua_actions.golden_here() in body and lua_actions.golden_gone() in body, \
+        "the recipe's copies of the checks are older than the module's"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
