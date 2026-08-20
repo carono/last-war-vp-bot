@@ -717,7 +717,7 @@ def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_kn
     loop = next(i for i, w in enumerate(lines) if w.startswith("WHILE looking == 1 LIMIT"))
     assert loop < pick, "the pick is not inside the choosing loop — one stale row ends the lap"
     tries = int(lines[loop].rsplit(" ", 1)[-1])
-    assert 3 <= tries <= 10, "the chain either gives up on one stale row or spins on them"
+    assert 3 <= tries <= 20, "the chain either gives up on one stale row or spins on them"
     before = lines[:loop]
     assert "IF needs_refresh == 1" in before and "TAP golden_refresh" in before, \
         "the redraw is not behind the staleness threshold — it would re-fly every kill"

@@ -32,7 +32,11 @@ IF needs_refresh == 1
 # is about to be spent on, so «the client cannot name it» is reason enough to drop it,
 # where for the REGISTRY it would not be (docs/research/golden-zombies.md §4b).
 READ_LUA (1) INTO looking
-WHILE looking == 1 LIMIT 6
+# TWELVE TRIES, NOT SIX (#1702). Live, a lap dropped six dead rows and ended having
+# sent nothing — the corner had been farmed out and the next live zombie was simply
+# further down the queue. A try is a pick and one two-tile question, about half a
+# second; a lap that ends without an order costs the whole lap.
+WHILE looking == 1 LIMIT 12
     TAP golden_pick
     READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO picked
     IF picked == 0
