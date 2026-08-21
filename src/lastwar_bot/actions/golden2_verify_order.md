@@ -1,0 +1,23 @@
+# Did the order the last press sent become a real march? Recall it if it did not. (the second squad)
+# ru: Стал ли последний приказ настоящим маршем? Если нет — отозвать. (второй отряд)
+#
+# The attack press answers the moment the order is scheduled (#1702), because waiting for
+# the client to draw the march is five seconds of nothing. This is the other half: played
+# by the panel a few seconds later, it asks whether the march exists and whether it has
+# an arrival time, and takes back the one thing that must never be left in the game — a
+# march the server never confirmed, which paints the squad mid-move and makes it refuse
+# every order after it.
+#
+# Narrow on purpose: a RALLY has no arrival clock either, and recalling one would pull
+# the account out of its alliance's sortie.
+
+READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end if p.pending == nil then return 1 end local seen = p.march_before or {} local mine = nil pcall(function() local P = LuaEntry.Player mine = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch(P.uid, p.formation, P.allianceId) end) if mine ~= nil then local u, team = nil, '0' pcall(function() u = tostring(mine.uuid) end) pcall(function() team = tostring(mine.teamUuid) end) if u ~= nil and not seen[u] and (team == '0' or team == 'nil') then return 1 end end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = not (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) end end end) return busy and 1 or 0 end)() INTO launched
+READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local want = p.march_uuid local tgt = nil if p.pending ~= nil then tgt = p.pending.uuid end if want == nil and tgt == nil then return 0 end local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e, u, t = nil, nil, nil pcall(function() e = tonumber(m.endTime) end) pcall(function() u = tostring(m.uuid) end) pcall(function() t = tostring(m.targetUuid) end) local ours = (want ~= nil and u == tostring(want)) or (tgt ~= nil and t ~= nil and t == tostring(tgt)) if ours and (e == nil or e <= 0) then n = n + 1 end end end end) return n end)() INTO phantoms
+IF phantoms > 0
+    LOG "the game drew a march with no arrival time — taking it back"
+    TAP golden2_unstick
+    STOP "phantom recalled"
+IF launched == 1
+    LOG "the march is real — the squad is on its way"
+IF launched == 0
+    LOG "the order never became a march — nothing is marching"

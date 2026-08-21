@@ -1,0 +1,72 @@
+# Choose the next golden zombie and make sure it is real — one brick of the chain. (the second squad)
+# ru: Выбрать следующего золотого зомби и убедиться, что он есть, — кирпич цепочки. (второй отряд)
+#
+# The nearest target to where the squad is standing, out of the registry the scans keep;
+# then the two checks that stop an order being wasted — the live uuid, and «is it still on
+# a piece of map we have actually read».
+#
+# Leaves `picked` at 1 with a target armed, or 0. Runnable on its own (#1702): pressing it
+# is a safe, read-only «what would the chain go for next».
+
+# THE THRESHOLD FIRST — the ground is redrawn only when it has been PROVEN stale, never
+# on a clock (#1702). Below the threshold nothing flies anywhere; at it, one short ring
+# around the origin of the next pick, and then the choice is made over the fresher queue.
+READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local n = math.floor(tonumber(p.since_refresh) or 0) local lim = math.floor(tonumber(DataCenter.__lw_gold2_refresh_after) or 3) if lim <= 0 then return 0 end return (n >= lim) and 1 or 0 end)() INTO needs_refresh
+IF needs_refresh == 1
+    LOG "several targets in a row were gone — redrawing the ground before choosing"
+    TAP golden2_refresh
+    READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+    WHILE refreshed == 0 LIMIT 12
+        WAIT 1
+        READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+    TAP golden2_scan
+
+# …AND THEN CHOOSE UNTIL A TARGET IS ONE THE CLIENT CAN STILL NAME (#1702).
+#
+# Measured live: of fifteen laps of a run, NINE ended in `dropped=stale` — the send itself
+# discovered that the client had forgotten that uuid, and a whole lap had been spent
+# getting there. The check is the same one; it just belongs here, where it costs a fifth
+# of a second and the answer is «pick again» rather than «this lap is over».
+#
+# Strict, unlike the registry's own rule, and deliberately so: this is one target a march
+# is about to be spent on, so «the client cannot name it» is reason enough to drop it,
+# where for the REGISTRY it would not be (docs/research/golden-zombies.md §4b).
+READ_LUA (1) INTO looking
+# TWELVE TRIES, NOT SIX (#1702). Live, a lap dropped six dead rows and ended having
+# sent nothing — the corner had been farmed out and the next live zombie was simply
+# further down the queue. A try is a pick and one two-tile question, about half a
+# second; a lap that ends without an order costs the whole lap.
+WHILE looking == 1 LIMIT 12
+    TAP golden2_pick
+    READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end return (p.cur ~= nil) and 1 or 0 end)() INTO picked
+    IF picked == 0
+        READ_LUA (0) INTO looking
+    IF picked == 1
+        READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local c = p.cur if c == nil then return 'none' end local o = p.anchor or p.home local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. ' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. ' from=' .. tostring(p.curfrom or '-') .. ' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' src=' .. tostring(c.src or '-') .. ' queued=' .. tostring(#(p.targets or {})) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)() INTO pick_report
+        LOG "target: {pick_report}"
+        READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end if p.cur == nil then return 0 end return ((tonumber(p.cur.uuid) or 0) == 0) and 1 or 0 end)() INTO needs_uuid
+        IF needs_uuid == 1
+            TAP golden2_touch
+            TAP golden2_grab
+        READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local ws = DataCenter.__lw_gold2_ws local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) DataCenter.__lw_gold2_ws = ws end local function _freshuuid(ws, p, t) if ws == nil or t == nil then return nil end local want = tostring(t.key or t.uuid or 0) local found = nil pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 2, ids, res) local e = res:GetEnumerator() while e:MoveNext() do local k = e.Current.Key if tostring(k) == want then found = k end end end) return found end if ws == nil then return 1 end local t0 = p.cur if t0 ~= nil then local cx, cy = nil, nil pcall(function() cx, cy = ws.CurTilePos.x, ws.CurTilePos.y end) if cx ~= nil then local dx, dy = (t0.x - cx), (t0.y - cy) if math.sqrt(dx * dx + dy * dy) > 40 then return 1 end end end local t = p.cur if t == nil then return 0 end return (_freshuuid(ws, p, t) ~= nil) and 1 or 0 end)() INTO target_live
+        IF target_live == 1
+            READ_LUA (0) INTO looking
+        IF target_live == 0
+            LOG "the client cannot name that zombie any more — dropping it and choosing again"
+            TAP golden2_drop_target
+            READ_LUA (0) INTO picked
+            # …AND IF THE GROUND HAS GONE BAD, REDRAW IT HERE RATHER THAN NEXT LAP (#1702).
+            # Live, one lap dropped six stale rows and sent nothing at all: the corner the
+            # chain was standing in had been farmed out while it was walking, and going
+            # round again would only have found the next six. Each drop feeds the same
+            # counter the reaping does, so this is the ordinary threshold — asked again
+            # inside the loop, where it can still save the lap.
+            READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end local n = math.floor(tonumber(p.since_refresh) or 0) local lim = math.floor(tonumber(DataCenter.__lw_gold2_refresh_after) or 3) if lim <= 0 then return 0 end return (n >= lim) and 1 or 0 end)() INTO needs_refresh
+            IF needs_refresh == 1
+                LOG "the ground here is stale — redrawing it before choosing again"
+                TAP golden2_refresh
+                READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+                WHILE refreshed == 0 LIMIT 12
+                    WAIT 1
+                    READ_LUA (function() local p = DataCenter.__lw_gold2 or {} local _zc = DataCenter.__lw_zclaims if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end local function _goldnow() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then t = os.time() * 1000 end return t end local function _goldfree(p, pid) local c = _zc[tostring(pid)] if c == nil then return true end if tostring(c.sq) == tostring(p.squad) then return true end return (_goldnow() - (tonumber(c.at) or 0)) > (300 * 1000) end local function _goldclaim(p, pid) _zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+                TAP golden2_scan

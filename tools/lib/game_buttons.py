@@ -30,6 +30,8 @@ import sys
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dataclasses as _dataclasses
+import golden_twin as _golden_twin
 import lua_actions as _lua_actions  # noqa: E402
 
 
@@ -1282,3 +1284,26 @@ BUTTONS["golden_home"] = Button(
     lua=_lua_actions.golden_send(),
     wait=1.5, label="send the last march, and bring the squad home after it",
 )
+
+
+# -- THE SECOND CHAIN, SO TWO SQUADS CAN HUNT AT ONCE (#1702) -------------------------
+#
+# The golden chain keeps its whole run in one table in the game VM, which is right for
+# one squad and fatal for two. Rather than thread a key through sixty builders while the
+# operator waited to spend six thousand energy, the twin renames the STATE and changes
+# nothing else: `tools/lib/golden_twin.py` says why, and the recipes it generates press
+# the buttons registered here.
+#
+# Every golden press gets a `golden2_` twin whose Lua reads and writes `__lw_gold2`. The
+# two runs therefore share the client, the map and nothing else — except the one table
+# they deliberately do share, so that neither is sent at a tile the other is already
+# marching to.
+for _name in [n for n in list(BUTTONS) if n.startswith("golden_")]:
+    _twin = BUTTONS[_name]
+    BUTTONS["golden2_" + _name[len("golden_"):]] = _dataclasses.replace(
+        _twin,
+        lua=_golden_twin.twin_lua(_twin.lua),
+        count_lua=(None if _twin.count_lua is None
+                   else _golden_twin.twin_lua(_twin.count_lua)),
+        label=_twin.label + " (the second squad)",
+    )

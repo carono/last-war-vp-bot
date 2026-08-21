@@ -9654,6 +9654,38 @@ _GOLD = "DataCenter.__lw_gold"
 
 _GOLD_P = "local p = %s or {} " % _GOLD
 
+#: WHERE THE TWO CHAINS AGREE NOT TO TREAD ON EACH OTHER (#1702). Two squads hunt at once
+#: (`tools/lib/golden_twin.py`), each with its own state table, and the one thing they
+#: must not do is march at the same zombie: the second order is refused in silence and
+#: the lap is wasted. So a send writes the tile down here and a pick skips a tile the
+#: OTHER run has written — one table, deliberately spelled without the `__lw_gold`
+#: prefix, because that prefix is what the twin renames.
+#:
+#: A claim carries the squad that made it and the moment it was made, and it goes stale:
+#: a run that dies mid-march would otherwise lock its last target out of the map for the
+#: rest of the night.
+GOLDEN_CLAIM_SEC = 300
+
+#: `_goldfree(p, pid)` -> true when no OTHER run is on that tile. In scope everywhere,
+#: because it goes into the prelude every golden expression already opens with.
+_GOLD_CLAIMS = (
+    "local _zc = DataCenter.__lw_zclaims "
+    "if type(_zc) ~= 'table' then _zc = {} DataCenter.__lw_zclaims = _zc end "
+    "local function _goldnow() local t = nil "
+    "pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) "
+    "if t == nil then t = os.time() * 1000 end return t end "
+    "local function _goldfree(p, pid) "
+    "local c = _zc[tostring(pid)] "
+    "if c == nil then return true end "
+    "if tostring(c.sq) == tostring(p.squad) then return true end "
+    "return (_goldnow() - (tonumber(c.at) or 0)) > (%d * 1000) end "
+    "local function _goldclaim(p, pid) "
+    "_zc[tostring(pid)] = {sq = p.squad, at = _goldnow()} end "
+    % GOLDEN_CLAIM_SEC
+)
+
+_GOLD_P = _GOLD_P + _GOLD_CLAIMS
+
 #: «МОЖЕТ ЛИ ЭТОТ ОТРЯД ПРИНЯТЬ ПРИКАЗ» — the game's own answer, and never `canMarch`
 #: (#1702). Given a formation, this Lua function is `true` only when the squad is in the
 #: base (`ArmyFormationState.Free`, 0) and the game's own `IsFree()` agrees.
@@ -10119,7 +10151,7 @@ def golden_best_dist() -> str:
         "if o ~= nil then ox, oy = o.x, o.y end "
         "local best = nil "
         "for _, t in ipairs(p.targets or {}) do "
-        "if not (p.used or {})[tostring(t.pid)] then "
+        "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) then "
         "local d = nil "
         "if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) "
         "d = math.sqrt(dx * dx + dy * dy) "
@@ -10216,7 +10248,7 @@ def golden_pick() -> str:
         "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
         "local best, bestd = nil, nil "
         "for _, t in ipairs(p.targets or {}) do "
-        "if not (p.used or {})[tostring(t.pid)] then "
+        "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) then "
         "local d = nil "
         "if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) "
         "d = math.sqrt(dx * dx + dy * dy) "
@@ -10478,10 +10510,12 @@ def golden_send() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_send ok="..tostring(ok).." err="..tostring(err)) '
         "end, 0.5) "
         "p.used[tostring(t.pid)] = true "
+        "_goldclaim(p, t.pid) "
         "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
         "p.last_sent = {x = t.x, y = t.y, pid = t.pid} "
         "p.pending = {pid = pid, uuid = uuid, key = tostring(uuid), x = t.x, y = t.y} "
         "p.hit = p.pending "
+        "_goldclaim(p, t.pid) "
         # THE MARCHES THAT EXIST BEFORE THE SEND (#1702). The proof that a send reached
         # the server is a march of ours that was not there a moment ago, so the «before»
         # set is taken here — and the one that appears against it is this attack, which
@@ -12055,7 +12089,7 @@ def golden_pick_and_report() -> str:
         "for _try = 1, 12 do "
         "best, bestd = nil, nil "
         "for _, t in ipairs(p.targets or {}) do "
-        "if not (p.used or {})[tostring(t.pid)] then "
+        "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) then "
         "local d = nil "
         "if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) "
         "d = math.sqrt(dx * dx + dy * dy) "

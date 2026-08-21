@@ -1469,6 +1469,75 @@ def test_a_far_first_pick_widens_the_look_before_it_is_marched():
         "the run widens nothing — it just asks again over the same ground"
 
 
+def test_the_second_chain_is_the_first_one_with_its_state_renamed():
+    """Two squads hunt at once, and they share the client and nothing else (#1702).
+
+    The chain keeps its whole run in one table in the game VM, so a second run of the
+    same recipes would overwrite the first one's target between statements. The twin
+    (`tools/lib/golden_twin.py`) renames the STATE and changes nothing else, which is
+    only safe for as long as it is regenerated: a twin that has drifted is a squad
+    hunting yesterday's logic, and nothing in the game would say so.
+    """
+    sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import golden_twin
+
+    assert not golden_twin.drift(), \
+        "stale twin recipes (run tools/lib/golden_twin.py --write)"
+
+    twin = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "attack_golden_zombies2.md").read_text(encoding="utf-8")
+    assert "__lw_gold2" in twin, "the twin runs on the first chain's state"
+    assert "DataCenter.__lw_gold " not in twin and "DataCenter.__lw_gold=" not in twin, \
+        "the twin still touches the first chain's table"
+    assert "TAP golden_" not in twin and "CALL golden_" not in twin, \
+        "the twin presses the first chain's buttons"
+
+    # …and every press it names exists.
+    sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import game_buttons
+    for line in twin.splitlines():
+        if line.strip().startswith("TAP "):
+            name = line.split()[1]
+            assert name in game_buttons.BUTTONS, "the twin presses %s, which does not exist" % name
+
+
+def test_two_squads_are_never_sent_at_the_same_zombie():
+    """The one thing the two chains DO share, because not sharing it wastes a lap (#1702).
+
+    A second order at a zombie already being marched at is refused in silence, so the
+    lap costs a march's worth of waiting and buys nothing. The claim table is spelled
+    without the `__lw_gold` prefix on purpose: that prefix is exactly what the twin
+    renames, so a renamed claims table would leave each run agreeing only with itself.
+    """
+    import lupa
+    assert "__lw_zclaims" in lua_actions._GOLD_CLAIMS
+    assert "__lw_gold" not in "__lw_zclaims", "the claim table would be renamed by the twin"
+    assert lua_actions.GOLDEN_CLAIM_SEC >= 60, \
+        "a claim expires so fast that both squads can still be sent at one tile"
+
+    # A tile another squad is on is skipped; our own, and a stale one, are not.
+    probe = ("(function() " + lua_actions._GOLD_P +
+             "return (_goldfree(p, 42) and 1 or 0) end)()")
+    def answer(claim):
+        rt = lupa.LuaRuntime()
+        rt.execute("UITimeManager = {Instance = {GetServerTime = function() return 1000000 end}} "
+                   "DataCenter = {__lw_gold = {squad = 3}, __lw_zclaims = %s}" % claim)
+        return int(rt.eval(probe))
+
+    assert answer("{}") == 1, "an unclaimed tile is refused"
+    assert answer("{['42'] = {sq = 3, at = 999000}}") == 1, \
+        "a run will not go back to a tile it claimed itself"
+    assert answer("{['42'] = {sq = 2, at = 999000}}") == 0, \
+        "both squads are sent at one zombie, and the second order is refused in silence"
+    stale = 1000000 - (lua_actions.GOLDEN_CLAIM_SEC + 60) * 1000
+    assert answer("{['42'] = {sq = 2, at = %d}}" % stale) == 1, \
+        "a run that died mid-march locks its last target out for the rest of the night"
+
+    # …and the send is what writes the claim down.
+    assert "_goldclaim(p, t.pid)" in lua_actions.golden_send(), \
+        "a march goes out without telling the other run where it went"
+
+
 def test_a_parked_squad_is_brought_home_instead_of_waited_on():
     """The OTHER way the hunt sat still, and the ceiling cannot see it (#1702).
 
