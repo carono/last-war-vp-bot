@@ -10368,6 +10368,8 @@ def golden_pick_report() -> str:
         "' from=' .. tostring(p.curfrom or '-') .. "
         "' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. "
         "' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. "
+        # WHY THE ORIGIN IS WHERE IT IS (#1702) — one word, every lap.
+        "' stand=' .. _stand(p) .. "
         "' src=' .. tostring(c.src or '-') .. "
         "' queued=' .. tostring(#(p.targets or {})) .. "
         "' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)()"
