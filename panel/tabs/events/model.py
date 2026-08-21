@@ -60,6 +60,14 @@ GOLDEN_SQUAD_KEY = "golden_squad"
 #: long haul is worth riding to a mine beside the zombie and paying only the last few
 #: tiles at attack speed. A switch rather than a fact, because the two speeds come from
 #: separate bonuses and an account that has levelled neither gains nothing.
+#:
+#: **AND IT SHIPS OFF, WHICH IS A JUDGEMENT ABOUT THE COST OF BEING WRONG (#1702).** A
+#: ride is a GATHER order, and a gather order that lands parks the squad on the mine for
+#: as long as the mine takes — measured live, 24 762 seconds, during which every attack
+#: is refused in silence. The chain now calls a ride off the moment its zombie dies and
+#: recalls by the march's own uuid, which is the recall that works on a gather; but the
+#: gain is only ever the travel time to a FAR target, and the loss is a whole run and a
+#: squad that has to be fetched by hand. Off unless somebody turns it on knowing that.
 GOLDEN_APPROACH_KEY = "golden_approach"
 GOLDEN_SQUADS: tuple = (1, 2, 3, 4)
 GOLDEN_SQUAD_DEFAULT = 1
