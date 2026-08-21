@@ -42,6 +42,10 @@ IF squad_free == -1
 
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur local where = 'none' if c ~= nil then local srv = math.floor(tonumber(c.server or p.server) or 0) where = '#' .. tostring(srv) .. ' X:' .. tostring(math.floor(tonumber(c.x) or 0)) .. ' Y:' .. tostring(math.floor(tonumber(c.y) or 0)) .. ' pid=' .. tostring(c.pid) end return 'squad=' .. tostring(p.squad) .. ' formation=' .. tostring(p.formation) .. ' soldiers=' .. tostring(math.floor(tonumber(p.soldiers) or 0)) .. ' target=' .. where .. ' call=SendCreateMarchMessage/ATTACK_MONSTER' end)() INTO order
 LOG "sending: {order}"
+# The send brick reads `picked` — the chain sets it in the lap above, and a button
+# pressed on its own has to set it too (#1702). It is the same question either
+# way: is there a zombie parked to send at.
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO picked
 CALL golden_send_the_squad
 READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
 IF launched == 1
