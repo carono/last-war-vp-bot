@@ -11801,11 +11801,15 @@ def golden_confirm_current() -> str:
         "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
         "local t = p.cur "
         "if t == nil or ws == nil then return -1 end "
-        "local near = false "
-        "pcall(function() local cx, cy = ws.CurTilePos.x, ws.CurTilePos.y "
-        "local dx, dy = (t.x - cx), (t.y - cy) "
-        "near = (math.sqrt(dx * dx + dy * dy) <= 40) end) "
-        "if not near then return -1 end "
+        # DOES THE CLIENT HOLD THAT GROUND? ASK IT, DO NOT GUESS FROM THE CAMERA
+        # (#1702). The old test was «within forty tiles of `CurTilePos`», and that
+        # reading does not follow a jump: after flying to a candidate the client had
+        # the district and the check still said «cannot tell», so nothing far could
+        # ever be confirmed. `HasPointInfo` is the client answering about THAT TILE:
+        # true means it is holding it, and then an empty area list really is death.
+        "local holds = false "
+        "pcall(function() holds = ws:HasPointInfo(t.pid) end) "
+        "if not holds then return -1 end "
         "if _freshuuid(ws, p, t) ~= nil then "
         "t.at = os.time() t.seen = 1 %(gold)s = p return 1 end "
         # …looked at, not found: struck out, and the choice with it.

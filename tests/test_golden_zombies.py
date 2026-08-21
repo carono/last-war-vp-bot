@@ -1766,7 +1766,12 @@ def test_a_found_zombie_is_confirmed_on_its_own_ground_before_it_is_announced():
     import lua_actions                       # noqa: PLC0415
 
     confirm = lua_actions.golden_confirm_current()
-    assert "if not near then return -1 end" in confirm, \
+    # …and «is the client holding that ground» is ASKED, not guessed from the camera:
+    # `CurTilePos` does not follow a jump, so a forty-tile heuristic made everything far
+    # permanently unconfirmable (#1702).
+    assert "holds = ws:HasPointInfo(t.pid)" in confirm, \
+        "the client is not asked whether it holds that tile"
+    assert "if not holds then return -1 end" in confirm, \
         "«the client is not looking there» is answered as death"
     assert "p.targets = keep p.cur = nil" in confirm, "a zombie proven gone is kept"
     assert "t.at = os.time() t.seen = 1" in confirm, "a confirmation is not recorded"
