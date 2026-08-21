@@ -428,6 +428,18 @@ folder and then start it from somebody else's token.
 The optional quoted path overrides the variable and follows the same
 rule.
 
+**A launcher already running is cleared first.** The launcher is
+single-instance: one that has hung — it loses the network while checking
+the version and simply sits there — refuses every later start with one
+line in its own log (`Launcher is already running`) and no client ever
+appears. Nothing in the panel was reading that log, so a night could be
+spent starting a launcher that exited immediately and failing
+`WAIT client == ready` at 180 s, over and over (#1702). So `START_GAME`
+ends a launcher that has been up longer than `LW_LAUNCHER_STALE_SEC`
+(default 300 s) before spawning its own — in this desktop's session, or
+in the profile's own — and leaves a younger one alone, because that one
+is probably updating the game.
+
 A launcher that is not where the path says is a blow-up (a configuration
 mistake). Nobody logged on as that user, or a client that never
 appeared, is a deliberate `FAIL` with words — a condition to try again

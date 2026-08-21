@@ -1381,6 +1381,103 @@ def test_the_elevated_kill_is_only_for_a_client_in_another_session():
         game_client._close_here, game_client._close_elevated, game_client.alive = saved
 
 
+def test_a_stuck_launcher_is_ended_before_a_start_and_a_fresh_one_is_not():
+    """The launcher is single-instance, and a hung one refuses every later start.
+
+    Measured live (#1702): a launcher lost the network at 03:44, sat there, and for the
+    next three hours every «Запустить игру» wrote one line into the LAUNCHER's own log —
+    `Launcher is already running` — and exited, so no client ever appeared and the
+    panel failed `WAIT client == ready` on its 180 s cap over and over.
+
+    A launcher that is only a minute old is a different animal: it is probably updating
+    the game, and ending it mid-update helps nobody.
+    """
+    import game_client
+
+    ended: list = []
+    saved = (game_client.launcher_pids, game_client._age_of, game_client.close)
+    game_client.close = lambda pid, **kw: ended.append(pid) or True
+    try:
+        game_client.launcher_pids = lambda session=None: [4242]
+        game_client._age_of = lambda pid: 1800.0
+        assert game_client.clear_stale_launchers(older_than=300.0) == 1
+        assert ended == [4242], ended
+
+        ended.clear()
+        game_client._age_of = lambda pid: 60.0
+        assert game_client.clear_stale_launchers(older_than=300.0) == 0
+        assert ended == [], "a launcher that is probably updating was killed"
+
+        # An age that cannot be read is a leftover, not a reason to do nothing: the
+        # question is only ever asked once the panel has decided there is no client.
+        ended.clear()
+        game_client._age_of = lambda pid: None
+        assert game_client.clear_stale_launchers(older_than=300.0) == 1
+        assert ended == [4242], ended
+
+        # And a box that cannot enumerate at all says so rather than blowing up the
+        # launch it was meant to help.
+        def _no_table(session=None):
+            raise OSError("no pywin32 here")
+
+        ended.clear()
+        game_client.launcher_pids = _no_table
+        assert game_client.clear_stale_launchers() == 0
+        assert ended == [], ended
+    finally:
+        (game_client.launcher_pids, game_client._age_of, game_client.close) = saved
+
+
+def test_both_start_routes_clear_the_ground_first():
+    """This desktop and a second account's session have the SAME single-instance trap."""
+    import game_client
+
+    calls: list = []
+    saved = (game_client.clear_stale_launchers, game_client.session_of,
+             game_client.session_pids_of, game_client._tools_on_path,
+             sys.modules.get("rdp_instance"))
+    game_client.clear_stale_launchers = (
+        lambda session=None, user=None, older_than=None, log=None:
+        calls.append(("clear", session, user)) or 0)
+    try:
+        import subprocess as _sub
+        spawned: list = []
+        popen = _sub.Popen
+        _sub.Popen = lambda *a, **k: spawned.append(a) or None
+        try:
+            game_client._start_here(sys.executable, lambda _m: None)
+        finally:
+            _sub.Popen = popen
+        assert calls == [("clear", None, None)], calls
+        assert spawned, "the launcher was never started"
+
+        calls.clear()
+        game_client.session_of = lambda user: 4
+        game_client.session_pids_of = lambda session, game_exe=None: []
+        game_client._tools_on_path = lambda: None
+
+        class _Hop:
+            @staticmethod
+            def system_python(args, tag="", timeout=0.0):
+                return 0, "started"
+
+        sys.modules["rdp_instance"] = _Hop
+        try:
+            game_client._start_in_session("player2", None, 0.0, "LastWar.exe",
+                                          lambda _m: None)
+        except TimeoutError:
+            pass                              # no client appears in a test, and none should
+        assert calls == [("clear", 4, "player2")], calls
+    finally:
+        (game_client.clear_stale_launchers, game_client.session_of,
+         game_client.session_pids_of, game_client._tools_on_path, _rdp) = (
+            saved[0], saved[1], saved[2], saved[3], saved[4])
+        if _rdp is None:
+            sys.modules.pop("rdp_instance", None)
+        else:
+            sys.modules["rdp_instance"] = _rdp
+
+
 def test_a_daemon_pointing_at_the_wrong_session_is_not_believed():
     """Found live (#1218): the profile's daemon was running on THIS desktop.
 

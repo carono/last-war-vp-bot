@@ -61,6 +61,12 @@ SYSTEM_HOP_TIMEOUT_SEC = 180.0
 #: How often the wait below looks for the new client.
 _POLL_SEC = 3.0
 
+#: How long a LAUNCHER may be up before a start treats it as stuck rather than busy.
+#: An ordinary cold start — the launcher updating itself, then spawning the game — is
+#: one to two minutes, so five is comfortably past «still working» and well short of a
+#: morning spent down. `LW_LAUNCHER_STALE_SEC` moves it.
+LAUNCHER_STALE_SEC = 300.0
+
 # Windows: no console window for the taskkill fallback.
 _NO_WINDOW = 0x08000000
 
@@ -126,6 +132,15 @@ def session_pids(game_exe: str = GAME_EXE) -> list:
     runs (docs/research/panel-freezes.md §1); this runs in the panel's process, on a
     background thread, at every restart and every force-close (#1214).
     """
+    return _in_my_session(proc_table.pids_named(game_exe))
+
+
+def _in_my_session(pids: list) -> list:
+    """Those of ``pids`` that sit in the caller's own Windows session.
+
+    Asked of a handful of processes, never of all of them, and the same filter for a
+    client and for a launcher — a second account's either is not ours to touch.
+    """
     probe, mine = None, None
     try:
         # The one implementation of the session lookup in the repo — a ctypes call
@@ -136,8 +151,8 @@ def session_pids(game_exe: str = GAME_EXE) -> list:
     except Exception:                        # noqa: BLE001 — not Windows: no sessions
         probe = None
     out = []
-    for pid in proc_table.pids_named(game_exe):
-        if probe is None:                    # nothing to filter by — every client is ours
+    for pid in pids:
+        if probe is None:                    # nothing to filter by — every one is ours
             out.append(pid)
             continue
         try:
@@ -340,6 +355,98 @@ def session_pids_of(session: int, game_exe: str = GAME_EXE) -> list:
 # correct (`tools/session_launch.py::expand_for`), and here it is passed on untouched.
 
 
+def launcher_exe() -> str:
+    """The launcher's image name — asked for, never spelled out (game_paths)."""
+    return game_paths.launcher_exe()
+
+
+def launcher_stale_sec() -> float:
+    """`LW_LAUNCHER_STALE_SEC`, or the default. Read per call, like every other path."""
+    try:
+        return float(os.environ.get("LW_LAUNCHER_STALE_SEC") or LAUNCHER_STALE_SEC)
+    except (TypeError, ValueError):
+        return LAUNCHER_STALE_SEC
+
+
+def launcher_pids(session: "int | None" = None) -> list:
+    """Every launcher process — this session's, or the named session's.
+
+    Narrow first, then open (tools/lib/proc_table.py): the names come from the one
+    enumeration that opens nothing, and only the handful that ARE launchers are then
+    asked which session they sit in.
+    """
+    pids = proc_table.pids_named(launcher_exe())
+    if session is None:
+        return sorted(_in_my_session(pids))
+    rows = {pid: sid for sid, pid, _name in proc_table.wts_rows()}
+    return sorted(pid for pid in pids if rows.get(pid) == int(session))
+
+
+def _age_of(pid: int) -> "float | None":
+    """Seconds since ``pid`` started, or ``None`` when it cannot be read."""
+    try:
+        import psutil                        # noqa: PLC0415
+    except Exception:                        # noqa: BLE001 — no psutil: no age
+        return None
+    try:
+        return max(0.0, time.time() - float(psutil.Process(int(pid)).create_time()))
+    except Exception:                        # noqa: BLE001 — gone, or not ours to see
+        return None
+
+
+def _pick_stale(ages: dict, older_than: float) -> list:
+    """Which of ``{pid: age-or-None}`` to end. Pure, so a test can drive it.
+
+    An age that could not be READ counts as stale. The question is only ever asked
+    when the panel has already decided there is no client, and a launcher whose age
+    is unreadable is one this process cannot see into — which is exactly the shape of
+    the leftover from an earlier attempt.
+    """
+    return sorted(pid for pid, age in ages.items()
+                  if age is None or float(age) >= float(older_than))
+
+
+def clear_stale_launchers(session: "int | None" = None, user: "str | None" = None,
+                          older_than: "float | None" = None, log=None) -> int:
+    """End a launcher that is up but has produced no client. How many went.
+
+    THE LAUNCHER IS SINGLE-INSTANCE, and that is the whole reason this exists. Measured
+    live on 2026-08-21: one launcher lost the network while checking the version
+    («Network check attempt 3 failed»), sat there, and every «Запустить игру» for the
+    next three hours wrote one line into its own log — ``Launcher is already running`` —
+    and exited. The panel saw a launcher start and no client appear, failed its
+    `WAIT client == ready` after 180 s, and tried again on the next tick, all night.
+    Nothing in the panel could see it: the client's probe looks for the CLIENT.
+
+    So a start clears the ground first. Only a launcher that is genuinely stuck: one
+    younger than `launcher_stale_sec()` is left alone and said out loud, because that
+    one is probably updating the game and killing it mid-update helps nobody.
+    """
+    say = log or (lambda _msg: None)
+    limit = launcher_stale_sec() if older_than is None else float(older_than)
+    try:
+        pids = launcher_pids(session)
+    except Exception as exc:                 # noqa: BLE001 — no enumeration on this box
+        say(f"could not look for a stuck launcher: {exc}")
+        return 0
+    if not pids:
+        return 0
+    ages = {pid: _age_of(pid) for pid in pids}
+    stale = _pick_stale(ages, limit)
+    ended = 0
+    for pid in pids:
+        age = ages.get(pid)
+        shown = "an unreadable age" if age is None else f"{age:.0f}s"
+        if pid not in stale:
+            say(f"a launcher is up (pid {pid}, {shown}) — leaving it to finish")
+            continue
+        say(f"launcher pid {pid} has been up {shown} with no client — ending it, or "
+            f"the next start is refused with «Launcher is already running»")
+        if close(pid, user=user, log=say):
+            ended += 1
+    return ended
+
+
 def start(launcher: "str | None" = None, user: "str | None" = None,
           timeout: float = START_TIMEOUT_SEC, game_exe: str = GAME_EXE,
           log=None) -> "int | None":
@@ -365,6 +472,9 @@ def _start_here(launcher: str, say) -> None:
     path = os.path.expanduser(os.path.expandvars(launcher))
     if not os.path.exists(path):
         raise FileNotFoundError(path)
+    # A launcher left over from an earlier attempt refuses this one and says so in its
+    # own log, where nothing here was reading (`clear_stale_launchers`).
+    clear_stale_launchers(log=say)
     subprocess.Popen([path], cwd=os.path.dirname(path) or None, close_fds=True)
     say(f"launcher started on this desktop: {path}")
 
@@ -388,6 +498,10 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
         # client is up", and finding it already there is that job done.
         say(f"a client is already running in {user}'s session (pid {found[0]})")
         return found[0]
+
+    # The same single-instance trap as on this desktop, in the other account's session:
+    # a stuck launcher there refuses the SYSTEM hop's start exactly as it refuses ours.
+    clear_stale_launchers(session=session, user=user, log=say)
 
     _tools_on_path()
     import rdp_instance                       # noqa: PLC0415 — Windows-only
