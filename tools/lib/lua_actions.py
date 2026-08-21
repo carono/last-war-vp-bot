@@ -11633,11 +11633,15 @@ def golden_ready_to_send() -> str:
     Points the run at the squad the panel chose, forgets the previous ORDER while keeping
     the target, and answers whether an order may go at all:
 
-    * ``ok``          — a target is fixed and the squad can march;
-    * ``none``        — nothing is fixed; «найти ближайшего» has not been pressed;
-    * ``busy``        — the squad is out or otherwise refusing orders;
-    * ``noarmy``      — the client is holding no army for it (that one has a cure);
-    * ``nosquad``     — this account has no such squad.
+    * ``1``   — a target is fixed and the squad can march;
+    * ``0``   — the squad is out or otherwise refusing orders;
+    * ``-1``  — this account has no such squad;
+    * ``-2``  — the client is holding no army for it (that one has a cure);
+    * ``-3``  — nothing is fixed; «найти ближайшего» has not been pressed.
+
+    Numbers rather than words because the DSL's `IF` compares numbers and state words
+    and nothing else — a condition on a quoted string is «unknown condition», which is
+    how the first version of this died one line into a live press (#1702).
 
     Five round trips became one (#1702): «мгновенно» is mostly a matter of not asking
     the same VM five questions it could have answered in a single breath.
@@ -11655,11 +11659,11 @@ def golden_ready_to_send() -> str:
         "p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 "
         "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
         "%(gold)s = p "
-        "if p.formation == nil then return 'nosquad' end "
-        "if p.cur == nil then return 'none' end "
-        "if can then return 'ok' end "
-        "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return 'noarmy' end "
-        "return 'busy' end)()"
+        "if p.formation == nil then return -2 end "
+        "if p.cur == nil then return -3 end "
+        "if can then return 1 end "
+        "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end "
+        "return 0 end)()"
         % {"gold": _GOLD})
 
 
@@ -11679,7 +11683,7 @@ def golden_find_now() -> str:
     """
     return (
         "(function() " + _GOLD_P + _GOLD_WS +
-        "if ws == nil then return 'noscene' end "
+        "if ws == nil then return -1 end "
         # …the squad, its formation, and the origin — the same rules as the recipe had,
         # in the order they depend on each other.
         "p.squad = math.floor(tonumber(%(gold)s_squad) or p.squad or 1) "
@@ -11699,7 +11703,7 @@ def golden_find_now() -> str:
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end "
         "%(gold)s = p "
-        "if out == 1 then return 'afield' end return 'athome' end)()"
+        "return out end)()"
         % {"gold": _GOLD})
 
 

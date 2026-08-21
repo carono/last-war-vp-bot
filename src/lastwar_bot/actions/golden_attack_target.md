@@ -20,25 +20,25 @@ WAIT client == ready WITHIN 20s
 LUA DataCenter.__lw_gold_squad = {squad}
 LUA DataCenter.__lw_gold_back = 1
 
-READ_LUA (function() local p = DataCenter.__lw_gold or {} p.squad = math.floor(tonumber(DataCenter.__lw_gold_squad) or p.squad or 1) p.formation = nil p.soldiers = 0 local state = nil local can = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if math.floor(tonumber(v.index) or -1) == p.squad then p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end DataCenter.__lw_gold = p if p.formation == nil then return 'nosquad' end if p.cur == nil then return 'none' end if can then return 'ok' end if math.floor(tonumber(p.soldiers) or 0) <= 0 then return 'noarmy' end return 'busy' end)() INTO ready
-IF ready == none
+READ_LUA (function() local p = DataCenter.__lw_gold or {} p.squad = math.floor(tonumber(DataCenter.__lw_gold_squad) or p.squad or 1) p.formation = nil p.soldiers = 0 local state = nil local can = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if math.floor(tonumber(v.index) or -1) == p.squad then p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end DataCenter.__lw_gold = p if p.formation == nil then return -2 end if p.cur == nil then return -3 end if can then return 1 end if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end return 0 end)() INTO ready
+IF ready == -3
     LOG "no zombie is fixed — press «найти ближайшего» first"
     STOP "nothing chosen"
-IF ready == nosquad
+IF ready == -1
     LOG "there is no such squad on this account — nothing was sent"
     STOP "no squad"
-IF ready == noarmy
+IF ready == -2
     LOG "the client is holding no army for this squad — asking for it"
     CALL fill_empty_squads
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} p.squad = math.floor(tonumber(DataCenter.__lw_gold_squad) or p.squad or 1) p.formation = nil p.soldiers = 0 local state = nil local can = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if math.floor(tonumber(v.index) or -1) == p.squad then p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end DataCenter.__lw_gold = p if p.formation == nil then return 'nosquad' end if p.cur == nil then return 'none' end if can then return 'ok' end if math.floor(tonumber(p.soldiers) or 0) <= 0 then return 'noarmy' end return 'busy' end)() INTO ready
-IF ready == busy
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} p.squad = math.floor(tonumber(DataCenter.__lw_gold_squad) or p.squad or 1) p.formation = nil p.soldiers = 0 local state = nil local can = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if math.floor(tonumber(v.index) or -1) == p.squad then p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end DataCenter.__lw_gold = p if p.formation == nil then return -2 end if p.cur == nil then return -3 end if can then return 1 end if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end return 0 end)() INTO ready
+IF ready == 0
     # A squad turned round a second ago is still walking home and reads «busy» for a
     # beat; refusing outright is what «второй раз не смог отправить» was.
     LOG "the squad is not free yet — giving it a few seconds"
-    WHILE ready == busy LIMIT 6
+    WHILE ready == 0 LIMIT 6
         WAIT 1
-        READ_LUA (function() local p = DataCenter.__lw_gold or {} p.squad = math.floor(tonumber(DataCenter.__lw_gold_squad) or p.squad or 1) p.formation = nil p.soldiers = 0 local state = nil local can = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if math.floor(tonumber(v.index) or -1) == p.squad then p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end DataCenter.__lw_gold = p if p.formation == nil then return 'nosquad' end if p.cur == nil then return 'none' end if can then return 'ok' end if math.floor(tonumber(p.soldiers) or 0) <= 0 then return 'noarmy' end return 'busy' end)() INTO ready
-IF ready == busy
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} p.squad = math.floor(tonumber(DataCenter.__lw_gold_squad) or p.squad or 1) p.formation = nil p.soldiers = 0 local state = nil local can = nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if math.floor(tonumber(v.index) or -1) == p.squad then p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end DataCenter.__lw_gold = p if p.formation == nil then return -2 end if p.cur == nil then return -3 end if can then return 1 end if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end return 0 end)() INTO ready
+IF ready == 0
     LOG "the chosen squad is busy — it takes no orders just now, so nothing was sent"
     STOP "squad busy"
 
