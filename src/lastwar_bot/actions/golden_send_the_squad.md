@@ -12,6 +12,7 @@ ARGS approach = 0
 ARGS march_wait = 200
 ARGS miss_limit = 6
 ARGS breather = 90
+ARGS wave_wait = 240
 
 # NOTHING TO SEND AT IS THE SAME KIND OF PAUSE AS A REFUSED SEND (#1702). The chooser
 # comes back empty when every zombie it can reach has been killed — by us or by the
@@ -227,8 +228,21 @@ IF stalled == 1
     IF breathers_left > 0
         LOG "nothing to attack here just now — waiting {breather}s and looking again ({breathers_left} pause(s) left)"
         TAP golden_breathe
-        WAIT {breather}
+        # IS THERE ANYTHING ON THE MAP AT ALL? (#1702) The registry is what earlier
+        # sweeps saw; this asks the client about the ground it is holding right now.
+        # Measured live: 83 rows queued and the client naming ZERO of them, because the
+        # invasion wave was not up and every row was a ghost. A lap then spent its twelve
+        # picks proving that one at a time — which from the outside is a camera flying
+        # about the map and nothing else happening, and is exactly what the operator saw.
         TAP golden_scan
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local ws = DataCenter.__lw_gold_ws local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) DataCenter.__lw_gold_ws = ws end if ws == nil then return -1 end local n = 0 pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(ws.CurTilePos, math.floor(tonumber(p.radius) or 2000), ids, res) local e = res:GetEnumerator() while e:MoveNext() do n = n + 1 end end) return n end)() INTO seen_now
+        IF seen_now == 0
+            LOG "the client can see no golden zombie anywhere — the invasion wave is not up; forgetting the old list and waiting {wave_wait}s"
+            TAP golden_forget_queue
+            WAIT {wave_wait}
+        IF seen_now > 0
+            WAIT {breather}
+            TAP golden_scan
         # …AND IF THE DROUGHT HAS GONE ON, WALK THE MAP AGAIN (#1702). The queue is what
         # one sweep saw, and a sweep goes stale: live, after three empty pauses the leash
         # went out to 700 tiles, found 139 rows in the invasion's own corner and dropped

@@ -1229,6 +1229,12 @@ BUTTONS["golden_miss"] = Button(
     lua=_lua_actions.golden_note_miss(),
     wait=0.1, label="write off a send that never became a march",
 )
+BUTTONS["golden_forget_queue"] = Button(
+    # Every row in the registry is a ghost — pressed only when the client has just said
+    # it can see no golden zombie at all (#1702).
+    lua=_lua_actions.golden_forget_queue(),
+    wait=0.1, label="forget a queue of zombies that are no longer there",
+)
 BUTTONS["golden_stall_mark"] = Button(
     # A streak of sends that went nowhere. NOT the end of the run: it means the corner
     # the squad stands in has been farmed out, which is a fact about the map five

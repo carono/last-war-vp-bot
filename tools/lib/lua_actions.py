@@ -11501,6 +11501,41 @@ def golden_march_in_flight() -> str:
             "return alive end)()")
 
 
+def golden_seen_live() -> str:
+    """Lua *expression* -> how many golden zombies the client can name RIGHT NOW.
+
+    Not the registry, which is what earlier sweeps saw: this asks the client about the
+    ground it currently holds. The difference is the whole of «не работает от слова
+    совсем» (#1702) — measured live on 2026-08-21, the queue held 83 rows and this
+    answered **0**, because the invasion wave was not up and every row was a ghost of a
+    zombie somebody had killed while we were elsewhere.
+    """
+    return ("(function() " + _GOLD_P + _GOLD_WS +
+            "if ws == nil then return -1 end "
+            "local n = 0 "
+            "pcall(function() "
+            "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, "
+            "CS.System.Int32)() "
+            "for _, id in ipairs(p.ids or {%(cfg)d}) do pcall(function() ids:Add(id, 1) end) end "
+            "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+            "CS.UnityEngine.Vector2Int)() "
+            "ws:GetMonsterListInArea(ws.CurTilePos, math.floor(tonumber(p.radius) or 2000), "
+            "ids, res) "
+            "local e = res:GetEnumerator() while e:MoveNext() do n = n + 1 end end) "
+            "return n end)()" % {"cfg": 1030000})
+
+
+def golden_forget_queue() -> str:
+    """Throw the registry away — every row in it is a ghost, and rows cost picks.
+
+    Only ever pressed when the client has just said it can see NONE (`golden_seen_live`).
+    Keeping them would make the next lap spend its twelve picks proving one by one what
+    one reading already said (#1702).
+    """
+    return (_GOLD_P + "p.targets = {} p.cur = nil p.pending = nil %(gold)s = p "
+            'CS.UnityEngine.Debug.LogError("ACT golden_forget_queue")' % {"gold": _GOLD})
+
+
 def golden_stall_mark() -> str:
     """Say that this lap could not get an order out — WITHOUT ending the run (#1702).
 
