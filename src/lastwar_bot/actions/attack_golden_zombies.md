@@ -278,6 +278,25 @@ WHILE refreshed == 0 LIMIT 12
     READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
 TAP golden_scan
 
+# …AND A FIRST PICK FARTHER THAN THE RING COULD SEE IS NOT BELIEVED THE FIRST TIME
+# (#1702). The ring above covers about 160 tiles — its own radius plus what the
+# enumerator reads at each stop — and beyond that «the nearest golden zombie» means
+# «the nearest of the ones the client happens to hold». Measured over 76 opening picks:
+# median 47 tiles, tail 569. At the speed the game quotes an attack march, 569 tiles is
+# over ten minutes; another ring is nine seconds. So the run doubles its own ring and
+# looks again — twice at most, and only while the answer is still far.
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local ox, oy = nil, nil local o = p.anchor or p.home if o ~= nil then ox, oy = o.x, o.y end local best = nil for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then local d = nil if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) d = math.sqrt(dx * dx + dy * dy) else pcall(function() d = tonumber(SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end if d ~= nil and (best == nil or d < best) then best = d end end end if best == nil then return -1 end return math.floor(best + 0.5) end)() INTO best_far
+WHILE best_far > 160 LIMIT 2
+    LOG "the nearest one is beyond what the opening look covers — widening it rather than marching"
+    TAP golden_widen_ring
+    TAP golden_refresh
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+    WHILE refreshed == 0 LIMIT 20
+        WAIT 1
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.refresh_done) or 0) == 1) and 1 or 0 end)() INTO refreshed
+    TAP golden_scan
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local ox, oy = nil, nil local o = p.anchor or p.home if o ~= nil then ox, oy = o.x, o.y end local best = nil for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then local d = nil if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) d = math.sqrt(dx * dx + dy * dy) else pcall(function() d = tonumber(SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end if d ~= nil and (best == nil or d < best) then best = d end end end if best == nil then return -1 end return math.floor(best + 0.5) end)() INTO best_far
+
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() INTO queued
 
 LOG "golden zombies queued: {queued}; energy {energy}, one attack costs {cost}"

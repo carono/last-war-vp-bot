@@ -9845,6 +9845,7 @@ def golden_arm() -> str:
         "p.vanished = 0 p.since_refresh = 0 p.refreshes = 0 "
         "pcall(function() p.server = math.floor(tonumber(LuaEntry.Player:GetSelfServerId()) or 0) end) "
         "p.anchor = nil "
+        "p.ring_now = nil "
         "p.home = _goldhome(ws, p.server) "
         "if p.home ~= nil then DataCenter.__lw_gold_home = p.home "
         "elseif DataCenter.__lw_gold_home ~= nil then p.home = DataCenter.__lw_gold_home end "
@@ -10024,6 +10025,8 @@ def golden_refresh() -> str:
         "p.refresh_done = 0 "
         "%(gold)s = p "
         "local ids = p.ids or {%(cfg)d} "
+        "local ring = math.floor(tonumber(p.ring_now) or %(ring)d) "
+        "if ring < 1 then ring = %(ring)d end "
         # -- one stop: move the camera, then read the enumerator around that point
         "local function stop(x, y) "
         "local g = %(gold)s "
@@ -10034,7 +10037,7 @@ def golden_refresh() -> str:
         "for _, id in ipairs(ids) do pcall(function() w:Add(id, 1) end) end "
         "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
         "CS.UnityEngine.Vector2Int)() "
-        "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(x, y), %(reach)d, w, res) "
+        "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(x, y), ring, w, res) "
         "local seen = {} "
         "for _, t in ipairs(g.targets) do seen[tostring(t.pid)] = true end "
         "local e = res:GetEnumerator() "
@@ -10052,8 +10055,8 @@ def golden_refresh() -> str:
         "local n = 0 "
         "for k = 0, %(stops)d - 1 do "
         "local a = (2 * math.pi * k) / %(stops)d "
-        "local x = math.floor(o.x + %(ring)d * math.cos(a) + 0.5) "
-        "local y = math.floor(o.y + %(ring)d * math.sin(a) + 0.5) "
+        "local x = math.floor(o.x + ring * math.cos(a) + 0.5) "
+        "local y = math.floor(o.y + ring * math.sin(a) + 0.5) "
         "if x >= 0 and y >= 0 then n = n + 1 "
         "tm:DelayInvoke(function() stop(x, y) end, n * %(gap)f) end end "
         # …and the origin last, so the camera ends where the pick is measured from
@@ -10062,9 +10065,69 @@ def golden_refresh() -> str:
         "%(gold)s = g end, (n + 1) * %(gap)f) "
         'CS.UnityEngine.Debug.LogError("ACT golden_refresh at="..tostring(o.x)..","..tostring(o.y)'
         '.." stops="..tostring(n + 1).." n="..tostring(p.refreshes))'
-        % {"gold": _GOLD, "cfg": GOLDEN_ZOMBIE_CFG, "reach": GOLDEN_REFRESH_RING,
+        % {"gold": _GOLD, "cfg": GOLDEN_ZOMBIE_CFG,
            "stops": GOLDEN_REFRESH_STOPS, "ring": GOLDEN_REFRESH_RING,
            "gap": GOLDEN_REFRESH_GAP}
+    )
+
+
+#: How far a FIRST pick may be before the ring is widened rather than marched (#1702).
+#: The opening ring covers about twice :data:`GOLDEN_REFRESH_RING` — its own radius plus
+#: what the enumerator reads at each stop — so a pick beyond that is «the near ground was
+#: never loaded» as often as «there is nothing near». Live, over 76 opening picks the
+#: median was 47 tiles and the tail reached 569; at the attack speed the game quotes,
+#: 569 tiles is over ten minutes of marching and another ring is nine seconds.
+GOLDEN_FIRST_FAR = 160
+
+#: …and how wide the ring may grow before the answer is believed. Four doublings from 80
+#: is most of a warzone, and a run that has walked that much and still has nothing near it
+#: is a run whose invasion really is somewhere else.
+GOLDEN_RING_MAX = 640
+
+
+def golden_widen_ring() -> str:
+    """Double the refresh ring for the rest of this run, up to :data:`GOLDEN_RING_MAX`.
+
+    Not a preference and not a setting: a within-run answer to a first pick that came out
+    farther than the ring could see. The next :func:`golden_refresh` walks the wider ring
+    and reads the enumerator at the same width, so the stops themselves cost what they
+    always cost — the ring is bigger, not slower.
+    """
+    return (
+        _GOLD_P +
+        "local now = math.floor(tonumber(p.ring_now) or " + str(GOLDEN_REFRESH_RING) + ") "
+        "local want = now * 2 "
+        "if want > " + str(GOLDEN_RING_MAX) + " then want = " + str(GOLDEN_RING_MAX) + " end "
+        "p.ring_now = want "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_widen ring="..tostring(want))'
+        % {"gold": _GOLD}
+    )
+
+
+def golden_best_dist() -> str:
+    """Lua *expression* -> how far the nearest QUEUED target is from the pick's origin.
+
+    `-1` when the queue is empty. The origin is the same one the pick uses — the anchor
+    if the chain has sent anything, the base before that — so this is «how long the next
+    march would be», asked before it is ordered and without choosing anything.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "local ox, oy = nil, nil "
+        "local o = p.anchor or p.home "
+        "if o ~= nil then ox, oy = o.x, o.y end "
+        "local best = nil "
+        "for _, t in ipairs(p.targets or {}) do "
+        "if not (p.used or {})[tostring(t.pid)] then "
+        "local d = nil "
+        "if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) "
+        "d = math.sqrt(dx * dx + dy * dy) "
+        "else pcall(function() "
+        "d = tonumber(SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end "
+        "if d ~= nil and (best == nil or d < best) then best = d end end end "
+        "if best == nil then return -1 end "
+        "return math.floor(best + 0.5) end)()"
     )
 
 

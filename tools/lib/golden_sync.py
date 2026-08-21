@@ -28,6 +28,7 @@ import lua_actions  # noqa: E402
 #: `INTO <name>` -> the `lua_actions` function that owns that expression.
 OWNERS = {
     "armed": "golden_armed",
+    "best_far": "golden_best_dist",
     "arrived": "golden_arrived",
     "attacks": "golden_attacks",
     "cost": "golden_attack_cost",

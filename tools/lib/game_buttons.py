@@ -1143,6 +1143,15 @@ BUTTONS["golden_refresh"] = Button(
     lua=_lua_actions.golden_refresh(),
     wait=0.3, label="redraw the ground around the chain, and re-read it",
 )
+BUTTONS["golden_widen_ring"] = Button(
+    # A FIRST PICK FARTHER THAN THE RING COULD SEE IS A LOADING PROBLEM AS OFTEN AS A MAP
+    # ONE (#1702). Live, over 76 opening picks the median was 47 tiles and the tail
+    # reached 569; the ring covers about 160, and another one costs nine seconds against
+    # the ten minutes a 569-tile march costs. So the run doubles its own ring and looks
+    # again, up to four times, instead of believing the first far answer.
+    lua=_lua_actions.golden_widen_ring(),
+    wait=0.1, label="look wider before believing the nearest one is far",
+)
 BUTTONS["golden_look_from"] = Button(
     # The camera onto the ORIGIN of the next pick — the last kill, or the base before the
     # first one. The enumerator answers out of what the client has loaded, so after a lap

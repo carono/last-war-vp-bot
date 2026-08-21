@@ -1398,6 +1398,62 @@ def test_the_hunt_never_waits_out_a_march_that_is_not_its_own():
         "the recall leaves the clock it was triggered by standing"
 
 
+def test_a_far_first_pick_widens_the_look_before_it_is_marched():
+    """76 opening picks: median 47 tiles, tail 569 — and the ring covers about 160 (#1702).
+
+    Beyond that «the nearest golden zombie» means «the nearest of the ones the client
+    happens to be holding», which after a lap of the map is whatever district the lap
+    ended in. The measurement this rests on is already in :data:`GOLDEN_REFRESH_RING`:
+    standing 488 tiles out, the client answered `0` within 300 tiles of the base and,
+    thirteen dwell stops later, `17` — the nearest of them 14 tiles from the front door.
+
+    So a far opening answer buys another ring rather than a march. At the speed the game
+    quotes an attack march, 569 tiles is over ten minutes; a ring is nine seconds.
+    """
+    import lupa
+    assert lua_actions.GOLDEN_FIRST_FAR >= 2 * lua_actions.GOLDEN_REFRESH_RING, \
+        "the run widens its ring over distances the ring can already see"
+    assert lua_actions.GOLDEN_RING_MAX > lua_actions.GOLDEN_REFRESH_RING
+
+    # The ring is a number the run may raise, and it is read rather than compiled in.
+    ring = lua_actions.golden_refresh()
+    assert "p.ring_now" in ring, "the ring cannot be widened within a run"
+    assert "ring_now = nil" in lua_actions.golden_arm(), \
+        "a new run inherits the last one's widened ring and pays for its map"
+
+    widen = lua_actions.golden_widen_ring()
+    for start, want in ((None, 2 * lua_actions.GOLDEN_REFRESH_RING),
+                        (lua_actions.GOLDEN_RING_MAX, lua_actions.GOLDEN_RING_MAX)):
+        rt = lupa.LuaRuntime()
+        rt.execute("CS = {UnityEngine = {Debug = {LogError = function() end}}} "
+                   "DataCenter = {__lw_gold = {%s}}"
+                   % ("" if start is None else ("ring_now = %d" % start)))
+        rt.execute(widen)
+        assert int(rt.eval("DataCenter.__lw_gold.ring_now")) == want
+
+    # …and the reading it acts on is «how long would the next march be», asked of the
+    # queue before anything is chosen.
+    best = lua_actions.golden_best_dist()
+    rt = lupa.LuaRuntime()
+    rt.execute("DataCenter = {__lw_gold = {home = {x = 100, y = 100}, used = {}, "
+               "targets = {{pid = 1, x = 130, y = 140}, {pid = 2, x = 103, y = 104}}}}")
+    assert int(rt.eval(best)) == 5, "the nearest queued target is not the one measured"
+    rt = lupa.LuaRuntime()
+    rt.execute("DataCenter = {__lw_gold = {home = {x = 1, y = 1}, used = {}, targets = {}}}")
+    assert int(rt.eval(best)) == -1, "an empty queue answers a distance"
+
+    # …and the recipe widens BEFORE the chain starts marching, not inside the loop.
+    body, lines = _brick("attack_golden_zombies")
+    i = next(k for k, w in enumerate(lines) if " INTO best_far" in w)
+    loop = next(k for k, w in enumerate(lines) if w.startswith("WHILE go == 1"))
+    assert i < loop, "the widening happens after the first march has already gone out"
+    widening = lines[i:loop]
+    assert any(w.startswith("WHILE best_far > ") for w in widening), \
+        "the far answer is read and marched at anyway"
+    assert "TAP golden_widen_ring" in widening and "TAP golden_refresh" in widening, \
+        "the run widens nothing — it just asks again over the same ground"
+
+
 def test_a_parked_squad_is_brought_home_instead_of_waited_on():
     """The OTHER way the hunt sat still, and the ceiling cannot see it (#1702).
 

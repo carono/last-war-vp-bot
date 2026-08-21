@@ -530,6 +530,35 @@ The old post-send «is the squad stuck» branch is gone with it. It asked the sa
 with the opposite meaning (`canMarch = false` → dirty ground), which is how one reading
 came to mean both «the order was taken» and «the order was impossible».
 
+## 4g — the opening pick, measured: median 47 tiles, tail 569 (#1702)
+
+With the pick's diagnostic printing again (§4f), 207 live picks over a day answer what
+the chain's design was only claimed to do:
+
+| measured from | n | median | mean | max | within 25 tiles |
+|---|---|---|---|---|---|
+| the base — the FIRST pick of a run | 76 | **47** | 111 | 569 | 30% |
+| the anchor — every pick after it | 130 | **11** | 13.6 | 50 | **88%** |
+
+So the chain itself is doing exactly what §5 says: 88% of continuations are within 25
+tiles and the median hop is eleven. **The expensive pick is the opening one**, and the
+ratio of the two counts says why it mattered so much — 76 openings against 130
+continuations means runs were ending after about 1.7 kills, so nearly every kill was
+paying an opening march.
+
+The opening ring covers about 160 tiles — its own radius (`GOLDEN_REFRESH_RING`) plus
+what the enumerator reads at each stop — and an answer beyond that is «the nearest of the
+ones the client happens to hold» rather than «the nearest one there is». That is the same
+loading effect the ring exists for, one size up: standing 488 tiles out, the client
+answered `0` within 300 tiles of the base and, thirteen dwell stops later, `17` — the
+nearest of them 14 tiles from the front door.
+
+So a far opening answer now buys another ring instead of a march: `golden_widen_ring`
+doubles the run's own ring (up to `GOLDEN_RING_MAX`), the refresh walks the wider one at
+the same cost per stop, and the queue is re-read. Twice at most, and only while the answer
+is still beyond `GOLDEN_FIRST_FAR`. The arithmetic it rests on: at the attack speed the
+game quotes, 569 tiles is over ten minutes of marching, and a ring is nine seconds.
+
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 
 The worst kind of bug: every part of it had already been thought about, and the fix was
