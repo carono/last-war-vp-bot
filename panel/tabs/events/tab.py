@@ -455,6 +455,18 @@ class EventsTab(PanelTab):
         except tk.TclError:                 # the window is going away
             pass
 
+    def _verify_after(self, delay_ms: int) -> None:
+        """Play `golden_verify_order` in a few seconds, on the panel's own clock."""
+        tick = getattr(self.rt, "tick", None)
+        if tick is None or not hasattr(tick, "arm"):
+            return
+        try:
+            tick.arm("golden-verify", delay_ms,
+                     lambda: self.rt.play_async("golden_verify_order", tag="events",
+                                                on_result=self._step_back))
+        except Exception:                   # noqa: BLE001 — a panel going down
+            pass
+
     def _paint_target(self) -> None:
         """Put the chosen tile beside the buttons — where the operator asked for it.
 
@@ -488,6 +500,13 @@ class EventsTab(PanelTab):
             args = {}
         elif row[1] == "golden_attack_target":
             args["approach"] = 1 if self.approach() else 0
+        if action == "attack_golden":
+            # THE PROOF FOLLOWS THE PRESS (#1702). The order is scheduled inside one call
+            # and the press answers at once; four seconds later the panel asks whether it
+            # became a real march and recalls it if the server never confirmed one. The
+            # person gets their button back immediately and hears about a phantom a
+            # moment later — instead of watching a spinner for the good news.
+            self._verify_after(4000)
         if action == "forget_golden":
             # Shown as forgotten the moment it is asked for: the scenario cannot fail in
             # a way that leaves a target chosen, and a card still naming one would be

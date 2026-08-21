@@ -11627,6 +11627,74 @@ def golden_phantom_marches() -> str:
             "return n end)()")
 
 
+def golden_send_now() -> str:
+    """Check and ORDER in one breath, so nothing sits between the two (#1702).
+
+    The press used to ask five questions, get an answer, and only then send — and every
+    one of those was a tenth of a second in which the world could change. Here the squad
+    is resolved, the previous order forgotten, the target read and the march scheduled
+    inside a single call, and the answer says what happened:
+
+    * ``1``   — the order was scheduled at the fixed zombie;
+    * ``0``   — the squad is out or refusing orders;
+    * ``-1``  — no such squad on this account;
+    * ``-2``  — the client holds no army for it (curable: ask, then press again);
+    * ``-3``  — nothing is fixed;
+    * ``-4``  — the client can no longer name that zombie: it is gone, and the order is
+      NOT sent, because a march at a corpse is the one thing this whole task is about.
+
+    The send itself is still `MarchUtil.SendCreateMarchMessage` on the main thread
+    through `DelayInvoke` — a cold call from the hijack thread is dropped by the server
+    (docs/research/world-monsters.md, Finding 17) — and `back = 1`, so a single press
+    brings the squad home when it is done.
+    """
+    return (
+        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
+        "p.squad = math.floor(tonumber(%(gold)s_squad) or p.squad or 1) "
+        "p.formation = nil p.soldiers = 0 "
+        "local can = nil "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if math.floor(tonumber(v.index) or -1) == p.squad then "
+        "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
+        "can = (v.canMarch == true) end end end) "
+        # …the previous ORDER is forgotten, the CHOICE is kept: «отправил, развернул,
+        # отправить снова» has to work.
+        "p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 "
+        "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
+        "%(gold)s = p "
+        "if p.formation == nil then return -1 end "
+        "if p.cur == nil then return -3 end "
+        "if not can then "
+        "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end return 0 end "
+        "local t = p.cur "
+        "local uuid = _freshuuid(ws, p, t) "
+        "if uuid == nil then return -4 end "
+        "local srv = math.floor(tonumber(t.server or p.server) or 0) "
+        "local kind = MarchTargetType.ATTACK_MONSTER "
+        "if p.server ~= nil and srv ~= 0 and srv ~= p.server then "
+        "kind = MarchTargetType.CROSS_ATTACK_MONSTER end "
+        "local f, pid = p.formation, t.pid "
+        "p.march_before = {} "
+        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+        "if ms == nil then return end "
+        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+        "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
+        "if u ~= nil then p.march_before[u] = true end end end end) "
+        "p.pending = {pid = pid, uuid = uuid, key = tostring(uuid), x = t.x, y = t.y} "
+        "p.hit = p.pending "
+        "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
+        "p.last_sent = {x = t.x, y = t.y, pid = t.pid} "
+        "p.attacks = p.attacks or 0 "
+        "%(gold)s = p "
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, 1, false, srv, nil) end) "
+        "end, 0.1) "
+        "return 1 end)()"
+        % {"gold": _GOLD})
+
+
 def golden_ready_to_send() -> str:
     """Everything the attack press must know before it orders, in ONE call.
 

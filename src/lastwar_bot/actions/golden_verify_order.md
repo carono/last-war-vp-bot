@@ -1,0 +1,23 @@
+# Did the order the last press sent become a real march? Recall it if it did not.
+# ru: Стал ли последний приказ настоящим маршем? Если нет — отозвать.
+#
+# The attack press answers the moment the order is scheduled (#1702), because waiting for
+# the client to draw the march is five seconds of nothing. This is the other half: played
+# by the panel a few seconds later, it asks whether the march exists and whether it has
+# an arrival time, and takes back the one thing that must never be left in the game — a
+# march the server never confirmed, which paints the squad mid-move and makes it refuse
+# every order after it.
+#
+# Narrow on purpose: a RALLY has no arrival clock either, and recalling one would pull
+# the account out of its alliance's sortie.
+
+READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local want = p.march_uuid local tgt = nil if p.pending ~= nil then tgt = p.pending.uuid end if want == nil and tgt == nil then return 0 end local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e, u, t = nil, nil, nil pcall(function() e = tonumber(m.endTime) end) pcall(function() u = tostring(m.uuid) end) pcall(function() t = tostring(m.targetUuid) end) local ours = (want ~= nil and u == tostring(want)) or (tgt ~= nil and t ~= nil and t == tostring(tgt)) if ours and (e == nil or e <= 0) then n = n + 1 end end end end) return n end)() INTO phantoms
+IF phantoms > 0
+    LOG "the game drew a march with no arrival time — taking it back"
+    TAP golden_unstick
+    STOP "phantom recalled"
+IF launched == 1
+    LOG "the march is real — the squad is on its way"
+IF launched == 0
+    LOG "the order never became a march — nothing is marching"

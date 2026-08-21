@@ -1608,10 +1608,15 @@ def test_a_press_checks_the_link_and_takes_back_a_march_with_no_clock():
     text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
             / "golden_attack_target.md").read_text(encoding="utf-8")
     assert "WAIT client == ready" in text, "the press orders without reading the link"
-    assert text.index("WAIT client == ready") < text.index("CALL golden_send_the_squad"), \
+    assert text.index("WAIT client == ready") < text.index(lua_actions.golden_send_now()), \
         "the link is read after the order has gone"
-    assert lua_actions.golden_phantom_marches() in text, "nothing looks for a phantom march"
-    assert "TAP golden_unstick" in text, "a phantom march is found and then left there"
+    # THE PROOF MOVED OUT OF THE PRESS (#1702): waiting for the client to draw the march
+    # is five seconds of a button that has already done its work, so the panel plays
+    # `golden_verify_order` a few seconds later and recalls a phantom then.
+    verify = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+              / "golden_verify_order.md").read_text(encoding="utf-8")
+    assert lua_actions.golden_phantom_marches() in verify, "nothing looks for a phantom march"
+    assert "TAP golden_unstick" in verify, "a phantom march is found and then left there"
     # …and both are narrow: a RALLY march of the player's own has no arrival clock
     # either, and neither the check nor the recall may touch it (#1702, measured live —
     # a rally sat in the same list with `endTime = 0` minutes after the first version
@@ -1635,10 +1640,9 @@ def test_a_single_press_comes_home_and_gives_up_on_a_zombie_that_dies_en_route()
 
     text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
             / "golden_attack_target.md").read_text(encoding="utf-8")
-    assert "LUA DataCenter.__lw_gold_back = 1" in text, \
-        "a single attack leaves the squad standing on the tile"
-    assert text.index("__lw_gold_back = 1") < text.index("CALL golden_send_the_squad"), \
-        "the come-home flag is set after the order has gone"
+    assert "false, srv, nil) end) " in lua_actions.golden_send_now()
+    assert ", 1, 1, false, srv, nil)" in lua_actions.golden_send_now(), \
+        "a single attack no longer carries «come home when you are done»"
     # THE WATCH MOVED OUT OF THE PRESS (#1702). It stayed until the operator pointed out
     # that a button which waits out a whole march is not a button: «должен реагировать
     # мгновенно, и на повторные клики тоже». So the press ends when the order is away,
@@ -1646,7 +1650,6 @@ def test_a_single_press_comes_home_and_gives_up_on_a_zombie_that_dies_en_route()
     chain = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
              / "golden_judge_the_kill.md").read_text(encoding="utf-8")
     assert lua_actions.golden_gone() in chain, "nothing watches the target any more"
-    assert "TAP golden_unstick" in text, "a march the server never confirmed is left there"
 
 
 def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round():
@@ -1681,13 +1684,11 @@ def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round()
     # FOLDED INTO ONE CALL (#1702): pointing at the squad, forgetting the previous order
     # and asking whether one may go are a single question now — «мгновенно» is mostly a
     # matter of not asking the VM five things it could answer in one breath.
-    ready = lua_actions.golden_ready_to_send()
-    assert ready in text, "the press no longer asks in one call"
-    assert "p.march_uuid = nil" in ready and "p.used[tostring(p.cur.pid)] = nil" in ready
-    assert text.index(ready) < text.index("CALL golden_send_the_squad")
-    # …and a squad turned round a second ago is given a beat rather than refused.
-    assert "WHILE ready == 0 LIMIT" in text, \
-        "a squad still walking home is refused outright"
+    send = lua_actions.golden_send_now()
+    assert send in text, "the press no longer checks and orders in one call"
+    assert "p.march_uuid = nil" in send and "p.used[tostring(p.cur.pid)] = nil" in send
+    assert "if uuid == nil then return -4 end" in send, \
+        "a zombie the client can no longer name is still ordered at"
 
 
 def test_finding_measures_from_where_the_squad_was_left_and_looks_there():
