@@ -137,6 +137,24 @@ ARGS kind_left =
 # floor costs no call of its own. A number that cannot be read at all refuses nothing.
 ARGS min_soldiers = 0
 
+# THIS RUN DOES NOT HOLD THE PANEL UP (#1702). Measured over 127 episodes in one evening:
+# the join itself is fast — median 1 s, three quarters of them inside 2 s — and the tail
+# is not: 31, 51, 59, 63 and 241 seconds, 656 s of client time in all. The long ones are
+# a banner arriving while a long run has the client, and they cut both ways: this run
+# waits for the hunt, and the hunt waits for this one.
+#
+# `DETACH` answers both halves. It gets a worker of its own, so the scheduler's clock is
+# never held by it; it claims below an ordinary errand; and it carries the step-aside
+# hook, so it parks at a statement boundary the moment anybody else wants the client
+# instead of holding it for a minute.
+#
+# What makes that safe for the BANNERS — which are the whole point, and live tens of
+# seconds — is the rule in `panel/runtime/daemon.py::_yield_above`: a detached run steps
+# aside for another DETACHED one too. Without it this flag would have been a way to stop
+# joining rallies altogether, because the hunt is detached and runs for hours, and
+# neither could ever make the other park.
+DETACH
+
 # The squads this run may spend, parked where the press can read them — `TAP` carries no arguments of its own. One call, and it is the only
 # thing that stands between the push and the send.
 #

@@ -34,6 +34,7 @@ for _p in (_REPO_ROOT, _REPO_ROOT / "src", _REPO_ROOT / "tools", _REPO_ROOT / "t
 from lastwar_bot import script_engine as engine  # noqa: E402
 from panel.runtime import claims  # noqa: E402
 
+DAEMON = _REPO_ROOT / "panel" / "runtime" / "daemon.py"
 HOST = _REPO_ROOT / "panel" / "runtime" / "host.py"
 SCHEDULE = _REPO_ROOT / "panel" / "runtime" / "schedule.py"
 ACTIONS = _REPO_ROOT / "panel" / "runtime" / "actions.py"
@@ -83,6 +84,53 @@ def test_everything_outranks_a_detached_run():
         assert claims.wanted(key, claims.DETACHED) is None
     finally:
         claims.clear()
+
+
+def test_two_detached_runs_take_turns_instead_of_starving_each_other():
+    """A floor is not a queue (#1702).
+
+    `DETACHED` is below everything so that no detached run can make anybody wait. Read
+    literally that also means a detached holder never steps aside for another detached
+    run — and the moment there were two of them, that stopped being a nicety: the
+    golden-zombie hunt is detached and runs for hours, so marking the rally auto-join
+    detached as well would have made the banners stop being joined altogether, each of
+    them holding the client against the other for ever.
+
+    So a detached holder yields to an EQUAL waiter. A background one still does not:
+    two ordinary timers pushing each other off the client is the ping-pong the strict
+    comparison exists to prevent.
+    """
+    src = DAEMON.read_text(encoding="utf-8")
+    assert "_yield_above" in src, "the holder asks with its own level and starves its equals"
+
+    key = ("test-detach-turns", 1)
+    claims.clear()
+    try:
+        assert claims.acquire(key, "hunt", claims.DETACHED) is None
+        token = claims.demand(key, claims.DETACHED, "rally")
+        # The rule itself, spelled the way the holder asks it.
+        assert claims.wanted(key, claims.DETACHED) is None, \
+            "a strict comparison would already answer this — the test is meaningless"
+        assert claims.wanted(key, claims.DETACHED - 1) == "rally", \
+            "a detached holder cannot see an equal waiter at all"
+        claims.withdraw(key, token)
+    finally:
+        claims.clear()
+
+    # …and a BACKGROUND holder keeps the strict rule.
+    import panel.runtime.daemon as daemon_mod
+
+    class _Holder:
+        _level = claims.BACKGROUND
+        _yield_above = daemon_mod.GameLink._yield_above
+
+    assert _Holder()._yield_above() == claims.BACKGROUND, \
+        "an ordinary errand now yields to its equals — two timers will ping-pong"
+
+    class _Detached(_Holder):
+        _level = claims.DETACHED
+
+    assert _Detached()._yield_above() == claims.DETACHED - 1
 
 
 def test_the_press_drops_the_priority_and_hands_over_the_step_aside_hook():

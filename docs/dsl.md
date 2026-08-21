@@ -108,6 +108,14 @@ What the player does with it (`panel/runtime/host.py::play_async`,
   they are, and picks its lease up again afterwards. Both halves are said in the log, so
   a run that stopped and a run that resumed are visible rather than mysterious.
 
+**A detached run steps aside for another DETACHED one as well**
+(`panel/runtime/daemon.py::_yield_above`). Below-background is a FLOOR, not a queue: it
+means nothing may be made to wait for a detached run, and read strictly it would also
+mean two detached runs can never make each other park. The moment there were two —
+the golden-zombie hunt, which runs for hours, and the rally auto-join — that would have
+been a way to stop joining banners altogether. So detached runs take turns; a background
+one keeps the strict rule, or two ordinary timers would push each other off the client.
+
 The result is the promise the declaration makes: **every other scenario goes on being
 played exactly as it would with this one absent.** What it is *not* is a second
 scenario running side by side with the first — one client is driven by one run at a

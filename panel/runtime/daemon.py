@@ -945,6 +945,25 @@ class GameLink:
         """Who is holding this client, for a line that has to name them."""
         return claims.holder(self.endpoint())
 
+    def _yield_above(self) -> int:
+        """The level a waiter must beat for THIS holder to step aside.
+
+        Its own level, except at :data:`claims.DETACHED`, where it is one lower — so a
+        detached run steps aside for another detached one (#1702).
+
+        **Two detached runs would otherwise starve each other**, and that is not a
+        theoretical worry: the golden-zombie hunt is detached and runs for hours, so the
+        moment the rally auto-join was detached too, neither could ever make the other
+        park and the banners would simply stop being joined. Below-background is a floor
+        rather than a queue: everything outranks a detached run, and a detached run takes
+        TURNS with its equals instead of holding the client against them.
+
+        A background errand is unaffected: it still yields only to something genuinely
+        more urgent, which is what keeps two ordinary timers from ping-ponging.
+        """
+        level = int(getattr(self, "_level", claims.BACKGROUND))
+        return level - 1 if level <= claims.DETACHED else level
+
     def yielded_to(self) -> "str | None":
         """Who is waiting for this client that this run should step aside for.
 
@@ -952,7 +971,7 @@ class GameLink:
         run — is one dict lookup under a lock, which is why this can sit in the path of
         every statement of every scenario.
         """
-        return claims.wanted(self.endpoint(), getattr(self, "_level", claims.BACKGROUND))
+        return claims.wanted(self.endpoint(), self._yield_above())
 
     def park(self, owner: str = "panel", timeout: float = PARK_WAIT_SEC) -> bool:
         """Let go for whoever is waiting, then take the claim back. ``False`` = lost it.
@@ -967,10 +986,11 @@ class GameLink:
         pushed us out is itself long, or when a third party took the client meanwhile.
         """
         level = int(getattr(self, "_level", claims.BACKGROUND))
+        above = self._yield_above()
         key = self.endpoint()
         self.release()
         deadline = time.monotonic() + max(0.0, float(timeout))
-        while claims.wanted(key, level) is not None and time.monotonic() < deadline:
+        while claims.wanted(key, above) is not None and time.monotonic() < deadline:
             time.sleep(0.05)
         first = True
         while True:
