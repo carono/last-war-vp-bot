@@ -46,6 +46,7 @@ OWNERS = {
     "needs_refresh": "golden_needs_refresh",
     "needs_uuid": "golden_needs_uuid",
     "pick_report": "golden_pick_report",
+    "parked": "golden_parked",
     "picked": "golden_picked",
     "queued": "golden_queued",
     "refreshed": "golden_refresh_done",

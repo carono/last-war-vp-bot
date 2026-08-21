@@ -122,6 +122,23 @@ IF squad_free == -2
     LOG "the client is holding no army for the squad — asking for it rather than waiting"
     CALL fill_empty_squads
     READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if n <= 0 then return -2 end if can then return 1 end return 0 end)() INTO squad_free
+# …AND A SQUAD THAT IS PARKED IS RECALLED, NOT WAITED ON (#1702). The ceiling above
+# answers a march with a long clock; this answers a march with NO clock. Measured live
+# on the chosen squad:
+#
+#     squad=2 state=1 free=0 soldiers=2631 status=STATION march=NORMAL team=0
+#             point=494542 arrive=0
+#
+# — out, so no order can be given, and nothing to wait for, because it has already
+# landed and is STANDING there. The loop below then spent its whole allowance, ten
+# minutes, on a squad that would have read the same in an hour, and the run ended with
+# `attacks=0`. A banner (`teamUuid ~= 0`) is left alone on purpose — it ends by itself
+# and recalling it would quit somebody's rally for them.
+READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end local seen, can = false, nil pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) end end end) if not seen or can == nil or can then return 0 end local m = nil pcall(function() local P = LuaEntry.Player m = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch(P.uid, p.formation, P.allianceId) end) if m == nil then return 1 end local team = nil pcall(function() team = tostring(m.teamUuid) end) if team ~= nil and team ~= '0' then return 0 end local st, due = nil, nil pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) pcall(function() due = tonumber(m.endTime) end) if st == 0 and (due == nil or due <= 0) then return 1 end return 0 end)() INTO parked
+IF parked == 1
+    LOG "the squad is parked out in the world with nothing left to wait for — bringing it home"
+    TAP golden_unstick
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if n <= 0 then return -2 end if can then return 1 end return 0 end)() INTO squad_free
 WHILE squad_free == 0 LIMIT 300
     WAIT 2
     READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if n <= 0 then return -2 end if can then return 1 end return 0 end)() INTO squad_free

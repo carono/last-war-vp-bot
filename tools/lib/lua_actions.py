@@ -10880,6 +10880,67 @@ def golden_squad_free() -> str:
     )
 
 
+#: `MarchStatus.STATION` — a march that has ARRIVED and is standing there
+#: (docs/research/squad-state.md). It has no arrival time left to wait for, so a chain
+#: that waits for the squad's `state` to clear waits for ever.
+GOLDEN_MARCH_STATION = 0
+
+
+def golden_parked() -> str:
+    """Lua *expression* -> 1 when the squad is out and NOTHING WILL FREE IT BY ITSELF.
+
+    The other half of «the hunt sat there doing nothing», and it is not the ceiling
+    (:data:`GOLDEN_WAIT_CEILING`) — that one answers a march with a long clock. This one
+    answers a march with NO clock. Measured live on the chosen squad (#1702)::
+
+        squad=2 state=1 free=0 soldiers=2631 status=STATION march=NORMAL team=0
+                point=494542 arrive=0
+
+    `state = 1` is «out», so :data:`_SQUAD_FREE` says no order can be given; `arrive = 0`
+    means there is no landing to wait for, because the squad has already landed and is
+    STANDING there. The wait brick then spent its whole allowance — ten minutes, 300
+    beats — on a squad that would have read exactly the same in an hour, and the run
+    ended with `attacks=0`.
+
+    So a parked squad is RECALLED rather than waited on, the same press that takes one off
+    dirty ground. Two things are deliberately NOT parked:
+
+    * a march standing in a banner (`teamUuid ~= 0`) — that is the alliance rally the
+      auto-join walked off with, it ends by itself in minutes, and recalling it would
+      quit somebody's rally on their behalf;
+    * a march that still has an arrival time — that one is travelling, and the ceiling
+      above is the reading that decides whether it is ours to wait for.
+
+    A squad the game says is FREE answers 0 here whatever else is true of it: this is a
+    reason to recall, not a description of the ground.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "if p.formation == nil then return 0 end "
+        "local seen, can = false, nil "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if tostring(v.uuid) == tostring(p.formation) then seen = true "
+        "can = " + _SQUAD_FREE + "(v) end end end) "
+        "if not seen or can == nil or can then return 0 end "
+        "local m = nil "
+        "pcall(function() local P = LuaEntry.Player "
+        "m = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch("
+        "P.uid, p.formation, P.allianceId) end) "
+        # NO MARCH AT ALL, and the squad still will not take an order: dirty ground, or a
+        # send the client swallowed. Nothing is going to change that on its own either.
+        "if m == nil then return 1 end "
+        "local team = nil pcall(function() team = tostring(m.teamUuid) end) "
+        "if team ~= nil and team ~= '0' then return 0 end "
+        "local st, due = nil, nil "
+        "pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) "
+        "pcall(function() due = tonumber(m.endTime) end) "
+        "if st == " + str(GOLDEN_MARCH_STATION) + " and "
+        "(due == nil or due <= 0) then return 1 end "
+        "return 0 end)()"
+    )
+
+
 def golden_no_ride() -> str:
     """Switch the fast approach off for the REST of this run, and say why (#1702).
 

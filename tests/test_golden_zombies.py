@@ -1398,6 +1398,56 @@ def test_the_hunt_never_waits_out_a_march_that_is_not_its_own():
         "the recall leaves the clock it was triggered by standing"
 
 
+def test_a_parked_squad_is_brought_home_instead_of_waited_on():
+    """The OTHER way the hunt sat still, and the ceiling cannot see it (#1702).
+
+    Measured live on the chosen squad, and it ended a run with `attacks=0`::
+
+        squad=2 state=1 free=0 soldiers=2631 status=STATION march=NORMAL team=0
+                point=494542 arrive=0
+
+    Out, so no order may be given; nothing to wait for, because it has already landed and
+    is STANDING there. The wait then spent its whole allowance — 300 beats, ten minutes —
+    on a reading that would have been identical an hour later.
+    """
+    import lupa
+    parked = lua_actions.golden_parked()
+
+    def answer(free, march):
+        rt = lupa.LuaRuntime()
+        rt.execute("LuaEntry = {Player = {uid = 1, allianceId = 2}} "
+                   "DataCenter = {__lw_gold = {formation = '77'}, "
+                   "WorldMarchDataManager = "
+                   "{GetOwnerFormationMarch = function() return %s end}, "
+                   "ArmyFormationDataManager = {ArmyFormationList = "
+                   "{{uuid = '77', state = %d, IsFree = function() return %s end}}}}"
+                   % (march, 0 if free else 1, "true" if free else "false"))
+        return int(rt.eval(parked))
+
+    landed = "{teamUuid = '0', status = 'STATION: 0', endTime = 0}"
+    flying = "{teamUuid = '0', status = 'MOVING: 1', endTime = 99000}"
+    banner = "{teamUuid = '1000000000000000001', status = 'IN_TEAM: 7', endTime = 0}"
+
+    assert answer(False, landed) == 1, \
+        "a squad standing out in the world is waited on until the run gives up"
+    assert answer(False, "nil") == 1, \
+        "a busy squad the game holds no march for is waited on — nothing will free it"
+    assert answer(False, flying) == 0, \
+        "a march still on its way is recalled instead of waited out"
+    # A BANNER ENDS BY ITSELF, and recalling it quits somebody's rally for them.
+    assert answer(False, banner) == 0, \
+        "the hunt walks its squad out of an alliance rally"
+    assert answer(True, landed) == 0, \
+        "a squad the game says is free is recalled anyway"
+
+    # …and the recipe acts on it BEFORE the ten-minute wait, or the reading buys nothing.
+    _body, wait = _brick("golden_wait_for_the_march")
+    i = next(k for k, w in enumerate(wait) if " INTO parked" in w)
+    loop = next(k for k, w in enumerate(wait) if w.startswith("WHILE squad_free == 0 LIMIT"))
+    assert i < loop, "the parked reading is taken after the wait it exists to skip"
+    assert "TAP golden_unstick" in wait[i:loop], "the squad is left standing where it is"
+
+
 def test_a_lap_does_not_begin_until_the_squad_is_free():
     """One rule for every reason a squad will not take an order (#1702).
 
