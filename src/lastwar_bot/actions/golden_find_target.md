@@ -14,6 +14,11 @@
 #   2. scan — read the ground the client is holding into the registry;
 #   3. pick — the arithmetic, the tile, and the line the log prints, in one answer.
 #
+# THE FLIGHT TO THE FIND HAPPENS AFTER THE ANSWER (#1702). The person has the
+# coordinate the moment this logs it; flying the camera there is another two
+# seconds of a press that is already finished, so the panel plays
+# `golden_goto_target.md` straight afterwards instead.
+#
 # The only step that still costs real time is the camera, and it is paid ONLY when the
 # squad is out in the field: the client answers `GetMonsterListInArea` out of the tiles
 # it has been shown, so the ground around the squad has to be fetched before the sum.
@@ -51,4 +56,3 @@ IF ready == -1
     LOG "there are zombies in view but none the registry could take — press «обновить карту»"
     STOP "no target"
 LOG "found a golden zombie: {found}"
-TAP golden_look

@@ -455,17 +455,27 @@ class EventsTab(PanelTab):
         except tk.TclError:                 # the window is going away
             pass
 
-    def _verify_after(self, delay_ms: int) -> None:
-        """Play `golden_verify_order` in a few seconds, on the panel's own clock."""
+    def _after(self, delay_ms: int, scenario: str) -> None:
+        """Play a scenario in a moment, on the panel's own clock.
+
+        Two of the step presses answer before their last act is done — the find has its
+        coordinate before the camera flies there, and the attack has its order away
+        before the client draws the march. Holding the button open for either is time
+        the person spends looking at work that is finished (#1702).
+        """
         tick = getattr(self.rt, "tick", None)
         if tick is None or not hasattr(tick, "arm"):
             return
         try:
-            tick.arm("golden-verify", delay_ms,
-                     lambda: self.rt.play_async("golden_verify_order", tag="events",
+            tick.arm("golden-after", delay_ms,
+                     lambda: self.rt.play_async(scenario, tag="events",
                                                 on_result=self._step_back))
         except Exception:                   # noqa: BLE001 — a panel going down
             pass
+
+    def _verify_after(self, delay_ms: int) -> None:
+        """Ask, a few seconds on, whether the last order became a real march."""
+        self._after(delay_ms, "golden_verify_order")
 
     def _paint_target(self) -> None:
         """Put the chosen tile beside the buttons — where the operator asked for it.
@@ -500,6 +510,10 @@ class EventsTab(PanelTab):
             args = {}
         elif row[1] == "golden_attack_target":
             args["approach"] = 1 if self.approach() else 0
+        if action == "find_golden":
+            # The coordinate is the answer; the flight to it is not worth holding the
+            # press open for (#1702). Straight afterwards, on the panel's own clock.
+            self._after(300, "golden_goto_target")
         if action == "attack_golden":
             # THE PROOF FOLLOWS THE PRESS (#1702). The order is scheduled inside one call
             # and the press answers at once; four seconds later the panel asks whether it
