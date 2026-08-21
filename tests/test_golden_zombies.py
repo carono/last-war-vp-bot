@@ -1748,6 +1748,37 @@ def test_the_find_never_offers_a_zombie_the_client_cannot_name():
     assert "dropped=" in pick, "the reaping is silent — a press cannot say what it struck out"
 
 
+def test_a_found_zombie_is_confirmed_on_its_own_ground_before_it_is_announced():
+    """«Плохо фильтрует монстров, которые пропали» (#1702).
+
+    The pick verifies what is near the camera and takes the rest on trust — right for
+    filling a queue, wrong for an ANSWER, and the operator kept being shown tiles that
+    were empty by the time he looked at them. So the chosen one is asked about on its
+    own ground before it is announced, and a candidate the client cannot see from here
+    is flown to and asked again.
+
+    Three answers, kept apart on purpose (THE_LIST_RULE, #1272): alive, gone — struck
+    out, because the game looked straight at that ground — and «cannot tell», which
+    changes nothing about the row.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    confirm = lua_actions.golden_confirm_current()
+    assert "if not near then return -1 end" in confirm, \
+        "«the client is not looking there» is answered as death"
+    assert "p.targets = keep p.cur = nil" in confirm, "a zombie proven gone is kept"
+    assert "t.at = os.time() t.seen = 1" in confirm, "a confirmation is not recorded"
+    assert "at = os.time()" in lua_actions.golden_scan(), "rows are not stamped with a time"
+
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_find_target.md").read_text(encoding="utf-8")
+    assert confirm in text, "the find announces a target it never confirmed"
+    assert "NOT confirmed" in text, "an unconfirmed target is announced as if it were seen"
+    assert lua_actions.golden_age_line() in text, "the answer does not say how old the row is"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

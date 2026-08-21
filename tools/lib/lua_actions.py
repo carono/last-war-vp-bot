@@ -9924,7 +9924,7 @@ def golden_scan() -> str:
         "seen[tostring(pid)] = true added = added + 1 "
         "p.targets[#p.targets + 1] = {pid = pid, uuid = uuid, key = tostring(uuid), "
         "x = math.floor(tile.x + 0.5), y = math.floor(tile.y + 0.5), "
-        "src = 'area'} end end end end) "
+        "src = 'area', at = os.time()} end end end end) "
         # -- 2. the drawn clones: a tile, and a handle that can fetch the uuid later
         "pcall(function() "
         "local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) "
@@ -11781,6 +11781,55 @@ def golden_find_now() -> str:
         "%(gold)s = p "
         "return out end)()"
         % {"gold": _GOLD})
+
+
+def golden_confirm_current() -> str:
+    """Ask the game about the CHOSEN zombie's own tile. 1 alive, 0 gone, -1 cannot tell.
+
+    The difference between the last two is the whole of «плохо фильтрует монстров,
+    которые пропали» (#1702). `GetMonsterListInArea` answers out of the ground the
+    client is HOLDING — sixty-odd tiles around the camera — so a candidate further out
+    answers «not there» whether it is alive or dead. Reading that as death would empty
+    the registry of everything far (THE_LIST_RULE, #1272); reading it as life is what
+    was showing the operator empty tiles.
+
+    So it is three answers, and only `0` — the client looking straight at that ground
+    and not finding it — strikes the row out. `-1` leaves the row alone and tells the
+    caller to fly there and ask again.
+    """
+    return (
+        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
+        "local t = p.cur "
+        "if t == nil or ws == nil then return -1 end "
+        "local near = false "
+        "pcall(function() local cx, cy = ws.CurTilePos.x, ws.CurTilePos.y "
+        "local dx, dy = (t.x - cx), (t.y - cy) "
+        "near = (math.sqrt(dx * dx + dy * dy) <= 40) end) "
+        "if not near then return -1 end "
+        "if _freshuuid(ws, p, t) ~= nil then "
+        "t.at = os.time() t.seen = 1 %(gold)s = p return 1 end "
+        # …looked at, not found: struck out, and the choice with it.
+        "local keep = {} "
+        "for _, q in ipairs(p.targets or {}) do "
+        "if tostring(q.pid) ~= tostring(t.pid) then keep[#keep + 1] = q end end "
+        "p.targets = keep p.cur = nil p.reaped = (tonumber(p.reaped) or 0) + 1 "
+        "%(gold)s = p "
+        "return 0 end)()"
+        % {"gold": _GOLD})
+
+
+def golden_age_line() -> str:
+    """Lua *expression* -> how old the chosen row is, and whether it was ever confirmed.
+
+    «Реестр часовой давности это кладбище» — the invasion is farmed out in minutes, so
+    a row's age is most of what says whether to believe it (#1702).
+    """
+    return ("(function() " + _GOLD_P +
+            "local t = p.cur if t == nil then return 'no target' end "
+            "local age = -1 "
+            "if t.at ~= nil then age = math.floor(os.time() - tonumber(t.at)) end "
+            "return 'age=' .. tostring(age) .. 's seen=' "
+            ".. tostring(t.seen == 1) end)()")
 
 
 def golden_pick_and_report() -> str:
