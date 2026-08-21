@@ -139,6 +139,8 @@ class EventsTab(PanelTab):
         #: room (#1702).
         self._step_said = ""
         self._step_var = None
+        #: Which step press is in flight, so what follows it can be armed when it ENDS.
+        self._step_ran = ""
         #: The squad the chain sends, by the slot the player sees. A plain int until
         #: `build()` makes the widget — a tab nobody has opened still has to be able to
         #: answer `config()` (`docs/panel-tabs.md`).
@@ -428,6 +430,14 @@ class EventsTab(PanelTab):
         if where:
             self._golden_target = str(where)
             self._paint_target()
+        # …AND WHAT FOLLOWS A PRESS FOLLOWS ITS END, NOT A STOPWATCH (#1702). The
+        # camera flight after «найти» was armed 300 ms after the press and refused every
+        # single time — «занят — дождись завершения текущего действия», because the find
+        # itself was still holding the client. From the outside that is a button that
+        # prints a coordinate and does nothing, which is exactly what was reported.
+        if self._step_ran == "find_golden" and getattr(outcome, "ok", False):
+            self._after(200, "golden_goto_target")
+        self._step_ran = ""
         self._step_said = self._outcome_key(outcome)
         if str(getattr(outcome, "reason", "") or "") == "target gone":
             # The card must not go on naming a tile the game says is empty (#1702).
@@ -511,15 +521,12 @@ class EventsTab(PanelTab):
         row = next((r for r in self.STEPS if r[0] == action), None)
         if row is None:
             return False
+        self._step_ran = action
         args = {"squad": self.squad()}
         if row[1] == "scan_map":
             args = {}
         elif row[1] == "golden_attack_target":
             args["approach"] = 1 if self.approach() else 0
-        if action == "find_golden":
-            # The coordinate is the answer; the flight to it is not worth holding the
-            # press open for (#1702). Straight afterwards, on the panel's own clock.
-            self._after(300, "golden_goto_target")
         if action == "attack_golden":
             # THE PROOF FOLLOWS THE PRESS (#1702). The order is scheduled inside one call
             # and the press answers at once; four seconds later the panel asks whether it

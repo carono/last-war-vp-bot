@@ -386,6 +386,7 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._target_var = None           # the label that shows it beside the buttons
     tab._step_said = ""              # what the last step press answered (#1702)
     tab._step_var = None
+    tab._step_ran = ""
     tab._squad = modelmod.GOLDEN_SQUAD_DEFAULT
     tab._squad_var = None
     tab._tally = {}
@@ -555,6 +556,34 @@ def test_attacking_uses_the_squad_the_panel_shows_and_the_target_already_fixed()
     assert lua_actions.golden_order_line() in recipe, \
         "what goes to the game is not printed before it goes"
     assert "TAP golden_pick" not in recipe, "the attack picks a target of its own"
+
+
+def test_what_follows_a_press_is_armed_when_the_press_ENDS():
+    """The flight after «найти» was on a stopwatch and lost the race every time (#1702).
+
+    Armed 300 ms after the press, it landed while the find still held the client and the
+    panel refused it — «занят — дождись завершения текущего действия» — so the button
+    printed a coordinate and the camera never moved. From the outside: «перестал
+    работать вовсе».
+    """
+    tab = _tab(golden=GOLDEN_OPEN)
+
+    class _Done:
+        ok = True
+        reason = ""
+        ctx = None
+
+    armed: list = []
+    tab._after = lambda delay, scenario: armed.append((delay, scenario))
+    tab.step("find_golden")
+    assert armed == [], "the follow-up is armed before the press has finished"
+    tab._step_back(_Done())
+    assert armed and armed[0][1] == "golden_goto_target", armed
+    # …and a find that failed does not fly anywhere.
+    armed.clear()
+    tab.step("find_golden")
+    tab._step_back(type("F", (), {"ok": False, "reason": "no target", "ctx": None})())
+    assert armed == [], "a failed find still flies the camera somewhere"
 
 
 def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
