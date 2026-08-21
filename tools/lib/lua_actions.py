@@ -9814,6 +9814,8 @@ def golden_arm() -> str:
         "pcall(function() p.server = math.floor(tonumber(LuaEntry.Player:GetSelfServerId()) or 0) end) "
         "p.anchor = nil "
         "p.home = _goldhome(ws, p.server) "
+        "if p.home ~= nil then DataCenter.__lw_gold_home = p.home "
+        "elseif DataCenter.__lw_gold_home ~= nil then p.home = DataCenter.__lw_gold_home end "
         "p.cost = %(cost)s "
         "p.energy = %(energy)s "
         "pcall(function() "
