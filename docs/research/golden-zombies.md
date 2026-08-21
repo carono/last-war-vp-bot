@@ -559,6 +559,47 @@ the same cost per stop, and the queue is re-read. Twice at most, and only while 
 is still beyond `GOLDEN_FIRST_FAR`. The arithmetic it rests on: at the attack speed the
 game quotes, 569 tiles is over ten minutes of marching, and a ring is nine seconds.
 
+## 4h — where a kill's time actually goes, and the one shortcut the game refuses (#1702)
+
+Two squads hunting on the test account, twenty minutes, split per kill:
+
+| segment | side A | side B |
+|---|---|---|
+| squad free → order away (judge, pick, uuid check, send) | **5 s** | **5 s** |
+| order away → squad free again | **115 s** | **64 s** |
+
+**Our own overhead is five seconds and it is not where the time is.** Everything the
+recipe does between kills — judging the last one, choosing the next, re-fetching the
+uuid, the readiness gate, the send — costs five seconds together. The minute and a half
+is the squad, and it is not the march either: a squad that had just killed reads
+
+    squad=2 state=1 free=0 soldiers=2570 status=STATION march=NORMAL team=0
+            point=467403 arrive=0
+
+STANDING on the tile it cleared, which is exactly what `back = 0` asks for so that the
+next hop is three tiles instead of a march from the base. The gate calls that BUSY,
+because `state == 0` plus `IsFree()` is the reading a RALLY needs — a banner is raised
+from the base — so the hunt walks the squad home and pays the round trip on every kill.
+
+**The obvious shortcut does not work, and this is the measurement that says so.** The
+gate was widened to accept a landed, banner-free march, and the sends were refused in
+silence: two orders at a stationed squad at 01:27:51 and 01:28:01, and the purse
+unmoved — 1941 before, 1941 three minutes later. A bare `SendCreateMarchMessage` cannot
+redeploy an army that has arrived, the same wall the ride hits at a mine (§4b). The
+player's own tap goes through the dispatch screen, which is a different call and is not
+found yet; until it is, «стоит на месте» costs a walk home.
+
+What that leaves, in order of what it would buy:
+
+* **the redeploy call itself** — the whole 60–115 s, and the only route to the operator's
+  own four attacks a minute. Research, not a tweak (`docs/research/march-hotkeys.md` is
+  where the dispatch screen is already partly written up);
+* **measuring the pick from HOME rather than from the anchor whenever the squad is going
+  to walk home anyway** — the anchor picks the nearest to the last KILL, which can be
+  forty tiles from the base while three from the corpse;
+* nothing in the five seconds. Cutting our own checks in half would buy 2.5 s of a
+  70-second cycle, which is 3%, and every one of them is a bug already paid for.
+
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 
 The worst kind of bug: every part of it had already been thought about, and the fix was

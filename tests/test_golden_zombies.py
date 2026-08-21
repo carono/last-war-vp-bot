@@ -1501,56 +1501,30 @@ def test_the_second_chain_is_the_first_one_with_its_state_renamed():
             assert name in game_buttons.BUTTONS, "the twin presses %s, which does not exist" % name
 
 
-def test_a_squad_standing_where_it_killed_is_ordered_again_rather_than_walked_home():
-    """Where the minute and a half went (#1702).
+def test_the_game_will_not_redeploy_a_squad_that_has_landed():
+    """The negative result, pinned so nobody pays for it twice (#1702).
 
-    With two squads hunting, the cost of a kill split like this — measured live over
-    twenty minutes on the test account::
+    Where the time goes, measured over twenty minutes of two squads hunting::
 
         free -> order away     median   5 s
         order -> free again    median  64 s and 115 s
 
-    Our own overhead is the five seconds. The rest is the squad not coming back, and it
-    is not the march: read live, a squad that had just killed was `state=1
-    status=STATION team=0 point=467403 arrive=0` — STANDING on the tile it cleared,
-    which is what `back = 0` asks for so the next hop is three tiles instead of a march
-    from the base. The gate called that busy, because `state == 0` is the reading a
-    RALLY needs, so the hunt walked its squad home after every kill and paid the round
-    trip twice.
+    Our own overhead is the five seconds. The rest is the squad standing on the tile it
+    cleared — `state=1 status=STATION team=0 arrive=0`, which is exactly what `back = 0`
+    asks for — and the obvious win was to order it again from where it stands instead of
+    walking it home.
+
+    **The game refuses.** Two sends went out at a stationed squad live, at 01:27:51 and
+    01:28:01, and the purse did not move: 1941 before, 1941 three minutes later. A bare
+    `SendCreateMarchMessage` cannot redeploy an army that has arrived, the same wall a
+    squad on a resource node hits. So the gate stays the ordinary one, and this test
+    exists to stop the next reader «fixing» it back.
     """
-    import lupa
-    order = lua_actions.golden_can_order()
-
-    def answer(free, march, soldiers=100):
-        rt = lupa.LuaRuntime()
-        rt.execute("LuaEntry = {Player = {uid = 1, allianceId = 2}} "
-                   "DataCenter = {__lw_gold = {formation = '77'}, "
-                   "WorldMarchDataManager = "
-                   "{GetOwnerFormationMarch = function() return %s end}, "
-                   "ArmyFormationDataManager = {ArmyFormationList = "
-                   "{{uuid = '77', state = %d, totalSoldierNum = %d, "
-                   "IsFree = function() return %s end}}}}"
-                   % (march, 0 if free else 1, soldiers, "true" if free else "false"))
-        return int(rt.eval(order))
-
-    landed = "{teamUuid = '0', status = 'STATION: 0', endTime = 0}"
-    flying = "{teamUuid = '0', status = 'MOVING: 1', endTime = 99000}"
-    banner = "{teamUuid = '1000000000000000001', status = 'IN_TEAM: 7', endTime = 0}"
-
-    assert answer(True, "nil") == 1, "a squad at home cannot be ordered"
-    assert answer(False, landed) == 1, \
-        "the squad is walked home after every kill and the round trip is paid twice"
-    assert answer(False, flying) == 0, "an order goes out at a squad still travelling"
-    # A BANNER IS NOT OURS TO WALK OUT OF, whatever the hunt would like.
-    assert answer(False, banner) == 0, "the hunt takes a squad out of an alliance rally"
-    assert answer(False, "nil") == 0, "a squad on dirty ground is ordered anyway"
-    assert answer(True, "nil", soldiers=0) == -2, \
-        "an empty formation reads free and is sent at a zombie"
-
-    # …and the two-squad driver is the caller that uses it.
-    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
-            / "attack_golden_zombies_pair.md").read_text(encoding="utf-8")
-    assert order in text, "the driver still asks the rally's question about its squads"
+    assert lua_actions.golden_can_order() == lua_actions.golden_squad_free(), \
+        "the hunt is ordering squads the server will refuse in silence — and paying a lap each"
+    doc = (_REPO_ROOT / "tools" / "lib" / "lua_actions.py").read_text(encoding="utf-8")
+    assert "the purse did not move" in doc, \
+        "the measurement that settles this is not written down where the next reader looks"
 
 
 def test_two_squads_are_never_sent_at_the_same_zombie():
