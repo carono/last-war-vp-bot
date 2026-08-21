@@ -438,6 +438,9 @@ class _Watchdog:
         self._hold_left = hold_left
         env = {"WATCHDOG_STRIKES": self.STRIKES,
                "WATCHDOG_COOLDOWN_SEC": cooldown,
+               # The strike spacing reads the poll interval (#1702) — the panel's own
+               # number, so a change to it changes what this stub polls at too.
+               "STATUS_POLL_MS": 8000,
                "time": self}
         exec(compile("class _S:\n    " + _shell_method("_watchdog_check"),
                      "<watchdog>", "exec"), env)
@@ -445,6 +448,12 @@ class _Watchdog:
 
     # the stub's own surface, standing in for the panel's
     def time(self) -> float:                       # `time.time()` inside the method
+        return self.now
+
+    def monotonic(self) -> float:                  # `time.monotonic()` — the strike clock
+        # A STRIKE IS A FRESH LOOK (#1702): the method spaces its strikes by the poll
+        # interval, so the stub's clock has to move the way the poll does. Same `now`
+        # as `time()` — this stub has one clock and the method uses it for two things.
         return self.now
 
     def _say(self, _tag, key, **fmt) -> None:
@@ -480,6 +489,9 @@ class _Watchdog:
         return self
 
     def info(self, *args, **kw) -> None:
+        pass
+
+    def debug(self, *args, **kw) -> None:          # the spacing branch says so in debug.log
         pass
 
     def poll(self, running: bool = False, step: float = 8.0) -> None:

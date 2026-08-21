@@ -380,6 +380,117 @@ def test_the_panel_has_a_sentence_for_every_one_of_those_reasons():
         assert not missing, f"{path.name}: {missing}"
 
 
+class _FlakyWalk:
+    """A process walk that comes back EMPTY the first ``misses`` times it is asked.
+
+    Which is the failure this pins: the walk is shared and cached for two seconds, so a
+    single short answer used to be enough to relaunch a live client — and, read twice
+    inside one cache window, enough on its own to satisfy «two consecutive readings».
+    """
+
+    def __init__(self, pids, misses=1, alive=True):
+        self.pids, self.misses, self.alive = list(pids), misses, alive
+        self.asked = 0
+
+    def __enter__(self):
+        self._saved = (game_link._pids_by_name, game_link._pids_in_session,
+                       game_link.own_session, sys.modules.get("psutil"))
+        def walk(*_a, **_k):
+            self.asked += 1
+            return [] if self.asked <= self.misses else list(self.pids)
+        game_link._pids_by_name = walk
+        game_link._pids_in_session = lambda exe, session: walk()
+        game_link.own_session = lambda: None
+        live, names = self.alive, {p: "LastWar.exe" for p in self.pids}
+
+        class _Fake:
+            @staticmethod
+            def net_connections(kind="tcp"):
+                return []
+
+            @staticmethod
+            def pid_exists(pid):
+                return bool(live) and pid in names
+
+            class Process:
+                def __init__(self, pid):
+                    self._pid = pid
+
+                def name(self):
+                    return names.get(self._pid, "")
+
+        sys.modules["psutil"] = _Fake
+        game_link.forget_machine_state()
+        game_link._LAST_PID.clear()
+        return self
+
+    def __exit__(self, *exc):
+        (game_link._pids_by_name, game_link._pids_in_session,
+         game_link.own_session, held) = self._saved
+        if held is None:
+            sys.modules.pop("psutil", None)
+        else:
+            sys.modules["psutil"] = held
+        game_link.forget_machine_state()
+        game_link._LAST_PID.clear()
+        return False
+
+
+def test_the_reading_asks_the_machine_twice_before_it_says_the_client_is_gone():
+    """One short walk is not a dead client (#1702).
+
+    The walk is shared and cached for `MACHINE_TTL_SEC`, so two polls landing inside one
+    window are ONE reading counted twice — which is how the watchdog's «two consecutive
+    dead readings» came to be satisfied by a single scan, and how a client that had never
+    stopped running was relaunched at 23:29 on 2026-08-21 with the daemon still answering
+    `warm` in the same breath.
+    """
+    with _FlakyWalk([111], misses=1) as machine:
+        found = game_link.probe("LastWar.exe")
+    assert found.running is True, "one short walk still reads as a dead client"
+    assert machine.asked >= 2, "the empty answer was believed without asking again"
+
+
+def test_the_reading_checks_a_gone_verdict_against_windows_itself():
+    """…and when the walk keeps saying nothing, the pid is put to Windows directly.
+
+    A DIFFERENT ROUTE from the one that produced the verdict, which is the point: the
+    walk cannot confirm itself. A pid that still answers means the client is RUNNING —
+    with an UNKNOWN link, because this reading has learnt nothing about its sockets.
+    """
+    with _FlakyWalk([111], misses=1):
+        game_link.probe("LastWar.exe")            # …so the pid is known
+    with _FlakyWalk([111], misses=99) as machine:
+        game_link._LAST_PID[("LastWar.exe", "")] = 111
+        found = game_link.probe("LastWar.exe")
+    assert found.running is True, "a walk that lies is allowed to kill a live client"
+    assert found.reason == game_link.ENUM_LIED, found.reason
+    assert found.link == game_link.UNKNOWN and found.pid == 111, found
+
+    # …and a pid that is genuinely gone is still reported gone, or a client that really
+    # died would never be put back.
+    with _FlakyWalk([111], misses=99, alive=False):
+        game_link._LAST_PID[("LastWar.exe", "")] = 111
+        found = game_link.probe("LastWar.exe")
+    assert found.running is False and found.reason == game_link.NOT_FOUND, found
+
+
+def test_the_watchdogs_two_strikes_are_two_LOOKS_and_not_two_reads():
+    """The other half of the same fault, and it lives in the panel (#1702).
+
+    Two status polls fired 109 ms apart on 2026-08-21, both inside the process walk's
+    two-second cache, and the watchdog counted them as two independent confirmations.
+    A strike has to wait for the poll to come round again.
+    """
+    src = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
+    body = src[src.index("def _watchdog_check"):]
+    body = body[:body.index("\n    def ", 10)]
+    assert "STATUS_POLL_MS" in body, \
+        "a strike is counted without asking how long ago the last one was"
+    assert body.index("_game_gone_at") < body.index("self._game_gone += 1"), \
+        "the counter moves before the spacing is checked"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     if gp is None:

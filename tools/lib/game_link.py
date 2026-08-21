@@ -304,6 +304,12 @@ NO_SESSION = "no_session"
 NO_PSUTIL = "no_psutil"
 PROBE_ERROR = "probe_error"
 
+#: THE ENUMERATION SAID «GONE» AND THE PROCESS IS ALIVE (#1702). Not a state of the
+#: client — a state of the READING. It is reported as `running` with an `UNKNOWN` link,
+#: because that is the truth: the client is there and this reading cannot say what its
+#: sockets are doing.
+ENUM_LIED = "enum_lied"
+
 
 # -- which Windows session ---------------------------------------------------
 
@@ -591,6 +597,46 @@ class Link:
         return self.link == ONLINE
 
 
+#: The pid each `(exe, user)` search last actually saw. The one thing a «gone» verdict
+#: can be checked AGAINST — see :func:`pid_alive`.
+_LAST_PID: dict = {}
+_LAST_PID_LOCK = threading.Lock()
+
+
+def forget_process_tables() -> None:
+    """Drop the shared PROCESS walks, so the next ask enumerates again.
+
+    Narrower than :func:`forget_machine_state` on purpose: this is called when a reading
+    is about to say «no client», and re-walking the socket and session tables to answer
+    a question about processes would cost three walks for one answer.
+    """
+    for shared in (_NAMES, _WTS):
+        shared.forget()
+
+
+def pid_alive(pid: int, game_exe: str = GAME_EXE) -> bool:
+    """Is that pid still a live client — asked of Windows DIRECTLY (#1702).
+
+    **A DIFFERENT ROUTE FROM THE ONE THAT SAID «GONE», which is the whole point.** The
+    verdict above comes from `WTSEnumerateProcesses`, walked once and shared for two
+    seconds between every profile; this opens the one process by id. So a walk that came
+    back short — under load, mid-enumeration, or simply cached from the wrong instant —
+    cannot confirm itself.
+
+    The name is checked too, because pids are reused: a `pid_exists` on its own would
+    keep a dead client alive in the panel's mind the moment Windows handed its number to
+    something else.
+    """
+    try:
+        import psutil                       # noqa: PLC0415 — the caller has it
+        if not psutil.pid_exists(int(pid)):
+            return False
+        name = psutil.Process(int(pid)).name() or ""
+    except Exception:                       # noqa: BLE001 — a second opinion, never a fault
+        return False
+    return name.lower() == (game_exe or "").lower()
+
+
 def probe(game_exe: str = GAME_EXE, user: "str | None" = None) -> Link:
     """Everything that can honestly be said about one client, in one reading.
 
@@ -629,10 +675,41 @@ def probe(game_exe: str = GAME_EXE, user: "str | None" = None) -> Link:
     except Exception as exc:               # noqa: BLE001 — a verdict, never a crash
         return Link(False, OFFLINE, PROBE_ERROR, user=user, error=str(exc))
 
+    key = (game_exe or "", user or "")
     if not found:
+        # A WALK THAT CAME BACK EMPTY IS ASKED AGAIN, AND THEN CHECKED (#1702).
+        #
+        # The walk is shared and cached for `MACHINE_TTL_SEC`, so two polls landing
+        # inside one window are ONE reading counted twice — and the watchdog's «two
+        # consecutive dead readings, because a single scan can race the process table»
+        # was satisfied by a single scan. Live on 2026-08-21 that relaunched a client
+        # that had never stopped running: two snapshots 109 ms apart, both
+        # `game=down`, the daemon still answering `warm` in the same breath.
+        #
+        # So the cache is dropped and the enumeration walked again, and if it still
+        # says nothing, the pid this search last saw is put to Windows by a route that
+        # cannot be the same one (:func:`pid_alive`). A client that answers there is
+        # RUNNING, whatever the walk says — with an `UNKNOWN` link, because this
+        # reading has learnt nothing about its sockets.
+        forget_process_tables()
+        try:
+            found = pids(game_exe, user)
+        except Exception:                  # noqa: BLE001 — the first answer stands
+            found = []
+    if not found:
+        with _LAST_PID_LOCK:
+            last = _LAST_PID.get(key)
+        if last and pid_alive(last, game_exe):
+            _log.warning("the process walk found no %s but pid %s is alive — "
+                         "reporting it as running", game_exe, last)
+            return Link(True, UNKNOWN, ENUM_LIED, pid=last, user=user)
+        with _LAST_PID_LOCK:
+            _LAST_PID.pop(key, None)
         _explain_absence(game_exe, user)
         return Link(False, OFFLINE, SESSION_NOT_FOUND if user else NOT_FOUND, user=user)
 
+    with _LAST_PID_LOCK:
+        _LAST_PID[key] = found[0]
     state, conn, dead = link_of(found)
     return Link(True, state, pid=found[0], conn=conn, dead=dead, user=user)
 

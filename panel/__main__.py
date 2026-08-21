@@ -494,7 +494,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the map sweep
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
-        "_game_gone", "_game_was_up", "_watchdog_last", "_wd_held", "_link_gone",
+        "_game_gone", "_game_gone_at", "_game_was_up", "_watchdog_last", "_wd_held",
+        "_link_gone",
         "_kick_at", "_kick_was", "_session_at", "_session_was",
         # the three lifecycle buttons, greyed off this profile's own client
         "_game_buttons",
@@ -1324,6 +1325,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # Liveness: how many consecutive polls have found the game gone, and when
         # the watchdog last relaunched it (see _refresh_status / _watchdog_check).
         self._game_gone = 0
+        self._game_gone_at = 0.0
         self._game_was_up = False
         self._watchdog_last = 0.0
         # Which hold the watchdog last said out loud, so a wait it re-asks every poll
@@ -4067,9 +4069,28 @@ class Panel(runtime.SessionScoped, tk.Tk):
             if self._game_gone >= WATCHDOG_STRIKES:
                 self._say("game", "log.game.back")
             self._game_gone = 0
+            self._game_gone_at = 0.0
             self._game_was_up = True
             self._wd_held = ""
             return
+        # A STRIKE IS A FRESH LOOK, NOT THE SAME WALK SEEN TWICE (#1702).
+        #
+        # `WATCHDOG_STRIKES` exists because «a single scan can race the process table».
+        # It did not deliver that: the process walk is shared and cached for two seconds
+        # (`game_link.MACHINE_TTL_SEC`), and the status poll can fire twice inside one
+        # window — live on 2026-08-21, two snapshots 109 ms apart, both `game=down`,
+        # with the daemon answering `warm` in the same breath. Both strikes came from
+        # ONE scan, and the panel relaunched a client that had never stopped running.
+        #
+        # So strikes are spaced: a second dead reading counts only once the poll has
+        # genuinely come round again. Three quarters of the interval, because the poll
+        # jitters and an exact comparison would drop the strike that is due.
+        now = time.monotonic()
+        if self._game_gone and (now - self._game_gone_at) < (STATUS_POLL_MS / 1000.0) * 0.75:
+            self._dbg.debug("watchdog: dead reading %.2fs after the last — not a strike",
+                            now - self._game_gone_at)
+            return
+        self._game_gone_at = now
         self._game_gone += 1
         if self._game_gone < WATCHDOG_STRIKES:
             return                        # still counting
