@@ -2075,5 +2075,12 @@
   "events.golden.target": "Zombi elegido",
   "events.golden.target.none": "ninguno elegido",
   "events.golden.step.goto": "Ir al elegido",
-  "events.golden.step.forget": "Olvidar el objetivo"
+  "events.golden.step.forget": "Olvidar el objetivo",
+  "events.golden.said": "Última pulsación",
+  "events.golden.said.ok": "hecho",
+  "events.golden.said.busy": "el escuadrón está ocupado — no se envió nada",
+  "events.golden.said.none": "no hay objetivo fijado — primero «buscar el más cercano»",
+  "events.golden.said.empty": "nada que elegir — el registro no tiene ninguno al alcance",
+  "events.golden.said.nosquad": "ese escuadrón no existe en esta cuenta",
+  "events.golden.said.failed": "no pasó — el registro dice por qué"
 }

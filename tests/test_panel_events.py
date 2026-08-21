@@ -384,6 +384,8 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._golden_button = None
     tab._golden_target = ""          # what «найти ближайшего» last chose (#1702)
     tab._target_var = None           # the label that shows it beside the buttons
+    tab._step_said = ""              # what the last step press answered (#1702)
+    tab._step_var = None
     tab._squad = modelmod.GOLDEN_SQUAD_DEFAULT
     tab._squad_var = None
     tab._tally = {}

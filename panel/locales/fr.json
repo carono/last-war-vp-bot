@@ -2075,5 +2075,12 @@
   "events.golden.target": "Zombie choisi",
   "events.golden.target.none": "aucun choisi",
   "events.golden.step.goto": "Aller au choisi",
-  "events.golden.step.forget": "Oublier la cible"
+  "events.golden.step.forget": "Oublier la cible",
+  "events.golden.said": "Dernier appui",
+  "events.golden.said.ok": "fait",
+  "events.golden.said.busy": "l'escouade est occupée — rien n'a été envoyé",
+  "events.golden.said.none": "aucune cible fixée — d'abord «trouver le plus proche»",
+  "events.golden.said.empty": "rien à choisir — le registre n'en a aucun à portée",
+  "events.golden.said.nosquad": "cette escouade n'existe pas sur ce compte",
+  "events.golden.said.failed": "ça n'est pas passé — le journal dit pourquoi"
 }

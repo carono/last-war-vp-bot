@@ -2075,5 +2075,12 @@
   "events.golden.target": "Wybrany zombie",
   "events.golden.target.none": "nie wybrano",
   "events.golden.step.goto": "Skocz do wybranego",
-  "events.golden.step.forget": "Zapomnij cel"
+  "events.golden.step.forget": "Zapomnij cel",
+  "events.golden.said": "Ostatnie naciśnięcie",
+  "events.golden.said.ok": "zrobione",
+  "events.golden.said.busy": "oddział jest zajęty — nic nie wysłano",
+  "events.golden.said.none": "cel nie jest ustalony — najpierw «znajdź najbliższego»",
+  "events.golden.said.empty": "nie ma z czego wybierać — w rejestrze nikogo w zasięgu",
+  "events.golden.said.nosquad": "takiego oddziału nie ma na tym koncie",
+  "events.golden.said.failed": "nie przeszło — powód jest w logu"
 }

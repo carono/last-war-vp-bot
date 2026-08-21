@@ -2075,5 +2075,12 @@
   "events.golden.target": "Zombie scelto",
   "events.golden.target.none": "nessuno scelto",
   "events.golden.step.goto": "Vai a quello scelto",
-  "events.golden.step.forget": "Dimentica il bersaglio"
+  "events.golden.step.forget": "Dimentica il bersaglio",
+  "events.golden.said": "Ultimo tocco",
+  "events.golden.said.ok": "fatto",
+  "events.golden.said.busy": "la squadra è occupata — non è stato inviato nulla",
+  "events.golden.said.none": "nessun bersaglio fissato — prima «trova il più vicino»",
+  "events.golden.said.empty": "niente da scegliere — il registro non ne ha a portata",
+  "events.golden.said.nosquad": "questa squadra non esiste su questo account",
+  "events.golden.said.failed": "non è passato — il log dice perché"
 }

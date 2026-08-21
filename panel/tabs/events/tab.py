@@ -133,6 +133,12 @@ class EventsTab(PanelTab):
         #: The label that shows it beside the buttons — made in `build()`, `None` in a
         #: tab nobody has opened.
         self._target_var = None
+        #: What the last step press came back with, as a locale key. The scenarios say
+        #: their reasons in the log; this puts the last one where the buttons are,
+        #: because «ничего не происходит» is what a refusal looks like from across the
+        #: room (#1702).
+        self._step_said = ""
+        self._step_var = None
         #: The squad the chain sends, by the slot the player sees. A plain int until
         #: `build()` makes the widget — a tab nobody has opened still has to be able to
         #: answer `config()` (`docs/panel-tabs.md`).
@@ -422,6 +428,32 @@ class EventsTab(PanelTab):
         if where:
             self._golden_target = str(where)
             self._paint_target()
+        self._step_said = self._outcome_key(outcome)
+        self._paint_step()
+
+    #: What a step's own halt reason means, in words a person reads. The scenarios stop
+    #: with these exact strings; anything else is shown as the run's own text.
+    SAID = {"squad busy": "events.golden.said.busy",
+            "nothing chosen": "events.golden.said.none",
+            "no target": "events.golden.said.empty",
+            "no squad": "events.golden.said.nosquad"}
+
+    def _outcome_key(self, outcome) -> str:
+        """The line to show beside the buttons after a press. Empty when it went well."""
+        if outcome is not None and getattr(outcome, "ok", False):
+            return "events.golden.said.ok"
+        reason = str(getattr(outcome, "reason", "") or "").strip()
+        return self.SAID.get(reason, "events.golden.said.failed")
+
+    def _paint_step(self) -> None:
+        """Put the last press's answer in the row of buttons."""
+        var = getattr(self, "_step_var", None)
+        if var is None:
+            return
+        try:
+            var.set(self.t(self._step_said) if self._step_said else "")
+        except tk.TclError:                 # the window is going away
+            pass
 
     def _paint_target(self) -> None:
         """Put the chosen tile beside the buttons — where the operator asked for it.
@@ -677,6 +709,14 @@ class EventsTab(PanelTab):
         link.pack(side="left", padx=(12, 0))
         link.bind("<Button-1>", lambda _e: self.step("goto_golden"))
 
+        # …and what the last press answered, in the same row. A scenario that refuses
+        # says why in the log; this is the same sentence where the finger is (#1702).
+        if self._step_var is None:
+            self._step_var = tk_stringvar(self.rt.root)
+        self._paint_step()
+        ttk.Label(steps, textvariable=self._step_var, foreground=_GREY).pack(
+            side="left", padx=(12, 0))
+
     # -- «Салют» -------------------------------------------------------------
     def fireworks(self) -> dict:
         """This profile's firework book, as numbers. Never asks the game anything.
@@ -910,6 +950,8 @@ class EventsTab(PanelTab):
                              + ("on" if self.approach() else "off"))},
             {"label": "events.golden.target",
              "value": self._golden_target or self.t("events.golden.target.none")},
+            {"label": "events.golden.said",
+             "value": self.t(self._step_said) if self._step_said else "—"},
         ]}
         if gold.can_attack and not self._golden_running:
             gcard["actions"] = [{"id": "hunt_golden", "label": "events.golden.hunt"},

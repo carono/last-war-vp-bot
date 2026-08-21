@@ -2075,5 +2075,12 @@
   "events.golden.target": "Выбранный зомби",
   "events.golden.target.none": "не выбран",
   "events.golden.step.goto": "Перейти к выбранному",
-  "events.golden.step.forget": "Забыть цель"
+  "events.golden.step.forget": "Забыть цель",
+  "events.golden.said": "Последнее нажатие",
+  "events.golden.said.ok": "выполнено",
+  "events.golden.said.busy": "отряд занят — ничего не отправлено",
+  "events.golden.said.none": "цель не зафиксирована — сначала «найти ближайшего»",
+  "events.golden.said.empty": "выбирать не из чего — в реестре нет доступных",
+  "events.golden.said.nosquad": "такого отряда на аккаунте нет",
+  "events.golden.said.failed": "не прошло — причина в логе"
 }

@@ -2075,5 +2075,12 @@
   "events.golden.target": "Chosen zombie",
   "events.golden.target.none": "none chosen",
   "events.golden.step.goto": "Fly to the chosen one",
-  "events.golden.step.forget": "Forget the target"
+  "events.golden.step.forget": "Forget the target",
+  "events.golden.said": "Last press",
+  "events.golden.said.ok": "done",
+  "events.golden.said.busy": "the squad is busy — nothing was sent",
+  "events.golden.said.none": "no zombie is fixed — press «find the nearest» first",
+  "events.golden.said.empty": "nothing to choose — the registry has none in reach",
+  "events.golden.said.nosquad": "no such squad on this account",
+  "events.golden.said.failed": "it did not go through — the log says why"
 }

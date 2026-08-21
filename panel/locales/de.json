@@ -2075,5 +2075,12 @@
   "events.golden.target": "Gewählter Zombie",
   "events.golden.target.none": "keiner gewählt",
   "events.golden.step.goto": "Zum Gewählten springen",
-  "events.golden.step.forget": "Ziel vergessen"
+  "events.golden.step.forget": "Ziel vergessen",
+  "events.golden.said": "Letzter Druck",
+  "events.golden.said.ok": "erledigt",
+  "events.golden.said.busy": "der Trupp ist beschäftigt — nichts gesendet",
+  "events.golden.said.none": "kein Ziel gesetzt — erst «den nächsten finden»",
+  "events.golden.said.empty": "nichts zur Auswahl — die Liste hat keinen in Reichweite",
+  "events.golden.said.nosquad": "diesen Trupp gibt es auf dem Konto nicht",
+  "events.golden.said.failed": "nicht durchgekommen — der Grund steht im Log"
 }

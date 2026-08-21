@@ -2075,5 +2075,12 @@
   "events.golden.target": "Seçilen zombi",
   "events.golden.target.none": "seçilmedi",
   "events.golden.step.goto": "Seçilene git",
-  "events.golden.step.forget": "Hedefi unut"
+  "events.golden.step.forget": "Hedefi unut",
+  "events.golden.said": "Son basış",
+  "events.golden.said.ok": "tamam",
+  "events.golden.said.busy": "birlik meşgul — hiçbir şey gönderilmedi",
+  "events.golden.said.none": "hedef sabitlenmedi — önce «en yakını bul»",
+  "events.golden.said.empty": "seçecek bir şey yok — menzilde kayıt yok",
+  "events.golden.said.nosquad": "bu hesapta böyle bir birlik yok",
+  "events.golden.said.failed": "geçmedi — nedeni kayıtta"
 }

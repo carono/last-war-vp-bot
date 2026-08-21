@@ -2075,5 +2075,12 @@
   "events.golden.target": "Zombi terpilih",
   "events.golden.target.none": "belum dipilih",
   "events.golden.step.goto": "Ke yang dipilih",
-  "events.golden.step.forget": "Lupakan target"
+  "events.golden.step.forget": "Lupakan target",
+  "events.golden.said": "Tekan terakhir",
+  "events.golden.said.ok": "selesai",
+  "events.golden.said.busy": "pasukan sedang sibuk — tidak ada yang dikirim",
+  "events.golden.said.none": "target belum dikunci — tekan «cari yang terdekat» dulu",
+  "events.golden.said.empty": "tidak ada pilihan — daftar tak punya yang terjangkau",
+  "events.golden.said.nosquad": "pasukan itu tidak ada di akun ini",
+  "events.golden.said.failed": "tidak lolos — alasannya ada di log"
 }
