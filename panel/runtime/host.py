@@ -56,6 +56,14 @@ RELAUNCHES = frozenset({"launch_game", "restart_game", "recover_from_kick"})
 RELAUNCH_SETTLE_SEC = 30.0
 
 
+#: How long a run whose lease was taken by another errand waits for it back
+#: before giving up (#1702). Long enough for any ordinary timer — they are
+#: seconds — and short enough that a client which is genuinely somebody
+#: else's does not hold a hunt in front of it.
+LEASE_WAIT_SEC = 90.0
+LEASE_POLL_SEC = 2.0
+
+
 class PanelRuntime:
     """Everything a tab may lean on. Built once, per window."""
 
@@ -538,9 +546,28 @@ class PanelRuntime:
         refusal it was holding: a run that does not hold the client may not press it.
         """
         def regain(ctx=None) -> bool:
-            if not self.game.regain(tag):
-                self.log.say(tag, "lease.gone")
-                return False
+            # …AND A LEASE SOMEBODY ELSE IS HOLDING IS WAITED FOR, NOT GIVEN UP ON
+            # (#1702). The refusal has two authors and they want opposite answers. A
+            # daemon that restarted hands the lease straight back — that is #1411 and it
+            # is the `regain` below. A TIMER that took the client wants only its own
+            # minute: the operator's hunt died with «lease lost — it expired or was taken
+            # by default/timer» while the errand that took it had already finished, and a
+            # run that has been walking a squad across the map for ten minutes should not
+            # be ended by an errand that lasted twenty seconds.
+            #
+            # So the hook waits, briefly and out loud. Bounded because a lease that is
+            # still somebody else's after a minute and a half is a client this run is not
+            # going to get back, and hanging in front of it is worse than stopping.
+            deadline = time.time() + LEASE_WAIT_SEC
+            said = False
+            while not self.game.regain(tag):
+                if time.time() >= deadline:
+                    self.log.say(tag, "lease.gone")
+                    return False
+                if not said:
+                    self.log.say(tag, "lease.waiting")
+                    said = True
+                time.sleep(LEASE_POLL_SEC)
             # THE SAME TWO LINES `step_aside` ENDS ON, and for the same reason: the token
             # on the context and the evaluator built with it are both the old lease.
             if ctx is not None:

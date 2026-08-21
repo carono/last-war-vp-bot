@@ -2065,5 +2065,6 @@
   "panel.quit.title": "Matikan panel",
   "panel.quit.confirm": "Matikan panel sekarang?\\n\\nJendela akan tertutup dan TIDAK kembali: jadwal, pemantau, dan skenario yang sedang berjalan berhenti, dan tidak ada yang mengawasi akun. Game dan daemon Lua tetap berjalan. Menyalakannya lagi harus dari mesin ini.",
   "log.panel.quitting": "mematikan panel — ia tidak akan kembali sendiri",
-  "web.ui.panel.quitting": "mematikan panel — ia tidak akan kembali sendiri"
+  "web.ui.panel.quitting": "mematikan panel — ia tidak akan kembali sendiri",
+  "lease.waiting": "game sedang dipegang yang lain — menunggu, bukan mengakhiri proses"
 }

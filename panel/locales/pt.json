@@ -2065,5 +2065,6 @@
   "panel.quit.title": "Desligar o painel",
   "panel.quit.confirm": "Desligar o painel agora?\\n\\nA janela fecha e NÃO volta: o agendamento, os monitores e o cenário em execução param, e ninguém ficará a vigiar as contas. O jogo e o daemon Lua continuam a correr. Para o ligar de novo é preciso estar nesta máquina.",
   "log.panel.quitting": "a desligar o painel — sozinho não volta",
-  "web.ui.panel.quitting": "a desligar o painel — sozinho não volta"
+  "web.ui.panel.quitting": "a desligar o painel — sozinho não volta",
+  "lease.waiting": "o jogo está com outro neste momento — espero em vez de terminar a execução"
 }

@@ -2065,5 +2065,6 @@
   "panel.quit.title": "Apagar el panel",
   "panel.quit.confirm": "¿Apagar el panel ahora?\\n\\nLa ventana se cierra y NO vuelve: el horario, los monitores y el escenario en marcha se detienen, y nadie vigilará las cuentas. El juego y el demonio Lua siguen funcionando. Para volver a arrancarlo hay que estar en esta máquina.",
   "log.panel.quitting": "apagando el panel — no volverá por sí solo",
-  "web.ui.panel.quitting": "apagando el panel — no volverá por sí solo"
+  "web.ui.panel.quitting": "apagando el panel — no volverá por sí solo",
+  "lease.waiting": "ahora mismo el juego lo tiene otro — espero en vez de terminar la ejecución"
 }

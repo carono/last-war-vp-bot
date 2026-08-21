@@ -2065,5 +2065,6 @@
   "panel.quit.title": "Spegnimento del pannello",
   "panel.quit.confirm": "Spegnere il pannello adesso?\\n\\nLa finestra si chiude e NON torna: pianificazione, monitor e lo scenario in corso si fermano, e nessuno sorveglierà gli account. Il gioco e il demone Lua restano in funzione. Per riavviarlo serve qualcuno davanti a questa macchina.",
   "log.panel.quitting": "spengo il pannello — da solo non tornerà",
-  "web.ui.panel.quitting": "spengo il pannello — da solo non tornerà"
+  "web.ui.panel.quitting": "spengo il pannello — da solo non tornerà",
+  "lease.waiting": "il gioco è di qualcun altro in questo momento — aspetto invece di chiudere la corsa"
 }
