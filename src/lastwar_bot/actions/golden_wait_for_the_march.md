@@ -66,8 +66,15 @@ IF arrived == 0
 # sent seconds earlier: `squad2 state=1 canMarch=true` with `marches=1 [left=71s]` — a
 # march of ours in flight and the formation still saying yes. So the march's own uuid is
 # what is watched: parked by the send, gone from our list when it lands.
+#
+# FIVE MINUTES, NOT THREE (#1702). The clock above is the server's estimate and it runs
+# out early on a long haul — measured live, a march the client said had landed was still
+# on the map 96 seconds later — so this wait, not that one, is what actually holds the
+# lap. With the zombies near the base already killed the hunt walks 75-85 tiles at attack
+# speed, which is minutes; a three-minute cap would end a run in the middle of a march it
+# had correctly paid for.
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local want = p.march_uuid if want == nil then return 0 end local alive = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and u == tostring(want) then alive = 1 end end end end) return alive end)() INTO marching
-WHILE marching == 1 LIMIT 90
+WHILE marching == 1 LIMIT 150
     WAIT 2
     READ_LUA (function() local p = DataCenter.__lw_gold or {} local want = p.march_uuid if want == nil then return 0 end local alive = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and u == tostring(want) then alive = 1 end end end end) return alive end)() INTO marching
 IF marching == 1
