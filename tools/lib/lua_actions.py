@@ -11679,7 +11679,7 @@ def golden_find_now() -> str:
     """
     return (
         "(function() " + _GOLD_P + _GOLD_WS +
-        "if ws == nil then return 'none:-1' end "
+        "if ws == nil then return 'noscene' end "
         # …the squad, its formation, and the origin — the same rules as the recipe had,
         # in the order they depend on each other.
         "p.squad = math.floor(tonumber(%(gold)s_squad) or p.squad or 1) "
@@ -11690,7 +11690,7 @@ def golden_find_now() -> str:
         "if math.floor(tonumber(v.index) or -1) == p.squad then "
         "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
         "if math.floor(tonumber(v.state) or 0) ~= 0 then out = 1 end end end end) "
-        "if p.formation == nil then return 'none:-2' end "
+        "if p.formation == nil then return 'nosquad' end "
         "if out == 1 then if p.anchor == nil then p.anchor = p.last_sent end "
         "else p.anchor = nil end "
         "if p.home == nil then p.home = DataCenter.__lw_gold_home end "
@@ -11699,7 +11699,7 @@ def golden_find_now() -> str:
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end "
         "%(gold)s = p "
-        "return 'ready:' .. tostring(out) end)()"
+        "if out == 1 then return 'afield' end return 'athome' end)()"
         % {"gold": _GOLD})
 
 
@@ -11741,7 +11741,7 @@ def golden_pick_and_report() -> str:
         "math.floor(tonumber(p.radius) or 2000), ids, res) "
         "local e = res:GetEnumerator() while e:MoveNext() do n = n + 1 end end end) "
         "%(gold)s = p "
-        "return 'none:' .. tostring(n) end "
+        "if n > 0 then return 'nonenear' end return 'noneseen' end "
         "p.cur = best p.curdist = math.floor(bestd + 0.5) p.curfrom = from "
         "%(gold)s = p "
         "local srv = math.floor(tonumber(best.server or p.server) or 0) "

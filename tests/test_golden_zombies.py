@@ -1686,7 +1686,7 @@ def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round()
     assert "p.march_uuid = nil" in ready and "p.used[tostring(p.cur.pid)] = nil" in ready
     assert text.index(ready) < text.index("CALL golden_send_the_squad")
     # …and a squad turned round a second ago is given a beat rather than refused.
-    assert 'WHILE ready == "busy" LIMIT' in text, \
+    assert "WHILE ready == busy LIMIT" in text, \
         "a squad still walking home is refused outright"
 
 
@@ -1710,7 +1710,7 @@ def test_finding_measures_from_where_the_squad_was_left_and_looks_there():
     # THREE CALLS NOW, NOT FOURTEEN (#1702): the preparation decides the origin inside
     # the VM and says whether the squad is out, and the flight to it is paid only then.
     assert lua_actions.golden_find_now() in text, "the preparation is not one call"
-    assert 'IF ready == "ready:1"' in text
+    assert "IF ready == afield" in text
     look = text.index("TAP golden_look_from")
     pick = text.index(lua_actions.golden_pick_and_report())
     assert look < pick, "the ground around the squad is asked about after the choice"
