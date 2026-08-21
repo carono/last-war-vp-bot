@@ -2066,5 +2066,10 @@
   "panel.quit.confirm": "Matikan panel sekarang?\\n\\nJendela akan tertutup dan TIDAK kembali: jadwal, pemantau, dan skenario yang sedang berjalan berhenti, dan tidak ada yang mengawasi akun. Game dan daemon Lua tetap berjalan. Menyalakannya lagi harus dari mesin ini.",
   "log.panel.quitting": "mematikan panel — ia tidak akan kembali sendiri",
   "web.ui.panel.quitting": "mematikan panel — ia tidak akan kembali sendiri",
-  "lease.waiting": "game sedang dipegang yang lain — menunggu, bukan mengakhiri proses"
+  "lease.waiting": "game sedang dipegang yang lain — menunggu, bukan mengakhiri proses",
+  "events.golden.step.find": "1 · Cari yang terdekat",
+  "events.golden.step.attack": "2 · Serang yang dipilih",
+  "events.golden.step.recall": "Panggil pulang pasukan",
+  "events.golden.step.state": "Status pasukan",
+  "events.golden.step.rescan": "Baca ulang peta"
 }

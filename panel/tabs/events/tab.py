@@ -391,6 +391,34 @@ class EventsTab(PanelTab):
                 pass
         return bool(self._approach)
 
+    #: The chain taken apart into presses — one step each, so a person can press one
+    #: and look at what happened before pressing the next (#1702). The operator asked for
+    #: exactly this: «не просто "бить зомби", а по этапам». Every one of them is a
+    #: scenario played through `run_action`, like every other button in this panel.
+    STEPS = (("find_golden", "golden_find_target", "events.golden.step.find"),
+             ("attack_golden", "golden_attack_target", "events.golden.step.attack"),
+             ("recall_golden", "golden_recall_squad", "events.golden.step.recall"),
+             ("state_golden", "golden_squad_report", "events.golden.step.state"),
+             ("rescan_golden", "scan_map", "events.golden.step.rescan"))
+
+    def step(self, action: str) -> bool:
+        """Play one step of the hunt. The log is where its answer lands, on purpose.
+
+        A step reports in words — which zombie was chosen and how far, what the game did
+        with the order, what the squads are doing — and words belong in the log, which
+        both the window and the phone already show. Nothing here keeps a second copy of
+        the game's state.
+        """
+        row = next((r for r in self.STEPS if r[0] == action), None)
+        if row is None:
+            return False
+        args = {"squad": self.squad()}
+        if row[1] == "scan_map":
+            args = {}
+        elif row[1] == "golden_attack_target":
+            args["approach"] = 1 if self.approach() else 0
+        return bool(self.rt.play_async(row[1], args, tag="events"))
+
     def hunt(self) -> bool:
         """Start the chain: scan the map, then attack until the energy runs out.
 
@@ -583,6 +611,15 @@ class EventsTab(PanelTab):
         self.tr(ttk.Label(press, foreground=_GREY),
                 "events.golden.hunt.hint").pack(side="left", padx=(10, 0))
         self._paint_golden_button()
+
+        # …and the same chain taken apart, one press per step (#1702). The phone draws
+        # the same five out of `STEPS`, so neither front-end can grow a step the other
+        # does not have (CLAUDE.md, «An edit travels between the window and the web»).
+        steps = ttk.Frame(self._body)
+        steps.pack(fill="x", padx=28, pady=(0, 8))
+        for action, _scenario, key in self.STEPS:
+            self.tr(ttk.Button(steps, command=lambda a=action: self.step(a)),
+                    key).pack(side="left", padx=(0, 6))
 
     # -- «Салют» -------------------------------------------------------------
     def fireworks(self) -> dict:
@@ -822,6 +859,8 @@ class EventsTab(PanelTab):
                                  "label": "events.golden.squad.next"},
                                 {"id": "approach_toggle",
                                  "label": "events.golden.approach.toggle"}]
+            gcard["actions"] += [{"id": action, "label": key}
+                                 for action, _scenario, key in self.STEPS]
         else:
             gcard["items"] = [{"label": "events.golden.hunt",
                                "pill": "events.codename.attack.off"}]
@@ -896,6 +935,10 @@ class EventsTab(PanelTab):
                 except tk.TclError:         # the window is going away
                     pass
             return {"ok": True, "approach": self._approach}
+        if any(action == row[0] for row in self.STEPS):
+            # A step is playable whenever the client is: it is one press at the game,
+            # and the whole point of having them is to try them when the chain will not.
+            return {"ok": self.step(action)}
         if action == "hunt_golden":
             if not self.golden().can_attack:
                 return {"error": "closed"}

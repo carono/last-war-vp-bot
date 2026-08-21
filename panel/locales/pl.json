@@ -2066,5 +2066,10 @@
   "panel.quit.confirm": "Wyłączyć panel teraz?\\n\\nOkno zamknie się i NIE wróci: harmonogram, monitory i uruchomiony scenariusz zostaną zatrzymane, nikt nie będzie pilnował kont. Gra i demon Lua działają dalej. Ponowne uruchomienie wymaga kogoś przy tej maszynie.",
   "log.panel.quitting": "wyłączam panel — sam nie wróci",
   "web.ui.panel.quitting": "wyłączam panel — sam nie wróci",
-  "lease.waiting": "grę trzyma teraz ktoś inny — czekam, zamiast kończyć przebieg"
+  "lease.waiting": "grę trzyma teraz ktoś inny — czekam, zamiast kończyć przebieg",
+  "events.golden.step.find": "1 · Znajdź najbliższego",
+  "events.golden.step.attack": "2 · Atakuj wybranego",
+  "events.golden.step.recall": "Zawróć oddział",
+  "events.golden.step.state": "Stan oddziału",
+  "events.golden.step.rescan": "Odśwież mapę"
 }

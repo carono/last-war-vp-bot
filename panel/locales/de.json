@@ -2066,5 +2066,10 @@
   "panel.quit.confirm": "Panel jetzt herunterfahren?\\n\\nDas Fenster schließt sich und kommt NICHT zurück: Zeitplan, Monitore und ein laufendes Szenario werden gestoppt, niemand beobachtet die Konten mehr. Spiel und Lua-Daemon laufen weiter. Ein Neustart geht nur an diesem Rechner.",
   "log.panel.quitting": "fahre das Panel herunter — von allein kommt es nicht zurück",
   "web.ui.panel.quitting": "fahre das Panel herunter — von allein kommt es nicht zurück",
-  "lease.waiting": "die Spielsitzung gehört gerade jemand anderem — ich warte, statt den Lauf zu beenden"
+  "lease.waiting": "die Spielsitzung gehört gerade jemand anderem — ich warte, statt den Lauf zu beenden",
+  "events.golden.step.find": "1 · Nächsten finden",
+  "events.golden.step.attack": "2 · Gewählten angreifen",
+  "events.golden.step.recall": "Trupp zurückholen",
+  "events.golden.step.state": "Trupp-Status",
+  "events.golden.step.rescan": "Karte neu lesen"
 }

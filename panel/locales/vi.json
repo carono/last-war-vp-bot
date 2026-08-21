@@ -2066,5 +2066,10 @@
   "panel.quit.confirm": "Tắt bảng điều khiển ngay bây giờ?\\n\\nCửa sổ sẽ đóng và KHÔNG tự mở lại: lịch chạy, các bộ theo dõi và kịch bản đang chạy sẽ dừng, không còn ai trông chừng các tài khoản. Trò chơi và tiến trình Lua vẫn chạy. Muốn bật lại phải có người ngồi tại máy này.",
   "log.panel.quitting": "đang tắt bảng điều khiển — nó sẽ không tự quay lại",
   "web.ui.panel.quitting": "đang tắt bảng điều khiển — nó sẽ không tự quay lại",
-  "lease.waiting": "phiên trò chơi đang thuộc về bên khác — chờ, thay vì kết thúc lượt chạy"
+  "lease.waiting": "phiên trò chơi đang thuộc về bên khác — chờ, thay vì kết thúc lượt chạy",
+  "events.golden.step.find": "1 · Tìm con gần nhất",
+  "events.golden.step.attack": "2 · Tấn công con đã chọn",
+  "events.golden.step.recall": "Gọi đội về",
+  "events.golden.step.state": "Trạng thái đội",
+  "events.golden.step.rescan": "Đọc lại bản đồ"
 }

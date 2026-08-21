@@ -463,8 +463,12 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     assert spent.rt.played == [], "a hunt reached the game with an empty purse"
 
     live = _tab(golden=GOLDEN_OPEN)
+    # …and beside the chain, the chain taken apart: one press per step, so a person can
+    # find a zombie, look at what was chosen, and only then send anything at it (#1702).
+    STEPS = ["find_golden", "attack_golden", "recall_golden", "state_golden",
+             "rescan_golden"]
     assert _card_actions(live, "events.group.golden") == [
-        "hunt_golden", "squad_next", "approach_toggle"]
+        "hunt_golden", "squad_next", "approach_toggle"] + STEPS
     assert live.web_press("hunt_golden", {}) == {"ok": True}
     assert live.rt.played == [modelmod.GOLDEN_ATTACK]
 
@@ -472,7 +476,29 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     # not», and the scenario holds its own gates.
     unknown = _tab(golden=None)
     assert _card_actions(unknown, "events.group.golden") == [
-        "hunt_golden", "squad_next", "approach_toggle"]
+        "hunt_golden", "squad_next", "approach_toggle"] + STEPS
+
+
+def test_every_step_of_the_hunt_is_a_scenario_the_phone_can_press():
+    """The chain taken apart, one button per step (#1702).
+
+    The operator asked for it after watching the whole chain misbehave: «не просто "бить
+    зомби", а по этапам» — find the nearest and LOOK at what was chosen, then attack that
+    one and see what the game said. Each step is a scenario played through `run_action`,
+    each is on the phone as well as in the window, and «атаковать выбранного» sends at
+    the target already parked rather than picking one for itself.
+    """
+    from pathlib import Path as _Path
+
+    tab = _tab(golden=GOLDEN_OPEN)
+    for action, scenario, key in tab.STEPS:
+        tab.rt.played.clear()
+        assert tab.web_press(action, {}) == {"ok": True}, action
+        assert tab.rt.played == [scenario], f"{action} played {tab.rt.played}"
+        recipe = (_Path(__file__).resolve().parents[1] / "src" / "lastwar_bot"
+                  / "actions" / f"{scenario}.md")
+        assert recipe.exists(), f"{action} names a scenario that is not there"
+        assert key.startswith("events.golden.step."), key
 
 
 def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():

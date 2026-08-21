@@ -2066,5 +2066,10 @@
   "panel.quit.confirm": "Éteindre le panneau maintenant ?\\n\\nLa fenêtre se ferme et NE revient PAS : le planning, les moniteurs et le scénario en cours s'arrêtent, plus personne ne surveille les comptes. Le jeu et le démon Lua continuent de tourner. Pour le relancer, il faut être devant cette machine.",
   "log.panel.quitting": "j'éteins le panneau — il ne reviendra pas tout seul",
   "web.ui.panel.quitting": "j'éteins le panneau — il ne reviendra pas tout seul",
-  "lease.waiting": "le bail du jeu appartient à quelqu'un d'autre pour l'instant — j'attends au lieu d'arrêter"
+  "lease.waiting": "le bail du jeu appartient à quelqu'un d'autre pour l'instant — j'attends au lieu d'arrêter",
+  "events.golden.step.find": "1 · Trouver le plus proche",
+  "events.golden.step.attack": "2 · Attaquer le choisi",
+  "events.golden.step.recall": "Rappeler l'escouade",
+  "events.golden.step.state": "État de l'escouade",
+  "events.golden.step.rescan": "Relire la carte"
 }

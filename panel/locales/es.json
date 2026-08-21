@@ -2066,5 +2066,10 @@
   "panel.quit.confirm": "¿Apagar el panel ahora?\\n\\nLa ventana se cierra y NO vuelve: el horario, los monitores y el escenario en marcha se detienen, y nadie vigilará las cuentas. El juego y el demonio Lua siguen funcionando. Para volver a arrancarlo hay que estar en esta máquina.",
   "log.panel.quitting": "apagando el panel — no volverá por sí solo",
   "web.ui.panel.quitting": "apagando el panel — no volverá por sí solo",
-  "lease.waiting": "ahora mismo el juego lo tiene otro — espero en vez de terminar la ejecución"
+  "lease.waiting": "ahora mismo el juego lo tiene otro — espero en vez de terminar la ejecución",
+  "events.golden.step.find": "1 · Buscar el más cercano",
+  "events.golden.step.attack": "2 · Atacar al elegido",
+  "events.golden.step.recall": "Traer al escuadrón",
+  "events.golden.step.state": "Estado del escuadrón",
+  "events.golden.step.rescan": "Releer el mapa"
 }

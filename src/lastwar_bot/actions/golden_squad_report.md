@@ -1,0 +1,5 @@
+# What the squads and their marches are doing right now. A read, and nothing else.
+# ru: Что сейчас с отрядами и их маршами. Только чтение.
+
+READ_LUA (function() local out = {} local now = 0 pcall(function() now = tonumber(UITimeManager.Instance:GetServerTime()) or 0 end) pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do local i = math.floor(tonumber(v.index) or -1) out[#out+1] = 'squad' .. i .. ' state=' .. tostring(v.state) .. ' canMarch=' .. tostring(v.canMarch) .. ' soldiers=' .. tostring(v.totalSoldierNum) end end) local parts = {} pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local left = '?' pcall(function() left = tostring(math.floor((tonumber(m.endTime) - now) / 1000)) end) parts[#parts+1] = left .. 's' end end end) out[#out+1] = 'marches=[' .. table.concat(parts, ' ') .. ']' return table.concat(out, ' | ') end)() INTO squad_state
+LOG "squads: {squad_state}"
