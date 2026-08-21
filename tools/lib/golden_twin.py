@@ -102,7 +102,7 @@ def pair_recipe() -> str:
     def b(expr):
         return twin_lua(expr)
 
-    free = lua_actions.golden_squad_free()
+    free = lua_actions.golden_can_order()
     armed = lua_actions.golden_armed()
     done = lua_actions.golden_refresh_done()
     energy = lua_actions.golden_energy()

@@ -11038,6 +11038,67 @@ def golden_parked() -> str:
     )
 
 
+def golden_can_order() -> str:
+    """Lua *expression* -> may this squad be given an attack RIGHT NOW. 1 / 0 / -1 / -2.
+
+    **THE MEASUREMENT THAT FORCED THIS (#1702).** With two squads hunting on the test
+    account, the cost of a kill split like this:
+
+        free -> order away     median   5 s
+        order -> free again    median  64 s (one side) and 115 s (the other)
+
+    Five seconds is our own overhead and it is not where the time goes. The minute and a
+    half is the squad NOT COMING BACK — and it is not the march either. Read live, a
+    squad that had just killed:
+
+        squad=2 state=1 free=0 soldiers=2570 status=STATION march=NORMAL team=0
+                point=467403 arrive=0
+
+    It is STANDING on the tile it cleared, which is exactly what the chain asks for
+    (`back = 0`) so that the next hop is a few tiles instead of a march from the base.
+    And :data:`_SQUAD_FREE` — `state == 0` plus `IsFree()` — calls that BUSY, because it
+    is the reading a rally needs: a banner is raised by a squad standing in the base.
+    So the hunt sent its squad out, refused to use it where it stood, walked it home, and
+    paid the round trip on every kill.
+
+    A squad parked on the world map takes an ordinary march order — that is what a player
+    does when they clear one zombie and tap the next. So this reading says yes to it:
+    free by the ordinary rule, OR out with a march of its own that has ARRIVED
+    (`MarchStatus.STATION`), carries no arrival time left and is not standing in a banner.
+
+    A rally is left out deliberately (`teamUuid ~= 0`): walking a squad out of somebody's
+    banner to hit a zombie is not this recipe's decision to make. `-2` still means «the
+    client is holding no army», which is a different fact and has its own cure.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "if p.formation == nil then return -1 end "
+        "local seen, can, n = false, nil, 0 "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if tostring(v.uuid) == tostring(p.formation) then seen = true "
+        "can = " + _SQUAD_FREE + "(v) "
+        "n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) "
+        "if not seen or can == nil then return -1 end "
+        "if n <= 0 then return -2 end "
+        "if can then return 1 end "
+        # …AND THE SQUAD THAT IS MERELY STANDING WHERE IT KILLED (#1702).
+        "local m = nil "
+        "pcall(function() local P = LuaEntry.Player "
+        "m = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch("
+        "P.uid, p.formation, P.allianceId) end) "
+        "if m == nil then return 0 end "
+        "local team = nil pcall(function() team = tostring(m.teamUuid) end) "
+        "if team ~= nil and team ~= '0' then return 0 end "
+        "local st, due = nil, nil "
+        "pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) "
+        "pcall(function() due = tonumber(m.endTime) end) "
+        "if st == " + str(GOLDEN_MARCH_STATION) + " and "
+        "(due == nil or due <= 0) then return 1 end "
+        "return 0 end)()"
+    )
+
+
 def golden_no_ride() -> str:
     """Switch the fast approach off for the REST of this run, and say why (#1702).
 
