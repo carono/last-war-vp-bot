@@ -1772,8 +1772,10 @@ def test_a_found_zombie_is_confirmed_on_its_own_ground_before_it_is_announced():
     # …and the three cases are told apart by the AREA LIST, because `HasPointInfo` is
     # false for a monster tile and `CurTilePos` lags a jump — measured with the camera
     # parked exactly on a candidate: `holds=false camera=874,895 area_n=1` (#1702).
-    assert "if n <= 0 then return -1 end" in confirm, \
+    assert "if wide <= 0 then return -1 end end" in confirm, \
         "an empty box is read as death instead of «nothing loaded there»"
+    assert ", 60, ids, res)" in confirm, \
+        "an unloaded district is not told apart from a district with no zombies left"
     assert "if mine then" in confirm, "the zombie's own uuid is not what confirms it"
     assert "p.targets = keep p.cur = nil" in confirm, "a zombie proven gone is kept"
     assert "t.at = os.time() t.seen = 1" in confirm, "a confirmation is not recorded"
@@ -1785,10 +1787,56 @@ def test_a_found_zombie_is_confirmed_on_its_own_ground_before_it_is_announced():
     # AN UNCONFIRMED TILE IS NOT AN ANSWER AT ALL (#1702). Announcing it with a warning
     # beside it still flew the camera to empty ground — measured on the tile the button
     # itself had offered: `area: n=0`, `point: not-loaded`, no monster record.
-    assert "TAP golden_forget_target" in text, \
-        "an unconfirmed target is still left fixed for «атаковать» to fire at"
-    assert 'STOP "not confirmed"' in text, "an unconfirmed target is offered anyway"
+    # …and an unconfirmed tile is OFFERED with the truth attached rather than refused:
+    # measured, the area list is not filled by the camera at all, so «cannot tell» is the
+    # ordinary answer for anything the last sweep did not sit on (#1702). The gate that
+    # matters is the attack, which re-reads the uuid at send time.
+    assert "not confirmed (the client cannot see that ground from here)" in text, \
+        "an unconfirmed target is offered as if it had been seen"
+    assert "return -4 end " in lua_actions.golden_send_now(), \
+        "the attack does not re-check the target at send time"
     assert lua_actions.golden_age_line() in text, "the answer does not say how old the row is"
+
+
+def test_the_seven_buttons_are_one_chain_and_the_round_presses_them_all():
+    """The JOINS, not the pieces — «почему постоянная деградация?!» (#1702).
+
+    Every fix in this task was proved by pressing the one button it touched, and the
+    suite stayed green over buttons that had stopped working: the find would hand back a
+    target the attack refused, or the attack would answer «no army» on every first press.
+    What was missing was a test of the SEAMS.
+
+    So: the find parks a target and the attack sends at THAT and nothing else, the
+    attack invents no target of its own, «no army» is cured inside one press instead of
+    asking the person to press again, and `dev/golden_button_round.md` presses all seven
+    in the order a person does — which is what has to be run live before a commit.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    actions = _REPO_ROOT / "src" / "lastwar_bot" / "actions"
+    find = (actions / "golden_find_target.md").read_text(encoding="utf-8")
+    attack = (actions / "golden_attack_target.md").read_text(encoding="utf-8")
+
+    # the seam: one parks `p.cur`, the other sends at `p.cur` and never picks
+    assert "p.cur = best" in lua_actions.golden_pick_and_report(), "the find parks nothing"
+    assert "if p.cur == nil then return -3 end" in lua_actions.golden_send_now(), \
+        "the attack does not send at what the find parked"
+    assert "TAP golden_pick" not in attack and "golden_pick_and_report" not in attack, \
+        "the attack chooses a target of its own"
+
+    # «no army» is cured inside the press, not handed back to the person
+    assert attack.count(lua_actions.golden_send_now()) >= 2, \
+        "the send is not retried after the army is fetched"
+    assert "CALL fill_empty_squads" in attack
+
+    # …and the round exists, and presses every one of the seven
+    round_md = (actions / "dev" / "golden_button_round.md").read_text(encoding="utf-8")
+    for step in ("scan_map", "golden_find_target", "golden_goto_target",
+                 "golden_attack_target", "golden_squad_report", "golden_recall_squad",
+                 "golden_forget_target"):
+        assert f"CALL {step}" in round_md, f"the round never presses {step}"
 
 
 def _run_standalone() -> int:

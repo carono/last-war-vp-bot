@@ -11307,7 +11307,7 @@ def golden_look() -> str:
         "local t = p.cur "
         "if t == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_look skipped=no-target") return end '
-        "local ok, err = pcall(function() GoToUtil.MoveToWorldPoint(t.pid) end) "
+        "local ok, err = pcall(function() GoToUtil.GotoWorldPos(t.x, t.y, 600, tonumber(p.server) or 0) end) pcall(function() GoToUtil.MoveToWorldPoint(t.pid) end) "
         'CS.UnityEngine.Debug.LogError("ACT golden_look ok="..tostring(ok).." err="..tostring(err)'
         '.." at="..tostring(t.x)..","..tostring(t.y))'
     )
@@ -11821,7 +11821,22 @@ def golden_confirm_current() -> str:
         "if tostring(e.Current.Key) == tostring(t.key or t.uuid or 0) then mine = true end end end) "
         "if not asked then return -1 end "
         "if mine then t.at = os.time() t.seen = 1 %(gold)s = p return 1 end "
-        "if n <= 0 then return -1 end "
+        # …AND «EMPTY BOX» IS TWO DIFFERENT THINGS (#1702). A three-tile box comes
+        # back empty both when the district is not loaded and when it IS loaded and
+        # simply has no zombie left on it. Asked wide — sixty tiles — the answer
+        # separates them: anything at all in that circle means the client is holding
+        # this part of the world, so the small box being empty is a death.
+        "if n <= 0 then "
+        "local wide = 0 "
+        "pcall(function() "
+        "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, "
+        "CS.System.Int32)() "
+        "for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 60, ids, res) "
+        "local e2 = res:GetEnumerator() while e2:MoveNext() do wide = wide + 1 end end) "
+        "if wide <= 0 then return -1 end end "
         "local keep = {} "
         "for _, q in ipairs(p.targets or {}) do "
         "if tostring(q.pid) ~= tostring(t.pid) then keep[#keep + 1] = q end end "
