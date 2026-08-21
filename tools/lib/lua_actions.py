@@ -10604,6 +10604,17 @@ def golden_target_live() -> str:
     return (
         "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
         "if ws == nil then return 1 end "
+            # OFF-CAMERA IS NOT DEAD (#1702). The client answers only for tiles it
+            # is HOLDING, so a candidate in the invasion's own corner reads «not
+            # there» whether it is alive or not — live, 144 rows dropped in a row
+            # while the operator watched dozens of the same zombies on screen. A far
+            # candidate is taken on trust here and proved by the send, which flies to
+            # it before it orders anything.
+            "local t0 = p.cur "
+            "if t0 ~= nil then local cx, cy = nil, nil "
+            "pcall(function() cx, cy = ws.CurTilePos.x, ws.CurTilePos.y end) "
+            "if cx ~= nil then local dx, dy = (t0.x - cx), (t0.y - cy) "
+            "if math.sqrt(dx * dx + dy * dy) > 40 then return 1 end end end "
         "local t = p.cur "
         "if t == nil then return 0 end "
         "return (_freshuuid(ws, p, t) ~= nil) and 1 or 0 end)()"
