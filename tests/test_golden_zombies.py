@@ -1685,6 +1685,29 @@ def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round()
         "a squad still walking home is refused outright"
 
 
+def test_finding_measures_from_where_the_squad_was_left_and_looks_there():
+    """«Перекидывает далеко, хотя рядом с ним есть зомби» — the operator (#1702).
+
+    Two faults, one after the other. Arming builds the run from nothing, and «найти
+    ближайшего» arms on every press — so it forgot that the squad had been left standing
+    in the field and measured from the base. And the client only holds what the camera
+    has been shown, so even with the right origin the registry can hold none of the
+    zombies beside the squad: the ground there has to be asked about first.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    assert "p.anchor = _keep.anchor" in lua_actions.golden_arm(), \
+        "arming forgets where the squad was left"
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_find_target.md").read_text(encoding="utf-8")
+    assert "IF squad_is_out == 1" in text
+    look = text.index("TAP golden_look_from")
+    pick = text.index("TAP golden_pick")
+    assert look < pick, "the ground around the squad is asked about after the choice"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

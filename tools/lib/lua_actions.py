@@ -9797,7 +9797,15 @@ def golden_arm() -> str:
     """
     return (
         _GOLD_WS + _GOLD_HOME +
+        # WHAT SURVIVES A RE-ARM (#1702). Arming builds the run from nothing, and the
+        # two facts it must not throw away are WHERE THE BASE IS (a solve that needs
+        # the camera near home) and WHERE THE SQUAD WAS LEFT. The operator watched the
+        # second one bite: «найти ближайшего» arms first, so every press forgot that
+        # the squad was standing in the field and measured from the house instead —
+        # a pick hundreds of tiles away with zombies beside the squad.
+        "local _keep = DataCenter.__lw_gold or {} "
         "local p = {} "
+        "p.anchor = _keep.anchor "
         "p.cfg = %(cfg)d "
         "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
         "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "

@@ -36,6 +36,20 @@ IF squad_is_out == 1
 IF squad_is_out == 0
     LOG "the squad is at home — measuring from the base"
 
+# …AND THE GROUND AROUND THE ORIGIN IS ASKED ABOUT WHEN THE SQUAD IS OUT (#1702). The
+# client only holds what the camera has been shown — about sixty tiles around it — so a
+# registry filled by an earlier sweep can be full of far zombies and hold none of the
+# ones standing beside the squad. The operator saw exactly that: «рядом с ним есть
+# зомби», and the pick threw him hundreds of tiles away. At home this is not needed —
+# the camera lives there — so the flight is paid only when the squad is in the field.
+IF squad_is_out == 1
+    TAP golden_scan
+    TAP golden_look_from
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
+    IF looked_moved == 1
+        WAIT 1
+    TAP golden_scan
+
 # The registry, as it stands. Empty only on a panel that has never scanned: then one
 # cheap look at the ground under the camera fills it rather than sending the person to
 # another button.
