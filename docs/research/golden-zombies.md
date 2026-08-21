@@ -432,21 +432,58 @@ marches=2 [left=4082s left=-…]
 rally_squads=1,2,3
 ```
 
-### `canMarch = false` is not one fact but two
+### `canMarch` never answered this at all — the gate reads `state` and `IsFree()`
 
-`squad3` above is standing **at home** (`state = 0`) and still refuses to march, because
-the client is holding **no army** for it — the ordinary #1285 case that
-`fill_empty_squads.md` clears in about a third of a second. A gate that reads that as
-«busy» waits its whole patience out and then stops the hunt on a perfectly good squad.
+**This is the correction, and it is the whole of «в логи пишется, что ОТРЯД ЗАНЯТ, но это
+НЕ ТАК».** The gate above was built on `canMarch`, and `canMarch` is a **red herring**:
+it is recomputed by the real dispatch render (`UIFormationSelectListV2`) and by nothing
+else, so a headless session reads whatever the flag was last left at. This was already
+written down — [world-monsters.md, Finding 11](world-monsters.md) — and the golden family
+asked it anyway.
 
-So `golden_squad_free()` answers four things, and the caller acts on the difference:
+Measured live, one press apart, on a squad standing **at home with a full army**:
+
+```
+squad=2 state=0 free=1 soldiers=2631 status=- march=- team=0     ← read_squad_state.md
+squad2 state=0 canMarch=false soldiers=2631                      ← the old golden gate
+```
+
+Both readings are of the same squad, in the same second. The player saw squad 2 sitting
+in the base; the panel said «отряд занят» and sent nothing. The same read showed
+`squad1 state=1 canMarch=false` — genuinely marching — so `canMarch` was `false` for the
+busy squad and the free one alike, and it distinguished nothing.
+
+The rest of this repository never had the bug: `create_rally.md`, `read_squad_state.md`
+and `panel/tabs/rally/limits.py` all ask **`state == 0` together with the game's own
+`IsFree()`**, which is what `ArmyFormationDataManager:IsAnyWorldFormationOutside()` is
+built out of. `_SQUAD_FREE` in `tools/lib/lua_actions.py` is now that same question, and
+every golden brick asks it through `golden_squad_free()` / `golden_send_now()`.
+
+### «No army» is still a separate fact — and it is asked FIRST
+
+A squad the client holds **no soldiers** for is standing at home and answers `state = 0`,
+`IsFree() = true`: free by every reading the game has. The old order of the checks hid
+that behind `canMarch`, which happened to be false for it too. So the order matters —
+the soldier count is asked **before** the free flag, or an empty formation is sent at a
+zombie and refused by the server:
 
 | answer | means | what to do |
 |---|---|---|
-| `1` | the squad can be ordered | send |
+| `1` | the squad is in the base, idle, and holds an army | send |
 | `0` | marching, gathering, or on dirty ground | wait, bounded |
-| `-2` | the client holds no army for it | ask for it, then re-read |
+| `-2` | the client holds no army for it (#1285) | ask for it, then re-read |
 | `-1` | the squad cannot be found | ask again |
+
+### The launch proof asks the FORMATION, not the account
+
+The other half of the same press had the mirror-image fault. A send was confirmed by any
+march that had appeared in `GetOwnerMarches()` since it went out — and that list is every
+squad of the account. An auto-join raising a **second** squad inside the four seconds the
+panel waits confirmed an order that had been refused.
+
+`GetOwnerFormationMarch(uid, formation, allianceId)` answers for our formation alone, and
+a march standing in a banner (`teamUuid ~= 0`) is not the order we gave: from outside the
+two look alike, both carrying `endTime = 0`.
 
 ### A mine is a trap with a long clock
 

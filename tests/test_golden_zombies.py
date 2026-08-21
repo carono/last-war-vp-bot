@@ -147,7 +147,10 @@ def test_the_proof_of_an_attack_is_a_march_and_never_the_purse():
     read as sends nobody received, and the run reported two attacks out of three.
     """
     launched = lua_actions.golden_launched()
-    assert "GetOwnerMarches" in launched, "the proof does not look at our marches at all"
+    assert "GetOwnerFormationMarch" in launched, \
+        "the proof does not ask OUR OWN formation what it is carrying"
+    assert "GetOwnerMarches" not in launched, \
+        "the proof counts any march of the account — a sibling squad confirms our order"
     assert "march_before" in launched, \
         "the proof counts marches rather than noticing a NEW one — another squad's rally "\
         "would answer for this attack"
@@ -863,7 +866,7 @@ def test_a_squad_that_cannot_act_where_it_stands_is_walked_off_it():
     carry on from the base, counted apart and clearing the streak.
     """
     stuck = lua_actions.golden_stuck()
-    assert "canMarch" in stuck and "totalSoldierNum" in stuck, \
+    assert "IsFree()" in stuck and "totalSoldierNum" in stuck, \
         "the reading does not ask the game about our own squad"
     free = lua_actions.golden_unstick()
     assert "OnBackHome" in free, "nothing takes the squad off the ground"
@@ -1162,24 +1165,44 @@ def test_no_order_is_given_to_a_squad_that_cannot_take_one():
 
     # …and the reading itself is the client's own answer about our own formation.
     expr = lua_actions.golden_squad_free()
-    assert "canMarch" in expr and "p.formation" in expr
+    assert "IsFree()" in expr and "tonumber(f.state)" in expr and "p.formation" in expr, \
+        "the gate does not ask the game's own idea of a free squad"
+    assert "canMarch" not in expr, \
+        "the gate is back on canMarch, which a headless session never sees recomputed"
     import lupa
 
-    def ask(can, soldiers=100):
+    def ask(state=0, idle=True, soldiers=100):
         rt = lupa.LuaRuntime()
         rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
                    "ArmyFormationDataManager = {ArmyFormationList = "
-                   "{{uuid = '77', canMarch = %s, totalSoldierNum = %d}}}}"
-                   % ("true" if can else "false", soldiers))
+                   "{{uuid = '77', state = %d, totalSoldierNum = %d, "
+                   "IsFree = function() return %s end}}}}"
+                   % (state, soldiers, "true" if idle else "false"))
         return int(rt.eval(expr))
 
-    assert ask(True) == 1
-    assert ask(False) == 0
+    assert ask() == 1
+    assert ask(state=1) == 0, "a marching squad reads as free"
+    assert ask(idle=False) == 0, "the game says not idle and the gate sends anyway"
+    # «ОТРЯД ЗАНЯТ, НО ЭТО НЕ ТАК» (#1702) — the reading that started this, live, on a
+    # squad standing at home with a full army:
+    #
+    #     squad=2 state=0 free=1 soldiers=2631 status=- march=- team=0
+    #     squad2 state=0 canMarch=false soldiers=2631        (what the old gate asked)
+    #
+    # `canMarch` is recomputed by the real dispatch render and by nothing else, so a
+    # headless session reads whatever it was left at — false, for ever, on every squad.
+    rt = lupa.LuaRuntime()
+    rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
+               "ArmyFormationDataManager = {ArmyFormationList = "
+               "{{uuid = '77', state = 0, totalSoldierNum = 2631, canMarch = false, "
+               "IsFree = function() return true end}}}}")
+    assert int(rt.eval(expr)) == 1, \
+        "a squad standing at home with 2631 soldiers still reads as busy"
     # «CANNOT MARCH» IS TWO FACTS (#1702). Measured live on a client that had just
     # restarted: `squad3 state=0 canMarch=false soldiers=0` — a squad standing AT HOME,
     # free, whose army the client had never fetched. Reading that as «busy» waits two
     # minutes and stops the hunt on a perfectly good squad.
-    assert ask(False, soldiers=0) == -2, \
+    assert ask(soldiers=0) == -2, \
         "a squad whose army the client has forgotten reads as busy — the hunt would wait it out"
     rt = lupa.LuaRuntime()          # …and a squad nobody can find is «ask again», not «no»
     rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
@@ -1235,23 +1258,32 @@ def test_an_accepted_order_is_never_written_off_as_a_refusal():
     """
     import lupa
     proof = lua_actions.golden_launched()
-    assert "canMarch" in proof, "the proof still waits on the client's own bookkeeping"
+    assert "IsFree()" in proof, "the proof still waits on the client's own bookkeeping"
+    assert "canMarch" not in proof, "the proof is back on a flag nothing recomputes"
 
-    def answer(fresh_march, can_march):
+    def answer(own_march, free, team="0"):
         rt = lupa.LuaRuntime()
-        rt.execute("DataCenter = {__lw_gold = {pending = 1, formation = '77', "
-                   "march_before = {}}, WorldMarchDataManager = {GetOwnerMarches = "
-                   "function() return %s end}, ArmyFormationDataManager = "
-                   "{ArmyFormationList = {{uuid = '77', canMarch = %s}}}}"
-                   % ("{Count = 1, [0] = {uuid = 'new'}}" if fresh_march else "nil",
-                      "true" if can_march else "false"))
+        rt.execute("LuaEntry = {Player = {uid = 1, allianceId = 2}} "
+                   "DataCenter = {__lw_gold = {pending = 1, formation = '77', "
+                   "march_before = {}}, WorldMarchDataManager = "
+                   "{GetOwnerFormationMarch = function() return %s end}, "
+                   "ArmyFormationDataManager = {ArmyFormationList = "
+                   "{{uuid = '77', state = %d, IsFree = function() return %s end}}}}"
+                   % ("{uuid = 'new', teamUuid = '%s'}" % team if own_march else "nil",
+                      0 if free else 1, "true" if free else "false"))
         return int(rt.eval(proof))
 
-    assert answer(True, True) == 1, "a fresh march is not proof enough"
+    assert answer(True, True) == 1, "our own squad's new march is not proof enough"
     assert answer(False, False) == 1, \
         "a squad that has gone busy still reads as a send nobody received"
     assert answer(False, True) == 0, \
         "a squad that is free with no march reads as a launch — that is a refusal"
+    # A BANNER IS NOT OUR ORDER (#1702). The auto-join puts our squad in somebody's rally
+    # and the march it gets carries `endTime = 0` — exactly what a phantom of our own
+    # carries. The teamUuid is what tells them apart, and without it the four-second
+    # check confirms an attack that was refused.
+    assert answer(True, True, team="1000000000000000001") == 0, \
+        "a squad standing in a rally reads as the attack we just ordered"
 
     # …and the branch that used to fire after a failed send is gone, because it asked the
     # same question with the opposite meaning.
@@ -1283,7 +1315,7 @@ def test_the_gap_after_an_attack_is_kept_short_on_purpose():
     beats = int(poll.rsplit(" ", 1)[-1])
     assert 5.0 <= beats * 0.4 <= 7.0, \
         "the launch proof waits either less than a server round trip or a refusal's worth"
-    assert "canMarch" in lua_actions.golden_launched(), \
+    assert "IsFree()" in lua_actions.golden_launched(), \
         "the patience was cut without the instant half of the proof to justify it"
 
     # …and the ride's camera flight is bought only when the sums ask for it.
@@ -1837,6 +1869,139 @@ def test_the_seven_buttons_are_one_chain_and_the_round_presses_them_all():
                  "golden_attack_target", "golden_squad_report", "golden_recall_squad",
                  "golden_forget_target"):
         assert f"CALL {step}" in round_md, f"the round never presses {step}"
+
+
+def test_a_squad_is_busy_because_the_game_says_so_and_never_because_of_can_march():
+    """«В логи пишется, что ОТРЯД ЗАНЯТ, но это НЕ ТАК» (#1702).
+
+    Read live off a squad standing at home with a full army::
+
+        squad=2 state=0 free=1 soldiers=2631 status=- march=- team=0
+
+    and the same squad, in the same breath, through the gate this chain used to ask::
+
+        squad2 state=0 canMarch=false soldiers=2631
+
+    `canMarch` is false on EVERY formation of a headless session — it is recomputed by
+    the real dispatch render and by nothing else (docs/research/world-monsters.md,
+    Finding 11, «a red herring»). So a gate built on it calls a free squad busy for ever,
+    and the whole rest of this repository already knew better: `create_rally.md`,
+    `read_squad_state.md` and the rally limits all ask `state == 0` together with the
+    game's own `IsFree()`. The golden family was the one place that did not.
+    """
+    actions = _REPO_ROOT / "src" / "lastwar_bot" / "actions"
+    for path in sorted(actions.glob("golden_*.md")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue                      # prose may name the field it stopped using
+            assert "canMarch" not in line, (
+                f"{path.name}:{number} decides something from canMarch, which is false "
+                "for every squad of a headless session")
+
+    # …and what replaced it asks the two things the game answers honestly.
+    for name in ("golden_attack_target", "golden_send_the_squad",
+                 "golden_wait_for_the_march"):
+        text = (actions / f"{name}.md").read_text(encoding="utf-8")
+        assert "IsFree()" in text, f"{name} never asks the game's own idle flag"
+        assert "tonumber(f.state)" in text, f"{name} never reads the squad's state"
+
+
+def test_the_proof_of_a_send_is_our_own_squads_march_and_not_any_march_at_all():
+    """A march is ours when OUR formation is on it — a banner and a sibling are not.
+
+    The launch used to be confirmed by any march that had appeared in
+    `GetOwnerMarches()` since the send. That list holds every squad of the account, so an
+    auto-join raising a second squad inside the four seconds the panel waits confirmed an
+    order that had been refused. It asks the formation for its own march now, and a march
+    standing in a banner (`teamUuid ~= 0`) is not the order we just gave — the two look
+    alike from outside, both carrying `endTime = 0`.
+    """
+    actions = _REPO_ROOT / "src" / "lastwar_bot" / "actions"
+    for name in ("golden_verify_order", "golden_send_the_squad"):
+        text = (actions / f"{name}.md").read_text(encoding="utf-8")
+        code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+        assert "GetOwnerFormationMarch" in code, (
+            f"{name} still proves the send off the whole march list")
+        assert "GetOwnerMarches" not in code.split("p.march_before")[0], (
+            f"{name} still counts any march of the account as its own proof")
+        assert "teamUuid" in code, f"{name} would take a banner for its own order"
+
+
+def test_every_press_of_the_hunt_is_lua_the_game_could_actually_run():
+    """A press that will not compile answers `None`, and the recipe stops on it.
+
+    Live, this exact failure::
+
+        READ_LUA sent = None
+        < action: golden_attack_target FAILED — variable 'sent' = None is not numeric
+
+    The cause is worth pinning because it is silent and it is Python, not Lua: several of
+    these builders are assembled as one string literal and then `%`-formatted, and `+`
+    binds LOOSER than `%`. Splitting such a literal to concatenate a constant leaves every
+    earlier fragment unformatted — the `%(gold)s` placeholders travel into the game as
+    literal text, and the chunk does not parse. A constant used inside a `%`-formatted
+    builder has to travel through the dict, never through `+`.
+    """
+    import lupa
+    rt = lupa.LuaRuntime()
+    checked = 0
+    for name in sorted(dir(lua_actions)):
+        if not name.startswith("golden"):
+            continue
+        try:
+            expr = getattr(lua_actions, name)()
+        except TypeError:                 # takes arguments — not a bare press
+            continue
+        if not isinstance(expr, str) or not expr.lstrip().startswith("("):
+            continue
+        assert "%(" not in expr, (
+            f"{name} carries an unformatted placeholder — a split literal was "
+            "%-formatted, and `+` binds looser than `%`")
+        checked += 1
+        try:
+            rt.compile("return " + expr)
+        except Exception as exc:          # noqa: BLE001 — the message is the report
+            raise AssertionError(f"{name} is not valid Lua: {exc}") from None
+    assert checked > 20, "the sweep found almost no presses — it is looking in the wrong place"
+
+
+def test_a_free_squad_with_no_army_is_asked_for_one_and_never_sent_empty():
+    """The order of the two questions, pinned — they used to be nested the other way.
+
+    While the gate read `canMarch`, «no army» hid behind it: a squad the client held no
+    soldiers for happened to answer `canMarch = false` as well, so asking «can it march»
+    first still reached the soldier count. Asking the GAME instead removed that accident —
+    a squad with no army is `state = 0` and `IsFree() = true`, free by every reading there
+    is — and the same nesting would have sent an empty formation at a zombie, which the
+    server refuses in silence.
+
+    Live, the press that caught it::
+
+        sending: squad=2 ... soldiers=0 ... call=SendCreateMarchMessage/ATTACK_MONSTER
+    """
+    send = lua_actions.golden_send_now()
+    army = send.index("tonumber(p.soldiers) or 0) <= 0 then return -2")
+    busy = send.index("if not can then return 0 end")
+    assert army < busy, \
+        "the send acts on «free» before it counts the soldiers — an empty squad goes out"
+
+    # …and the standalone gate answers the same way round.
+    expr = lua_actions.golden_squad_free()
+    import lupa
+
+    def ask(state=0, idle=True, soldiers=100):
+        rt = lupa.LuaRuntime()
+        rt.execute("DataCenter = {__lw_gold = {formation = '77'}, "
+                   "ArmyFormationDataManager = {ArmyFormationList = "
+                   "{{uuid = '77', state = %d, totalSoldierNum = %d, "
+                   "IsFree = function() return %s end}}}}"
+                   % (state, soldiers, "true" if idle else "false"))
+        return int(rt.eval(expr))
+
+    assert ask(soldiers=0) == -2, "a free squad with no army reads as ready to be sent"
+    assert ask(state=1, soldiers=0) == -2, \
+        "a squad that is out AND has no army is worth asking for the army first"
+    assert ask() == 1, "a squad at home with an army is refused"
 
 
 def _run_standalone() -> int:

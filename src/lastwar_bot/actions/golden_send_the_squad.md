@@ -28,7 +28,7 @@ IF picked == 1
     # this rule being broken.
     #
     #  * «залипание на шахте» — the ride is a GATHER order and a squad that lands on a
-    #    mine works it: measured live, `canMarch = false` with the march's own clock 109
+    #    mine works it: measured live, the squad not free with the march's own clock 109
     #    minutes out. Every attack sent into that window was refused in silence and cost
     #    ten seconds to prove, over and over, for as long as the run lasted.
     #  * «меняет маршрут, когда уже идёт на зомби» — an order that WAS accepted but whose
@@ -38,18 +38,24 @@ IF picked == 1
     # One read, and it is the client's own answer about our own formation. A squad that
     # cannot march is RECALLED rather than shouted at — the recall is the same press that
     # takes a squad off dirty ground, because from here the two are the same thing.
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if n <= 0 then return -2 end if can then return 1 end return 0 end)() INTO squad_free
     IF squad_free == 0
         LOG "the squad cannot take an order where it stands — recalling it instead of sending orders nobody can carry out"
         TAP golden_unstick
         READ_LUA (0) INTO picked
     # …and «no army loaded» is NOT «busy» (#1702): a squad the client is holding no
-    # soldiers for reads `canMarch = false` while standing at home doing nothing. One
-    # question puts them back; only if that fails is the order withheld.
+    # soldiers for is standing at home doing nothing, and it answers the gate exactly like
+    # a free one — the soldier count is what tells them apart. One question puts the
+    # soldiers back; only if that fails is the order withheld.
+    #
+    # THE GATE ASKS `state` AND `IsFree()`, NEVER `canMarch` (#1702). The flag is
+    # recomputed by the real dispatch render and by nothing else, so a headless session
+    # read `canMarch = false` over a squad standing at home with a full army — and the
+    # panel said «ОТРЯД ЗАНЯТ» about a squad the person could see was not.
     IF squad_free == -2
         LOG "the client is holding no army for the squad — asking for it before giving any order"
         CALL fill_empty_squads
-        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if n <= 0 then return -2 end if can then return 1 end return 0 end)() INTO squad_free
     IF squad_free == -2
         LOG "the squad still holds no army — no order is given"
         READ_LUA (0) INTO picked
@@ -126,13 +132,13 @@ IF picked == 1
                     READ_LUA (1) INTO arrived
                 READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
             # …AND THEN THE FUSE (#1702). A ride that lands on a mine and starts
-            # GATHERING has parked the squad — measured live, 109 minutes of
-            # `canMarch = false`, during which every attack is refused in silence.
+            # GATHERING has parked the squad — measured live, 109 minutes of a squad
+            # that is not free, during which every attack is refused in silence.
             # One such ride per run is a mistake; two would be a policy. So the
             # first one switches the ride off for the rest of the run, recalls the
             # squad, and the hunt carries on at attack speed. The person's own
             # setting is untouched — this is a fuse inside one run.
-            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+            READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if n <= 0 then return -2 end if can then return 1 end return 0 end)() INTO squad_free
             IF squad_free == 0
                 LOG "the ride ended in a gather — the squad is working the mine and takes no orders; recalling it and hunting on foot for the rest of this run"
                 TAP golden_no_ride
@@ -156,7 +162,7 @@ IF picked == 1
     # quotes (10 quoted, 8 taken, live), and the purse does not only go down — an
     # energy refill mid-chain made three marches that had all gone out look like
     # sends nobody received.
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local mine = nil pcall(function() local P = LuaEntry.Player mine = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch(P.uid, p.formation, P.allianceId) end) if mine ~= nil then local u, team = nil, '0' pcall(function() u = tostring(mine.uuid) end) pcall(function() team = tostring(mine.teamUuid) end) if u ~= nil and not seen[u] and (team == '0' or team == 'nil') then return 1 end end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = not (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) end end end) return busy and 1 or 0 end)() INTO launched
     # 0.4 SECONDS, TWENTY-FIVE TIMES — the same ten seconds of patience, watched two and
     # a half times as closely (#1702). This poll is on the hot path: it is the last thing
     # between an order and the chain moving on, and every beat of it is dead time on a
@@ -169,7 +175,7 @@ IF picked == 1
     # only ever pays out on failure.
     WHILE launched == 0 LIMIT 15
         WAIT 0.4
-        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local mine = nil pcall(function() local P = LuaEntry.Player mine = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch(P.uid, p.formation, P.allianceId) end) if mine ~= nil then local u, team = nil, '0' pcall(function() u = tostring(mine.uuid) end) pcall(function() team = tostring(mine.teamUuid) end) if u ~= nil and not seen[u] and (team == '0' or team == 'nil') then return 1 end end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = not (function(f) local st = math.floor(tonumber(f.state) or -1) if st ~= 0 then return false end local ok, idle = pcall(function() return f:IsFree() end) if ok and idle ~= nil then return (idle and true or false) end return true end)(v) end end end) return busy and 1 or 0 end)() INTO launched
 
     IF launched == 0
         # A ZOMBIE SOMEBODY ELSE KILLED FIRST, nearly always: the client's list is a
@@ -179,11 +185,12 @@ IF picked == 1
         #
         # THERE IS NO «IS THE SQUAD STUCK» BRANCH HERE ANY MORE (#1702), and its absence
         # is the fix rather than a simplification. It used to run AFTER a send had spent
-        # ten seconds failing, and it read `canMarch == false` as «dirty ground». Two
+        # ten seconds failing, and it read «cannot march» as «dirty ground». Two
         # things are wrong with that. A squad that cannot march is now caught BEFORE the
         # send by the gate at the top of this brick, so ten seconds are never spent on a
-        # doomed order; and `canMarch == false` after a send is what an ACCEPTED order
-        # looks like, which is why the launch proof reads it as success. Asking the same
+        # doomed order; and a squad that has stopped being free after a send is what an
+        # ACCEPTED order looks like, which is why the launch proof reads it as success.
+        # Asking the same
         # question in two places with two opposite meanings is how a chain ends up
         # re-routing a squad that was already walking.
         LOG "the send never became a march — that zombie is gone, or this squad has forgotten its army; trying the next one"

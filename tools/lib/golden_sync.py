@@ -50,6 +50,7 @@ OWNERS = {
     "refreshed": "golden_refresh_done",
     "ride_report": "golden_approach_report",
     "riding": "golden_approach_planned",
+    "sent": "golden_send_now",
     "spent": "golden_spent",
     "squad_free": "golden_squad_free",
     "stuck": "golden_stuck",
@@ -58,7 +59,8 @@ OWNERS = {
 
 #: The recipes this covers — the chain and its bricks.
 RECIPES = ("attack_golden_zombies", "golden_wait_for_the_march", "golden_judge_the_kill",
-           "golden_choose_a_target", "golden_send_the_squad")
+           "golden_choose_a_target", "golden_send_the_squad", "golden_attack_target",
+           "golden_verify_order")
 
 _LINE = re.compile(r"^(\s*)READ_LUA (.*) INTO (\w+)\s*$")
 

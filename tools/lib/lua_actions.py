@@ -9654,6 +9654,29 @@ _GOLD = "DataCenter.__lw_gold"
 
 _GOLD_P = "local p = %s or {} " % _GOLD
 
+#: «МОЖЕТ ЛИ ЭТОТ ОТРЯД ПРИНЯТЬ ПРИКАЗ» — the game's own answer, and never `canMarch`
+#: (#1702). Given a formation, this Lua function is `true` only when the squad is in the
+#: base (`ArmyFormationState.Free`, 0) and the game's own `IsFree()` agrees.
+#:
+#: `canMarch` was read here for a while and it is a RED HERRING: it is recomputed by the
+#: real dispatch render (`UIFormationSelectListV2`) and by nothing else, so a headless
+#: session sees whatever it was left at. Measured live, one press apart, on a squad
+#: standing at home with a full army::
+#:
+#:     squad=2 state=0 free=1 soldiers=2631 status=- march=- team=0    (read_squad_state)
+#:     squad2 state=0 canMarch=false soldiers=2631                     (the old gate)
+#:
+#: The whole rest of this repository already knew — `create_rally.md`,
+#: `read_squad_state.md` and the rally limits all ask `state == 0` with `IsFree()`. The
+#: golden family was the one place that did not, and the operator read the result of it
+#: as «в логи пишется, что ОТРЯД ЗАНЯТ, но это НЕ ТАК».
+_SQUAD_FREE = (
+    "(function(f) local st = math.floor(tonumber(f.state) or -1) "
+    "if st ~= 0 then return false end "
+    "local ok, idle = pcall(function() return f:IsFree() end) "
+    "if ok and idle ~= nil then return (idle and true or false) end return true end)"
+)
+
 
 #: THE REGISTRY LOSES A ROW ONLY WHERE THE MAP WAS READ (#1702) — the secret tasks' rule,
 #: word for word (#1272). `present` is what THIS scan's enumerator returned; a queued
@@ -10471,10 +10494,16 @@ def golden_launched() -> str:
     squad that was already walking. That is the operator's «меняет маршрут, когда уже идёт
     на зомби», and it is a bug in the proof, not in the send.
 
-    So either half is enough: a march that was not there before, OR the game answering
-    `canMarch = false` for our formation when it answered `true` the moment before the
-    send. The chain never sends unless the squad is free (:func:`golden_squad_free`), so
-    «busy now» can only be the order we just gave.
+    So either half is enough: OUR OWN SQUAD carrying a march it was not carrying before,
+    or the game answering that the squad is no longer free. The chain never sends unless
+    the squad IS free (:func:`golden_squad_free`), so «busy now» can only be the order we
+    just gave.
+
+    **IT ASKS THE FORMATION, NOT THE ACCOUNT (#1702).** The march list is every squad's,
+    so an auto-join raising a SECOND squad inside the four seconds the panel waits used to
+    confirm an order that had been refused. `GetOwnerFormationMarch` answers for our
+    formation alone, and a march standing in a banner (`teamUuid ~= 0`) is not the order
+    we gave — from outside the two look alike, both carrying `endTime = 0`.
 
     `1` when nothing is pending, so a caller polling this after a skipped send is not left
     waiting for a march nobody ordered.
@@ -10483,18 +10512,20 @@ def golden_launched() -> str:
         "(function() " + _GOLD_P +
         "if p.pending == nil then return 1 end "
         "local seen = p.march_before or {} "
-        "local fresh = 0 "
-        "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
-        "if ms == nil then return end "
-        "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
-        "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
-        "if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) "
-        "if fresh > 0 then return 1 end "
+        "local mine = nil "
+        "pcall(function() local P = LuaEntry.Player "
+        "mine = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch("
+        "P.uid, p.formation, P.allianceId) end) "
+        "if mine ~= nil then local u, team = nil, '0' "
+        "pcall(function() u = tostring(mine.uuid) end) "
+        "pcall(function() team = tostring(mine.teamUuid) end) "
+        "if u ~= nil and not seen[u] and (team == '0' or team == 'nil') then "
+        "return 1 end end "
         "local busy = false "
         "pcall(function() "
         "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
         "if tostring(v.uuid) == tostring(p.formation) then "
-        "busy = (v.canMarch ~= true) end end end) "
+        "busy = not " + _SQUAD_FREE + "(v) end end end) "
         "return busy and 1 or 0 end)()"
     )
 
@@ -10812,11 +10843,16 @@ def golden_squad_free() -> str:
       not listed yet reads as a refusal, so the chain wrote the target off and ordered
       the squad somewhere else — and the game re-routed a squad that was already walking.
 
-    **`canMarch = false` is TWO different facts, and reading them as one is a bug this
-    very reading nearly shipped (#1702).** Measured live on an account whose client had
-    just restarted: `squad3 state=0 canMarch=false soldiers=0` — a squad standing AT HOME,
-    perfectly free, whose army the client has simply never fetched. A gate that treats
-    that as «busy» waits two minutes and stops the hunt on a good squad.
+    **«NO ARMY» IS NOT «BUSY», and reading them as one is a bug this very reading nearly
+    shipped (#1702).** Measured live on an account whose client had just restarted:
+    `squad3 state=0 free=1 soldiers=0` — a squad standing AT HOME, perfectly free, whose
+    army the client has simply never fetched. A gate that treats that as «busy» waits two
+    minutes and stops the hunt on a good squad.
+
+    **AND THE «BUSY» HALF ASKS THE GAME, NOT `canMarch` (#1702).** See :data:`_SQUAD_FREE`:
+    the flag is recomputed by the real dispatch render and by nothing else, so a headless
+    session read `canMarch = false` over a squad standing at home with 2 631 soldiers and
+    the panel said «отряд занят» about a squad the player could see was not.
 
     So there are four answers, and the caller is expected to act on the difference:
 
@@ -10835,11 +10871,11 @@ def golden_squad_free() -> str:
         "pcall(function() "
         "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
         "if tostring(v.uuid) == tostring(p.formation) then seen = true "
-        "can = (v.canMarch == true) "
+        "can = " + _SQUAD_FREE + "(v) "
         "n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) "
         "if not seen or can == nil then return -1 end "
-        "if can then return 1 end "
         "if n <= 0 then return -2 end "
+        "if can then return 1 end "
         "return 0 end)()"
     )
 
@@ -10874,8 +10910,9 @@ def golden_stuck() -> str:
 
     Asked after a send that produced no march. Two readings have to agree: the squad
     holds an army (so the server is not refusing an empty formation) and the game says it
-    cannot march (`canMarch`), which is what a squad on dirty ground reads. Both are the
-    client's own answers about OUR formation, not a guess about the ground.
+    is not free (:data:`_SQUAD_FREE` — `state` plus `IsFree()`), which is what a squad on
+    dirty ground reads. Both are the client's own answers about OUR formation, not a
+    guess about the ground.
     """
     return (
         "(function() " + _GOLD_P +
@@ -10885,7 +10922,7 @@ def golden_stuck() -> str:
         "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
         "if tostring(v.uuid) == tostring(p.formation) then "
         "n = math.floor(tonumber(v.totalSoldierNum) or 0) "
-        "can = (v.canMarch == true) end end end) "
+        "can = " + _SQUAD_FREE + "(v) end end end) "
         "return ((n > 0) and (can == false)) and 1 or 0 end)()"
     )
 
@@ -11531,17 +11568,15 @@ def golden_march_in_flight() -> str:
     """Lua *expression* -> 1 while the march this hunt ordered is still on the map.
 
     **`canMarch` DOES NOT ANSWER THIS, and that is the whole reason this exists (#1702).**
-    Measured live on 2026-08-21, with the dev brick `dev/golden_squad_state.md` run
-    against a squad that had just been sent at a zombie::
+    Measured live with the dev brick `dev/golden_squad_state.md` run against a squad that
+    had just been sent at a zombie::
 
         squad2 state=1 canMarch=true soldiers=2631
-        marches=1 [left=71s uuid=1407629582328375098 form=?]
+        marches=1 [left=71s uuid=1000000000000000001 form=?]
 
-    A march of ours in flight, and the formation still saying it may march. So the gate
-    that let a lap begin — `golden_squad_free`, which reads `canMarch` — passed while the
-    squad was walking, the send that followed was refused in silence, and the chain wrote
-    the target off as «gone» and picked the next one. Live, a run attacked ONCE and then
-    burned four targets and sixty seconds that way.
+    A march of ours in flight, and the formation still saying it may march — the flag is
+    stale in both directions, which is why nothing gates on it any more. `golden_squad_free`
+    reads `state` and `IsFree()` now; this asks the parked march uuid, which is exact.
 
     The march's own uuid answers it exactly: `golden_note_eta` parks the uuid of the
     march the send created, and this is 1 for as long as that uuid is still in our own
@@ -11657,7 +11692,7 @@ def golden_send_now() -> str:
         "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
         "if math.floor(tonumber(v.index) or -1) == p.squad then "
         "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
-        "can = (v.canMarch == true) end end end) "
+        "can = %(free)s(v) end end end) "
         # …the previous ORDER is forgotten, the CHOICE is kept: «отправил, развернул,
         # отправить снова» has to work.
         "p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 "
@@ -11665,8 +11700,13 @@ def golden_send_now() -> str:
         "%(gold)s = p "
         "if p.formation == nil then return -1 end "
         "if p.cur == nil then return -3 end "
-        "if not can then "
-        "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end return 0 end "
+        # «NO ARMY» IS ASKED FIRST (#1702). A squad the client holds no soldiers for is
+        # `state = 0` and `IsFree() = true` — free by every reading the game has — so
+        # acting on «free» before counting the soldiers sends an EMPTY formation at a
+        # zombie, which the server refuses in silence. The count is the only thing that
+        # tells «the client has not fetched the army» from «the squad is idle».
+        "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end "
+        "if not can then return 0 end "
         "local t = p.cur "
         "local uuid = _freshuuid(ws, p, t) "
         # …AND THE ROW GOES WITH IT (#1702). A zombie the client cannot name is one
@@ -11700,7 +11740,7 @@ def golden_send_now() -> str:
         "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, 1, false, srv, nil) end) "
         "end, 0.1) "
         "return 1 end)()"
-        % {"gold": _GOLD})
+        % {"gold": _GOLD, "free": _SQUAD_FREE})
 
 
 def golden_ready_to_send() -> str:
@@ -11731,16 +11771,16 @@ def golden_ready_to_send() -> str:
         "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
         "if math.floor(tonumber(v.index) or -1) == p.squad then "
         "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
-        "state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) "
+        "state = math.floor(tonumber(v.state) or 0) can = %(free)s(v) end end end) "
         "p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 "
         "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
         "%(gold)s = p "
         "if p.formation == nil then return -2 end "
         "if p.cur == nil then return -3 end "
-        "if can then return 1 end "
         "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end "
+        "if can then return 1 end "
         "return 0 end)()"
-        % {"gold": _GOLD})
+        % {"gold": _GOLD, "free": _SQUAD_FREE})
 
 
 def golden_find_now() -> str:
