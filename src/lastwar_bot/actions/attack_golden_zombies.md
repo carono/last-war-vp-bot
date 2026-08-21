@@ -139,6 +139,7 @@
 
 ARGS squad = 1
 ARGS radius = 2000
+ARGS reach = 150
 ARGS scan = 1
 ARGS limit = 0
 ARGS march_wait = 200
@@ -171,6 +172,7 @@ CALL fill_empty_squads
 # arguments of its own.
 LUA DataCenter.__lw_gold_squad = {squad}
 LUA DataCenter.__lw_gold_radius = {radius}
+LUA DataCenter.__lw_gold_reach = {reach}
 LUA DataCenter.__lw_gold_limit = {limit}
 LUA DataCenter.__lw_gold_back = 0
 LUA DataCenter.__lw_gold_approach_sec = {approach_sec}
@@ -275,7 +277,16 @@ WHILE go == 1 LIMIT 200
     IF go == 1
         CALL golden_judge_the_kill
         CALL golden_choose_a_target
-        CALL golden_send_the_squad
+        # NOTHING WITHIN REACH IS AN ENDING, NOT A LAP (#1702). The invasion clusters, and
+        # when its near zombies are dead the queue still holds the far ones the sweep saw —
+        # measured live, 72 of them between 580 and 615 tiles out. A chain that keeps
+        # choosing from those looks hung for ten minutes per kill, so it says so and stops.
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO have_target
+        IF have_target == 0
+            LOG "no golden zombie within {reach} tiles of the squad — the wave has moved on, stopping here"
+            READ_LUA (0) INTO go
+        IF have_target == 1
+            CALL golden_send_the_squad
         IF go == 1
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local left = (function() local v = nil pcall(function() v = tonumber(LuaEntry.Player.stamina) end) if v == nil then pcall(function() v = tonumber(LuaEntry.Player:GetCurStamina()) end) end return math.floor(v or 0) end)() local cost = math.floor(tonumber(p.cost) or 10) if cost <= 0 then cost = 10 end if left < cost then return 0 end local lim = math.floor(tonumber(p.limit) or 0) if lim > 0 and (tonumber(p.attacks) or 0) >= lim then return 0 end return ((function() local p = DataCenter.__lw_gold or {} local n = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then n = n + 1 end end return n end)() > 0) and 1 or 0 end)() INTO go
 

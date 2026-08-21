@@ -9801,6 +9801,7 @@ def golden_arm() -> str:
         "p.cfg = %(cfg)d "
         "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
         "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "
+        "p.reach = math.floor(tonumber(%(gold)s_reach) or 0) "
         "p.back = math.floor(tonumber(%(gold)s_back) or 0) "
         "p.limit = math.floor(tonumber(%(gold)s_limit) or 0) "
         "p.targets = {} p.used = {} p.attacks = 0 p.spent = 0 p.found = 0 "
@@ -10119,6 +10120,13 @@ def golden_pick() -> str:
         "d = math.sqrt(dx * dx + dy * dy) "
         "else pcall(function() d = tonumber("
         "SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end "
+        # …AND NOT ONE THE SQUAD WOULD WALK ALL MORNING TO (#1702). With the zombies
+        # near the base killed, the queue is whatever the sweep saw at the far end of
+        # the warzone: measured live, picks 580 to 615 tiles out, which is a march of
+        # minutes for one kill and reads as a hung chain. `reach` is that limit in
+        # tiles; 0 keeps the old behaviour of walking anywhere.
+        "local reach = math.floor(tonumber(p.reach) or 0) "
+        "if d ~= nil and reach > 0 and d > reach then d = nil end "
         "if d ~= nil and (bestd == nil or d < bestd) then best, bestd = t, d end end end "
         "if best ~= nil then p.cur = best p.curdist = math.floor(bestd + 0.5) "
         "p.curfrom = from end "
