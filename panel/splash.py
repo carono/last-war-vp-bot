@@ -39,18 +39,18 @@ class SplashScreen(tk.Toplevel):
         self.overrideredirect(True)             # frameless — no title bar, no border
         self.configure(bg=_BG)
         self._center(width, height)
-        try:
-            self.attributes("-topmost", True)
-        except Exception:           # noqa: BLE001 — a cosmetic attribute, never fatal
-            pass
+        # No -topmost: frameless windows have no taskbar entry to fall back to, so
+        # pinning it above everything else hides whatever the person switched to
+        # while the panel was booting (#1880).
 
         # A 1px border so the frameless card reads as a window on any wallpaper.
         card = tk.Frame(self, bg=_BG, highlightbackground=_BORDER,
                         highlightcolor=_BORDER, highlightthickness=1, bd=0)
         card.pack(fill="both", expand=True)
 
-        tk.Label(card, text=title, bg=_BG, fg=_TITLE,
-                 font=("Segoe UI", 30, "bold")).pack(pady=(48, 0))
+        title_lbl = tk.Label(card, text=title, bg=_BG, fg=_TITLE,
+                              font=("Segoe UI", 30, "bold"))
+        title_lbl.pack(pady=(48, 0))
         if subtitle:
             tk.Label(card, text=subtitle, bg=_BG, fg=_SUBTLE,
                      font=("Segoe UI", 13)).pack(pady=(4, 0))
@@ -64,7 +64,23 @@ class SplashScreen(tk.Toplevel):
         self._step_lbl.pack()
 
         self._progress = 0.0
+        # Frameless = no title bar to grab, so the whole card is the drag handle —
+        # every widget on it, not just the bare background, or a press that lands
+        # on the title/step text does nothing (#1880).
+        self._drag_origin: tuple[int, int] | None = None
+        for widget in (self, card, title_lbl, self._step_lbl):
+            widget.bind("<ButtonPress-1>", self._drag_start)
+            widget.bind("<B1-Motion>", self._drag_move)
         self._render()
+
+    def _drag_start(self, event: "tk.Event") -> None:
+        self._drag_origin = (event.x_root - self.winfo_x(), event.y_root - self.winfo_y())
+
+    def _drag_move(self, event: "tk.Event") -> None:
+        if self._drag_origin is None:
+            return
+        ox, oy = self._drag_origin
+        self.geometry(f"+{event.x_root - ox}+{event.y_root - oy}")
 
     def _center(self, w: int, h: int) -> None:
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
