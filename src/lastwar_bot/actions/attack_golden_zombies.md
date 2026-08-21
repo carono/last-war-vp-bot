@@ -139,7 +139,7 @@
 
 ARGS squad = 1
 ARGS radius = 2000
-ARGS reach = 150
+ARGS reach = 600
 ARGS reach_far = 700
 ARGS breather = 90
 ARGS breathers = 30
