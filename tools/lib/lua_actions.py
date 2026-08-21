@@ -11786,40 +11786,49 @@ def golden_find_now() -> str:
 def golden_confirm_current() -> str:
     """Ask the game about the CHOSEN zombie's own tile. 1 alive, 0 gone, -1 cannot tell.
 
-    The difference between the last two is the whole of «плохо фильтрует монстров,
-    которые пропали» (#1702). `GetMonsterListInArea` answers out of the ground the
-    client is HOLDING — sixty-odd tiles around the camera — so a candidate further out
-    answers «not there» whether it is alive or dead. Reading that as death would empty
-    the registry of everything far (THE_LIST_RULE, #1272); reading it as life is what
-    was showing the operator empty tiles.
+    **The answer comes from the AREA LIST around that tile, and the three cases are told
+    apart by what else is in it** (#1702). Measured with the camera parked exactly on a
+    candidate:
 
-    So it is three answers, and only `0` — the client looking straight at that ground
-    and not finding it — strikes the row out. `-1` leaves the row alone and tells the
-    caller to fly there and ask again.
+        tile=874,895 holds=false camera=874,895 area_n=1
+
+    `HasPointInfo` is false for a monster tile — point info is for resource nodes, bases
+    and the like — so the obvious «does the client hold this ground» question cannot be
+    asked that way, and the camera's own position does not answer it either (`CurTilePos`
+    lags a jump). The list does: ask about a small box around the tile and
+
+    * the zombie's own uuid is in it            → it is there, `1`;
+    * something else is, but not it             → the client is holding that ground and
+      the zombie is not on it, so it is gone, `0` — struck out, which is the only case
+      THE_LIST_RULE (#1272) allows;
+    * the box comes back empty                  → nothing is loaded there at all, `-1`,
+      and the row is left exactly as it was.
     """
     return (
-        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
+        "(function() " + _GOLD_P + _GOLD_WS +
         "local t = p.cur "
         "if t == nil or ws == nil then return -1 end "
-        # DOES THE CLIENT HOLD THAT GROUND? ASK IT, DO NOT GUESS FROM THE CAMERA
-        # (#1702). The old test was «within forty tiles of `CurTilePos`», and that
-        # reading does not follow a jump: after flying to a candidate the client had
-        # the district and the check still said «cannot tell», so nothing far could
-        # ever be confirmed. `HasPointInfo` is the client answering about THAT TILE:
-        # true means it is holding it, and then an empty area list really is death.
-        "local holds = false "
-        "pcall(function() holds = ws:HasPointInfo(t.pid) end) "
-        "if not holds then return -1 end "
-        "if _freshuuid(ws, p, t) ~= nil then "
-        "t.at = os.time() t.seen = 1 %(gold)s = p return 1 end "
-        # …looked at, not found: struck out, and the choice with it.
+        "local n, mine = 0, false "
+        "local asked = pcall(function() "
+        "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, "
+        "CS.System.Int32)() "
+        "for _, id in ipairs(p.ids or {%(cfg)d}) do pcall(function() ids:Add(id, 1) end) end "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) "
+        "local e = res:GetEnumerator() "
+        "while e:MoveNext() do n = n + 1 "
+        "if tostring(e.Current.Key) == tostring(t.key or t.uuid or 0) then mine = true end end end) "
+        "if not asked then return -1 end "
+        "if mine then t.at = os.time() t.seen = 1 %(gold)s = p return 1 end "
+        "if n <= 0 then return -1 end "
         "local keep = {} "
         "for _, q in ipairs(p.targets or {}) do "
         "if tostring(q.pid) ~= tostring(t.pid) then keep[#keep + 1] = q end end "
         "p.targets = keep p.cur = nil p.reaped = (tonumber(p.reaped) or 0) + 1 "
         "%(gold)s = p "
         "return 0 end)()"
-        % {"gold": _GOLD})
+        % {"gold": _GOLD, "cfg": 1030000})
 
 
 def golden_age_line() -> str:

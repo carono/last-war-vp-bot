@@ -1769,10 +1769,12 @@ def test_a_found_zombie_is_confirmed_on_its_own_ground_before_it_is_announced():
     # …and «is the client holding that ground» is ASKED, not guessed from the camera:
     # `CurTilePos` does not follow a jump, so a forty-tile heuristic made everything far
     # permanently unconfirmable (#1702).
-    assert "holds = ws:HasPointInfo(t.pid)" in confirm, \
-        "the client is not asked whether it holds that tile"
-    assert "if not holds then return -1 end" in confirm, \
-        "«the client is not looking there» is answered as death"
+    # …and the three cases are told apart by the AREA LIST, because `HasPointInfo` is
+    # false for a monster tile and `CurTilePos` lags a jump — measured with the camera
+    # parked exactly on a candidate: `holds=false camera=874,895 area_n=1` (#1702).
+    assert "if n <= 0 then return -1 end" in confirm, \
+        "an empty box is read as death instead of «nothing loaded there»"
+    assert "if mine then" in confirm, "the zombie's own uuid is not what confirms it"
     assert "p.targets = keep p.cur = nil" in confirm, "a zombie proven gone is kept"
     assert "t.at = os.time() t.seen = 1" in confirm, "a confirmation is not recorded"
     assert "at = os.time()" in lua_actions.golden_scan(), "rows are not stamped with a time"
