@@ -158,6 +158,16 @@ ARGS refresh_after = 3
 # This run may take a march's worth of minutes; nothing else waits for it (docs/dsl.md).
 DETACH
 
+# THE SESSION, BEFORE THE SCENE (#1702). A client that has just been restarted answers
+# everything plausibly while it is still on the login screen — the panel's own rule,
+# and the reason every other brick of this chain opens with the same line. This one did
+# not, and it opened by switching scenes instead: measured tonight, two runs started
+# within thirty seconds of a fresh client and both times the log's next entry was
+# «клиент пропал — процесса игры больше нет». That is a correlation and not yet a
+# proof, but the ordering is right whichever way it turns out: a run that cannot be
+# played yet should say so, not drive a half-loaded client into the world map.
+WAIT client == ready WITHIN 180s
+
 # The map, first. Everything below reads the world's own controller, which does not
 # exist while the base is on screen — and the camera lands on the base, which is what
 # the arm below takes for home.

@@ -1398,6 +1398,21 @@ def test_the_hunt_never_waits_out_a_march_that_is_not_its_own():
         "the recall leaves the clock it was triggered by standing"
 
 
+def test_the_chain_waits_for_a_session_before_it_touches_the_scene():
+    """A restarted client answers everything plausibly from the login screen (#1702).
+
+    Every other brick of this chain opens with `WAIT client == ready`; the chain itself
+    opened by switching scenes. Measured tonight: two runs started within thirty seconds
+    of a fresh client, and both times the log's next entry was «клиент пропал — процесса
+    игры больше нет». Correlation rather than proof — but a run that cannot be played yet
+    should say so rather than drive a half-loaded client into the world map.
+    """
+    _body, lines = _brick("attack_golden_zombies")
+    ready = next(k for k, w in enumerate(lines) if w.startswith("WAIT client == ready"))
+    scene = next(k for k, w in enumerate(lines) if w.startswith("IF scene != world"))
+    assert ready < scene, "the run changes scene on a client that may not be in play yet"
+
+
 def test_a_far_first_pick_widens_the_look_before_it_is_marched():
     """76 opening picks: median 47 tiles, tail 569 — and the ring covers about 160 (#1702).
 
