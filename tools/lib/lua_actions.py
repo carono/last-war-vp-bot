@@ -10362,7 +10362,8 @@ def golden_send() -> str:
         "end, 0.5) "
         "p.used[tostring(t.pid)] = true "
         "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
-        "p.pending = {pid = pid, uuid = uuid, x = t.x, y = t.y} "
+        "p.pending = {pid = pid, uuid = uuid, key = tostring(uuid), x = t.x, y = t.y} "
+        "p.hit = p.pending "
         # THE MARCHES THAT EXIST BEFORE THE SEND (#1702). The proof that a send reached
         # the server is a march of ours that was not there a moment ago, so the «before»
         # set is taken here — and the one that appears against it is this attack, which

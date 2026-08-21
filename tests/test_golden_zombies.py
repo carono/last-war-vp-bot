@@ -1557,6 +1557,29 @@ def test_the_chain_creates_no_new_lua_globals():
         assert "_G.__LW" not in text, f"{recipe} writes a new Lua global"
 
 
+def test_the_lap_waits_for_the_fight_and_never_orders_over_one():
+    """«Прыгает с монстра на монстра» — the operator, watching the game (#1702).
+
+    Two halves make it impossible now. The target is fixed when the ORDER is sent, not
+    when the client's march list catches up with it — that list lags, and lap after lap
+    the six-second launch poll ran out while the squad really was walking. And the wait
+    for the zombie to leave the map is given the march's own budget instead of sixteen
+    seconds, so a fight is waited out rather than judged «still standing».
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    assert "p.hit = p.pending" in lua_actions.golden_send(), \
+        "the target is not fixed at the moment the order goes out"
+    judge = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+             / "golden_judge_the_kill.md").read_text(encoding="utf-8")
+    loop = next(line for line in judge.splitlines()
+                if line.startswith("WHILE gone == 0 LIMIT"))
+    assert int(loop.rsplit(" ", 1)[-1]) >= 60, \
+        "the fight is not waited out — the chain will order over one in progress"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
