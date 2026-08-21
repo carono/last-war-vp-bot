@@ -259,3 +259,53 @@ The socket rung is deliberately weaker than the errand gate's (`_link_lost`, whi
 every scenario prove the session for itself with the game's own clock). That asymmetry is
 the point: a launch may end as soon as the client is up, and what to do with a client that
 is up is somebody else's question.
+
+## 7. The launcher is single-instance, and a hung one eats every start after it (#1702)
+
+**Measured live on 2026-08-21.** The client went down at 03:50 and would not come back:
+`launch_game` reported `START_GAME -> launched in this desktop` and then failed its
+`WAIT client == ready` on the 180 s cap, every time, for three hours. The panel's own
+readings were all consistent and all useless — no client process, no daemon, link
+`offline` — because they describe the CLIENT, and the client was never the thing that
+was stuck.
+
+The answer was in the launcher's own log, `Launcher.log` beside `LastWarLauncher.exe`,
+which nothing in this repository was reading:
+
+```
+[03:44:22.901][Launcher::app::update][WARN] Network check attempt 1 failed: …getlsu3dversion.php…
+[03:44:24.902][Launcher::app::update][WARN] Network check attempt 2 failed: …
+[03:44:26.904][Launcher::app::update][WARN] Network check attempt 3 failed: …
+[03:49:58.024][Launcher][ERROR] Launcher is already running
+[03:56:24.921][Launcher][ERROR] Launcher is already running
+…twenty-two more, one per attempt, to 06:54
+```
+
+So: the launcher lost the network while asking the version service what build to run,
+stayed up in that state, and — being single-instance — met every later launch with one
+line and an immediate exit. Each of ours died in milliseconds, which is exactly what a
+successful fire-and-forget spawn looks like from the outside.
+
+**What tells this apart from an ordinary cold start**, without reading the log:
+
+| reading | stuck launcher | ordinary cold start |
+|---|---|---|
+| `LastWarLauncher.exe` running | yes, for hours | yes, for 1–2 minutes |
+| `LastWar.exe` running | never appears | appears, then the launcher goes |
+| a second launch | exits at once | exits at once (same!) |
+
+The second launch behaves identically in both cases, which is why the AGE of the
+launcher is the only cheap discriminator. `tools/lib/game_client.py::clear_stale_launchers`
+ends a launcher older than `LW_LAUNCHER_STALE_SEC` (default 300 s) before spawning its
+own, in this desktop's session and in a profile's own alike, and leaves a younger one
+alone — that one is probably updating the game, and killing it mid-update helps nobody.
+
+Live proof of the fix, same morning:
+
+```
+07:01:57 launcher pid 75860 has been up 11856s with no client — ending it, …
+07:02:12 WAIT client == ready -> matched after 14.4s
+```
+
+Three hours of a dead account, and the client was up fourteen seconds after the ground
+was cleared.
