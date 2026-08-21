@@ -117,7 +117,7 @@ IF squad_free == -2
     LOG "the client is holding no army for the squad — asking for it rather than waiting"
     CALL fill_empty_squads
     READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
-WHILE squad_free == 0 LIMIT 60
+WHILE squad_free == 0 LIMIT 300
     WAIT 2
     READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
 # A SECOND CHANCE AT THE ARMY, and it is not politeness (#1702). A squad that has just
@@ -132,8 +132,15 @@ IF squad_free == -2
     WHILE squad_free == 0 LIMIT 15
         WAIT 2
         READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return -1 end local seen, can, n = false, nil, 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then seen = true can = (v.canMarch == true) n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) if not seen or can == nil then return -1 end if can then return 1 end if n <= 0 then return -2 end return 0 end)() INTO squad_free
+# TEN MINUTES, NOT TWO (#1702). Counted over one morning, «the squad has been busy for
+# two minutes» ended four runs of the day — and a squad is busy because something else
+# has it: a rally somebody joined it to, a gather it was sent on, an order the person
+# gave by hand. Every one of those ends by itself in minutes, and the purse it was
+# holding out on had thousands of energy in it. Waiting is the cheap answer; ten minutes
+# is long enough for anything ordinary and short enough that a genuinely stuck squad
+# still ends the run with a sentence.
 IF squad_free == 0
-    LOG "the squad has been busy for two minutes and still takes no orders — stopping rather than waiting on it"
+    LOG "the squad has been busy for ten minutes and still takes no orders — stopping rather than waiting on it"
     READ_LUA (0) INTO go
 IF squad_free == -2
     LOG "the squad still holds no army after being asked for it twice — stopping rather than sending orders it cannot carry out"

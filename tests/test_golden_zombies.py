@@ -1358,7 +1358,10 @@ def test_a_lap_does_not_begin_until_the_squad_is_free():
     i = max(k for k, w in enumerate(wait) if " INTO squad_free" in w)
     loop = next(w for w in wait if w.startswith("WHILE squad_free == 0 LIMIT"))
     beats = int(loop.rsplit(" ", 1)[-1])
-    assert 30 <= beats <= 120, "the patience is either a blink or a hang"
+    # TEN MINUTES IS THE CEILING NOW (#1702): «busy for two minutes» ended four runs
+    # of one morning, and a squad is busy because a rally, a gather or the person
+    # has it — all of which end by themselves in minutes.
+    assert 30 <= beats <= 300, "the patience is either a blink or a hang"
     tail = wait[i:]
     assert any(w.startswith("LOG ") for w in tail), \
         "a run that gives up on a busy squad does so in silence"
