@@ -1670,6 +1670,11 @@ def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round()
     # выбранного» must send at the same zombie again (#1702).
     assert "p.cur = nil" not in lua_actions.golden_unstick(), \
         "the recall throws the fixed target away"
+    recall = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+              / "golden_recall_squad.md").read_text(encoding="utf-8")
+    assert "TAP golden_arm" not in recall, \
+        "the recall re-arms, and arming builds the run from nothing — the target is lost"
+    assert "TAP golden_use_squad" in recall
 
     text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
             / "golden_attack_target.md").read_text(encoding="utf-8")

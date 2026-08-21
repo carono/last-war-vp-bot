@@ -8,7 +8,11 @@
 ARGS squad = 2
 
 LUA DataCenter.__lw_gold_squad = {squad}
-TAP golden_arm
+# NOT `golden_arm` (#1702). Arming builds the run's state from nothing, which throws
+# away the zombie «Найти ближайшего» fixed — and then «Атаковать выбранного» after a
+# recall answers «цель не зафиксирована», which is exactly what the operator hit. This
+# points at the squad and touches nothing else.
+TAP golden_use_squad
 TAP golden_unstick
 WAIT 6
 CALL fill_empty_squads
