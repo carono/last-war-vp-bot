@@ -186,6 +186,21 @@ LUA DataCenter.__lw_gold_refresh_after = {refresh_after}
 
 TAP golden_arm
 
+# A RUN THAT STARTS BEHIND A GATHERING SQUAD FREES IT FIRST (#1702). The operator
+# watched this happen: the ride took the squad to a mine, the zombie was killed by
+# somebody else while it travelled, the squad landed and started gathering — 24 762
+# seconds of it — and pressing «охота» again moved nothing, because every order after
+# that is refused in silence. The recall the chain had was the one that does not work
+# on a gather: `OnBackHome(formation)` frees a squad that is walking and leaves one
+# that is working. The MARCH's own uuid is what a person taps in the game, and it
+# brought the squad home in under a minute (`golden_unstick` sends that now).
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local out = 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then if math.floor(tonumber(v.state) or 0) ~= 0 then out = 1 end end end end) return out end)() INTO standing_out
+IF standing_out == 1
+    LOG "the squad is out before this hunt has ordered anything — bringing it home first"
+    TAP golden_unstick
+    WAIT 8
+    CALL fill_empty_squads
+
 READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end if (tonumber(p.soldiers) or 0) <= 0 then return -1 end return 1 end)() INTO armed
 
 IF armed == 0

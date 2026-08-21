@@ -1202,7 +1202,10 @@ def test_one_ride_that_ends_in_a_gather_switches_the_ride_off_for_the_run():
     """
     body, lines = _brick("golden_send_the_squad")
     ride = lines.index("TAP golden_ride")
-    tail = lines[ride:ride + 14]
+    # The window is wider than it was: the ride's own wait now asks, on every beat,
+    # whether the zombie it is riding to is still there (#1702) — the operator watched
+    # a ride land on a mine for a target somebody else had killed on the way.
+    tail = lines[ride:ride + 30]
     assert any(" INTO squad_free" in w for w in tail), \
         "nothing asks whether the ride ended in a gather"
     assert "TAP golden_no_ride" in tail, "a ride that parks the squad may happen again"

@@ -91,6 +91,21 @@ IF picked == 1
             READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
             WHILE arrived == 0 LIMIT {march_wait}
                 WAIT 3
+                # …AND THE RIDE IS ABANDONED THE MOMENT ITS ZOMBIE IS GONE (#1702). The
+                # operator watched exactly this: the squad set off for a mine beside the
+                # target, somebody else killed the target while it travelled, and the
+                # squad arrived, started gathering and took no orders for the rest of the
+                # day. A ride is only ever worth taking for a zombie that is still there,
+                # so the tile is asked about on every beat and the recall goes the moment
+                # it comes up empty — which costs the ride and saves the run.
+                TAP golden_scan
+                READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.hit if t == nil then return 1 end local ws = DataCenter.__lw_gold_ws local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) DataCenter.__lw_gold_ws = ws end if ws == nil then return 1 end local want = tostring(t.key or t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 0 or 1 end)() INTO target_gone
+                IF target_gone == 1
+                    LOG "the zombie died while we were riding to it — recalling rather than landing on the mine"
+                    TAP golden_no_ride
+                    TAP golden_unstick
+                    READ_LUA (0) INTO picked
+                    READ_LUA (1) INTO arrived
                 READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
             # …AND THEN THE FUSE (#1702). A ride that lands on a mine and starts
             # GATHERING has parked the squad — measured live, 109 minutes of
