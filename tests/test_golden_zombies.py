@@ -258,7 +258,7 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
                                              "TAP golden_refresh")), \
                 "the scan the pick reads was taken from somewhere else"
     look = lua_actions.golden_look_from()
-    assert "p.anchor or p.home" in look, \
+    assert "_origin(p)" in look, \
         "the camera does not follow the same origin the pick measures from"
 
 
@@ -706,17 +706,33 @@ def test_the_pick_takes_the_minimum_from_the_origin_and_is_taken_again_later():
     assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, "the pick is not the nearest to home"
     assert rt.eval("DataCenter.__lw_gold.curfrom") == "home"
     assert rt.eval("DataCenter.__lw_gold.curdist") == 10
-    # …AND FROM THE LAST KILL ONCE THERE IS ONE (#1702). This asserted «home» for a
-    # day: two orders at a stationed squad had been refused in silence with the purse
-    # unmoved, so a kill looked like a round trip from the base whatever the anchor
-    # said. The refusal was ours — `SendCreateMarchMessage` creates a march from the
-    # base and cannot redeploy a landed army; `SendChangeMarchToServer` can, and did,
-    # live, with the purse taken and the march turning MOVING where it stood. So the
-    # neighbour of the corpse is the cheap target again.
+    # …AND THE ORIGIN AFTER A KILL IS ASKED, NOT ASSUMED (#1702). An anchor is where
+    # the run last SENT a squad; whether the next march starts there depends on whether
+    # the squad is still standing on it. Both readings were measured live: the redeploy
+    # call works at a squad that has landed, and a squad that has killed is normally
+    # home again by the time the next order can be given — every march the server priced
+    # after a kill was priced from the BASE. So an anchor with nothing standing on it is
+    # not an origin, and a chain that measured from one drifted outwards, 46 tiles from
+    # home to 119 over six kills.
     rt.execute("DataCenter.__lw_gold.anchor = {x = 150, y = 150}")
+    rt.execute("LuaEntry = {Player = {uid = 1, allianceId = 2}} "
+               "DataCenter.WorldMarchDataManager = "
+               "{GetOwnerFormationMarch = function() return nil end}")
+    rt.execute(lua_actions.golden_pick())
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, \
+        "the pick measures from a tile the squad walked away from"
+    assert rt.eval("DataCenter.__lw_gold.curfrom") == "home"
+
+    # …and from the anchor the moment the squad IS still standing on it, because then
+    # the send re-aims it where it is and the hop really is the hop.
+    rt.execute("DataCenter.__lw_gold.anchor = {x = 148, y = 148} "
+               "DataCenter.__lw_gold.formation = '77' "
+               "DataCenter.WorldMarchDataManager = {GetOwnerFormationMarch = "
+               "function() return {teamUuid = '0', status = 'STATION: 0', endTime = 0} "
+               "end}")
     rt.execute(lua_actions.golden_pick())
     assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 33, \
-        "the chain walks home between kills instead of hopping to the next zombie"
+        "a squad standing where it killed is walked home instead of hopping"
     assert rt.eval("DataCenter.__lw_gold.curfrom") == "anchor"
 
     # …and the recipe revisits the choice only when the ground has been PROVEN stale
@@ -1064,7 +1080,7 @@ def test_the_expensive_refresh_waits_for_two_to_five_disappearances():
     # of `SendCreateMarchMessage` and not of the game: `SendChangeMarchToServer` re-aims
     # a squad standing on the tile it cleared, live, so the ground worth loading is the
     # ground around the squad again.
-    assert "p.anchor or p.home" in refresh, \
+    assert "_origin(p)" in refresh, \
         "the refresh is aimed away from where the next march actually starts"
     assert lua_actions.GOLDEN_REFRESH_STOPS + 1 <= 12, \
         "the refresh is as long a walk as the ring it replaced"

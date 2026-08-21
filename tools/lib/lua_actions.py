@@ -10045,10 +10045,10 @@ def golden_refresh() -> str:
     every first pick with seven.
     """
     return (
-        _GOLD_P + _GOLD_WS +
+        _GOLD_P + _GOLD_WS + _GOLD_OWN_MARCH +
         "if ws == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_refresh skipped=not-in-world") return end '
-        "local o = p.anchor or p.home "
+        "local o = _origin(p) "
         "if o == nil then o = {x = ws.CurTilePos.x, y = ws.CurTilePos.y} end "
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end "
@@ -10145,9 +10145,9 @@ def golden_best_dist() -> str:
     march would be», asked before it is ordered and without choosing anything.
     """
     return (
-        "(function() " + _GOLD_P +
+        "(function() " + _GOLD_P + _GOLD_OWN_MARCH +
         "local ox, oy = nil, nil "
-        "local o = p.anchor or p.home "
+        "local o = _origin(p) "
         "if o ~= nil then ox, oy = o.x, o.y end "
         "local best = nil "
         "for _, t in ipairs(p.targets or {}) do "
@@ -10241,11 +10241,11 @@ def golden_pick() -> str:
     recipe puts the camera back on the origin and re-scans before every pick.
     """
     return (
-        _GOLD_P +
+        _GOLD_P + _GOLD_OWN_MARCH +
         "p.cur = nil "
         "local ox, oy, from = nil, nil, 'oracle' "
-        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
-        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
+        "local o0, o0name = _origin(p) "
+        "if o0 ~= nil then ox, oy, from = o0.x, o0.y, o0name end "
         "local best, bestd = nil, nil "
         "for _, t in ipairs(p.targets or {}) do "
         "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) then "
@@ -10295,9 +10295,9 @@ def golden_look_from() -> str:
     happened, and the recipe only pays the settle when it was a real move.
     """
     return (
-        _GOLD_P + _GOLD_WS +
+        _GOLD_P + _GOLD_WS + _GOLD_OWN_MARCH +
         "p.looked_moved = 0 "
-        "local at = p.anchor or p.home "
+        "local at = _origin(p) "
         "if at == nil then %(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=no-origin") return end '
         "local seen = p.looked "
@@ -10358,9 +10358,9 @@ def golden_pick_report() -> str:
     exactly what it is for.
     """
     return (
-        "(function() " + _GOLD_P +
+        "(function() " + _GOLD_P + _GOLD_OWN_MARCH +
         "local c = p.cur if c == nil then return 'none' end "
-        "local o = p.anchor or p.home "
+        "local o = _origin(p) "
         "local hd = nil "
         "pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) "
         "return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. "
@@ -11049,6 +11049,21 @@ GOLDEN_MARCH_STATION = 0
 #: LANDED means: arrived (`MarchStatus.STATION`), no arrival time left, and NOT standing
 #: in a banner — walking a squad out of somebody's rally to hit a zombie is not this
 #: recipe's decision to make.
+#: …AND THE ORIGIN OF THE NEXT MARCH FOLLOWS FROM IT (#1702). The anchor is the last
+#: tile the run sent a squad to; whether it is where the NEXT march starts depends on
+#: whether the squad is still standing there. Measured live on 2026-08-22, over six kills
+#: of one chain: it was not — every march the server priced after a kill was priced from
+#: the BASE (`eta 76 s` for a hop of 14 tiles whose target was 60 from home, `89 s` for
+#: one of 10 whose target was 70, `149 s` for one of 48 at 119). A squad that has killed
+#: is normally home again by the time the next order can be given.
+#:
+#: Measuring from an anchor the squad has left is worse than useless: it chases the
+#: neighbours of the last corpse and pays the distance from the base for each, so the
+#: chain drifts outwards — 46, 51, 60, 70, 78, 84, 119 tiles from home over six kills.
+#:
+#: So the origin is ASKED, never assumed: the anchor while the squad genuinely still has
+#: a landed march to be re-aimed (the redeploy of :func:`golden_send` will be used and
+#: the hop is the hop), and the base otherwise.
 _GOLD_OWN_MARCH = (
     "local function _ownmarch(p) "
     "if p.formation == nil then return nil end "
@@ -11068,6 +11083,10 @@ _GOLD_OWN_MARCH = (
     "pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) "
     "pcall(function() due = tonumber(m.endTime) end) "
     "return st == " + str(GOLDEN_MARCH_STATION) + " and (due == nil or due <= 0) end "
+    "local function _origin(p) "
+    "if p.anchor ~= nil and _landed(_ownmarch(p)) then return p.anchor, 'anchor' end "
+    "if p.home ~= nil then return p.home, 'home' end "
+    "return p.anchor, 'anchor' end "
 )
 
 
@@ -11635,7 +11654,7 @@ def golden_speeds() -> str:
 #: only answers before the first send.
 _GOLD_DIST = (
     "local function _dist(pid, x, y) "
-    "local o = p.anchor or p.home "
+    "local o = _origin(p) "
     "if o ~= nil then local dx, dy = (x - o.x), (y - o.y) "
     "return math.sqrt(dx * dx + dy * dy) end "
     "local d = nil "
@@ -11680,7 +11699,7 @@ def golden_approach_arm() -> str:
     plan that beats the direct march is kept, and `p.approach` stays nil otherwise.
     """
     return (
-        _GOLD_P + _GOLD_DIST +
+        _GOLD_P + _GOLD_OWN_MARCH + _GOLD_DIST +
         "p.approach = nil p.why = '' "
 "if math.floor(tonumber(p.skip_ride) or 0) == 1 then p.skip_ride = 0 "
 "p.why = 'after-recall' "
@@ -12238,12 +12257,12 @@ def golden_pick_and_report() -> str:
     some, but none of them are in the registry any more) or `<tile>|<report>`.
     """
     return (
-        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
+        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID + _GOLD_OWN_MARCH +
         "if ws == nil then return 'noneseen' end "
         "p.cur = nil "
         "local ox, oy, from = nil, nil, 'oracle' "
-        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
-        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
+        "local o0, o0name = _origin(p) "
+        "if o0 ~= nil then ox, oy, from = o0.x, o0.y, o0name end "
         "local dropped = 0 "
         "local best, bestd = nil, nil "
         "for _try = 1, 12 do "

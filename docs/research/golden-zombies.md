@@ -674,6 +674,40 @@ person playing by hand cannot reproduce is a bug in the sender, not a rule of th
 The operator says plainly they never attack from the base — «ухожу далеко, атакую сразу
 с поля» — and that sentence was the whole of the evidence needed to keep looking.
 
+### …and the chain rarely gets to use it, because the squad is home by then
+
+The door works. Six kills of one chain, measured live straight afterwards, say the chain
+does not reach it: every march the server priced after a kill was priced FROM THE BASE.
+
+| pick | from | hop | tiles from home | eta the server gave | `home / 0.765` |
+|---|---|---|---|---|---|
+| 1 | home | 46 | 46 | 58 s | 60 s |
+| 2 | anchor | 14 | 60 | 76 s | 78 s |
+| 3 | anchor | 10 | 70 | 89 s | 91 s |
+| 4 | anchor | 48 | 119 | 149 s | 155 s |
+
+The eta tracks the distance from the BASE every time, never the hop. A squad that has
+killed a zombie is normally home again by the moment the next order can be given — the
+`STATION` reading §4h was built on is a squad that has LANDED, which lasts the length of
+the fight and no longer.
+
+**Measuring from an anchor the squad has left is worse than useless.** It chases the
+neighbours of the last corpse and pays the distance from the base for each, so the chain
+drifts outwards: 46, 51, 60, 70, 78, 84, 119 tiles from home over six kills, each march
+longer than the one before.
+
+So the origin is ASKED and never assumed (`_origin` in `tools/lib/lua_actions.py`): the
+anchor while the squad genuinely still has a landed march to be re-aimed, the base
+otherwise. The report counts `redeploys` beside `attacks` for exactly this reason — the
+difference between them is the number of kills that cost a walk home, and it is the only
+number that says whether the door is being reached at all.
+
+**What would reach it** is ordering the next target while the squad is still standing —
+inside the fight, or in whatever window there is between the fight ending and the walk
+home starting. That window has not been measured yet, and it is the next thing to look
+at rather than another call to find.
+
+
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 
 The worst kind of bug: every part of it had already been thought about, and the fix was
