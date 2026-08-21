@@ -11564,6 +11564,54 @@ def golden_forget_queue() -> str:
             'CS.UnityEngine.Debug.LogError("ACT golden_forget_queue")' % {"gold": _GOLD})
 
 
+def golden_use_squad() -> str:
+    """Point the run at the squad the PANEL has chosen, keeping the parked target.
+
+    `golden_arm` builds the run's state from nothing, which is right at the start of a
+    hunt and wrong for «Атаковать выбранного»: arming there would throw away the very
+    zombie the person had just fixed with «Найти ближайшего» (#1702). This writes the
+    slot and its formation and touches nothing else, so the squad can be changed on the
+    tab between finding a target and attacking it — which is exactly what the operator
+    asked for.
+
+    Says what it resolved, because «which squad went» is the first question afterwards.
+    """
+    return (
+        _GOLD_P +
+        "p.squad = math.floor(tonumber(%(gold)s_squad) or p.squad or 1) "
+        "p.formation = nil p.soldiers = 0 "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if math.floor(tonumber(v.index) or -1) == p.squad then "
+        "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
+        "end end end) "
+        "%(gold)s = p "
+        'CS.UnityEngine.Debug.LogError("ACT golden_use_squad squad="..tostring(p.squad)'
+        '.." formation="..tostring(p.formation).." soldiers="..tostring(p.soldiers))'
+        % {"gold": _GOLD})
+
+
+def golden_order_line() -> str:
+    """Lua *expression* -> one line saying exactly what is about to be sent.
+
+    The operator asked to see it: which squad, which formation, which tile, and which
+    call. Printed BEFORE the order goes, so a refusal afterwards is read against what
+    was actually asked for rather than against what somebody assumed (#1702).
+    """
+    return ("(function() " + _GOLD_P +
+            "local c = p.cur "
+            "local where = 'none' "
+            "if c ~= nil then local srv = math.floor(tonumber(c.server or p.server) or 0) "
+            "where = '#' .. tostring(srv) .. ' X:' .. tostring(math.floor(tonumber(c.x) or 0)) "
+            ".. ' Y:' .. tostring(math.floor(tonumber(c.y) or 0)) "
+            ".. ' pid=' .. tostring(c.pid) end "
+            "return 'squad=' .. tostring(p.squad) "
+            ".. ' formation=' .. tostring(p.formation) "
+            ".. ' soldiers=' .. tostring(math.floor(tonumber(p.soldiers) or 0)) "
+            ".. ' target=' .. where "
+            ".. ' call=SendCreateMarchMessage/ATTACK_MONSTER' end)()")
+
+
 def golden_forget_target() -> str:
     """Let the chosen zombie go — the parked target and nothing else (#1702).
 

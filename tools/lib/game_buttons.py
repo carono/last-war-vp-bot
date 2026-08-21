@@ -1229,6 +1229,12 @@ BUTTONS["golden_miss"] = Button(
     lua=_lua_actions.golden_note_miss(),
     wait=0.1, label="write off a send that never became a march",
 )
+BUTTONS["golden_use_squad"] = Button(
+    # Point the run at the squad the tab has chosen, without disturbing the target that
+    # «Найти ближайшего» parked (#1702).
+    lua=_lua_actions.golden_use_squad(),
+    wait=0.1, label="use the squad the panel has chosen",
+)
 BUTTONS["golden_forget_target"] = Button(
     # «Забыть цель» — the chosen zombie is let go; the registry stays (#1702).
     lua=_lua_actions.golden_forget_target(),

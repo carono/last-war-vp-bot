@@ -344,6 +344,9 @@ class _Runtime:
     def __init__(self, plays=True) -> None:
         self.plays = plays
         self.played: list = []
+        #: …and what each was played WITH: «which squad went» is a question the golden
+        #: presses have to answer (#1702).
+        self.args: list = []
         #: The golden-zombie tally lives in `panel.db`; nothing here needs one, and a
         #: `None` store is what `panel/golden_zombies.py` reads as «no history yet».
         self.store = None
@@ -352,6 +355,7 @@ class _Runtime:
         if not self.plays:
             return False
         self.played.append(name)
+        self.args.append(a[0] if a and isinstance(a[0], dict) else {})
         return True
 
     def t(self, key, **fmt):
@@ -519,6 +523,34 @@ def test_forgetting_the_target_empties_what_the_card_shows_at_once():
     row = next(r for c in tab.web_view()["cards"] if c.get("title") == "events.group.golden"
                for r in c["rows"] if r["label"] == "events.golden.target")
     assert row["value"] == tab.t("events.golden.target.none")
+
+
+def test_attacking_uses_the_squad_the_panel_shows_and_the_target_already_fixed():
+    """«Берём выбранный отряд и бьём зафиксированную цель» — the operator (#1702).
+
+    The squad travels with the press, so changing it on the tab between «найти» and
+    «атаковать» changes which squad goes; and the recipe points the run at it with
+    `golden_use_squad` rather than re-arming, because arming builds the run's state from
+    nothing and would throw the fixed target away.
+    """
+    from pathlib import Path as _Path
+    import sys as _sys
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    tab = _tab(golden=GOLDEN_OPEN)
+    tab._squad = 3
+    assert tab.web_press("attack_golden", {}) == {"ok": True}
+    assert tab.rt.played == ["golden_attack_target"]
+    assert tab.rt.args and tab.rt.args[-1].get("squad") == 3, tab.rt.args
+
+    recipe = (_Path(__file__).resolve().parents[1] / "src" / "lastwar_bot" / "actions"
+              / "golden_attack_target.md").read_text(encoding="utf-8")
+    assert "TAP golden_use_squad" in recipe, "the press does not point at the tab's squad"
+    assert "TAP golden_arm" not in recipe, "re-arming would forget the fixed target"
+    assert lua_actions.golden_order_line() in recipe, \
+        "what goes to the game is not printed before it goes"
+    assert "TAP golden_pick" not in recipe, "the attack picks a target of its own"
 
 
 def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():
