@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "kein Ziel gesetzt — erst «den nächsten finden»",
   "events.golden.said.empty": "nichts zur Auswahl — die Liste hat keinen in Reichweite",
   "events.golden.said.nosquad": "diesen Trupp gibt es auf dem Konto nicht",
-  "events.golden.said.failed": "nicht durchgekommen — der Grund steht im Log"
+  "events.golden.said.failed": "nicht durchgekommen — der Grund steht im Log",
+  "events.golden.said.gone": "dieser Zombie ist weg — wähle einen anderen",
+  "events.golden.said.noarmy": "der Client hatte keine Armee für den Trupp — nochmal drücken"
 }

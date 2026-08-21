@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "chưa chốt mục tiêu — hãy bấm «tìm con gần nhất» trước",
   "events.golden.said.empty": "không có gì để chọn — sổ không có con nào trong tầm",
   "events.golden.said.nosquad": "tài khoản này không có đội đó",
-  "events.golden.said.failed": "không đi được — lý do nằm trong log"
+  "events.golden.said.failed": "không đi được — lý do nằm trong log",
+  "events.golden.said.gone": "con zombie đó không còn — hãy chọn con khác",
+  "events.golden.said.noarmy": "client chưa có quân của đội — bấm lại lần nữa"
 }

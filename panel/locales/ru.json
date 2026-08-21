@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "цель не зафиксирована — сначала «найти ближайшего»",
   "events.golden.said.empty": "выбирать не из чего — в реестре нет доступных",
   "events.golden.said.nosquad": "такого отряда на аккаунте нет",
-  "events.golden.said.failed": "не прошло — причина в логе"
+  "events.golden.said.failed": "не прошло — причина в логе",
+  "events.golden.said.gone": "этого зомби уже нет — выберите другого",
+  "events.golden.said.noarmy": "клиент не держал армию отряда — нажмите ещё раз"
 }

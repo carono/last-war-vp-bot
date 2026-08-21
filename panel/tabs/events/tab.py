@@ -429,11 +429,17 @@ class EventsTab(PanelTab):
             self._golden_target = str(where)
             self._paint_target()
         self._step_said = self._outcome_key(outcome)
+        if str(getattr(outcome, "reason", "") or "") == "target gone":
+            # The card must not go on naming a tile the game says is empty (#1702).
+            self._golden_target = ""
+            self._paint_target()
         self._paint_step()
 
     #: What a step's own halt reason means, in words a person reads. The scenarios stop
     #: with these exact strings; anything else is shown as the run's own text.
-    SAID = {"squad busy": "events.golden.said.busy",
+    SAID = {"target gone": "events.golden.said.gone",
+            "no army": "events.golden.said.noarmy",
+            "squad busy": "events.golden.said.busy",
             "nothing chosen": "events.golden.said.none",
             "no target": "events.golden.said.empty",
             "no squad": "events.golden.said.nosquad"}

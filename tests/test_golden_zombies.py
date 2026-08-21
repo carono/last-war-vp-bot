@@ -1687,8 +1687,10 @@ def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round()
     send = lua_actions.golden_send_now()
     assert send in text, "the press no longer checks and orders in one call"
     assert "p.march_uuid = nil" in send and "p.used[tostring(p.cur.pid)] = nil" in send
-    assert "if uuid == nil then return -4 end" in send, \
+    assert "return -4 end " in send, \
         "a zombie the client can no longer name is still ordered at"
+    assert "p.targets = keep p.cur = nil" in send, \
+        "the dead row stays in the registry, so the next «найти» offers the same tile"
 
 
 def test_finding_measures_from_where_the_squad_was_left_and_looks_there():

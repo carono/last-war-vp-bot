@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "hedef sabitlenmedi — önce «en yakını bul»",
   "events.golden.said.empty": "seçecek bir şey yok — menzilde kayıt yok",
   "events.golden.said.nosquad": "bu hesapta böyle bir birlik yok",
-  "events.golden.said.failed": "geçmedi — nedeni kayıtta"
+  "events.golden.said.failed": "geçmedi — nedeni kayıtta",
+  "events.golden.said.gone": "o zombi artık yok — başkasını seç",
+  "events.golden.said.noarmy": "istemcide birliğin ordusu yoktu — tekrar bas"
 }

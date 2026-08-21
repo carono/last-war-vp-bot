@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "cel nie jest ustalony — najpierw «znajdź najbliższego»",
   "events.golden.said.empty": "nie ma z czego wybierać — w rejestrze nikogo w zasięgu",
   "events.golden.said.nosquad": "takiego oddziału nie ma na tym koncie",
-  "events.golden.said.failed": "nie przeszło — powód jest w logu"
+  "events.golden.said.failed": "nie przeszło — powód jest w logu",
+  "events.golden.said.gone": "tego zombie już nie ma — wybierz innego",
+  "events.golden.said.noarmy": "klient nie miał armii oddziału — naciśnij ponownie"
 }

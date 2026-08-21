@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "no zombie is fixed — press «find the nearest» first",
   "events.golden.said.empty": "nothing to choose — the registry has none in reach",
   "events.golden.said.nosquad": "no such squad on this account",
-  "events.golden.said.failed": "it did not go through — the log says why"
+  "events.golden.said.failed": "it did not go through — the log says why",
+  "events.golden.said.gone": "that zombie is gone — choose another",
+  "events.golden.said.noarmy": "the client had no army for the squad — press again"
 }

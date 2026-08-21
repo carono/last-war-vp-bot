@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "aucune cible fixée — d'abord «trouver le plus proche»",
   "events.golden.said.empty": "rien à choisir — le registre n'en a aucun à portée",
   "events.golden.said.nosquad": "cette escouade n'existe pas sur ce compte",
-  "events.golden.said.failed": "ça n'est pas passé — le journal dit pourquoi"
+  "events.golden.said.failed": "ça n'est pas passé — le journal dit pourquoi",
+  "events.golden.said.gone": "ce zombie n'est plus là — choisissez-en un autre",
+  "events.golden.said.noarmy": "le client n'avait pas l'armée de l'escouade — réappuyez"
 }

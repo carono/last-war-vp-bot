@@ -2082,5 +2082,7 @@
   "events.golden.said.none": "nessun bersaglio fissato — prima «trova il più vicino»",
   "events.golden.said.empty": "niente da scegliere — il registro non ne ha a portata",
   "events.golden.said.nosquad": "questa squadra non esiste su questo account",
-  "events.golden.said.failed": "non è passato — il log dice perché"
+  "events.golden.said.failed": "non è passato — il log dice perché",
+  "events.golden.said.gone": "quello zombie non c'è più — scegline un altro",
+  "events.golden.said.noarmy": "il client non aveva l'esercito della squadra — premi di nuovo"
 }

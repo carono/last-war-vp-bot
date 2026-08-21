@@ -11669,7 +11669,15 @@ def golden_send_now() -> str:
         "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return -2 end return 0 end "
         "local t = p.cur "
         "local uuid = _freshuuid(ws, p, t) "
-        "if uuid == nil then return -4 end "
+        # …AND THE ROW GOES WITH IT (#1702). A zombie the client cannot name is one
+        # somebody else has killed; leaving it in the registry means the next «найти»
+        # offers the same empty tile, which is precisely what the operator hit.
+        "if uuid == nil then "
+        "local keep = {} "
+        "for _, q in ipairs(p.targets or {}) do "
+        "if tostring(q.pid) ~= tostring(t.pid) then keep[#keep + 1] = q end end "
+        "p.targets = keep p.cur = nil DataCenter.__lw_gold = p "
+        "return -4 end "
         "local srv = math.floor(tonumber(t.server or p.server) or 0) "
         "local kind = MarchTargetType.ATTACK_MONSTER "
         "if p.server ~= nil and srv ~= 0 and srv ~= p.server then "
