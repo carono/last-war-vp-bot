@@ -59,6 +59,23 @@ IF picked == 1
     # haul is ridden to a mine beside the zombie and only the last few tiles are
     # paid at attack speed. Taken only when the arithmetic wins — a short hop
     # loses more to the extra stop than it saves.
+    # THE CLIENT ONLY ANSWERS FOR GROUND IT IS HOLDING, AND THAT IS WHY A FAR TARGET
+    # LOOKED DEAD (#1702). `GetMonsterListInArea` — the liveness check the send makes
+    # before it orders anything — reads the tiles the camera has been shown. With the
+    # camera back on the squad, every candidate in the invasion's own corner answered
+    # «not there»: live, 144 queued rows, picks at 523 to 526 tiles, every one written
+    # off as a ghost, and the operator meanwhile watching dozens of them go past on the
+    # sweep. They were there; we were asking about ground the client had evicted.
+    #
+    # So a candidate further than forty tiles from the camera is LOOKED AT first, which
+    # is what a person does before sending a march. One flight per far kill, none at all
+    # for the near ones the chain is built around.
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return 0 end local ws = DataCenter.__lw_gold_ws local cx, cy = nil, nil pcall(function() cx, cy = ws.CurTilePos.x, ws.CurTilePos.y end) if cx == nil then return 1 end local dx, dy = (c.x - cx), (c.y - cy) return (math.sqrt(dx * dx + dy * dy) > 40) and 1 or 0 end)() INTO needs_district
+    IF needs_district == 1
+        TAP golden_look
+        WAIT 1
+        TAP golden_scan
+
     IF approach == 1
         # THE RIDE, AND ONLY THE RIDE, STILL FLIES THE CAMERA (#1702). The mine
         # hunt below asks `HasPointInfo` about the tiles around the target, and
@@ -74,10 +91,10 @@ IF picked == 1
         # seconds. Measured: the flight ran on all twelve laps of one run, on hops of four
         # and six tiles the planner then called short.
         TAP golden_approach_arm
-        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (tostring(p.why or '') == 'no-mine') and 1 or 0 end)() INTO needs_district
-        IF needs_district == 1
-            TAP golden_look
-            WAIT 1
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (tostring(p.why or '') == 'no-mine') and 1 or 0 end)() INTO needs_mine_district
+        IF needs_mine_district == 1
+            # The district is already fetched above when the target was far; this is the
+            # near-target case, where the mine hunt is the only thing that needs it.
             TAP golden_scan
             TAP golden_approach_arm
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.approach ~= nil) and 1 or 0 end)() INTO riding
