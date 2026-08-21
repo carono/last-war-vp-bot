@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Karte neu lesen",
   "events.golden.target": "Gewählter Zombie",
   "events.golden.target.none": "keiner gewählt",
-  "events.golden.step.goto": "Zum Gewählten springen"
+  "events.golden.step.goto": "Zum Gewählten springen",
+  "events.golden.step.forget": "Ziel vergessen"
 }

@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Re-read the map",
   "events.golden.target": "Chosen zombie",
   "events.golden.target.none": "none chosen",
-  "events.golden.step.goto": "Fly to the chosen one"
+  "events.golden.step.goto": "Fly to the chosen one",
+  "events.golden.step.forget": "Forget the target"
 }

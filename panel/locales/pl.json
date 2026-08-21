@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Odśwież mapę",
   "events.golden.target": "Wybrany zombie",
   "events.golden.target.none": "nie wybrano",
-  "events.golden.step.goto": "Skocz do wybranego"
+  "events.golden.step.goto": "Skocz do wybranego",
+  "events.golden.step.forget": "Zapomnij cel"
 }

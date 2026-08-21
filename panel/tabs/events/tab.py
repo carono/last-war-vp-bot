@@ -130,6 +130,9 @@ class EventsTab(PanelTab):
         #: (`tools/lib/coords.py`) — the window's log makes it clickable, and the card
         #: shows it on both front-ends (#1702).
         self._golden_target = ""
+        #: The label that shows it beside the buttons — made in `build()`, `None` in a
+        #: tab nobody has opened.
+        self._target_var = None
         #: The squad the chain sends, by the slot the player sees. A plain int until
         #: `build()` makes the widget — a tab nobody has opened still has to be able to
         #: answer `config()` (`docs/panel-tabs.md`).
@@ -404,6 +407,7 @@ class EventsTab(PanelTab):
              ("recall_golden", "golden_recall_squad", "events.golden.step.recall"),
              ("state_golden", "golden_squad_report", "events.golden.step.state"),
              ("goto_golden", "golden_goto_target", "events.golden.step.goto"),
+             ("forget_golden", "golden_forget_target", "events.golden.step.forget"),
              ("rescan_golden", "scan_map", "events.golden.step.rescan"))
 
     def _step_back(self, outcome) -> None:
@@ -417,6 +421,24 @@ class EventsTab(PanelTab):
         where = (getattr(ctx, "vars", {}) or {}).get("where")
         if where:
             self._golden_target = str(where)
+            self._paint_target()
+
+    def _paint_target(self) -> None:
+        """Put the chosen tile beside the buttons — where the operator asked for it.
+
+        The log makes a coordinate clickable wherever it appears, but the log is a
+        different part of the window from the presses, and «найти» and «атаковать» are
+        pressed together (#1702). So the tile sits in the row of buttons, and clicking it
+        flies there — the same flight «Перейти к выбранному» plays, because there is only
+        ever one way to do a thing in this panel.
+        """
+        var = getattr(self, "_target_var", None)
+        if var is None:
+            return
+        try:
+            var.set(self._golden_target or self.t("events.golden.target.none"))
+        except tk.TclError:                 # the window is going away
+            pass
 
     def step(self, action: str) -> bool:
         """Play one step of the hunt. The log is where its answer lands, on purpose.
@@ -434,6 +456,12 @@ class EventsTab(PanelTab):
             args = {}
         elif row[1] == "golden_attack_target":
             args["approach"] = 1 if self.approach() else 0
+        if action == "forget_golden":
+            # Shown as forgotten the moment it is asked for: the scenario cannot fail in
+            # a way that leaves a target chosen, and a card still naming one would be
+            # the panel disagreeing with the game about something the person just did.
+            self._golden_target = ""
+            self._paint_target()
         return bool(self.rt.play_async(row[1], args, tag="events",
                                        on_result=self._step_back))
 
@@ -638,6 +666,16 @@ class EventsTab(PanelTab):
         for action, _scenario, key in self.STEPS:
             self.tr(ttk.Button(steps, command=lambda a=action: self.step(a)),
                     key).pack(side="left", padx=(0, 6))
+
+        # …and the tile that was found, in the same row as the presses and clickable:
+        # the panel's own coordinate token, and a click is the flight (#1702).
+        if self._target_var is None:
+            self._target_var = tk_stringvar(self.rt.root)
+        self._paint_target()
+        link = ttk.Label(steps, textvariable=self._target_var, foreground="#1a6fb5",
+                         cursor="hand2")
+        link.pack(side="left", padx=(12, 0))
+        link.bind("<Button-1>", lambda _e: self.step("goto_golden"))
 
     # -- «Салют» -------------------------------------------------------------
     def fireworks(self) -> dict:

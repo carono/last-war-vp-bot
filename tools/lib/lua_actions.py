@@ -11564,6 +11564,18 @@ def golden_forget_queue() -> str:
             'CS.UnityEngine.Debug.LogError("ACT golden_forget_queue")' % {"gold": _GOLD})
 
 
+def golden_forget_target() -> str:
+    """Let the chosen zombie go — the parked target and nothing else (#1702).
+
+    The registry is left alone: forgetting WHICH one was chosen is not forgetting that
+    the map has zombies on it. After this «Атаковать выбранного» has nothing to send at
+    and says so, which is the whole point of the button — a person who has changed their
+    mind should not have to press «attack» to find out that the panel had not.
+    """
+    return (_GOLD_P + "p.cur = nil p.pending = nil p.hit = nil %(gold)s = p "
+            'CS.UnityEngine.Debug.LogError("ACT golden_forget_target")' % {"gold": _GOLD})
+
+
 def golden_stall_mark() -> str:
     """Say that this lap could not get an order out — WITHOUT ending the run (#1702).
 

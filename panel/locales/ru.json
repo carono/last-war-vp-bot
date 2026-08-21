@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Обновить карту",
   "events.golden.target": "Выбранный зомби",
   "events.golden.target.none": "не выбран",
-  "events.golden.step.goto": "Перейти к выбранному"
+  "events.golden.step.goto": "Перейти к выбранному",
+  "events.golden.step.forget": "Забыть цель"
 }

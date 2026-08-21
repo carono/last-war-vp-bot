@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Haritayı yeniden oku",
   "events.golden.target": "Seçilen zombi",
   "events.golden.target.none": "seçilmedi",
-  "events.golden.step.goto": "Seçilene git"
+  "events.golden.step.goto": "Seçilene git",
+  "events.golden.step.forget": "Hedefi unut"
 }

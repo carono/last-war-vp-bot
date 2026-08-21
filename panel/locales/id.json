@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Baca ulang peta",
   "events.golden.target": "Zombi terpilih",
   "events.golden.target.none": "belum dipilih",
-  "events.golden.step.goto": "Ke yang dipilih"
+  "events.golden.step.goto": "Ke yang dipilih",
+  "events.golden.step.forget": "Lupakan target"
 }

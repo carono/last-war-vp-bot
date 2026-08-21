@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Releer el mapa",
   "events.golden.target": "Zombi elegido",
   "events.golden.target.none": "ninguno elegido",
-  "events.golden.step.goto": "Ir al elegido"
+  "events.golden.step.goto": "Ir al elegido",
+  "events.golden.step.forget": "Olvidar el objetivo"
 }

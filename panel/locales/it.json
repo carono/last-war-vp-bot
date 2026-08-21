@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Rileggi la mappa",
   "events.golden.target": "Zombie scelto",
   "events.golden.target.none": "nessuno scelto",
-  "events.golden.step.goto": "Vai a quello scelto"
+  "events.golden.step.goto": "Vai a quello scelto",
+  "events.golden.step.forget": "Dimentica il bersaglio"
 }

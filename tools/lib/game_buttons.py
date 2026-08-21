@@ -1229,6 +1229,11 @@ BUTTONS["golden_miss"] = Button(
     lua=_lua_actions.golden_note_miss(),
     wait=0.1, label="write off a send that never became a march",
 )
+BUTTONS["golden_forget_target"] = Button(
+    # «Забыть цель» — the chosen zombie is let go; the registry stays (#1702).
+    lua=_lua_actions.golden_forget_target(),
+    wait=0.1, label="let the chosen zombie go",
+)
 BUTTONS["golden_forget_queue"] = Button(
     # Every row in the registry is a ghost — pressed only when the client has just said
     # it can see no golden zombie at all (#1702).

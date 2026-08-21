@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Đọc lại bản đồ",
   "events.golden.target": "Zombie đã chọn",
   "events.golden.target.none": "chưa chọn",
-  "events.golden.step.goto": "Tới con đã chọn"
+  "events.golden.step.goto": "Tới con đã chọn",
+  "events.golden.step.forget": "Quên mục tiêu"
 }

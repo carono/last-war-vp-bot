@@ -379,6 +379,7 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._golden_running = False
     tab._golden_button = None
     tab._golden_target = ""          # what «найти ближайшего» last chose (#1702)
+    tab._target_var = None           # the label that shows it beside the buttons
     tab._squad = modelmod.GOLDEN_SQUAD_DEFAULT
     tab._squad_var = None
     tab._tally = {}
@@ -467,7 +468,7 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     # …and beside the chain, the chain taken apart: one press per step, so a person can
     # find a zombie, look at what was chosen, and only then send anything at it (#1702).
     STEPS = ["find_golden", "attack_golden", "recall_golden", "state_golden",
-             "goto_golden", "rescan_golden"]
+             "goto_golden", "forget_golden", "rescan_golden"]
     assert _card_actions(live, "events.group.golden") == [
         "hunt_golden", "squad_next", "approach_toggle"] + STEPS
     assert live.web_press("hunt_golden", {}) == {"ok": True}
@@ -500,6 +501,24 @@ def test_every_step_of_the_hunt_is_a_scenario_the_phone_can_press():
                   / "actions" / f"{scenario}.md")
         assert recipe.exists(), f"{action} names a scenario that is not there"
         assert key.startswith("events.golden.step."), key
+
+
+def test_forgetting_the_target_empties_what_the_card_shows_at_once():
+    """«Забыть цель» — asked for so that «атаковать» cannot fire at a stale choice.
+
+    The card stops naming a zombie the moment the press is made rather than when the
+    scenario comes back: the run cannot fail in a way that leaves one chosen, and a card
+    still showing one would be the panel disagreeing with the game about something the
+    person has just done (#1702).
+    """
+    tab = _tab(golden=GOLDEN_OPEN)
+    tab._golden_target = "#935 X:585 Y:411"
+    assert tab.web_press("forget_golden", {}) == {"ok": True}
+    assert tab._golden_target == ""
+    assert tab.rt.played == ["golden_forget_target"]
+    row = next(r for c in tab.web_view()["cards"] if c.get("title") == "events.group.golden"
+               for r in c["rows"] if r["label"] == "events.golden.target")
+    assert row["value"] == tab.t("events.golden.target.none")
 
 
 def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():

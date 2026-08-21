@@ -2074,5 +2074,6 @@
   "events.golden.step.rescan": "Relire la carte",
   "events.golden.target": "Zombie choisi",
   "events.golden.target.none": "aucun choisi",
-  "events.golden.step.goto": "Aller au choisi"
+  "events.golden.step.goto": "Aller au choisi",
+  "events.golden.step.forget": "Oublier la cible"
 }
