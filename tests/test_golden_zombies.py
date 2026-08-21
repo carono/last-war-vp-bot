@@ -1719,6 +1719,33 @@ def test_finding_measures_from_where_the_squad_was_left_and_looks_there():
         "a squad in the field is not measured from where it was sent"
 
 
+def test_the_find_never_offers_a_zombie_the_client_cannot_name():
+    """«Указал на пустое место… не хотел никак обновлять реестр» (#1702).
+
+    Collapsing the pick into one call took the liveness check out with it, and the same
+    dead tile came back six presses in a row — the log is unambiguous:
+
+        16:50:33  found a golden zombie: #935 X:541 Y:497 … queued=177
+        16:50:38  found a golden zombie: #935 X:541 Y:497 … queued=177
+        16:50:47  found a golden zombie: #935 X:541 Y:497 … queued=177
+
+    …while «атаковать выбранного» refused the very same tile with «target gone». The two
+    halves of one button disagreeing is worse than either being wrong.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    pick = lua_actions.golden_pick_and_report()
+    assert "_freshuuid" in pick, "the pick offers a target without asking whether it exists"
+    assert "p.targets = keep" in pick, "a dead row is left in the registry to come back"
+    assert "for _try = 1, 12 do" in pick, "one dead row ends the search instead of the next"
+    # …and a far candidate is still taken on trust: «not there» from a district the
+    # client has evicted says nothing about the zombie.
+    assert "near = (math.sqrt(dx * dx + dy * dy) <= 40)" in pick
+    assert "dropped=" in pick, "the reaping is silent — a press cannot say what it struck out"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -11776,23 +11776,35 @@ def golden_find_now() -> str:
 
 
 def golden_pick_and_report() -> str:
-    """Choose the nearest queued zombie and describe it — one call instead of five.
+    """Choose the nearest zombie the CLIENT STILL KNOWS, dropping the dead as it goes.
 
-    The pick, the «did it pick anything», the tile, the report line and the count of
-    what the client can see were five separate round trips, which is half a second of
-    nothing. They are one here (#1702).
+    One call: the arithmetic, the liveness check, the reaping of rows that no longer
+    exist, the tile and the report line. Five round trips became one when this was
+    written (#1702) — and the liveness check went missing with them, which the operator
+    found within a day: «указал на пустое место… не хотел никак обновлять реестр».
+    The same tile came back six presses in a row, because nothing ever struck it out.
 
-    Comes back as `none:<seen>` when nothing was chosen, and otherwise as
-    `<tile>|<report>`: the coordinate token the log makes clickable, and the line that
-    says how far it is and from what.
+    So each candidate is asked about before it is offered, nearest first, and a row the
+    client cannot name is REMOVED from the registry and the next one tried — up to a
+    dozen, which is enough to walk past a farmed-out corner without spending a second on
+    it. A far candidate is taken on trust exactly as before: the client answers only for
+    ground it is holding, so «not there» from forty tiles away means «not loaded», not
+    «not alive» (the send re-checks it from close up).
+
+    Comes back as `noneseen` (the client can see none at all), `nonenear` (it can see
+    some, but none of them are in the registry any more) or `<tile>|<report>`.
     """
     return (
-        "(function() " + _GOLD_P + _GOLD_WS +
+        "(function() " + _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
+        "if ws == nil then return 'noneseen' end "
         "p.cur = nil "
         "local ox, oy, from = nil, nil, 'oracle' "
         "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
         "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
+        "local dropped = 0 "
         "local best, bestd = nil, nil "
+        "for _try = 1, 12 do "
+        "best, bestd = nil, nil "
         "for _, t in ipairs(p.targets or {}) do "
         "if not (p.used or {})[tostring(t.pid)] then "
         "local d = nil "
@@ -11801,6 +11813,20 @@ def golden_pick_and_report() -> str:
         "else pcall(function() d = tonumber("
         "SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end "
         "if d ~= nil and (bestd == nil or d < bestd) then best, bestd = t, d end end end "
+        "if best == nil then break end "
+        # …ASKED ABOUT BEFORE IT IS OFFERED. Far candidates are taken on trust: the
+        # client answers only for the ground it holds, and «not there» from a district
+        # it has evicted says nothing about the zombie.
+        "local near = true "
+        "pcall(function() local cx, cy = ws.CurTilePos.x, ws.CurTilePos.y "
+        "local dx, dy = (best.x - cx), (best.y - cy) "
+        "near = (math.sqrt(dx * dx + dy * dy) <= 40) end) "
+        "if (not near) or _freshuuid(ws, p, best) ~= nil then break end "
+        # …and a row the client cannot name is struck out, not shown again.
+        "local keep = {} "
+        "for _, t in ipairs(p.targets or {}) do "
+        "if tostring(t.pid) ~= tostring(best.pid) then keep[#keep + 1] = t end end "
+        "p.targets = keep dropped = dropped + 1 best = nil end "
         "if best == nil then "
         "local n = 0 "
         "pcall(function() "
@@ -11809,9 +11835,9 @@ def golden_pick_and_report() -> str:
         "for _, id in ipairs(p.ids or {%(cfg)d}) do pcall(function() ids:Add(id, 1) end) end "
         "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
         "CS.UnityEngine.Vector2Int)() "
-        "if ws ~= nil then ws:GetMonsterListInArea(ws.CurTilePos, "
-        "math.floor(tonumber(p.radius) or 2000), ids, res) "
-        "local e = res:GetEnumerator() while e:MoveNext() do n = n + 1 end end end) "
+        "ws:GetMonsterListInArea(ws.CurTilePos, math.floor(tonumber(p.radius) or 2000), "
+        "ids, res) "
+        "local e = res:GetEnumerator() while e:MoveNext() do n = n + 1 end end) "
         "%(gold)s = p "
         "if n > 0 then return 'nonenear' end return 'noneseen' end "
         "p.cur = best p.curdist = math.floor(bestd + 0.5) p.curfrom = from "
@@ -11827,7 +11853,7 @@ def golden_pick_and_report() -> str:
         ".. ' dist=' .. tostring(p.curdist) .. ' from=' .. from "
         ".. ' origin=' .. tostring(ox) .. ',' .. tostring(oy) "
         ".. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) "
-        ".. ' queued=' .. tostring(queued) end)()"
+        ".. ' queued=' .. tostring(queued) .. ' dropped=' .. tostring(dropped) end)()"
         % {"gold": _GOLD, "cfg": 1030000})
 
 
