@@ -11109,6 +11109,21 @@ _GOLD_OWN_MARCH = (
     "pcall(function() u = tostring(m.uuid) end) "
     "return u ~= nil and u == tostring(p.own_march) end "
     "return false end "
+    "local function _stand(p) "
+    "local m = _ownmarch(p) "
+    "if m == nil then return 'nomarch' end "
+    "local team = nil pcall(function() team = tostring(m.teamUuid) end) "
+    "if team ~= nil and team ~= '0' and team ~= 'nil' then return 'banner' end "
+    "local st, due = nil, nil "
+    "pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) "
+    "pcall(function() due = tonumber(m.endTime) end) "
+    "if st == " + str(GOLDEN_MARCH_STATION) + " then "
+    "if due == nil or due <= 0 then return 'station' end return 'station+clock' end "
+    "if st == " + str(GOLDEN_MARCH_COLLECTING) + " then "
+    "if p.own_march == nil then return 'mine-notours' end "
+    "local u = nil pcall(function() u = tostring(m.uuid) end) "
+    "if u == tostring(p.own_march) then return 'mine' end return 'mine-notours' end "
+    "return 'status' .. tostring(st) end "
     "local function _origin(p) "
     "if p.anchor ~= nil and _landed(_ownmarch(p), p) then return p.anchor, 'anchor' end "
     "if p.home ~= nil then return p.home, 'home' end "
@@ -12341,7 +12356,12 @@ def golden_pick_and_report() -> str:
         ".. ' dist=' .. tostring(p.curdist) .. ' from=' .. from "
         ".. ' origin=' .. tostring(ox) .. ',' .. tostring(oy) "
         ".. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) "
-        ".. ' queued=' .. tostring(queued) .. ' dropped=' .. tostring(dropped) end)()"
+        ".. ' queued=' .. tostring(queued) .. ' dropped=' .. tostring(dropped) "
+        # WHY THE ORIGIN CAME OUT AS IT DID (#1702). One word, on every lap, printed
+        # where the pick is already being logged: `station`/`mine` mean the next order
+        # is a redeploy, `nomarch` means the squad is home and the march starts there.
+        # Without it «the redeploy never fires» is a guess about four different causes.
+        ".. ' stand=' .. _stand(p) end)()"
         % {"gold": _GOLD, "cfg": 1030000})
 
 
