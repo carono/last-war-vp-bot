@@ -477,8 +477,14 @@ class EventsTab(PanelTab):
         except tk.TclError:                 # the window is going away
             pass
 
-    def _retry_soon(self, delay_ms: int = 700) -> None:
-        """Try the waiting presses again shortly, until they go in."""
+    def _retry_soon(self, delay_ms: int = 1500) -> None:
+        """Try the waiting presses again shortly, until they go in.
+
+        A second and a half rather than a fraction of one: a press waits behind whatever
+        is driving the client — a timer, the auto-rally, another tab's poll — and those
+        last seconds, not milliseconds. Retrying faster only fills the log with «занято»
+        (live, twelve refusals in seven seconds) without the press going in any sooner.
+        """
         tick = getattr(self.rt, "tick", None)
         if tick is None or not hasattr(tick, "arm"):
             return
