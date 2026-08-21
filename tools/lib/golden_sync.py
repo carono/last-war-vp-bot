@@ -55,7 +55,10 @@ OWNERS = {
     "riding": "golden_approach_planned",
     "sent": "golden_send_now",
     "spent": "golden_spent",
-    "squad_free": "golden_squad_free",
+    # …and it is the WIDENED reading, not the rally's (#1702): a squad standing on
+    # the tile it cleared can be given its next order where it stands, since
+    # `MarchUtil.SendChangeMarchToServer` was found.
+    "squad_free": "golden_can_order",
     "stuck": "golden_stuck",
     "vanished": "golden_vanished",
 }
@@ -63,7 +66,14 @@ OWNERS = {
 #: The recipes this covers — the chain and its bricks.
 RECIPES = ("attack_golden_zombies", "golden_wait_for_the_march", "golden_judge_the_kill",
            "golden_choose_a_target", "golden_send_the_squad", "golden_attack_target",
-           "golden_verify_order")
+           "golden_verify_order", "golden_find_target")
+
+#: One recipe, one variable, a DIFFERENT owner (#1702). `found` means «how many the
+#: client can see» everywhere but `golden_find_target.md`, where the single press that
+#: prepares a hand-driven find reads the pick's own report into it. Left out of the
+#: table, that copy drifted in silence — which is the exact failure this module exists
+#: to stop, so the exception is written down rather than the recipe left unwatched.
+OVERRIDES = {"golden_find_target": {"found": "golden_pick_and_report"}}
 
 _LINE = re.compile(r"^(\s*)READ_LUA (.*) INTO (\w+)\s*$")
 
@@ -77,14 +87,15 @@ def actions_dir() -> str:
     return os.path.join(os.path.dirname(os.path.dirname(here)), "src", "lastwar_bot", "actions")
 
 
-def drift(text: str) -> list:
+def drift(text: str, recipe: str = "") -> list:
     """Every `(line_no, name)` in this source whose copy is not the module's any more."""
+    own = dict(OWNERS, **OVERRIDES.get(recipe, {}))
     out = []
     for n, line in enumerate(text.splitlines(), 1):
         m = _LINE.match(line)
         if not m:
             continue
-        owner = OWNERS.get(m.group(3))
+        owner = own.get(m.group(3))
         if _LITERAL.match(m.group(2).strip()):
             continue
         if owner and m.group(2) != getattr(lua_actions, owner)():
@@ -92,12 +103,13 @@ def drift(text: str) -> list:
     return out
 
 
-def sync(text: str) -> str:
+def sync(text: str, recipe: str = "") -> str:
     """The same source with every owned expression replaced by the module's copy."""
+    own = dict(OWNERS, **OVERRIDES.get(recipe, {}))
     out = []
     for line in text.splitlines(True):
         m = _LINE.match(line.rstrip("\n"))
-        owner = OWNERS.get(m.group(3)) if m else None
+        owner = own.get(m.group(3)) if m else None
         if owner and _LITERAL.match(m.group(2).strip()):
             owner = None
         if owner:
@@ -116,7 +128,7 @@ def main(argv) -> int:
             continue
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
-        stale = drift(text)
+        stale = drift(text, name)
         if not stale:
             continue
         bad += len(stale)
@@ -124,7 +136,7 @@ def main(argv) -> int:
             print("%s.md:%d  %s is not the module's copy" % (name, line_no, var))
         if write:
             with open(path, "w", encoding="utf-8") as fh:
-                fh.write(sync(text))
+                fh.write(sync(text, name))
     if bad and write:
         print("rewritten %d expression(s)" % bad)
         return 0

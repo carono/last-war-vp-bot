@@ -258,7 +258,7 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
                                              "TAP golden_refresh")), \
                 "the scan the pick reads was taken from somewhere else"
     look = lua_actions.golden_look_from()
-    assert "p.home or p.anchor" in look, \
+    assert "p.anchor or p.home" in look, \
         "the camera does not follow the same origin the pick measures from"
 
 
@@ -682,7 +682,7 @@ def test_the_lap_of_the_map_is_harvested_where_it_ENDS():
             "a camera move throws away what the client is holding right now"
 
 
-def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_known():
+def test_the_pick_takes_the_minimum_from_the_origin_and_is_taken_again_later():
     """#1702: «выбрана НЕ ближайшая цель» — and the sort was never the problem.
 
     Run offline, against the real Lua of `golden_pick` with a made-up queue: the first
@@ -706,22 +706,18 @@ def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_kn
     assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, "the pick is not the nearest to home"
     assert rt.eval("DataCenter.__lw_gold.curfrom") == "home"
     assert rt.eval("DataCenter.__lw_gold.curdist") == 10
-    # …AND IT STAYS HOME AFTER A KILL, which is the opposite of what this chain was
-    # built on and the opposite of what this test used to assert (#1702).
-    #
-    # The old rule — «the next target is the nearest to the last kill» — assumed the
-    # squad stands where it killed. It does stand there (`back = 0` asks for exactly
-    # that), and the game will not let it be used from there: two orders at a stationed
-    # squad were refused in silence with the purse unmoved. So every kill is a round trip
-    # from the BASE, and measured over 21 laps the time from the order to the squad
-    # reading free tracks `2 * home_dist / 0.765` and ignores the anchor distance
-    # entirely — a target two tiles from the last corpse and twenty-five from the base
-    # cost 65 seconds. The nearest to home is the cheap one.
+    # …AND FROM THE LAST KILL ONCE THERE IS ONE (#1702). This asserted «home» for a
+    # day: two orders at a stationed squad had been refused in silence with the purse
+    # unmoved, so a kill looked like a round trip from the base whatever the anchor
+    # said. The refusal was ours — `SendCreateMarchMessage` creates a march from the
+    # base and cannot redeploy a landed army; `SendChangeMarchToServer` can, and did,
+    # live, with the purse taken and the march turning MOVING where it stood. So the
+    # neighbour of the corpse is the cheap target again.
     rt.execute("DataCenter.__lw_gold.anchor = {x = 150, y = 150}")
     rt.execute(lua_actions.golden_pick())
-    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, \
-        "the chain chases the corpse's neighbour and pays the distance from base for it"
-    assert rt.eval("DataCenter.__lw_gold.curfrom") == "home"
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 33, \
+        "the chain walks home between kills instead of hopping to the next zombie"
+    assert rt.eval("DataCenter.__lw_gold.curfrom") == "anchor"
 
     # …and the recipe revisits the choice only when the ground has been PROVEN stale
     # (#1702). It used to re-pick after every kill, behind a camera flight to the
@@ -1062,11 +1058,13 @@ def test_the_expensive_refresh_waits_for_two_to_five_disappearances():
     assert "MoveToWorldPoint" in refresh and "GetMonsterListInArea" in refresh, \
         "the refresh does not move the camera and read at every stop — it loads nothing"
     assert "DelayInvoke" in refresh, "the ring is walked by round trips, not by the game"
-    # …AT HOME, because that is where the next march starts from (#1702). The chain was
-    # built on «the squad stands where it killed», and the game does not allow it: a
-    # landed army cannot be redeployed by the send this repository has, so every kill is
-    # a round trip from the base and the ground worth loading is the ground near it.
-    assert "p.home or p.anchor" in refresh, \
+    # …AROUND THE LAST KILL, which is where the next march starts from (#1702). This
+    # read HOME for a day, on the measured grounds that a landed army could not be
+    # redeployed and every kill was therefore a round trip from the base. That was true
+    # of `SendCreateMarchMessage` and not of the game: `SendChangeMarchToServer` re-aims
+    # a squad standing on the tile it cleared, live, so the ground worth loading is the
+    # ground around the squad again.
+    assert "p.anchor or p.home" in refresh, \
         "the refresh is aimed away from where the next march actually starts"
     assert lua_actions.GOLDEN_REFRESH_STOPS + 1 <= 12, \
         "the refresh is as long a walk as the ring it replaced"
@@ -1357,7 +1355,8 @@ def test_every_recipe_carries_the_modules_copy_of_every_shared_expression():
         if not path.exists():
             continue
         stale += [(name, line, var)
-                  for line, var in golden_sync.drift(path.read_text(encoding="utf-8"))]
+                  for line, var in golden_sync.drift(path.read_text(encoding="utf-8"),
+                                                     name)]
     assert not stale, \
         "stale copies (run tools/lib/golden_sync.py --write): %r" % (stale,)
 
@@ -1516,30 +1515,71 @@ def test_the_second_chain_is_the_first_one_with_its_state_renamed():
             assert name in game_buttons.BUTTONS, "the twin presses %s, which does not exist" % name
 
 
-def test_the_game_will_not_redeploy_a_squad_that_has_landed():
-    """The negative result, pinned so nobody pays for it twice (#1702).
+def test_a_squad_that_has_landed_is_re_targeted_where_it_stands():
+    """The measurement that pays for the whole chain, and the wrong turn on the way (#1702).
 
-    Where the time goes, measured over twenty minutes of two squads hunting::
+    Where the time goes, over twenty minutes of two squads hunting::
 
         free -> order away     median   5 s
         order -> free again    median  64 s and 115 s
 
     Our own overhead is the five seconds. The rest is the squad standing on the tile it
     cleared — `state=1 status=STATION team=0 arrive=0`, which is exactly what `back = 0`
-    asks for — and the obvious win was to order it again from where it stands instead of
-    walking it home.
+    asks for — and the win is to order it again from there instead of walking it home.
 
-    **The game refuses.** Two sends went out at a stationed squad live, at 01:27:51 and
-    01:28:01, and the purse did not move: 1941 before, 1941 three minutes later. A bare
-    `SendCreateMarchMessage` cannot redeploy an army that has arrived, the same wall a
-    squad on a resource node hits. So the gate stays the ordinary one, and this test
-    exists to stop the next reader «fixing» it back.
+    **It was written down as impossible, and that was our bug.** Two sends at a stationed
+    squad left the purse unmoved (1941 before, 1941 three minutes later), and the reading
+    taken from it — «the game refuses to redeploy a landed army» — survived a day.
+    `SendCreateMarchMessage` creates a march FROM THE BASE. The dispatch screen uses a
+    different door::
+
+        MarchUtil.SendChangeMarchToServer(marchUuid, targetType, targetPoint,
+                                          targetUuid, backHome, targetServerId,
+                                          destroyTimeIndex)
+
+    Seven arguments (`debug.getinfo` says so), message `world.march.change`. Live on
+    2026-08-22 at a squad reading `status=STATION: 0 end=0`: purse 1871 -> 1861, and the
+    march turned MOVING onto a zombie 23 tiles away with no step homewards.
+
+    The lesson is the one this repository keeps paying for: **a refusal the person
+    playing by hand cannot reproduce is a bug in the sender, not a rule of the game.**
     """
-    assert lua_actions.golden_can_order() == lua_actions.golden_squad_free(), \
-        "the hunt is ordering squads the server will refuse in silence — and paying a lap each"
-    doc = (_REPO_ROOT / "tools" / "lib" / "lua_actions.py").read_text(encoding="utf-8")
-    assert "the purse did not move" in doc, \
-        "the measurement that settles this is not written down where the next reader looks"
+    import lupa
+
+    send = lua_actions.golden_send()
+    assert "SendChangeMarchToServer" in send, \
+        "the send walks the squad home between kills again"
+    assert "SendCreateMarchMessage" in send, \
+        "a squad standing in the BASE has no march to re-target — both doors are needed"
+
+    can = lua_actions.golden_can_order()
+    assert can != lua_actions.golden_squad_free(), \
+        "the gate is the rally's again, and a landed squad is called busy"
+
+    def answer(free, march):
+        rt = lupa.LuaRuntime()
+        rt.execute("LuaEntry = {Player = {uid = 1, allianceId = 2}} "
+                   "DataCenter = {__lw_gold = {formation = '77'}, "
+                   "WorldMarchDataManager = "
+                   "{GetOwnerFormationMarch = function() return %s end}, "
+                   "ArmyFormationDataManager = {ArmyFormationList = "
+                   "{{uuid = '77', state = %d, totalSoldierNum = 100, "
+                   "IsFree = function() return %s end}}}}"
+                   % (march, 0 if free else 1, "true" if free else "false"))
+        return int(rt.eval(can))
+
+    landed = "{teamUuid = '0', status = 'STATION: 0', endTime = 0}"
+    flying = "{teamUuid = '0', status = 'MOVING: 1', endTime = 99000}"
+    banner = "{teamUuid = '1000000000000000001', status = 'IN_TEAM: 7', endTime = 0}"
+
+    assert answer(True, "nil") == 1, "a squad standing at home is refused an order"
+    assert answer(False, landed) == 1, \
+        "the squad standing where it killed is walked home instead of re-aimed"
+    assert answer(False, flying) == 0, "a march still on its way is ordered over"
+    assert answer(False, banner) == 0, \
+        "the hunt walks its squad out of somebody's alliance rally"
+    assert answer(False, "nil") == 0, \
+        "a busy squad with no march of its own is ordered about anyway"
 
 
 def test_two_squads_are_never_sent_at_the_same_zombie():
@@ -1579,7 +1619,7 @@ def test_two_squads_are_never_sent_at_the_same_zombie():
         "a march goes out without telling the other run where it went"
 
 
-def test_a_parked_squad_is_brought_home_instead_of_waited_on():
+def test_a_squad_nothing_will_free_is_brought_home_instead_of_waited_on():
     """The OTHER way the hunt sat still, and the ceiling cannot see it (#1702).
 
     Measured live on the chosen squad, and it ended a run with `attacks=0`::
@@ -1609,8 +1649,12 @@ def test_a_parked_squad_is_brought_home_instead_of_waited_on():
     flying = "{teamUuid = '0', status = 'MOVING: 1', endTime = 99000}"
     banner = "{teamUuid = '1000000000000000001', status = 'IN_TEAM: 7', endTime = 0}"
 
-    assert answer(False, landed) == 1, \
-        "a squad standing out in the world is waited on until the run gives up"
+    # …AND A LANDED MARCH IS NO LONGER ONE OF THEM (#1702). It was, for as long as the
+    # only send this repository had could not redeploy an army that had arrived. The
+    # squad standing on the tile it cleared is given its next order where it stands now,
+    # so recalling it would throw away the saving the whole chain is built on.
+    assert answer(False, landed) == 0, \
+        "the squad standing where it killed is recalled instead of being re-aimed"
     assert answer(False, "nil") == 1, \
         "a busy squad the game holds no march for is waited on — nothing will free it"
     assert answer(False, flying) == 0, \

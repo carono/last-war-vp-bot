@@ -581,13 +581,13 @@ next hop is three tiles instead of a march from the base. The gate calls that BU
 because `state == 0` plus `IsFree()` is the reading a RALLY needs — a banner is raised
 from the base — so the hunt walks the squad home and pays the round trip on every kill.
 
-**The obvious shortcut does not work, and this is the measurement that says so.** The
-gate was widened to accept a landed, banner-free march, and the sends were refused in
-silence: two orders at a stationed squad at 01:27:51 and 01:28:01, and the purse
-unmoved — 1941 before, 1941 three minutes later. A bare `SendCreateMarchMessage` cannot
-redeploy an army that has arrived, the same wall the ride hits at a mine (§4b). The
-player's own tap goes through the dispatch screen, which is a different call and is not
-found yet; until it is, «стоит на месте» costs a walk home.
+**The obvious shortcut was written down as impossible, and that was our bug — see §4i.**
+The gate was widened to accept a landed, banner-free march and the sends were refused in
+silence: two orders at a stationed squad at 01:27:51 and 01:28:01, and the purse unmoved,
+1941 before and 1941 three minutes later. The reading taken from it — «the game refuses
+to redeploy an army that has arrived» — held for a day and was wrong. A bare
+`SendCreateMarchMessage` creates a march FROM THE BASE; the door for a squad already out
+is `MarchUtil.SendChangeMarchToServer`, and it works.
 
 ### And the measurement that decided where to aim next
 
@@ -607,20 +607,72 @@ squad walks home and out again. That is the whole of the chain's «nearest to wh
 squad is» idea undone by one measurement: the squad is not where it killed by the time
 the next order can be given, it is at the base.
 
-So the origin of every pick — and of the refresh ring that loads the ground for it — is
-HOME. The anchor stays in the state as a fallback for the day the redeploy call is found;
-until then it is a distance nobody pays.
+**That table prices a chain that walks home between kills, and it is the reason §4i was
+worth looking for.** For one day the conclusion drawn from it was «measure every pick
+from HOME», which is correct arithmetic over a wrong premise: the squad walked home only
+because our send could not use it where it stood. With the redeploy call the anchor is
+the origin again and the second column is the one that is paid.
 
-What that leaves, in order of what it would buy:
+What that left, in order of what it would buy — and the first line is now done:
 
 * **the redeploy call itself** — the whole 60–115 s, and the only route to the operator's
-  own four attacks a minute. Research, not a tweak (`docs/research/march-hotkeys.md` is
-  where the dispatch screen is already partly written up);
-* **measuring the pick from HOME rather than from the anchor whenever the squad is going
-  to walk home anyway** — the anchor picks the nearest to the last KILL, which can be
-  forty tiles from the base while three from the corpse;
+  own four attacks a minute. Found: §4i;
 * nothing in the five seconds. Cutting our own checks in half would buy 2.5 s of a
   70-second cycle, which is 3%, and every one of them is a bug already paid for.
+
+## 4i — the redeploy door: `SendChangeMarchToServer` (#1702)
+
+**A squad that has landed is re-aimed where it stands. Proven live on 2026-08-22.**
+
+`MarchUtil` has three names shaped like the answer, and this client still allows
+`string.dump`, so their constant tables were read without opening a window:
+
+    MarchUtil.OnChangeSingleFormation(formationUuid, targetMarchUuid, realPointId)
+    MarchUtil.OnChangeSingleMarch(marchUuid, targetMarchUuid, realPointId)
+    MarchUtil.SendChangeMarchToServer  ->  SFSNetwork.SendMessage(
+        MsgDefines.WorldMarchChange = "world.march.change",
+        {marchUuid, targetType, targetPoint, targetUuid, backHome, targetServerId,
+         destroyTimeIndex, marchInfo{posStart, status, startPos, endPos, startPointId,
+         endPointId, path, curWorldId}, cardSkillUseInfoList})
+
+`debug.getinfo(f, 'u')` says `nparams = 7` for the sender and `3` for the two wrappers.
+The sender builds `marchInfo`, the world id (`GetCurWorldId`) and the card list
+(`PopFormationViewCardSkillUseCache`) itself, so the seven are the first seven fields of
+the payload. The target type is chosen out of `MarchTargetType` inside it, which is why
+this is «change what this army is doing» and not an attack special case: the same door
+sends a standing squad to a mine.
+
+Three shapes were tried at one squad, in order, with the purse read between each:
+
+| attempt | call | purse | march |
+|---|---|---|---|
+| A | `SendChangeMarchToServer(march, ATTACK_MONSTER, pointId, monsterUuid, 0, server, 0)` | **1871 → 1861** | `STATION: 0` → `MOVING: 1`, target on the new tile |
+| B | the same, with a tile POSITION where A had the index | no further change | already moving |
+| C | `OnChangeSingleMarch(march, monsterUuid, pointId)` | no change | already moving |
+
+A is the call. The squad was reading `state=1 status=STATION: 0 pos=440462 end=0` — out,
+landed, no clock — and the new target was 23 tiles away with no step homewards.
+
+Two things the caller has to get right:
+
+* **the march uuid is the squad's own**, and `GetOwnerFormationMarch` cannot always be
+  relied on to hand it over (§4c). The chain keeps the uuid of the march it put out
+  (`p.own_march`, written the moment `golden_launched` sees it) and asks for the march by
+  name when the first question comes back empty. Never «the only march the account has»:
+  with the pair driver two squads are out at once.
+* **a redeploy makes no new march.** The uuid does not change — the status turns MOVING
+  and `targetPos` becomes the tile asked for — so the ordinary proof, «a march that was
+  not there before», can never come true for one. The proof is that the run's own march
+  now points at the very tile of the send.
+
+The wrappers are the screen's, not ours: `OnChangeSingleFormation` was called with a
+monster uuid in its `targetMarchUuid` slot and the server did nothing at all — purse
+unmoved, march unchanged.
+
+**And the lesson is the one this file already carries once, in §4b:** a refusal the
+person playing by hand cannot reproduce is a bug in the sender, not a rule of the game.
+The operator says plainly they never attack from the base — «ухожу далеко, атакую сразу
+с поля» — and that sentence was the whole of the evidence needed to keep looking.
 
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 

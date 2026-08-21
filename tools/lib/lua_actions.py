@@ -10048,7 +10048,7 @@ def golden_refresh() -> str:
         _GOLD_P + _GOLD_WS +
         "if ws == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_refresh skipped=not-in-world") return end '
-        "local o = p.home or p.anchor "
+        "local o = p.anchor or p.home "
         "if o == nil then o = {x = ws.CurTilePos.x, y = ws.CurTilePos.y} end "
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end "
@@ -10147,7 +10147,7 @@ def golden_best_dist() -> str:
     return (
         "(function() " + _GOLD_P +
         "local ox, oy = nil, nil "
-        "local o = p.home or p.anchor "
+        "local o = p.anchor or p.home "
         "if o ~= nil then ox, oy = o.x, o.y end "
         "local best = nil "
         "for _, t in ipairs(p.targets or {}) do "
@@ -10244,8 +10244,8 @@ def golden_pick() -> str:
         _GOLD_P +
         "p.cur = nil "
         "local ox, oy, from = nil, nil, 'oracle' "
-        "if p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' "
-        "elseif p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' end "
+        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
+        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
         "local best, bestd = nil, nil "
         "for _, t in ipairs(p.targets or {}) do "
         "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) then "
@@ -10297,7 +10297,7 @@ def golden_look_from() -> str:
     return (
         _GOLD_P + _GOLD_WS +
         "p.looked_moved = 0 "
-        "local at = p.home or p.anchor "
+        "local at = p.anchor or p.home "
         "if at == nil then %(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=no-origin") return end '
         "local seen = p.looked "
@@ -10360,7 +10360,7 @@ def golden_pick_report() -> str:
     return (
         "(function() " + _GOLD_P +
         "local c = p.cur if c == nil then return 'none' end "
-        "local o = p.home or p.anchor "
+        "local o = p.anchor or p.home "
         "local hd = nil "
         "pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) "
         "return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. "
@@ -10478,12 +10478,29 @@ def golden_send() -> str:
     cleared and the next pick is measured from there. The caller raises it to 1 for the
     last march of the run, which is what brings the squad home.
 
-    Scheduled through `TimerManager:GetInstance():DelayInvoke`, like every other launch in
-    this file: a cold `SendCreateMarchMessage` from the hijack thread returns `true` and
-    is dropped by the server (docs/research/world-monsters.md, Finding 17).
+    **THERE ARE TWO DOORS, and which one is right is decided by where the squad is
+    (#1702).** `SendCreateMarchMessage` creates a march FROM THE BASE and the server
+    refuses it, in silence and without touching the purse, at an army that has already
+    landed. The squad standing on the tile it just cleared needs the call the dispatch
+    screen uses instead::
+
+        MarchUtil.SendChangeMarchToServer(marchUuid, targetType, targetPoint,
+                                          targetUuid, backHome, targetServerId,
+                                          destroyTimeIndex)
+
+    Seven arguments — `debug.getinfo` says `nparams=7` — and its constants name the
+    message it sends, `world.march.change`, with every field of the payload. It builds
+    the march info, the world id and the card list itself. Live on 2026-08-22 at a squad
+    reading `status=STATION: 0 end=0`: purse 1871 -> 1861 and the march turned MOVING
+    onto the new tile, with no step homewards. That is the whole point of the chain: the
+    next hop is the distance between two zombies, not twice the distance to the base.
+
+    Scheduled through `TimerManager:GetInstance():DelayInvoke` either way, like every
+    other launch in this file: a cold send from the hijack thread returns `true` and is
+    dropped by the server (docs/research/world-monsters.md, Finding 17).
     """
     return (
-        _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID +
+        _GOLD_P + _GOLD_WS + _GOLD_FRESH_UUID + _GOLD_OWN_MARCH +
         "if p.cur == nil or p.formation == nil then error('nothing armed for this run') end "
         "local t = p.cur "
         "local srv = math.floor(tonumber(t.server or p.server) or 0) "
@@ -10504,11 +10521,26 @@ def golden_send() -> str:
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_send dropped=stale pid="..tostring(t.pid)) '
         "return end "
+        # WHICH DOOR (#1702). A march of ours that has ARRIVED is re-targeted where it
+        # stands; anything else is a fresh march out of the base.
+        "local own = _ownmarch(p) "
+        "local mu = nil "
+        "if _landed(own) then pcall(function() mu = own.uuid end) end "
+        "if mu ~= nil then "
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendChangeMarchToServer(mu, kind, pid, uuid, back, srv, 0) end) "
+        'CS.UnityEngine.Debug.LogError("ACT golden_send redeploy ok="..tostring(ok)'
+        '.." err="..tostring(err)) '
+        "end, 0.5) "
+        "else "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
         "MarchUtil.SendCreateMarchMessage(f, kind, pid, uuid, 1, back, false, srv, nil) end) "
         'CS.UnityEngine.Debug.LogError("ACT golden_send ok="..tostring(ok).." err="..tostring(err)) '
-        "end, 0.5) "
+        "end, 0.5) end "
+        "p.redeploy = (mu ~= nil) and 1 or 0 "
+        "if mu ~= nil then p.own_march = tostring(mu) end "
         "p.used[tostring(t.pid)] = true "
         "_goldclaim(p, t.pid) "
         "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
@@ -10530,7 +10562,8 @@ def golden_send() -> str:
         "p.cur = nil "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_send scheduled pid="..tostring(pid)'
-        '.." uuid="..tostring(uuid).." back="..tostring(back).." attack="..tostring(p.attacks))'
+        '.." uuid="..tostring(uuid).." back="..tostring(back)'
+        '.." redeploy="..tostring(p.redeploy).." attack="..tostring(p.attacks))'
         % {"gold": _GOLD, "energy": golden_energy()}
     )
 
@@ -10602,12 +10635,25 @@ def golden_launched() -> str:
     formation alone, and a march standing in a banner (`teamUuid ~= 0`) is not the order
     we gave — from outside the two look alike, both carrying `endTime = 0`.
 
+    **A REDEPLOY MAKES NO NEW MARCH, so it is proved differently (#1702).**
+    `SendChangeMarchToServer` re-targets the march the squad already has: the uuid does
+    not change, the status turns from STATION to MOVING and `targetPos` becomes the tile
+    we asked for. So «a march that was not there before» can never come true for one, and
+    the proof is that the run's own march now points at the very tile of the send. The
+    squad-went-busy half cannot answer either: it was already busy, standing there.
+
     `1` when nothing is pending, so a caller polling this after a skipped send is not left
     waiting for a march nobody ordered.
     """
     return (
-        "(function() " + _GOLD_P +
+        "(function() " + _GOLD_P + _GOLD_OWN_MARCH +
         "if p.pending == nil then return 1 end "
+        "if math.floor(tonumber(p.redeploy) or 0) == 1 then "
+        "local m = _ownmarch(p) "
+        "if m == nil then return 0 end "
+        "local tp = nil pcall(function() tp = tostring(m.targetPos) end) "
+        "if tp ~= nil and tp == tostring(p.pending.pid) then return 1 end "
+        "return 0 end "
         "local seen = p.march_before or {} "
         "local mine = nil "
         "pcall(function() local P = LuaEntry.Player "
@@ -10617,6 +10663,10 @@ def golden_launched() -> str:
         "pcall(function() u = tostring(mine.uuid) end) "
         "pcall(function() team = tostring(mine.teamUuid) end) "
         "if u ~= nil and not seen[u] and (team == '0' or team == 'nil') then "
+        # THE UUID IS KEPT (#1702). This is the one moment the run can be certain which
+        # march is its own, and `_ownmarch` needs it later: when the squad has landed and
+        # `GetOwnerFormationMarch` answers nil, the march is asked for by name.
+        "p.own_march = u " + _GOLD + " = p "
         "return 1 end end "
         "local busy = false "
         "pcall(function() "
@@ -10983,6 +11033,43 @@ def golden_squad_free() -> str:
 GOLDEN_MARCH_STATION = 0
 
 
+#: THE RUN'S OWN MARCH, AND WHETHER IT HAS LANDED (#1702). Both halves of the redeploy:
+#: a squad standing on the tile it cleared still carries a march, and that march is what
+#: `MarchUtil.SendChangeMarchToServer` re-targets.
+#:
+#: The march is asked for twice because `GetOwnerFormationMarch` is not reliable on its
+#: own — its signature is `(ownerUid, formationUuid, allianceUid)` and it has been seen
+#: answering `nil` over an account that genuinely held marches. So the uuid of the march
+#: this run last put out is kept in the state (`p.own_march`, set by
+#: :func:`golden_launched`) and asked for by name when the first question comes back
+#: empty. Never a scan of the account's marches: with the pair driver two squads of the
+#: same account are out at once, and «the only march there is» is then another squad's.
+#:
+#: LANDED means: arrived (`MarchStatus.STATION`), no arrival time left, and NOT standing
+#: in a banner — walking a squad out of somebody's rally to hit a zombie is not this
+#: recipe's decision to make.
+_GOLD_OWN_MARCH = (
+    "local function _ownmarch(p) "
+    "if p.formation == nil then return nil end "
+    "local m = nil "
+    "pcall(function() local P = LuaEntry.Player "
+    "m = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch("
+    "P.uid, p.formation, P.allianceId) end) "
+    "if m ~= nil then return m end "
+    "if p.own_march == nil then return nil end "
+    "pcall(function() m = DataCenter.WorldMarchDataManager:GetMarch(p.own_march) end) "
+    "return m end "
+    "local function _landed(m) "
+    "if m == nil then return false end "
+    "local team = nil pcall(function() team = tostring(m.teamUuid) end) "
+    "if team ~= nil and team ~= '0' and team ~= 'nil' then return false end "
+    "local st, due = nil, nil "
+    "pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) "
+    "pcall(function() due = tonumber(m.endTime) end) "
+    "return st == " + str(GOLDEN_MARCH_STATION) + " and (due == nil or due <= 0) end "
+)
+
+
 def golden_parked() -> str:
     """Lua *expression* -> 1 when the squad is out and NOTHING WILL FREE IT BY ITSELF.
 
@@ -11029,11 +11116,12 @@ def golden_parked() -> str:
         "if m == nil then return 1 end "
         "local team = nil pcall(function() team = tostring(m.teamUuid) end) "
         "if team ~= nil and team ~= '0' then return 0 end "
-        "local st, due = nil, nil "
-        "pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) "
-        "pcall(function() due = tonumber(m.endTime) end) "
-        "if st == " + str(GOLDEN_MARCH_STATION) + " and "
-        "(due == nil or due <= 0) then return 1 end "
+        # …AND A LANDED MARCH IS NO LONGER A REASON TO RECALL (#1702). It was, for as
+        # long as the only send this repository had could not redeploy one. The squad
+        # standing on the tile it cleared is given its next order WHERE IT STANDS now
+        # (:func:`golden_send`), so recalling it would throw away exactly the saving the
+        # chain is built on. What still parks a squad is a march that is not there at
+        # all — dirty ground, or a send the client swallowed.
         "return 0 end)()"
     )
 
@@ -11062,10 +11150,37 @@ def golden_can_order() -> str:
     player's own tap does it through the dispatch screen, which is a different call and
     is not found yet.
 
-    The reading therefore says what it always said, and the extra branch is kept as the
-    written-down NEGATIVE result: it costs a lap and an energy-less send to rediscover.
+    **AND THEN THE DOOR WAS FOUND, so this says yes to it after all (#1702).** The
+    refusal above was real and the reading of it was wrong: `SendCreateMarchMessage` is
+    the call that creates a march FROM THE BASE, and a landed army needs the one the
+    dispatch screen uses — `MarchUtil.SendChangeMarchToServer`, seven arguments, message
+    `world.march.change`. Live on 2026-08-22, at a squad reading
+    `state=1 status=STATION: 0 pos=440462 end=0`: purse 1871 -> 1861, and the march
+    turned MOVING with its target on the new zombie, 23 tiles away, without a step
+    homewards. It is the same lesson this file keeps paying for — a refusal that the
+    person playing by hand cannot reproduce is a bug in the sender, not a rule of the
+    game.
+
+    So: free by the ordinary rule, OR out with a march of its own that has ARRIVED, has
+    no arrival time left, and is not standing in a banner. A rally is left out on
+    purpose — walking a squad out of somebody's banner is not this recipe's decision.
+    `-2` still means «the client is holding no army», which has its own cure.
     """
-    return golden_squad_free()
+    return (
+        "(function() " + _GOLD_P + _GOLD_OWN_MARCH +
+        "if p.formation == nil then return -1 end "
+        "local seen, can, n = false, nil, 0 "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if tostring(v.uuid) == tostring(p.formation) then seen = true "
+        "can = " + _SQUAD_FREE + "(v) "
+        "n = math.floor(tonumber(v.totalSoldierNum) or 0) end end end) "
+        "if not seen or can == nil then return -1 end "
+        "if n <= 0 then return -2 end "
+        "if can then return 1 end "
+        "if _landed(_ownmarch(p)) then return 1 end "
+        "return 0 end)()"
+    )
 
 
 def golden_no_ride() -> str:
@@ -11504,17 +11619,18 @@ def golden_speeds() -> str:
 #: and the game answers from the base instead. Same rule as `golden_pick`, so the two
 #: cannot drift into disagreeing about which target is nearer.
 #:
-#: **AND THE ORIGIN IS HOME, not the last kill (#1702).** The chain was built on
-#: «the squad stands where it killed, so measure from there» — and the game does
-#: not let it: an army that has landed cannot be redeployed by the send this
-#: repository has, so every kill is a round trip from the base whatever the anchor
-#: says. Measured over 21 laps, the time from the order to the squad reading free
-#: tracks `2 * home_dist / 0.765` and ignores the anchor distance entirely: a target
-#: two tiles from the last corpse and twenty-five from the base cost 65 s. So the
-#: nearest target to HOME is the cheap one, and that is what is chosen.
+#: **AND THE ORIGIN IS THE ANCHOR AGAIN, because the redeploy call was found (#1702).**
+#: This measured HOME for a while, and the reasoning was sound at the time: 21 laps said
+#: the cost of a kill tracked `2 * home_dist / 0.765` and ignored the anchor entirely,
+#: because a landed army could not be given a new order and every kill was a round trip.
+#: That was true of the send we had — `SendCreateMarchMessage` — and not of the game.
+#: `MarchUtil.SendChangeMarchToServer` re-targets a squad standing where it killed, live,
+#: with the purse taken and the march turning from STATION to MOVING without a step
+#: homewards. So the nearest target to the LAST KILL is the cheap one again, and the base
+#: only answers before the first send.
 _GOLD_DIST = (
     "local function _dist(pid, x, y) "
-    "local o = p.home or p.anchor "
+    "local o = p.anchor or p.home "
     "if o ~= nil then local dx, dy = (x - o.x), (y - o.y) "
     "return math.sqrt(dx * dx + dy * dy) end "
     "local d = nil "
@@ -12121,8 +12237,8 @@ def golden_pick_and_report() -> str:
         "if ws == nil then return 'noneseen' end "
         "p.cur = nil "
         "local ox, oy, from = nil, nil, 'oracle' "
-        "if p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' "
-        "elseif p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' end "
+        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
+        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
         "local dropped = 0 "
         "local best, bestd = nil, nil "
         "for _try = 1, 12 do "
