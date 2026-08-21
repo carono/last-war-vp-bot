@@ -10540,7 +10540,8 @@ def golden_send() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_send ok="..tostring(ok).." err="..tostring(err)) '
         "end, 0.5) end "
         "p.redeploy = (mu ~= nil) and 1 or 0 "
-        "if mu ~= nil then p.own_march = tostring(mu) end "
+        "if mu ~= nil then p.own_march = tostring(mu) "
+        "p.redeploys = (tonumber(p.redeploys) or 0) + 1 end "
         "p.used[tostring(t.pid)] = true "
         "_goldclaim(p, t.pid) "
         "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
@@ -11351,6 +11352,10 @@ def golden_report() -> str:
         "' vanished=' .. tostring(math.floor(tonumber(p.vanished) or 0)) .. "
         "' refreshes=' .. tostring(math.floor(tonumber(p.refreshes) or 0)) .. "
         "' unstuck=' .. tostring(math.floor(tonumber(p.unstuck) or 0)) .. "
+        # HOW MANY ORDERS WERE GIVEN WHERE THE SQUAD STOOD (#1702). The difference
+        # between this and `attacks` is the number of kills that cost a walk home, which
+        # is the only number that says whether the redeploy is actually being reached.
+        "' redeploys=' .. tostring(math.floor(tonumber(p.redeploys) or 0)) .. "
         "' spent=' .. tostring(math.floor(tonumber(p.spent) or 0)) .. "
         "' cost=' .. tostring(math.floor(tonumber(p.cost) or 0)) .. "
         "' energy=' .. tostring(%(energy)s) .. "
