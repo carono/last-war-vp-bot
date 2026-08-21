@@ -454,7 +454,7 @@ def test_the_watch_trigger_re_arms_the_hook():
     # A POLL with a check, never a bare interval: a wire trigger with no event pattern
     # is dropped at load with «не указано, какое событие ждать» and looks switched off.
     assert trig.kind == triggers.KIND_POLL, trig.kind
-    assert "__LW_FWW" in trig.check, trig.check
+    assert "DataCenter.__lw_fww" in trig.check, trig.check
     assert not trig.event_pattern, trig.event_pattern
     import json                                    # noqa: PLC0415
     for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
@@ -523,6 +523,43 @@ def test_a_fields_family_is_enough_to_keep_the_frame():
             del mon.print
         else:
             mon.print = old_print
+
+
+def test_the_watch_creates_no_new_lua_globals():
+    """`_G` is guarded in this client, so a watcher must not be parked there (#1702).
+
+    `GlobalProtect.lua:54` is a `__newindex` metamethod on `_G`: a refused assignment
+    silently does not happen and the game writes the refusal down —
+
+        Lua 全局变量 '__LW_GOLD_WS' 不可<新增/修改>
+
+    Measured live on 2026-08-21 the guard is installed and yet let OUR name through, so
+    the refusal is selective — which is no comfort at all: it makes survival a property
+    of the name picked and of whatever that build's guard checks. For a WATCHER that is
+    worse than a lost cache. The hook parked in `HandleMessage`
+    keeps its counters in a closure, so it goes on working — but the flag the next lap
+    looks for is not there, so `watch_fireworks` believes there is no watch, says
+    «armed» rather than «already on», and wraps `HandleMessage` a SECOND time. The
+    re-arm trigger runs every three minutes; a day of that is a stack of wrappers, and
+    `read_fireworks_watch` reports zeroes the whole time because it reads the same
+    missing flag.
+
+    So the state is a field of `DataCenter` — an existing table, which takes new fields
+    quietly — and nothing in this chain writes a global.
+    """
+    for recipe in ("watch_fireworks", "unwatch_fireworks",
+                   "read_fireworks_watch", "collect_fireworks"):
+        text = (ROOT / "src" / "lastwar_bot" / "actions"
+                / f"{recipe}.md").read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if line.startswith("#"):              # prose may NAME the mistake
+                continue
+            assert "_G.__LW" not in line, f"{recipe} writes a new Lua global"
+        assert "DataCenter.__lw_fw" in text, f"{recipe} lost its state field"
+
+    import panel.triggers as triggers              # noqa: PLC0415
+    trig = [x for x in triggers.DEFAULT_TRIGGERS if x.name == "firework_watch"][0]
+    assert "_G.__LW" not in trig.check, trig.check
 
 
 def _main() -> int:

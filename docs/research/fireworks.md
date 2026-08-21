@@ -220,3 +220,32 @@ just been updated by the client's own handling of it.
 `firework_collect` plays. It no longer opens with a refresh and a 1.5 s wait — it presses
 first, on what the client already knows, and only asks the server when that found
 nothing.
+
+## 8. Where the watch keeps its state — and why not on `_G` (#1702, #1854)
+
+The golden-zombie chain found that this client guards its global table: `GlobalProtect.lua:54`
+installs a `__newindex` metamethod on `_G`, a refused assignment silently does not happen,
+and the game writes the refusal into its own log
+(`%LOCALAPPDATA%\..\LocalLow\FunFly\Last War-Survival Game\Player.log`):
+
+    Lua 全局变量 '__LW_GOLD_WS' 不可<新增/修改>
+
+Measured live on 2026-08-21 for this chain, in the live client, two calls apart:
+
+    _G.__LW_FW_PROBE = 7 ; DataCenter.__lw_fw_probe = 7     -> global=7 field=7
+    (next call)  rawget(_G, '__LW_FW_PROBE')                -> global=7 field=7 guard=true
+
+So the guard IS installed (`getmetatable(_G) ~= nil`) and our own name went through
+anyway — the refusal is selective, not universal, and nothing here says by what rule. That
+is a reason to stay off `_G` rather than a reason to relax: survival would be a property
+of the name chosen and of whatever a given build checks.
+
+For a WATCHER the difference is bigger than for a cache. The hook keeps its counters in a
+closure, so a refused flag would not stop it working — it would stop the next lap FINDING
+it: `watch_fireworks` would answer «armed» instead of «already on» and wrap
+`SFSNetwork.HandleMessage` a second time, every 180 s for as long as the re-arm trigger
+runs, while the reading reported zeroes throughout.
+
+The state is therefore a field of an existing table — `DataCenter.__lw_fww` for the watch,
+`DataCenter.__lw_fw` for the collector's own last line. Verified live in the same session:
+`armed` → `on=1` → `already on: pushes=0 taken=0` across three separate calls.

@@ -8,5 +8,5 @@
 #
 # A client restart does the thorough version by itself: the VM goes, and with it the hook.
 
-READ_LUA (function() local B = _G.__LW_FWW if not B then return 'was not on' end B.on = false return 'off: pushes=' .. B.pushes .. ' taken=' .. B.taken end)() INTO state
+READ_LUA (function() local B = DataCenter.__lw_fww if not B then return 'was not on' end B.on = false return 'off: pushes=' .. B.pushes .. ' taken=' .. B.taken end)() INTO state
 LOG "Fireworks watch: {state}"

@@ -628,7 +628,7 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         # ждать — пропущен». A trigger that is silently skipped looks exactly like one
         # that is switched off.
         kind=KIND_POLL,
-        check=("(function() local B = _G.__LW_FWW "
+        check=("(function() local B = DataCenter.__lw_fww "
                "return (B == nil) or (not B.on) end)()"),
         interval_sec=180,
         cooldown_sec=170,
