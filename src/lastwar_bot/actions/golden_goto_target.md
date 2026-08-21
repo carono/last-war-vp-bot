@@ -12,4 +12,4 @@ TAP golden_look
 WAIT 1
 TAP golden_scan
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return '' end local srv = math.floor(tonumber(c.server or p.server) or 0) local core = 'X:' .. tostring(math.floor(tonumber(c.x) or 0)) .. ' Y:' .. tostring(math.floor(tonumber(c.y) or 0)) if srv > 0 then return '#' .. tostring(srv) .. ' ' .. core end return core end)() INTO where
-LOG "the camera is on the chosen zombie at (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return '' end local srv = math.floor(tonumber(c.server or p.server) or 0) local core = 'X:' .. tostring(math.floor(tonumber(c.x) or 0)) .. ' Y:' .. tostring(math.floor(tonumber(c.y) or 0)) if srv > 0 then return '#' .. tostring(srv) .. ' ' .. core end return core end)()"
+LOG "the camera is on the chosen zombie at {where}"
