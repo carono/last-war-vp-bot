@@ -1384,6 +1384,15 @@ def test_the_hunt_never_waits_out_a_march_that_is_not_its_own():
         "the reading is taken and the hunt waits anyway"
     assert "TAP golden_unstick" in guard, "a march that is not ours is waited out, not ended"
 
+    # …AND THE LINE IT PRINTS CARRIES NO NUMBER (#1702). `{name}` in a `LOG` is filled in
+    # from the values the recipe was CALLED with, so a reading taken two lines above is
+    # not the one that gets printed: live, this line said «-1 more seconds» about a march
+    # the `READ_LUA` had just answered 200 for, and the log was read for hours as proof
+    # that the clock was broken.
+    said = next(w for w in guard if w.startswith("LOG "))
+    assert "{" not in said, \
+        "the recall line prints a reading from a lap ago and calls it this one"
+
     # …and the recall drops the clock with it, or the guard fires again for ever.
     assert "p.eta_ms = nil" in lua_actions.golden_unstick(), \
         "the recall leaves the clock it was triggered by standing"

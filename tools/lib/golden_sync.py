@@ -32,6 +32,7 @@ OWNERS = {
     "attacks": "golden_attacks",
     "cost": "golden_attack_cost",
     "energy": "golden_energy",
+    "eta_left": "golden_eta_left",
     "found": "golden_found",
     "go": "golden_can_go",
     "golden_report": "golden_report",

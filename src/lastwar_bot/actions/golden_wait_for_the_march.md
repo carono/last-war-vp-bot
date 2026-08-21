@@ -35,9 +35,14 @@ WAIT client == ready WITHIN 20s
 #
 # So the hunt does not wait it out. It recalls the squad — the same press that takes one
 # off dirty ground — and the next lap starts from wherever the recall leaves it.
-READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return -1 end local now = nil pcall(function() now = tonumber(UITimeManager.Instance:GetServerTime()) end) if now == nil then pcall(function() now = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if now == nil then now = os.time() * 1000 end return math.floor((due - now) / 1000) end)() INTO eta_left
+READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending ~= nil then return -1 end local due = tonumber(p.eta_ms) if due == nil then return -1 end local now = nil pcall(function() now = tonumber(UITimeManager.Instance:GetServerTime()) end) if now == nil then pcall(function() now = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if now == nil then now = os.time() * 1000 end return math.floor((due - now) / 1000) end)() INTO eta_left
 IF eta_left > 180
-    LOG "the squad is out on a march of its own for {eta_left} more seconds — that is not this hunt's; recalling it rather than waiting"
+    # NO NUMBER IN THIS LINE, and that is not laziness (#1702). A `{name}` in a LOG is
+    # substituted from the values the recipe was CALLED with, so the one printed here
+    # was a lap old: live, it said «-1 more seconds» about a march the reading above
+    # had just answered 200 for. A wrong number in a log is worse than none — it was
+    # read as «the clock is broken» for hours.
+    LOG "the squad is out on a march this hunt did not order — recalling it rather than waiting"
     TAP golden_unstick
 
 # A squad that is still travelling cannot be sent again, and the send is refused in

@@ -530,6 +530,51 @@ The old post-send «is the squad stuck» branch is gone with it. It asked the sa
 with the opposite meaning (`canMarch = false` → dirty ground), which is how one reading
 came to mean both «the order was taken» and «the order was impossible».
 
+## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
+
+The worst kind of bug: every part of it had already been thought about, and the fix was
+sitting in the module while the recipe went on running the old line.
+
+`GOLDEN_WAIT_CEILING` (180 s) exists so the chain does not sit in front of a mine being
+gathered or a rally somebody else's press sent the squad into. `golden_eta_left()` in
+`tools/lib/lua_actions.py` therefore opens with `if p.pending ~= nil then return -1 end`:
+a march THIS hunt ordered is never measured against the ceiling, because applying it to
+our own order would cancel an attack in flight.
+
+The recipe's copy of that expression did not have the line. The DSL has no include, so
+`READ_LUA … INTO eta_left` in `golden_wait_for_the_march.md` was a COPY made before the
+guard existed, and `eta_left` was not in the `tools/lib/golden_sync.py` table that keeps
+the copies honest. Live, on a target 53 tiles from the base:
+
+    22:39:32  READ_LUA launched = 1                    <- our own attack goes out
+    22:39:33  READ_LUA eta_left = 200                  <- the server's arrival stamp
+    22:39:33  IF eta_left > 180 -> True
+    22:39:33  «not this hunt's; recalling it rather than waiting»
+    22:39:33  TAP golden_unstick                        <- our own attack, cancelled
+
+Then the chain re-picked the same zombie and did it again. Ten energy a lap, no kills,
+and from outside it looks like «the bot marches for five minutes and never hits
+anything»: every target more than three minutes out — which is every FIRST target of a
+run, because the squad starts at the base — was ordered and then unordered.
+
+Two things came out of it besides the sync entry:
+
+* **the line printed the wrong number, and it was the number people reasoned from.** It
+  said «-1 more seconds» while the reading two lines above had answered 200: a `{name}`
+  in a `LOG` is filled in from the values the recipe was CALLED with, so any reading
+  taken inside the recipe prints a lap late. The line names the FACT now and no number;
+* **`golden_choose_a_target.md` printed the pick's diagnostic as Lua SOURCE** — the
+  `LOG "target: …"` line carried a pasted copy of the expression instead of
+  `{pick_report}`. That is the one reading that answers «how far is the target, and what
+  was the distance measured FROM», so for as long as it was broken the question could
+  not be answered from the log at all. With it back:
+
+      target: at=511,464 dist=53 from=home origin=564,468 home_dist=54 queued=118 attacks=0
+      target: at=582,413 dist=12 from=anchor origin=582,425 home_dist=58 queued=158 attacks=1
+
+  which is the chain doing exactly what section 5 says it should: the first pick measured
+  from the base, every one after it from the last kill, twelve and thirteen tiles apart.
+
 ## 4e — what the night's rebuild measures (#1702)
 
 The chain is four scenarios — `golden_wait_for_the_march`, `golden_judge_the_kill`,
