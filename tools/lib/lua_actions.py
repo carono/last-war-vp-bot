@@ -11094,8 +11094,25 @@ _GOLD_OWN_MARCH = (
     "m = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch("
     "P.uid, p.formation, P.allianceId) end) "
     "if m ~= nil then return m end "
-    "if p.own_march == nil then return nil end "
+    "if p.own_march ~= nil then "
     "pcall(function() m = DataCenter.WorldMarchDataManager:GetMarch(p.own_march) end) "
+    "if m ~= nil then return m end end "
+    # …AND THE SQUAD'S OWN SLOT, which is the identity that always holds (#1702). The
+    # formation question answers nil often enough to be useless on its own, and
+    # `p.own_march` is only written when the launch proof SEES the new march — which it
+    # does not when the proof came from «the squad went busy» instead. Without this
+    # third question a chain reads «no march at all» over a squad standing in the field,
+    # and every reading built on it (the origin, the redeploy) silently falls back to
+    # the base. A march carries the slot it was sent with in `armyInfo.f4`
+    # (docs/research/rally-join.md), and a slot is what `p.squad` is.
+    "local want = math.floor(tonumber(p.squad) or -1) "
+    "if want < 0 then return nil end "
+    "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+    "if ms == nil then return end "
+    "for i = 0, (ms.Count - 1) do local x = nil pcall(function() x = ms[i] end) "
+    "if x ~= nil then local slot = nil "
+    "pcall(function() slot = math.floor(tonumber(x.armyInfo.f4) or -1) end) "
+    "if slot == want then m = x end end end end) "
     "return m end "
     "local function _landed(m, p) "
     "if m == nil then return false end "

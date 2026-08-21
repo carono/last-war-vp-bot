@@ -149,8 +149,14 @@ def test_the_proof_of_an_attack_is_a_march_and_never_the_purse():
     launched = lua_actions.golden_launched()
     assert "GetOwnerFormationMarch" in launched, \
         "the proof does not ask OUR OWN formation what it is carrying"
-    assert "GetOwnerMarches" not in launched, \
-        "the proof counts any march of the account — a sibling squad confirms our order"
+    # THE BAN IS ON «ANY MARCH», NOT ON THE CALL (#1702). The whole list is fine to
+    # walk as long as the march is picked out of it BY IDENTITY: a march carries the
+    # slot it was sent with in `armyInfo.f4`, and a slot is what `p.squad` is, so a
+    # sibling squad cannot answer for our order. What is forbidden is taking a march
+    # because it happens to be there.
+    if "GetOwnerMarches" in launched.split("p.march_before")[0]:
+        assert "armyInfo.f4" in launched and "p.squad" in launched, \
+            "the proof counts any march of the account — a sibling squad confirms our order"
     assert "march_before" in launched, \
         "the proof counts marches rather than noticing a NEW one — another squad's rally "\
         "would answer for this attack"
@@ -2237,8 +2243,10 @@ def test_the_proof_of_a_send_is_our_own_squads_march_and_not_any_march_at_all():
         code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
         assert "GetOwnerFormationMarch" in code, (
             f"{name} still proves the send off the whole march list")
-        assert "GetOwnerMarches" not in code.split("p.march_before")[0], (
-            f"{name} still counts any march of the account as its own proof")
+        head = code.split("p.march_before")[0]
+        if "GetOwnerMarches" in head:
+            assert "armyInfo.f4" in head and "p.squad" in head, (
+                f"{name} still counts any march of the account as its own proof")
         assert "teamUuid" in code, f"{name} would take a banner for its own order"
 
 
