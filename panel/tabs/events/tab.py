@@ -126,6 +126,10 @@ class EventsTab(PanelTab):
         self._golden_busy = False
         self._golden_running = False
         self._golden_button = None
+        #: The tile «Найти ближайшего» last chose, in the panel's coordinate token
+        #: (`tools/lib/coords.py`) — the window's log makes it clickable, and the card
+        #: shows it on both front-ends (#1702).
+        self._golden_target = ""
         #: The squad the chain sends, by the slot the player sees. A plain int until
         #: `build()` makes the widget — a tab nobody has opened still has to be able to
         #: answer `config()` (`docs/panel-tabs.md`).
@@ -399,7 +403,20 @@ class EventsTab(PanelTab):
              ("attack_golden", "golden_attack_target", "events.golden.step.attack"),
              ("recall_golden", "golden_recall_squad", "events.golden.step.recall"),
              ("state_golden", "golden_squad_report", "events.golden.step.state"),
+             ("goto_golden", "golden_goto_target", "events.golden.step.goto"),
              ("rescan_golden", "scan_map", "events.golden.step.rescan"))
+
+    def _step_back(self, outcome) -> None:
+        """Keep what a step FOUND, when it found anything.
+
+        Only one of them reports a place: «найти ближайшего» parks the tile it chose, and
+        the card shows it until the next press changes it. Everything else a step has to
+        say is already in the log, which both front-ends draw.
+        """
+        ctx = getattr(outcome, "ctx", None)
+        where = (getattr(ctx, "vars", {}) or {}).get("where")
+        if where:
+            self._golden_target = str(where)
 
     def step(self, action: str) -> bool:
         """Play one step of the hunt. The log is where its answer lands, on purpose.
@@ -417,7 +434,8 @@ class EventsTab(PanelTab):
             args = {}
         elif row[1] == "golden_attack_target":
             args["approach"] = 1 if self.approach() else 0
-        return bool(self.rt.play_async(row[1], args, tag="events"))
+        return bool(self.rt.play_async(row[1], args, tag="events",
+                                       on_result=self._step_back))
 
     def hunt(self) -> bool:
         """Start the chain: scan the map, then attack until the energy runs out.
@@ -852,6 +870,8 @@ class EventsTab(PanelTab):
             {"label": "events.golden.approach",
              "value": self.t("events.golden.approach."
                              + ("on" if self.approach() else "off"))},
+            {"label": "events.golden.target",
+             "value": self._golden_target or self.t("events.golden.target.none")},
         ]}
         if gold.can_attack and not self._golden_running:
             gcard["actions"] = [{"id": "hunt_golden", "label": "events.golden.hunt"},

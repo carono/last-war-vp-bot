@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Atakuj wybranego",
   "events.golden.step.recall": "Zawróć oddział",
   "events.golden.step.state": "Stan oddziału",
-  "events.golden.step.rescan": "Odśwież mapę"
+  "events.golden.step.rescan": "Odśwież mapę",
+  "events.golden.target": "Wybrany zombie",
+  "events.golden.target.none": "nie wybrano",
+  "events.golden.step.goto": "Skocz do wybranego"
 }

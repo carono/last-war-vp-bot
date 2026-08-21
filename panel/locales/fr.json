@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Attaquer le choisi",
   "events.golden.step.recall": "Rappeler l'escouade",
   "events.golden.step.state": "État de l'escouade",
-  "events.golden.step.rescan": "Relire la carte"
+  "events.golden.step.rescan": "Relire la carte",
+  "events.golden.target": "Zombie choisi",
+  "events.golden.target.none": "aucun choisi",
+  "events.golden.step.goto": "Aller au choisi"
 }

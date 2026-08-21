@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Attack the chosen one",
   "events.golden.step.recall": "Bring the squad home",
   "events.golden.step.state": "Squad state",
-  "events.golden.step.rescan": "Re-read the map"
+  "events.golden.step.rescan": "Re-read the map",
+  "events.golden.target": "Chosen zombie",
+  "events.golden.target.none": "none chosen",
+  "events.golden.step.goto": "Fly to the chosen one"
 }

@@ -10201,6 +10201,23 @@ def golden_looked_moved() -> str:
             "return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)()")
 
 
+def golden_pick_where() -> str:
+    """Lua *expression* -> the chosen zombie's tile in the panel's own coordinate token.
+
+    `#<server> X:<x> Y:<y>` — the one spelling of a world coordinate in this repository
+    (`tools/lib/coords.py`), which the log view turns into something a person can click
+    to fly there (#1702, and the operator asked for exactly that). Empty string when
+    nothing is chosen, so a caller can tell «none» from a tile at 0,0.
+    """
+    return ("(function() " + _GOLD_P +
+            "local c = p.cur if c == nil then return '' end "
+            "local srv = math.floor(tonumber(c.server or p.server) or 0) "
+            "local core = 'X:' .. tostring(math.floor(tonumber(c.x) or 0)) "
+            ".. ' Y:' .. tostring(math.floor(tonumber(c.y) or 0)) "
+            "if srv > 0 then return '#' .. tostring(srv) .. ' ' .. core end "
+            "return core end)()")
+
+
 def golden_pick_report() -> str:
     """Lua *expression* -> one line about the armed target, for the log (#1702).
 

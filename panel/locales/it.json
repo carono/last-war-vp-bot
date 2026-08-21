@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Attacca quello scelto",
   "events.golden.step.recall": "Richiama la squadra",
   "events.golden.step.state": "Stato della squadra",
-  "events.golden.step.rescan": "Rileggi la mappa"
+  "events.golden.step.rescan": "Rileggi la mappa",
+  "events.golden.target": "Zombie scelto",
+  "events.golden.target.none": "nessuno scelto",
+  "events.golden.step.goto": "Vai a quello scelto"
 }

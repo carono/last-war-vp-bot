@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Tấn công con đã chọn",
   "events.golden.step.recall": "Gọi đội về",
   "events.golden.step.state": "Trạng thái đội",
-  "events.golden.step.rescan": "Đọc lại bản đồ"
+  "events.golden.step.rescan": "Đọc lại bản đồ",
+  "events.golden.target": "Zombie đã chọn",
+  "events.golden.target.none": "chưa chọn",
+  "events.golden.step.goto": "Tới con đã chọn"
 }

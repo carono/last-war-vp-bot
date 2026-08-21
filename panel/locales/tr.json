@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Seçileni saldır",
   "events.golden.step.recall": "Birliği geri çağır",
   "events.golden.step.state": "Birlik durumu",
-  "events.golden.step.rescan": "Haritayı yeniden oku"
+  "events.golden.step.rescan": "Haritayı yeniden oku",
+  "events.golden.target": "Seçilen zombi",
+  "events.golden.target.none": "seçilmedi",
+  "events.golden.step.goto": "Seçilene git"
 }

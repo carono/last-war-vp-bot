@@ -378,6 +378,7 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._golden_busy = False
     tab._golden_running = False
     tab._golden_button = None
+    tab._golden_target = ""          # what «найти ближайшего» last chose (#1702)
     tab._squad = modelmod.GOLDEN_SQUAD_DEFAULT
     tab._squad_var = None
     tab._tally = {}
@@ -466,7 +467,7 @@ def test_the_phone_hunts_golden_zombies_only_while_the_purse_can_pay():
     # …and beside the chain, the chain taken apart: one press per step, so a person can
     # find a zombie, look at what was chosen, and only then send anything at it (#1702).
     STEPS = ["find_golden", "attack_golden", "recall_golden", "state_golden",
-             "rescan_golden"]
+             "goto_golden", "rescan_golden"]
     assert _card_actions(live, "events.group.golden") == [
         "hunt_golden", "squad_next", "approach_toggle"] + STEPS
     assert live.web_press("hunt_golden", {}) == {"ok": True}

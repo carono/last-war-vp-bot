@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Атаковать выбранного",
   "events.golden.step.recall": "Вернуть отряд",
   "events.golden.step.state": "Состояние отряда",
-  "events.golden.step.rescan": "Обновить карту"
+  "events.golden.step.rescan": "Обновить карту",
+  "events.golden.target": "Выбранный зомби",
+  "events.golden.target.none": "не выбран",
+  "events.golden.step.goto": "Перейти к выбранному"
 }

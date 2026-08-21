@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Serang yang dipilih",
   "events.golden.step.recall": "Panggil pulang pasukan",
   "events.golden.step.state": "Status pasukan",
-  "events.golden.step.rescan": "Baca ulang peta"
+  "events.golden.step.rescan": "Baca ulang peta",
+  "events.golden.target": "Zombi terpilih",
+  "events.golden.target.none": "belum dipilih",
+  "events.golden.step.goto": "Ke yang dipilih"
 }

@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Gewählten angreifen",
   "events.golden.step.recall": "Trupp zurückholen",
   "events.golden.step.state": "Trupp-Status",
-  "events.golden.step.rescan": "Karte neu lesen"
+  "events.golden.step.rescan": "Karte neu lesen",
+  "events.golden.target": "Gewählter Zombie",
+  "events.golden.target.none": "keiner gewählt",
+  "events.golden.step.goto": "Zum Gewählten springen"
 }

@@ -2071,5 +2071,8 @@
   "events.golden.step.attack": "2 · Atacar al elegido",
   "events.golden.step.recall": "Traer al escuadrón",
   "events.golden.step.state": "Estado del escuadrón",
-  "events.golden.step.rescan": "Releer el mapa"
+  "events.golden.step.rescan": "Releer el mapa",
+  "events.golden.target": "Zombi elegido",
+  "events.golden.target.none": "ninguno elegido",
+  "events.golden.step.goto": "Ir al elegido"
 }
