@@ -10730,7 +10730,12 @@ def golden_unstick() -> str:
         # comparison is meaningless until the squad is somewhere the chain knows about,
         # so the next send is a plain attack march and the ride resumes after it.
         "p.skip_ride = 1 "
-        "p.pending = nil p.hit = nil p.cur = nil "
+        # THE TARGET SURVIVES A RECALL (#1702). The chain re-picks every lap, so
+        # clearing it there changed nothing; for a hand press it changed everything —
+        # «я его развернул и второй раз не смог отправить» was «Вернуть отряд»
+        # throwing away the zombie the person had just fixed. The ORDER is forgotten,
+        # the CHOICE is not.
+        "p.pending = nil p.hit = nil "
         "if p.home ~= nil then p.anchor = nil end "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_unstick ok="..tostring(ok)'
