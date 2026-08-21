@@ -1481,6 +1481,21 @@ def test_a_lap_waits_for_the_hunts_own_march_and_not_for_can_march():
         "the march is asked about after canMarch, which is the order that failed"
 
 
+def test_no_lap_orders_anything_into_a_dead_link():
+    """A hunt is minutes long and the link is only read when a run STARTS (#1702).
+
+    Live on 2026-08-21 the client went deaf mid-run, the chain went on sending, and the
+    squad was left on a march the server never answered — `endTime=0` beside a real
+    `startTime`, which is «застрял в текстурах» seen from the data. From inside the
+    client nothing says so: every getter answers and every send returns cleanly.
+    """
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_wait_for_the_march.md").read_text(encoding="utf-8")
+    assert "WAIT client == ready" in text, "a lap no longer checks the link"
+    assert text.index("WAIT client == ready") < text.index("INTO marching"), \
+        "the link is checked after the lap has already begun waiting on a march"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

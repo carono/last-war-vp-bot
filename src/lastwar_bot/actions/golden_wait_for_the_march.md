@@ -10,6 +10,23 @@
 
 ARGS march_wait = 200
 
+# NOTHING IS ORDERED INTO A LINK THE SERVER HAS ALREADY HUNG UP ON (#1702). The panel
+# reads the link before a run is started (docs/research/server-link-status.md), and a
+# hunt is minutes long: the client can go deaf in the middle of one, and from inside
+# nothing changes — every getter answers, every send returns cleanly, and the client
+# writes «Send msg when conn not ready» into its OWN log where nothing here was looking.
+#
+# What that costs is not a wasted order. Measured live on 2026-08-21, after a run that
+# had gone on sending across a dropped link: the squad was left on a march the server
+# never gave an arrival time to —
+#
+#     m0 uuid=1407629582470981526 endTime=0 startTime=1787285248626
+#
+# — which is what the operator saw as «отряд застрял в текстурах», a state ordinary play
+# never produces. So the link is re-read at the top of every lap, and a hunt over a deaf
+# client ends with the panel's own words instead of leaving marks in the game.
+WAIT client == ready WITHIN 20s
+
 # HOW LONG IS THIS MARCH, AND IS IT EVEN OURS? (#1702) The hunt's own hops are seconds
 # and its longest ride is a minute; a clock three minutes out belongs to something else —
 # a mine being gathered, a rally, a treasure run, an order the person gave by hand.
