@@ -1073,8 +1073,15 @@ def test_the_map_is_walked_ONCE_and_never_again():
     — is gone, and the reaping is what replaced both.
     """
     body, lines = _chain()
-    assert lines.count("CALL scan_map") == 1, \
-        "the recipe walks the whole map more than once"
+    # TWICE, AND THE SECOND ONE IS THE DROUGHT'S (#1702). The rule this test exists for
+    # is «not once per kill»: what it forbade was the ring of eighteen camera stops and
+    # the flight before every attack. A sweep goes stale, though — live, after three
+    # empty pauses the queue's 139 far rows were every one of them a ghost — so a pause
+    # that has already waited four and a half minutes may walk the map again.
+    assert lines.count("CALL scan_map") <= 2, \
+        "the recipe walks the whole map more than the run and its droughts need"
+    assert "INTO drought" in body, \
+        "the second sweep is not gated on the ground having stayed empty"
     assert not any(w.startswith("SWEEP_MAP") for w in lines), \
         "the recipe laps the map itself, on top of the one lap it calls for"
     lap = lines.index("CALL scan_map")

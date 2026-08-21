@@ -214,3 +214,13 @@ IF stalled == 1
         TAP golden_breathe
         WAIT {breather}
         TAP golden_scan
+        # …AND IF THE DROUGHT HAS GONE ON, WALK THE MAP AGAIN (#1702). The queue is what
+        # one sweep saw, and a sweep goes stale: live, after three empty pauses the leash
+        # went out to 700 tiles, found 139 rows in the invasion's own corner and dropped
+        # every one of them as a ghost — they had been killed while the chain was hunting
+        # beside the base. A lap of the map is eight seconds and it is the only thing that
+        # can refill a corner nobody is standing in. Not per kill, and not per pause: only
+        # while the ground the squad can reach has stayed empty.
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.dry) or 0) >= 3) and 1 or 0 end)() INTO drought
+        IF drought == 1
+            CALL scan_map
