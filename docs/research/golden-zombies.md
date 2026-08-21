@@ -702,10 +702,26 @@ otherwise. The report counts `redeploys` beside `attacks` for exactly this reaso
 difference between them is the number of kills that cost a walk home, and it is the only
 number that says whether the door is being reached at all.
 
-**What would reach it** is ordering the next target while the squad is still standing —
-inside the fight, or in whatever window there is between the fight ending and the walk
-home starting. That window has not been measured yet, and it is the next thing to look
-at rather than another call to find.
+**And the window it needs does not exist for a zombie kill — measured (#1702).** Every
+pick now prints one word saying what the squad's own march looked like when the origin
+was decided (`stand=`), and the finder behind it asks three ways: the formation, the uuid
+the run remembers, and the SLOT the march was sent with (`armyInfo.f4`, which always
+holds). On the account being hunted, lap after lap, after a confirmed kill it reads
+
+    stand=nomarch   from=home   attacks=1
+
+— the squad has no march at all by the time the next target is chosen. The reading is not
+a blind spot in the finder: on the other account, at a squad genuinely standing out, the
+same expression answers `stand=station from=anchor dist=2 home_dist=119` in the same
+minute.
+
+So the game brings a squad home when its monster fight ends, and `back = 0` does not
+change that; the `STATION` states this task kept finding are squads that had LANDED but
+whose order had been cut, or whose fight had not resolved. **There is no moment between
+the kill and the walk home in which an order can be given**, and the cost of a kill is
+therefore `2 * home_dist / speed` for as long as the target list is what the client can
+see. The redeploy stays what the measurements make it: the answer for a squad standing
+for some OTHER reason — a mine above all — and not a way to chain kills.
 
 ### The MINE is the other half, and it works — «залипание на шахте» answered
 
