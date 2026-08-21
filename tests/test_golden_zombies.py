@@ -258,7 +258,7 @@ def test_the_camera_is_put_on_the_origin_before_every_scan():
                                              "TAP golden_refresh")), \
                 "the scan the pick reads was taken from somewhere else"
     look = lua_actions.golden_look_from()
-    assert "p.anchor or p.home" in look, \
+    assert "p.home or p.anchor" in look, \
         "the camera does not follow the same origin the pick measures from"
 
 
@@ -706,11 +706,22 @@ def test_the_pick_takes_the_minimum_from_home_and_is_taken_again_once_more_is_kn
     assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, "the pick is not the nearest to home"
     assert rt.eval("DataCenter.__lw_gold.curfrom") == "home"
     assert rt.eval("DataCenter.__lw_gold.curdist") == 10
-    # …and once a kill has happened the origin is that kill, not the base again.
+    # …AND IT STAYS HOME AFTER A KILL, which is the opposite of what this chain was
+    # built on and the opposite of what this test used to assert (#1702).
+    #
+    # The old rule — «the next target is the nearest to the last kill» — assumed the
+    # squad stands where it killed. It does stand there (`back = 0` asks for exactly
+    # that), and the game will not let it be used from there: two orders at a stationed
+    # squad were refused in silence with the purse unmoved. So every kill is a round trip
+    # from the BASE, and measured over 21 laps the time from the order to the squad
+    # reading free tracks `2 * home_dist / 0.765` and ignores the anchor distance
+    # entirely — a target two tiles from the last corpse and twenty-five from the base
+    # cost 65 seconds. The nearest to home is the cheap one.
     rt.execute("DataCenter.__lw_gold.anchor = {x = 150, y = 150}")
     rt.execute(lua_actions.golden_pick())
-    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 33, "the chain went back to measuring from home"
-    assert rt.eval("DataCenter.__lw_gold.curfrom") == "anchor"
+    assert rt.eval("DataCenter.__lw_gold.cur.uuid") == 22, \
+        "the chain chases the corpse's neighbour and pays the distance from base for it"
+    assert rt.eval("DataCenter.__lw_gold.curfrom") == "home"
 
     # …and the recipe revisits the choice only when the ground has been PROVEN stale
     # (#1702). It used to re-pick after every kill, behind a camera flight to the
@@ -1051,8 +1062,12 @@ def test_the_expensive_refresh_waits_for_two_to_five_disappearances():
     assert "MoveToWorldPoint" in refresh and "GetMonsterListInArea" in refresh, \
         "the refresh does not move the camera and read at every stop — it loads nothing"
     assert "DelayInvoke" in refresh, "the ring is walked by round trips, not by the game"
-    assert "p.anchor or p.home" in refresh, \
-        "the refresh is aimed at the base rather than at where the chain is standing"
+    # …AT HOME, because that is where the next march starts from (#1702). The chain was
+    # built on «the squad stands where it killed», and the game does not allow it: a
+    # landed army cannot be redeployed by the send this repository has, so every kill is
+    # a round trip from the base and the ground worth loading is the ground near it.
+    assert "p.home or p.anchor" in refresh, \
+        "the refresh is aimed away from where the next march actually starts"
     assert lua_actions.GOLDEN_REFRESH_STOPS + 1 <= 12, \
         "the refresh is as long a walk as the ring it replaced"
     assert 6.0 <= lua_actions.golden_refresh_seconds() <= 12.0, \

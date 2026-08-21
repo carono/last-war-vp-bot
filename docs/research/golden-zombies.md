@@ -589,6 +589,28 @@ redeploy an army that has arrived, the same wall the ride hits at a mine (§4b).
 player's own tap goes through the dispatch screen, which is a different call and is not
 found yet; until it is, «стоит на месте» costs a walk home.
 
+### And the measurement that decided where to aim next
+
+Twenty-one laps, each row a kill: how far the target was from the last corpse, how far it
+was from the BASE, and how long from the order to the squad reading free again.
+
+    home_dist  anchor_dist   order->free      2*home_dist/0.765
+        22          5            57 s              58 s
+        26          9            64 s              68 s
+        25          3            55 s              65 s
+        53         17           126 s             139 s
+        54          4           130 s             141 s
+
+**The cost tracks the distance from HOME and ignores the anchor entirely.** A target two
+tiles from the corpse and twenty-five from the base costs sixty-five seconds, because the
+squad walks home and out again. That is the whole of the chain's «nearest to where the
+squad is» idea undone by one measurement: the squad is not where it killed by the time
+the next order can be given, it is at the base.
+
+So the origin of every pick — and of the refresh ring that loads the ground for it — is
+HOME. The anchor stays in the state as a fallback for the day the redeploy call is found;
+until then it is a distance nobody pays.
+
 What that leaves, in order of what it would buy:
 
 * **the redeploy call itself** — the whole 60–115 s, and the only route to the operator's

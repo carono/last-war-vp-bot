@@ -10048,7 +10048,7 @@ def golden_refresh() -> str:
         _GOLD_P + _GOLD_WS +
         "if ws == nil then "
         'CS.UnityEngine.Debug.LogError("ACT golden_refresh skipped=not-in-world") return end '
-        "local o = p.anchor or p.home "
+        "local o = p.home or p.anchor "
         "if o == nil then o = {x = ws.CurTilePos.x, y = ws.CurTilePos.y} end "
         "if p.targets == nil then p.targets = {} end "
         "if p.used == nil then p.used = {} end "
@@ -10147,7 +10147,7 @@ def golden_best_dist() -> str:
     return (
         "(function() " + _GOLD_P +
         "local ox, oy = nil, nil "
-        "local o = p.anchor or p.home "
+        "local o = p.home or p.anchor "
         "if o ~= nil then ox, oy = o.x, o.y end "
         "local best = nil "
         "for _, t in ipairs(p.targets or {}) do "
@@ -10244,8 +10244,8 @@ def golden_pick() -> str:
         _GOLD_P +
         "p.cur = nil "
         "local ox, oy, from = nil, nil, 'oracle' "
-        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
-        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
+        "if p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' "
+        "elseif p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' end "
         "local best, bestd = nil, nil "
         "for _, t in ipairs(p.targets or {}) do "
         "if not (p.used or {})[tostring(t.pid)] and _goldfree(p, t.pid) then "
@@ -10297,7 +10297,7 @@ def golden_look_from() -> str:
     return (
         _GOLD_P + _GOLD_WS +
         "p.looked_moved = 0 "
-        "local at = p.anchor or p.home "
+        "local at = p.home or p.anchor "
         "if at == nil then %(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_look_from skipped=no-origin") return end '
         "local seen = p.looked "
@@ -10360,7 +10360,7 @@ def golden_pick_report() -> str:
     return (
         "(function() " + _GOLD_P +
         "local c = p.cur if c == nil then return 'none' end "
-        "local o = p.anchor or p.home "
+        "local o = p.home or p.anchor "
         "local hd = nil "
         "pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) "
         "return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. "
@@ -11503,9 +11503,18 @@ def golden_speeds() -> str:
 #: anchor is the last tile it was sent to this run; before the first send there is none
 #: and the game answers from the base instead. Same rule as `golden_pick`, so the two
 #: cannot drift into disagreeing about which target is nearer.
+#:
+#: **AND THE ORIGIN IS HOME, not the last kill (#1702).** The chain was built on
+#: «the squad stands where it killed, so measure from there» — and the game does
+#: not let it: an army that has landed cannot be redeployed by the send this
+#: repository has, so every kill is a round trip from the base whatever the anchor
+#: says. Measured over 21 laps, the time from the order to the squad reading free
+#: tracks `2 * home_dist / 0.765` and ignores the anchor distance entirely: a target
+#: two tiles from the last corpse and twenty-five from the base cost 65 s. So the
+#: nearest target to HOME is the cheap one, and that is what is chosen.
 _GOLD_DIST = (
     "local function _dist(pid, x, y) "
-    "local o = p.anchor or p.home "
+    "local o = p.home or p.anchor "
     "if o ~= nil then local dx, dy = (x - o.x), (y - o.y) "
     "return math.sqrt(dx * dx + dy * dy) end "
     "local d = nil "
@@ -12112,8 +12121,8 @@ def golden_pick_and_report() -> str:
         "if ws == nil then return 'noneseen' end "
         "p.cur = nil "
         "local ox, oy, from = nil, nil, 'oracle' "
-        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
-        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
+        "if p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' "
+        "elseif p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' end "
         "local dropped = 0 "
         "local best, bestd = nil, nil "
         "for _try = 1, 12 do "
