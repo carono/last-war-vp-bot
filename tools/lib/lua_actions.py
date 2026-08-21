@@ -9806,6 +9806,7 @@ def golden_arm() -> str:
         "local _keep = DataCenter.__lw_gold or {} "
         "local p = {} "
         "p.anchor = _keep.anchor "
+        "p.last_sent = _keep.last_sent "
         "p.cfg = %(cfg)d "
         "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
         "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "
@@ -10392,6 +10393,7 @@ def golden_send() -> str:
         "end, 0.5) "
         "p.used[tostring(t.pid)] = true "
         "p.anchor = {x = t.x, y = t.y, pid = t.pid} "
+        "p.last_sent = {x = t.x, y = t.y, pid = t.pid} "
         "p.pending = {pid = pid, uuid = uuid, key = tostring(uuid), x = t.x, y = t.y} "
         "p.hit = p.pending "
         # THE MARCHES THAT EXIST BEFORE THE SEND (#1702). The proof that a send reached

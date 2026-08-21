@@ -30,7 +30,7 @@ IF armed == 0
 # WHERE THE MEASURING STARTS. A squad standing at home is measured from the base, and a
 # squad that is out is measured from where the hunt last sent it. Nothing is asked of
 # the game beyond the formation's own state.
-READ_LUA (function() local p = DataCenter.__lw_gold or {} local out = 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then if math.floor(tonumber(v.state) or 0) ~= 0 then out = 1 end end end end) if out == 0 then p.anchor = nil DataCenter.__lw_gold = p end return out end)() INTO squad_is_out
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local out = 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then if math.floor(tonumber(v.state) or 0) ~= 0 then out = 1 end end end end) if out == 1 then if p.anchor == nil then p.anchor = p.last_sent end else p.anchor = nil end DataCenter.__lw_gold = p return out end)() INTO squad_is_out
 IF squad_is_out == 1
     LOG "measuring from where the squad stands"
 IF squad_is_out == 0
