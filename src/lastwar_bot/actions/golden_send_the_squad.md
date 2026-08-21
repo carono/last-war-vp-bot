@@ -11,6 +11,15 @@
 ARGS approach = 0
 ARGS march_wait = 200
 ARGS miss_limit = 6
+ARGS breather = 90
+
+# NOTHING TO SEND AT IS THE SAME KIND OF PAUSE AS A REFUSED SEND (#1702). The chooser
+# comes back empty when every zombie it can reach has been killed — by us or by the
+# neighbours — and the invasion puts more there within a couple of minutes. Ending the
+# run on it is what left thousands of energy unspent all morning, so it is marked as a
+# stall and answered by the same wait as a streak of refusals below.
+IF picked == 0
+    TAP golden_stall_mark
 
 IF picked == 1
     # THE INVARIANT, AND EVERYTHING ELSE HERE RESTS ON IT (#1702): never give an order to
@@ -153,8 +162,25 @@ IF picked == 1
         CALL fill_empty_squads
         READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.misses) or 0) end)() INTO misses
         IF misses > {miss_limit}
-            LOG "several sends in a row went nowhere — stopping rather than giving orders nobody is receiving"
-            READ_LUA (0) INTO go
+            # …and the chain decides what that means (#1702). It used to end the run
+            # here, which over one morning is what ended nearly every one of them with
+            # thousands of energy unspent. A streak of refusals is the ground being
+            # farmed out; the caller waits and looks again, and only gives up when it
+            # has run out of patience it was given.
+            # A STREAK OF REFUSALS IS A PAUSE, NOT AN ENDING (#1702). Measured over one
+            # morning, this line ended nearly every run of the day — the best of them
+            # after 19 kills — with seven and a half THOUSAND energy still in the purse.
+            # What it means is that the corner the squad is standing in has been farmed
+            # out, which is a fact about the map two minutes from now rather than about
+            # the client. So the hunt waits, asks the client about the district it is
+            # standing in, and goes round again; the tiles it has already cleared stay
+            # used, so a pause never walks it back round its own kills.
+            #
+            # It is BOUNDED, and that bound is what keeps the old ending honest: a
+            # client that has genuinely gone deaf refuses everything for ever, and a
+            # hunt that waits for ever in front of one is the bug this task began with.
+            LOG "several sends in a row went nowhere — the ground here is farmed out"
+            TAP golden_stall_mark
     ELSE
         # The tally moves HERE and nowhere else. What the attack COST is read off
         # the purse for the books, and cannot decide anything.
@@ -165,3 +191,26 @@ IF picked == 1
         # No scan here: the lap below re-asks the client after it has looked at the
         # origin of the next pick, and asking twice cost most of a second per kill
         # for a list that is thrown away and rebuilt anyway (#1702).
+
+# THE PAUSE, IN ONE PLACE, FOR BOTH WAYS A LAP CAN COME UP EMPTY (#1702) — no zombie the
+# chooser could reach, or a streak of orders the server refused. Measured over one
+# morning, those two lines ended nearly every run of the day, the best of them after 19
+# kills, with seven and a half THOUSAND energy still in the purse. Both mean the corner
+# the squad is standing in has been farmed out, which is a fact about the map two minutes
+# from now rather than about the client — so the hunt waits, asks the client about the
+# district it is standing in, and goes round again.
+#
+# The tiles already cleared stay used, so a pause never walks the hunt back round its own
+# kills. And it is BOUNDED: a client that has genuinely gone deaf refuses everything for
+# ever, and a hunt that waits for ever in front of one is the bug this task began with.
+READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.stalled == 1) and 1 or 0 end)() INTO stalled
+IF stalled == 1
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local lim = math.floor(tonumber(p.breather_limit) or 0) if lim <= 0 then return 0 end local used = math.floor(tonumber(p.breathers) or 0) local left = lim - used if left < 0 then left = 0 end return left end)() INTO breathers_left
+    IF breathers_left == 0
+        LOG "nothing to attack here and no pauses left — stopping"
+        READ_LUA (0) INTO go
+    IF breathers_left > 0
+        LOG "nothing to attack here just now — waiting {breather}s and looking again ({breathers_left} pause(s) left)"
+        TAP golden_breathe
+        WAIT {breather}
+        TAP golden_scan

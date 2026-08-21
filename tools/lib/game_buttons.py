@@ -1229,6 +1229,20 @@ BUTTONS["golden_miss"] = Button(
     lua=_lua_actions.golden_note_miss(),
     wait=0.1, label="write off a send that never became a march",
 )
+BUTTONS["golden_stall_mark"] = Button(
+    # A streak of sends that went nowhere. NOT the end of the run: it means the corner
+    # the squad stands in has been farmed out, which is a fact about the map five
+    # minutes from now rather than about the client (#1702).
+    lua=_lua_actions.golden_stall_mark(),
+    wait=0.1, label="mark that this lap could get no order out",
+)
+BUTTONS["golden_breathe"] = Button(
+    # …and the answer to it: clear the streak and the half-armed target, count the
+    # pause, and let the chain look at the map again. The tiles already cleared stay
+    # used, so a pause never sends the hunt back round its own kills.
+    lua=_lua_actions.golden_breathe(),
+    wait=0.1, label="take a breath and look at the map again",
+)
 BUTTONS["golden_home"] = Button(
     # The same send with `back = 1`: the march that brings the squad home. The recipe
     # raises the parked flag before pressing it, so this is `golden_send` with a promise

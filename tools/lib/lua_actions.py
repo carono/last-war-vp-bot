@@ -9802,6 +9802,8 @@ def golden_arm() -> str:
         "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
         "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "
         "p.reach = math.floor(tonumber(%(gold)s_reach) or 0) "
+        "p.breather_limit = math.floor(tonumber(%(gold)s_breathers) or 0) "
+        "p.breathers = 0 p.stalled = nil "
         "p.back = math.floor(tonumber(%(gold)s_back) or 0) "
         "p.limit = math.floor(tonumber(%(gold)s_limit) or 0) "
         "p.targets = {} p.used = {} p.attacks = 0 p.spent = 0 p.found = 0 "
@@ -11481,6 +11483,58 @@ def golden_march_in_flight() -> str:
             "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
             "if u ~= nil and u == tostring(want) then alive = 1 end end end end) "
             "return alive end)()")
+
+
+def golden_stall_mark() -> str:
+    """Say that this lap could not get an order out — WITHOUT ending the run (#1702).
+
+    A streak of sends that never became marches used to end the hunt outright, and
+    measured over a whole morning that is the ONE thing that ended almost every run:
+    19 kills in 38 minutes and then «several sends in a row went nowhere», with 7 505
+    energy still in the purse. What it actually means is that the corner the squad is
+    standing in has been farmed out — a fact about the map five minutes from now, not
+    about the client — so the chain marks it and the caller decides.
+    """
+    return (_GOLD_P + "p.stalled = 1 %(gold)s = p "
+            'CS.UnityEngine.Debug.LogError("ACT golden_stall_mark misses="'
+            '..tostring(math.floor(tonumber(p.misses) or 0)))' % {"gold": _GOLD})
+
+
+def golden_stalled() -> str:
+    """Lua *expression* -> 1 when the last lap could not get an order out."""
+    return ("(function() " + _GOLD_P +
+            "return (p.stalled == 1) and 1 or 0 end)()")
+
+
+def golden_breathe() -> str:
+    """Take the stall back and count the pause — the chain is going to look again.
+
+    Everything a stall leaves behind is cleared: the miss streak, the half-armed target,
+    the order that was never taken. What is NOT cleared is the list of targets already
+    used, so a breather does not send the hunt back round tiles it has already cleared.
+    """
+    return (_GOLD_P +
+            "p.stalled = nil p.misses = 0 p.cur = nil p.pending = nil "
+            "p.breathers = (tonumber(p.breathers) or 0) + 1 "
+            "%(gold)s = p "
+            'CS.UnityEngine.Debug.LogError("ACT golden_breathe n="'
+            '..tostring(math.floor(tonumber(p.breathers) or 0)))' % {"gold": _GOLD})
+
+
+def golden_breathers_left() -> str:
+    """Lua *expression* -> how many pauses this run may still take.
+
+    A bound rather than a licence: a client that has genuinely gone deaf refuses every
+    order for ever, and a hunt that waits for ever in front of one is the bug this whole
+    task started from. Thirty pauses of a minute and a half is a couple of hours of
+    hunting; past that something is wrong that waiting will not mend.
+    """
+    return ("(function() " + _GOLD_P +
+            "local lim = math.floor(tonumber(p.breather_limit) or 0) "
+            "if lim <= 0 then return 0 end "
+            "local used = math.floor(tonumber(p.breathers) or 0) "
+            "local left = lim - used if left < 0 then left = 0 end "
+            "return left end)()")
 
 
 def golden_arrived() -> str:

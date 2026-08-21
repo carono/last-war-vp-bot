@@ -1496,6 +1496,30 @@ def test_no_lap_orders_anything_into_a_dead_link():
         "the link is checked after the lap has already begun waiting on a march"
 
 
+def test_an_empty_lap_pauses_instead_of_ending_the_run():
+    """Both ways a lap comes up empty are answered by waiting, and the wait is bounded.
+
+    Measured over the morning of 2026-08-21: almost every run of the day ended on one of
+    two lines — «no zombie within reach» and «several sends in a row went nowhere» — the
+    best of them after 19 kills in 38 minutes, with 7 505 energy still in the purse. Both
+    mean the ground has been farmed out, and the invasion refills it in a couple of
+    minutes (#1702).
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_send_the_squad.md").read_text(encoding="utf-8")
+    assert "TAP golden_breathe" in text, "a stalled lap no longer pauses"
+    assert text.count("TAP golden_stall_mark") == 2, \
+        "both empty laps — no target, and a streak of refusals — must mark the stall"
+    assert lua_actions.golden_breathers_left() in text, "the pause is unbounded"
+    assert "no pauses left" in text, "nothing ends the run when the patience runs out"
+    # …and the ending is still reachable: the run stops when the pauses are used up.
+    assert "READ_LUA (0) INTO go" in text
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
