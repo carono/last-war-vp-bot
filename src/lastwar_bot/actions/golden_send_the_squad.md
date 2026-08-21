@@ -228,6 +228,20 @@ IF stalled == 1
     IF breathers_left > 0
         LOG "nothing to attack here just now — waiting {breather}s and looking again ({breathers_left} pause(s) left)"
         TAP golden_breathe
+        # THE CAMERA GOES BACK TO THE SQUAD FIRST, AND THAT IS THE WHOLE BUG (#1702).
+        # `GetMonsterListInArea` answers out of the tiles the CLIENT HOLDS, and what it
+        # holds is what the camera has been shown. After a lap of the map the camera is
+        # parked in whatever far corner the sweep ended in — so the reading below said
+        # «no golden zombie anywhere» while the operator watched dozens of them go past
+        # on screen. Measured: camera at 535,442 and the client naming 62 of them, the
+        # same client that had answered 0 with the camera left out at the edge.
+        # …taking what is here BEFORE the camera moves, which is the rule the whole
+        # chain follows: the client keeps what it has been shown, and a move evicts it.
+        TAP golden_scan
+        TAP golden_look_from
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
+        IF looked_moved == 1
+            WAIT 1
         # IS THERE ANYTHING ON THE MAP AT ALL? (#1702) The registry is what earlier
         # sweeps saw; this asks the client about the ground it is holding right now.
         # Measured live: 83 rows queued and the client naming ZERO of them, because the
