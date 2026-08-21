@@ -27,6 +27,13 @@ ARGS approach = 0
 WAIT client == ready WITHIN 20s
 
 LUA DataCenter.__lw_gold_squad = {squad}
+# AND IT COMES HOME AFTERWARDS (#1702). The chain leaves the squad standing where it
+# killed, because the next pick is measured from there and the next order is seconds
+# away. A press is not a chain: the operator watched a squad arrive at a tile whose
+# zombie somebody else had already killed and simply STAY there, which from the outside
+# is «доехал и застрял». `back = 1` is the game's own «come home when you are done», the
+# flag a player's own attack carries.
+LUA DataCenter.__lw_gold_back = 1
 TAP golden_use_squad
 
 READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO have_target
@@ -56,6 +63,24 @@ CALL golden_send_the_squad
 READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.pending == nil then return 1 end local seen = p.march_before or {} local fresh = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and not seen[u] then fresh = fresh + 1 end end end end) if fresh > 0 then return 1 end local busy = false pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then busy = (v.canMarch ~= true) end end end) return busy and 1 or 0 end)() INTO launched
 IF launched == 1
     LOG "the game took the order — the squad is marching"
+    # …AND THE TARGET IS WATCHED WHILE IT WALKS (#1702). A zombie is a thing other
+    # players are also hunting, and the march is minutes: if it dies on the way, walking
+    # the rest of it buys an empty tile. So the tile is asked about on every beat, and
+    # the moment it comes up empty the squad is recalled — the same recall «Вернуть
+    # отряд» plays, because there is one way to do a thing here.
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.hit if t == nil then return 1 end local ws = DataCenter.__lw_gold_ws local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) DataCenter.__lw_gold_ws = ws end if ws == nil then return 1 end local want = tostring(t.key or t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 0 or 1 end)() INTO gone
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
+    WHILE gone == 0 LIMIT {march_wait}
+        WAIT 3
+        TAP golden_scan
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
+        IF arrived == 1
+            READ_LUA (1) INTO gone
+        READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.hit if t == nil then return 1 end local ws = DataCenter.__lw_gold_ws local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) DataCenter.__lw_gold_ws = ws end if ws == nil then return 1 end local want = tostring(t.key or t.uuid or 0) local there = false pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() ws:GetMonsterListInArea(CS.UnityEngine.Vector2Int(t.x, t.y), 3, ids, res) local e = res:GetEnumerator() while e:MoveNext() do if tostring(e.Current.Key) == want then there = true end end end) return there and 0 or 1 end)() INTO gone
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local due = tonumber(p.eta_ms) if due == nil then return 1 end return (((function() local t = nil pcall(function() t = tonumber(UITimeManager.Instance:GetServerTime()) end) if t == nil then pcall(function() t = tonumber(UITimeManager:GetInstance():GetServerTime()) end) end if t == nil then t = os.time() * 1000 end return t end)()) >= due) and 1 or 0 end)() INTO arrived
+    IF arrived == 0
+        LOG "the zombie died while the squad was walking to it — calling the march back"
+        TAP golden_unstick
 IF launched == 0
     LOG "the game did not take the order — nothing is marching"
 

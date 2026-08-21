@@ -1617,6 +1617,29 @@ def test_a_press_checks_the_link_and_takes_back_a_march_with_no_clock():
         "the recall skips marches with no arrival time — the very ones that are stuck"
 
 
+def test_a_single_press_comes_home_and_gives_up_on_a_zombie_that_dies_en_route():
+    """«Цели не было, отряд доехал и застрял» — the operator, watching it happen (#1702).
+
+    The chain leaves a squad standing where it killed on purpose: the next pick is
+    measured from there and the next order is seconds away. A press is not a chain. Its
+    march carries the game's own «come home when you are done», and while it walks the
+    tile is watched — a zombie somebody else kills on the way turns the rest of the march
+    into a walk to an empty square, so the march is called back instead.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_attack_target.md").read_text(encoding="utf-8")
+    assert "LUA DataCenter.__lw_gold_back = 1" in text, \
+        "a single attack leaves the squad standing on the tile"
+    assert text.index("__lw_gold_back = 1") < text.index("CALL golden_send_the_squad"), \
+        "the come-home flag is set after the order has gone"
+    assert lua_actions.golden_gone() in text, "the target is not watched while the march runs"
+    assert "TAP golden_unstick" in text, "a target that dies en route is walked to anyway"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
