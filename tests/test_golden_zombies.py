@@ -1612,9 +1612,12 @@ def test_a_press_checks_the_link_and_takes_back_a_march_with_no_clock():
         "the link is read after the order has gone"
     assert lua_actions.golden_phantom_marches() in text, "nothing looks for a phantom march"
     assert "TAP golden_unstick" in text, "a phantom march is found and then left there"
-    # …and the recall must not filter the phantom out, which is how one survived it.
-    assert "if u ~= nil then" in lua_actions.golden_unstick(), \
-        "the recall skips marches with no arrival time — the very ones that are stuck"
+    # …and both are narrow: a RALLY march of the player's own has no arrival clock
+    # either, and neither the check nor the recall may touch it (#1702, measured live —
+    # a rally sat in the same list with `endTime = 0` minutes after the first version
+    # of this shipped).
+    for lua in (lua_actions.golden_phantom_marches(), lua_actions.golden_unstick()):
+        assert "p.march_uuid" in lua, "our own order is not told apart from a rally"
 
 
 def test_a_single_press_comes_home_and_gives_up_on_a_zombie_that_dies_en_route():

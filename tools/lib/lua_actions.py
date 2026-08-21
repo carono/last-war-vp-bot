@@ -10689,15 +10689,26 @@ def golden_unstick() -> str:
         "local f = p.formation "
         "local ok = false "
         "local sent = false "
+        "local want = p.march_uuid "
+        "local tgt = nil if p.pending ~= nil then tgt = p.pending.uuid end "
         "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
         "if ms == nil then return end "
         "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
-        "if m ~= nil then local u, e = nil, nil "
+        "if m ~= nil then local u, e, t = nil, nil, nil "
+        "pcall(function() t = tostring(m.targetUuid) end) "
         "pcall(function() u = m.uuid end) pcall(function() e = tonumber(m.endTime) end) "
         # …INCLUDING A MARCH WITH NO CLOCK (#1702). `endTime = 0` is the phantom: the
         # client drew a march the server never confirmed, and it is exactly the one
         # that has to come back. Filtering it out is how one survived a recall.
-        "if u ~= nil then "
+        # OURS, AND ONLY OURS (#1702). A rally march of the player's own has no
+        # arrival clock either, and recalling it would take the account out of its
+        # alliance's rally. So a march is recalled when it is the one this hunt
+        # parked, when it aims at the zombie we are attacking, or when it has a
+        # clock of its own — never merely because it is clockless.
+        "local mine = (want ~= nil and u == tostring(want)) "
+        "or (tgt ~= nil and t ~= nil and t == tostring(tgt)) "
+        "or (e ~= nil and e > 0) "
+        "if u ~= nil and mine then "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "pcall(function() MarchUtil.OnBackHome(u) end) end, 0.5) sent = true end end end end) "
         "ok = sent "
@@ -11568,19 +11579,34 @@ def golden_forget_queue() -> str:
 
 
 def golden_phantom_marches() -> str:
-    """Lua *expression* -> how many of our marches have no arrival time.
+    """Lua *expression* -> how many of OUR OWN orders have no arrival time.
 
-    `endTime = 0` beside a real `startTime` is a march the CLIENT drew and the SERVER
-    never confirmed — the squad is painted mid-move and takes no orders, which is what
-    the operator sees as «отряд застрял в текстурах» (#1702). It is not a state ordinary
-    play produces, and it is ours to clean up rather than to leave in the game.
+    `endTime = 0` beside a real `startTime` is a march the client drew and the server
+    never confirmed — the squad painted mid-move, refusing every order after it, which
+    is what «отряд застрял в текстурах» looks like in the data (#1702).
+
+    **AND IT IS NOT THE ONLY MARCH WITHOUT A CLOCK, which is why this is narrow.**
+    Measured live minutes after the first version shipped: a rally march of the player's
+    own — `endTime = 0`, `targetUuid` pointing at the rally — sat in the same list. A
+    blanket «recall everything with no clock» would have pulled the account out of its
+    own alliance rallies. So only a march this hunt ordered counts: the uuid the send
+    parked, or one aimed at the very zombie we are attacking.
     """
-    return ("(function() local n = 0 "
+    return ("(function() " + _GOLD_P +
+            "local want = p.march_uuid "
+            "local tgt = nil if p.pending ~= nil then tgt = p.pending.uuid end "
+            "if want == nil and tgt == nil then return 0 end "
+            "local n = 0 "
             "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
             "if ms == nil then return end "
             "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
-            "if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) "
-            "if e == nil or e <= 0 then n = n + 1 end end end end) "
+            "if m ~= nil then local e, u, t = nil, nil, nil "
+            "pcall(function() e = tonumber(m.endTime) end) "
+            "pcall(function() u = tostring(m.uuid) end) "
+            "pcall(function() t = tostring(m.targetUuid) end) "
+            "local ours = (want ~= nil and u == tostring(want)) "
+            "or (tgt ~= nil and t ~= nil and t == tostring(tgt)) "
+            "if ours and (e == nil or e <= 0) then n = n + 1 end end end end) "
             "return n end)()")
 
 

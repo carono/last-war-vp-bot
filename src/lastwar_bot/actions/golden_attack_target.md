@@ -90,11 +90,11 @@ IF launched == 0
 # Leaving it there is leaving a state in the game that ordinary play never makes, so the
 # press cleans up after itself rather than reporting success and walking away.
 WAIT 3
-READ_LUA (function() local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) if e == nil or e <= 0 then n = n + 1 end end end end) return n end)() INTO phantoms
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local want = p.march_uuid local tgt = nil if p.pending ~= nil then tgt = p.pending.uuid end if want == nil and tgt == nil then return 0 end local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e, u, t = nil, nil, nil pcall(function() e = tonumber(m.endTime) end) pcall(function() u = tostring(m.uuid) end) pcall(function() t = tostring(m.targetUuid) end) local ours = (want ~= nil and u == tostring(want)) or (tgt ~= nil and t ~= nil and t == tostring(tgt)) if ours and (e == nil or e <= 0) then n = n + 1 end end end end) return n end)() INTO phantoms
 IF phantoms > 0
     LOG "the game drew {phantoms} march(es) with no arrival time — taking them back"
     TAP golden_unstick
     WAIT 6
-    READ_LUA (function() local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) if e == nil or e <= 0 then n = n + 1 end end end end) return n end)() INTO phantoms
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local want = p.march_uuid local tgt = nil if p.pending ~= nil then tgt = p.pending.uuid end if want == nil and tgt == nil then return 0 end local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e, u, t = nil, nil, nil pcall(function() e = tonumber(m.endTime) end) pcall(function() u = tostring(m.uuid) end) pcall(function() t = tostring(m.targetUuid) end) local ours = (want ~= nil and u == tostring(want)) or (tgt ~= nil and t ~= nil and t == tostring(tgt)) if ours and (e == nil or e <= 0) then n = n + 1 end end end end) return n end)() INTO phantoms
     IF phantoms > 0
         FAIL "a march with no arrival time is still there — the client needs a restart"
