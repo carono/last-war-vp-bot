@@ -236,7 +236,7 @@ MONSTER_META_CFG = 1030000
 #: **The whitelist is compulsory and an empty one answers nothing** (world-monsters.md,
 #: Finding 6), so the ids come out of `lw_world_monster` — 12 115 rows, walked in 31 ms
 #: through `getTable(...).data`, grouped by `pic_name` into 107 prefabs and parked in
-#: `_G.__LW_MON_GROUPS`. Two passes: the prefab says whether anything of that kind is on
+#: `DataCenter.__lw_mon_groups`. Two passes: the prefab says whether anything of that kind is on
 #: the map at all (107 asks), and then each of ITS config ids is asked on its own, so that
 #: every monster carries the row it came from — which is the only way the LEVEL is exact,
 #: because a prefab's rows differ by nothing else (iron 1…35, bread 1…35).
@@ -263,7 +263,7 @@ MONSTER_REGISTER = """
   end)
   if WS == nil then return "" end
   local inst = LocalController.instance()
-  local groups = _G.__LW_MON_GROUPS
+  local groups = DataCenter.__lw_mon_groups
   if groups == nil or groups.v ~= 1 then
     local built = {}
     pcall(function()
@@ -289,7 +289,7 @@ MONSTER_REGISTER = """
       end
     end)
     groups = {v = 1, map = built}
-    _G.__LW_MON_GROUPS = groups
+    DataCenter.__lw_mon_groups = groups
   end
   local V2 = CS.UnityEngine.Vector2Int
   local function ask(ids)
@@ -9710,7 +9710,7 @@ def golden_attack_cost() -> str:
 #: Find the `WorldScene` MonoBehaviour and cache it. The world's controller is the only
 #: thing that can enumerate monsters, and it exists only in the world scene.
 _GOLD_WS = (
-    "local ws = _G.__LW_GOLD_WS "
+    "local ws = DataCenter.__lw_gold_ws "
     "local alive = false "
     "pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) "
     "if not alive then ws = nil "
@@ -9719,7 +9719,7 @@ _GOLD_WS = (
     "for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil "
     "pcall(function() n = mb:GetType().Name end) "
     "if n == 'WorldScene' then ws = mb break end end end) "
-    "_G.__LW_GOLD_WS = ws end "
+    "DataCenter.__lw_gold_ws = ws end "
 )
 
 
@@ -11034,7 +11034,7 @@ MON_MAP_VERSION = 4
 def monster_prefab_lookup() -> str:
     """Lua *statements* defining `_norm(s)` and `_monmap()` — the prefab -> config map.
 
-    Built once and parked in `_G.__LW_MON_PREFAB`: the table has 12 115 rows and walking
+    Built once and parked in `DataCenter.__lw_mon_prefab`: the table has 12 115 rows and walking
     it per read would be paid on every poll. Two ways in, and the second exists because
     the first depends on the shape of `LocalController:getTable`:
 
@@ -11052,7 +11052,7 @@ def monster_prefab_lookup() -> str:
         "local function _norm(s) "
         "return (string.gsub(string.lower(tostring(s or '')), '[^%%w]', '')) end "
         "local function _monmap() "
-        "local c = _G.__LW_MON_PREFAB "
+        "local c = DataCenter.__lw_mon_prefab "
         "if c ~= nil and c.v == %(ver)d then return c.map end "
         "local m = {} local walked, why = 0, '' "
         "local okwalk, err = pcall(function() "
@@ -11079,7 +11079,7 @@ def monster_prefab_lookup() -> str:
         "if e.special ~= sp then e.special = nil end end end "
         "walked = walked + 1 end end end) "
         "if not okwalk then why = tostring(err) end "
-        "_G.__LW_MON_DIAG = {walked = walked, why = why} "
+        "DataCenter.__lw_mon_diag = {walked = walked, why = why} "
         # …and the one prefab this repository names by hand, so it resolves whatever the
         # table's shape turns out to be on the next build of the game.
         "pcall(function() "
@@ -11089,7 +11089,7 @@ def monster_prefab_lookup() -> str:
         "if pic ~= nil and tostring(pic) ~= '' then local key = _norm(pic) "
         "if m[key] == nil then m[key] = {ids = {%(cfg)d}, n = 1, level = v('level'), "
         "type = v('type'), special = v('special')} end end end) "
-        "_G.__LW_MON_PREFAB = {v = %(ver)d, map = m} return m end "
+        "DataCenter.__lw_mon_prefab = {v = %(ver)d, map = m} return m end "
         % {"cfg": GOLDEN_ZOMBIE_CFG, "ver": MON_MAP_VERSION}
     )
 
@@ -11108,7 +11108,7 @@ def monster_prefab_probe() -> str:
         "pic = LocalController.instance():getValue('lw_world_monster', %(cfg)d, 'pic_name', nil) end) "
         "local e = m[_norm(pic)] "
         "local ids = '' if e ~= nil then for _, id in ipairs(e.ids) do ids = ids .. id .. ',' end end "
-        "local d = _G.__LW_MON_DIAG or {} "
+        "local d = DataCenter.__lw_mon_diag or {} "
         "return 'prefabs=' .. n .. ' walked=' .. tostring(d.walked) .. "
         "' why=' .. tostring(d.why) .. ' golden_pic=' .. tostring(pic) .. "
         "' rows=' .. tostring(e and e.n) .. ' ids=' .. ids .. "
@@ -11278,7 +11278,7 @@ def golden_approach_arm() -> str:
         'CS.UnityEngine.Debug.LogError("ACT golden_approach skipped=short sec="..tostring(math.floor(direct))) '
         "return end "
         # -- the mines the client already knows about, in a ring around the target
-        "local ws = _G.__LW_GOLD_WS "
+        "local ws = DataCenter.__lw_gold_ws "
         "local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) "
         "if not alive then p.why = 'not-in-world' %(gold)s = p return end "
         "local reach = math.floor(tonumber(%(gold)s_approach_reach) or 12) "

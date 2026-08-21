@@ -353,7 +353,8 @@ LocalController = {instance = function()
     end,
   }
 end}
-_G.__LW_MON_PREFAB = nil
+DataCenter = DataCenter or {}
+DataCenter.__lw_mon_prefab = nil
 """
 
 
@@ -1521,6 +1522,39 @@ def test_an_empty_lap_pauses_instead_of_ending_the_run():
     assert "no pauses left" in text, "nothing ends the run when the patience runs out"
     # …and the ending is still reachable: the run stops when the pauses are used up.
     assert "READ_LUA (0) INTO go" in text
+
+
+def test_the_chain_creates_no_new_lua_globals():
+    """The client REFUSES a new global, and says so in its own log (#1702).
+
+    `GlobalProtect.lua:54` is a `__newindex` metamethod on `_G`, and every attempt is a
+    Lua error the client writes down —
+
+        Lua 全局变量 '__LW_GOLD_WS' 不可<新增/修改>
+
+    — while the assignment silently does not happen. So the cache the chain thought it
+    was keeping was rebuilt on every call, and the game logged an error each time. State
+    goes on `DataCenter`, which is an existing table and takes new fields quietly.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    bad = [name for name in dir(lua_actions)
+           if name.startswith("golden") and callable(getattr(lua_actions, name))]
+    for name in bad:
+        fn = getattr(lua_actions, name)
+        try:
+            text = fn()
+        except TypeError:
+            continue
+        assert "_G.__LW" not in str(text), f"{name} writes a new Lua global"
+    for recipe in ("attack_golden_zombies", "golden_wait_for_the_march",
+                   "golden_judge_the_kill", "golden_choose_a_target",
+                   "golden_send_the_squad", "read_golden_zombies"):
+        text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+                / f"{recipe}.md").read_text(encoding="utf-8")
+        assert "_G.__LW" not in text, f"{recipe} writes a new Lua global"
 
 
 def _run_standalone() -> int:
