@@ -1775,7 +1775,12 @@ def test_a_found_zombie_is_confirmed_on_its_own_ground_before_it_is_announced():
     text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
             / "golden_find_target.md").read_text(encoding="utf-8")
     assert confirm in text, "the find announces a target it never confirmed"
-    assert "NOT confirmed" in text, "an unconfirmed target is announced as if it were seen"
+    # AN UNCONFIRMED TILE IS NOT AN ANSWER AT ALL (#1702). Announcing it with a warning
+    # beside it still flew the camera to empty ground — measured on the tile the button
+    # itself had offered: `area: n=0`, `point: not-loaded`, no monster record.
+    assert "TAP golden_forget_target" in text, \
+        "an unconfirmed target is still left fixed for «атаковать» to fire at"
+    assert 'STOP "not confirmed"' in text, "an unconfirmed target is offered anyway"
     assert lua_actions.golden_age_line() in text, "the answer does not say how old the row is"
 
 

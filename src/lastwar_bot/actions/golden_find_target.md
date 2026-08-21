@@ -93,8 +93,22 @@ WHILE alive == 0 LIMIT 5
 IF alive == 0
     LOG "five in a row were gone — the ground here is farmed out; press «обновить карту»"
     STOP "no target"
+
+# AN UNCONFIRMED TILE IS NOT AN ANSWER (#1702). It used to be offered with a warning
+# beside it — and the camera flew there anyway, which is «меня кидает на пустые
+# координаты» however the sentence was worded. Measured on the very tile the button
+# announced: the area list around it returned NOTHING, its point info was «not-loaded»,
+# and the monster's own record could not be read —
+#
+#     target truth: tile=518,492 pid=492519 || area: n=0 same_uuid=false
+#                   GetMonsterData: ? || point: not-loaded
+#
+# So a target that cannot be confirmed on its own ground is dropped as a CHOICE (the row
+# stays: nobody looked at it, THE_LIST_RULE), and the press says what it could not do.
+IF alive == -1
+    TAP golden_forget_target
+    LOG "nothing here could be confirmed — the client will not show that ground; press «обновить карту» and try again"
+    STOP "not confirmed"
 READ_LUA (function() local p = DataCenter.__lw_gold or {} local t = p.cur if t == nil then return 'no target' end local age = -1 if t.at ~= nil then age = math.floor(os.time() - tonumber(t.at)) end return 'age=' .. tostring(age) .. 's seen=' .. tostring(t.seen == 1) end)() INTO age
 IF alive == 1
     LOG "found a golden zombie: {found} — confirmed on its own ground, {age}"
-IF alive == -1
-    LOG "found a golden zombie: {found} — NOT confirmed: the client is not looking at that ground, {age}"
