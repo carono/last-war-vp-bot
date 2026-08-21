@@ -632,18 +632,29 @@ class WebApi:
         rt = self._runtime(profile)
         return {"actions": list_actions(lang=rt.i18n.lang)}
 
-    def run_action(self, name: str, profile: str | None = None) -> dict:
+    def run_action(self, name: str, profile: str | None = None,
+                   args: dict | None = None) -> dict:
         """Play one scenario under that profile's game claim — `rt.play_async`, no more.
 
         ``busy`` is not a failure: it means something else is driving this client right
         now, which is the one answer a remote press must never override. And it is per
         profile, which is the point of naming one — a press meant for the second account
         must not land on the first one's client.
+
+        ``args`` are the scenario's own ``ARGS``, exactly as a window button passes them
+        (#1702). Without them a run started from the far side plays the recipe's
+        DEFAULTS, which is a different run from the one the panel would have made — the
+        golden-zombie chain then hunts with squad 1 because that is what its `ARGS` line
+        says, whatever the person chose on «События». Values arrive from JSON, so they
+        are strings and numbers already; anything else is dropped rather than handed to
+        the player, because a `{name}` is substituted into Lua before it is parsed.
         """
         rt = self._runtime(profile)
         if rt.actions.resolve(name) is None:
             return {"error": "unknown"}
-        started = rt.play_async(name, tag="web")
+        clean = {str(k): v for k, v in (args or {}).items()
+                 if isinstance(v, (str, int, float)) and not isinstance(v, bool)}
+        started = rt.play_async(name, clean or None, tag="web")
         return {"ok": bool(started), "busy": not started, "name": name}
 
     # -- the client's life ----------------------------------------------------
@@ -1120,7 +1131,7 @@ class WebApi:
             if path == "/api/timers/run":
                 return _answer(self.run_timer(name, who))
             if path == "/api/actions/run":
-                return _answer(self.run_action(name, who))
+                return _answer(self.run_action(name, who, body.get("args") or {}))
             if path == "/api/game":
                 return _answer(self.game(str(body.get("action") or ""), who))
             if path == "/api/panel":

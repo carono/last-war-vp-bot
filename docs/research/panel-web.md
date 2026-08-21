@@ -60,7 +60,7 @@ one call onto the runtime:
 | `/api/timers` | `rt.schedule.timer_catalogue` + `timer_config()` + the last-run store |
 | `/api/timers/run` | `rt.schedule.timers.request(timer)` — the scheduler's own queue |
 | `/api/actions` | `panel.runtime.actions.list_actions()` |
-| `/api/actions/run` | `rt.play_async(name)` — under the claim, on a worker thread |
+| `/api/actions/run` | `rt.play_async(name, args)` — under the claim, on a worker thread. `args` is the scenario's own `ARGS`, the way a window button passes them; omit it and the recipe plays its DEFAULTS, which is a different run (#1702) |
 | `/api/game` | the client's lifecycle — `runtime/game_control.py`, which is `rt.play_async` of one of three recipes |
 | `/api/panel` | the PANEL's own life — `runtime/panel_control.py`, which is the shell's own «close and start again» |
 | `/api/log` | the log bus, tapped |
