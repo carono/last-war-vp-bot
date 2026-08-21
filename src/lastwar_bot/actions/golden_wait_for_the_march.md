@@ -56,6 +56,24 @@ IF arrived == 0
     LOG "the squad is still on the road after the wait — stopping rather than sending orders nobody can carry out"
     READ_LUA (0) INTO go
 
+# …AND THE MARCH ITSELF IS ASKED, NOT ONLY ITS CLOCK (#1702). The clock above is the
+# server's `endTime` for the order this hunt sent, and it is right about when the march
+# lands — but it is parked only when a send SUCCEEDS. After a send that was refused, the
+# clock is the previous one's and already past, so the lap sailed straight through and
+# sent another order at a squad that was still walking.
+#
+# `canMarch` does not save it. Measured live with `dev/golden_squad_state.md`, on a squad
+# sent seconds earlier: `squad2 state=1 canMarch=true` with `marches=1 [left=71s]` — a
+# march of ours in flight and the formation still saying yes. So the march's own uuid is
+# what is watched: parked by the send, gone from our list when it lands.
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local want = p.march_uuid if want == nil then return 0 end local alive = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and u == tostring(want) then alive = 1 end end end end) return alive end)() INTO marching
+WHILE marching == 1 LIMIT 90
+    WAIT 2
+    READ_LUA (function() local p = DataCenter.__lw_gold or {} local want = p.march_uuid if want == nil then return 0 end local alive = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) if u ~= nil and u == tostring(want) then alive = 1 end end end end) return alive end)() INTO marching
+IF marching == 1
+    LOG "the hunt's own march is still out after the wait — stopping rather than sending an order the squad cannot take"
+    READ_LUA (0) INTO go
+
 # …AND A LAP DOES NOT BEGIN UNTIL THE SQUAD IS FREE (#1702). One rule, in one place, for
 # every reason a squad might not take an order — still walking, working a mine, standing
 # on dirty ground, recalled a moment ago and on its way home. The march clock above

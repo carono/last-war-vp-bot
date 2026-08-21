@@ -1456,6 +1456,31 @@ def test_a_stale_row_costs_a_pick_and_not_a_whole_lap():
                    for w in choose), "the choosing brick gives orders"
 
 
+def test_a_lap_waits_for_the_hunts_own_march_and_not_for_can_march():
+    """`canMarch` is true while our march is in flight — measured, not assumed (#1702).
+
+    Live on 2026-08-21, seconds after a send, `dev/golden_squad_state.md` printed
+    `squad2 state=1 canMarch=true` beside `marches=1 [left=71s]`. The gate that let a lap
+    begin read `canMarch`, so it passed while the squad was still walking; every send
+    that followed was refused in silence and the chain wrote the target off as «gone».
+    One run attacked once and burned four targets that way.
+
+    So the wait watches the MARCH — the uuid the send parked — and the recipe must carry
+    the module's own copy of that question.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_wait_for_the_march.md").read_text(encoding="utf-8")
+    assert "INTO marching" in text, "the wait no longer asks whether our march is out"
+    assert lua_actions.golden_march_in_flight() in text, "the recipe's copy has drifted"
+    assert "WHILE marching == 1" in text, "the reading is taken and then not waited on"
+    assert text.index("INTO marching") < text.index("INTO squad_free"), \
+        "the march is asked about after canMarch, which is the order that failed"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -11415,7 +11415,7 @@ def golden_note_eta() -> str:
     """
     return (
         _GOLD_P +
-        "local latest, fresh = nil, nil "
+        "local latest, fresh, fresh_uuid = nil, nil, nil "
         "local seen = p.march_before or {} "
         "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
         "if ms == nil then return end "
@@ -11424,12 +11424,13 @@ def golden_note_eta() -> str:
         "pcall(function() e = tonumber(m.endTime) end) "
         "pcall(function() u = tostring(m.uuid) end) "
         "if e ~= nil and e > 0 then "
-        "if u ~= nil and not seen[u] and (fresh == nil or e > fresh) then fresh = e end "
+        "if u ~= nil and not seen[u] and (fresh == nil or e > fresh) then fresh = e fresh_uuid = u end "
         "if latest == nil or e > latest then latest = e end end end end end) "
         # THE MARCH THIS SEND MADE, when it can be told apart (#1702). «The latest of all
         # our marches» is another squad's rally or radar errand as often as not, and
         # waiting for that one is minutes of a chain spent standing still.
         "if fresh ~= nil then latest = fresh end "
+        "p.march_uuid = fresh_uuid "
         "if latest == nil then "
         "local guess = tonumber(p.approach_sec) or 60 "
         "latest = (%(now)s) + math.floor(guess * 1000) end "
@@ -11439,6 +11440,39 @@ def golden_note_eta() -> str:
         '..tostring(math.floor((latest - (%(now)s)) / 1000)).."s")'
         % {"gold": _GOLD, "now": _GAME_NOW_MS}
     )
+
+
+def golden_march_in_flight() -> str:
+    """Lua *expression* -> 1 while the march this hunt ordered is still on the map.
+
+    **`canMarch` DOES NOT ANSWER THIS, and that is the whole reason this exists (#1702).**
+    Measured live on 2026-08-21, with the dev brick `dev/golden_squad_state.md` run
+    against a squad that had just been sent at a zombie::
+
+        squad2 state=1 canMarch=true soldiers=2631
+        marches=1 [left=71s uuid=1407629582328375098 form=?]
+
+    A march of ours in flight, and the formation still saying it may march. So the gate
+    that let a lap begin — `golden_squad_free`, which reads `canMarch` — passed while the
+    squad was walking, the send that followed was refused in silence, and the chain wrote
+    the target off as «gone» and picked the next one. Live, a run attacked ONCE and then
+    burned four targets and sixty seconds that way.
+
+    The march's own uuid answers it exactly: `golden_note_eta` parks the uuid of the
+    march the send created, and this is 1 for as long as that uuid is still in our own
+    march list. Nothing parked — the first lap, or a send that never became a march — is
+    `0`, because there is nothing of ours to wait for.
+    """
+    return ("(function() " + _GOLD_P +
+            "local want = p.march_uuid "
+            "if want == nil then return 0 end "
+            "local alive = 0 "
+            "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+            "if ms == nil then return end "
+            "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+            "if m ~= nil then local u = nil pcall(function() u = tostring(m.uuid) end) "
+            "if u ~= nil and u == tostring(want) then alive = 1 end end end end) "
+            "return alive end)()")
 
 
 def golden_arrived() -> str:
