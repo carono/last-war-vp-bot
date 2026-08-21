@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "hace {n} min",
   "secrettasks.checked.never": "nunca",
   "secrettasks.checked.now": "ahora mismo",
-  "secrettasks.col.checked": "Verificado"
+  "secrettasks.col.checked": "Verificado",
+  "panel.quit": "⏻  Apagar el panel",
+  "panel.quit.title": "Apagar el panel",
+  "panel.quit.confirm": "¿Apagar el panel ahora?\\n\\nLa ventana se cierra y NO vuelve: el horario, los monitores y el escenario en marcha se detienen, y nadie vigilará las cuentas. El juego y el demonio Lua siguen funcionando. Para volver a arrancarlo hay que estar en esta máquina.",
+  "log.panel.quitting": "apagando el panel — no volverá por sí solo",
+  "web.ui.panel.quitting": "apagando el panel — no volverá por sí solo"
 }

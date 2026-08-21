@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "il y a {n} min",
   "secrettasks.checked.never": "jamais",
   "secrettasks.checked.now": "à l'instant",
-  "secrettasks.col.checked": "Vérifié"
+  "secrettasks.col.checked": "Vérifié",
+  "panel.quit": "⏻  Éteindre le panneau",
+  "panel.quit.title": "Éteindre le panneau",
+  "panel.quit.confirm": "Éteindre le panneau maintenant ?\\n\\nLa fenêtre se ferme et NE revient PAS : le planning, les moniteurs et le scénario en cours s'arrêtent, plus personne ne surveille les comptes. Le jeu et le démon Lua continuent de tourner. Pour le relancer, il faut être devant cette machine.",
+  "log.panel.quitting": "j'éteins le panneau — il ne reviendra pas tout seul",
+  "web.ui.panel.quitting": "j'éteins le panneau — il ne reviendra pas tout seul"
 }

@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "{n} min ago",
   "secrettasks.checked.never": "never",
   "secrettasks.checked.now": "just now",
-  "secrettasks.col.checked": "Verified"
+  "secrettasks.col.checked": "Verified",
+  "panel.quit": "⏻  Shut the panel down",
+  "panel.quit.title": "Shut the panel down",
+  "panel.quit.confirm": "Shut the panel down now?\\n\\nThe window closes and does NOT come back: the schedule, the monitors and any running scenario stop, and nothing will be watching the accounts. The game and the Lua daemon keep running. Starting it again means somebody at this machine.",
+  "log.panel.quitting": "shutting the panel down — it will not come back by itself",
+  "web.ui.panel.quitting": "shutting the panel down — it will not come back by itself"
 }

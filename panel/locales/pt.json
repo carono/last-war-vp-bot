@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "há {n} min",
   "secrettasks.checked.never": "nunca",
   "secrettasks.checked.now": "agora mesmo",
-  "secrettasks.col.checked": "Verificado"
+  "secrettasks.col.checked": "Verificado",
+  "panel.quit": "⏻  Desligar o painel",
+  "panel.quit.title": "Desligar o painel",
+  "panel.quit.confirm": "Desligar o painel agora?\\n\\nA janela fecha e NÃO volta: o agendamento, os monitores e o cenário em execução param, e ninguém ficará a vigiar as contas. O jogo e o daemon Lua continuam a correr. Para o ligar de novo é preciso estar nesta máquina.",
+  "log.panel.quitting": "a desligar o painel — sozinho não volta",
+  "web.ui.panel.quitting": "a desligar o painel — sozinho não volta"
 }

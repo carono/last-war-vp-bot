@@ -52,6 +52,7 @@ from dataclasses import dataclass
 #: handler. Not the name of what it does, for the same reason the client's three are
 #: not their scenarios: what a button IS outlives how it is carried out.
 RESTART = "restart"
+QUIT = "quit"
 
 
 @dataclass(frozen=True)
@@ -70,9 +71,16 @@ class Control:
     saying: str
 
 
-#: One row, and room for another if the panel ever grows a second press of its own.
+#: Two rows: put the panel back on the code that is on disk, and put it down.
+#:
+#: THE SECOND ONE IS NOT A RESTART WITHOUT THE SECOND HALF, whatever the code says. A
+#: restart is routine — it costs seconds and the panel comes back with everything open.
+#: Stopping is the end of the evening: the schedule stops, the monitors stop, nothing
+#: is watching the accounts any more, and the only way back is somebody at the machine.
+#: That is why it asks a question of its own rather than sharing the restart's.
 CONTROLS = (
     Control(RESTART, "panel.restart", "panel.restart.confirm", "log.panel.restarting"),
+    Control(QUIT, "panel.quit", "panel.quit.confirm", "log.panel.quitting"),
 )
 
 BY_ID = {control.id: control for control in CONTROLS}
@@ -86,34 +94,38 @@ TAG = "panel"
 #: nobody presses twice wondering whether it took.
 DELAY_MS = 1200
 
-#: The Ticker chain the pending restart is armed under. Named, so a second press
-#: re-arms the one restart instead of queueing another.
+#: The Ticker chain a pending press is armed under. Named, so a second press re-arms
+#: the one shutdown instead of queueing another — and one name for both, because
+#: «restart» and «quit» are two answers to the same question and the last one asked is
+#: the one meant.
 TICK = "panel-restart"
 
-#: WHAT ACTUALLY DOES IT, in THIS process — set by the shell, once.
+#: WHAT ACTUALLY DOES IT, in THIS process — set by the shell, one per press.
 #:
 #: Process-wide rather than per runtime because it is a fact about the PROCESS: one
-#: window, however many profiles are open in it, and restarting is all of them at once.
-_HANDLER = None
+#: window, however many profiles are open in it, and either press is all of them at once.
+_HANDLERS: dict = {}
 _LOCK = threading.Lock()
 
 
-def set_handler(func) -> None:
-    """The shell says how a restart is carried out. ``None`` takes the press away."""
-    global _HANDLER
+def set_handler(func, action: str = RESTART) -> None:
+    """The shell says how one press is carried out. ``None`` takes it away."""
     with _LOCK:
-        _HANDLER = func
+        if func is None:
+            _HANDLERS.pop(str(action), None)
+        else:
+            _HANDLERS[str(action)] = func
 
 
-def handler():
-    """What would be run, or ``None`` in a process that is not a panel."""
+def handler(action: str = RESTART):
+    """What that press would run, or ``None`` in a process that is not a panel."""
     with _LOCK:
-        return _HANDLER
+        return _HANDLERS.get(str(action))
 
 
-def available() -> bool:
-    """Is there a panel here to restart at all?"""
-    return handler() is not None
+def available(action: str = RESTART) -> bool:
+    """Is there a panel here that can do that at all?"""
+    return handler(action) is not None
 
 
 def get(action: str):
@@ -129,11 +141,9 @@ def state() -> list:
     client's three are); this one is not available in that sense — it does not exist
     here — and a permanently dead button is noise the window has always refused to draw.
     """
-    if not available():
-        return []
     return [{"id": control.id, "label": control.label, "confirm": control.confirm,
              "enabled": True}
-            for control in CONTROLS]
+            for control in CONTROLS if available(control.id)]
 
 
 def request(rt, action: str = RESTART) -> dict:
@@ -148,7 +158,7 @@ def request(rt, action: str = RESTART) -> dict:
     control = get(action)
     if control is None:
         return {"error": "unknown"}
-    func = handler()
+    func = handler(control.id)
     if func is None:
         return {"ok": False, "unavailable": True, "id": control.id}
     rt.say(TAG, control.saying)

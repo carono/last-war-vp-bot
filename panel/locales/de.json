@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "vor {n} Min.",
   "secrettasks.checked.never": "nie",
   "secrettasks.checked.now": "gerade eben",
-  "secrettasks.col.checked": "Geprüft"
+  "secrettasks.col.checked": "Geprüft",
+  "panel.quit": "⏻  Panel herunterfahren",
+  "panel.quit.title": "Panel herunterfahren",
+  "panel.quit.confirm": "Panel jetzt herunterfahren?\\n\\nDas Fenster schließt sich und kommt NICHT zurück: Zeitplan, Monitore und ein laufendes Szenario werden gestoppt, niemand beobachtet die Konten mehr. Spiel und Lua-Daemon laufen weiter. Ein Neustart geht nur an diesem Rechner.",
+  "log.panel.quitting": "fahre das Panel herunter — von allein kommt es nicht zurück",
+  "web.ui.panel.quitting": "fahre das Panel herunter — von allein kommt es nicht zurück"
 }

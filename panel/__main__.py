@@ -630,6 +630,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # read; this is the one thing in the process that can carry it out, so this is
         # where it is registered (#1258).
         panelctl.set_handler(self._restart_now)
+        # …and the same close WITHOUT the fresh start. The window has always had this
+        # press as the title bar's ✕; what it did not have was a way to ask for it from
+        # anywhere else, so a panel could be put back but never put down except by
+        # somebody standing at the machine (#1702).
+        panelctl.set_handler(self._quit_now, panelctl.QUIT)
         # …and the same for «Включить обратно»: only the shell knows which profiles
         # are open and which tabs each has, so it says how, and the phone only asks
         # whether anybody can (panel/runtime/panic.py).
@@ -4176,6 +4181,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
             ttk.Button(upd, command=self._restart_panel),
             panelctl.BY_ID[panelctl.RESTART].label)
         self._update_restart_btn.pack(side="right", padx=(0, 6))
+        # …and beside it the other half of the same question. Both front-ends draw both
+        # presses out of the one table, so a phone can never offer something the window
+        # does not have (CLAUDE.md, «An edit travels between the window and the web»).
+        self._update_quit_btn = self._tr(
+            ttk.Button(upd, command=self._quit_panel),
+            panelctl.BY_ID[panelctl.QUIT].label)
+        self._update_quit_btn.pack(side="right", padx=(0, 6))
         # «Обновить» still comes and goes: nothing has been checked yet, so it has
         # nothing to offer. `pack`/`pack_forget` rather than `state=disabled` — a button
         # that is never pressable is noise, and the label already says why.
@@ -4438,6 +4450,35 @@ class Panel(runtime.SessionScoped, tk.Tk):
                                    self._t(control.confirm), parent=self):
             return
         panelctl.request(self._rt, control.id)
+
+    def _quit_panel(self) -> None:
+        """«Выключить панель» — the window's half of the press (#1702).
+
+        The same shape as `_restart_panel` above and the same table behind it; what
+        differs is only the question, because the two are not the same act. A restart
+        costs seconds and comes back with every profile open; this one ends the
+        evening — the schedule, the monitors and the watchdogs stop, and the way back
+        is somebody at this machine.
+        """
+        control = panelctl.BY_ID[panelctl.QUIT]
+        if not messagebox.askyesno(self._t("panel.quit.title"),
+                                   self._t(control.confirm), parent=self):
+            return
+        panelctl.request(self._rt, control.id)
+
+    def _quit_now(self) -> None:
+        """Close this panel properly and DO NOT start another.
+
+        Exactly `_on_close` — the same shutdown the title bar's ✕ runs: every profile
+        written out, every tab's children stopped, the instance lock let go, the web
+        socket closed. The daemon and the game are deliberately left alone, as they are
+        by a restart: they are separate processes, and «глуши панель» is about the panel.
+        """
+        try:
+            self._on_close()
+        except Exception:                  # noqa: BLE001 — a tab that fails to shut
+            self._dbg.error("shutdown failed", exc_info=True)   # down must not keep
+            raise                                               # the panel alive
 
     def _restart_now(self) -> None:
         """Close this panel properly and start a fresh one. The question was already put.

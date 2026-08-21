@@ -315,7 +315,11 @@ async function pressPanel(control, button) {
   if (answer.ok) {
     // It comes back on the same port with the same token, so the page finds its way
     // home by itself — it only has to be told that the gap is expected.
-    toast(T('web.ui.panel.restarting'));
+    // Two presses, two truths: one of them comes back by itself and one of them does
+    // not, and a page that says «страница вернётся сама» over a panel that has just
+    // been switched off is lying to whoever is holding it.
+    toast(T(control.id === 'quit' ? 'web.ui.panel.quitting'
+                                  : 'web.ui.panel.restarting'));
     $('offline').hidden = false;
   } else {
     toast(T('web.ui.refused'));

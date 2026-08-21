@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "{n} min temu",
   "secrettasks.checked.never": "ani razu",
   "secrettasks.checked.now": "przed chwilą",
-  "secrettasks.col.checked": "Sprawdzono"
+  "secrettasks.col.checked": "Sprawdzono",
+  "panel.quit": "⏻  Wyłącz panel",
+  "panel.quit.title": "Wyłączenie panelu",
+  "panel.quit.confirm": "Wyłączyć panel teraz?\\n\\nOkno zamknie się i NIE wróci: harmonogram, monitory i uruchomiony scenariusz zostaną zatrzymane, nikt nie będzie pilnował kont. Gra i demon Lua działają dalej. Ponowne uruchomienie wymaga kogoś przy tej maszynie.",
+  "log.panel.quitting": "wyłączam panel — sam nie wróci",
+  "web.ui.panel.quitting": "wyłączam panel — sam nie wróci"
 }

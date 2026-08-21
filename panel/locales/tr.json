@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "{n} dk önce",
   "secrettasks.checked.never": "hiç",
   "secrettasks.checked.now": "az önce",
-  "secrettasks.col.checked": "Denetlendi"
+  "secrettasks.col.checked": "Denetlendi",
+  "panel.quit": "⏻  Paneli kapat",
+  "panel.quit.title": "Paneli kapat",
+  "panel.quit.confirm": "Panel şimdi kapatılsın mı?\\n\\nPencere kapanır ve geri GELMEZ: zamanlama, izleyiciler ve çalışan senaryo durur, hesapları kimse izlemez. Oyun ve Lua arka plan süreci çalışmaya devam eder. Yeniden başlatmak için bu makinenin başında olmak gerekir.",
+  "log.panel.quitting": "paneli kapatıyorum — kendiliğinden geri gelmez",
+  "web.ui.panel.quitting": "paneli kapatıyorum — kendiliğinden geri gelmez"
 }

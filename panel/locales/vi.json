@@ -2049,5 +2049,10 @@
   "secrettasks.checked.min": "{n} phút trước",
   "secrettasks.checked.never": "chưa lần nào",
   "secrettasks.checked.now": "vừa xong",
-  "secrettasks.col.checked": "Đã đối chiếu"
+  "secrettasks.col.checked": "Đã đối chiếu",
+  "panel.quit": "⏻  Tắt bảng điều khiển",
+  "panel.quit.title": "Tắt bảng điều khiển",
+  "panel.quit.confirm": "Tắt bảng điều khiển ngay bây giờ?\\n\\nCửa sổ sẽ đóng và KHÔNG tự mở lại: lịch chạy, các bộ theo dõi và kịch bản đang chạy sẽ dừng, không còn ai trông chừng các tài khoản. Trò chơi và tiến trình Lua vẫn chạy. Muốn bật lại phải có người ngồi tại máy này.",
+  "log.panel.quitting": "đang tắt bảng điều khiển — nó sẽ không tự quay lại",
+  "web.ui.panel.quitting": "đang tắt bảng điều khiển — nó sẽ không tự quay lại"
 }
