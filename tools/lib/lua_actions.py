@@ -9802,7 +9802,10 @@ def golden_arm() -> str:
         "p.squad = math.floor(tonumber(%(gold)s_squad) or 1) "
         "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "
         "p.reach = math.floor(tonumber(%(gold)s_reach) or 0) "
+        "p.reach_near = p.reach "
         "p.breather_limit = math.floor(tonumber(%(gold)s_breathers) or 0) "
+        "p.reach_far = math.floor(tonumber(%(gold)s_reach_far) or 0) "
+        "p.dry = 0 "
         "p.breathers = 0 p.stalled = nil "
         "p.back = math.floor(tonumber(%(gold)s_back) or 0) "
         "p.limit = math.floor(tonumber(%(gold)s_limit) or 0) "
@@ -10515,6 +10518,9 @@ def golden_note_kill() -> str:
         "p.kills = (tonumber(p.kills) or 0) + 1 "
         "local uuid = p.hit.uuid "
         "p.hit = nil "
+        "p.dry = 0 "
+        "local near = math.floor(tonumber(p.reach_near) or 0) "
+        "if near > 0 then p.reach = near end "
         "%(gold)s = p "
         'CS.UnityEngine.Debug.LogError("ACT golden_note_kill uuid="..tostring(uuid)'
         '.." kills="..tostring(p.kills))'
@@ -11517,6 +11523,10 @@ def golden_breathe() -> str:
     return (_GOLD_P +
             "p.stalled = nil p.misses = 0 p.cur = nil p.pending = nil "
             "p.breathers = (tonumber(p.breathers) or 0) + 1 "
+            "p.dry = (tonumber(p.dry) or 0) + 1 "
+            "if (tonumber(p.dry) or 0) >= 3 then "
+            "local far = math.floor(tonumber(p.reach_far) or 0) "
+            "if far > 0 then p.reach = far end end "
             "%(gold)s = p "
             'CS.UnityEngine.Debug.LogError("ACT golden_breathe n="'
             '..tostring(math.floor(tonumber(p.breathers) or 0)))' % {"gold": _GOLD})

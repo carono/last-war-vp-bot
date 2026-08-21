@@ -140,6 +140,7 @@
 ARGS squad = 1
 ARGS radius = 2000
 ARGS reach = 150
+ARGS reach_far = 700
 ARGS breather = 90
 ARGS breathers = 30
 ARGS scan = 1
@@ -175,6 +176,7 @@ CALL fill_empty_squads
 LUA DataCenter.__lw_gold_squad = {squad}
 LUA DataCenter.__lw_gold_radius = {radius}
 LUA DataCenter.__lw_gold_reach = {reach}
+LUA DataCenter.__lw_gold_reach_far = {reach_far}
 LUA DataCenter.__lw_gold_breathers = {breathers}
 LUA DataCenter.__lw_gold_limit = {limit}
 LUA DataCenter.__lw_gold_back = 0
