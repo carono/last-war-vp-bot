@@ -11627,6 +11627,138 @@ def golden_phantom_marches() -> str:
             "return n end)()")
 
 
+def golden_ready_to_send() -> str:
+    """Everything the attack press must know before it orders, in ONE call.
+
+    Points the run at the squad the panel chose, forgets the previous ORDER while keeping
+    the target, and answers whether an order may go at all:
+
+    * ``ok``          — a target is fixed and the squad can march;
+    * ``none``        — nothing is fixed; «найти ближайшего» has not been pressed;
+    * ``busy``        — the squad is out or otherwise refusing orders;
+    * ``noarmy``      — the client is holding no army for it (that one has a cure);
+    * ``nosquad``     — this account has no such squad.
+
+    Five round trips became one (#1702): «мгновенно» is mostly a matter of not asking
+    the same VM five questions it could have answered in a single breath.
+    """
+    return (
+        "(function() " + _GOLD_P +
+        "p.squad = math.floor(tonumber(%(gold)s_squad) or p.squad or 1) "
+        "p.formation = nil p.soldiers = 0 "
+        "local state = nil local can = nil "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if math.floor(tonumber(v.index) or -1) == p.squad then "
+        "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
+        "state = math.floor(tonumber(v.state) or 0) can = (v.canMarch == true) end end end) "
+        "p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 "
+        "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
+        "%(gold)s = p "
+        "if p.formation == nil then return 'nosquad' end "
+        "if p.cur == nil then return 'none' end "
+        "if can then return 'ok' end "
+        "if math.floor(tonumber(p.soldiers) or 0) <= 0 then return 'noarmy' end "
+        "return 'busy' end)()"
+        % {"gold": _GOLD})
+
+
+def golden_find_now() -> str:
+    """Everything «Найти ближайшего» does, in ONE call, and it says what it found.
+
+    A round trip to the game's VM costs about a tenth of a second, and the button was
+    making fourteen of them — arm, armed?, origin, scan, look, moved?, scan, count,
+    pick, picked?, where, report — with a fixed second of settling in the middle. Inside
+    the VM the same work is free (`docs/research/alliance-tech.md`: a whole quota in one
+    call), so it is one call now, and the only thing left costing real time is the
+    camera when the squad is out and the client has to be shown that ground.
+
+    Returns the report line the log prints, or `none:<n>` when nothing could be chosen —
+    `n` being how many zombies the client can name from here, which is the difference
+    between «the wave is out» and «they are all far away».
+    """
+    return (
+        "(function() " + _GOLD_P + _GOLD_WS +
+        "if ws == nil then return 'none:-1' end "
+        # …the squad, its formation, and the origin — the same rules as the recipe had,
+        # in the order they depend on each other.
+        "p.squad = math.floor(tonumber(%(gold)s_squad) or p.squad or 1) "
+        "p.formation = nil p.soldiers = 0 "
+        "local out = 0 "
+        "pcall(function() "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "if math.floor(tonumber(v.index) or -1) == p.squad then "
+        "p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) "
+        "if math.floor(tonumber(v.state) or 0) ~= 0 then out = 1 end end end end) "
+        "if p.formation == nil then return 'none:-2' end "
+        "if out == 1 then if p.anchor == nil then p.anchor = p.last_sent end "
+        "else p.anchor = nil end "
+        "if p.home == nil then p.home = DataCenter.__lw_gold_home end "
+        "p.radius = math.floor(tonumber(%(gold)s_radius) or 2000) "
+        "p.reach = 0 "
+        "if p.targets == nil then p.targets = {} end "
+        "if p.used == nil then p.used = {} end "
+        "%(gold)s = p "
+        "return 'ready:' .. tostring(out) end)()"
+        % {"gold": _GOLD})
+
+
+def golden_pick_and_report() -> str:
+    """Choose the nearest queued zombie and describe it — one call instead of five.
+
+    The pick, the «did it pick anything», the tile, the report line and the count of
+    what the client can see were five separate round trips, which is half a second of
+    nothing. They are one here (#1702).
+
+    Comes back as `none:<seen>` when nothing was chosen, and otherwise as
+    `<tile>|<report>`: the coordinate token the log makes clickable, and the line that
+    says how far it is and from what.
+    """
+    return (
+        "(function() " + _GOLD_P + _GOLD_WS +
+        "p.cur = nil "
+        "local ox, oy, from = nil, nil, 'oracle' "
+        "if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' "
+        "elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end "
+        "local best, bestd = nil, nil "
+        "for _, t in ipairs(p.targets or {}) do "
+        "if not (p.used or {})[tostring(t.pid)] then "
+        "local d = nil "
+        "if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) "
+        "d = math.sqrt(dx * dx + dy * dy) "
+        "else pcall(function() d = tonumber("
+        "SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end "
+        "if d ~= nil and (bestd == nil or d < bestd) then best, bestd = t, d end end end "
+        "if best == nil then "
+        "local n = 0 "
+        "pcall(function() "
+        "local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, "
+        "CS.System.Int32)() "
+        "for _, id in ipairs(p.ids or {%(cfg)d}) do pcall(function() ids:Add(id, 1) end) end "
+        "local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, "
+        "CS.UnityEngine.Vector2Int)() "
+        "if ws ~= nil then ws:GetMonsterListInArea(ws.CurTilePos, "
+        "math.floor(tonumber(p.radius) or 2000), ids, res) "
+        "local e = res:GetEnumerator() while e:MoveNext() do n = n + 1 end end end) "
+        "%(gold)s = p "
+        "return 'none:' .. tostring(n) end "
+        "p.cur = best p.curdist = math.floor(bestd + 0.5) p.curfrom = from "
+        "%(gold)s = p "
+        "local srv = math.floor(tonumber(best.server or p.server) or 0) "
+        "local tile = 'X:' .. tostring(math.floor(best.x)) .. ' Y:' .. tostring(math.floor(best.y)) "
+        "if srv > 0 then tile = '#' .. tostring(srv) .. ' ' .. tile end "
+        "local hd = nil pcall(function() "
+        "hd = tonumber(SceneUtils.TileDistanceToMyHome(best.pid, p.server)) end) "
+        "local queued = 0 for _, t in ipairs(p.targets or {}) do "
+        "if not (p.used or {})[tostring(t.pid)] then queued = queued + 1 end end "
+        "return tile .. '|at=' .. tostring(best.x) .. ',' .. tostring(best.y) "
+        ".. ' dist=' .. tostring(p.curdist) .. ' from=' .. from "
+        ".. ' origin=' .. tostring(ox) .. ',' .. tostring(oy) "
+        ".. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) "
+        ".. ' queued=' .. tostring(queued) end)()"
+        % {"gold": _GOLD, "cfg": 1030000})
+
+
 def golden_clear_order() -> str:
     """Forget the LAST order, keeping the target — so the same zombie can be sent at again.
 

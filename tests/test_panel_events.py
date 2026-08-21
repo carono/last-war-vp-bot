@@ -548,7 +548,9 @@ def test_attacking_uses_the_squad_the_panel_shows_and_the_target_already_fixed()
 
     recipe = (_Path(__file__).resolve().parents[1] / "src" / "lastwar_bot" / "actions"
               / "golden_attack_target.md").read_text(encoding="utf-8")
-    assert "TAP golden_use_squad" in recipe, "the press does not point at the tab's squad"
+    # The squad, the forgetting of the last order and the may-I are one call now (#1702).
+    assert lua_actions.golden_ready_to_send() in recipe, \
+        "the press does not point at the tab's squad"
     assert "TAP golden_arm" not in recipe, "re-arming would forget the fixed target"
     assert lua_actions.golden_order_line() in recipe, \
         "what goes to the game is not printed before it goes"

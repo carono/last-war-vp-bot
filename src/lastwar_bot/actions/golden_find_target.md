@@ -1,73 +1,47 @@
-# Find the nearest golden zombie IN THE REGISTRY, fix its tile, and show it.
-# ru: Найти в реестре ближайшего золотого зомби, зафиксировать координаты и показать.
+# Find the nearest golden zombie in the registry, fix it, and show it. Three calls.
+# ru: Найти в реестре ближайшего зомби, зафиксировать и показать. Три обращения к игре.
 #
-# The operator's own words for what this button is: «посмотреть в реестр монстров,
-# вычислить ближайшего до выбранного отряда или базы, зафиксировать его координаты»
-# (#1702). So it is ARITHMETIC over a list the panel already holds, not an expedition:
+# The operator's own definition of the button: «посмотреть в реестр монстров, вычислить
+# ближайшего до выбранного отряда или базы, зафиксировать его координаты» — and then
+# «должно быть МГНОВЕННО».
 #
-#   * no lap of the map — the registry is what the scans and the sweeps have filled, and
-#     «Обновить карту» is its own button for when a person wants it refilled;
-#   * no camera move before the sum. The chain moves the camera because it is about to
-#     ORDER something and the client only answers for ground it holds; this button only
-#     measures, and a tile's coordinates do not depend on where anybody is looking;
-#   * one flight at the END, to show what was found. That is the answer, not a step.
+# A round trip to the game's VM costs about a tenth of a second, and this used to make
+# fourteen of them plus a fixed second of settling. Inside the VM the same work is free,
+# so it is three now:
 #
-# THE ORIGIN IS THE SQUAD, OR THE BASE WHEN THE SQUAD IS AT HOME. Both are said out
-# loud in the report line (`from=anchor` / `from=home`), because «ближайший» means
-# nothing until you know what it is nearest to.
+#   1. prepare — squad, formation, origin (the squad's tile when it is out, the base's
+#      when it is home), radius, and the base tile remembered from last time;
+#   2. scan — read the ground the client is holding into the registry;
+#   3. pick — the arithmetic, the tile, and the line the log prints, in one answer.
+#
+# The only step that still costs real time is the camera, and it is paid ONLY when the
+# squad is out in the field: the client answers `GetMonsterListInArea` out of the tiles
+# it has been shown, so the ground around the squad has to be fetched before the sum.
 
 ARGS squad = 2
 ARGS radius = 2000
 
 LUA DataCenter.__lw_gold_squad = {squad}
 LUA DataCenter.__lw_gold_radius = {radius}
-LUA DataCenter.__lw_gold_reach = 0
-TAP golden_arm
-READ_LUA (function() local p = DataCenter.__lw_gold or {} if p.formation == nil then return 0 end if (tonumber(p.soldiers) or 0) <= 0 then return -1 end return 1 end)() INTO armed
-IF armed == 0
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local ws = DataCenter.__lw_gold_ws local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) DataCenter.__lw_gold_ws = ws end if ws == nil then return 'none:-1' end p.squad = math.floor(tonumber(DataCenter.__lw_gold_squad) or p.squad or 1) p.formation = nil p.soldiers = 0 local out = 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if math.floor(tonumber(v.index) or -1) == p.squad then p.formation = v.uuid p.soldiers = math.floor(tonumber(v.totalSoldierNum) or 0) if math.floor(tonumber(v.state) or 0) ~= 0 then out = 1 end end end end) if p.formation == nil then return 'none:-2' end if out == 1 then if p.anchor == nil then p.anchor = p.last_sent end else p.anchor = nil end if p.home == nil then p.home = DataCenter.__lw_gold_home end p.radius = math.floor(tonumber(DataCenter.__lw_gold_radius) or 2000) p.reach = 0 if p.targets == nil then p.targets = {} end if p.used == nil then p.used = {} end DataCenter.__lw_gold = p return 'ready:' .. tostring(out) end)() INTO ready
+IF ready == "none:-2"
     FAIL "the squad is not one this account has — nothing to hunt with"
 
-# WHERE THE MEASURING STARTS. A squad standing at home is measured from the base, and a
-# squad that is out is measured from where the hunt last sent it. Nothing is asked of
-# the game beyond the formation's own state.
-READ_LUA (function() local p = DataCenter.__lw_gold or {} local out = 0 pcall(function() for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do if tostring(v.uuid) == tostring(p.formation) then if math.floor(tonumber(v.state) or 0) ~= 0 then out = 1 end end end end) if out == 1 then if p.anchor == nil then p.anchor = p.last_sent end else p.anchor = nil end DataCenter.__lw_gold = p return out end)() INTO squad_is_out
-IF squad_is_out == 1
+IF ready == "ready:1"
     LOG "measuring from where the squad stands"
-IF squad_is_out == 0
-    LOG "the squad is at home — measuring from the base"
-
-# …AND THE GROUND AROUND THE ORIGIN IS ASKED ABOUT WHEN THE SQUAD IS OUT (#1702). The
-# client only holds what the camera has been shown — about sixty tiles around it — so a
-# registry filled by an earlier sweep can be full of far zombies and hold none of the
-# ones standing beside the squad. The operator saw exactly that: «рядом с ним есть
-# зомби», and the pick threw him hundreds of tiles away. At home this is not needed —
-# the camera lives there — so the flight is paid only when the squad is in the field.
-IF squad_is_out == 1
     TAP golden_scan
     TAP golden_look_from
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} return (math.floor(tonumber(p.looked_moved) or 0) == 1) and 1 or 0 end)() INTO looked_moved
-    IF looked_moved == 1
-        WAIT 1
-    TAP golden_scan
+    WAIT 0.6
+IF ready == "ready:0"
+    LOG "the squad is at home — measuring from the base"
 
-# The registry, as it stands. Empty only on a panel that has never scanned: then one
-# cheap look at the ground under the camera fills it rather than sending the person to
-# another button.
-READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.found) or 0) end)() INTO found
-IF found == 0
-    LOG "the registry is empty — taking one look at the ground here"
-    TAP golden_scan
-    READ_LUA (function() local p = DataCenter.__lw_gold or {} return math.floor(tonumber(p.found) or 0) end)() INTO found
-
-TAP golden_pick
-READ_LUA (function() local p = DataCenter.__lw_gold or {} return (p.cur ~= nil) and 1 or 0 end)() INTO picked
-IF picked == 0
-    LOG "nothing to choose from — the registry holds {found} golden zombie(s)"
+TAP golden_scan
+READ_LUA (function() local p = DataCenter.__lw_gold or {} local ws = DataCenter.__lw_gold_ws local alive = false pcall(function() alive = (ws ~= nil) and (ws.CurTilePos ~= nil) end) if not alive then ws = nil pcall(function() local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) for i = 0, arr.Length - 1 do local mb = arr[i] local n = nil pcall(function() n = mb:GetType().Name end) if n == 'WorldScene' then ws = mb break end end end) DataCenter.__lw_gold_ws = ws end p.cur = nil local ox, oy, from = nil, nil, 'oracle' if p.anchor ~= nil then ox, oy, from = p.anchor.x, p.anchor.y, 'anchor' elseif p.home ~= nil then ox, oy, from = p.home.x, p.home.y, 'home' end local best, bestd = nil, nil for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then local d = nil if ox ~= nil then local dx, dy = (t.x - ox), (t.y - oy) d = math.sqrt(dx * dx + dy * dy) else pcall(function() d = tonumber(SceneUtils.TileDistanceToMyHome(t.pid, p.server)) end) end if d ~= nil and (bestd == nil or d < bestd) then best, bestd = t, d end end end if best == nil then local n = 0 pcall(function() local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32, CS.System.Int32)() for _, id in ipairs(p.ids or {1030000}) do pcall(function() ids:Add(id, 1) end) end local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)() if ws ~= nil then ws:GetMonsterListInArea(ws.CurTilePos, math.floor(tonumber(p.radius) or 2000), ids, res) local e = res:GetEnumerator() while e:MoveNext() do n = n + 1 end end end) DataCenter.__lw_gold = p return 'none:' .. tostring(n) end p.cur = best p.curdist = math.floor(bestd + 0.5) p.curfrom = from DataCenter.__lw_gold = p local srv = math.floor(tonumber(best.server or p.server) or 0) local tile = 'X:' .. tostring(math.floor(best.x)) .. ' Y:' .. tostring(math.floor(best.y)) if srv > 0 then tile = '#' .. tostring(srv) .. ' ' .. tile end local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(best.pid, p.server)) end) local queued = 0 for _, t in ipairs(p.targets or {}) do if not (p.used or {})[tostring(t.pid)] then queued = queued + 1 end end return tile .. '|at=' .. tostring(best.x) .. ',' .. tostring(best.y) .. ' dist=' .. tostring(p.curdist) .. ' from=' .. from .. ' origin=' .. tostring(ox) .. ',' .. tostring(oy) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' queued=' .. tostring(queued) end)() INTO found
+IF found == "none:0"
+    LOG "the client can see no golden zombie from here — the wave is not up"
     STOP "no target"
-
-READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return '' end local srv = math.floor(tonumber(c.server or p.server) or 0) local core = 'X:' .. tostring(math.floor(tonumber(c.x) or 0)) .. ' Y:' .. tostring(math.floor(tonumber(c.y) or 0)) if srv > 0 then return '#' .. tostring(srv) .. ' ' .. core end return core end)() INTO where
-READ_LUA (function() local p = DataCenter.__lw_gold or {} local c = p.cur if c == nil then return 'none' end local o = p.anchor or p.home local hd = nil pcall(function() hd = tonumber(SceneUtils.TileDistanceToMyHome(c.pid, p.server)) end) return 'at=' .. tostring(c.x) .. ',' .. tostring(c.y) .. ' dist=' .. tostring(math.floor(tonumber(p.curdist) or 0)) .. ' from=' .. tostring(p.curfrom or '-') .. ' origin=' .. tostring(o and o.x) .. ',' .. tostring(o and o.y) .. ' home_dist=' .. tostring(hd and math.floor(hd + 0.5)) .. ' src=' .. tostring(c.src or '-') .. ' queued=' .. tostring(#(p.targets or {})) .. ' attacks=' .. tostring(math.floor(tonumber(p.attacks) or 0)) end)() INTO pick
-LOG "found a golden zombie at {where} — {pick}"
-
-# …and the camera goes to it, because being shown what you asked for is the answer.
+IF found == "none:-1"
+    LOG "the world scene is not up — open the map first"
+    STOP "no target"
+LOG "found a golden zombie: {found}"
 TAP golden_look

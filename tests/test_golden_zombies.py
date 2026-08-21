@@ -1678,10 +1678,15 @@ def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round()
 
     text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
             / "golden_attack_target.md").read_text(encoding="utf-8")
-    assert "TAP golden_clear_order" in text
-    assert text.index("TAP golden_clear_order") < text.index("CALL golden_send_the_squad")
+    # FOLDED INTO ONE CALL (#1702): pointing at the squad, forgetting the previous order
+    # and asking whether one may go are a single question now — «мгновенно» is mostly a
+    # matter of not asking the VM five things it could answer in one breath.
+    ready = lua_actions.golden_ready_to_send()
+    assert ready in text, "the press no longer asks in one call"
+    assert "p.march_uuid = nil" in ready and "p.used[tostring(p.cur.pid)] = nil" in ready
+    assert text.index(ready) < text.index("CALL golden_send_the_squad")
     # …and a squad turned round a second ago is given a beat rather than refused.
-    assert "WHILE squad_free == 0 LIMIT" in text, \
+    assert 'WHILE ready == "busy" LIMIT' in text, \
         "a squad still walking home is refused outright"
 
 
@@ -1702,10 +1707,15 @@ def test_finding_measures_from_where_the_squad_was_left_and_looks_there():
         "arming forgets where the squad was left"
     text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
             / "golden_find_target.md").read_text(encoding="utf-8")
-    assert "IF squad_is_out == 1" in text
+    # THREE CALLS NOW, NOT FOURTEEN (#1702): the preparation decides the origin inside
+    # the VM and says whether the squad is out, and the flight to it is paid only then.
+    assert lua_actions.golden_find_now() in text, "the preparation is not one call"
+    assert 'IF ready == "ready:1"' in text
     look = text.index("TAP golden_look_from")
-    pick = text.index("TAP golden_pick")
+    pick = text.index(lua_actions.golden_pick_and_report())
     assert look < pick, "the ground around the squad is asked about after the choice"
+    assert "p.anchor = p.last_sent" in lua_actions.golden_find_now(), \
+        "a squad in the field is not measured from where it was sent"
 
 
 def _run_standalone() -> int:
