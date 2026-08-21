@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "cette escouade n'existe pas sur ce compte",
   "events.golden.said.failed": "ça n'est pas passé — le journal dit pourquoi",
   "events.golden.said.gone": "ce zombie n'est plus là — choisissez-en un autre",
-  "events.golden.said.noarmy": "le client n'avait pas l'armée de l'escouade — réappuyez"
+  "events.golden.said.noarmy": "le client n'avait pas l'armée de l'escouade — réappuyez",
+  "events.golden.said.queued": "en attente — le client est occupé"
 }

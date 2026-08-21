@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "ese escuadrón no existe en esta cuenta",
   "events.golden.said.failed": "no pasó — el registro dice por qué",
   "events.golden.said.gone": "ese zombi ya no está — elige otro",
-  "events.golden.said.noarmy": "el cliente no tenía el ejército del escuadrón — pulsa otra vez"
+  "events.golden.said.noarmy": "el cliente no tenía el ejército del escuadrón — pulsa otra vez",
+  "events.golden.said.queued": "esperando turno — el cliente está ocupado"
 }

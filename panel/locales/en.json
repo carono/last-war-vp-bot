@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "no such squad on this account",
   "events.golden.said.failed": "it did not go through — the log says why",
   "events.golden.said.gone": "that zombie is gone — choose another",
-  "events.golden.said.noarmy": "the client had no army for the squad — press again"
+  "events.golden.said.noarmy": "the client had no army for the squad — press again",
+  "events.golden.said.queued": "waiting its turn — the client is busy"
 }

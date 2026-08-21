@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "tài khoản này không có đội đó",
   "events.golden.said.failed": "không đi được — lý do nằm trong log",
   "events.golden.said.gone": "con zombie đó không còn — hãy chọn con khác",
-  "events.golden.said.noarmy": "client chưa có quân của đội — bấm lại lần nữa"
+  "events.golden.said.noarmy": "client chưa có quân của đội — bấm lại lần nữa",
+  "events.golden.said.queued": "đang chờ tới lượt — client đang bận"
 }

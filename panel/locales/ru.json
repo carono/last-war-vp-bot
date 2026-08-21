@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "такого отряда на аккаунте нет",
   "events.golden.said.failed": "не прошло — причина в логе",
   "events.golden.said.gone": "этого зомби уже нет — выберите другого",
-  "events.golden.said.noarmy": "клиент не держал армию отряда — нажмите ещё раз"
+  "events.golden.said.noarmy": "клиент не держал армию отряда — нажмите ещё раз",
+  "events.golden.said.queued": "ждёт очереди — клиент занят"
 }

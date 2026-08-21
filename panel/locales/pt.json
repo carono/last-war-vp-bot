@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "esse esquadrão não existe nesta conta",
   "events.golden.said.failed": "não passou — o registo diz porquê",
   "events.golden.said.gone": "esse zumbi já não está lá — escolha outro",
-  "events.golden.said.noarmy": "o cliente não tinha o exército do esquadrão — carregue de novo"
+  "events.golden.said.noarmy": "o cliente não tinha o exército do esquadrão — carregue de novo",
+  "events.golden.said.queued": "à espera — o cliente está ocupado"
 }

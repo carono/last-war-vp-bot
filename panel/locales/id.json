@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "pasukan itu tidak ada di akun ini",
   "events.golden.said.failed": "tidak lolos — alasannya ada di log",
   "events.golden.said.gone": "zombi itu sudah tidak ada — pilih yang lain",
-  "events.golden.said.noarmy": "klien belum memuat pasukan — tekan lagi"
+  "events.golden.said.noarmy": "klien belum memuat pasukan — tekan lagi",
+  "events.golden.said.queued": "menunggu giliran — klien sibuk"
 }

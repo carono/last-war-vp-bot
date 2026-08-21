@@ -387,6 +387,7 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._step_said = ""              # what the last step press answered (#1702)
     tab._step_var = None
     tab._step_ran = ""
+    tab._waiting = {}
     tab._squad = modelmod.GOLDEN_SQUAD_DEFAULT
     tab._squad_var = None
     tab._tally = {}
@@ -584,6 +585,35 @@ def test_what_follows_a_press_is_armed_when_the_press_ENDS():
     tab.step("find_golden")
     tab._step_back(type("F", (), {"ok": False, "reason": "no target", "ctx": None})())
     assert armed == [], "a failed find still flies the camera somewhere"
+
+
+def test_a_press_that_lands_on_a_busy_client_waits_instead_of_being_lost():
+    """«Кнопки срабатывают через раз… нужно чтобы чётко: нажал — будет выполнено» (#1702).
+
+    A press can land while a timer, the auto-rally or the press before it is driving the
+    client. It used to be refused, and from the outside that is a button that works
+    every third or fifth time. Now it waits its turn, says so, and goes in when the
+    client is free — and a second press of the same button replaces the waiting one
+    rather than piling up behind it.
+    """
+    tab = _tab(golden=GOLDEN_OPEN, plays=False)     # the client refuses everything
+    retries: list = []
+    tab._retry_soon = lambda *a, **k: retries.append(True)
+
+    assert tab.step("find_golden") is True, "a refused press reports failure to the user"
+    assert tab._waiting == {"find_golden": True}
+    assert tab._step_said == "events.golden.said.queued"
+    tab.step("find_golden")
+    assert tab._waiting == {"find_golden": True}, "the same button queued twice"
+    tab.step("attack_golden")
+    assert set(tab._waiting) == {"find_golden", "attack_golden"}, \
+        "one button's wait cancelled another's"
+
+    # …and when the client frees up, the waiting presses go in and the queue empties.
+    tab.rt.plays = True
+    tab._drain_waiting()
+    assert tab._waiting == {}, tab._waiting
+    assert set(tab.rt.played) == {"golden_find_target", "golden_attack_target"}
 
 
 def test_the_squad_the_phone_picks_is_the_squad_the_window_sends():

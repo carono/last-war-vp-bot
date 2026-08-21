@@ -62,6 +62,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ... import golden_zombies as goldmod
+from ...runtime import claims
 from ...widgets import ScrollableFrame, font as ui_font, tk_stringvar
 from ..base import PanelTab
 from . import model as modelmod
@@ -141,6 +142,11 @@ class EventsTab(PanelTab):
         self._step_var = None
         #: Which step press is in flight, so what follows it can be armed when it ENDS.
         self._step_ran = ""
+        #: Presses that arrived while the client was busy, one slot per button: they are
+        #: retried until they go in, because «нажал — будет выполнено» (#1702). A second
+        #: press of the SAME button replaces the waiting one; different buttons wait
+        #: side by side.
+        self._waiting: dict = {}
         #: The squad the chain sends, by the slot the player sees. A plain int until
         #: `build()` makes the widget — a tab nobody has opened still has to be able to
         #: answer `config()` (`docs/panel-tabs.md`).
@@ -471,6 +477,27 @@ class EventsTab(PanelTab):
         except tk.TclError:                 # the window is going away
             pass
 
+    def _retry_soon(self, delay_ms: int = 700) -> None:
+        """Try the waiting presses again shortly, until they go in."""
+        tick = getattr(self.rt, "tick", None)
+        if tick is None or not hasattr(tick, "arm"):
+            return
+        try:
+            tick.arm("golden-queue", delay_ms, self._drain_waiting)
+        except Exception:                   # noqa: BLE001 — a panel going down
+            pass
+
+    def _drain_waiting(self) -> None:
+        """Play whatever is still waiting; keep the ones the client is still busy for."""
+        if not self._waiting:
+            return
+        for action in list(self._waiting):
+            self._waiting.pop(action, None)
+            if not self.step(action):       # step() re-queues it if it is refused again
+                self._waiting[action] = True
+        if self._waiting:
+            self._retry_soon()
+
     def _after(self, delay_ms: int, scenario: str) -> None:
         """Play a scenario in a moment, on the panel's own clock.
 
@@ -485,6 +512,7 @@ class EventsTab(PanelTab):
         try:
             tick.arm("golden-after", delay_ms,
                      lambda: self.rt.play_async(scenario, tag="events",
+                                                priority=claims.BACKGROUND,
                                                 on_result=self._step_back))
         except Exception:                   # noqa: BLE001 — a panel going down
             pass
@@ -540,8 +568,21 @@ class EventsTab(PanelTab):
             # the panel disagreeing with the game about something the person just did.
             self._golden_target = ""
             self._paint_target()
-        return bool(self.rt.play_async(row[1], args, tag="events",
-                                       on_result=self._step_back))
+        started = bool(self.rt.play_async(row[1], args, tag="events",
+                                          on_result=self._step_back))
+        if started:
+            self._waiting.pop(action, None)
+            return True
+        # THE PRESS IS NOT LOST (#1702). Something else is driving the client — a timer,
+        # the auto-rally, the press before this one — and the operator's rule is that a
+        # button pressed is a button obeyed: «нажал — будет выполнено». So it waits its
+        # turn and says so, and the newest press of the same button replaces the one
+        # waiting rather than piling up behind it.
+        self._waiting[action] = True
+        self._step_said = "events.golden.said.queued"
+        self._paint_step()
+        self._retry_soon()
+        return True
 
     def hunt(self) -> bool:
         """Start the chain: scan the map, then attack until the energy runs out.

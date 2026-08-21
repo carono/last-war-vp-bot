@@ -2084,5 +2084,6 @@
   "events.golden.said.nosquad": "diesen Trupp gibt es auf dem Konto nicht",
   "events.golden.said.failed": "nicht durchgekommen — der Grund steht im Log",
   "events.golden.said.gone": "dieser Zombie ist weg — wähle einen anderen",
-  "events.golden.said.noarmy": "der Client hatte keine Armee für den Trupp — nochmal drücken"
+  "events.golden.said.noarmy": "der Client hatte keine Armee für den Trupp — nochmal drücken",
+  "events.golden.said.queued": "wartet — der Client ist beschäftigt"
 }
