@@ -167,6 +167,21 @@ import game_link
 #: costs a client.
 STRIKES = 3
 
+#: THE SHORTEST GAP BETWEEN TWO STRIKES THAT COUNT (#1702). Three consecutive `lost`
+#: readings are meant to be «about half a minute of a client that cannot be heard» — and
+#: they are only that if the three are three independent LOOKS. They were not: the socket
+#: table is shared between profiles and cached for two seconds
+#: (`game_link.MACHINE_TTL_SEC`), the status poll can fire several times inside one
+#: window, and the panel's own sentence about it («уже 24 с») is `STRIKES * 8` computed
+#: rather than measured. Live on 2026-08-22 the announce and the restart were **eight
+#: seconds apart**, not twenty-four, and the client that was relaunched had been talking
+#: to the server a moment earlier.
+#:
+#: Three quarters of the poll interval, for the same reason the watchdog's own spacing
+#: uses that number: the poll jitters, and an exact comparison would drop the strike that
+#: is genuinely due.
+STRIKE_GAP_SEC = 6.0
+
 #: Seconds between two restarts of the same client. Ten minutes: a restart plus a login
 #: is about a minute, so this leaves nine for the account to prove it can stay on before
 #: anything touches it again.
@@ -325,7 +340,7 @@ class Recovery:
     a lock nobody needs.
     """
 
-    __slots__ = ("_run", "_last", "_restarts", "_held", "_why", "_kicks",
+    __slots__ = ("_run", "_run_at", "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_down_run", "_down_last", "_down_wait", "_down_held",
                  "_down_took",
                  "_daemon_last", "_daemon_restarts", "_daemon_held",
@@ -339,6 +354,7 @@ class Recovery:
     def __init__(self) -> None:
         #: Consecutive `lost` readings so far.
         self._run = 0
+        self._run_at = 0.0
         #: When the last restart was ASKED FOR, or 0.0 for never.
         self._last = 0.0
         #: How many this client has had. Shown, so «работает» and «перезапускается по
@@ -607,7 +623,16 @@ class Recovery:
             return None
 
         if link == game_link.LOST:
-            self._run += 1
+            # …AND A STRIKE HAS TO BE A FRESH LOOK (:data:`STRIKE_GAP_SEC`). Two readings
+            # inside one cache window are one reading counted twice, and this counter is
+            # what decides whether a client is restarted.
+            #
+            # The reading is not otherwise thrown away: a kick is a reading of the game's
+            # OWN words rather than an inference off a cached socket table, so its
+            # counter and its wait go on being kept underneath this.
+            if not self._run or (now - self._run_at) >= STRIKE_GAP_SEC:
+                self._run_at = now
+                self._run += 1
         # A kick and a hang-up can be true at once — the sockets went AND the modal is
         # up, which is the ordinary shape of a kick — so the run each of them has to
         # clear is checked separately and whichever is satisfied first decides. A kick

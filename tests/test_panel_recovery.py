@@ -865,11 +865,25 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
     app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
     pm.game_link.idle_sec = lambda: idle   # nobody at the machine, deterministically
+    # …AND THE CLOCK MOVES BETWEEN ROUNDS (#1702). A round stands for a status poll, and
+    # a strike only counts when the poll has genuinely come round again: two readings
+    # inside one cache window are one reading counted twice, which is what relaunched a
+    # live client. Three rounds in the same microsecond are not three polls, so the
+    # helper advances the clock by the interval it is pretending to be.
+    real_time = pm.time.time
+    clock = [real_time()]
+
+    def _tick() -> float:
+        return clock[0]
+
+    pm.time.time = _tick
     try:
         for _ in range(rounds if rounds is not None else rec.STRIKES):
             pm.Panel._recovery_check(app, _Found(link), kicked, stale, warm)
+            clock[0] += 8.0
     finally:
         pm.game_link.idle_sec = real_idle
+        pm.time.time = real_time
     return app
 
 
@@ -1264,17 +1278,23 @@ def test_the_anti_loop_is_wired_all_the_way_to_the_press():
     app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
     pm.game_link.idle_sec = lambda: 10_000.0
+    # A ROUND IS A POLL, AND POLLS ARE EIGHT SECONDS APART (#1702): a strike counts only
+    # once the poll has genuinely come round again, so a loop that never moves the clock
+    # is one reading repeated rather than three readings.
+    real_time = pm.time.time
+    clock = [real_time()]
+    pm.time.time = lambda: clock[0]
     try:
-        now = 1000.0
         for _ in range(rec.FRUITLESS + 1):
             for _ in range(rec.STRIKES):
                 pm.Panel._recovery_check(app, _Found(LOST), False, False)
+                clock[0] += 8.0
             # let the client cooldown expire so the run is decided on the blame and
             # not on the wait
             app.recovery._last -= rec.COOLDOWN_SEC + 1
-            now += 1
     finally:
         pm.game_link.idle_sec = real_idle
+        pm.time.time = real_time
     assert len(app.played) == rec.FRUITLESS, f"client restarts: {app.played}"
     assert app.daemons >= 1, "the seventh client restart happened instead"
 
