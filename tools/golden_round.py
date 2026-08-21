@@ -92,9 +92,21 @@ def main(argv) -> int:
 
     bad = 0
     for action, scenario, wait in ROUND:
-        answer, _ = call(f"{host}/api/screen/press",
-                         {"profile": args.profile, "id": "events", "action": action},
-                         cookie)
+        # THE BUTTON WHERE THERE IS ONE, THE SCENARIO WHERE THERE IS NOT (#1702). The
+        # round belongs on the TEST profile — that is the account where a wasted march
+        # costs nothing — and a test profile usually has «События» switched off, which
+        # answered 404 and stopped the round on its first press. The button is still
+        # preferred: it is the path a person takes, and it is the one that can be wired
+        # to the wrong scenario.
+        try:
+            answer, _ = call(f"{host}/api/screen/press",
+                             {"profile": args.profile, "id": "events", "action": action},
+                             cookie)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            answer, _ = call(f"{host}/api/actions/run",
+                             {"profile": args.profile, "name": scenario}, cookie)
         time.sleep(wait)
         said = verdict(tail(log, wait + 5), scenario)
         ok = bool(answer.get("ok")) and "FAILED" not in said and "never finished" not in said

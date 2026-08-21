@@ -1572,21 +1572,23 @@ def test_a_squad_that_has_landed_is_re_targeted_where_it_stands():
     assert can != lua_actions.golden_squad_free(), \
         "the gate is the rally's again, and a landed squad is called busy"
 
-    def answer(free, march):
+    def answer(free, march, ours=None):
         rt = lupa.LuaRuntime()
         rt.execute("LuaEntry = {Player = {uid = 1, allianceId = 2}} "
-                   "DataCenter = {__lw_gold = {formation = '77'}, "
+                   "DataCenter = {__lw_gold = {formation = '77'%s}, "
                    "WorldMarchDataManager = "
                    "{GetOwnerFormationMarch = function() return %s end}, "
                    "ArmyFormationDataManager = {ArmyFormationList = "
                    "{{uuid = '77', state = %d, totalSoldierNum = 100, "
                    "IsFree = function() return %s end}}}}"
-                   % (march, 0 if free else 1, "true" if free else "false"))
+                   % ("" if ours is None else (", own_march = '%s'" % ours),
+                      march, 0 if free else 1, "true" if free else "false"))
         return int(rt.eval(can))
 
     landed = "{teamUuid = '0', status = 'STATION: 0', endTime = 0}"
     flying = "{teamUuid = '0', status = 'MOVING: 1', endTime = 99000}"
     banner = "{teamUuid = '1000000000000000001', status = 'IN_TEAM: 7', endTime = 0}"
+    mining = "{uuid = '900', teamUuid = '0', status = 'COLLECTING: 3', endTime = 99000}"
 
     assert answer(True, "nil") == 1, "a squad standing at home is refused an order"
     assert answer(False, landed) == 1, \
@@ -1596,6 +1598,19 @@ def test_a_squad_that_has_landed_is_re_targeted_where_it_stands():
         "the hunt walks its squad out of somebody's alliance rally"
     assert answer(False, "nil") == 0, \
         "a busy squad with no march of its own is ordered about anyway"
+
+    # …AND A SQUAD WORKING A MINE, which is the case the operator does by hand (#1702).
+    # Proven live: rode onto a free mine (`COLLECTING: 3`, endTime 5.6 hours out), aimed
+    # the same march at another — same uuid, target 425441 -> 420470, COLLECTING ->
+    # MOVING, no walk home. That is «залипание на шахте» answered as well.
+    assert answer(False, mining, ours="900") == 1, \
+        "the hunt's own squad is left stuck on the ore it rode to"
+    # …but only when the march is the RUN'S OWN. A squad the PLAYER sent to gather is
+    # theirs, and yanking it off the ore to hit a zombie is not this recipe's call.
+    assert answer(False, mining) == 0, \
+        "the hunt takes a gathering squad the player sent, off its mine"
+    assert answer(False, mining, ours="901") == 0, \
+        "any gathering march is treated as the run's own"
 
 
 def test_two_squads_are_never_sent_at_the_same_zombie():

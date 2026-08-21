@@ -10525,7 +10525,7 @@ def golden_send() -> str:
         # stands; anything else is a fresh march out of the base.
         "local own = _ownmarch(p) "
         "local mu = nil "
-        "if _landed(own) then pcall(function() mu = own.uuid end) end "
+        "if _landed(own, p) then pcall(function() mu = own.uuid end) end "
         "if mu ~= nil then "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "local ok, err = pcall(function() "
@@ -11033,6 +11033,12 @@ def golden_squad_free() -> str:
 #: that waits for the squad's `state` to clear waits for ever.
 GOLDEN_MARCH_STATION = 0
 
+#: `MarchStatus.COLLECTING` — a march that has arrived at a resource node and is WORKING
+#: it. The squad is standing exactly as `STATION` is, and the clock on it is the ore's,
+#: not a journey's: measured live, a squad that landed on a level-9 mine read
+#: `COLLECTING: 3` with `endTime` five and a half hours out.
+GOLDEN_MARCH_COLLECTING = 3
+
 
 #: THE RUN'S OWN MARCH, AND WHETHER IT HAS LANDED (#1702). Both halves of the redeploy:
 #: a squad standing on the tile it cleared still carries a march, and that march is what
@@ -11046,9 +11052,23 @@ GOLDEN_MARCH_STATION = 0
 #: empty. Never a scan of the account's marches: with the pair driver two squads of the
 #: same account are out at once, and «the only march there is» is then another squad's.
 #:
-#: LANDED means: arrived (`MarchStatus.STATION`), no arrival time left, and NOT standing
-#: in a banner — walking a squad out of somebody's rally to hit a zombie is not this
-#: recipe's decision to make.
+#: LANDED means the squad is STANDING rather than travelling, and is not in a banner —
+#: walking a squad out of somebody's rally to hit a zombie is not this recipe's decision
+#: to make. Two readings say «standing», and both were proved live on 2026-08-22:
+#:
+#: * `MarchStatus.STATION` with no arrival time left — a squad on the tile it cleared.
+#:   Re-aimed at a zombie 23 tiles off: purse 1871 -> 1861, status STATION -> MOVING.
+#: * `MarchStatus.COLLECTING` — a squad WORKING A MINE, which is what the operator
+#:   re-targets by hand every day. Rode onto a free mine (`COLLECTING: 3`, `endTime` 5.6
+#:   hours out), then aimed the same march at another: **same march uuid, target
+#:   425441 -> 420470, COLLECTING -> MOVING**, no walk home and no new march. That is
+#:   «залипание на шахте» answered as well.
+#:
+#: A GATHERING march counts only when it is the RUN'S OWN (`p.own_march`). The hunt's
+#: ride puts a squad on a node itself and may take it off again; a squad the PLAYER sent
+#: to gather is theirs, and yanking it off the ore to hit a zombie is not a decision this
+#: recipe gets to make either. A march still MOVING is never touched: re-aiming one is
+#: «меняет маршрут, когда уже идёт на зомби», a bug this file has already paid for.
 #: …AND THE ORIGIN OF THE NEXT MARCH FOLLOWS FROM IT (#1702). The anchor is the last
 #: tile the run sent a squad to; whether it is where the NEXT march starts depends on
 #: whether the squad is still standing there. Measured live on 2026-08-22, over six kills
@@ -11075,16 +11095,22 @@ _GOLD_OWN_MARCH = (
     "if p.own_march == nil then return nil end "
     "pcall(function() m = DataCenter.WorldMarchDataManager:GetMarch(p.own_march) end) "
     "return m end "
-    "local function _landed(m) "
+    "local function _landed(m, p) "
     "if m == nil then return false end "
     "local team = nil pcall(function() team = tostring(m.teamUuid) end) "
     "if team ~= nil and team ~= '0' and team ~= 'nil' then return false end "
     "local st, due = nil, nil "
     "pcall(function() st = tonumber(string.match(tostring(m.status), '(%d+)%s*$')) end) "
     "pcall(function() due = tonumber(m.endTime) end) "
-    "return st == " + str(GOLDEN_MARCH_STATION) + " and (due == nil or due <= 0) end "
+    "if st == " + str(GOLDEN_MARCH_STATION) + " and (due == nil or due <= 0) then "
+    "return true end "
+    "if st == " + str(GOLDEN_MARCH_COLLECTING) + " and p ~= nil "
+    "and p.own_march ~= nil then local u = nil "
+    "pcall(function() u = tostring(m.uuid) end) "
+    "return u ~= nil and u == tostring(p.own_march) end "
+    "return false end "
     "local function _origin(p) "
-    "if p.anchor ~= nil and _landed(_ownmarch(p)) then return p.anchor, 'anchor' end "
+    "if p.anchor ~= nil and _landed(_ownmarch(p), p) then return p.anchor, 'anchor' end "
     "if p.home ~= nil then return p.home, 'home' end "
     "return p.anchor, 'anchor' end "
 )
@@ -11198,7 +11224,7 @@ def golden_can_order() -> str:
         "if not seen or can == nil then return -1 end "
         "if n <= 0 then return -2 end "
         "if can then return 1 end "
-        "if _landed(_ownmarch(p)) then return 1 end "
+        "if _landed(_ownmarch(p), p) then return 1 end "
         "return 0 end)()"
     )
 

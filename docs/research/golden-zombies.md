@@ -707,6 +707,41 @@ inside the fight, or in whatever window there is between the fight ending and th
 home starting. That window has not been measured yet, and it is the next thing to look
 at rather than another call to find.
 
+### The MINE is the other half, and it works — «залипание на шахте» answered
+
+The operator's own case is a squad standing on a mine, re-aimed by hand with no pause.
+That reads `COLLECTING: 3` with hours on the clock, not `STATION` with none, so it is a
+different question and it was asked separately. Live, 2026-08-22, on the test account and
+free of charge — a GATHER order costs no energy, so the proof here is the march itself:
+
+    ride  ->  march=…915 status=MOVING: 1     target=425441 end=…085552
+    land  ->        status=COLLECTING: 3      target=425441 end=…559485   (5.6 h out)
+    change ->       status=MOVING: 1          target=420470 end=…107976   (22 s out)
+
+**Same march uuid, new target, straight off the ore.** No walk home, no second march, and
+the squad was working a node with five and a half hours left on it.
+
+So the gate accepts a gathering squad too — **but only when the march is the RUN'S OWN**
+(`p.own_march`). The hunt's ride puts a squad on a node itself and may take it off again;
+a squad the PLAYER sent to gather is theirs, and pulling it off the ore to hit a zombie is
+not a decision this recipe gets to make. A march still MOVING is never touched at all:
+re-aiming one is «меняет маршрут, когда уже идёт на зомби», which §4d already cost us.
+
+### The capture that was supposed to settle this caught nothing, and why
+
+Two attempts were recorded while the operator attacked by hand from a mine, and neither
+produced a `world.march.change`. The reason is structural rather than bad luck:
+`tools/wire_event_monitor.py` **watches the DOWN direction only** — it is the ear for
+push-driven triggers — so a message the CLIENT sends can never appear in it. What its log
+holds is `push.world.march.new` from other players, which is what the down direction of a
+march looks like.
+
+It did not matter. The arguments were read off the client instead (`string.dump` for the
+names and the payload's field order, `debug.getinfo` for the arity) and then confirmed by
+sending them: a call that moves the purse and turns the march is not a guess. **A capture
+is one way to learn a message and not the only one — and for an OUTGOING message on this
+client it is the harder one.**
+
 
 ## 4f — the hunt recalled its own attack, one second after ordering it (#1702)
 
