@@ -11612,6 +11612,25 @@ def golden_phantom_marches() -> str:
             "return n end)()")
 
 
+def golden_clear_order() -> str:
+    """Forget the LAST order, keeping the target — so the same zombie can be sent at again.
+
+    «Отправил, развернул отряд, отправить снова» has to work (#1702). What stood in the
+    way was the run's memory of the previous order: the march uuid it parked, the pending
+    order it was proving, and — the one that actually blocks — the tile written into
+    `used`, which is how the chain remembers not to walk back round its own kills. For a
+    hand press none of that is wanted: the person is looking at the zombie and pressing
+    attack again.
+
+    The target itself is untouched, so this is «try that again», not «choose again».
+    """
+    return (_GOLD_P +
+            "p.pending = nil p.hit = nil p.march_uuid = nil p.misses = 0 "
+            "if p.cur ~= nil and p.used ~= nil then p.used[tostring(p.cur.pid)] = nil end "
+            "%(gold)s = p "
+            'CS.UnityEngine.Debug.LogError("ACT golden_clear_order")' % {"gold": _GOLD})
+
+
 def golden_use_squad() -> str:
     """Point the run at the squad the PANEL has chosen, keeping the parked target.
 

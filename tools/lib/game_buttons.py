@@ -1229,6 +1229,12 @@ BUTTONS["golden_miss"] = Button(
     lua=_lua_actions.golden_note_miss(),
     wait=0.1, label="write off a send that never became a march",
 )
+BUTTONS["golden_clear_order"] = Button(
+    # Forget the previous order — its march uuid, its pending proof, and the «already
+    # attacked» mark on the tile — while keeping the target itself (#1702).
+    lua=_lua_actions.golden_clear_order(),
+    wait=0.1, label="forget the previous order, keep the target",
+)
 BUTTONS["golden_use_squad"] = Button(
     # Point the run at the squad the tab has chosen, without disturbing the target that
     # «Найти ближайшего» parked (#1702).

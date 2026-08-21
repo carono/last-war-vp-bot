@@ -1639,8 +1639,41 @@ def test_a_single_press_comes_home_and_gives_up_on_a_zombie_that_dies_en_route()
         "a single attack leaves the squad standing on the tile"
     assert text.index("__lw_gold_back = 1") < text.index("CALL golden_send_the_squad"), \
         "the come-home flag is set after the order has gone"
-    assert lua_actions.golden_gone() in text, "the target is not watched while the march runs"
-    assert "TAP golden_unstick" in text, "a target that dies en route is walked to anyway"
+    # THE WATCH MOVED OUT OF THE PRESS (#1702). It stayed until the operator pointed out
+    # that a button which waits out a whole march is not a button: «должен реагировать
+    # мгновенно, и на повторные клики тоже». So the press ends when the order is away,
+    # and the chain — which is the thing that has minutes to spend — keeps the watch.
+    chain = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+             / "golden_judge_the_kill.md").read_text(encoding="utf-8")
+    assert lua_actions.golden_gone() in chain, "nothing watches the target any more"
+    assert "TAP golden_unstick" in text, "a march the server never confirmed is left there"
+
+
+def test_the_same_zombie_can_be_attacked_again_after_the_squad_is_turned_round():
+    """«Один раз пошёл, я его развернул — и второй раз не смог отправить» (#1702).
+
+    The run remembers its last order — the march uuid it parked, the proof it was
+    waiting on, and the tile written into `used`, which is how the CHAIN avoids walking
+    back round its own kills. For a hand press all three are in the way: the person is
+    looking at that zombie and pressing attack again.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    clear = lua_actions.golden_clear_order()
+    assert "p.march_uuid = nil" in clear and "p.pending = nil" in clear
+    assert "p.used[tostring(p.cur.pid)] = nil" in clear, \
+        "the tile stays marked as attacked, so the same zombie cannot be sent at twice"
+    assert "p.cur = nil" not in clear, "clearing the order also throws the target away"
+
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_attack_target.md").read_text(encoding="utf-8")
+    assert "TAP golden_clear_order" in text
+    assert text.index("TAP golden_clear_order") < text.index("CALL golden_send_the_squad")
+    # …and a squad turned round a second ago is given a beat rather than refused.
+    assert "WHILE squad_free == 0 LIMIT" in text, \
+        "a squad still walking home is refused outright"
 
 
 def _run_standalone() -> int:
