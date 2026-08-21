@@ -1590,6 +1590,33 @@ def test_the_lap_waits_for_the_fight_and_never_orders_over_one():
         "the fight is not waited out — the chain will order over one in progress"
 
 
+def test_a_press_checks_the_link_and_takes_back_a_march_with_no_clock():
+    """The button had no link gate, and the chain's own gate does not cover it (#1702).
+
+    A press into a client the server has hung up on draws a march locally that is never
+    confirmed — `endTime = 0` beside a real `startTime` — and the squad stands painted
+    mid-move refusing every order after it. The operator has now seen that twice, and it
+    is not a state ordinary play produces.
+
+    So a press reads the link before it orders anything, and afterwards checks for a
+    march with no arrival time and takes it back rather than leaving it in the game.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT / "tools" / "lib"))
+    import lua_actions                       # noqa: PLC0415
+
+    text = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+            / "golden_attack_target.md").read_text(encoding="utf-8")
+    assert "WAIT client == ready" in text, "the press orders without reading the link"
+    assert text.index("WAIT client == ready") < text.index("CALL golden_send_the_squad"), \
+        "the link is read after the order has gone"
+    assert lua_actions.golden_phantom_marches() in text, "nothing looks for a phantom march"
+    assert "TAP golden_unstick" in text, "a phantom march is found and then left there"
+    # …and the recall must not filter the phantom out, which is how one survived it.
+    assert "if u ~= nil then" in lua_actions.golden_unstick(), \
+        "the recall skips marches with no arrival time — the very ones that are stuck"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

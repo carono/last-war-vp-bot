@@ -20,6 +20,12 @@ ARGS march_wait = 200
 ARGS miss_limit = 6
 ARGS approach = 0
 
+# NOTHING IS ORDERED INTO A LINK THE SERVER HAS HUNG UP ON (#1702). The chain re-reads
+# it every lap; a button pressed by hand had no such check at all, and a press into a
+# deaf client draws a march the server never confirmed — a squad painted mid-move that
+# takes no orders afterwards. One reading, at the top, before anything is sent.
+WAIT client == ready WITHIN 20s
+
 LUA DataCenter.__lw_gold_squad = {squad}
 TAP golden_use_squad
 
@@ -52,3 +58,18 @@ IF launched == 1
     LOG "the game took the order — the squad is marching"
 IF launched == 0
     LOG "the game did not take the order — nothing is marching"
+
+# A MARCH WITH NO ARRIVAL TIME IS OURS TO TAKE BACK (#1702). `endTime = 0` beside a real
+# start is the client drawing an order the server never confirmed: the squad stands
+# painted mid-move and refuses everything after it, which is «отряд застрял в текстурах».
+# Leaving it there is leaving a state in the game that ordinary play never makes, so the
+# press cleans up after itself rather than reporting success and walking away.
+WAIT 3
+READ_LUA (function() local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) if e == nil or e <= 0 then n = n + 1 end end end end) return n end)() INTO phantoms
+IF phantoms > 0
+    LOG "the game drew {phantoms} march(es) with no arrival time — taking them back"
+    TAP golden_unstick
+    WAIT 6
+    READ_LUA (function() local n = 0 pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() if ms == nil then return end for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) if e == nil or e <= 0 then n = n + 1 end end end end) return n end)() INTO phantoms
+    IF phantoms > 0
+        FAIL "a march with no arrival time is still there — the client needs a restart"

@@ -10694,7 +10694,10 @@ def golden_unstick() -> str:
         "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
         "if m ~= nil then local u, e = nil, nil "
         "pcall(function() u = m.uuid end) pcall(function() e = tonumber(m.endTime) end) "
-        "if u ~= nil and e ~= nil and e > 0 then "
+        # …INCLUDING A MARCH WITH NO CLOCK (#1702). `endTime = 0` is the phantom: the
+        # client drew a march the server never confirmed, and it is exactly the one
+        # that has to come back. Filtering it out is how one survived a recall.
+        "if u ~= nil then "
         "TimerManager:GetInstance():DelayInvoke(function() "
         "pcall(function() MarchUtil.OnBackHome(u) end) end, 0.5) sent = true end end end end) "
         "ok = sent "
@@ -11562,6 +11565,23 @@ def golden_forget_queue() -> str:
     """
     return (_GOLD_P + "p.targets = {} p.cur = nil p.pending = nil %(gold)s = p "
             'CS.UnityEngine.Debug.LogError("ACT golden_forget_queue")' % {"gold": _GOLD})
+
+
+def golden_phantom_marches() -> str:
+    """Lua *expression* -> how many of our marches have no arrival time.
+
+    `endTime = 0` beside a real `startTime` is a march the CLIENT drew and the SERVER
+    never confirmed — the squad is painted mid-move and takes no orders, which is what
+    the operator sees as «отряд застрял в текстурах» (#1702). It is not a state ordinary
+    play produces, and it is ours to clean up rather than to leave in the game.
+    """
+    return ("(function() local n = 0 "
+            "pcall(function() local ms = DataCenter.WorldMarchDataManager:GetOwnerMarches() "
+            "if ms == nil then return end "
+            "for i = 0, (ms.Count - 1) do local m = nil pcall(function() m = ms[i] end) "
+            "if m ~= nil then local e = nil pcall(function() e = tonumber(m.endTime) end) "
+            "if e == nil or e <= 0 then n = n + 1 end end end end) "
+            "return n end)()")
 
 
 def golden_use_squad() -> str:
