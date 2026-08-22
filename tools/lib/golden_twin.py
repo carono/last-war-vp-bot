@@ -102,7 +102,12 @@ def pair_recipe() -> str:
     def b(expr):
         return twin_lua(expr)
 
-    free = lua_actions.golden_squad_free()
+    # THE WIDENED READING, not the rally's (#1702). A squad that has landed and is
+    # standing where it killed can be given its next order where it stands, and this
+    # driver is the one that has to know it: measured live, BOTH squads sat reading
+    # `free = 0` with `NORMAL: 0` marches — arrived, no clock, nobody's banner — while
+    # the driver waited eleven minutes for something to free them.
+    free = lua_actions.golden_can_order()
     armed = lua_actions.golden_armed()
     done = lua_actions.golden_refresh_done()
     energy = lua_actions.golden_energy()
