@@ -449,7 +449,7 @@ async function switchProfile(name) {
   $('log-list').textContent = '';
   await tick();
   if (VIEW === 'actions') refreshActions();
-  if (VIEW === 'timers') refreshTimers();
+  if (VIEW === 'timers') { refreshTimers(); refreshTriggers(); }
 }
 
 /* -- the errands ----------------------------------------------------------- */
@@ -558,6 +558,76 @@ function timerItem(row, now) {
   foot.append(mark, go);
 
   item.append(head, nowRow, detail, foot);
+  return item;
+}
+
+/* -- the standing orders ---------------------------------------------------- */
+/* The wire half of the same tab. The window draws these under the errands and tiles
+ * them across as many columns as its pane is wide; here the stylesheet's `.tiles` grid
+ * does it — one column on a phone, two on the wider page — and the order is the
+ * catalogue's own, so «the next one» means the same thing at every width. */
+
+function paintTriggers(data) {
+  const rows = data.triggers || [];
+  const list = $('triggers-list');
+  list.textContent = '';
+  $('triggers-empty').hidden = rows.length > 0;
+  for (const row of rows) list.appendChild(triggerItem(row));
+}
+
+function triggerItem(row) {
+  const item = document.createElement('div');
+  item.className = 'item';
+
+  // THE WHOLE ROW IS THE TARGET, for the reason the errand's is: the drawn control
+  // alone is a fingernail, the label beside it is the width of the card.
+  const head = document.createElement('label');
+  head.className = 'row switch-row';
+  const title = document.createElement('span');
+  title.className = 'title';
+  title.textContent = row.title;
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = row.enabled;
+  box.addEventListener('change', async () => {
+    box.disabled = true;
+    try {
+      await post('/api/triggers/set', { name: row.name, enabled: box.checked });
+      await refreshTriggers();
+    } finally { box.disabled = false; }
+  });
+  head.append(title, box);
+
+  // «СРАЗУ, БЕЗ ОЧЕРЕДИ» (#1288) — the window's block has this box, so the phone has it.
+  const nowRow = document.createElement('label');
+  nowRow.className = 'row switch-row';
+  const nowTitle = document.createElement('span');
+  nowTitle.className = 'muted small';
+  nowTitle.textContent = T('web.ui.at_once');
+  const nowBox = document.createElement('input');
+  nowBox.type = 'checkbox';
+  nowBox.checked = !!row.immediate;
+  nowBox.addEventListener('change', async () => {
+    nowBox.disabled = true;
+    try {
+      await post('/api/triggers/now', { name: row.name, immediate: nowBox.checked });
+      await refreshTriggers();
+    } finally { nowBox.disabled = false; }
+  });
+  nowRow.append(nowTitle, nowBox);
+
+  // What it waits for, and whether an ear is actually up — the same two readings and
+  // the same three words the window's block shows, off the same keys.
+  const detail = document.createElement('p');
+  detail.className = 'muted small';
+  const signal = row.poll ? T('triggers.poll')
+                          : T('triggers.cell.event', { signal: row.signal });
+  const state = row.status === 'queued' ? T('timers.queued')
+              : row.status === 'listening' ? T('triggers.listening')
+              : T('triggers.off');
+  detail.textContent = signal + ' · ' + state;
+
+  item.append(head, nowRow, detail);
   return item;
 }
 
@@ -926,7 +996,7 @@ function showView(name) {
   for (const button of document.querySelectorAll('.nav')) {
     button.classList.toggle('on', button.dataset.view === name);
   }
-  if (name === 'timers') refreshTimers();
+  if (name === 'timers') { refreshTimers(); refreshTriggers(); }
   if (name === 'actions') refreshActions();
   if (name === 'more') refreshScreens();
 }
@@ -942,6 +1012,10 @@ async function refreshTimers() {
   try { paintTimers(await get('/api/timers')); } catch (err) { /* the tick says so */ }
 }
 
+async function refreshTriggers() {
+  try { paintTriggers(await get('/api/triggers')); } catch (err) { /* the tick says so */ }
+}
+
 async function refreshActions() {
   if (ACTIONS.length) return;              // the list only changes when files do
   try {
@@ -955,7 +1029,7 @@ async function tick() {
     paintProfiles(await get('/api/profiles'));
     paintState(await get('/api/state'));
     paintLog(await get('/api/log?since=' + LOG_AT));
-    if (VIEW === 'timers') await refreshTimers();
+    if (VIEW === 'timers') { await refreshTimers(); await refreshTriggers(); }
     // …and the screen somebody is looking at (#1272), which used to be drawn once and
     // then never again — see `drawScreen`.
     if (VIEW === 'screen') await drawScreen(true);

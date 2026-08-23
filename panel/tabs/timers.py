@@ -36,6 +36,29 @@ from ..widgets import NumericEntry, numeric_spinbox
 from .base import PanelTab
 
 
+#: How wide one listener's block wants to be, and the gutter between two of them.
+#: A block is a small card — the switch and the name on top, the wire event, the
+#: «сразу» box and the status underneath — and every one of them is the same width,
+#: which is what makes tiling them possible at all: a five-column table cannot be
+#: repeated sideways without its columns disagreeing from block to block.
+TRIGGER_BLOCK_PX = 280
+TRIGGER_GUTTER_PX = 24
+#: The name is wrapped to a CONSTANT, never to the width a column turned out to have:
+#: wrapping to a measured width re-lays the frame out, which fires ``<Configure>``,
+#: which wraps again (docs/panel-tabs.md, «Never wrap a label to a width you measured»).
+TRIGGER_NAME_PX = 236
+#: A boundary has to be crossed by this much before the count of columns changes. A
+#: window dragged one pixel at a time would otherwise flip the whole list back and
+#: forth on every pixel, and a flip costs a full redraw of the grid.
+TRIGGER_HYSTERESIS_PX = 48
+#: Beyond this the blocks are past any ordinary screen — and a person reading four
+#: newspaper columns of standing orders has lost the list either way.
+TRIGGER_MAX_COLS = 4
+#: What the listeners' own label frame keeps for itself — its padding on both sides
+#: and its border. Taken off the measured width before the blocks are counted.
+TRIGGER_PANE_PAD = 20
+
+
 class TimersTab(PanelTab):
     """The two grids, the editor dialog and the master switch."""
 
@@ -61,6 +84,12 @@ class TimersTab(PanelTab):
         self._timer_selected = None
         self._timer_grid = None
         self._trigger_grid = None
+        self._trigger_pane = None
+        #: How many columns the listeners are laid out in, and the width that decided
+        #: it. State only — `build` draws it, and a tab nobody has opened has neither
+        #: a pane to measure nor a grid to fill (`LAZY`).
+        self._trigger_cols = 1
+        self._trigger_width = 0
         self._sched_var = None
 
     # -- the switches the schedule reads -------------------------------------
@@ -134,6 +163,7 @@ class TimersTab(PanelTab):
 
     def shutdown(self) -> None:
         self.rt.tick.disarm("timer_rows")
+        self.rt.tick.disarm("trigger_cols")
 
     def build(self) -> None:
         """One row per configured errand: switch, period, when it last/next runs.
@@ -187,8 +217,14 @@ class TimersTab(PanelTab):
         # the section is just checkboxes, the event each listens for, and its status.
         trig_frame = self.tr(ttk.LabelFrame(frame, padding=8), "triggers.frame")
         trig_frame.pack(fill="x", pady=(10, 0))
+        self._trigger_pane = trig_frame
         self._trigger_grid = ttk.Frame(trig_frame)
         self._trigger_grid.pack(fill="x")
+        # …and it re-lays itself out when the window changes width: one column in a
+        # narrow window, several in a wide one (:meth:`_trigger_columns`). The read is
+        # of the PANE, never of a label inside it, so nothing a wrap does can feed
+        # back into the measurement.
+        trig_frame.bind("<Configure>", self._trigger_resized, add="+")
         self._fill_trigger_grid()
         trig_bottom = ttk.Frame(trig_frame)
         trig_bottom.pack(fill="x", pady=(6, 0))
@@ -314,50 +350,147 @@ class TimersTab(PanelTab):
 
     # -- triggers: wire-driven errands, their own list (panel/triggers.py) ---
     def _fill_trigger_grid(self) -> None:
-        """(Re)draw a checkbox row per trigger, below the timers.
+        """(Re)draw the listeners below the timers — as many columns as the width takes.
 
         A trigger has no period and no editor: it is a standing order you switch on,
-        and it answers on its own. So each row is just a switch, the event it listens
-        for, and whether a listener is up right now.
+        and it answers on its own. So each one is a small block — the switch and the
+        name, then the event it waits for, the «сразу» box and whether an ear is up
+        right now — and the blocks are tiled across the pane.
+
+        WHY A BLOCK RATHER THAN THE ROW OF A TABLE. The five aligned columns this used
+        to be cannot be repeated sideways: every copy of the table would have to agree
+        with every other on the width of each of its columns, and the widest name in
+        one column would then decide the layout of all of them. A block of a constant
+        width tiles; a table does not.
+
+        The ORDER is column-major, so the list still reads top to bottom in the
+        catalogue's own order however many columns it is broken into. Row-major would
+        scatter consecutive entries sideways and change what «the next one» means
+        every time the window is resized.
         """
         grid = self._trigger_grid
+        if grid is None:                      # nobody has looked at this tab yet (LAZY)
+            return
         for child in grid.winfo_children():
             child.destroy()
         self._trigger_vars.clear()
         self._trigger_now.clear()
         self._trigger_rows.clear()
-        grid.columnconfigure(0, weight=1)
-        for col, key in enumerate(("triggers.col.action", "triggers.col.event",
-                                   "timers.col.now", "triggers.col.status")):
-            self.tr(ttk.Label(grid, foreground="#888"), key).grid(
-                row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
-        for row, trig in enumerate(self._trigger_catalogue, start=1):
-            enabled = tk.BooleanVar(value=bool(trig.enabled))
-            self._trigger_vars[trig.name] = enabled
-            # «Сразу, без очереди» (#1288): this fire skips the shared queue and runs
-            # on a thread of its own. The alliance help ships with it on.
-            at_once = tk.BooleanVar(value=bool(trig.immediate))
-            self._trigger_now[trig.name] = at_once
-            box = ttk.Checkbutton(grid, variable=enabled)
-            if trig.title:
-                box.configure(text=trig.title)
-            elif trig.label_key:
-                self.tr(box, trig.label_key)
-            else:
-                box.configure(text=trig.name)
-            box.grid(row=row, column=0, sticky="w", pady=2)
-            # The wire event a listener waits for, or a short label for a poll check
-            # (the raw Lua is unreadable in a narrow column).
-            signal = trig.event_pattern if not trig.is_poll else self.t("triggers.poll")
-            ttk.Label(grid, foreground="#888", text=signal).grid(
-                row=row, column=1, sticky="w", padx=(0, 10))
-            ttk.Checkbutton(grid, variable=at_once).grid(row=row, column=2,
-                                                        sticky="w", padx=(0, 10))
-            status = ttk.Label(grid, foreground="#888", width=14)
-            status.grid(row=row, column=3, sticky="w", padx=(0, 10))
-            self._trigger_rows[trig.name] = {"status": status}
+        # A layout left behind by a wider window still has its weights on: clear the
+        # whole span before handing them out again, or a list that has just shrunk to
+        # one column keeps three empty ones beside it.
+        for col in range(TRIGGER_MAX_COLS):
+            grid.columnconfigure(col, weight=0, uniform="")
+
+        trigs = list(self._trigger_catalogue)
+        if not trigs:
+            return
+        columns = max(1, min(self._trigger_cols, TRIGGER_MAX_COLS, len(trigs)))
+        per_column = -(-len(trigs) // columns)
+        for index, trig in enumerate(trigs):
+            cell = self._trigger_cell(grid, trig)
+            cell.grid(row=index % per_column, column=index // per_column,
+                      sticky="new", padx=(0, TRIGGER_GUTTER_PX), pady=(0, 6))
+        # `uniform` is what keeps the columns the same width whatever is in them —
+        # without it the column holding the longest name takes the pane and the rest
+        # are squeezed against it.
+        for col in range(columns):
+            grid.columnconfigure(col, weight=1, uniform="timers.listener")
         for var in list(self._trigger_vars.values()) + list(self._trigger_now.values()):
             var.trace_add("write", lambda *a: self._save_triggers())
+
+    def _trigger_cell(self, parent, trig):
+        """One listener's block: the switch and its name, then the event, «сразу», status."""
+        cell = ttk.Frame(parent)
+        cell.columnconfigure(1, weight=1)
+        enabled = tk.BooleanVar(value=bool(trig.enabled))
+        self._trigger_vars[trig.name] = enabled
+        # «Сразу, без очереди» (#1288): this fire skips the shared queue and runs on a
+        # thread of its own. The alliance help ships with it on.
+        at_once = tk.BooleanVar(value=bool(trig.immediate))
+        self._trigger_now[trig.name] = at_once
+
+        box = ttk.Checkbutton(cell, variable=enabled)
+        box.grid(row=0, column=0, sticky="nw")
+        # THE NAME IS A LABEL, not the checkbutton's own text: a ttk checkbutton cannot
+        # wrap, and a name three quarters of a sentence long («Автостяг: присоединяться
+        # к стягам альянса…») would set the width of every block on the tab. Clicking it
+        # still moves the switch, so the whole width of the block is the target.
+        name = ttk.Label(cell, wraplength=TRIGGER_NAME_PX, justify="left")
+        if trig.title:
+            name.configure(text=trig.title)
+        elif trig.label_key:
+            self.tr(name, trig.label_key)
+        else:
+            name.configure(text=trig.name)
+        name.grid(row=0, column=1, sticky="w", padx=(4, 0))
+        name.bind("<Button-1>", lambda _e, v=enabled: v.set(not v.get()), add="+")
+
+        foot = ttk.Frame(cell)
+        foot.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(2, 0))
+        # The wire event a listener waits for, or a short label for a poll check (the
+        # raw Lua is unreadable in a narrow block). It carried a column head until the
+        # blocks replaced the table, so the phrase that head was moves into the line.
+        if trig.is_poll:
+            self.tr(ttk.Label(foot, foreground="#888"), "triggers.poll").pack(side="left")
+        else:
+            self.tr(ttk.Label(foot, foreground="#888"), "triggers.cell.event",
+                    signal=trig.event_pattern).pack(side="left")
+        status = ttk.Label(foot, foreground="#888")
+        status.pack(side="right")
+        self.tr(ttk.Checkbutton(foot, variable=at_once),
+                "timers.col.now").pack(side="right", padx=(8, 8))
+        self._trigger_rows[trig.name] = {"status": status}
+        return cell
+
+    # -- how many columns the listeners are laid out in ----------------------
+    def _trigger_resized(self, event) -> None:
+        """The pane changed size — settle, then re-lay the listeners if the count moved.
+
+        Debounced through the profile's own ticker: a drag fires ``<Configure>`` per
+        pixel, and rebuilding the grid on each of them is both slow and unreadable.
+        Re-arming under one name cancels the pending one, so a drag costs exactly one
+        redraw at its end.
+        """
+        # The PANE's width less what its own frame keeps: the label frame's padding on
+        # both sides and its border. What is left is what the blocks have to share.
+        self._trigger_width = max(0, int(getattr(event, "width", 0)) - TRIGGER_PANE_PAD)
+        self.rt.tick.arm("trigger_cols", 120, self._apply_trigger_columns)
+
+    def _apply_trigger_columns(self) -> None:
+        """Re-lay the listeners IF the width now asks for a different number of columns.
+
+        Nothing happens when it does not, which is what keeps the `<Configure>` a
+        redraw itself provokes from turning into a loop.
+        """
+        columns = self._trigger_columns(self._trigger_width)
+        if columns == self._trigger_cols:
+            return
+        self._trigger_cols = columns
+        if self._trigger_grid is not None:
+            self._fill_trigger_grid()
+            self._refresh_trigger_rows()
+
+    def _trigger_columns(self, width: int) -> int:
+        """How many blocks fit across ``width``, with a dead band around every step.
+
+        The count only GROWS once the next block fits with :data:`TRIGGER_HYSTERESIS_PX`
+        to spare, and only SHRINKS once the current one is short by the same margin — so
+        the band between two layouts is about twice that wide and a slow drag crosses it
+        once instead of flickering between them.
+        """
+        span = TRIGGER_BLOCK_PX + TRIGGER_GUTTER_PX
+
+        def needs(count: int) -> int:
+            return count * span - TRIGGER_GUTTER_PX
+
+        columns = max(1, min(self._trigger_cols, TRIGGER_MAX_COLS))
+        while columns < TRIGGER_MAX_COLS and \
+                width >= needs(columns + 1) + TRIGGER_HYSTERESIS_PX:
+            columns += 1
+        while columns > 1 and width < needs(columns) - TRIGGER_HYSTERESIS_PX:
+            columns -= 1
+        return columns
 
     def _bind_timer_autosave(self) -> None:
         """Persist a ticked box / retyped period, for rows built at any time.
@@ -401,6 +534,22 @@ class TimersTab(PanelTab):
         TK THREAD ONLY, like every other variable in this file.
         """
         var = self._trigger_vars.get(name)
+        if var is None:
+            return False
+        var.set(bool(on))
+        return True
+
+    def set_trigger_immediate(self, name: str, on: bool) -> bool:
+        """Mark one STANDING ORDER «сразу» from outside, or take the mark off (#1288).
+
+        The wire half of :meth:`set_immediate`, and it exists for the same reason: while
+        this tab is drawn its boxes ARE the configuration, so a flag written straight to
+        `triggers.json` would be undone by the next save and look, from the phone, like
+        a box that does not stay.
+
+        TK THREAD ONLY, like every other variable in this file.
+        """
+        var = self._trigger_now.get(name)
         if var is None:
             return False
         var.set(bool(on))

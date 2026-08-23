@@ -98,10 +98,18 @@
       </div>
     </section>
 
-    <!-- the errands -->
+    <!-- the errands, and under them the standing orders — the same two lists in the
+         same order the window's «Таймеры» tab draws them in. THE LISTENERS ARE A GRID:
+         one column on a phone, two once the page is wide enough, decided by the
+         stylesheet's `auto-fill` rather than by a breakpoint somebody has to keep in
+         step with the window's own thresholds. -->
     <section id="view-timers" class="view" hidden>
       <div id="timers-list"></div>
       <p id="timers-empty" class="muted" data-i18n="web.ui.timers.empty" hidden></p>
+      <h2 class="section" data-i18n="triggers.frame"></h2>
+      <div id="triggers-list" class="tiles"></div>
+      <p id="triggers-empty" class="muted" data-i18n="web.ui.triggers.empty" hidden></p>
+      <p class="muted small" data-i18n="triggers.hint"></p>
     </section>
 
     <!-- the scenarios -->

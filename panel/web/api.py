@@ -13,6 +13,7 @@ this file is what keeps it honest. Every route below is one call onto a
     /api/panel      put the PANEL back on the code on disk   runtime/panel_control.py
     /api/interrupt  end whatever scenario is playing          runtime/interrupt.py
     /api/timers     the errands, their switches, when next   rt.schedule
+    /api/triggers   the listeners, their switches, their ear  rt.schedule
     /api/actions    the scenarios that exist                 rt.actions
     /api/log        what has been said                       rt.log (tapped)
     /api/i18n       the words to say it in                   panel/locales
@@ -49,6 +50,7 @@ import time
 
 from .. import i18n as i18nmod
 from .. import timers as timersmod
+from .. import triggers as triggersmod
 from ..runtime import autostart as autostartmod
 from ..runtime import daemon as daemonmod
 from ..runtime import game_control, game_process, panel_control, provision
@@ -622,6 +624,99 @@ class WebApi:
         timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
         return {"ok": True, "name": name, "immediate": bool(immediate)}
 
+    # -- the standing orders -------------------------------------------------
+    def triggers(self, profile: str | None = None) -> dict:
+        """Every listener, its switch, the event it waits for and whether an ear is up.
+
+        The window's «Таймеры» tab has drawn these under the errands since it had a
+        wire half at all, and the phone did not — so the person holding one could see
+        which errands were on and had no way to tell whether the alliance help was even
+        listening. Same runtime, same two switches, same three states.
+        """
+        rt = self._runtime(profile)
+        schedule = rt.schedule
+        pending = set(schedule.timers.pending())
+        watching = set(schedule.triggers.watching())
+        rows = []
+        for trig in schedule.trigger_catalogue:
+            # The BOX, not `trigger_config`: that one folds in whether this window can
+            # carry the order out at all, and a phone drawing an unticked box over a
+            # trigger the window shows ticked is the two front-ends disagreeing about
+            # one state. Whether anything is listening is what `status` says.
+            if trig.name in pending:
+                status = "queued"
+            elif trig.name in watching:
+                status = "listening"
+            else:
+                status = "off"
+            rows.append({
+                "name": trig.name,
+                "title": self._trigger_title(rt, trig),
+                "enabled": bool(trig.enabled),
+                # «сразу, без очереди» (#1288) — the window's row has this box, so the
+                # phone has it: a control a person can read but not move is the
+                # divergence CLAUDE.md forbids.
+                "immediate": bool(trig.immediate),
+                "poll": bool(trig.is_poll),
+                "signal": "" if trig.is_poll else trig.event_pattern,
+                "status": status,
+            })
+        return {"triggers": rows, "profile": self._name_of(rt), "time": time.time()}
+
+    def _trigger_title(self, rt, trig) -> str:
+        """What the listener is called — the operator's own words, or the built-in key."""
+        if trig.title:
+            return trig.title
+        if trig.label_key:
+            return rt.t(trig.label_key)
+        return trig.name
+
+    def set_trigger(self, name: str, enabled: bool,
+                    profile: str | None = None) -> dict:
+        """Tick or untick one standing order — through the Timers tab when it is drawn.
+
+        The same two branches as :meth:`set_timer`, for the same reason: while that tab
+        is drawn its boxes ARE the configuration (`Schedule.trigger_config` reads the
+        widgets), so a switch written straight to `triggers.json` would be undone by
+        their next save and look, from the phone, like a switch that does not stay.
+        """
+        rt = self._runtime(profile)
+        if rt.schedule.trigger_catalogue.by_name(name) is None:
+            return {"error": "unknown"}
+        done: dict = {}
+        # `Schedule.set_trigger_enabled` already holds both branches — and it touches
+        # the tab's variables, which is a Tk-thread-only thing and an HTTP worker is
+        # never on that thread.
+        self._on_tk(rt, lambda: done.update(
+            ok=bool(rt.schedule.set_trigger_enabled(name, enabled))))
+        if not done.get("ok"):
+            return {"error": "unknown"}
+        return {"ok": True, "name": name, "enabled": bool(enabled)}
+
+    def set_trigger_immediate(self, name: str, immediate: bool,
+                              profile: str | None = None) -> dict:
+        """Mark one standing order «сразу», or take the mark off (#1288)."""
+        rt = self._runtime(profile)
+        schedule = rt.schedule
+        if schedule.trigger_catalogue.by_name(name) is None:
+            return {"error": "unknown"}
+        tab = rt.tabs.get("timers") if rt.tabs is not None else None
+        if tab is not None and getattr(tab, "built", True) \
+                and hasattr(tab, "set_trigger_immediate"):
+            done: dict = {}
+            self._on_tk(rt, lambda: done.update(
+                ok=bool(tab.set_trigger_immediate(name, immediate))))
+            if done.get("ok"):
+                return {"ok": True, "name": name, "immediate": bool(immediate)}
+        flags = {t.name: bool(t.immediate) for t in schedule.trigger_catalogue}
+        flags[name] = bool(immediate)
+        schedule.trigger_catalogue = schedule.trigger_catalogue.with_enabled(
+            schedule.trigger_catalogue.enabled_config(), flags)
+        triggersmod.save_catalogue(schedule.trigger_catalogue,
+                                   rt.profiles.triggers_json())
+        schedule.triggers.sync()
+        return {"ok": True, "name": name, "immediate": bool(immediate)}
+
     def run_timer(self, name: str, profile: str | None = None) -> dict:
         """«Запустить сейчас» — onto the schedule's own queue, never a thread of its own.
 
@@ -1141,6 +1236,8 @@ class WebApi:
                 return 200, self.state(who)
             if path == "/api/timers":
                 return 200, self.timers(who)
+            if path == "/api/triggers":
+                return 200, self.triggers(who)
             if path == "/api/actions":
                 return 200, self.actions(who)
             if path == "/api/i18n":
@@ -1161,6 +1258,11 @@ class WebApi:
                     name, bool(body.get("immediate")), who))
             if path == "/api/timers/run":
                 return _answer(self.run_timer(name, who))
+            if path == "/api/triggers/set":
+                return _answer(self.set_trigger(name, bool(body.get("enabled")), who))
+            if path == "/api/triggers/now":
+                return _answer(self.set_trigger_immediate(
+                    name, bool(body.get("immediate")), who))
             if path == "/api/actions/run":
                 return _answer(self.run_action(name, who, body.get("args") or {}))
             if path == "/api/game":

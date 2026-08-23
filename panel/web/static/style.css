@@ -437,3 +437,24 @@ input[type=checkbox]:disabled { opacity: .5; }
   margin: 2px 0 6px;
   opacity: 0.92;
 }
+
+/* --- the listeners, tiled (#1887) ---------------------------------------- */
+/* The window's «Таймеры» tab lays its standing orders out in as many columns as the
+   pane is wide, and this is the phone's half of that: `auto-fill` with a floor of
+   240 px, so a 360 px phone gets one column and the 640 px page gets two, with no
+   breakpoint to keep in step with the window's own thresholds. The order is the
+   catalogue's, left to right then down — predictable at every width. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.tiles .item { margin: 0; }
+
+/* A heading between two lists on one screen. Quiet: it separates, it does not shout. */
+h2.section {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 18px 0 8px;
+  color: var(--muted);
+}
