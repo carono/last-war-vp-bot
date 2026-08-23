@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Bekleyen hayatta kalanları topla",
   "timers.item.restart_game": "Oyun istemcisini yeniden başlat",
   "timers.item.tavern_free_pull": "Taverna: ücretsiz kahramanı ve hayatta kalanı al",
+  "timers.item.secret_tasks_day": "Gizli görevler: olgunlaşınca topla, kutuları aç, yenile ve gönder",
   "timers.item.sweep_star_servers": "★ turu: yıldızlı görev günü olan savaş bölgeleri",
   "timers.item.upgrade_decorations": "Yedek bir kopya biriktiğinde üs dekorasyonlarını yükselt",
   "timers.log.already_queued": "{name}: zaten sırada, sırasını bekliyor",

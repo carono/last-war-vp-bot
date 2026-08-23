@@ -294,3 +294,35 @@ The two branches sooperj never reached, both exercised on the second account in 
   `post_send_rows rows=3 picked=0`, and the run said so and booked its own return:
   «3 task(s) still waiting for a squad — coming back in 7112 s, when the nearest one is
   home».
+
+## One row on the schedule, and why not two
+
+The operator asked for two things that turn out to be one: a collector that takes each
+reward as its task ripens, and a daily errand that sends and collects everything, coming
+back through the day because the heroes run out.
+
+**They wake at the same instants.** A running task's `completionTime` is simultaneously
+the moment its reward becomes claimable, the moment the march slot an unclaimed reward
+was holding is freed, and the moment its heroes are home to be sent again. Two rows would
+be woken by the same clock, would take the same game claim and would race each other over
+the same list — with the collector firing in the middle of the day errand's own cycle.
+
+So there is one row, `secret_tasks_day`, playing `actions/work_secret_tasks.md`:
+
+1. `CALL collect_secret_tasks` — claim, then open the boxes. The order is the operator's
+   instruction and it also pays: the boxes hand back «Секретные приказы», so the
+   refreshing that follows is cheaper.
+2. `CALL refresh_secret_tasks` — the price rule, the UR rescues, the sending.
+3. read the nearest finish and leave it in `next_run_in` (+30 s).
+
+`CALL` shares the context — `prepare_source(text, ctx.vars)` merges the sub-recipe's own
+`ARGS` defaults UNDER the caller's variables, and `ctx.vars.update(merged)` writes the
+sub-recipe's readings back — so the day's knobs travel down by declaring the same names,
+and the sub-recipe's `next_run_in` is visible to the caller, which then overwrites it with
+its own fresher scan.
+
+The row's period is `DAY_SEC`, which the schedule anchors to the server's own midnight;
+it is only where a day with nothing running starts from. Live end to end on a second
+account: claim (nothing due), boxes (none left), the cycle (no non-UR to refresh), the
+send refused for want of heroes and said so — and «back in 5377 s, when the first of them
+finishes».

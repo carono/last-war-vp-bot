@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Recruit waiting survivors",
   "timers.item.restart_game": "Restart the game client",
   "timers.item.tavern_free_pull": "Tavern: take the free hero and survivor",
+  "timers.item.secret_tasks_day": "Secret tasks: claim as they ripen, open the boxes, refresh and send",
   "timers.item.sweep_star_servers": "★ round: walk the warzones having their star-task day",
   "timers.item.upgrade_decorations": "Upgrade base decorations, whenever a spare duplicate is banked",
   "timers.log.already_queued": "{name}: already queued, waiting its turn",

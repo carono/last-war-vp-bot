@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Zwerbować czekających ocalałych",
   "timers.item.restart_game": "Uruchomić klienta gry ponownie",
   "timers.item.tavern_free_pull": "Tawerna: odebrać darmowego bohatera i ocalałego",
+  "timers.item.secret_tasks_day": "Tajne zadania: odbierać po dojrzeniu, otwierać skrzynki, odświeżać i wysyłać",
   "timers.item.sweep_star_servers": "Obchód ★: strefy wojny w dniu gwiezdnych zadań",
   "timers.item.upgrade_decorations": "Ulepszać dekoracje bazy, gdy jest zapasowy duplikat",
   "timers.log.already_queued": "{name}: już w kolejce, czeka na swoją kolej",

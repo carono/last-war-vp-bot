@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Recruter les survivants qui attendent",
   "timers.item.restart_game": "Relancer le client du jeu",
   "timers.item.tavern_free_pull": "Taverne : prendre le héros et le survivant gratuits",
+  "timers.item.secret_tasks_day": "Missions secrètes : récupérer à échéance, ouvrir les boîtes, rafraîchir et envoyer",
   "timers.item.sweep_star_servers": "Tournée ★ : zones de guerre en jour de missions étoilées",
   "timers.item.upgrade_decorations": "Améliorer les décorations de la base, dès qu'un double de rechange est en réserve",
   "timers.log.already_queued": "{name} : déjà en file, il attend son tour",

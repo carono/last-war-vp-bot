@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Recrutar os sobreviventes que esperam",
   "timers.item.restart_game": "Reiniciar o cliente do jogo",
   "timers.item.tavern_free_pull": "Taverna: recolher o herói e o sobrevivente gratuitos",
+  "timers.item.secret_tasks_day": "Missões secretas: receber ao vencer, abrir as caixas, atualizar e enviar",
   "timers.item.sweep_star_servers": "Volta ★: zonas de guerra no dia das tarefas com estrela",
   "timers.item.upgrade_decorations": "Melhorar as decorações da base, quando há um duplicado sobressalente",
   "timers.log.already_queued": "{name}: já está na fila, esperando a vez",

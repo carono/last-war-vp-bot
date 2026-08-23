@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Wartende Überlebende anwerben",
   "timers.item.restart_game": "Spielclient neu starten",
   "timers.item.tavern_free_pull": "Taverne: den kostenlosen Helden und Überlebenden holen",
+  "timers.item.secret_tasks_day": "Geheimaufträge: bei Fälligkeit abholen, Kisten öffnen, auffrischen und schicken",
   "timers.item.sweep_star_servers": "★-Runde: Kriegszonen mit ihrem Stern-Auftragstag abfahren",
   "timers.item.upgrade_decorations": "Basis-Deko-Gebäude verbessern, wenn ein Ersatzstück bereitliegt",
   "timers.log.already_queued": "{name}: steht schon in der Warteschlange und wartet",

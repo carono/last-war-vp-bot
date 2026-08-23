@@ -387,6 +387,31 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.apply_ministry_interior",
     ),
     Timer(
+        name="secret_tasks_day",
+        scenario=("work_secret_tasks",),
+        # A DAY, and it is the FALLBACK rather than the schedule — the same shape as
+        # `tavern_free_pull` above and for a better reason than a guess.
+        #
+        # ONE ROW AND NOT TWO (#1903). The operator asked for a collector that takes each
+        # reward as its task ripens, and for a daily errand that sends and collects
+        # everything. Those are the same clock: a running task's `completionTime` is the
+        # instant its reward becomes claimable, the instant its march slot stops being
+        # held by an unclaimed reward, AND the instant its heroes are home to be sent
+        # again. A second row would wake at exactly those instants, take the same game
+        # claim and race this one over the same list.
+        #
+        # So the recipe reads the nearest finish and books its own next turn with it
+        # (:data:`NEXT_RUN_VAR`), and this period only decides where a day with nothing
+        # running starts from. Being a whole day it is anchored to the server's own
+        # midnight (:data:`DAY_SEC`), which is what «раз в сутки» means for a quota.
+        interval_sec=DAY_SEC,
+        # A failure here is a client that was not answering. Half an hour, because the
+        # day has hours in it and a stuck run must not spin at the game.
+        retry_sec=1800,
+        enabled=False,
+        label_key="timers.item.secret_tasks_day",
+    ),
+    Timer(
         name="do_radar_tasks",
         scenario=("do_radar_tasks",),
         # Half an hour. The board hands out errands on its own clock all day, and the

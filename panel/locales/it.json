@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Reclutare i sopravvissuti in attesa",
   "timers.item.restart_game": "Riavviare il client del gioco",
   "timers.item.tavern_free_pull": "Taverna: prendere l'eroe e il sopravvissuto gratuiti",
+  "timers.item.secret_tasks_day": "Missioni segrete: riscuotere a scadenza, aprire le casse, aggiornare e inviare",
   "timers.item.sweep_star_servers": "Giro ★: zone di guerra nel giorno degli incarichi stellati",
   "timers.item.upgrade_decorations": "Migliorare le decorazioni della base, quando è disponibile un duplicato di scorta",
   "timers.log.already_queued": "{name}: già in coda, aspetta il suo turno",

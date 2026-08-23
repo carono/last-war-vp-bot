@@ -898,6 +898,7 @@
   "timers.item.recruit_survivors": "Собрать выживших",
   "timers.item.restart_game": "Перезапуск клиента игры",
   "timers.item.tavern_free_pull": "Таверна: забрать бесплатного героя и жителя",
+  "timers.item.secret_tasks_day": "Секретки: собирать по созреванию, вскрывать ящики, обновлять и отправлять",
   "timers.item.sweep_star_servers": "Обход ★: зоны, у которых сегодня день звёздных секреток",
   "timers.item.upgrade_decorations": "Улучшать украшения базы, когда есть запасной дубликат",
   "timers.log.already_queued": "{name}: уже в очереди, ждёт своей очереди",
