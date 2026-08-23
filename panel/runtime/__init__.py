@@ -50,6 +50,7 @@ from .log import LogBus
 from .log_view import LogPane, LogSpool
 from . import provision
 from . import panic
+from . import power
 from . import recovery
 from . import reads
 from .schedule import Schedule
@@ -62,7 +63,7 @@ from .tick import Ticker, TkPost
 from .workspace import Workspace
 from . import updates
 
-__all__ = ["paths", "provision", "reads", "diag", "game_process", "recovery", "panic", "claims", "ACTIONS_DIR",
+__all__ = ["paths", "provision", "reads", "diag", "game_process", "recovery", "panic", "power", "claims", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Activity", "Step",
            "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
            "LogPane", "LogSpool",

@@ -119,6 +119,15 @@ DEFAULTS: dict = {
     "launcher": game_paths.launcher(),
     "game_exe": game_paths.game_exe(),
     "watchdog": False,
+    # WHETHER THIS PROFILE WORKS AT ALL — the one checkbox on «Главная» (#1882,
+    # panel/runtime/power.py). Off means off: the client is closed, the daemon is
+    # stopped, and no timer, trigger, watchdog or recovery may put any of it back. It is
+    # a SETTING rather than a state in memory precisely so a restart of the panel does
+    # not quietly start an account somebody deliberately switched off. `profile_off_at`
+    # is when it was last switched off, so the mark on screen counts in hours rather
+    # than saying merely «выключен»; 0 while the profile is on.
+    "profile_on": True,
+    "profile_off_at": 0.0,
     # How long a KICKED client is left completely alone, in minutes (#1291). A kick
     # means the account is logged in on another device — somebody is playing it — and
     # taking it back thirty seconds later throws them out, whereupon their client throws

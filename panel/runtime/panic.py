@@ -1,4 +1,11 @@
-"""«Стоп всё» and «Включить обратно» — the two acts, and the mark that says they happened.
+"""The two acts a profile's switch causes: close the client, stop this profile's daemon.
+
+WHO PRESSES THIS. Nobody, directly, any more (#1882). «Стоп всё» and «Включить обратно»
+were buttons; what there is now is one checkbox per profile — «Профиль работает» — and
+`panel/runtime/power.py` is the flag behind it. This file is what the flag DOES when it
+moves, and it is a file of its own for the same reason it always was: two acts written
+down twice is how the window and the phone end up stopping different amounts of the same
+profile.
 
 TWO ACTS AND ONLY TWO (#1393): **close the client, stop this profile's daemon.** That is
 the whole of the press. It used to stop the schedule, every plugin tab's monitors, every
@@ -18,69 +25,26 @@ gate opens by itself the moment it is up, and whatever the schedule was going to
 does — once, not as a queue of everything it missed (`panel/timers.py`, #1333).
 
 
-THE MARK is the other half, and it predates the two acts. The button used to say what it
-had done in ONE line in the log, which scrolls away. Nothing on screen afterwards said
-the panel was holding still; the profile simply did nothing, exactly as it would if
-everything were merely idle.
+THE MARK IS NOT HERE ANY MORE (#1882). It used to be — a `Panic` object holding «is this
+profile stopped, and since when», in memory, for the length of one run of the panel. It
+is a SETTING now (`panel/runtime/power.py`): the switch is written into the profile's own
+`config.json`, so it survives a restart, and the mark both front-ends draw is read off
+the same flag rather than off a second state that could disagree with it.
 
-That is not a hypothetical. On 2026-08-06 «Стоп всё» was pressed at 12:44, the line was
-said, and the schedule stayed off for the rest of the day: the client lost its server at
-18:58, died at 20:02 and was still dead two hours later, with the panel open in front of
-somebody the whole time. Seven hours went past a log line.
+Why that mattered: the button used to say what it had done in ONE line in the log, which
+scrolls away, and on 2026-08-06 that cost seven hours — «Стоп всё» was pressed at 12:44,
+the client lost its server at 18:58, died at 20:02 and was still dead two hours later,
+with the panel open in front of somebody the whole time. A restart in the middle of that
+would have quietly started everything again, which is the other half of the same fault.
 
-So this holds two things and nothing else:
-
-* **that the profile is stopped**, for as long as it is, so both front-ends can put a
-  mark where a mark cannot scroll away;
-* **when it happened**, so the mark can say «уже 7 часов» rather than «остановлено» —
-  the number is what makes it uncomfortable enough to act on.
-
-WHAT IT DOES NOT HOLD IS A SNAPSHOT OF ANYTHING. There is nothing to remember any more:
-the press does not switch anybody's boxes off, so it has nothing to put back. A watcher
-the person had deliberately left off comes back off, and one they had left on comes back
-on, because neither was ever touched — which is the version of that promise that cannot
-be got wrong.
+WHAT NEITHER ACT HOLDS IS A SNAPSHOT OF ANYTHING. Nothing is remembered because nothing
+is touched: no watcher's box is switched off, so a watcher the person had deliberately
+left off comes back off and one they had left on comes back on — the version of that
+promise that cannot be got wrong.
 """
 from __future__ import annotations
 
 import threading
-import time
-
-
-class Panic:
-    """One profile's «is everything stopped, and since when».
-
-    Not thread-safe and not required to be: it is written from the button press and
-    read from the paint, both on the Tk thread, and the web reads a snapshot dict.
-    """
-
-    __slots__ = ("_at", "_count")
-
-    def __init__(self) -> None:
-        #: When «Стоп всё» was last pressed, or 0.0 while the profile is running.
-        self._at = 0.0
-        #: How many times this session — so «нажали и забыли» and «нажимают всё время»
-        #: do not look the same.
-        self._count = 0
-
-    @property
-    def stopped(self) -> bool:
-        return self._at > 0.0
-
-    def mark(self, now: float) -> None:
-        """«Стоп всё» was pressed."""
-        self._at = now
-        self._count += 1
-
-    def clear(self) -> None:
-        """«Включить обратно» was pressed — or a profile switch made the mark meaningless."""
-        self._at = 0.0
-
-    def state(self, now: float) -> dict:
-        """What both front-ends draw. Numbers, never words (`CLAUDE.md`)."""
-        return {"stopped": self.stopped,
-                "for_sec": int(now - self._at) if self.stopped else 0,
-                "count": self._count}
 
 
 # -- the two acts -------------------------------------------------------------
@@ -91,7 +55,7 @@ class Panic:
 
 
 def stop(rt) -> None:
-    """«Стоп всё» for ONE profile: close its client, then stop its daemon.
+    """The switch going OFF for ONE profile: close its client, then stop its daemon.
 
     In that order, and the order is not cosmetic: closing the client is done through the
     `quit_game` scenario (`CLAUDE.md` — the panel plays abilities, it does not write
@@ -104,6 +68,11 @@ def stop(rt) -> None:
     The mark is set here, on the way in, so the window says «ВСЁ ОСТАНОВЛЕНО» from the
     moment of the press rather than a minute later when the client has finished closing.
 
+    THE FLAG IS ALREADY WRITTEN when this runs: the switch is persisted by
+    `panel/runtime/power.py::set_on`, which then calls this. Nothing here reads or writes
+    it — an act that decided for itself whether it was allowed is an act that can
+    disagree with the switch drawn on screen.
+
     A client that is already gone is not a failure — `quit_game` is a no-op then — and a
     claim refused is not a reason to leave the daemon running: the press is what somebody
     reaches for when things have gone wrong, so the second act happens whatever the first
@@ -111,7 +80,6 @@ def stop(rt) -> None:
     either; it is the point. The run fails, says so, and nothing starts another.
     """
     rt.say("panel", "panic.log")
-    rt.panic.mark(time.time())
 
     def second() -> None:
         stop_daemon(rt)
@@ -146,7 +114,7 @@ def stop_daemon(rt) -> bool:
 
 
 def resume(rt) -> None:
-    """«Включить обратно» for ONE profile: bring its daemon back, and clear the mark.
+    """The switch going back ON for ONE profile: bring its daemon back.
 
     The inverse of :func:`stop`, and deliberately not «start the client» as well: with a
     daemon up the gate opens, and whatever puts a client back — the six-hourly
@@ -157,8 +125,6 @@ def resume(rt) -> None:
     On a worker for the same reason as its opposite: `ensure` waits for a daemon to come
     up, which is seconds.
     """
-    rt.panic.clear()
-
     def work() -> None:
         try:
             rt.game.ensure()
@@ -169,33 +135,3 @@ def resume(rt) -> None:
             rt.say("panel", "panic.resumed")
 
     threading.Thread(target=work, name="panel-resume", daemon=True).start()
-
-
-# -- the press, for the front-end that is not the window ----------------------
-#
-# «Включить обратно» has to be reachable from the phone for the same reason «Стоп всё»
-# is worth having at all: the moment it matters is the moment nobody is standing at the
-# machine. It is the SHELL's press — only the window knows which profiles are open and
-# which tabs each of them has — so the shell registers what to run and everything else
-# only asks whether there is anything registered, exactly as
-# `panel/runtime/panel_control.py` does for the panel's own restart.
-_handler = None
-
-
-def set_handler(fn) -> None:
-    """The shell says how «Включить обратно» is carried out. A standalone tab says nothing."""
-    global _handler
-    _handler = fn
-
-
-def available() -> bool:
-    """Is there anything that could carry the press out in this process?"""
-    return _handler is not None
-
-
-def run() -> bool:
-    """Carry it out. ``False`` when there is nobody to — a tab launched on its own."""
-    if _handler is None:
-        return False
-    _handler()
-    return True

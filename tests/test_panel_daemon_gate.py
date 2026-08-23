@@ -1,8 +1,13 @@
-r"""«Стоп всё» is two acts, and a dead daemon holds everything else (task #1393).
+r"""Switching a profile off is two acts, and nothing automatic runs after them (#1393).
 
-Two promises, and they are the same promise seen from both ends.
+Three promises now, and the first two are the same promise seen from both ends.
 
-**The press does exactly two things:** it closes the client and it stops this profile's
+**The switch is one box per profile** — «Профиль работает» (#1882,
+`tests/test_panel_power_switch.py`). What it does when it moves is what this file has
+always pinned; what it added is that a daemon started by HAND while the box is unticked
+opens nothing, because the gate is shut on the flag rather than on the port.
+
+**The flip does exactly two things:** it closes the client and it stops this profile's
 daemon. It used to switch off the schedule, every plugin tab's monitors, every child, the
 scenario in flight and the activity strip as well — five things to put back by hand
 afterwards — and then went on putting the client back within eight seconds, because the
@@ -53,6 +58,7 @@ from panel import timers as timersmod  # noqa: E402
 from panel import triggers as triggersmod  # noqa: E402
 from panel.runtime import gate as gatemod  # noqa: E402
 from panel.runtime import panic as panicmod  # noqa: E402
+from panel.runtime import power as powermod  # noqa: E402
 
 BASE = "collect_base_resources"
 RESTART = "restart_game"
@@ -111,7 +117,7 @@ class _RT:
         self.health = _Light(daemon)
         self.said: list = []
         self.played: list = []
-        self.panic = panicmod.Panic()
+        self.power = powermod.Power()
         self.gate = gatemod.DaemonGate(self)
 
     def say(self, tag: str, key: str, **fmt) -> None:
@@ -156,10 +162,10 @@ def _cfg(**seconds) -> dict:
     return cfg
 
 
-# --- «Стоп всё» is two acts -------------------------------------------------
+# --- switching a profile off is two acts ------------------------------------
 
-def test_stop_all_closes_the_client_and_stops_the_daemon_and_does_nothing_else():
-    """The whole press, in two lines — and the four things it must NOT touch.
+def test_switching_off_closes_the_client_and_stops_the_daemon_and_does_nothing_else():
+    """The whole flip, in two lines — and the four things it must NOT touch.
 
     The old one stopped the schedule, every tab, every child and the run in flight. Each
     of those was a switch somebody then had to find again, and none of them stopped the
@@ -171,11 +177,11 @@ def test_stop_all_closes_the_client_and_stops_the_daemon_and_does_nothing_else()
     for forbidden in ("schedule", "children", "interrupts", "activity", "tabs"):
         setattr(rt, forbidden, _Tripwire(forbidden))
 
-    panicmod.stop(rt)
+    assert powermod.set_on(rt, False) is True
 
     assert rt.played == ["quit_game"], rt.played
     assert rt.game.stopped == 1, "the daemon was not stopped"
-    assert rt.panic.stopped, "the mark was not set"
+    assert rt.power.off, "the switch was not written"
     # …and the gate was told, or the schedule would spend up to a poll's period acting
     # on a reading taken while the daemon was still there — and an errand that believes
     # that calls `ensure()`, which starts the daemon the press has just stopped.
@@ -191,7 +197,7 @@ def test_the_daemon_still_goes_when_the_client_will_not_close():
     """
     rt = _RT()
     rt.play_async = lambda *a, **kw: False          # something more urgent holds it
-    panicmod.stop(rt)
+    panicmod.stop(rt)                               # the act itself, flag already written
     assert rt.game.stopped == 1, "the daemon survived a refused quit"
 
 
@@ -204,12 +210,12 @@ def test_switching_back_on_brings_the_daemon_back_and_starts_no_client():
     first.
     """
     rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
-    rt.panic.mark(time.time())
-    panicmod.resume(rt)
+    rt.power.set(False, time.time())
+    assert powermod.set_on(rt, True) is True
     _settle(lambda: rt.game.ensured == 1)
     assert rt.game.ensured == 1, "the daemon was not brought back"
     assert rt.played == [], f"a client was started as well: {rt.played}"
-    assert not rt.panic.stopped, "the mark stayed after the undo"
+    assert rt.power.on, "the switch stayed off"
 
 
 # --- nothing runs while the daemon is down ----------------------------------
@@ -338,6 +344,25 @@ def test_a_verdict_from_before_the_stop_is_not_evidence_about_after_it():
     assert rt.health.current.daemon == profile_health.DAEMON_LIVE
     rt.gate.changed()
     assert rt.gate.alive() is False, "the gate quoted a verdict from before the stop"
+
+
+def test_the_switch_shuts_the_gate_over_a_perfectly_live_daemon():
+    """«Выключен» is a person's decision; a warm port is only what a machine is doing.
+
+    Without this the «⭮» button — or any `ensure()` that slipped through — would put the
+    daemon back and open the gate under a profile somebody had deliberately switched off,
+    which is the eight-second undo of #1393 with a longer fuse (#1882).
+    """
+    rt = _RT()                                  # daemon warm, poll fresh
+    assert rt.gate.alive() is True
+    rt.power.set(False, time.time())
+    assert rt.gate.alive() is False, "a live daemon reopened a switched-off profile"
+    assert rt.gate.reason() == "timers.log.skip_off"
+    assert rt.said.count("gate.log.off") == 1, rt.said
+    assert "gate.log.held" not in rt.said, "it blamed the daemon for a person's choice"
+
+    rt.power.set(True, time.time())
+    assert rt.gate.alive() is True, "ticking it back on left the gate shut"
 
 
 def test_a_stale_daemon_is_not_an_alive_one():

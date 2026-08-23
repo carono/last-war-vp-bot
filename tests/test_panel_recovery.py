@@ -788,8 +788,9 @@ class _Press:
         self.starts = 0
         self._watchdog = watchdog
         self._rt = self
-        #: «Стоп всё». A stopped profile's daemon is down BECAUSE it was stopped.
-        self.panic = _Panic()
+        #: «Профиль работает». A switched-off profile's daemon is down BECAUSE it was
+        #: switched off (#1882) — that reading is not a fault to cure.
+        self.power = _Power()
 
     # -- the runtime half
     recovery = None                       # set per case, below
@@ -837,11 +838,12 @@ class _Press:
         raise AssertionError("replaced by the real Panel._act_on in _drive")
 
 
-class _Panic:
-    """`rt.panic`, reduced to the one thing `_recovery_check` asks it (#1393)."""
+class _Power:
+    """`rt.power`, reduced to the one thing `_recovery_check` asks it (#1393, #1882)."""
 
     def __init__(self, stopped: bool = False) -> None:
-        self.stopped = stopped
+        self.on = not stopped
+        self.off = bool(stopped)
 
 
 class _Found:
@@ -861,7 +863,7 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
 
     app = _Press(watchdog=watchdog, gate_open=gate_open)
     app.recovery = rec.Recovery()
-    app.panic = _Panic(stopped)
+    app.power = _Power(stopped)
     app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
     pm.game_link.idle_sec = lambda: idle   # nobody at the machine, deterministically
@@ -1202,7 +1204,7 @@ def test_the_start_is_ensure_and_the_two_daemon_cures_are_distinct_presses():
         "a daemon that is down must be started, not restarted"
     check = _shell_method("_recovery_check")
     assert "note_daemon_down(" in check, "the reading never reaches the decision"
-    assert "panic.stopped" in check, "«Стоп всё» would be undone within a poll (#1393)"
+    assert "power.on" in check, "a switched-off profile would be revived within a poll"
 
 
 def _cures(r, rounds, t0=1000.0):

@@ -21,7 +21,7 @@ from . import claims
 from . import game_process
 from .actions import ActionRunner, Outcome
 from .activity import Activity
-from .panic import Panic as PanicState
+from .power import Power
 from .recovery import Recovery as RecoveryState
 from .bus import EventBus
 from .children import ChildFactory
@@ -169,11 +169,12 @@ class PanelRuntime:
         self._relaunching = ""
         self._relaunch_at = 0.0
         self._relaunch_at_lock = threading.Lock()
-        # …and whether «Стоп всё» is holding this profile still, since when
-        # (panel/runtime/panic.py). Both front-ends put a MARK on it: the one
-        # line in the log that used to say it scrolls away, and a profile that
-        # is stopped looks exactly like one that is merely idle.
-        self.panic = PanicState()
+        # …and WHETHER THIS PROFILE WORKS AT ALL — the checkbox on «Главная»
+        # (panel/runtime/power.py, #1882). A setting rather than a mark in memory: a
+        # profile somebody switched off stays off across a restart of the panel, and
+        # both front-ends draw the same flag, since when. It reads this profile's own
+        # settings binder, so one account being off says nothing about the other.
+        self.power = Power(self.settings)
         # WHICH SCENARIOS ARE RUNNING RIGHT NOW, and the press that ends them
         # (panel/runtime/interrupt.py). Here rather than on the window because the runner
         # below has to fill it and both front-ends have to read it: the footer's

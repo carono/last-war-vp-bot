@@ -50,7 +50,7 @@ from panel.runtime import health as healthmod       # noqa: E402
 from panel.runtime import interrupt as interruptmod  # noqa: E402
 from panel.runtime import day_reset as dayresetmod  # noqa: E402
 from panel.runtime import panel_control as panelctl  # noqa: E402
-from panel.runtime import panic as panicmod  # noqa: E402
+from panel.runtime import power as powermod  # noqa: E402
 from panel.runtime import recovery as recoverymod  # noqa: E402
 from panel.runtime import web_control as webctl  # noqa: E402
 from panel.runtime.log import LogBus       # noqa: E402
@@ -199,9 +199,9 @@ class _Runtime:
         # client, no thread — so there is nothing to fake (#1282; the routes here have
         # errored on its absence since the read was added).
         self.recovery = recoverymod.Recovery()
-        # …and the same for «Включить обратно»: `/api/state` reads `panic.state(now)`
-        # and `/api/panel` gates the resume on `panic.stopped`.
-        self.panic = panicmod.Panic()
+        # …and the same for «Профиль работает» (#1882): `/api/state` reads
+        # `power.state(now)` and `/api/power` moves the very same flag.
+        self.power = powermod.Power()
         # …and the gate, for the same reason (#1393): `/api/state` sends the phone
         # whether anything may run at all, and the real object is pure state — it reads
         # the light above and this runtime's `game.up()`, and probes nothing until asked.

@@ -93,10 +93,12 @@ class DaemonGate:
 
         What a skip line puts inside its sentence (`panel/timers.py::note_skip`).
         """
-        return None if self.alive() else "timers.log.skip_daemon"
+        if self.alive():
+            return None
+        return "timers.log.skip_off" if self._switched_off() else "timers.log.skip_daemon"
 
     def _read(self) -> bool:
-        """The reading itself: the status poll's verdict when it is fresh, else the port.
+        """The reading itself: the switch first, then the poll's verdict, then the port.
 
         Deliberately the poll's THREE-state verdict and not a bare `up()`: a daemon that
         answers its port while holding a client that has gone lands nothing in the game
@@ -105,6 +107,13 @@ class DaemonGate:
         business to fix — the recovery restarts a stale daemon and is deliberately NOT
         gated on this, or a stale daemon would hold the gate that holds its own cure.
         """
+        # THE SWITCH BEFORE ANYTHING ELSE (#1882). «Профиль работает» is what a person
+        # decided; a daemon answering its port is only what a machine is doing. Asked
+        # here rather than beside each caller so that a daemon somebody starts by hand
+        # while the switch is off — the «⭮» button, a stray `ensure()` — opens nothing:
+        # the gate is shut on the flag, not on the port.
+        if self._switched_off():
+            return False
         health = getattr(self.rt, "health", None)
         read_at = float(getattr(health, "read_at", 0.0) or 0.0) if health is not None else 0.0
         # STRICTLY newer than the change, because the wall clock is not fine-grained:
@@ -119,6 +128,16 @@ class DaemonGate:
         try:
             return bool(self.rt.game.up())
         except Exception:                     # noqa: BLE001 — a reading, never the panel
+            return False
+
+    def _switched_off(self) -> bool:
+        """Is this profile's own switch off? A runtime built without one is never off."""
+        power = getattr(self.rt, "power", None)
+        if power is None:
+            return False
+        try:
+            return bool(power.off)
+        except Exception:                     # noqa: BLE001 — a reading, never the gate
             return False
 
     def changed(self) -> None:
@@ -157,7 +176,11 @@ class DaemonGate:
             if not first:                     # an ordinary start-up is not news
                 self._say("gate.log.free")
             return
-        self._say("gate.log.held")
+        # TWO WAYS TO ARRIVE HERE, and they are not the same sentence: somebody switched
+        # this profile off, or its daemon went away on its own. A person reading «демон
+        # не работает» after ticking a box would go looking for a fault that is not
+        # there (#1882).
+        self._say("gate.log.off" if self._switched_off() else "gate.log.held")
 
     def _say(self, key: str) -> None:
         try:

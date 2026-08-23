@@ -106,7 +106,7 @@ from .runtime import hotkeys
 from .runtime import health as healthmod
 from .runtime import interrupt as interruptmod
 from .runtime import panel_control as panelctl
-from .runtime import panic as panicmod
+from .runtime import power as powermod
 from .runtime import rally_wire as rallywire
 from .runtime import settings_dialog as settingsdlg
 from .runtime import web_control as webctl
@@ -487,7 +487,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the two strips
         "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_daemon_busy",
         "_recovery_var",
-        "_panic_var", "_panic_lbl", "_resume_btn",
+        "_power_var", "_power_lbl",
         "_daemon_var", "_daemon_lbl",
         # the account summary
         "_dash_values", "_dash_stop", "_dash_err", "_dash_view",
@@ -636,10 +636,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # anywhere else, so a panel could be put back but never put down except by
         # somebody standing at the machine (#1702).
         panelctl.set_handler(self._quit_now, panelctl.QUIT)
-        # …and the same for «Включить обратно»: only the shell knows which profiles
-        # are open and which tabs each has, so it says how, and the phone only asks
-        # whether anybody can (panel/runtime/panic.py).
-        panicmod.set_handler(self._resume)
+        # «Стоп всё» / «Включить обратно» register nothing here any more (#1882): the
+        # pair became ONE checkbox per profile, and its state is a setting the phone
+        # writes through the same door the window does (panel/runtime/power.py).
         # THE REMOTE CONTROL COMES UP WITH THE WINDOW, because what it is FOR is being
         # reachable: one that only started once somebody had opened its dialog would be
         # a remote control for a person standing at the machine. It is the WINDOW's — one
@@ -2840,23 +2839,23 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._tr(ttk.Button(top, width=3, command=self._restart_daemon),
                  "daemon.restart").pack(side="left", padx=(2, 0))
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
-        # One control that stops everything: monitors, watchers, the sweep, a running
-        # scenario and the schedule. It used to be five clicks across three tabs,
-        # which is exactly the wrong shape for the moment you actually need it.
-        self._tr(ttk.Button(top, command=self._panic),
-                 "panic.stop_all").pack(side="right", padx=(0, 6))
-        # …and the half that was missing (#1262): the same place, the other direction.
-        # «Стоп всё» left a state nobody could see and nothing could undo but hand, from
-        # one log line that scrolls away — which is how a stopped panel sat in front of
-        # somebody for seven hours with a dead client behind it.
-        self._resume_btn = self._tr(ttk.Button(top, command=self._resume),
-                                    "panic.resume")
-        self._resume_btn.pack(side="right", padx=(0, 6))
-        # A MARK, not a log line: it stays until the profile is running again.
-        self._panic_var = tk.StringVar(value="")
-        self._panic_lbl = ttk.Label(top, textvariable=self._panic_var,
+        # ONE SWITCH FOR THE WHOLE PROFILE (#1882). It was a pair of buttons — «Стоп
+        # всё» and «Включить обратно» — and a state that lived in memory: a panel
+        # restarted five minutes after the press came up starting the daemon and putting
+        # the client back, with nothing anywhere saying somebody had stopped this
+        # account on purpose. A checkbox cannot do that: it is this profile's own
+        # setting (`panel/runtime/power.py`), so it is exactly as it was left.
+        #
+        # Unticking it closes the client and stops the daemon HERE AND NOW, and the gate
+        # holds every timer, trigger, watchdog and recovery for as long as it is off.
+        self._tr(ttk.Checkbutton(top, variable=self._opt_vars["profile_on"],
+                                 command=self._on_power_toggle),
+                 "power.on").pack(side="right", padx=(0, 6))
+        # A MARK, not a log line: it stays until the profile is switched back on.
+        self._power_var = tk.StringVar(value="")
+        self._power_lbl = ttk.Label(top, textvariable=self._power_var,
                                     foreground="#c33", font=ui_font(weight="bold"))
-        self._panic_lbl.pack(side="right", padx=(0, 6))
+        self._power_lbl.pack(side="right", padx=(0, 6))
         # …AND WHY NOTHING IS HAPPENING, which is a different sentence (#1393). The mark
         # above says somebody pressed a button; this one says the state that button — or
         # a daemon that died on its own — has left the profile in: no timer, no trigger,
@@ -3407,21 +3406,30 @@ class Panel(runtime.SessionScoped, tk.Tk):
     # a Text this file no longer owns.
 
     # -- daemon lifecycle ---------------------------------------------------
-    def _startup(self) -> None:
-        self._boot_at("splash.monitors", 0.68)
-        # A tab that declares itself EAGER is loaded here rather than on first show:
-        # the rally monitor is a capture whose whole point is being up before the rally
-        # goes out, and nobody has opened a tab yet. Idempotent, so the first show
-        # calling it again costs nothing.
-        #
-        # ON THE TK THREAD, and each one guarded. `ensure_loaded` reads the tab's own
-        # widgets (the rally monitor asks its own checkbox whether it is switched on),
-        # and this runs on the boot thread — while the main thread is pumping `update()`
-        # in `_await_boot` with gaps between the pumps. A Tk read landing in one of
-        # those gaps raises «main thread is not in main loop»: a race that was always
-        # here (thirty-six of them in one profile's debug log) and that TWO boot threads
-        # made reliable. It cost the whole rest of this method — the schedule included,
-        # so the panel came up with no timers running at all and said nothing.
+    def _load_eager_tabs(self) -> None:
+        """Start what an EAGER tab starts — at the boot, and when the switch comes back on.
+
+        A tab that declares itself EAGER is loaded here rather than on first show: the
+        rally monitor is a capture whose whole point is being up before the rally goes
+        out, and nobody has opened a tab yet. Idempotent, so a second call costs nothing.
+
+        NOT WHILE THE PROFILE IS SWITCHED OFF (#1882). «Выключен» means nothing of this
+        account is running, and a capture child spawned at the boot is something running
+        — the gate cannot hold it, because a child that listens presses nothing to be
+        held at. So the boot skips them and `_on_power_toggle` calls this when the box is
+        ticked again, which is the same idempotent load a first show would have done.
+
+        ON THE TK THREAD, and each one guarded. `ensure_loaded` reads the tab's own
+        widgets (the rally monitor asks its own checkbox whether it is switched on), and
+        the boot runs on a thread of its own — while the main thread is pumping
+        `update()` in `_await_boot` with gaps between the pumps. A Tk read landing in one
+        of those gaps raises «main thread is not in main loop»: a race that was always
+        here (thirty-six of them in one profile's debug log) and that TWO boot threads
+        made reliable. It cost the whole rest of the boot — the schedule included, so the
+        panel came up with no timers running at all and said nothing.
+        """
+        if self._rt.power.off:
+            return
         for tab in getattr(self, "_plugin_tabs", {}).values():
             if not tab.EAGER:
                 continue
@@ -3432,6 +3440,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._on_tk(lambda t=tab: (self._rt.tabs.realize(t), t.ensure_loaded()))
             except Exception:            # noqa: BLE001 — one tab, not the whole boot
                 self._dbg.error("eager load of %r failed", tab.ID, exc_info=True)
+
+    def _startup(self) -> None:
+        self._boot_at("splash.monitors", 0.68)
+        # The EAGER tabs' own monitors — and nothing at all when this profile is
+        # switched off (see :meth:`_load_eager_tabs`).
+        self._load_eager_tabs()
         # The schedule runs whenever the panel is open: the thread is started
         # unconditionally and a tick with every row unticked costs one dict
         # comparison, which keeps switching a timer on a matter of the checkbox
@@ -3439,7 +3453,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._boot_at("splash.schedule", 0.82)
         self._schedule.start()
         self._boot_at("splash.daemon", 0.90)
-        self._ensure_daemon()
+        # …UNLESS THIS PROFILE IS SWITCHED OFF (#1882). The boot is the one place that
+        # starts a daemon without asking the gate — the gate is shut precisely because
+        # there is no daemon yet — so it is the one place that has to ask the switch
+        # instead. Without this an account somebody stopped came back up on the next
+        # restart of the panel, which is what made the old in-memory mark useless.
+        if self._rt.power.on:
+            self._ensure_daemon()
+        else:
+            self._say("panel", "power.log.boot_off")
         # The server used to be read here to fill the «Сервер» box of the jump block.
         # That block is gone (#1183) and `_jump` reads the current server for itself,
         # so the boot no longer spends a game round trip on it.
@@ -3695,7 +3717,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
                 self._recovery_check(found, kicked, stale, warm, session),
-                self._paint_panic(),
+                self._paint_power(),
                 self._paint_gate(),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
@@ -3806,7 +3828,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # simply not a fault and no run of them accumulates (#1393). The client is
         # deliberately not asked about — see `Recovery.note_daemon_down`.
         self._act_on(self._rt.recovery.note_daemon_down(
-            not warm and not self._rt.panic.stopped, now))
+            not warm and self._rt.power.on, now))
         # «Is somebody at the machine» — the gate that stops this closing a window
         # a person is playing in, which it did once (#1259).
         self._act_on(self._rt.recovery.note(found.link, now,
@@ -4526,52 +4548,33 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._dbg.error("relaunch failed: %s", exc)
             print(f"relaunch failed: {exc}", file=sys.stderr)
 
-    # -- one control that stops everything ----------------------------------
-    def _panic(self) -> None:
-        """«Стоп всё» — close the client, stop the daemon. Two acts, and no others.
+    # -- one switch for the whole profile ------------------------------------
+    def _on_power_toggle(self) -> None:
+        """«Профиль работает» moved — carry it out for THIS profile (#1882).
 
-        It used to stop the schedule, every plugin tab's monitors, every child, the
-        scenario in flight and the activity strip as well — and then went on putting the
-        client back, because the watchdog and the recovery had never heard of it. Five
-        things switched off, each to be put back by hand, and the one thing that mattered
-        not stopped at all (#1393).
+        THIS profile and no other, which is the one way it differs from the button it
+        replaced: «Стоп всё» stopped every open account at once because it was the
+        emergency press, and a switch is not one — it says whether this account is
+        working, and an account is exactly the thing a profile is
+        (`CLAUDE.md`, «A profile is a whole panel of its own»).
 
-        What ends the rest is a consequence rather than a press: with this profile's
-        daemon down there is nothing for a timer, a trigger, the watchdog or the recovery
-        to press THROUGH, and `panel/runtime/gate.py` turns that into «and so they do not
-        try» — no scenario, no read, no relaunch, no retry, and no line every few seconds
-        saying that none of it worked.
-
-        EVERY open profile, not the one being looked at. It is the emergency button: the
-        moment you want it is the moment you do not want to find out that the other
-        account carried on pressing.
+        The checkbox has already written itself: it is bound to the profile's own knob
+        and the auto-save persists it, so what is left is the two acts the flip causes
+        — close the client and stop the daemon, or bring the daemon back — and those
+        live in the runtime, because the phone flips the same switch and a shell that
+        spelled them out for itself is how the two front-ends come to mean different
+        things by one box.
         """
-        self._workspace.each(self._panic_session)
-
-    def _panic_session(self, session) -> None:
-        with self._on(session):
-            # The acts themselves live in the runtime, not here: the phone presses the
-            # same two (panel/runtime/panic.py), and a shell that spelled them out for
-            # itself is how the two front-ends end up stopping different amounts.
-            panicmod.stop(self._rt)
-            self._paint_panic()
-
-    def _resume(self) -> None:
-        """«Включить обратно» — bring each profile's daemon back, and let it go on.
-
-        Every open profile, like its opposite: the emergency button stops them all, so
-        the one that brings them back has to reach all of them or half the machine stays
-        held with nothing on screen to say which half.
-        """
-        self._workspace.each(self._resume_session)
-
-    def _resume_session(self, session) -> None:
-        with self._on(session):
-            # Nothing to put back: the stop switched nobody's boxes off, so a watcher the
-            # person had left off stays off and one they had left on comes back with the
-            # daemon. The gate opens by itself the moment it is up.
-            panicmod.resume(self._rt)
-            self._paint_panic()
+        want = bool(self._opt_bool("profile_on"))
+        # `set_on` writes the flag itself for the front-end that has no widget; here the
+        # widget IS the write, so it only has to agree — and then it acts.
+        powermod.set_on(self._rt, want)
+        if want:
+            # What the boot would have started for this profile and did not, or what a
+            # switch-off never stopped: an EAGER tab's own monitor. Idempotent.
+            self._load_eager_tabs()
+        self._paint_power()
+        self._paint_gate()
 
     def _paint_gate(self) -> None:
         """Say on screen that nothing may run, and for how long (#1393).
@@ -4581,18 +4584,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         freezes the window, and this one runs on every poll and after every press.
         """
         st = self._rt.gate.state()
-        self._gate_var.set(self._t("gate.held", mins=st["for_sec"] // 60)
-                           if st["held"] else "")
+        # NOT WHILE THE SWITCH IS OFF: the mark above already says that in the words
+        # somebody chose, and «демон остановлен» underneath it reads as a second,
+        # unrelated fault (#1882).
+        held = st["held"] and self._rt.power.on
+        self._gate_var.set(self._t("gate.held", mins=st["for_sec"] // 60) if held else "")
 
-    def _paint_panic(self) -> None:
-        """The mark, and the button that only exists while there is something to undo."""
-        st = self._rt.panic.state(time.time())
-        if st["stopped"]:
-            self._panic_var.set(self._t("panic.mark", mins=st["for_sec"] // 60))
-            self._resume_btn.pack(side="right", padx=(0, 6))
-        else:
-            self._panic_var.set("")
-            self._resume_btn.pack_forget()
+    def _paint_power(self) -> None:
+        """The mark beside the switch: this profile is off, and for how long (#1882)."""
+        st = self._rt.power.state(time.time())
+        self._power_var.set("" if st["on"]
+                            else self._t("power.mark", mins=st["off_for_sec"] // 60))
 
     # -- one way to run a child ---------------------------------------------
     # -- the secret-task capture went with its tab (panel/tabs/secret_tasks/) -

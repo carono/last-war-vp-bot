@@ -262,7 +262,8 @@ children, re-read files), `on_language_change` (only for what `tr` cannot re-ren
 unsubscribes).
 
 `panic` / `resume` are still on the base class **and nothing calls them** (#1393).
-«Стоп всё» is two acts now — close the client, stop this profile's daemon — and
+Switching a profile off — the «Профиль работает» box on «Главная» (#1882,
+`panel/runtime/power.py`) — is two acts: close the client, stop this profile's daemon; and
 everything else holds still as a consequence: with no daemon there is nothing for a
 timer, a trigger, the watchdog or the recovery to press through, and
 `panel/runtime/gate.py` turns that fact into «and so they do not try». The pair is kept

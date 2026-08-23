@@ -200,24 +200,27 @@ function paintState(state) {
     recEl.textContent = '';
   }
   paintGameControls(state.game.controls || []);
-  /* «Стоп всё» and its undo. The mark is the point: the log line that used to be the
-   * only trace of a stopped profile scrolls away, and seven hours once went past it
-   * with a dead client behind (panel/runtime/panic.py). The button appears only while
-   * there is something to undo — pressing it into a running profile would put back
-   * switches somebody has since turned off by hand. */
-  const pan = state.panic || {};
-  $('panic-mark').textContent = pan.stopped
-    ? T('panic.mark', { mins: Math.floor((pan.for_sec || 0) / 60) }) : '';
-  $('panic-mark').className = 'small' + (pan.stopped ? ' bad' : '');
-  paintPanicControls(pan);
+  /* «Профиль работает» — the one switch this account has, the same box the window
+   * draws and out of the same setting (#1882, panel/runtime/power.py). The mark is the
+   * point: the log line that used to be the only trace of a stopped profile scrolls
+   * away, and seven hours once went past it with a dead client behind. */
+  const pow = state.power || {};
+  const powerOn = pow.on !== false;
+  $('power-mark').textContent = powerOn
+    ? '' : T('power.mark', { mins: Math.floor((pow.off_for_sec || 0) / 60) });
+  $('power-mark').className = 'small' + (powerOn ? '' : ' bad');
+  paintPowerSwitch(powerOn);
   /* …and the state that press leaves behind, which a daemon dying on its own leaves too
    * (#1393): nothing automatic runs while this profile's daemon is down, and a phone
    * showing an idle-looking account with no explanation is the same silence the mark
    * above exists to break. */
   const gate = state.gate || {};
-  $('gate-mark').textContent = gate.held
+  /* NOT WHILE THE SWITCH IS OFF: the mark above already says that in the words somebody
+   * chose, and «демон остановлен» under it reads as a second, unrelated fault. */
+  const gateHeld = gate.held && powerOn;
+  $('gate-mark').textContent = gateHeld
     ? T('gate.held', { mins: Math.floor((gate.for_sec || 0) / 60) }) : '';
-  $('gate-mark').className = 'small' + (gate.held ? ' bad' : '');
+  $('gate-mark').className = 'small' + (gateHeld ? ' bad' : '');
 
   /* THREE STATES, the same three the window's indicator draws (#1286). A daemon holding
    * a client that has gone still answers its port, so «работает» was what the phone said
@@ -1061,19 +1064,30 @@ async function pressInterrupt() {
   tick();
 }
 
-/* «Включить обратно», the phone's half. One button, and only while it means something:
- * the window has the same pair in the same place (panel/__main__.py), out of the same
- * state, so neither front-end can come to mean something of its own by it. */
-function paintPanicControls(pan) {
-  const box = $('panic-controls');
+/* «Профиль работает», the phone's half — a box and not a button, exactly as in the
+ * window (panel/__main__.py), out of the same setting, so neither front-end can come to
+ * mean something of its own by it. Unticking it closes the client and stops the daemon
+ * there and then; ticking it brings the daemon back and lets the profile go on. */
+function paintPowerSwitch(on) {
+  const box = $('power-controls');
   box.innerHTML = '';
-  if (!pan.stopped || !pan.can_resume) return;
-  const btn = document.createElement('button');
-  btn.textContent = T('panic.resume');
-  btn.onclick = async () => {
-    btn.disabled = true;
-    try { await post('/api/panic', {}); } finally { btn.disabled = false; }
+  /* THE WHOLE ROW IS THE TARGET, like every other switch on this page: a <label>
+   * wrapping both means the words toggle the profile as surely as the 26 px of
+   * fingernail beside them do. */
+  const label = document.createElement('label');
+  label.className = 'row switch-row';
+  const text = document.createElement('span');
+  text.className = 'title';
+  text.textContent = T('power.on');
+  const chk = document.createElement('input');
+  chk.type = 'checkbox';
+  chk.checked = !!on;
+  chk.addEventListener('change', async () => {
+    const want = chk.checked;
+    chk.disabled = true;
+    try { await post('/api/power', { on: want }); } finally { chk.disabled = false; }
     tick();
-  };
-  box.appendChild(btn);
+  });
+  label.append(text, chk);
+  box.appendChild(label);
 }

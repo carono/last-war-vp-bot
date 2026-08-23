@@ -53,13 +53,16 @@
         <div class="row"><span data-i18n="web.ui.game"></span><b id="game-dot" class="pill"></b></div>
         <p id="game-text" class="muted small"></p>
         <p id="game-recovery" class="muted small"></p>
-        <p id="panic-mark" class="small"></p>
+        <p id="power-mark" class="small"></p>
         <!-- WHY NOTHING IS HAPPENING — a different sentence from the mark above it
              (#1393). That one says somebody pressed «Стоп всё»; this one says the state
              it left: this profile's daemon is down, so no timer, no trigger and no
              watchdog will try anything until it is back. -->
         <p id="gate-mark" class="small"></p>
-        <div id="panic-controls" class="controls"></div>
+        <!-- «Профиль работает»: one box for the whole account, the same one the
+             window draws (#1882). Off means off — the client is closed, the daemon
+             stopped, and nothing automatic runs until it is ticked again. -->
+        <div id="power-controls" class="controls"></div>
         <!-- Start it, close it, put it back. The three the window has, drawn from
              /api/state so the phone never decides for itself which of them applies. -->
         <div id="game-controls" class="controls"></div>

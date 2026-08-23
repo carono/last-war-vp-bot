@@ -54,7 +54,7 @@ from ..runtime import daemon as daemonmod
 from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
 from ..runtime import interrupt as interruptmod
-from ..runtime import panic as panicmod
+from ..runtime import power as powermod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
 
@@ -383,13 +383,13 @@ class WebApi:
             # the packaged number where there is no git to ask.
             "panel": {"version": updates.version_text(),
                       "controls": panel_control.state()},
-            # «Стоп всё» and its undo. A MARK rather than a log line, because the
-            # line scrolls away and a stopped profile looks exactly like an idle
-            # one — which is how seven hours went past with a dead client behind
-            # it (panel/runtime/panic.py). The button is offered only while there
-            # is something to undo, and only where somebody can carry it out.
-            "panic": {**rt.panic.state(time.time()),
-                      "can_resume": panicmod.available()},
+            # «ПРОФИЛЬ РАБОТАЕТ» — the one switch this account has, drawn on the phone
+            # exactly as in the window and writable from either (#1882,
+            # panel/runtime/power.py). A MARK rather than a log line, because the line
+            # scrolls away and a stopped profile looks exactly like an idle one — which
+            # is how seven hours once went past with a dead client behind it. `on` is the
+            # box; `off_for_sec` is what makes it uncomfortable enough to act on.
+            "power": rt.power.state(time.time()),
             # …AND WHETHER ANYTHING MAY RUN AT ALL (#1393). The press above is one way to
             # arrive here and a daemon dying on its own is the other, so this is drawn
             # from its own object rather than from the mark: a profile whose daemon has
@@ -1044,20 +1044,23 @@ class WebApi:
             return {"ok": True}
         return result
 
-    def resume(self, profile: str | None = None) -> dict:
-        """«Включить обратно» from the phone — the shell's own press, asked for politely.
+    def power(self, on: bool, profile: str | None = None) -> dict:
+        """«Профиль работает» from the phone — the same switch the window's box is (#1882).
 
-        The same vocabulary the client's lifecycle presses answer in: `ok` it was done,
-        `unavailable` there is nothing to undo or nobody here to undo it. The phone must
-        not be able to press it into a profile that is already running — that would put
-        back switches somebody has since turned off by hand.
+        Handed to the Tk thread because the switch IS a widget: a profile that is open in
+        the window has its knob in front of the file, so a write that only touched the
+        file would be undone by the next save (`panel/runtime/settings.py`). With no
+        window — a tab launched on its own — `_on_tk` runs it here and the file is the
+        switch.
+
+        The vocabulary the front-ends share: `ok` it moved, `unchanged` it was already
+        where the press asked for. Never «unavailable»: unlike the button it replaced,
+        this one applies whichever way the profile currently is.
         """
         rt = self._runtime(profile)
-        if not rt.panic.stopped or not panicmod.available():
-            return {"error": "unavailable"}
         box: dict = {}
-        self._on_tk(rt, lambda: box.__setitem__("ok", panicmod.run()))
-        return {"ok": bool(box.get("ok"))}
+        self._on_tk(rt, lambda: box.__setitem__("moved", powermod.set_on(rt, bool(on))))
+        return {"ok": True, "on": bool(on), "unchanged": not box.get("moved")}
 
     # -- ending what is playing ----------------------------------------------
     def interrupt(self, profile: str | None = None) -> dict:
@@ -1136,8 +1139,8 @@ class WebApi:
                 return _answer(self.game(str(body.get("action") or ""), who))
             if path == "/api/panel":
                 return _answer(self.panel(str(body.get("action") or ""), who))
-            if path == "/api/panic":
-                return _answer(self.resume(who))
+            if path == "/api/power":
+                return _answer(self.power(bool(body.get("on")), who))
             if path == "/api/interrupt":
                 return _answer(self.interrupt(who))
             if path == "/api/screen/press":
