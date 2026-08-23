@@ -244,6 +244,20 @@ class Timer:
     # 2026-08-07. It is NOT for a long errand — a `restart_game` marked this way would
     # hold the client for five minutes with nothing able to make it park.
     immediate: bool = False
+    # WHICH WEEKDAYS THE ERRAND BELONGS TO — 1 = Monday … 7 = Sunday, empty for «any».
+    #
+    # A period cannot say «по воскресеньям». «Every seven days from the last run» drifts
+    # by however long the run took and by however long the panel was shut, and it only
+    # has to drift once to land on a Monday and stay there for good — which is the whole
+    # of what a weekly event is not. So a row that names its days is not scheduled off
+    # its period at all: it is due at the START of a matching GAME day it has not yet
+    # run in, and at nothing else (:func:`next_weekly`).
+    #
+    # THE WEEKDAY IS THE GAME'S. The warzone's day turns at its own 00:00 — measured at
+    # 02:00 UTC — so for two hours out of every twenty-four this machine already calls it
+    # Monday while the game is still handing out Sunday's event. The boundary comes from
+    # the profile's own `DayReset`, exactly as a daily errand's does.
+    weekdays: tuple[int, ...] = ()
     args: dict = field(default_factory=dict)
     title: str | None = None        # row label straight from the config
     label_key: str | None = None    # …or a locale key, for the built-in entries
@@ -260,6 +274,8 @@ class Timer:
         }
         if self.immediate:
             out["immediate"] = True
+        if self.weekdays:
+            out["weekdays"] = list(self.weekdays)
         if self.args:
             out["args"] = dict(self.args)
         if self.title:
@@ -535,6 +551,31 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         enabled=False,
         label_key="timers.item.upgrade_decorations",
     ),
+    Timer(
+        name="play_frontline_breakthrough",
+        scenario=("play_frontline_breakthrough",),
+        # SUNDAY, and named as a weekday rather than as a period (`Timer.weekdays`).
+        # «Прорыв обороны» runs for one game day a week; an errand told to repeat every
+        # seven days would drift off that day by however long each run took and by
+        # however long the panel was shut, and once it had drifted past a boundary it
+        # would spend the rest of its life firing on a Monday, when there is no event.
+        weekdays=(7,),
+        # The period is what the row falls back to if its days are ever cleared, and it
+        # is never consulted while they are set.
+        interval_sec=7 * DAY_SEC,
+        # An hour. A run FAILS when the client is not answering or the event is not open
+        # for this account yet — both of which mend themselves during the day — so a
+        # Sunday that starts with a dead client is retried through the day rather than
+        # written off, and at most twenty-four times rather than every twenty seconds.
+        retry_sec=3600,
+        enabled=False,
+        # THREE GAMES, and the score is not the point: what the day owes is the event's
+        # own «сыграй N раз», and each stage cleared also converts the soldiers left
+        # into real units. The recipe plays whatever stage the client offers next, so
+        # three rounds is three games whether they are won or lost.
+        args={"rounds": 3},
+        label_key="timers.item.play_frontline_breakthrough",
+    ),
 )
 
 
@@ -636,6 +677,86 @@ def next_after(last: float, period_sec: int, day=None) -> float:
     return first + (period // DAY_SEC - 1) * DAY_SEC
 
 
+def _as_weekdays(raw, fallback=()) -> tuple:
+    """Coerce a ``weekdays`` field into a sorted tuple of 1…7. Junk falls back.
+
+    Accepts what a file, a dialog and a JSON body each naturally hold: a list of
+    numbers, a single number, or the text a person types into a field —
+    ``"7"``, ``"1,3"``, ``"1 3 5"``. An empty value is «any day», which is what
+    every errand that is not weekly answers.
+    """
+    if raw is None:
+        return tuple(fallback)
+    if isinstance(raw, str):
+        parts = [p for p in raw.replace(",", " ").split() if p]
+    elif isinstance(raw, (list, tuple, set)):
+        parts = list(raw)
+    else:
+        parts = [raw]
+    days = set()
+    for part in parts:
+        try:
+            day = int(float(str(part).strip()))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= day <= 7:
+            days.add(day)
+    return tuple(sorted(days))
+
+
+def _weekday_of(day, when: float) -> int:
+    """Which weekday the GAME is on at ``when`` — 1 = Monday … 7 = Sunday.
+
+    ``day`` is the profile's :class:`panel.runtime.day_reset.DayReset`. A test — or a
+    scheduler built without a runtime — has none, and then the machine's own UTC day is
+    the honest fallback: it is wrong by at most the boundary's phase, where refusing to
+    answer would stop the errand firing at all.
+    """
+    if day is not None:
+        try:
+            return int(day.weekday(when))
+        except Exception:                    # noqa: BLE001 — never the schedule
+            pass
+    return time.gmtime(when).tm_wday + 1
+
+
+def _day_start(day, when: float) -> float:
+    """When the GAME day containing ``when`` began, in local seconds."""
+    if day is not None:
+        try:
+            return float(day.day_start_epoch(when))
+        except Exception:                    # noqa: BLE001
+            pass
+    return when - (when % DAY_SEC)
+
+
+def next_weekly(last: float, weekdays, day, now: float) -> float:
+    """When a weekday-bound errand is due, in local ``time.time()`` seconds.
+
+    The rule is one sentence: **the errand is due at the start of a matching GAME day
+    it has not yet run in.** Nothing about the last run's clock time enters into it, so
+    a run that takes an hour, a panel shut for a fortnight and a client that was down
+    all morning all produce the same answer — today, if today is one of its days and it
+    has not run since the day began; otherwise the start of the next matching day.
+
+    A day-start in the PAST is how «due now» is said, exactly as :func:`next_after` says
+    it, and it is due once: the record written by the run moves ``last`` past the day's
+    start and the next answer is next week's. Three missed Sundays cost one run.
+    """
+    weekdays = tuple(weekdays)
+    if not weekdays:
+        return now
+    start = _day_start(day, now)
+    if _weekday_of(day, now) in weekdays and float(last) < start:
+        return start
+    step = start
+    for _ in range(7):
+        step += DAY_SEC
+        if _weekday_of(day, step) in weekdays:
+            return step
+    return start + 7 * DAY_SEC
+
+
 def _as_interval(raw, fallback: int) -> int:
     try:
         value = int(float(str(raw).strip()))
@@ -726,6 +847,7 @@ class Catalogue:
                 retry_sec=timer.retry_sec,
                 enabled=bool(item["enabled"]),
                 immediate=bool(item["immediate"]),
+                weekdays=tuple(timer.weekdays),
                 args=dict(timer.args), title=timer.title,
                 label_key=timer.label_key))
         return Catalogue(updated, self.path, self.errors)
@@ -805,6 +927,11 @@ class Catalogue:
                 # THE GAME NAMED THIS TURN (:data:`NEXT_RUN_VAR`), and it wins over the
                 # row's period — which is only ever a guess at the same question.
                 overdue = now - due_at
+            elif timer.weekdays:
+                # A NAMED WEEKDAY IS NOT A PERIOD (`Timer.weekdays`): the row is due at
+                # the start of a matching game day it has not run in, and never on any
+                # other day, whatever its period says.
+                overdue = now - next_weekly(last, timer.weekdays, day, now)
             else:
                 period = _as_interval(item.get("interval_sec"), timer.interval_sec)
                 overdue = now - next_after(last, period, day)
@@ -836,6 +963,12 @@ class Catalogue:
             # scheduler keeps it: a countdown to an hour from now over a free pull that
             # is four hours away is the display disagreeing with the schedule.
             return max(due_at, after_failure)
+        if timer.weekdays:
+            # Asked the same way the scheduler asks it, so the countdown a person reads
+            # is the moment the row will actually fire on — including «never ran», which
+            # for a weekly errand is «its next day», not «now».
+            return max(next_weekly(last, timer.weekdays, day, time.time()),
+                       after_failure)
         if not last:
             return max(0.0, after_failure)
         return max(next_after(last, _as_interval(item.get("interval_sec"),
@@ -935,6 +1068,8 @@ def parse_catalogue(data, path: str | None = None,
             enabled=bool(raw.get("enabled", base.enabled if base else False)),
             immediate=bool(raw.get("immediate",
                                    base.immediate if base else False)),
+            weekdays=_as_weekdays(raw.get("weekdays"),
+                                  base.weekdays if base else ()),
             args=dict(args) if isinstance(args, dict) else {},
             title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
             label_key=base.label_key if base else None,
@@ -1098,6 +1233,7 @@ def split_legacy_errands(catalogue: Catalogue, offered: Catalogue,
             out.append(Timer(
                 name=base.name, scenario=base.scenario,
                 interval_sec=base.interval_sec, retry_sec=base.retry_sec,
+                weekdays=tuple(base.weekdays),
                 # The one thing carried across the split: the operator's decision.
                 enabled=timer.enabled,
                 args=dict(base.args), title=base.title, label_key=base.label_key))

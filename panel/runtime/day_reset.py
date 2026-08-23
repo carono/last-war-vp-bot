@@ -141,6 +141,21 @@ class DayReset:
         now = time.time() if now_epoch_sec is None else float(now_epoch_sec)
         return game_day.seconds_to_reset(game_day.to_game_ms(now), self._boundary_ms)
 
+    def day_start_epoch(self, now_epoch_sec: "float | None" = None) -> float:
+        """When the GAME day that moment falls in began, in local seconds."""
+        now = time.time() if now_epoch_sec is None else float(now_epoch_sec)
+        return game_day.previous_reset_epoch(now, self._boundary_ms)
+
+    def weekday(self, now_epoch_sec: "float | None" = None) -> int:
+        """Which weekday the GAME is on — 1 = Monday … 7 = Sunday.
+
+        The game's, not the machine's: with the boundary at 02:00 UTC the two disagree
+        for two hours out of every twenty-four, and a weekly errand asked on the wrong
+        side of that either runs a day early or sits out its day entirely.
+        """
+        now = time.time() if now_epoch_sec is None else float(now_epoch_sec)
+        return game_day.weekday_epoch(now, self._boundary_ms)
+
     def day_key(self, now_epoch_sec: "float | None" = None) -> str:
         """The GAME day that moment falls in, ``YYYY-MM-DD`` — a key for a daily tally."""
         now = time.time() if now_epoch_sec is None else float(now_epoch_sec)

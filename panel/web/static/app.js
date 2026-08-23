@@ -464,6 +464,11 @@ function paintTimers(data) {
   }
 }
 
+function weekdayNames(days) {
+  const names = (T('timers.weekday.names') || '').split(',').map((w) => w.trim());
+  return days.map((d) => names[d - 1] || d).join(', ');
+}
+
 function timerItem(row, now) {
   const item = document.createElement('div');
   item.className = 'item';
@@ -510,7 +515,13 @@ function timerItem(row, now) {
 
   const detail = document.createElement('p');
   detail.className = 'muted small';
-  const bits = [T('web.ui.every', { span: span(row.interval_sec) })];
+  // A row that names its weekdays has no period: it fires at the start of a matching
+  // GAME day and at nothing else, so it says its days where the others say «каждые …».
+  // The same two locale keys the window's row uses — one list of short names, one
+  // phrase — because two front-ends naming the days differently is two truths.
+  const days = row.weekdays || [];
+  const bits = [days.length ? T('timers.on_days', { days: weekdayNames(days) })
+                            : T('web.ui.every', { span: span(row.interval_sec) })];
   if (row.enabled && row.next !== null && row.next !== undefined) {
     bits.push(T('web.ui.next', { when: when(row.next, now) }));
   }

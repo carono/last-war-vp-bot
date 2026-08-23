@@ -540,6 +540,12 @@ class WebApi:
                 # «сразу, без очереди» (#1288) — the phone draws and sets the same
                 # box the window's row has, because the two are one runtime.
                 "immediate": bool(item.get("immediate", timer.immediate)),
+                # WHICH WEEKDAYS the row runs on, 1 = Monday … 7 = Sunday, empty for an
+                # ordinary period. The window's row shows the days where a plain errand
+                # shows its period, so the phone does too — a card saying «каждые 7 дн»
+                # over an errand that only ever fires on a Sunday is the front-end
+                # telling the person something that is not true (CLAUDE.md).
+                "weekdays": list(timer.weekdays),
                 "steps": list(timer.scenario),
             })
         return {"timers": rows, "profile": self._name_of(rt),

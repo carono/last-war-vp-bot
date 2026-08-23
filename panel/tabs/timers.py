@@ -283,10 +283,19 @@ class TimersTab(PanelTab):
                      add="+")
             box.bind("<Double-Button-1>", lambda _e, n=timer.name: (
                 self._select_timer(n), self._timer_edit()), add="+")
-            numeric_spinbox(grid, from_=timersmod.MIN_INTERVAL_SEC,
-                        to=timersmod.MAX_INTERVAL_SEC, width=7,
-                        textvariable=seconds).grid(row=row, column=1, sticky="w",
-                                                   padx=(0, 10))
+            # A ROW THAT NAMES ITS WEEKDAYS HAS NO PERIOD to type: it fires at the start
+            # of a matching GAME day and at nothing else (`panel/timers.py::next_weekly`),
+            # so a spinbox here would be a control that changes nothing. The days stand
+            # in its place, and the editor is where they are changed.
+            if timer.weekdays:
+                ttk.Label(grid, foreground="#888",
+                          text=self._weekday_text(timer.weekdays)).grid(
+                    row=row, column=1, sticky="w", padx=(0, 10))
+            else:
+                numeric_spinbox(grid, from_=timersmod.MIN_INTERVAL_SEC,
+                            to=timersmod.MAX_INTERVAL_SEC, width=7,
+                            textvariable=seconds).grid(row=row, column=1, sticky="w",
+                                                       padx=(0, 10))
             ttk.Checkbutton(grid, variable=at_once).grid(row=row, column=2,
                                                         sticky="w", padx=(0, 10))
             outcome = ttk.Label(grid, foreground="#888", width=20)
@@ -479,6 +488,10 @@ class TimersTab(PanelTab):
             # back to the module default, so duplicating the half-hourly ministry
             # errand quietly handed the copy a five-minute retry it was never given.
             retry_sec=timer.retry_sec, immediate=timer.immediate,
+            # The days travel with the copy exactly as the period does: a duplicate of
+            # the Sunday errand that lost them would fire every seven days from whenever
+            # it was copied, which is the drift `weekdays` exists to stop.
+            weekdays=tuple(timer.weekdays),
             enabled=False,          # a copy starts off: two clocks on one errand is
                                     # rarely what a duplicate was for
             args=dict(timer.args),
@@ -507,7 +520,7 @@ class TimersTab(PanelTab):
 
     def _edited_timer(self, timer, *, name: str, title: str, interval: str,
                       retry: str, scenario: tuple, args: dict, enabled: bool,
-                      immediate: bool = False):
+                      immediate: bool = False, weekdays: str = ""):
         """The entry the editor's fields describe — every one of them, and no default.
 
         A method rather than four lines inside the dialog's ``save`` because this is
@@ -520,6 +533,7 @@ class TimersTab(PanelTab):
             interval_sec=timersmod._as_interval(interval, timer.interval_sec),
             retry_sec=timersmod._as_interval(retry, timer.retry_sec),
             enabled=enabled, immediate=immediate,
+            weekdays=timersmod._as_weekdays(weekdays),
             args=args, title=title.strip() or None,
             # The locale key belongs to the BUILT-IN entry of that name; a renamed
             # row is no longer that entry, and keeping it would show a translated
@@ -556,6 +570,10 @@ class TimersTab(PanelTab):
         # itself wants hours. The file has carried it per entry all along; without a
         # field here the editor wrote the default over whatever was typed in the JSON.
         retry_var = tk.StringVar(value=str(timer.retry_sec))
+        # WHICH WEEKDAYS the errand belongs to — 1 = Monday … 7 = Sunday, empty for
+        # «any day, on the period above». The game's weekday, not this machine's
+        # (`panel/timers.py::Timer.weekdays`).
+        days_var = tk.StringVar(value=", ".join(str(d) for d in timer.weekdays))
         args_var = tk.StringVar(value=json.dumps(timer.args, ensure_ascii=False)
                                 if timer.args else "")
         numeric = {"timers.editor.interval", "timers.editor.retry"}
@@ -564,6 +582,7 @@ class TimersTab(PanelTab):
                 ("timers.editor.title", title_var, 40),
                 ("timers.editor.interval", interval_var, 10),
                 ("timers.editor.retry", retry_var, 10),
+                ("timers.editor.weekdays", days_var, 10),
                 ("timers.editor.args", args_var, 40))):
             self.tr(ttk.Label(frm), key).grid(row=row, column=0, sticky="w",
                                                padx=(0, 8), pady=3)
@@ -572,16 +591,16 @@ class TimersTab(PanelTab):
             entry_cls(frm, textvariable=var, width=width).grid(row=row, column=1,
                                                                sticky="we", pady=3)
         self.tr(ttk.Label(frm, foreground="#888", wraplength=460, justify="left"),
-                 "timers.editor.steps_hint").grid(row=5, column=0, columnspan=2,
+                 "timers.editor.steps_hint").grid(row=6, column=0, columnspan=2,
                                                   sticky="w", pady=(8, 2))
         steps = ScrolledText(frm, height=8, width=56, wrap="none", font=("Consolas", 9))
-        steps.grid(row=6, column=0, columnspan=2, sticky="nsew")
+        steps.grid(row=7, column=0, columnspan=2, sticky="nsew")
         steps.insert("1.0", "\n".join(timer.scenario))
-        frm.rowconfigure(6, weight=1)
+        frm.rowconfigure(7, weight=1)
 
         # The picker: every blessed action script, appended as a step.
         pick = ttk.Frame(frm)
-        pick.grid(row=7, column=0, columnspan=2, sticky="we", pady=(6, 0))
+        pick.grid(row=8, column=0, columnspan=2, sticky="we", pady=(6, 0))
         self.tr(ttk.Label(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
         # …in the panel's language: a scenario's title line carries a translation per
         # language tag, and without saying which one we want every row here fell back to
@@ -604,7 +623,7 @@ class TimersTab(PanelTab):
                  "timers.editor.add_step").pack(side="left", padx=(4, 0))
 
         problem = ttk.Label(frm, foreground="#c33", wraplength=460, justify="left")
-        problem.grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        problem.grid(row=9, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         def save() -> None:
             name = name_var.get().strip()
@@ -645,7 +664,7 @@ class TimersTab(PanelTab):
             edited = self._edited_timer(
                 timer, name=name, title=title_var.get(), interval=interval_var.get(),
                 retry=retry_var.get(), scenario=scenario, args=args, enabled=enabled,
-                immediate=at_once)
+                immediate=at_once, weekdays=days_var.get())
             catalogue = self._timer_catalogue
             if not is_new and name != timer.name:
                 # A rename is a delete plus an add: the name is the record key, so
@@ -657,7 +676,7 @@ class TimersTab(PanelTab):
             self.say("timer", "timers.log.saved", name=name)
 
         btns = ttk.Frame(frm)
-        btns.grid(row=9, column=0, columnspan=2, sticky="we", pady=(10, 0))
+        btns.grid(row=10, column=0, columnspan=2, sticky="we", pady=(10, 0))
         ttk.Button(btns, text=self.t("timers.editor.cancel"),
                    command=win.destroy).pack(side="left")
         ttk.Button(btns, text=self.t("timers.editor.save"),
@@ -819,6 +838,17 @@ class TimersTab(PanelTab):
                 row["status"].configure(text=self.t("triggers.listening"))
             else:
                 row["status"].configure(text=self.t("triggers.off"))
+
+    def _weekday_text(self, days) -> str:
+        """«по воскресеньям» — the days a weekly errand runs on, in the panel's language.
+
+        One locale key holds all seven short names as a comma-separated list, because a
+        key per day would be seven keys in eleven files saying what one line already
+        says — and the phone reads the very same key (panel/web/static/app.js).
+        """
+        names = [w.strip() for w in self.t("timers.weekday.names").split(",")]
+        picked = [names[d - 1] for d in days if 1 <= d <= len(names)]
+        return self.t("timers.on_days", days=", ".join(picked))
 
     def _fmt_span(self, seconds: float) -> str:
         """A duration as the rows show it: «45 мин» / «2 ч 5 мин» / «3 дн»."""

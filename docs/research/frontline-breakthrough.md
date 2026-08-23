@@ -234,6 +234,35 @@ What is worth building on this before the next week's event:
   restart — and this client restarted four times in one evening;
 * evaluation over N runs per candidate, best-of-mean, not best-of-one.
 
+## On a clock: a weekly errand, not a period (#1885)
+
+The event is a ONE-DAY-A-WEEK thing, and the panel's schedule could not say that until
+now: every row was «so many seconds after the last run». Seven days of that drifts — by
+however long each run took and by however long the panel was shut — and it only has to
+drift past one day boundary to land on a Monday and stay there, firing for ever on a day
+with no event.
+
+So a timer row may now name its WEEKDAYS instead (`panel/timers.py`, `Timer.weekdays`,
+1 = Monday … 7 = Sunday). The rule is one sentence: **the row is due at the start of a
+matching GAME day it has not yet run in, and on no other day.** Nothing about the last
+run's clock time enters into it, so a fortnight with the panel shut costs one run and not
+fourteen, and a day already spent is not re-run by a restart.
+
+**The weekday is the game's, never this machine's.** The warzone's day turns at its own
+00:00 — measured at 02:00 UTC — so for two hours out of every twenty-four the PC already
+says Monday while the game is still handing out Sunday's event. The boundary comes from
+the profile's own `DayReset` (`panel/runtime/day_reset.py::weekday`), which is the same
+reading a daily errand is anchored to; `tools/lib/game_day.py::weekday` does the
+arithmetic and knows nothing.
+
+The shipped row is `play_frontline_breakthrough`: Sunday, `rounds = 3`, off by default.
+Three games because that is what the day is asked for and the SCORE is not the point —
+the recipe plays whatever stage the client offers next, so three rounds are three games
+whether they are won or lost, and each one cleared still converts the soldiers left into
+real units. A Sunday that starts with a dead client or an event not yet open for the
+account FAILs and is retried hourly through the day, rather than being written off or
+spun at every tick.
+
 ## Traps that cost time here
 
 * **`{name}` in a sub-recipe is filled in at CALL time, not at LOG time.** A

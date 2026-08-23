@@ -108,6 +108,21 @@ def day_key(now_ms, day_end_ms=0) -> str:
     return when.date().isoformat()
 
 
+def weekday(now_ms, day_end_ms=0) -> int:
+    """Which weekday the GAME day containing ``now_ms`` is — 1 = Monday … 7 = Sunday.
+
+    The weekday of the day's START, for exactly the reason :func:`day_key` dates it
+    that way: with a boundary at 02:00 UTC, 01:00 UTC on Monday is still the game's
+    Sunday, and an errand that only runs on Sundays must agree with the game about
+    which of the two it is standing in.
+    """
+    import datetime
+
+    start = previous_reset_ms(now_ms, day_end_ms)
+    when = datetime.datetime.fromtimestamp(start / 1000.0, datetime.timezone.utc)
+    return when.isoweekday()
+
+
 # -- the bridge between the game's clock and this machine's --------------------
 #
 # A schedule is kept in local `time.time()` seconds — that is what `last_run` is written
@@ -155,3 +170,16 @@ def next_reset_epoch(after_epoch_sec, day_end_ms=0) -> float:
     """
     off = offset_ms()
     return to_local_sec(next_reset_ms(to_game_ms(after_epoch_sec, off), day_end_ms), off)
+
+
+def previous_reset_epoch(before_epoch_sec, day_end_ms=0) -> float:
+    """The server midnight at or before ``before_epoch_sec``, in LOCAL seconds —
+    the start of the game day that moment falls in."""
+    off = offset_ms()
+    return to_local_sec(previous_reset_ms(to_game_ms(before_epoch_sec, off),
+                                          day_end_ms), off)
+
+
+def weekday_epoch(now_epoch_sec, day_end_ms=0) -> int:
+    """:func:`weekday`, asked in LOCAL ``time.time()`` seconds."""
+    return weekday(to_game_ms(now_epoch_sec), day_end_ms)
