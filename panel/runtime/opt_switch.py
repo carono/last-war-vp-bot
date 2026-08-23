@@ -47,10 +47,23 @@ def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the calle
     makes this worth a module rather than a line at each caller.
     """
     on = bool(on)
-    if get(rt, key) == on:
-        return False
     settings = _binder(rt)
     if settings is None:
+        return False
+    # BOTH HAVE TO AGREE BEFORE A PRESS IS «уже так». The widget and the file drift
+    # apart on their own: the shell's snapshot writes a knob only when the Settings page
+    # of THAT profile has been built (`panel/__main__.py::_collect_settings` reads
+    # `_opt_vars`, and a tab builds when somebody first looks at it, #1215). So three
+    # profiles nobody had opened the page of came back from a restart with the box on in
+    # Tk and no line at all on disk — and a press that trusted the widget answered
+    # «unchanged» and repaired nothing. Comparing both means the press is idempotent AND
+    # puts the file right.
+    stored = None
+    try:
+        stored = dict(settings.values).get(key)
+    except Exception:                        # noqa: BLE001 — a reading, never the panel
+        stored = None
+    if get(rt, key) == on and stored is not None and bool(stored) == on:
         return False
     moved = False
     var = None
