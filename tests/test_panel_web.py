@@ -126,6 +126,14 @@ class _Settings:
     def opt_bool(self, key: str) -> bool:
         return bool(self.opt(key))
 
+    def var(self, key: str):
+        """No widget here — a runtime with no window writes the file (#1882)."""
+        return None
+
+    def save(self, raw: dict | None = None) -> None:
+        if raw is not None:
+            self.values = dict(raw)
+
 
 class _Timers:
     """The scheduler's queue, as far as the web is concerned."""
@@ -1883,6 +1891,30 @@ def test_the_timers_tab_offers_the_hook_the_web_presses():
     assert callable(getattr(TimersTab, "set_immediate", None)), (
         "TimersTab.set_immediate is gone — the phone's «сразу» box now writes a file "
         "the tab's boxes will overwrite")
+
+
+def test_the_phone_can_see_and_move_the_watchdog_the_window_has():
+    """«Поднимать игру при падении» is on «Главная», so it is on the phone (#1882).
+
+    The one that was missing cost an afternoon: with the box off, `Recovery` goes on
+    deciding on a cure and the panel drops it — the counters climb, no line is written,
+    and an account taken by another device sits kicked with nothing on the page saying
+    why. Both halves are asserted here: the READING the card draws and the PRESS that
+    moves it, because a switch that only shows is the half that lies.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        assert api.state()["watchdog"] is False, (
+            "the phone cannot see the watchdog — a stopped account has no reason on it")
+        answer = api.watchdog(True)
+        assert answer["ok"] is True and answer["unchanged"] is False, answer
+        assert rt.settings.opt("watchdog") is True, rt.settings.values
+        assert api.state()["watchdog"] is True, "the card still draws the old answer"
+        again = api.watchdog(True)
+        assert again["unchanged"] is True, "a press that changed nothing said it did"
+        status, payload = api.dispatch("POST", "/api/watchdog", {}, {"on": False})
+        assert status == 200 and payload["ok"] is True, (status, payload)
+        assert rt.settings.opt("watchdog") is False, rt.settings.values
 
 
 def test_the_remote_control_belongs_to_the_window_and_not_to_a_profile():

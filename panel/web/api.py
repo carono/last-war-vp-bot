@@ -54,6 +54,7 @@ from ..runtime import daemon as daemonmod
 from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
 from ..runtime import interrupt as interruptmod
+from ..runtime import opt_switch as optswitch
 from ..runtime import power as powermod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
@@ -390,6 +391,13 @@ class WebApi:
             # is how seven hours once went past with a dead client behind it. `on` is the
             # box; `off_for_sec` is what makes it uncomfortable enough to act on.
             "power": rt.power.state(time.time()),
+            # «ПОДНИМАТЬ ИГРУ ПРИ ПАДЕНИИ» — the OTHER switch on «Главная», and until now
+            # a switch the phone could not see (#1882 mirrored both ways, CLAUDE.md).
+            # It matters on the move for the same reason the one above does: with it off,
+            # `Recovery` still decides on a cure and the panel drops it — the client is
+            # never put back, and nothing on the page says why an account has been
+            # sitting kicked for an hour.
+            "watchdog": optswitch.get(rt, "watchdog"),
             # …AND WHETHER ANYTHING MAY RUN AT ALL (#1393). The press above is one way to
             # arrive here and a daemon dying on its own is the other, so this is drawn
             # from its own object rather than from the mark: a profile whose daemon has
@@ -1062,6 +1070,20 @@ class WebApi:
         self._on_tk(rt, lambda: box.__setitem__("moved", powermod.set_on(rt, bool(on))))
         return {"ok": True, "on": bool(on), "unchanged": not box.get("moved")}
 
+    def watchdog(self, on: bool, profile: str | None = None) -> dict:
+        """«Поднимать игру при падении» from the phone — the window's own box (#1882).
+
+        Handed to the Tk thread for the reason every knob is: an open profile keeps its
+        value in a Tk variable and the shell writes the whole snapshot out, so a write
+        that only touched `config.json` is undone by the next save. Same vocabulary as
+        the switch above — `ok` it moved, `unchanged` it was already there.
+        """
+        rt = self._runtime(profile)
+        box: dict = {}
+        self._on_tk(rt, lambda: box.__setitem__(
+            "moved", optswitch.set(rt, "watchdog", bool(on))))
+        return {"ok": True, "on": bool(on), "unchanged": not box.get("moved")}
+
     # -- ending what is playing ----------------------------------------------
     def interrupt(self, profile: str | None = None) -> dict:
         """«Прервать» from the phone — the same press the window's footer makes (#1300).
@@ -1141,6 +1163,8 @@ class WebApi:
                 return _answer(self.panel(str(body.get("action") or ""), who))
             if path == "/api/power":
                 return _answer(self.power(bool(body.get("on")), who))
+            if path == "/api/watchdog":
+                return _answer(self.watchdog(bool(body.get("on")), who))
             if path == "/api/interrupt":
                 return _answer(self.interrupt(who))
             if path == "/api/screen/press":

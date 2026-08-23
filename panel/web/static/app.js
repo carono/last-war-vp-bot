@@ -209,7 +209,7 @@ function paintState(state) {
   $('power-mark').textContent = powerOn
     ? '' : T('power.mark', { mins: Math.floor((pow.off_for_sec || 0) / 60) });
   $('power-mark').className = 'small' + (powerOn ? '' : ' bad');
-  paintPowerSwitch(powerOn);
+  paintPowerSwitch(powerOn, state.watchdog !== false);
   /* …and the state that press leaves behind, which a daemon dying on its own leaves too
    * (#1393): nothing automatic runs while this profile's daemon is down, and a phone
    * showing an idle-looking account with no explanation is the same silence the mark
@@ -1068,26 +1068,34 @@ async function pressInterrupt() {
  * window (panel/__main__.py), out of the same setting, so neither front-end can come to
  * mean something of its own by it. Unticking it closes the client and stops the daemon
  * there and then; ticking it brings the daemon back and lets the profile go on. */
-function paintPowerSwitch(on) {
+function paintPowerSwitch(on, watchdog) {
   const box = $('power-controls');
   box.innerHTML = '';
-  /* THE WHOLE ROW IS THE TARGET, like every other switch on this page: a <label>
-   * wrapping both means the words toggle the profile as surely as the 26 px of
-   * fingernail beside them do. */
+  box.appendChild(switchRow(T('power.on'), on, '/api/power'));
+  /* THE SECOND BOX ON «ГЛАВНАЯ», beside the first one there and beside it here: with the
+   * watchdog off a client that dies — or one the game takes off the account — is never
+   * put back, and the page would otherwise show a stopped account with no reason on it. */
+  box.appendChild(switchRow(T('opt.watchdog'), watchdog, '/api/watchdog'));
+}
+
+/* One switch row: THE WHOLE ROW IS THE TARGET, like every other switch on this page —
+ * a <label> wrapping both means the words toggle the setting as surely as the 26 px of
+ * fingernail beside them do. */
+function switchRow(title, on, route) {
   const label = document.createElement('label');
   label.className = 'row switch-row';
   const text = document.createElement('span');
   text.className = 'title';
-  text.textContent = T('power.on');
+  text.textContent = title;
   const chk = document.createElement('input');
   chk.type = 'checkbox';
   chk.checked = !!on;
   chk.addEventListener('change', async () => {
     const want = chk.checked;
     chk.disabled = true;
-    try { await post('/api/power', { on: want }); } finally { chk.disabled = false; }
+    try { await post(route, { on: want }); } finally { chk.disabled = false; }
     tick();
   });
   label.append(text, chk);
-  box.appendChild(label);
+  return label;
 }
