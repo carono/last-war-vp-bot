@@ -1442,6 +1442,53 @@ def test_finished_and_cancelled_errands_stay_readable_in_recent():
     assert recent[0]["name"] == ALLY and recent[0]["outcome"] == "cancelled", recent
 
 
+# --- the game's own answer to «when again» (#1881) ---------------------------
+
+TAVERN = "tavern_free_pull"       # the recruit banners' free pulls, on the game's clock
+
+
+def test_a_turn_the_game_booked_wins_over_the_row_period():
+    """`due_at` decides, and the row's period does not get a vote for that turn."""
+    now = time.time()
+    cat, cfg = _catalogue(), _cfg(**{TAVERN: 3600})
+    # An hour is long past — and the game said four hours, so it is NOT due.
+    booked = {TAVERN: {"last_run": now - 2 * 3600, "due_at": now + 2 * 3600}}
+    assert cat.due_names(cfg, booked, now) == []
+    assert cat.next_due(cat.by_name(TAVERN), cfg, booked) == booked[TAVERN]["due_at"]
+
+    # …and the other way round: the row's hour is not up, the game's minute is.
+    soon = {TAVERN: {"last_run": now - 60, "due_at": now - 1}}
+    assert cat.due_names(cfg, soon, now) == [TAVERN]
+
+
+def test_a_booked_turn_is_spent_by_the_run_and_not_inherited():
+    """It holds ONE turn. A reading that never comes back cannot freeze the timer."""
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(Path(tmp))
+        store.mark_due_at(TAVERN, time.time() + 4 * 3600)
+        assert store.records()[TAVERN]["due_at"] > 0
+
+        # A busy panel un-stamps the attempt it never made: the appointment stands.
+        store.mark_started(TAVERN, 0.0)
+        assert store.records()[TAVERN]["due_at"] > 0
+
+        # A real start keeps it, and the errand falls back to its period afterwards.
+        store.mark_started(TAVERN)
+        assert store.records()[TAVERN]["due_at"] == 0.0
+        store.mark_run(TAVERN)
+        cat, cfg = _catalogue(), _cfg(**{TAVERN: 3600})
+        assert cat.due_names(cfg, store.records(), time.time() + 3601) == [TAVERN]
+
+
+def test_the_tavern_errand_ships_off_with_an_hourly_fallback():
+    """The row exists, is off, and its period is only what to do with no reading."""
+    timer = _catalogue().by_name(TAVERN)
+    assert timer is not None
+    assert timer.scenario == (TAVERN,)
+    assert timer.enabled is False
+    assert timer.interval_sec == 3600 and timer.retry_sec == 300
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

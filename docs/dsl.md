@@ -1167,6 +1167,26 @@ While a script runs, the interpreter keeps a few pieces of state:
   `profile.<field>` condition; writes via `READ_TEXT ... INTO
   profile.<field>`, which persists to disk immediately.
 
+### `next_run_in` — a scenario booking its own next turn
+
+A variable, not a statement, and the only one the PANEL reads back out of a finished
+run. When a recipe is played by the panel's schedule (a row on «Таймеры») and it leaves
+`next_run_in` in its variables — **seconds from now**, written with an ordinary
+`READ_LUA … INTO next_run_in` — the schedule books that errand's next turn for then,
+instead of counting the row's period off the run.
+
+It is for the abilities whose clock the GAME already keeps and the person cannot
+usefully guess: `actions/tavern_free_pull.md` is the worked example — two recruit
+banners, each with one free pull, on two different server-side clocks — and it hands
+back the nearer of the two.
+
+Seconds from now rather than a timestamp on purpose: this machine's clock and the
+game's disagree (`tools/lib/game_clock.py`), and the recipe is the only one of the two
+holding the game's. Absent, unreadable or `0` means the run had nothing to say and the
+row's own period stands — so a reading that fails costs one ordinary turn and can never
+quietly stop a timer. It only applies for that ONE turn, and is spent the moment the
+errand next starts (`panel/timers.py`, `NEXT_RUN_VAR` / `LastRunStore.mark_due_at`).
+
 ## Running one from Python
 
 `script_engine` exposes three entry points beyond the CLI runner:

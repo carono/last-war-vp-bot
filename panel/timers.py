@@ -164,6 +164,22 @@ MIN_INTERVAL_SEC = 10
 MAX_INTERVAL_SEC = 7 * 24 * 3600
 DEFAULT_INTERVAL_SEC = 3600
 
+# THE GAME'S OWN ANSWER TO «WHEN AGAIN», when it has one (#1881).
+#
+# A period is a guess about a game that already knows. The tavern's free pulls are the
+# case this was written for: they come back on two clocks of the server's own — one for
+# the heroes and one for the survivors — and those clocks are not an hour, not the same
+# as each other and not the same tomorrow. So a scenario that has READ such a clock
+# leaves the answer in this variable and the schedule books the errand's next turn with
+# it (:meth:`LastRunStore.mark_due_at`), which then wins over the row's period for that
+# one turn.
+#
+# SECONDS FROM NOW, never an absolute stamp: this machine's clock and the game's
+# disagree (`tools/lib/game_clock.py`), and the scenario is the only one of the two
+# holding the game's. Absent or zero means the run had nothing to say, and then the
+# configured period stands — so a reading that fails can never quietly stop a timer.
+NEXT_RUN_VAR = "next_run_in"
+
 # A DAY, and the reason it is a named constant rather than 86400 in three places:
 # a period that is a WHOLE NUMBER OF DAYS is not scheduled like any other period.
 #
@@ -323,6 +339,22 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         retry_sec=300,
         enabled=False,
         label_key="timers.item.recruit_survivors",
+    ),
+    Timer(
+        name="tavern_free_pull",
+        scenario=("tavern_free_pull",),
+        # An hour, and it is the FALLBACK rather than the schedule. Both recruit banners
+        # hand their free pull back on a clock of the server's own, the two clocks differ
+        # from each other, and the run reads the nearer of them and books its own next
+        # turn with it (:data:`NEXT_RUN_VAR`). This period only decides when to look
+        # again after a run that could not read one.
+        interval_sec=3600,
+        # A failure here is a client that was not answering — the recipe FAILs rather
+        # than report «no free pull» over a banner it could not see — and that mends
+        # itself in minutes.
+        retry_sec=300,
+        enabled=False,
+        label_key="timers.item.tavern_free_pull",
     ),
     Timer(
         name="apply_ministry_interior",
@@ -768,8 +800,14 @@ class Catalogue:
             if failed_at and now - failed_at < timer.retry_sec:
                 continue
             last = _day_anchor(rec)
-            period = _as_interval(item.get("interval_sec"), timer.interval_sec)
-            overdue = now - next_after(last, period, day)
+            due_at = float(rec.get("due_at") or 0.0)
+            if due_at:
+                # THE GAME NAMED THIS TURN (:data:`NEXT_RUN_VAR`), and it wins over the
+                # row's period — which is only ever a guess at the same question.
+                overdue = now - due_at
+            else:
+                period = _as_interval(item.get("interval_sec"), timer.interval_sec)
+                overdue = now - next_after(last, period, day)
             if overdue >= 0:
                 out.append((overdue, timer.name))
         out.sort(key=lambda pair: pair[0], reverse=True)
@@ -792,6 +830,12 @@ class Catalogue:
         failed_at = max(float(rec.get("failed_at") or 0.0),
                         float(rec.get("started_at") or 0.0))
         after_failure = failed_at + timer.retry_sec if failed_at else 0.0
+        due_at = float(rec.get("due_at") or 0.0)
+        if due_at:
+            # The row shows the appointment the GAME made, for the same reason the
+            # scheduler keeps it: a countdown to an hour from now over a free pull that
+            # is four hours away is the display disagreeing with the schedule.
+            return max(due_at, after_failure)
         if not last:
             return max(0.0, after_failure)
         return max(next_after(last, _as_interval(item.get("interval_sec"),
@@ -1183,8 +1227,18 @@ class LastRunStore:
 
     # -- writing ------------------------------------------------------------
     def mark_started(self, name: str, when: float | None = None) -> None:
-        """An attempt is beginning. Cleared by whichever of the two marks ends it."""
-        self._update(name, {"started_at": float(when if when is not None else time.time())})
+        """An attempt is beginning. Cleared by whichever of the two marks ends it.
+
+        A REAL start also spends whatever the game had said about this turn
+        (:meth:`mark_due_at`): the appointment is being kept, so the next one is read
+        again rather than inherited. ``when=0.0`` — the un-stamp of an errand a busy
+        panel never tried — leaves it standing, because that turn is still ahead.
+        """
+        stamp = float(when if when is not None else time.time())
+        fields = {"started_at": stamp}
+        if stamp:
+            fields["due_at"] = 0.0
+        self._update(name, fields)
 
     def mark_run(self, name: str, when: float | None = None) -> None:
         """Record a successful run, clearing any earlier failure hold.
@@ -1205,6 +1259,16 @@ class LastRunStore:
         """Record a failed attempt — the period keeps running, the retry waits."""
         self._update(name, {"failed_at": float(when if when is not None else time.time()),
                             "started_at": 0.0})
+
+    def mark_due_at(self, name: str, when: float) -> None:
+        """WHEN THE GAME SAID to come back — for this one turn (:data:`NEXT_RUN_VAR`).
+
+        Written by whoever played the errand, out of the run's own variables, and read
+        by :meth:`Catalogue.due_names` in place of the row's period. Cleared the moment
+        the errand really starts, so a stale appointment cannot hold a timer shut: the
+        worst a lost reading ever costs is one turn on the configured period.
+        """
+        self._update(name, {"due_at": max(0.0, float(when))})
 
     def _sweep(self) -> list[str]:
         """Write off attempts nobody ever finished, and name them.

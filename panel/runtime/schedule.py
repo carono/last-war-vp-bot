@@ -600,6 +600,7 @@ class Schedule:
                 except Exception:            # noqa: BLE001
                     self.rt.dbg("timers").warning("report of %s failed", name,
                                                   exc_info=True)
+            self._honour_next_run(name, ctx)
             if spent and record is not None:
                 # THE FINISHED RUN, NOT A PAIR OF NUMBERS READ OFF IT (#1281). What to
                 # count and how much of it is the errand's own rule, and it has to be
@@ -663,11 +664,36 @@ class Schedule:
                 except Exception:            # noqa: BLE001 — a sentence, never the run
                     self.rt.dbg("timers").warning("report of %s failed", name,
                                                   exc_info=True)
+            self._honour_next_run(name, ctx)
             if spent and record is not None:
                 record(ctx)
 
         return bool(self.rt.play_async(step, self.args(errand), tag="timer",
                                        on_result=done))
+
+    def _honour_next_run(self, name: str, ctx) -> None:
+        """Book the errand's next turn off the GAME's clock, when the run read one (#1881).
+
+        `panel.timers.NEXT_RUN_VAR` — seconds from now, left in the run's own variables
+        by a scenario that asked the server when the thing it just spent comes back. The
+        tavern's free pulls are what it was written for: two banners, two different
+        clocks, neither of them a period anybody could sensibly type into a row.
+
+        Absent, unreadable or zero means the run had nothing to say, and then the row's
+        period stands untouched — the failure mode of a reading that did not work is one
+        ordinary turn, never a timer that stops.
+        """
+        raw = (getattr(ctx, "vars", None) or {}).get(timersmod.NEXT_RUN_VAR)
+        try:
+            secs = float(raw)
+        except (TypeError, ValueError):
+            return
+        if secs <= 0:
+            return
+        secs = max(timersmod.MIN_INTERVAL_SEC, min(timersmod.MAX_INTERVAL_SEC, secs))
+        self.store.mark_due_at(name, time.time() + secs)
+        self.rt.put("[timer] " + self.rt.t("timers.log.next_from_game",
+                                           name=name, mins=int(secs // 60)))
 
     def _note_presses(self, ctx) -> None:
         """Tell the recovery whether this errand pressed anything at all.
