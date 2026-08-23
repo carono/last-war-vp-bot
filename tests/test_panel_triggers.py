@@ -800,15 +800,30 @@ class _Evaluator:
 
 
 class _Link:
-    def __init__(self, evaluator, ready=True):
+    def __init__(self, evaluator, ready=True, yields=True):
         self._ev = evaluator
         self._ready = ready
+        #: Does a lesser run step aside when this poll demands the client? `False` is
+        #: the case #1901 is about: the poll used to wait for it with no ceiling.
+        self._yields = yields
+        self.claims = []          #: (owner, priority, timeout) per `claim_soon`
+        self.released = 0
 
     def ready(self):
         return self._ready
 
     def evaluator(self):
         return self._ev
+
+    def claim_soon(self, owner="panel", priority=0, timeout=0.0):
+        self.claims.append((owner, priority, timeout))
+        return self._yields
+
+    def release(self):
+        self.released += 1
+
+    def claimed_by(self):
+        return "someone-else"
 
 
 class _Gate:
@@ -839,11 +854,11 @@ class _PollHost:
     with the bug it is here to catch.
     """
 
-    def __init__(self, answers, ready=True, gate=None):
+    def __init__(self, answers, ready=True, gate=None, yields=True):
         from panel.runtime.schedule import Schedule    # noqa: PLC0415 — Tk at import
 
         self.ev = _Evaluator(answers)
-        self.rt = _Rt(_Link(self.ev, ready=ready), gate=gate)
+        self.rt = _Rt(_Link(self.ev, ready=ready, yields=yields), gate=gate)
         self._poll_seen = {}
         self._dbg = _Say()
         self._poll = Schedule.poll.__get__(self)
@@ -855,9 +870,63 @@ class _PollHost:
         return self._poll(trigger)
 
 
-def _poll_trigger(name="probe"):
+def _poll_trigger(name="probe", immediate=False):
     return triggersmod.Trigger(name=name, kind=triggersmod.KIND_POLL,
-                               check="1 == 1", scenario=("noop",))
+                               check="1 == 1", scenario=("noop",),
+                               immediate=immediate)
+
+
+# ---------------------------------------------------------------------------
+#
+# «Плохо срабатывает сбор сокровищ с карты мира … в итоге сработал, но очень долго»
+# (#1901).
+#
+# The fire of a trigger marked «сразу» has never queued — that is what `claims.EXPRESS`
+# is for. The QUESTION that decides whether to fire was asked with no claim at all, so it
+# queued behind everything the fire was excused from. Measured live on 2026-08-24: the
+# treasure poll went five minutes without a single look while a detached golden-zombie
+# run held the client, and the ear it exists to re-arm lives in the client's VM, which a
+# restart wipes. The person's log said «слушаю саму игру — спрашиваю раз в 10 с» the
+# whole time.
+
+
+def test_a_poll_marked_immediate_takes_the_client_before_it_asks():
+    """«Сразу» is about the WHOLE trigger, the question included (#1901)."""
+    from panel.runtime import claims                   # noqa: PLC0415 — Tk at import
+    from panel.runtime.schedule import POLL_CLAIM_WAIT_SEC   # noqa: PLC0415
+
+    host = _PollHost([["TRIGCHK=true"]])
+    assert host.poll(_poll_trigger("treasure_auto", immediate=True)) is True
+    owner, priority, timeout = host.rt.game.claims[0]
+    assert priority == claims.EXPRESS, host.rt.game.claims
+    assert timeout == POLL_CLAIM_WAIT_SEC, host.rt.game.claims
+    assert host.ev.asked, "the game was never asked"
+    #: …and the claim goes back: a poll holding the client has become what it waited for
+    assert host.rt.game.released == 1, host.rt.game.released
+
+
+def test_an_ordinary_poll_still_asks_without_claiming_anything():
+    """The change is opt-in. An ordinary poll is an ordinary read and takes its turn."""
+    host = _PollHost([["TRIGCHK=true"]])
+    assert host.poll(_poll_trigger("kick")) is True
+    assert host.rt.game.claims == [], host.rt.game.claims
+    assert host.rt.game.released == 0
+
+
+def test_an_immediate_poll_that_cannot_get_in_is_skipped_and_says_why():
+    """THE CEILING, and the line that was missing.
+
+    A holder that will not park is not a reason to block the poll thread for minutes —
+    it is a reason to give this look up and say so. «Could not be taken» and «answered
+    no» are opposite facts and used to write the same nothing.
+    """
+    host = _PollHost([["TRIGCHK=true"]], yields=False)
+    assert host.poll(_poll_trigger("treasure_auto", immediate=True)) is False
+    assert host.ev.asked == [], "the game was asked without the client"
+    assert host.rt.game.released == 0, "nothing was taken, so nothing may be let go"
+    said = " | ".join(host._dbg.lines)
+    assert "step aside" in said, said
+    assert "someone-else" in said, "the line has to name who is holding it"
 
 
 def test_a_poll_asks_the_gate_before_it_asks_the_game():

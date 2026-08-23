@@ -66,6 +66,22 @@ LEADERBOARD_STAT = "##LBSTAT##"
 #: this is one line per thirty looks.
 POLL_PULSE_SEC = 300.0
 
+#: How long a poll marked «сразу» waits for the client before giving this look up (#1901).
+#:
+#: A poll's check is a read of the panel's own table in the game VM — a tenth of a second
+#: with the client free — and until now it was asked with no claim at all, which means it
+#: took its turn behind whatever was holding the client. Measured live on 2026-08-24: the
+#: treasure poll went **five minutes without a single look** (01:16:01 → 01:20:57) while a
+#: detached golden-zombie run held the client, and when the read finally came back it said
+#: the client was gone — it had restarted meanwhile, taking the treasure ear with it. The
+#: person's log said «слушаю саму игру — спрашиваю раз в 10 с» throughout.
+#:
+#: So an EXPRESS poll hangs a demand on the door like any other EXPRESS work and waits
+#: only this long. It is a CEILING and not a promise: a holder parks at a statement
+#: boundary, measured under a second in the same log, and a look that still cannot get in
+#: is skipped with a line rather than blocking the poll thread for minutes.
+POLL_CLAIM_WAIT_SEC = 3.0
+
 
 class _Subscription:
     """A wire subscription wearing the shape the trigger watcher expects.
@@ -906,6 +922,30 @@ class Schedule:
         # `session_kick` and the treasure errand both polled a game answering `TRIGCHK=
         # true` and both read it as «nothing to do», for as long as they had existed
         # (#1296).
+        # A POLL MARKED «СРАЗУ» ASKS AT ITS OWN PRIORITY (#1901). The fire has never
+        # queued — `immediate` is what `claims.EXPRESS` is for — but the QUESTION that
+        # decides whether to fire was asked with no claim at all, so it queued behind
+        # everything the fire was excused from. For the treasure errand that is the whole
+        # of «долго собирал»: the ear lives in the client's VM and a client restart wipes
+        # it, so the one thing that puts it back is this poll noticing, and a poll that
+        # cannot get a turn for five minutes is five minutes of a deaf client.
+        #
+        # Only for a trigger that DECLARED it (`immediate`); an ordinary poll is still an
+        # ordinary read and still waits its turn.
+        express = bool(getattr(trigger, "immediate", False))
+        took = False
+        if express:
+            took = self.rt.game.claim_soon("poll", claims.EXPRESS,
+                                           POLL_CLAIM_WAIT_SEC)
+            if not took:
+                # …and it says so. A look that could not be taken and a look that
+                # answered «no» are opposite facts, and they used to write the same
+                # nothing.
+                self._poll_note(trigger, "skipped",
+                                "the client would not step aside in "
+                                f"{POLL_CLAIM_WAIT_SEC:.0f}s — held by "
+                                f"{self.rt.game.claimed_by() or '?'}")
+                return False
         try:
             # `early`: the check answers itself in one line, and this runs on a timer in
             # the background — the settle it used to sit out was held with the daemon's
@@ -916,6 +956,11 @@ class Schedule:
         except Exception as exc:                # noqa: BLE001 — a bad read is not a kick
             self._poll_note(trigger, "unreadable", str(exc)[:160])
             return False
+        finally:
+            # The claim goes back whatever the read did: a poll holding the client is a
+            # poll that has become the thing it was waiting for.
+            if took:
+                self.rt.game.release()
         hit = triggersmod.poll_said_yes(lines)
         # The game's OWN line, not our verdict on it, because those two disagreeing is
         # precisely the fault this exists to make visible.
