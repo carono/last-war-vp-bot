@@ -212,6 +212,39 @@ how 2.3 seconds got in. Building a tab in a throwaway Tk root and timing
 `build()` + `update_idletasks()` over twenty rounds takes ten minutes to write and is the
 only thing that tells a layout change from a layout accident.
 
+### Columns that follow the width need a dead band
+
+A layout that picks its number of columns from the pane's width has one failure mode
+beyond the wrap above: **it flips.** `<Configure>` fires per pixel of a drag, and a
+count computed straight off the width crosses a boundary back and forth while the mouse
+hovers on it — the whole list redrawn twice a pixel, and unreadable while it happens.
+
+So the count only GROWS once the next block fits with a margin to spare, and only
+SHRINKS once the current one is short by the same margin. The band between two layouts
+is then about twice that margin wide and a slow drag crosses it once. The redraw itself
+is debounced through the profile's own ticker (`rt.tick.arm` under one name cancels the
+pending one, so a drag costs exactly one redraw at its end), and the handler returns
+without touching a widget when the count has not moved — which is what keeps the
+`<Configure>` a redraw provokes from feeding itself.
+
+**«Таймеры» is the worked example** (#1887): `TRIGGER_BLOCK_PX` / `TRIGGER_GUTTER_PX` /
+`TRIGGER_HYSTERESIS_PX` and `_trigger_columns`, tiling the listeners 1–4 across. Two
+things it gets right and are easy to get wrong:
+
+* **A block, not the row of a table.** Five aligned columns cannot be repeated sideways
+  — every copy would have to agree with every other on the width of each column, so the
+  widest name anywhere decides the layout everywhere. A block of a constant width tiles.
+  `columnconfigure(i, weight=1, uniform="<tab>.<thing>")` keeps the columns equal, and
+  the weights are cleared across the whole span before they are handed out again, or a
+  list that has just shrunk keeps the empty columns of the layout before it.
+* **Column-major order.** The list still reads top to bottom in its own order however
+  many columns it is broken into. Row-major scatters consecutive entries sideways, so
+  «the next one» changes meaning with the width of the window.
+
+And the phone's half of the same tab wants no arithmetic at all:
+`grid-template-columns: repeat(auto-fill, minmax(<floor>, 1fr))` is one line of CSS and
+no breakpoint anybody has to keep in step with the window's thresholds.
+
 ### A column of blocks silently eats the last one
 
 **`pack` hands out the cavity in PACKING ORDER, and a widget packed after it has run out
