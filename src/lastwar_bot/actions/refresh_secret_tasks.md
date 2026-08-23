@@ -67,10 +67,23 @@ ARGS keep = 3
 # out it stops and says so.
 ARGS use_diamonds = 1
 
-# The most diamonds ONE RUN may spend — on ordinary refreshes and on the mega's top-up
-# together. Measured off the purse itself, so a dialog that was raised and cancelled
-# costs nothing.
-ARGS diamond_budget = 1200
+# THE CEILING, and there is only one of it — «1200 — это нормальный прайс; если
+# мега-обновление с билетами требует 1200 или меньше, можно смело соглашаться».
+#
+# It is read as a ceiling on ONE DECISION and as an allowance for the grind, which are
+# two meters against the same number and are said apart in the log:
+#
+#   * the MEGA is judged on its WHOLE price in diamonds — the orders it wants, less the
+#     ones in the bag, at the game's own rate. A MIXED payment is the ordinary case and
+#     not a mistake: on a live account two orders and a thousand diamonds bought a mega
+#     that would otherwise have waited for ten more orders. Under the ceiling, take it —
+#     and the run's grind so far does NOT narrow that decision.
+#   * the ORDINARY refreshes spend against the same number as a per-run allowance, so a
+#     day of hundred-diamond re-rolls cannot quietly run away.
+#
+# Going over it is possible — the game tops a short bag up by itself — which is exactly
+# why the purse is read again after every mega and the difference said out loud.
+ARGS diamond_cap = 1200
 
 # Take the mega refresh at all (the one press that lifts every idle non-UR task to UR),
 # and, at the very end, send the tasks the rule was content to keep as well. Either may
@@ -81,7 +94,7 @@ ARGS dispatch = 1
 
 # 1. Park the rule where the presses can read it — `TAP` takes no arguments — and stamp
 #    the purse the budget is measured from.
-LUA local M=DataCenter.ActDispatchTaskDataManager M.__lw_ref_keep={keep} M.__lw_ref_gold={use_diamonds} M.__lw_ref_budget={diamond_budget} M.__lw_ref_mega_cost=-1 M.__lw_ref_mega_tasks=0 local g=0 pcall(function() g=tonumber(LuaEntry.Player.gold) or 0 end) M.__lw_ref_gold0=g
+LUA local M=DataCenter.ActDispatchTaskDataManager M.__lw_ref_keep={keep} M.__lw_ref_gold={use_diamonds} M.__lw_ref_budget={diamond_cap} M.__lw_ref_mega_cost=-1 M.__lw_ref_mega_tasks=0 local g=0 pcall(function() g=tonumber(LuaEntry.Player.gold) or 0 end) M.__lw_ref_gold0=g
 
 # 2. Open the command post, and CLAIM whatever has finished before anything else.
 #    A finished task holds its march slot until its reward is taken — live on a
@@ -157,7 +170,7 @@ IF mega == 1
             READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_ok) or 0) INTO mega_ok
             READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_gold) or 0) INTO mega_gold
             IF mega_ok == 1
-                LOG "mega refresh: {mega_tasks} task(s) at {mega_want} order(s), the dialog's bag row says {mega_cost}, {mega_gold} diamond(s) on top — taking it"
+                LOG "mega refresh: {mega_tasks} task(s) at {mega_want} order(s), the dialog's bag row says {mega_cost}, {mega_gold} diamond(s) on top against a ceiling of {diamond_cap} — taking it"
                 TAP confirm_mega_refresh
                 # …and then say what was REALLY taken. The dialog's item row describes
                 # the BAG, not the price: live it read «2» while the game quietly topped
@@ -166,7 +179,7 @@ IF mega == 1
                 READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local was=tonumber(M.__lw_ref_mega_gold0) if was==nil then return 0 end local now=0 pcall(function() now=LuaEntry.Player.gold+0 end) local d=was-now if d<0 then d=0 end return d end)() INTO mega_spent
                 LOG "mega refresh: the purse went down by {mega_spent} diamond(s)"
             ELSE
-                LOG "mega refresh: {mega_tasks} task(s) at {mega_want} order(s) would need {mega_gold} diamond(s) on top of {tickets} in the bag — outside the rule, left alone"
+                LOG "mega refresh: {mega_tasks} task(s) at {mega_want} order(s) would need {mega_gold} diamond(s) on top of the {tickets} order(s) in the bag — dearer than the ceiling of {diamond_cap}, left alone"
                 TAP cancel_mega_refresh
 
 # 7. Send what is standing: the URs the mega has just made, and — if the person asked for

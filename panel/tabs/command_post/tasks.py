@@ -43,7 +43,13 @@ COLLECT_ACTION = "collect_secret_tasks"
 
 #: The defaults the page starts with, and what the scenario's own `ARGS` say.
 DEFAULT_KEEP = 3
-DEFAULT_BUDGET = 1200
+
+#: THE ONE CEILING on diamonds — «1200 — это нормальный прайс» (#1903). It is both the
+#: most a single mega refresh may cost in diamonds and the allowance the ordinary
+#: refreshes spend against; the scenario says the two apart in its log. There is
+#: deliberately not a second knob: two ceilings that can disagree are how a rule stops
+#: meaning anything.
+DEFAULT_CAP = 1200
 
 #: What a reading that has not been made yet shows. Not a locale key: it is a dash, and
 #: a dash reads the same in all eleven languages.
@@ -87,7 +93,7 @@ class TasksPane:
         self.keep_var = tk_stringvar(self.rt.root)
         self.keep_var.set(str(DEFAULT_KEEP))
         self.budget_var = tk_stringvar(self.rt.root)
-        self.budget_var.set(str(DEFAULT_BUDGET))
+        self.budget_var.set(str(DEFAULT_CAP))
         self.gold_var = tk.BooleanVar(master=self.rt.root, value=True)
         self.mega_var = tk.BooleanVar(master=self.rt.root, value=True)
         self.send_var = tk.BooleanVar(master=self.rt.root, value=True)
@@ -175,13 +181,13 @@ class TasksPane:
         """The four knobs as the scenario's `ARGS`. Nothing else is passed.
 
         A half-typed box falls back to the scenario's own default rather than to zero:
-        `keep = 0` would refresh until every idle task were UR and `diamond_budget = 0`
+        `keep = 0` would refresh until every idle task were UR and `diamond_cap = 0`
         would silently switch the diamonds off — two very different mistakes, both made
         by the same empty box.
         """
         return {"keep": _int(self.keep_var.get(), DEFAULT_KEEP),
                 "use_diamonds": 1 if self.gold_var.get() else 0,
-                "diamond_budget": _int(self.budget_var.get(), DEFAULT_BUDGET),
+                "diamond_cap": _int(self.budget_var.get(), DEFAULT_CAP),
                 "mega": 1 if self.mega_var.get() else 0,
                 "dispatch": 1 if self.send_var.get() else 0}
 
@@ -248,7 +254,7 @@ class TasksPane:
                      "value": self.rt.t("cmdpost.tasks.rule_text",
                                         keep=_int(self.keep_var.get(), DEFAULT_KEEP),
                                         budget=(_int(self.budget_var.get(),
-                                                     DEFAULT_BUDGET)
+                                                     DEFAULT_CAP)
                                                 if self.gold_var.get() else 0))})
         return {"title": "cmdpost.tasks.title", "rows": rows}
 
@@ -256,14 +262,17 @@ class TasksPane:
     def config(self) -> dict:
         return {"keep": _int(self.keep_var.get(), DEFAULT_KEEP),
                 "use_diamonds": bool(self.gold_var.get()),
-                "diamond_budget": _int(self.budget_var.get(), DEFAULT_BUDGET),
+                "diamond_cap": _int(self.budget_var.get(), DEFAULT_CAP),
                 "mega": bool(self.mega_var.get()),
                 "dispatch": bool(self.send_var.get())}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self.keep_var.set(str(_int(raw.get("keep"), DEFAULT_KEEP)))
-        self.budget_var.set(str(_int(raw.get("diamond_budget"), DEFAULT_BUDGET)))
+        # `diamond_budget` was this knob's name between #1903's two halves; a
+        # profile saved in that window still finds its number.
+        self.budget_var.set(str(_int(raw.get("diamond_cap",
+                                             raw.get("diamond_budget")), DEFAULT_CAP)))
         self.gold_var.set(bool(raw.get("use_diamonds", True)))
         self.mega_var.set(bool(raw.get("mega", True)))
         self.send_var.set(bool(raw.get("dispatch", True)))

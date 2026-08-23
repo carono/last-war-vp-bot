@@ -13064,16 +13064,26 @@ def secret_post_mega_read() -> str:
             "local want=cost local scale=nonur*" + str(MEGA_ITEMS_PER_TASK) + " "
             "if tasks>0 then scale=tasks*" + str(MEGA_ITEMS_PER_TASK) + " end "
             "if scale>want then want=scale end "
+            # THE CEILING IS ON THE WHOLE PRICE, NOT ON WHAT IS LEFT OF THE GRIND, and a
+            # MIXED payment is the ordinary case rather than a mistake: orders as far as
+            # they go, diamonds for the rest. The operator's rule in their own words —
+            # «1200 — это нормальный прайс; если мега с билетами требует 1200 или меньше,
+            # можно смело соглашаться». So the run's own diamond meter (`goldleft`, which
+            # the ordinary refreshes spend against) does NOT narrow this decision: a mega
+            # that fits under the cap is taken even late in a run.
+            "local cap=tonumber(M.__lw_ref_budget) or 0 "
+            "if (tonumber(M.__lw_ref_gold) or 0)==0 then cap=0 end "
             "local need=0 local okpay=0 "
             "if cost>=0 then if tickets>=want then okpay=1 "
             "elseif price>0 then need=(want-tickets)*price "
-            "if need<=goldleft then okpay=1 end end end "
+            "if need<=cap then okpay=1 end end end "
             "M.__lw_ref_mega_cost=cost M.__lw_ref_mega_want=want M.__lw_ref_mega_tasks=tasks "
             "M.__lw_ref_mega_ok=okpay M.__lw_ref_mega_gold=need "
-            "M.__lw_ref_mega_gold0=gold "
+            "M.__lw_ref_mega_cap=cap M.__lw_ref_mega_gold0=gold "
             'CS.UnityEngine.Debug.LogError("ACT post_mega_cost cost="..tostring(cost)'
             '.." want="..tostring(want).." tasks="..tostring(tasks)'
-            '.." ok="..tostring(okpay).." gold="..tostring(need)) end)')
+            '.." ok="..tostring(okpay).." gold="..tostring(need)'
+            '.." cap="..tostring(cap)) end)')
 
 
 def secret_post_mega_confirm() -> str:

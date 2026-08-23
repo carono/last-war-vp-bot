@@ -233,6 +233,18 @@ now: 20 orders for five tasks, 12 for three, and this run's 12 for three. And a 
 never believed on its own word: the purse is stamped when the price is read and read
 again after the confirm, so the run SAYS what it really paid.
 
+**And a mixed payment is the ordinary case, not the mistake.** The operator's rule, in
+their own words: «1200 — это нормальный прайс. Если мега-обновление с билетами требует
+1200 или меньше, можно смело соглашаться». So what was learned here is not «never let the
+game top a short bag up» — it is «know the whole price before agreeing». The ceiling is
+one number, `diamond_cap` (1 200 by default), and it is read two ways that the log says
+apart: the WHOLE diamond price of one mega is judged against it, and the ordinary
+hundred-diamond refreshes spend against it as a per-run allowance. The run's grind does
+not narrow the mega's decision — a mega that fits under the ceiling is taken whenever it
+appears. Going over is still possible, because the game tops a short bag up by itself;
+that is precisely why the purse is read again afterwards and the difference said out
+loud.
+
 What is still unknown, because neither account had an idle non-UR task left to reproduce
 it with: where the diamond amount is drawn in that dialog. Whoever gets a chance should
 dump every text under `UIDispatchTaskRefreshConfirm` while the bag is SHORT of the price
