@@ -50,17 +50,16 @@ def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the calle
     settings = _binder(rt)
     if settings is None:
         return False
-    # A PRESS ALWAYS WRITES, and only the ANSWER is «уже так». It is tempting to return
-    # early when the knob already reads the way the press asks, and it is wrong here:
-    # the widget, the binder's dict and the file drift apart on their own. The shell's
-    # snapshot writes a knob only when THAT profile's Settings page has been built
-    # (`panel/__main__.py::_collect_settings` reads `_opt_vars`, and a page builds when
-    # somebody first looks at it, #1215) — so three profiles nobody had opened came back
-    # from a restart with the box on in Tk, on in the binder, and no line at all in
-    # `config.json`. Two drafts of this returned early on that reading, answered
-    # «unchanged» and repaired nothing. Writing costs one small JSON file; not writing
-    # cost an afternoon of a knob that existed only until the panel closed.
+    # NOTHING TO DO WHEN IT ALREADY READS THAT WAY — and «reads» means the EFFECTIVE
+    # value, which is not always a line in this profile's own file. A profile other than
+    # `default` stores only what DIFFERS from the default profile's config
+    # (`panel/profile.py::save`), so a knob equal to the default's is absent from its
+    # `config.json` on purpose and follows the default from then on. Two drafts of this
+    # module read that absence as a knob that had been lost and wrote to «repair» it,
+    # which was writing a diff that says exactly what the inheritance already said.
     moved = get(rt, key) != on
+    if not moved:
+        return False
     var = None
     try:
         var = settings.var(key)
