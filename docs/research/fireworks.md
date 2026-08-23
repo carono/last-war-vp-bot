@@ -249,3 +249,53 @@ runs, while the reading reported zeroes throughout.
 The state is therefore a field of an existing table — `DataCenter.__lw_fww` for the watch,
 `DataCenter.__lw_fw` for the collector's own last line. Verified live in the same session:
 `armed` → `on=1` → `already on: pushes=0 taken=0` across three separate calls.
+
+## 9. Whose firework it is — telling ours from another alliance's (#1899)
+
+The announcement cannot tell you. `push.get.fireworks.gift` carries `configId`,
+`pointId` and the TAKER's uid/nickname/avatar (§2) — **no alliance, no owner** — so the
+panel's ear is woken by every firework anybody in sight lights, and a listener that stops
+there goes to the game once per stranger's salute.
+
+**The box can tell.** A box in `LWFireworkGiftManager.uid2FireworkGiftQueueMap` carries,
+read live off the VM on 2026-08-23:
+
+```
+__ctype _class_type allianceUid configId index isAvailable max num ownerUid
+sendTime sendUid type uuid
+```
+
+and our own alliance is `LuaEntry.Player.allianceId` — the same value a march carries as
+`allianceUid` (`docs/research/squad-state.md`). Neither reading is a request: both are
+already in the client.
+
+Measured in the same session, five fireworks known to the client, four naming an
+alliance and one with an empty queue:
+
+```
+fireworks=5 ours=0 foreign=4 unknown=0 boxes=25 taken=0 already=0 shut=0 failed=0
+  — another alliance's firework, skipping
+```
+
+Nothing was ever collectable there — the server refuses a foreign box with
+`zombieRush_tips_19, "not same alliance"` (§4) — but until #1899 the recipe found that
+out the expensive way: press nothing, then ask `get.fireworks.info.list`, wait 1.5 s,
+then wait another second to read the record back, on **every** announcement of **every**
+alliance's firework in view.
+
+So both halves of the ability now gate on the box's `allianceUid`:
+
+* `collect_fireworks.md` skips a foreign firework whole, and asks the server for a fresh
+  list only when the client's book might genuinely be missing something — nothing known
+  at all, a firework whose boxes name no alliance, or an account whose own alliance id
+  could not be read. It reads the lifetime record back only when a press actually went
+  out. A foreign sky is now ONE local round trip and a line that says so.
+* `watch_fireworks.md` skips a foreign firework inside the hook and, when everything the
+  client knows is another alliance's, does not fire its `get.fireworks.info.list` either.
+  It counts those as `foreign=`, which `read_fireworks_watch.md` reads back beside
+  `pushes` / `taken`.
+
+**The gate blocks only strangers.** A dry control run over the same five fireworks, with
+each firework's own `allianceUid` taken as ours, let every box through to the ordinary
+gates (`pass=10/1/1/13`, `blocked=0`) — the boxes were `shut` for the old reason
+(`isAvailable = false`, a firework already picked clean), not for the new one.
