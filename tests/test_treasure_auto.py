@@ -554,7 +554,10 @@ def test_a_spent_chest_is_not_queued_again_by_the_next_lap():
     _walk(lua)
     assert _queued(lua) == 0, _targets(lua)
     scan = str(lua.eval(lua_actions.treasure_scan_report()))
-    assert "new=0" in scan and "already-queued=1" in scan, scan
+    #: `done-with=` since #1898 — the ledger recognises a finished chest whether or not it
+    #: is still in the list, so the answer no longer depends on the prune having run.
+    assert "new=0" in scan, scan
+    assert "already-queued=1" in scan or "done-with=1" in scan, scan
     report = _step(lua)
     assert len(_marched(lua)) == 1, "a second squad was sent at a chest already paid for"
     assert "spent=1" in report, report
@@ -1625,6 +1628,252 @@ def test_the_recipe_says_what_it_heard_and_not_only_what_it_pressed():
     assert "the ear so far: {ear}" in src, "…and say it in the log, every run"
     assert "nothing was sent this run ({ear})" in src, \
         "a quiet run is the one that most needs the counts on the line"
+
+
+# ---------------------------------------------------------------------------
+#
+# «treasure_auto пытается забрать уже ИСЧЕЗНУВШИЙ подарок» (#1898).
+#
+# The errand hammered a chest that was not there: measured on a live client, 25 claims
+# over 287 s, and the server answered every one of them with `E100123 treasure is null`.
+# Nothing was wrong with the hearing or the timing that #1886 bought — what was wrong is
+# that the ANSWER was thrown away. A code was read with `tonumber`, and two of the four
+# codes this reply carries are not numbers, so the verdict arrived as `nil` and the retry
+# ramp went on as if the server had said nothing at all. Silence again (#1884).
+#
+# What is pinned below is the whole of the way out: the codes are compared as TEXT, the
+# two that mean «not there» and «not dug yet» are acted on, the ground can say the same
+# thing without anybody being asked, and a chest struck out by any of them cannot come
+# back through any of the three doors.
+
+
+def _refused(lua, code, msg="", uuid=None) -> None:
+    """The server's answer to the claim that has just gone out.
+
+    It comes back under the same command name and names no chest, which is why the hook
+    pins it on whichever target claimed last. `uuid` is here only to make a test able to
+    say «this answer is about a DIFFERENT chest» — the wire never carries one.
+    """
+    if uuid is not None:
+        lua.execute("DataCenter.__lw_treasure_auto.claim_uuid = '%d'" % uuid)
+    lua.execute('SFSNetwork.HandleMessage("detect.event.claim.treasure", '
+                '{errorCode=%s, errorMsg=%s})'
+                % (_lua_str(str(code)), _lua_str(str(msg))))
+
+
+def _why(lua, uuid=_UUID):
+    """How a target ended, or `None` while it is still being worked."""
+    for t in _targets(lua):
+        if str(t.get("uuid")) == str(uuid):
+            return t.get("why")
+    return None
+
+
+def test_the_server_saying_the_chest_is_not_there_ends_the_work_at_once():
+    """`E100123 treasure is null` is a VERDICT, and it was being dropped (#1898).
+
+    This is the live bug in one test: the chest is claimed, the server says there is no
+    such chest, and before this fix the ramp went on claiming until the ttl — 25 sends
+    over 287 s on the client that reported it. One answer is enough.
+    """
+    if not _needs_lua("the server saying the chest is gone"):
+        return
+    lua = _vm()
+    _dug(lua)                                   # the dig feed: a claim-only target
+    assert len(_claims(lua)) == 1, "the chest is claimed the second it is heard"
+
+    _refused(lua, lua_actions.TREASURE_ERR_TREASURE_NULL, "treasure is null")
+    report = _step(lua)
+
+    assert _why(lua) == "gone", _targets(lua)
+    assert "gone=1" in report, report
+    assert "the chest is not there any more" in report, report
+    assert _queued(lua) == 0, "nothing is left to work"
+
+    #: …and no further send, however long the errand is left running
+    before = len(_claims(lua))
+    for _ in range(8):
+        lua.execute("NOW = NOW + 16000")
+        _step(lua)
+    assert len(_claims(lua)) == before, _claims(lua)
+
+
+def test_a_refusal_code_that_is_not_a_number_survives_the_journey():
+    """The mechanism of #1898, pinned on its own so the fix cannot be undone by a tidy-up.
+
+    `tonumber("E100123")` is `nil`. The hook used to store that, so the code the server
+    took the trouble to send never reached the target it was about, and no line anywhere
+    said a verdict had been discarded.
+    """
+    if not _needs_lua("a refusal code that is not a number"):
+        return
+    lua = _vm()
+    _dug(lua)
+    lua.execute('SFSNetwork.HandleMessage("detect.event.claim.treasure", '
+                '{errorCode="E100123", errorMsg="treasure is null"})')
+    stamped = lua.eval("(function() for _, t in ipairs("
+                       "DataCenter.__lw_treasure_auto.targets) do return t.err end end)()")
+    assert str(stamped) == "E100123", stamped
+
+
+def test_the_two_numeric_verdicts_still_end_a_chest():
+    """The codes that always worked go on working now they are compared as text."""
+    if not _needs_lua("the numeric verdicts"):
+        return
+    for code, want in ((lua_actions.TREASURE_ERR_CLAIM_REPEAT, "already-had-it"),
+                       (lua_actions.TREASURE_ERR_NOT_IN_ALLIANCE, "foreign")):
+        lua = _vm()
+        _dug(lua)
+        _refused(lua, code)
+        _step(lua)
+        assert _why(lua) == want, (code, _targets(lua))
+
+
+def test_the_server_saying_the_dig_is_not_over_takes_the_dug_stamp_off():
+    """`detect_dig_err_01 treasure not complete` is the OPPOSITE verdict (#1898).
+
+    The claim-first branch (#1886) is a guess made off `ownerUid`; this is the server
+    correcting it. A chest that is there and not yet dug must go back on the march path
+    rather than go on being claimed — and it must not be written off either.
+    """
+    if not _needs_lua("the server saying the dig is not over"):
+        return
+    lua = _vm()
+    _announce(lua)                               # a chest with a tile: it CAN be marched at
+    lua.execute("for _, t in ipairs(DataCenter.__lw_treasure_auto.targets) do "
+                "t.dug, t.plan = NOW, 'claim' end")
+    _step(lua)
+    assert len(_claims(lua)) >= 1, "the claim-first branch was taken"
+
+    _refused(lua, lua_actions.TREASURE_ERR_NOT_COMPLETE, "treasure not complete")
+    _step(lua)
+
+    target = _targets(lua)[0]
+    assert not target.get("done"), target
+    assert target.get("dug") is None, "the dug stamp was the thing the server denied"
+    assert target.get("plan") == "march", target
+    assert _queued(lua) == 1
+
+
+def test_a_chest_the_game_said_is_gone_cannot_come_back_through_any_door():
+    """Idempotence on all three doors at once (#1898).
+
+    A finished chest is kept in the list for a ttl and then pruned, and every one of the
+    three doors would hand it back as news afterwards — the dig feed repeats once per
+    member, a share is posted by a person minutes late, and the ground goes on drawing the
+    tile. The ledger is what they share.
+    """
+    if not _needs_lua("the ledger the three doors read"):
+        return
+    lua = _vm()
+    _dug(lua)
+    _refused(lua, lua_actions.TREASURE_ERR_TREASURE_NULL, "treasure is null")
+    _step(lua)
+    heard = int(lua.eval("DataCenter.__lw_treasure_auto.news"))
+
+    #: the list is pruned, so `targets` can no longer answer for this chest
+    lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_TARGET_TTL_SEC + 1) * 1000))
+    _step(lua)
+    assert _spent(lua) == 0, "the prune has dropped it"
+
+    _dug(lua)                                    # door 1: the dig feed says it again
+    _announce(lua)                               # door 2: somebody shares it late
+    assert int(lua.eval("DataCenter.__lw_treasure_auto.news")) == heard, _targets(lua)
+    assert _queued(lua) == 0, _targets(lua)
+    assert len(_claims(lua)) == 1, "and not one further claim leaves"
+
+
+def test_the_look_does_not_re_open_a_chest_the_errand_has_finished_with():
+    """Door three: the ground goes on drawing a chest this account has been paid for."""
+    if not _needs_lua("the third door and the ledger"):
+        return
+    lua = _scan_vm(chests=(((_CHEST_AT), _OTHER_UUID, _SERVER, True),))
+    _park_camera(lua, *_CHEST_AT)
+    lua.execute(lua_actions.treasure_look_around())
+    lua.execute(lua_actions.treasure_scan_harvest())
+    assert _queued(lua) == 1, _targets(lua)
+
+    _step(lua)                                   # …the claim leaves, and is refused
+    _refused(lua, lua_actions.TREASURE_ERR_CLAIM_REPEAT)
+    _step(lua)
+    assert _why(lua, _OTHER_UUID) == "already-had-it", _targets(lua)
+    lua.execute("NOW = NOW + %d" % ((lua_actions.TREASURE_TARGET_TTL_SEC + 1) * 1000))
+    _step(lua)
+
+    lua.execute(lua_actions.treasure_look_around())
+    lua.execute(lua_actions.treasure_scan_harvest())
+    report = str(lua.eval(lua_actions.treasure_scan_report()))
+    assert "done-with=1" in report, report
+    assert _queued(lua) == 0, _targets(lua)
+
+
+def test_a_tile_the_client_holds_and_which_has_no_chest_writes_the_target_off():
+    """The second way the game says «цели больше нет», and it needs nobody to ask (#1898).
+
+    A chest waiting for a squad is never claimed, so the server never gets the chance to
+    answer `E100123` about it. The ground can: the look already reads the box the camera
+    is in, and a tracked tile the point manager ANSWERED about and which no longer carries
+    a treasure is the map saying the same thing for free.
+    """
+    if not _needs_lua("a tile that no longer carries the chest"):
+        return
+    lua = _scan_vm(chests=(((_CHEST_AT), _OTHER_UUID, _SERVER, False),))
+    _park_camera(lua, *_CHEST_AT)
+    lua.execute(lua_actions.treasure_look_around())
+    lua.execute(lua_actions.treasure_scan_harvest())
+    assert _queued(lua) == 1, _targets(lua)
+
+    #: somebody else finished it and the point is gone — the tile answers as plain ground
+    lua.execute("CHESTS[%d] = nil" % (_CHEST_AT[1] * _MAP + _CHEST_AT[0] + 1))
+    lua.execute(lua_actions.treasure_look_around())
+    lua.execute(lua_actions.treasure_scan_harvest())
+
+    assert _why(lua, _OTHER_UUID) == "tile-gone", _targets(lua)
+    report = str(lua.eval(lua_actions.treasure_scan_report()))
+    assert "vanished=1" in report, report
+    assert _queued(lua) == 0
+    assert _marched(lua) == [], "and no squad was ever spent on it"
+
+
+def test_a_tile_the_client_cannot_answer_for_says_nothing_at_all():
+    """The safety the whole reading rests on: an unloaded tile is not an answer.
+
+    The point manager returns `nil` both for «there is nothing here» and for «I am not
+    holding this ground», and reading the second as the first would throw away a live
+    chest the camera merely walked away from. So the look records which tracked tiles it
+    got an answer about, and only those may be struck out.
+    """
+    if not _needs_lua("an unloaded tile"):
+        return
+    lua = _scan_vm(chests=(((_CHEST_AT), _OTHER_UUID, _SERVER, False),))
+    _park_camera(lua, *_CHEST_AT)
+    lua.execute(lua_actions.treasure_look_around())
+    lua.execute(lua_actions.treasure_scan_harvest())
+    assert _queued(lua) == 1
+
+    #: the camera walks away — the chest is still there, the client just cannot see it
+    _park_camera(lua, 2, 2)
+    lua.execute(lua_actions.treasure_look_around())
+    lua.execute(lua_actions.treasure_scan_harvest())
+
+    assert _why(lua, _OTHER_UUID) is None, _targets(lua)
+    assert _queued(lua) == 1, "a chest out of view is not a chest that is gone"
+
+
+def test_a_live_chest_is_still_claimed_the_instant_it_is_heard():
+    """The thing #1898 must not break: «услышали — собрали» in a fraction of a second.
+
+    Every verdict above is a way of STOPPING; the errand's whole worth is in how fast it
+    starts. A chest heard already dug is claimed inside the hook that heard it, and no
+    ledger, no code and no tile reading may stand in front of that.
+    """
+    if not _needs_lua("the fast path"):
+        return
+    lua = _vm()
+    _dug(lua)
+    assert len(_claims(lua)) == 1, _claims(lua)
+    assert int(lua.eval("DataCenter.__lw_treasure_auto.hear_ms")) == 0, \
+        "heard and claimed are the same instant"
 
 
 def _run() -> int:

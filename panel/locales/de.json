@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Letzter Blick in die Umgebung: {found} Truhen im Bild — {ours} eigene, {foreign} anderer Allianzen (die gibt das Spiel nicht her). Vor {ago} s",
   "cmdpost.treasure.lap.never": "In diesem Client wurde die Umgebung noch nicht gelesen",
   "cmdpost.treasure.look": "Umgebung",
-  "cmdpost.treasure.watch": "Überwachung: {live} in Arbeit · {claims} Anfragen · {paid} geholt · zuletzt {lag} ms, schlechtester {worst} ms · gehört→geholt {hear} ms · Umgebung: {eye}",
+  "cmdpost.treasure.watch": "Überwachung: {live} in Arbeit · {claims} Anfragen · {paid} geholt · {gone} entfallen · zuletzt {lag} ms, schlechtester {worst} ms · gehört→geholt {hear} ms · Umgebung: {eye}",
   "cmdpost.treasure.watch.off": "Die Überwachung läuft nicht — eine Truhe wird nur geholt, wenn das Panel nachsieht ({paid} geholt)",
   "cmdpost.treasure.watch.never": "Die Überwachung wurde in diesem Client noch nicht gelesen",
   "cmdpost.treasure.watch.nolag": "—",

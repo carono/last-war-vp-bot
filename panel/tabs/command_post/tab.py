@@ -1326,6 +1326,10 @@ class TreasuresPane(_Pane):
                              hear=(self.rt.t("cmdpost.treasure.watch.nolag")
                                    if _int(watch.get("hear"), -1) < 0
                                    else "%d" % _int(watch.get("hear"), -1)),
+                             # …and the chests the GAME said are not there (#1898). Without
+                             # it a watch claiming into a chest that vanished reads exactly
+                             # like one that is working.
+                             gone=_int(watch.get("gone")),
                              eye=str(watch.get("eye") or "?"))
         self.after(lambda: self._watch_var.set(text))
 

@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Dernier coup d'œil aux alentours : {found} coffres en vue — {ours} à nous, {foreign} d'autres alliances (le jeu ne les donne pas). Il y a {ago} s",
   "cmdpost.treasure.lap.never": "Les alentours n'ont pas encore été lus dans ce client",
   "cmdpost.treasure.look": "Alentours",
-  "cmdpost.treasure.watch": "Surveillance : {live} en cours · {claims} demandes · {paid} récupérés · dernier {lag} ms, pire {worst} ms · entendu→récupéré {hear} ms · environs : {eye}",
+  "cmdpost.treasure.watch": "Surveillance : {live} en cours · {claims} demandes · {paid} récupérés · {gone} disparus · dernier {lag} ms, pire {worst} ms · entendu→récupéré {hear} ms · environs : {eye}",
   "cmdpost.treasure.watch.off": "La surveillance ne tourne pas — un coffre n'est récupéré que lorsque le panneau regarde ({paid} récupérés)",
   "cmdpost.treasure.watch.never": "La surveillance n'a pas encore été lue dans ce client",
   "cmdpost.treasure.watch.nolag": "—",

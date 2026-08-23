@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Lần đọc xung quanh gần nhất: thấy {found} rương — {ours} của ta, {foreign} của liên minh khác (trò chơi không cho lấy). {ago} giây trước",
   "cmdpost.treasure.lap.never": "Chưa đọc xung quanh trong ứng dụng này",
   "cmdpost.treasure.look": "Xung quanh",
-  "cmdpost.treasure.watch": "Theo dõi: {live} đang xử lý · {claims} yêu cầu · {paid} đã lấy · gần nhất {lag} ms, tệ nhất {worst} ms · nghe thấy→đã lấy {hear} ms · xung quanh: {eye}",
+  "cmdpost.treasure.watch": "Theo dõi: {live} đang xử lý · {claims} yêu cầu · {paid} đã lấy · {gone} đã biến mất · gần nhất {lag} ms, tệ nhất {worst} ms · nghe thấy→đã lấy {hear} ms · xung quanh: {eye}",
   "cmdpost.treasure.watch.off": "Theo dõi không chạy — rương chỉ được lấy khi bảng điều khiển nhìn vào ({paid} đã lấy)",
   "cmdpost.treasure.watch.never": "Theo dõi chưa từng được đọc trong client này",
   "cmdpost.treasure.watch.nolag": "—",

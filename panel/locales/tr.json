@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Son çevre okuması: görüşte {found} sandık — {ours} bizim, {foreign} başka ittifakların (oyun onları vermez). {ago} sn önce",
   "cmdpost.treasure.lap.never": "Bu istemcide çevre henüz okunmadı",
   "cmdpost.treasure.look": "Çevre",
-  "cmdpost.treasure.watch": "İzleme: {live} işlemde · {claims} istek · {paid} alındı · son {lag} ms, en kötü {worst} ms · duyuldu→alındı {hear} ms · çevre: {eye}",
+  "cmdpost.treasure.watch": "İzleme: {live} işlemde · {claims} istek · {paid} alındı · {gone} kayboldu · son {lag} ms, en kötü {worst} ms · duyuldu→alındı {hear} ms · çevre: {eye}",
   "cmdpost.treasure.watch.off": "İzleme çalışmıyor — sandık yalnızca panel baktığında alınır ({paid} alındı)",
   "cmdpost.treasure.watch.never": "İzleme bu istemcide henüz okunmadı",
   "cmdpost.treasure.watch.nolag": "—",

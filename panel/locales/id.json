@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Pembacaan sekitar terakhir: {found} peti terlihat — {ours} milik kita, {foreign} milik aliansi lain (yang itu tidak diberikan gim). {ago} dtk lalu",
   "cmdpost.treasure.lap.never": "Sekitar belum dibaca di klien ini",
   "cmdpost.treasure.look": "Sekitar",
-  "cmdpost.treasure.watch": "Pemantauan: {live} sedang dikerjakan · {claims} permintaan · {paid} diambil · terakhir {lag} md, terburuk {worst} md · terdengar→diambil {hear} md · sekitar: {eye}",
+  "cmdpost.treasure.watch": "Pemantauan: {live} sedang dikerjakan · {claims} permintaan · {paid} diambil · {gone} hilang · terakhir {lag} md, terburuk {worst} md · terdengar→diambil {hear} md · sekitar: {eye}",
   "cmdpost.treasure.watch.off": "Pemantauan tidak berjalan — peti hanya diambil saat panel melihat ({paid} diambil)",
   "cmdpost.treasure.watch.never": "Pemantauan belum pernah dibaca di klien ini",
   "cmdpost.treasure.watch.nolag": "—",

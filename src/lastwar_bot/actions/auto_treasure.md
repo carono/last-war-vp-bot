@@ -30,6 +30,25 @@
 # A chest that comes through two doors stays ONE target and keeps the best half of each: a
 # uuid heard from the dig feed and a tile seen on screen are the same chest, and the look
 # upgrades it rather than queuing it twice.
+#
+# AND A CHEST THAT IS NO LONGER THERE LEAVES BY THE SAME ONE DOOR, WHATEVER TOLD US
+# (#1898). Two things can say it and both are now believed the first time they say it:
+#
+#   * **the server**, in answer to a claim — `E100123 treasure is null`. It used to be
+#     read with `tonumber`, which turns that code into nothing at all, so the verdict was
+#     dropped in SILENCE: measured live, one client sent 25 claims over 287 s at a chest
+#     the server said was not there on the very first reply. Codes are compared as text
+#     now, and the two that are not numbers — `E100123` and `detect_dig_err_01 treasure
+#     not complete`, the opposite verdict, «the dig is NOT over, your `dug` stamp is
+#     wrong» — are verdicts like the other two;
+#   * **the ground**, without asking anybody: the look already reads the box the camera is
+#     in, so it marks which of the tracked tiles the client actually ANSWERED about, and a
+#     tracked chest whose tile answered and holds no treasure is gone. An unloaded tile
+#     answers `nil` too and is not an answer — that distinction is the whole safety of it.
+#
+# Struck out either way, the uuid goes into a ledger all three doors read, so the dig
+# feed, the chat share and the look cannot hand a spent chest back as news the moment the
+# list is pruned. `gone=` and `dropped=[…]` in the report are that, said in words.
 
 # THE BRANCH IS TAKEN BY THE CHEST'S STATUS, THE SECOND IT IS HEARD (#1886): still being
 # dug — a squad goes; already dug — the gift is claimed and no squad is spent at all. And
@@ -124,7 +143,7 @@ IF look == 1
     TAP treasure_look
     TAP treasure_scan_harvest
     READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.scan_report or 'nothing has been looked at yet') INTO seen
-    LOG "the line above is what the client could see from where it stands: found= every chest in the box, ours= the ones this alliance's own event placed, foreign= another alliance's, which the game refuses outright and which are never queued. A chest of one's own alliance is placed in the HIVE rather than out on the map, so this door is the rare one — and the reason the whole-server lap was deleted: two full laps found 19 and 21 chests with ours zero both times."
+    LOG "the line above is what the client could see from where it stands: found= every chest in the box, ours= the ones this alliance's own event placed, foreign= another alliance's, which the game refuses outright and which are never queued, done-with= chests on the ground this errand has already finished with and will not re-open, vanished= tracked chests whose tile the client holds and which are no longer on it — the map saying «цели больше нет» without anybody being asked. A chest of one's own alliance is placed in the HIVE rather than out on the map, so this door is the rare one — and the reason the whole-server lap was deleted: two full laps found 19 and 21 chests with ours zero both times."
 
 # The whole queue, one step each, in ONE press: the nearest free squad marches onto the
 # nearest chest, and a chest the alliance has already dug is claimed. Nothing is opened
@@ -135,15 +154,15 @@ TAP treasure_auto_step
 # already away.
 READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the step left no report — the press did not run") INTO report
 
-LOG "the line above is what the run did: sent= marches that went out, claimed= claims sent, paid= gifts actually received (the reward window came up, or the server answered «claim repeat», which is the same thing said from the other side), waiting= chests whose squad is still out or whose claim has not answered, resent= sends the client had dropped in silence and which went again, lag=/worst= how long the last and the worst chest waited between becoming takeable and their first claim leaving — the acceptance criterion in milliseconds — watch= whether the game-side clock is running, and one note per chest"
+LOG "the line above is what the run did: sent= marches that went out, claimed= claims sent, paid= gifts actually received (the reward window came up, or the server answered «claim repeat», which is the same thing said from the other side), waiting= chests whose squad is still out or whose claim has not answered, resent= sends the client had dropped in silence and which went again, gone= chests struck off because the GAME said they are not there — the server's «treasure is null» in answer to a claim, or a tile the client holds that no longer carries the chest — with dropped=[…] naming the last one in words, lag=/worst= how long the last and the worst chest waited between becoming takeable and their first claim leaving — the acceptance criterion in milliseconds — watch= whether the game-side clock is running, and one note per chest"
 
 # WHAT THE WATCH ITSELF IS DOING, read apart from the press. The report above is written by
 # a press; this is written by the thing that runs between presses, and the two disagreeing
 # is the one symptom worth chasing — a watch that says `on=0` after an arm is a client that
 # lost its timer, and every claim is back to waiting for a panel tick.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 lag=-1 worst=-1 hear=-1 eye=never' end return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) .. ' ticks=' .. tostring(A.ticks or 0) .. ' live=' .. tostring(A.t_live or 0) .. ' claims=' .. tostring(A.claims_all or 0) .. ' paid=' .. tostring(A.paid_all or 0) .. ' lag=' .. tostring(A.lag_ms or -1) .. ' worst=' .. tostring(A.lag_worst or -1) .. ' hear=' .. tostring(A.hear_ms or -1) .. ' eye=' .. tostring(A.look_why or 'never') end)() INTO watch
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 lag=-1 worst=-1 hear=-1 gone=0 eye=never' end return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) .. ' ticks=' .. tostring(A.ticks or 0) .. ' live=' .. tostring(A.t_live or 0) .. ' claims=' .. tostring(A.claims_all or 0) .. ' paid=' .. tostring(A.paid_all or 0) .. ' lag=' .. tostring(A.lag_ms or -1) .. ' worst=' .. tostring(A.lag_worst or -1) .. ' hear=' .. tostring(A.hear_ms or -1) .. ' gone=' .. tostring(A.gone_all or 0) .. ' eye=' .. tostring(A.look_why or 'never') end)() INTO watch
 
-LOG "the line above is the game-side watch: on= is its timer alive, ticks= how many times it has looked since the client started, live= chests it is working right now, claims=/paid= what it has sent and been paid for, lag=/worst= milliseconds from takeable to claim (-1 = no chest has been taken yet), hear= milliseconds from HEARING the chest to claiming it — «услышали — собрали» end to end — eye= what the second ear last saw — «looked» on the map, «city» in the base, and «no-point-manager» when the client has not been out on the map since it started"
+LOG "the line above is the game-side watch: on= is its timer alive, ticks= how many times it has looked since the client started, live= chests it is working right now, claims=/paid= what it has sent and been paid for, lag=/worst= milliseconds from takeable to claim (-1 = no chest has been taken yet), hear= milliseconds from HEARING the chest to claiming it — «услышали — собрали» end to end — gone= chests written off since the client started because the game said they are not there, eye= what the second ear last saw — «looked» on the map, «city» in the base, and «no-point-manager» when the client has not been out on the map since it started"
 
 # One number: how many sends this run actually made. `0` is an ordinary quiet minute —
 # nothing was announced, or the squads are all out — and not a failure.

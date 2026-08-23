@@ -1148,6 +1148,52 @@ which chest it claimed last (`A.claim_uuid` / `A.claim_at`), so a code arriving 
 of a claim is that chest's answer: `801348` finishes it as had, `801354` finishes it as
 another alliance's, anything else is a refusal worth retrying.
 
+### The four codes, and the two that were being thrown away (#1898)
+
+A claim can be answered four ways, and the panel logs of four live profiles hold every one
+of them. Counted over a day of ordinary play:
+
+| code | message | how often | what it means |
+|---|---|---|---|
+| `E100123` | `treasure is null` | 319 | **the chest is not there any more** — taken, expired, or off the map |
+| `801348` | `claim repeat` | 64 | this account has already had it |
+| `801354` | `player not in same alliance. <uuid>` | 63 | another alliance's chest |
+| `detect_dig_err_01` | `treasure not complete` | 3 | the chest IS there and the dig is **not** over |
+
+**Two of the four are not numbers**, and the code that read them did `tonumber(code)`. So
+the commonest answer the server gives — by a factor of five over every other one put
+together — arrived as `nil` and was dropped without a line anywhere saying a verdict had
+been discarded. The retry ramp then ran to the ttl: measured on a live client,
+**25 claims over 287 s** at a chest whose very first reply had said it was not there.
+
+A code is compared as TEXT from here on. `E100123` finishes the chest as `gone`;
+`detect_dig_err_01` is the opposite verdict and takes the `dug` stamp back OFF — the
+claim-first branch (#1886) is a guess made off `ownerUid`, and this is the server
+correcting it, so a chest with a tile goes back on the march path rather than on being
+claimed.
+
+### The ground says the same thing, and does not need to be asked
+
+A chest still waiting for a squad is never claimed, so the server never gets the chance to
+answer `E100123` about it. The point manager can: the look already reads the box the camera
+is in, so it now marks which of the TRACKED tiles it actually got an answer about, and a
+tracked chest whose tile answered and no longer carries a treasure is gone.
+
+**The distinction is the whole safety of it.** `GetPointInfo` returns `nil` both for «there
+is nothing here» and for «I am not holding this ground», and reading the second as the first
+would throw away a live chest the camera merely walked away from. Only a tile the client
+ANSWERED about may strike a target out (`vanished=` in the look's own report).
+
+### …and a struck-out chest cannot come back
+
+Three doors queue a chest — the dig feed (one message per member, so it repeats), the chat
+share (posted by a person, often minutes late) and the look (the ground goes on drawing a
+tile). A finished target is kept in the list for a ttl and then pruned, after which every
+one of the three would hand the same chest back as news. So a verdict writes the uuid into
+a ledger (`A.spent`) that outlives the prune, and all three doors read it. `expired` is
+deliberately NOT in it: that one is the errand's own guess that a chest has been on the
+list too long, and a guess must stay re-openable if the map still draws the chest.
+
 ## 4. «Отправка отряда работает через раз» — the silence read backwards
 
 `TREASURE_MARCH_SETTLE_SEC` existed because an unanswered march reads exactly like a

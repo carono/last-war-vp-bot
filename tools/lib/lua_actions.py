@@ -3396,11 +3396,17 @@ local function harvest(cmd, obj)
       --
       -- Only while the claim is FRESH: a code arriving a minute later belongs to whatever
       -- was claimed since, and pinning it on the wrong chest would write off a good one.
+      --
+      -- AND IT IS KEPT AS TEXT (#1898). `tonumber` was here, and two of the four codes
+      -- this reply can carry are not numbers — `E100123 treasure is null` and
+      -- `detect_dig_err_01 treasure not complete` both became `nil` and were dropped
+      -- without a word, which is how a client came to send 25 claims over 287 s at a
+      -- chest the server had said was not there on the first one.
       local key = A.claim_uuid
       if key ~= nil and (tonumber(A.claim_at) or 0) > 0
          and nowms() - A.claim_at < 15000 then
         for _, t in ipairs(A.targets or {}) do
-          if tostring(t.uuid) == tostring(key) then t.err = tonumber(code) end
+          if tostring(t.uuid) == tostring(key) then t.err = tostring(code) end
         end
       end
     end
@@ -3412,9 +3418,18 @@ local function harvest(cmd, obj)
     local u = getdata(obj, "uuid")
     if u == nil then return end
     local key = tostring(u)
+    -- A CHEST THE GAME HAS ALREADY SAID IS FINISHED IS NOT NEWS (#1898). The dig feed
+    -- carries one message per member who finishes their part, so a chest this account has
+    -- been paid for — or one the server has said is not there at all — goes on being
+    -- announced after there is anything left to do about it. The ledger is what the three
+    -- doors share; without it the queue re-opens a spent chest the moment the prune drops
+    -- it, and the errand goes back to claiming into the dark.
+    -- …and NOT by returning early: the same message is the beat every OTHER live chest
+    -- is answered on, so the tick at the bottom still runs.
+    local spent = ((A.spent or {})[key] ~= nil)
     local known = false
     for _, t in ipairs(A.targets or {}) do
-      if tostring(t.uuid) == key then known = true
+      if tostring(t.uuid) == key and not t.done then known = true
         if not t.dug then t.dug, t.dug_by = nowms(), "push" end
         -- THE STATUS BRANCH, DECIDED THE SECOND IT IS HEARD (#1886): a chest that is dug
         -- and has no squad of ours out is CLAIMED, never marched at. A chest whose squad
@@ -3431,7 +3446,7 @@ local function harvest(cmd, obj)
     -- `claim_only`, and the step claims it without ever pretending a squad was sent.
     -- That is exactly the path that took a live chest on 2026-08-08 by hand.
     A.seen = A.seen or {}
-    if not known and not A.seen[key] then
+    if not known and not spent and not A.seen[key] then
       A.seen[key] = nowms()
       A.targets = A.targets or {}
       A.targets[#A.targets+1] = {uuid = u, pid = 0, x = 0, y = 0, server = 0,
@@ -3469,7 +3484,9 @@ local function harvest(cmd, obj)
   if uuid == nil or x == nil or y == nil then return end
   local key = tostring(uuid)
   A.seen = A.seen or {}
-  if A.seen[key] then return end
+  -- …and the same ledger here: a share is posted by a PERSON, often minutes after the
+  -- chest was taken (#1898).
+  if A.seen[key] or (A.spent or {})[key] ~= nil then return end
   A.seen[key] = nowms()
   local pid = 0
   pcall(function()
@@ -3741,13 +3758,24 @@ TREASURE_HOME_STATUS = 4
 #: only armed for a deadline that is actually near, so a chest an hour out costs nothing.
 TREASURE_DUE_ARM_MS = 5000
 
-#: The server's own answers to a claim, and both are VERDICTS rather than noise (#1318).
-#: `801348 claim repeat` means this account has already had this chest — which is a paid
-#: chest seen from the other side, and the one honest end to a retry loop when the reward
-#: window was missed. `801354 player not in same alliance` means the chest was never ours
-#: to take. Either way the target is finished; anything else is a refusal worth retrying.
-TREASURE_ERR_CLAIM_REPEAT = 801348
-TREASURE_ERR_NOT_IN_ALLIANCE = 801354
+#: The server's own answers to a claim, and FOUR of them are VERDICTS rather than noise
+#: (#1318, #1898). `801348 claim repeat` means this account has already had this chest —
+#: which is a paid chest seen from the other side, and the one honest end to a retry loop
+#: when the reward window was missed. `801354 player not in same alliance` means the chest
+#: was never ours to take. `E100123 treasure is null` is the server saying the chest does
+#: not exist any more: taken, expired, or gone from the map. `detect_dig_err_01 treasure
+#: not complete` is the opposite verdict — the chest is there and the dig is NOT over, so
+#: whatever stamped it «dug» was wrong. Anything else is a refusal worth retrying.
+#:
+#: THEY ARE STRINGS, AND THAT IS THE WHOLE OF #1898. Two of the four do not parse as
+#: numbers, and the code that read them did `tonumber(code)` — so `E100123` arrived as
+#: `nil` and was dropped in silence, and one live client sent 25 claims over 287 s at a
+#: chest the server had already said was not there, every single reply saying so. A code
+#: is compared as text from here on, whatever shape it has.
+TREASURE_ERR_CLAIM_REPEAT = "801348"
+TREASURE_ERR_NOT_IN_ALLIANCE = "801354"
+TREASURE_ERR_TREASURE_NULL = "E100123"
+TREASURE_ERR_NOT_COMPLETE = "detect_dig_err_01"
 
 #: How often the in-game watch looks while a chest is live, and while none is, in seconds.
 #: The busy period is what the acceptance criterion rests on — «ВСЕ сокровища всегда забраны
@@ -3938,7 +3966,7 @@ D.__lw_treasure_auto.tick = function()
   local reward = false
   pcall(function() reward = UIManager.Instance:IsWindowOpen(
     UIWindowNames.UIGiftPackageRewardGet) and true or false end)
-  local live, claimed, paid, expired, waiting, resent = 0, 0, 0, 0, 0, 0
+  local live, claimed, paid, expired, waiting, resent, gone = 0, 0, 0, 0, 0, 0, 0
   -- THE THIRD WATCHER OF THE DIG, and the only one that needs nobody to say anything
   -- (#1886). The wire has exactly one hearable dig signal — `push.detect.treasure.claim`,
   -- one per member who finishes — and the map stream that would be the other one is
@@ -3975,12 +4003,28 @@ D.__lw_treasure_auto.tick = function()
     -- so two of the codes are verdicts rather than a line in a log: «claim repeat» is a
     -- chest this account already has, and «not in same alliance» is a chest it never had.
     -- Anything else is a refusal that may mend itself, and the retry ramp keeps trying.
-    local code = tonumber(t.err)
+    local code = (t.err ~= nil) and tostring(t.err) or nil
     t.err = nil
-    if code == %(err_repeat)d then
+    if code == "%(err_repeat)s" then
       t.done, t.why, t.done_at, t.paid = true, "already-had-it", now, now
-    elseif code == %(err_foreign)d then
+    elseif code == "%(err_foreign)s" then
       t.done, t.why, t.done_at = true, "foreign", now
+    elseif code == "%(err_null)s" then
+      -- THE CHEST IS NOT THERE ANY MORE, said by the only thing that can know (#1898).
+      -- Taken, expired, or gone from the map — the server does not say which and it does
+      -- not matter: nothing this errand can send will ever be paid for it, so it leaves
+      -- the work here rather than on the far end of a thirty-minute ttl.
+      t.done, t.why, t.done_at = true, "gone", now
+    elseif code == "%(err_undug)s" then
+      -- THE OPPOSITE VERDICT: the chest is there and the dig is NOT over, so whatever
+      -- stamped it «dug» was wrong. Take the stamp off and put it back on the march path
+      -- if no squad of ours is out — the claim-first branch (#1886) is a guess made off
+      -- `ownerUid`, and this is the server correcting it.
+      t.dug, t.dug_by = nil, nil
+      t.undug = (tonumber(t.undug) or 0) + 1
+      if t.sent == nil and not t.claim_only then
+        t.plan, t.tries, t.claimed = "march", 0, nil
+      end
     end
     -- 2. PAID — the reward window, while it is fresh enough to be OURS.
     if not t.done and t.claimed ~= nil and reward
@@ -3994,6 +4038,17 @@ D.__lw_treasure_auto.tick = function()
     end
     if t.done then
       t.state = tostring(t.why)
+      -- THE LEDGER ALL THREE DOORS READ (#1898). A finished chest stays in `targets` for
+      -- a ttl and no longer, and the doors that queue one — the dig feed, the chat share
+      -- and the look — would each hand it back afterwards as news. This is the one place
+      -- that remembers a uuid is spent, and it outlives the prune.
+      -- …for a VERDICT only. «expired» is this errand's own guess that a chest has been
+      -- on the list too long, and a guess must stay re-openable: if the map still draws
+      -- the chest, the look is right and the guess was wrong.
+      if t.why ~= "expired" then
+        A.spent = A.spent or {}
+        A.spent[tostring(t.uuid)] = tostring(t.why)
+      end
       if t.why == "paid" or t.why == "already-had-it" then
         paid = paid + 1
         A.paid_all = (tonumber(A.paid_all) or 0) + 1
@@ -4007,7 +4062,17 @@ D.__lw_treasure_auto.tick = function()
           A.lag_ms = t.lag
           if t.lag > (tonumber(A.lag_worst) or -1) then A.lag_worst = t.lag end
         end
-      elseif t.why == "expired" then expired = expired + 1 end
+      elseif t.why == "expired" then expired = expired + 1
+      -- WRITTEN OFF BECAUSE THE GAME SAID SO, counted apart from a chest that merely ran
+      -- out of time here. The two look the same in a queue and mean opposite things: one
+      -- is the errand giving up, the other is the errand being told.
+      elseif t.why == "gone" or t.why == "tile-gone" or t.why == "foreign" then
+        gone = gone + 1
+        A.gone_all = (tonumber(A.gone_all) or 0) + 1
+        A.gone_last = tostring(t.why) .. " @[" .. tostring(t.x) .. ","
+          .. tostring(t.y) .. "]"
+        A.gone_last_at = now
+      end
     else
       live = live + 1
       -- 4. WHERE OUR OWN SQUAD IS. The march object is the only thing that can say, and
@@ -4182,6 +4247,7 @@ D.__lw_treasure_auto.tick = function()
   end
   A.t_live, A.t_claimed, A.t_paid = live, claimed, paid
   A.t_expired, A.t_waiting, A.t_resent = expired, waiting, resent
+  A.t_gone = gone
   -- …AND THE SAME NUMBERS ADDED UP FOR WHOEVER IS HOLDING A PRESS. A step asks this
   -- function twice — once to resolve the queue before it spends a squad on it, once to
   -- claim what became takeable — and the second pass would otherwise report zero of what
@@ -4191,13 +4257,16 @@ D.__lw_treasure_auto.tick = function()
   A.s_paid = (tonumber(A.s_paid) or 0) + paid
   A.s_expired = (tonumber(A.s_expired) or 0) + expired
   A.s_resent = (tonumber(A.s_resent) or 0) + resent
+  A.s_gone = (tonumber(A.s_gone) or 0) + gone
   A.claim_sent = claimed
 end
 ''' % {"ttl": int(TREASURE_TARGET_TTL_SEC), "grace": int(TREASURE_ARRIVE_GRACE_SEC),
        "ramp": ", ".join(str(int(ms)) for ms in TREASURE_CLAIM_RAMP_MS),
        "paid_win": int(TREASURE_PAID_WINDOW_SEC) * 1000,
-       "err_repeat": int(TREASURE_ERR_CLAIM_REPEAT),
-       "err_foreign": int(TREASURE_ERR_NOT_IN_ALLIANCE),
+       "err_repeat": TREASURE_ERR_CLAIM_REPEAT,
+       "err_foreign": TREASURE_ERR_NOT_IN_ALLIANCE,
+       "err_null": TREASURE_ERR_TREASURE_NULL,
+       "err_undug": TREASURE_ERR_NOT_COMPLETE,
        "dig_status": int(TREASURE_DIG_STATUS), "home_status": int(TREASURE_HOME_STATUS),
        "settle": int(TREASURE_MARCH_SETTLE_SEC) * 1000,
        "resends": int(TREASURE_RESEND_TRIES), "arm_ms": int(TREASURE_DUE_ARM_MS),
@@ -4407,7 +4476,7 @@ def treasure_reaper_state() -> str:
     return (
         "(function() local A = DataCenter.__lw_treasure_auto "
         "if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 "
-        "lag=-1 worst=-1 eye=never' end "
+        "lag=-1 worst=-1 gone=0 eye=never' end "
         "return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) "
         ".. ' ticks=' .. tostring(A.ticks or 0) "
         ".. ' live=' .. tostring(A.t_live or 0) "
@@ -4418,6 +4487,10 @@ def treasure_reaper_state() -> str:
         # «услышали — собрали», the whole distance, which is the sentence the player used
         # and the one `lag` alone cannot answer (#1886).
         ".. ' hear=' .. tostring(A.hear_ms or -1) "
+        # …and how many chests were struck out because the GAME said they are not there
+        # (#1898). A watch that claims and is never paid looks identical to one that is
+        # working, and the difference is this number.
+        ".. ' gone=' .. tostring(A.gone_all or 0) "
         ".. ' eye=' .. tostring(A.look_why or 'never') end)()"
     )
 
@@ -4566,7 +4639,7 @@ def treasure_auto_step() -> str:
         # THE WATCH RUNS FIRST, and this is not a nicety: a chest whose minutes on the map
         # are over is written off by the tick, and a step that built its list before asking
         # would send a squad at a tile that expired a minute ago.
-        "A.s_claimed, A.s_paid, A.s_expired, A.s_resent = 0, 0, 0, 0 "
+        "A.s_claimed, A.s_paid, A.s_expired, A.s_resent, A.s_gone = 0, 0, 0, 0, 0 "
         "if A.tick ~= nil then pcall(A.tick) end "
         "local live = {} "
         "for _, t in ipairs(A.targets or {}) do if not t.done then "
@@ -4664,6 +4737,16 @@ def treasure_auto_step() -> str:
         # that had been and come back.
         ".. ((tonumber(A.s_resent) or 0) > 0 "
         "and (' resent=' .. tostring(A.s_resent)) or '') "
+        # A TARGET STRUCK OUT BECAUSE THE GAME SAID IT IS NOT THERE, said in words rather
+        # than left as a chest that quietly stopped being mentioned (#1898). Silence is how
+        # this bug lasted: the server answered «treasure is null» twenty-five times and the
+        # only trace was one floating `server-said=` that named no chest.
+        ".. ((tonumber(A.s_gone) or 0) > 0 "
+        "and (' gone=' .. tostring(A.s_gone)) or '') "
+        ".. ((A.gone_last and now > 0 and (tonumber(A.gone_last_at) or 0) > 0 "
+        "and now - A.gone_last_at < 60000) "
+        "and (' dropped=[' .. tostring(A.gone_last) "
+        ".. ' — the chest is not there any more, taking it off the list]') or '') "
         ".. ' free=' .. tostring(#free) .. ' busy=' .. tostring(busy) "
         ".. ' empty=' .. tostring(dry) "
         ".. (A.asked and ' asked-for-army' or '') "
@@ -5085,13 +5168,28 @@ local function get(o, k)
 end
 local x0, x1 = math.max(0, cx - box), math.min(size - 1, cx + box)
 local y0, y1 = math.max(0, cy - box), math.min(size - 1, cy + box)
+-- WHICH OF THE CHESTS WE ARE WORKING THIS BOX CAN SPEAK FOR (#1898). A tile the client
+-- holds and that carries no treasure is the map saying the chest is not there — the
+-- second, wire-free half of «цели больше нет». It is only trustworthy for a tile the
+-- point manager ANSWERED about: an unloaded tile answers `nil` too, and reading that as
+-- «gone» would throw away a live chest the camera merely walked away from. So the answer
+-- is recorded per pid, and only for the handful of pids this errand is tracking.
+local want, A0 = {}, DataCenter.__lw_treasure_auto
+if A0 ~= nil then
+  for _, t in ipairs(A0.targets or {}) do
+    if not t.done and (tonumber(t.pid) or 0) > 0 then want[tonumber(t.pid)] = true end
+  end
+end
+S.checked = {}
 for ty = y0, y1 do
   local base = ty * size + 1
   for tx = x0, x1 do
     local ok, info = pcall(function() return pm:GetPointInfo(base + tx) end)
     if ok then
       S.tiles = S.tiles + 1
-      if info ~= nil then S.known = S.known + 1 end
+      if info ~= nil then S.known = S.known + 1
+        if want[base + tx] then S.checked[base + tx] = true end
+      end
       if info ~= nil and (tonumber(get(info, "PointType")) or -1) == %d then
         local uuid = get(info, "uuid")
         if uuid ~= nil and tostring(uuid) ~= "0" then
@@ -5182,10 +5280,15 @@ def treasure_scan_harvest() -> str:
         "now = math.floor((tonumber(ChatInterface.getServerTime()) or 0) * 1000) end) end "
         "local mine = '' "
         "pcall(function() mine = tostring(LuaEntry.Player.allianceId or '') end) "
-        "local fresh, grown, known, foreign = 0, 0, 0, 0 "
+        "local fresh, grown, known, foreign, spent = 0, 0, 0, 0, 0 "
         "for key, f in pairs((S or {}).found or {}) do "
         "if mine ~= '' and tostring(f.alliance or '') ~= '' "
         "and tostring(f.alliance) ~= mine then foreign = foreign + 1 "
+        # A CHEST THIS ERRAND HAS ALREADY FINISHED WITH IS NOT A FINDING (#1898). The look
+        # reads the ground, and the ground goes on drawing a chest this account has been
+        # paid for. Without the ledger the third door hands it back as news the moment the
+        # prune drops it from the list, and a paid chest is claimed all over again.
+        "elseif (A.spent or {})[key] ~= nil then spent = spent + 1 "
         "else "
         "local seen_here = nil "
         "for _, t in ipairs(A.targets or {}) do "
@@ -5216,8 +5319,35 @@ def treasure_scan_harvest() -> str:
         "dug = (f.dug and now or nil)} "
         "A.news = (A.news or 0) + 1 "
         "fresh = fresh + 1 end end end "
+        # A CHEST THE MAP CAN SPEAK FOR AND DOES NOT MENTION IS GONE (#1898). The wire
+        # says it best — `E100123 treasure is null` — but only in answer to a claim, and a
+        # chest waiting for a squad is never claimed. This is the same fact read off the
+        # ground: the look marked every tracked tile the point manager ANSWERED about, and
+        # a tracked chest whose tile answered and holds no treasure is not there any more.
+        # An unloaded tile is not an answer and says nothing, which is the whole reason the
+        # look records which tiles it got.
+        "local vanished = 0 "
+        "local checked = (S or {}).checked or {} "
+        "local found = (S or {}).found or {} "
+        "for _, t in ipairs(A.targets or {}) do "
+        "if not t.done and (tonumber(t.pid) or 0) > 0 "
+        "and checked[tonumber(t.pid)] and found[tostring(t.uuid)] == nil "
+        # …unless a claim of ours is still in the air. The server's own answer is the
+        # better verdict and it is seconds away; a tile that vanished because the chest was
+        # just paid for would otherwise be filed as a loss.
+        "and (now == 0 or now - (tonumber(t.claimed) or 0) > 5000) then "
+        "t.done, t.why, t.done_at = true, 'tile-gone', now "
+        "t.state = 'tile-gone' "
+        "A.spent = A.spent or {} A.spent[tostring(t.uuid)] = 'tile-gone' "
+        "A.gone_all = (tonumber(A.gone_all) or 0) + 1 "
+        "A.gone_last = 'tile-gone @[' .. tostring(t.x) .. ',' .. tostring(t.y) .. ']' "
+        "A.gone_last_at = now "
+        "A.s_gone = (tonumber(A.s_gone) or 0) + 1 "
+        "vanished = vanished + 1 end end "
         "local looked = tonumber((S or {}).tiles) or 0 "
-        "local ours = fresh + grown + known "
+        # …and a chest already finished with still COUNTS as one of ours on the ground:
+        # `found=` is what the box holds, not what is left to do about it.
+        "local ours = fresh + grown + known + spent "
         "A.scan_at = now "
         # The three numbers, kept as numbers as well as said in a sentence — the panel
         # draws them apart from each other and must not have to parse a line to do it.
@@ -5227,7 +5357,10 @@ def treasure_scan_harvest() -> str:
         "A.scan_report = 'found=' .. tostring(ours + foreign) "
         ".. ' ours=' .. tostring(ours) .. ' foreign=' .. tostring(foreign) "
         ".. ' (new=' .. tostring(fresh) .. ' upgraded=' .. tostring(grown) "
-        ".. ' already-queued=' .. tostring(known) .. ')' "
+        ".. ' already-queued=' .. tostring(known) "
+        ".. (spent > 0 and (' done-with=' .. tostring(spent)) or '') "
+        # …and what the ground itself struck out this look, in its own word.
+        ".. (vanished > 0 and (' vanished=' .. tostring(vanished)) or '') .. ')' "
         ".. ' waypoints=' .. tostring((S or {}).done or 0) "
         ".. '/' .. tostring((S or {}).n or 0) "
         ".. ' tiles=' .. tostring(looked) "
