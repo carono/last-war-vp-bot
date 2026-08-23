@@ -1,0 +1,135 @@
+# Refreshing the day's own secret tasks, and sending every squad at once (#1902, #1903)
+
+The Secret Command Post has a fourth thing behind it that the panel could not do: the
+player's OWN tasks. Nine of them, four out on errands and five standing idle on the
+reading this was written from; the idle ones can be re-rolled for a price, lifted to UR
+in one press for a bigger price, and sent out all together in one message.
+
+Everything below was read off the live client. Two of the three prices were not what
+they were assumed to be, and one of the getters that looks like a price is an item id —
+which is the whole reason this file exists.
+
+## What the two commands are
+
+| what | message | payload |
+|---|---|---|
+| refresh (ordinary and mega) | `hero.dispatch.refresh` — `MsgDefines.DispatchTaskRefresh` | `PutInt costType`, `PutInt isSuper` |
+| send every squad | `hero.dispatch.batch.start` — `MsgDefines.DispatchBatchStart` | `PutSFSArray "list"` of `{uuid: long, heroList: LongArray}` |
+
+Nearby, and not used here: `hero.dispatch.batch.reward` (`PutLongArray "uuidList"` — the
+rewards in one press) and `hero.dispatch.list` / `hero.dispatch.alliance.list`, which are
+the reads.
+
+The batch send is pressed out of `UIDispatchTaskSuperPopupView:OnConfirmBtnClick`, which
+gates on `SeasonUtil.IsInLandlordActAndOnCenterServer` and `LuaEntry.Player:IsInBlackRange`
+first and, after the send, closes itself and moves the world camera to the tasks' point
+(`SceneUtils.CheckCanGotoWorld` + `GoToUtil.MoveToWorldPoint`). The camera move is the
+button's own doing and cannot be prevented from outside it.
+
+## The prices, measured
+
+```
+GetDispatchSetting('refresh_item')   1520002      the item an ordinary refresh is paid in
+GetTaskRefreshSetting()              100          diamonds, when the items have run out
+GetTaskSuperRefreshSetting()         1520002      NOT a price — the same item id again
+CheckSuperRefreshOpen()              true
+```
+
+The window says the rest of it. `refreshBtn` carries `item/itemCount = "<have>/<cost>"` —
+live, `"21/1"`: twenty-one «Секретных приказов» in the bag, one per refresh. The mega
+refresh's price is **only drawn**, in the confirm dialog its own button raises:
+
+```
+UIDispatchTaskRefreshConfirm
+  panel/bg/txtTitle   «Мега-напоминание об обновлении»
+  panel/bg/TipText    «Это мегаобновление улучшит <b>5</b> ваших секретных заданий
+                       с не UR до UR редкости…»
+  panel/bg/CostTitle  «Это обновление стоит»
+  …/item_1/clickBtn/NameText  «Секретный приказ»
+  …/item_1/clickBtn/NumText   20            ← a legacy UI Text, not a TMP one
+```
+
+Five idle non-UR tasks, twenty orders: **about four orders per task**, so the price
+appears to scale with what it would improve. At three tasks that is twelve orders, and
+twelve orders at the diamond rate of 100 is 1 200 — which is exactly the number the
+operator quoted for a mega refresh, from the other side. One measurement, so it is a
+reading and not yet a law; the recipe never assumes it, because it reads the dialog.
+
+**`GetTaskSuperRefreshSetting()` answering `1520002` is the trap this file is for.** It
+is the same number `GetDispatchSetting('refresh_item')` gives, i.e. an item id, and
+reading it as diamonds is how a plan comes to spend a million and a half of them.
+
+## Why the presses go through the game's own buttons
+
+`costType` decides whether a refresh is paid for with the item or with diamonds, and its
+values are written down nowhere that can be read from the VM. Building the frame by hand
+is therefore a guess between two currencies, and the player pays for the wrong guess.
+The window's button already knows which of the two the player can afford — it spends an
+order while there is one and raises a cost dialog when there is not — and the batch
+dispatch's popup arrives with a squad already chosen for every task, which is the one
+part a hand-built frame would have to invent.
+
+So the ability presses `refreshBtn`, `superRefreshBtn` + its dialog's `ConfirmBtn`, and
+`superDispatchBtn` + its popup's confirm, all through `Button.onClick:Invoke()` on the
+transform found by name under the window's root. Reading stays headless.
+
+## Reading the state without a window
+
+```lua
+local M = DataCenter.ActDispatchTaskDataManager
+for _, v in pairs(M:GetAllSingleTasks()) do
+    v.cfg:getValue('color')     -- 5 = UR (the four running ones), 3 = below it
+    v.cfg:getValue('level')     -- 7, and `task_star` says the same
+    v.cfg:getValue('is_special')-- the star
+    v.completionTime            -- > 0 while a squad is out on it
+end
+M:GetSingleTaskIngCount()       -- 4 live
+M:GetSingleTaskNormalCount()    -- 5 live
+M:GetMaxMarch()                 -- 9.0 live (a float)
+```
+
+The orders in the bag are `DataCenter.ItemData.ItemInfos` summed over the stacks whose
+`itemId` is `refresh_item` (docs/research/inventory.md); the diamonds are
+`LuaEntry.Player.gold`. There is no `BagDataManager` and no `GetItemNum` on this client.
+
+## `tonumber` is not safe here, and it fails silently
+
+Measured while the price above kept reading zero:
+
+```
+local v = M:GetTaskRefreshSetting()   -- 100, type(v) == 'number'
+tonumber(v)                           -- raises: bad argument #1 to 'tonumber'
+                                      --         (string expected, got number)
+```
+
+The game hardens `tonumber` against non-strings. Every read in the panel's Lua lives
+inside a `pcall`, so the raise is **silent**: the local keeps its default and the recipe
+reports «price 0» — «free» — about a press that costs diamonds. Values the panel parked
+itself (plain Lua numbers) go through `tonumber` unharmed; values coming back from the
+game do not. `lua_actions._NUM` is the answer: `v + 0` first, `tonumber` only as the
+fallback for a genuine string.
+
+## What the panel does with it
+
+One scenario, `actions/refresh_secret_tasks.md`, holds the rule and every press; the
+reading half is `actions/read_secret_post.md`. The rule the operator gave, in their own
+words, is «spend orders while there are orders; when they run out spend diamonds; take
+the mega refresh when the orders cover it, or cover it all but a small top-up» — and only
+the IDLE tasks are counted, because a task with a squad out cannot be re-rolled and the
+mega refresh skips it anyway.
+
+The «Свои задания» page of the Secret Command Post tab draws the readings, offers the
+four knobs (`keep`, `use_diamonds`, `diamond_budget`, `mega`/`dispatch`) and plays the
+scenario; the phone gets the same card and the same press.
+
+## How to re-read any of this
+
+Dev recipes through the panel's web API, so the client is never touched by hand:
+
+```
+POST /api/actions/run   {"profile": "<name>", "name": "<a recipe under actions/dev/>"}
+```
+
+A window's root GameObject is `w.gameObject` on a window that has finished loading and
+`nil` on one that has not — `w.View.gameObject` answers either way, and a probe that
+skipped the fallback read «no go» about a window plainly on screen.

@@ -12760,3 +12760,327 @@ def golden_arrived() -> str:
     return ("(function() " + _GOLD_P +
             "local due = tonumber(p.eta_ms) if due == nil then return 1 end "
             "return ((%s) >= due) and 1 or 0 end)()" % _GAME_NOW_MS)
+
+
+# --------------------------------------------------------------------------
+# The secret command post: refreshing the day's own tasks, and sending the
+# squads out in one press (#1903)
+# --------------------------------------------------------------------------
+# THREE ABILITIES OVER ONE WINDOW, and the prices are the reason they are here rather
+# than headless. Measured live before a line of this was written:
+#
+#   * an ordinary refresh costs ONE «Секретный приказ» — item `refresh_item`
+#     (`GetDispatchSetting`), and the window's own button says so: `refreshBtn` carries
+#     `item/itemCount = "<have>/<cost>"`. When the items run out the same press asks for
+#     DIAMONDS instead, at `GetTaskRefreshSetting()` each.
+#   * the mega refresh costs a HANDFUL of the same item — twenty of them against five
+#     non-UR tasks on the reading this was written from — and the number is not in any
+#     getter: it is drawn in the confirm dialog the button raises
+#     (`UIDispatchTaskRefreshConfirm`, `item_1/clickBtn/NumText`). So the cost is READ
+#     from the dialog and the dialog is closed unpressed when the rule says no.
+#   * `GetTaskSuperRefreshSetting()` is NOT a price. It answers the same number as
+#     `GetDispatchSetting('refresh_item')` — an item id — and reading it as diamonds is
+#     how a plan ends up spending 1 520 002 of them.
+#
+# AND THAT IS WHY THESE PRESS THE GAME'S OWN BUTTONS. `hero.dispatch.refresh` carries a
+# `costType` whose values are not written down anywhere we can read, so building the
+# frame by hand is a guess between «spend a ticket» and «spend diamonds» — a guess the
+# player pays for. The window's button already knows which the player can afford, raises
+# the diamond dialog only when the tickets are gone, and picks the heroes for the batch
+# dispatch (`UIDispatchTaskSuperPopup` fills every task's squad by itself). Pressing it
+# is the cheap, honest version of all three.
+
+#: `tonumber` IS NOT SAFE ON THIS CLIENT, and finding that out cost an afternoon
+#: (#1903). The game's Lua hardens it: `tonumber(v)` where `v` is already a number
+#: RAISES — «bad argument #1 to 'tonumber' (string expected, got number)» — measured on
+#: `GetTaskRefreshSetting()`, which answers a plain `100` of type `number` and blows up
+#: the moment it is handed to `tonumber`. Inside a `pcall`, which is where every read in
+#: this file lives, that failure is SILENT: the local keeps its default and the recipe
+#: reports «price 0», i.e. «free», about a press that costs diamonds.
+#:
+#: So every number that comes back from the game goes through this instead: arithmetic
+#: first (`v + 0`, which works on both), `tonumber` only as the fallback for a genuine
+#: string, and zero when neither answers.
+_NUM = ("local function _num(v) if v==nil then return 0 end "
+        "local ok,n=pcall(function() return v+0 end) if ok and n~=nil then return n end "
+        "ok,n=pcall(function() return tonumber(v) end) if ok and n~=nil then return n end "
+        "return 0 end ")
+
+#: The window every press below lives in.
+_POST_WIN = "UIWindowNames.UIDispatchTaskMain"
+
+#: Fetch a window's root GameObject. `w.gameObject` answers on a window that has
+#: finished loading and `nil` on one that has not — the view underneath it answers
+#: either way, and a probe that skipped the fallback read «no go» about a window that
+#: was plainly on screen.
+_UI_ROOT = (
+    "local function _root(n) local w=UIManager.Instance:GetWindow(n) "
+    "if not w then return nil end local go=nil "
+    "pcall(function() go=w.gameObject end) "
+    "if go==nil then pcall(function() go=w.View.gameObject end) end "
+    "return go end ")
+
+#: Press a button by the NAME of its own transform, anywhere under a root. Inactive
+#: nodes included on purpose: the «мега» pair lives in a panel that is only shown after
+#: another press, and invoking the handler works whether or not it is on screen.
+_UI_PRESS = (
+    "local function _press(root,name) if root==nil then return false end "
+    "local trs=root:GetComponentsInChildren(typeof(CS.UnityEngine.RectTransform),true) "
+    "for i=0,trs.Length-1 do if tostring(trs[i].name)==name then "
+    "local b=trs[i]:GetComponent(typeof(CS.UnityEngine.UI.Button)) "
+    "if b~=nil then b.onClick:Invoke() return true end end end return false end ")
+
+#: The first text under a root whose path matches, with the whitespace squeezed out.
+_UI_TEXT = (
+    "local function _text(root,want) if root==nil then return nil end "
+    "local cs={} local a=root:GetComponentsInChildren(typeof(CS.TMPro.TextMeshProUGUI),true) "
+    "for i=0,a.Length-1 do cs[#cs+1]=a[i] end "
+    "local b=root:GetComponentsInChildren(typeof(CS.UnityEngine.UI.Text),true) "
+    "for i=0,b.Length-1 do cs[#cs+1]=b[i] end "
+    "for _,c in ipairs(cs) do local p='' local tr=c.transform local d=0 "
+    "while tr and d<4 do p=tr.name..'/'..p tr=tr.parent d=d+1 end "
+    "if p:find(want,1,true) then local t=tostring(c.text) "
+    "if t~='' then return (t:gsub('%s+','')) end end end return nil end ")
+
+#: The item an ordinary refresh is paid for in — asked of the game, never spelled out.
+_REFRESH_ITEM = ("(function() local ok,v=pcall(function() "
+                 "return DataCenter.ActDispatchTaskDataManager:GetDispatchSetting('refresh_item') end) "
+                 "local n=0 if ok and v~=nil then pcall(function() n=v+0 end) end "
+                 "return n end)()")
+
+#: One walk over the player's OWN tasks plus the two purses that pay for a refresh.
+#:
+#: `color` is the quality, off the task's config row rather than off its `cfgId` — the
+#: digits of the id lie about the level and say nothing about the rarity. UR reads as 5
+#: on the live client, and anything ABOVE it is treated as UR too: a rarity nobody has
+#: seen yet must not read as «not UR» and get re-rolled away.
+#:
+#: A task with a `completionTime` is out on its errand. Those are the ones the mega
+#: refresh skips and the ones the batch dispatch has nothing to send, so every count
+#: here is about the IDLE ones — which is also how the person reading the panel counts
+#: them («считать только свободные задания»).
+_POST_SCAN = (
+    _NUM +
+    "local M=DataCenter.ActDispatchTaskDataManager "
+    "local idle,nonur,ur,run=0,0,0,0 "
+    "local ok,tasks=pcall(function() return M:GetAllSingleTasks() end) "
+    "if ok and type(tasks)=='table' then for _,v in pairs(tasks) do "
+    "local col=0 pcall(function() col=_num(v.cfg:getValue('color')) end) "
+    "local ct=_num(v.completionTime) "
+    "if ct>0 then run=run+1 else idle=idle+1 "
+    "if col>=5 then ur=ur+1 else nonur=nonur+1 end end end end "
+    "local item=" + _REFRESH_ITEM + " local tickets=0 "
+    "pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+    "if _num(s.itemId)==item then tickets=tickets+_num(s.count) end end end) "
+    "local gold=0 pcall(function() gold=_num(LuaEntry.Player.gold) end) "
+    "local price=0 pcall(function() price=_num(M:GetTaskRefreshSetting()) end) "
+    "local superopen=0 pcall(function() if M:CheckSuperRefreshOpen() then superopen=1 end end) "
+    "local free=0 pcall(function() free=_num(M:GetSingleTaskNormalCount()) end) "
+    "local ing=0 pcall(function() ing=_num(M:GetSingleTaskIngCount()) end) "
+    "local maxm=0 pcall(function() maxm=math.floor(_num(M:GetMaxMarch())) end) ")
+
+#: How many diamonds this run is still allowed to spend: the budget it was armed with,
+#: less what the purse has actually gone down by. Read off the PURSE rather than counted
+#: in the recipe, because a press that raised a dialog and was cancelled spends nothing
+#: and a tally kept by hand would have charged for it anyway.
+_GOLD_LEFT = (
+    "local budget=tonumber(M.__lw_ref_budget) or 0 "
+    "local gold0=tonumber(M.__lw_ref_gold0) or gold "
+    "local spent=gold0-gold if spent<0 then spent=0 end "
+    "local goldleft=budget-spent if goldleft<0 then goldleft=0 end "
+    "if (tonumber(M.__lw_ref_gold) or 0)==0 then goldleft=0 end ")
+
+
+def secret_post_arm(keep: int = 3, use_gold: int = 1, budget: int = 1200) -> str:
+    """Park the rule the presses below read, and stamp the purse the budget is measured from.
+
+    `TAP` takes no arguments, so the three numbers a person can change — the non-UR
+    threshold, whether diamonds may be spent at all, and how many of them — travel here
+    and the presses read them back. The purse is stamped at the same moment: everything
+    the run is allowed to spend is «what the wallet has gone down by since this line»,
+    which costs nothing to keep true and cannot over-charge for a dialog that was
+    cancelled.
+    """
+    return ("pcall(function() " + _NUM + "local M=DataCenter.ActDispatchTaskDataManager "
+            "M.__lw_ref_keep=" + str(int(keep)) + " "
+            "M.__lw_ref_gold=" + str(int(use_gold)) + " "
+            "M.__lw_ref_budget=" + str(int(budget)) + " "
+            "M.__lw_ref_mega_cost=-1 M.__lw_ref_mega_tasks=0 "
+            "local g=0 pcall(function() g=_num(LuaEntry.Player.gold) end) "
+            "M.__lw_ref_gold0=g end)")
+
+
+def secret_post_scan() -> str:
+    """Walk the own-task list once and park every number the recipe branches on.
+
+    A snapshot rather than nine separate reads, for the reason
+    :func:`secret_task_assist_scan` gives: a task that finishes between two of them
+    would otherwise be counted as idle by one question and as running by the next.
+    """
+    return ("pcall(function() " + _POST_SCAN + _GOLD_LEFT +
+            "M.__lw_ref_idle=idle M.__lw_ref_nonur=nonur M.__lw_ref_ur=ur "
+            "M.__lw_ref_run=run M.__lw_ref_tickets=tickets M.__lw_ref_goldnow=gold "
+            "M.__lw_ref_price=price M.__lw_ref_super=superopen M.__lw_ref_free=free "
+            "M.__lw_ref_ing=ing M.__lw_ref_march=maxm M.__lw_ref_goldleft=goldleft "
+            'CS.UnityEngine.Debug.LogError("ACT post_scan idle="..tostring(idle)'
+            '.." nonur="..tostring(nonur).." ur="..tostring(ur).." run="..tostring(run)'
+            '.." tickets="..tostring(tickets).." price="..tostring(price)'
+            '.." goldleft="..tostring(goldleft).." march="..tostring(ing).."/"..tostring(maxm)) end)')
+
+
+def secret_post_open() -> str:
+    """Open «Секретный командный пункт» — the window all three presses live in."""
+    return ("pcall(function() UIManager.Instance:OpenWindow(" + _POST_WIN + ") end)")
+
+
+def secret_post_close() -> str:
+    """Close the command post, and any dialog of its own still standing."""
+    return ("pcall(function() local mgr=UIManager.Instance "
+            "for _,n in ipairs({UIWindowNames.UIDispatchTaskRefreshConfirm, "
+            "UIWindowNames.UIDispatchTaskSuperPopup, " + _POST_WIN + "}) do "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+            "if ok and open then local w=mgr:GetWindow(n) "
+            "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end "
+            "end end end)")
+
+
+def secret_post_refreshes_left() -> str:
+    """Lua *expression* -> 1 while an ordinary refresh is still owed, else 0.
+
+    The button's `count_lua`, re-read by `xall` between presses, and the whole of the
+    rule's first half in one place:
+
+      * nothing at all while the idle non-UR tasks are already down to the threshold;
+      * a ticket pays for the next one whenever there is a ticket;
+      * otherwise diamonds, and only while the run is allowed to spend them AND the
+        budget still covers one at the game's own price.
+
+    One rather than a count, exactly like the robbery's: a refresh re-rolls the idle
+    tasks and how many come back non-UR is the server's business, so «how many more
+    presses» cannot be known in advance and each press is decided on what the last one
+    actually did.
+    """
+    return ("(function() " + _POST_SCAN + _GOLD_LEFT +
+            "local keep=tonumber(M.__lw_ref_keep) or 0 "
+            "if nonur<=keep then return 0 end "
+            "if tickets>0 then return 1 end "
+            "if price>0 and goldleft>=price then return 1 end "
+            "return 0 end)()")
+
+
+def secret_post_refresh_press() -> str:
+    """Press the window's own «Обновить» — and answer the dialog the LAST press raised.
+
+    Two jobs in one chunk because `xall` cannot interleave two buttons: when the tickets
+    run out the game does not refresh, it raises a cost dialog, and the answer to that
+    dialog is the next thing that has to happen. So a press that finds one standing
+    settles it first — confirmed while the rule still allows diamonds, cancelled the
+    moment it does not — and presses «Обновить» only on a clear screen.
+
+    Nothing here decides what is SPENT: the game's own button pays with a ticket while
+    there is one and asks about diamonds when there is not, which is the whole reason
+    this is a press rather than a `hero.dispatch.refresh` built by hand.
+    """
+    return ("pcall(function() " + _UI_ROOT + _UI_PRESS + _POST_SCAN + _GOLD_LEFT +
+            "local mgr=UIManager.Instance "
+            "for _,n in ipairs({UIWindowNames.UICommonConfirm, UIWindowNames.CommonTipConfirm}) do "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+            "if ok and open then local r=_root(n) "
+            "local allow=(goldleft>=price and price>0) "
+            "local hit=false "
+            "if allow then hit=_press(r,'ConfirmBtn') or _press(r,'confirmBtn') or _press(r,'BtnConfirm') end "
+            "if not hit then local w=mgr:GetWindow(n) "
+            "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end "
+            'CS.UnityEngine.Debug.LogError("ACT post_cost dialog=1 paid="..tostring(hit and 1 or 0)) '
+            "return end end "
+            "local root=_root(" + _POST_WIN + ") "
+            "local hit=_press(root,'refreshBtn') "
+            'CS.UnityEngine.Debug.LogError("ACT post_refresh pressed="..tostring(hit and 1 or 0)'
+            '.." nonur="..tostring(nonur).." tickets="..tostring(tickets)) end)')
+
+
+def secret_post_mega_open() -> str:
+    """Press «Мега Обновление» — which raises its confirm dialog and sends NOTHING.
+
+    The dialog is where the send lives (`hero.dispatch.refresh` with `isSuper`), so this
+    is the safe half: it is how the price is found out at all, and the recipe decides
+    afterwards whether to confirm it or close it unpressed.
+    """
+    return ("pcall(function() " + _UI_ROOT + _UI_PRESS +
+            "local hit=_press(_root(" + _POST_WIN + "),'superRefreshBtn') "
+            'CS.UnityEngine.Debug.LogError("ACT post_mega_open pressed="..tostring(hit and 1 or 0)) end)')
+def secret_post_mega_read() -> str:
+    """Read what the mega refresh would cost, and whether the rule lets it be paid.
+
+    Both numbers are DRAWN and not stored: the cost is the item count under the dialog's
+    own cost row and the task count is the number inside its sentence. That is the whole
+    reason this step exists — no getter on the dispatch manager answers either, and the
+    one that looks as though it does (`GetTaskSuperRefreshSetting`) answers an item id.
+
+    The VERDICT is parked beside them rather than left to the recipe: the rule is
+    arithmetic over two purses, and a recipe asking three more questions to do it itself
+    would be answering about a moment that had already passed.
+
+    Parks `-1` for the cost when the dialog is not up, so a recipe that reads it without
+    having opened one does not read «free» — and an unread cost is never affordable.
+    """
+    return ("pcall(function() " + _UI_ROOT + _UI_TEXT + _POST_SCAN + _GOLD_LEFT +
+            "local r=_root(UIWindowNames.UIDispatchTaskRefreshConfirm) "
+            "local cost=-1 local tasks=0 "
+            "if r~=nil then local n=_text(r,'NumText') "
+            "if n~=nil then cost=tonumber((n:gsub('[^%d]',''))) or -1 end "
+            "local tip=_text(r,'TipText') "
+            "if tip~=nil then local d=tip:match('<b>(%d+)</b>') or tip:match('(%d+)') "
+            "tasks=tonumber(d) or 0 end end "
+            "local need=0 local okpay=0 "
+            "if cost>=0 then if tickets>=cost then okpay=1 "
+            "elseif price>0 then need=(cost-tickets)*price "
+            "if need<=goldleft then okpay=1 end end end "
+            "M.__lw_ref_mega_cost=cost M.__lw_ref_mega_tasks=tasks "
+            "M.__lw_ref_mega_ok=okpay M.__lw_ref_mega_gold=need "
+            'CS.UnityEngine.Debug.LogError("ACT post_mega_cost cost="..tostring(cost)'
+            '.." tasks="..tostring(tasks).." ok="..tostring(okpay)'
+            '.." gold="..tostring(need)) end)')
+
+
+def secret_post_mega_confirm() -> str:
+    """Press the confirm dialog's «Подтвердить» — this is the press that spends."""
+    return ("pcall(function() " + _UI_ROOT + _UI_PRESS +
+            "local hit=_press(_root(UIWindowNames.UIDispatchTaskRefreshConfirm),'ConfirmBtn') "
+            'CS.UnityEngine.Debug.LogError("ACT post_mega_done pressed="..tostring(hit and 1 or 0)) end)')
+
+
+def secret_post_mega_cancel() -> str:
+    """Close the confirm dialog unpressed — the answer when the rule says no."""
+    return ("pcall(function() local mgr=UIManager.Instance "
+            "local n=UIWindowNames.UIDispatchTaskRefreshConfirm "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+            "if ok and open then local w=mgr:GetWindow(n) "
+            "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end "
+            "DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_cost=-1 end)")
+
+
+def secret_post_dispatch_open() -> str:
+    """Press «Мега развертывание» — the popup that fills every idle task's squad.
+
+    Nothing is sent yet: the popup picks the heroes (measured live — it arrives with a
+    squad already on every task) and its own confirm is what fires
+    `hero.dispatch.batch.start`. Choosing the heroes is exactly the part a hand-built
+    frame would have to invent, which is why the batch dispatch is a press too.
+    """
+    return ("pcall(function() " + _UI_ROOT + _UI_PRESS +
+            "local hit=_press(_root(" + _POST_WIN + "),'superDispatchBtn') "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_open pressed="..tostring(hit and 1 or 0)) end)')
+
+
+def secret_post_dispatch_confirm() -> str:
+    """Confirm the batch dispatch — one `hero.dispatch.batch.start` for every idle task.
+
+    The camera follows: the game's own handler closes the popup and moves the world view
+    onto the tasks' point. Nothing here can prevent that — it is what the button does —
+    so a recipe that runs this says so out loud.
+    """
+    return ("pcall(function() " + _UI_ROOT + _UI_PRESS +
+            "local r=_root(UIWindowNames.UIDispatchTaskSuperPopup) "
+            "local hit=_press(r,'ConfirmBtn') or _press(r,'confirmBtn') "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_done pressed="..tostring(hit and 1 or 0)) end)')

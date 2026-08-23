@@ -43,6 +43,7 @@ from ...widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
                         font as ui_font)
 from ..base import PanelTab
 from .ghost import GhostOrder
+from .tasks import TasksPane
 
 #: Marker every chunk in tools/lib/lua_actions.py logs under.
 MARKER = "ACT"
@@ -107,6 +108,10 @@ TREASURE_TAKE_ACTION = "take_treasure"
 # point manager at every stop. The errand walks it by itself every few minutes; this is
 # the press for somebody who wants it walked now.
 TREASURE_SCAN_ACTION = "scan_treasures"
+
+#: The player's OWN secret tasks — refresh them by the price rule and send every
+#: squad in one press. The whole ability, gates and all, is in the scenario (#1903).
+TASKS_RUN_ACTION = "refresh_secret_tasks"
 
 
 def _int(value, default: int = 0) -> int:
@@ -1441,7 +1446,10 @@ class CommandPostTab(PanelTab):
         self._by_key = {}
         for key, cls in (("ghost", GhostReconPane),
                          ("shared", SharedMissionsPane),
-                         ("treasure", TreasuresPane)):
+                         ("treasure", TreasuresPane),
+                         # The player's OWN tasks — the fourth thing behind this screen
+                         # in the game, and the only one that spends a currency (#1903).
+                         ("tasks", TasksPane)):
             frame = ttk.Frame(nb)
             nb.add(frame, text=self.rt.t("cmdpost.tab." + key))
             page = cls(self.rt, self, frame)
@@ -1477,7 +1485,7 @@ class CommandPostTab(PanelTab):
         # ahead of this machine's (task #1227/#1228; docs/research/game-clock.md).
         now = game_clock.now_ms() / 1000.0
         cards = [self._web_ghost(coords, now), self._web_shared(coords),
-                 self._web_treasures(coords)]
+                 self._web_treasures(coords), self._web_tasks()]
         # «Отработать сейчас» travels because it is a press and the ability behind it is
         # ONE recipe (#1296, CLAUDE.md «A press travels only when the ability is a
         # scenario»). The ghost robbery beside it still parks its targets with a tool
@@ -1487,7 +1495,17 @@ class CommandPostTab(PanelTab):
                             {"id": "treasure_auto",
                              "label": "cmdpost.treasure.auto"},
                             {"id": "treasure_sweep",
-                             "label": "cmdpost.treasure.sweep"}]}
+                             "label": "cmdpost.treasure.sweep"},
+                            # …and the player's own tasks. The ability behind it is ONE
+                            # recipe with no tool in front of it, so the press travels
+                            # (`CLAUDE.md`); the rule it plays is the one the window's
+                            # page is set to, exactly as the treasure squad is.
+                            {"id": "tasks_run", "label": "cmdpost.tasks.run"}]}
+
+    def _web_tasks(self) -> dict:
+        """«Свои задания» — the readings the last run left, and the rule in one line."""
+        page = self._by_key.get("tasks")
+        return page.web_card() if page is not None else None
 
     def _web_ghost(self, coords, now) -> dict:
         """«Операция Призрак» — what the last scan wrote down, and what will be taken.
@@ -1605,7 +1623,19 @@ class CommandPostTab(PanelTab):
         assembles a step of it.
         """
         if action == "refresh":
+            page = self._by_key.get("tasks")
+            if page is not None:
+                # The other three cards are drawn from FILES and repaint themselves; this
+                # one only knows what a run told it, so «Обновить» plays the reading half
+                # (it opens nothing and spends nothing).
+                page.refresh()
             return {"ok": True}
+        if action == "tasks_run":
+            page = self._by_key.get("tasks")
+            if page is None:
+                return {"error": "unknown"}
+            return {"ok": self.rt.play_async(TASKS_RUN_ACTION, page.args(), tag="web",
+                                             on_result=page.from_run)}
         if action == "treasure_auto":
             page = self._by_key.get("treasure")
             squad = (_int(page._squad_var.get(), TREASURE_SQUADS[0])
@@ -1682,7 +1712,7 @@ class CommandPostTab(PanelTab):
     def _retranslate(self) -> None:
         """Repaint the inner tab labels when the language changes — and whatever a page
         draws in words rather than binding to a variable (the ghost rule line)."""
-        for index, key in enumerate(("ghost", "shared", "treasure")):
+        for index, key in enumerate(("ghost", "shared", "treasure", "tasks")):
             try:
                 self._nb.tab(index, text=self.rt.t("cmdpost.tab." + key))
             except Exception:          # pragma: no cover - the notebook may be gone

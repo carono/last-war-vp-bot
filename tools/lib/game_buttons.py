@@ -440,6 +440,80 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.secret_task_assist_refresh(),
         wait=2.0, label="Re-read the alliance's secret tasks",
     ),
+    # --- the secret command post: refresh the day's own tasks, send the squads (#1903)
+    # A FOURTH thing on this tab, and the only one that spends a CURRENCY: the three
+    # above spend daily counters the server hands out free, this one spends «Секретные
+    # приказы» and, once those run out, diamonds. So every gate it has is a price gate,
+    # the rule lives in the recipe's `ARGS`, and the presses read it back off the
+    # dispatch manager (`lua_actions.secret_post_arm`).
+    #
+    # They press the GAME'S OWN BUTTONS rather than send `hero.dispatch.refresh`. The
+    # reason is written up in lua_actions and it is not a preference: the message's
+    # `costType` is a guess between a ticket and diamonds, the mega refresh's price is
+    # only ever DRAWN (in the dialog its button raises), and the batch dispatch needs a
+    # squad per task that the game's own popup picks for itself.
+    "open_secret_post": Button(
+        lua=_lua_actions.secret_post_open(),
+        wait=2.0, label="Secret command post",
+    ),
+    "close_secret_post": Button(
+        lua=_lua_actions.secret_post_close(),
+        wait=0.6, label="Close the secret command post",
+    ),
+    "scan_secret_post": Button(
+        # Not a press: one walk over the player's own tasks and the two purses, parked
+        # where the recipe's `READ_LUA`s can read it — the same shape as
+        # `scan_secret_task_stars`, and for the same reason.
+        lua=_lua_actions.secret_post_scan(),
+        wait=0.4, label="Scan the secret command post",
+        relay=("post_scan",),
+    ),
+    "refresh_secret_task": Button(
+        lua=_lua_actions.secret_post_refresh_press(),
+        # A refresh is a server round trip and the list is re-read afterwards, so the
+        # pause is a real one rather than the robbery's spam floor. It is also what
+        # gives the cost dialog time to appear before the next press finds it.
+        wait=1.6, label="Refresh a secret task",
+        # 1 while the rule still owes one — see `secret_post_refreshes_left`.
+        count_lua=_lua_actions.secret_post_refreshes_left(),
+        # The cap is a backstop, not the rule: the tickets and the diamond budget stop
+        # this long before twenty presses on any ordinary day.
+        max_taps=20,
+        relay=("post_refresh", "post_cost"),
+    ),
+    "open_mega_refresh": Button(
+        # Raises the confirm dialog and sends nothing. This is how the price is learned.
+        lua=_lua_actions.secret_post_mega_open(),
+        wait=1.6, label="Open the mega refresh",
+        relay=("post_mega_open",),
+    ),
+    "read_mega_refresh_cost": Button(
+        lua=_lua_actions.secret_post_mega_read(),
+        wait=0.4, label="Read the mega refresh's price",
+        relay=("post_mega_cost",),
+    ),
+    "confirm_mega_refresh": Button(
+        lua=_lua_actions.secret_post_mega_confirm(),
+        wait=2.0, label="Confirm the mega refresh",
+        relay=("post_mega_done",),
+    ),
+    "cancel_mega_refresh": Button(
+        lua=_lua_actions.secret_post_mega_cancel(),
+        wait=0.6, label="Close the mega refresh unpressed",
+    ),
+    "open_batch_dispatch": Button(
+        lua=_lua_actions.secret_post_dispatch_open(),
+        wait=2.0, label="Open the batch dispatch",
+        relay=("post_send_open",),
+    ),
+    "confirm_batch_dispatch": Button(
+        # The press that sends `hero.dispatch.batch.start`. The game's own handler moves
+        # the world camera onto the tasks' point afterwards; that is the button, not a
+        # choice this makes.
+        lua=_lua_actions.secret_post_dispatch_confirm(),
+        wait=2.5, label="Send every squad at once",
+        relay=("post_send_done",),
+    ),
     # --- the star sprint: the last seconds of a star's countdown (#1294) ------
     # A ripe star lives under two minutes — live, the day's only one was gone before a
     # five-minute poll ever saw it ready. The three buttons below are the robbery's
