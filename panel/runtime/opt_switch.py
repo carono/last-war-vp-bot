@@ -52,6 +52,7 @@ def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the calle
     settings = _binder(rt)
     if settings is None:
         return False
+    moved = False
     var = None
     try:
         var = settings.var(key)
@@ -60,17 +61,22 @@ def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the calle
     if var is not None:
         try:
             var.set(on)
-            changed = getattr(settings, "changed", None)
-            if changed is not None:
-                changed()
-            return True
-        except Exception:                    # noqa: BLE001 — fall through to the file
-            pass
+            moved = True
+        except Exception:                    # noqa: BLE001 — the file below still stands
+            var = None
+    # AND THE FILE, ALWAYS — never `settings.changed()` alone, which is what the first
+    # draft did and what cost a press (#1882). `changed()` asks the SHELL to write a
+    # profile out, and the shell writes the ACTIVE one: pressed from the phone against a
+    # profile that is open but not in front, it moved the widget and saved somebody
+    # else's file, so the knob was in Tk and nowhere on disk until that profile closed.
+    # This binder belongs to THIS profile, so writing through it lands in the right
+    # `config.json` whichever profile the window happens to be showing.
     try:
         raw = dict(settings.values)
         raw[key] = on
         settings.values = raw
-        settings.save()
-        return True
+        settings.save(raw)
+        moved = True
     except Exception:                        # noqa: BLE001 — one knob, never the panel
-        return False
+        pass
+    return moved
