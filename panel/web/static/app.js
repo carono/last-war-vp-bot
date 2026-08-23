@@ -151,7 +151,11 @@ function paintState(state) {
     recEl.textContent = T('web.ui.recovery.kick',
                           { mins: Math.ceil((rec.kick_hold_left || 0) / 60) });
   } else if (rec.held_by === 'player') {
-    recEl.textContent = T('web.ui.recovery.player');
+    /* Somebody is at the machine — and the hold has an end now (#1888), so the phone
+     * gets the same countdown the window does. Without it «отложен» reads as «never»,
+     * which is exactly what it used to mean. */
+    recEl.textContent = T('web.ui.recovery.player',
+                          { mins: Math.ceil((rec.player_hold_left || 0) / 60) });
   } else if (rec.held_by === 'daemon_cooldown') {
     recEl.textContent = T('web.ui.recovery.daemon_wait',
                           { mins: Math.ceil((rec.daemon_cooldown_left || 0) / 60) });

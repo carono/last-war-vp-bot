@@ -4020,7 +4020,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         elif why == "player":
             # «Не перезапускается» must never be unexplained: this one is deliberate,
             # and it is the reason a person at the machine keeps their session (#1259).
-            text = self._t("status.recovery.player")
+            # …WITH THE COUNTDOWN, because the hold has an end now (#1888). It used to
+            # have none — it lasted as long as somebody kept touching the keyboard — and
+            # a strip saying «отложен» with no number was telling the truth about a wait
+            # that never finished. It finishes; the person is owed the minute it does.
+            text = self._t("status.recovery.player",
+                           mins=-(-int(st.get("player_hold_left", 0)) // 60))
         elif why == "daemon_cooldown":
             text = self._t("status.recovery.daemon_wait",
                            mins=int(st.get("daemon_cooldown_left", 0) // 60) + 1)

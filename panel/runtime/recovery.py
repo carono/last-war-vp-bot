@@ -201,6 +201,25 @@ COOLDOWN_SEC = 600.0
 #: docs/research/server-link-status.md rather than guessed at here.
 PLAYER_QUIET_SEC = 300.0
 
+#: HOW LONG THE GATE ABOVE MAY POSTPONE A RESTART, in seconds. Fifteen minutes.
+#:
+#: The gate had no end at all, and that was the bug (#1888). It holds for exactly as
+#: long as somebody keeps touching the keyboard, so on a machine a person WORKS at, a
+#: client that lost the server at three o'clock is still lost at midnight — and the log
+#: says «не трогаю ещё 5 мин» every few seconds without ever meaning it. Live on
+#: 2026-08-23 that was three hours of a deaf client: `held_by=player`, the cooldown long
+#: expired, forty-four strikes counted, and the one restart that did happen that day
+#: landed at 15:42 only because the person had stepped away from the machine.
+#:
+#: A LOST LINK IS NOT A SESSION ANYBODY IS PLAYING, and that is what makes the bound
+#: safe. While the link reads `lost`, nothing the person does in that window reaches the
+#: server: the account is already out of the game, and the restart takes nothing from
+#: them that the server has not taken already. The five minutes of patience stay — a
+#: client reconnecting is worth sitting out, and #1259 is why — and after them the
+#: client is put back whoever is at the keyboard, in its own sentence so the two cases
+#: can never be read as one.
+PLAYER_HOLD_MAX_SEC = 900.0
+
 #: Consecutive readings of «the daemon is attached to a client that is not the one
 #: running» before it is restarted. Two, not three: unlike a link reading this is not an
 #: inference — the two pids either match or they do not — and the only reason to wait at
@@ -340,7 +359,8 @@ class Recovery:
     a lock nobody needs.
     """
 
-    __slots__ = ("_run", "_run_at", "_last", "_restarts", "_held", "_why", "_kicks",
+    __slots__ = ("_run", "_run_at", "_lost_since",
+                 "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_down_run", "_down_last", "_down_wait", "_down_held",
                  "_down_took",
                  "_daemon_last", "_daemon_restarts", "_daemon_held",
@@ -355,6 +375,10 @@ class Recovery:
         #: Consecutive `lost` readings so far.
         self._run = 0
         self._run_at = 0.0
+        #: When the current run of `lost` readings began, in the caller's wall clock, or
+        #: 0.0 while the link is fine. `_run` counts READINGS and the player gate needs a
+        #: DURATION — see :data:`PLAYER_HOLD_MAX_SEC`.
+        self._lost_since = 0.0
         #: When the last restart was ASKED FOR, or 0.0 for never.
         self._last = 0.0
         #: How many this client has had. Shown, so «работает» and «перезапускается по
@@ -481,6 +505,21 @@ class Recovery:
             return 0
         return max(0, int(self._kick_until - now))
 
+    def player_hold_left(self, now: float) -> int:
+        """Seconds the «somebody is at the machine» gate may still postpone a restart.
+
+        A FACT WITH A CLOCK, for the same reason :meth:`kick_hold_left` is one: a hold
+        that only the decision honours is not a hold, and both front-ends draw it. Zero
+        means the patience is spent — the client is restarted on the next reading even
+        with a person at the keyboard, because the link has been lost the whole time and
+        a lost link is not a session anybody is playing (#1888).
+
+        Zero as well while the link is fine: there is nothing to postpone.
+        """
+        if not self._lost_since:
+            return 0
+        return max(0, int(self._lost_since + PLAYER_HOLD_MAX_SEC - now))
+
     def state(self, now: float) -> dict:
         """What both front-ends draw: the run, the count, and the cooldown left.
 
@@ -526,6 +565,13 @@ class Recovery:
                 # person waiting is usually the one who took the account (#1291).
                 "kick_hold_left": self.kick_hold_left(now),
                 "kick_hold_of": int(self.kick_hold_sec),
+                # …and the OTHER hold that has a person on the end of it: somebody at
+                # this machine. Drawn as a countdown for the reason the kick's is —
+                # «панель ничего не делает» and «панель ждёт ещё четыре минуты» look
+                # identical otherwise — and because until #1888 this one had no end at
+                # all, so there was no number to draw.
+                "player_hold_left": self.player_hold_left(now),
+                "player_hold_of": int(PLAYER_HOLD_MAX_SEC),
                 # How many client restarts have been spent without the link ever coming
                 # back. Shown because it is the evidence, not the verdict: a person
                 # seeing «2 подряд впустую» can tell that the panel is about to change
@@ -613,6 +659,7 @@ class Recovery:
             # being gone and the watchdog's business, not this one's. Two things must
             # not both relaunch the same client.
             self._run = 0
+            self._lost_since = 0.0
             self._held = False
             # …but a kick's wait outlives the reading that started it, and so must the
             # word for it: a client that went offline mid-wait (the person closed it, or
@@ -623,6 +670,11 @@ class Recovery:
             return None
 
         if link == game_link.LOST:
+            # THE CLOCK THE PLAYER GATE READS. Stamped on the first reading of a run and
+            # cleared with the run, so it measures «how long has this client been deaf»
+            # and not «how many times have we looked».
+            if not self._run:
+                self._lost_since = now
             # …AND A STRIKE HAS TO BE A FRESH LOOK (:data:`STRIKE_GAP_SEC`). Two readings
             # inside one cache window are one reading counted twice, and this counter is
             # what decides whether a client is restarted.
@@ -650,11 +702,22 @@ class Recovery:
         # person who is still playing and act the moment they paused. The two are about
         # different people anyway — this one is at THIS machine, the kick is on another
         # device (#1268) — and neither replaces the other.
-        if idle_sec is not None and idle_sec < PLAYER_QUIET_SEC:
+        #
+        # …AND IT HAS AN END NOW (#1888). It used to have none: it held for exactly as
+        # long as somebody kept touching the keyboard, which on a machine a person works
+        # at is all day. The patience is unchanged and the bound is
+        # :data:`PLAYER_HOLD_MAX_SEC` — after that the client is put back anyway, and it
+        # says so in its own words rather than borrowing the ordinary sentence.
+        player_here = idle_sec is not None and idle_sec < PLAYER_QUIET_SEC
+        if player_here and self.player_hold_left(now) > 0:
             if self._why == "player":
                 return None
             self._why = "player"
-            return (BUSY, {"mins": int((PLAYER_QUIET_SEC - idle_sec) // 60) + 1})
+            # The SMALLER of the two deadlines, because either one can be the one that
+            # ends the wait and a countdown that names the wrong one is a countdown the
+            # log will be caught out on.
+            left = min(PLAYER_QUIET_SEC - idle_sec, self.player_hold_left(now))
+            return (BUSY, {"mins": int(left // 60) + 1})
 
         # A KICK IS SOMEBODY ELSE'S SESSION, AND IT GETS ITS TIME (#1291). Everything
         # below this — the cooldown, the alternation — is about a client that has lost
@@ -739,6 +802,7 @@ class Recovery:
             self._daemon_held = False
             self._fruitless = 0              # …so the client is tried again next round
             self._run = 0
+            self._lost_since = 0.0
             self._kick_run = 0
             self._held = False
             self._why = ""
@@ -749,6 +813,7 @@ class Recovery:
         self._fruitless += 1                 # …until a reading says ONLINE
         self._blame = "client"
         self._run = 0                        # the next reading starts a fresh run
+        self._lost_since = 0.0
         self._kick_run = 0
         # …and the wait is spent. A kick that survives this restart is a NEW episode and
         # buys its own fifteen minutes: the account is still on the other device, and the
@@ -763,6 +828,13 @@ class Recovery:
         if kicked:
             self._kicks += 1
             return (ACT_KICK, {})
+        if player_here:
+            # THE GATE RAN OUT RATHER THAN OPENED (#1888). Somebody is at this machine
+            # and the client is being restarted regardless, because the link has been
+            # lost longer than :data:`PLAYER_HOLD_MAX_SEC` and a lost link is not a
+            # session anybody is playing. Its own sentence: whoever was looking at that
+            # window is owed the reason it closed.
+            return (ACT_BUSY, {"mins": int(PLAYER_HOLD_MAX_SEC // 60)})
         return (ACT, {"secs": STRIKES * 8})
 
     def note_session(self, playing: "bool | None", link: str, now: float,
@@ -1100,6 +1172,15 @@ BUSY = "log.game.deaf_busy"
 #: because «связь пропала» and «у вас забрали аккаунт» want different things done.
 ACT_KICK = "log.game.kick_restart"
 
+#: …and the same act again when the PLAYER gate ran out rather than opened (#1888). The
+#: client is put back with somebody at the keyboard, because the link has been lost for
+#: :data:`PLAYER_HOLD_MAX_SEC` and nothing that person does in that window is reaching
+#: the server. Its own sentence rather than a share of :data:`ACT`: whoever was looking
+#: at the window is owed the reason it closed, and a log that cannot tell «restarted
+#: because nobody was there» from «restarted although somebody was» is a log that cannot
+#: answer the only question asked about this branch.
+ACT_BUSY = "log.game.deaf_restart_busy"
+
 #: …AND THE CLOSED DOOR (#1549). Its own key rather than a share of `ACT`, because it is
 #: the one restart in this module that does not mean anything is broken: the client is
 #: fine, the server is shut, and the knock is how the panel finds out it has opened.
@@ -1143,7 +1224,7 @@ SAY_BARREN = "log.game.barren"
 #: the ten-minute cooldown started), and nothing touched the client. Live that left it
 #: deaf from 22:48 to 23:07, when it finally died on its own and the process watchdog —
 #: the other half — picked it up. A third act is one line here and works everywhere.
-RESTARTS = frozenset({ACT, ACT_KICK, ACT_STALLED})
+RESTARTS = frozenset({ACT, ACT_BUSY, ACT_KICK, ACT_STALLED})
 
 #: …and the subset that means «this restart is because the account was TAKEN». Asked as a
 #: set for the same reason as above: `key == ACT` is what once left a kicked client

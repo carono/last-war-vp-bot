@@ -657,11 +657,19 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
     r = rec.Recovery()
     _deaf(r, rec.STRIKES)
     st = r.state(1000.0 + 60)
+    # THE WHOLE SET, and it has to be kept in step: this list was left behind when
+    # #1549 added the four `stalled_*` numbers, so the one test that says «both
+    # front-ends draw exactly these» has been red ever since and nobody was told which
+    # key was new. Adding a number here is one line; a set that is merely a subset would
+    # let the next one arrive unmentioned.
     assert set(st) == {"deaf_for", "strikes", "restarts", "kicks", "cooldown_left",
                        "held_by", "blame", "daemon_stale", "daemon_strikes",
                        "daemon_down", "down_strikes",
                        "daemon_restarts", "daemon_cooldown_left", "fruitless",
-                       "barren", "barren_of", "kick_hold_left", "kick_hold_of"}, st
+                       "barren", "barren_of", "kick_hold_left", "kick_hold_of",
+                       "player_hold_left", "player_hold_of",
+                       "stalled_for", "stalled_of", "stalled_next",
+                       "stalled_restarts"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
     assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC
     words = ("held_by", "blame")
@@ -672,6 +680,74 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
         assert isinstance(value, int if key not in words else str), (key, value)
     assert st["held_by"] in ("", "cooldown", "player", "daemon_cooldown", "kick"), st
     assert st["blame"] in ("", "client", "daemon"), st
+
+
+def test_the_player_gate_holds_a_restart_back_but_not_for_ever():
+    """A person at the machine buys the client time — not an indefinite reprieve (#1888).
+
+    The gate exists because the restart closes the window somebody may be playing in,
+    and that is worth five minutes of patience. It is not worth a night: live on
+    2026-08-23 a profile sat `held_by=player` for three hours on a machine its owner was
+    WORKING at, saying «не трогаю ещё 5 мин» over and over and meaning «never». The one
+    restart it got that day landed while the person was away from the keyboard.
+
+    A lost link is not a session anybody is playing — nothing typed into that window
+    reaches the server — so after `PLAYER_HOLD_MAX_SEC` the client is put back anyway.
+    """
+    r = rec.Recovery()
+    t = 1000.0
+    # Somebody has just touched the keyboard, and goes on touching it.
+    said = [r.note(LOST, t + i * 8.0, idle_sec=1.0) for i in range(rec.STRIKES)]
+    held = [x for x in said if x]
+    assert held and held[-1][0] == rec.BUSY, said
+    assert r.state(t)["held_by"] == "player"
+    assert r.state(t)["player_hold_left"] > 0
+
+    # …and for the whole of the patience nothing touches the client.
+    inside = t + rec.PLAYER_HOLD_MAX_SEC - 30
+    assert r.note(LOST, inside, idle_sec=1.0) is None
+    assert r.state(inside)["player_hold_left"] > 0
+
+    # THEN THE PATIENCE RUNS OUT and the client is restarted with the person still
+    # there — in its own words, so the log can never be read as «nobody was around».
+    after = t + rec.PLAYER_HOLD_MAX_SEC + 8
+    act = r.note(LOST, after, idle_sec=1.0)
+    assert act is not None and act[0] == rec.ACT_BUSY, act
+    assert act[0] in rec.RESTARTS, act
+    assert r.state(after)["restarts"] == 1
+
+
+def test_the_player_hold_is_measured_from_the_link_and_not_from_the_keyboard():
+    """The clock starts when the LINK went, and it is reset by the link coming back.
+
+    Otherwise a person who steps away and returns would restart the patience, and a
+    client that lost the server at three would still be deaf at midnight — the shape of
+    the bug, arrived at the other way round.
+    """
+    r = rec.Recovery()
+    t = 1000.0
+    _deaf(r, rec.STRIKES, t0=t)              # nobody at the machine: idle unknown
+    # The link comes back, so the clock is cleared and nothing is being postponed.
+    assert r.note(ONLINE, t + 40) is None
+    assert r.player_hold_left(t + 40) == 0
+
+    # A fresh loss starts a fresh clock, even with the keyboard warm the whole time.
+    t2 = t + 100
+    for i in range(rec.STRIKES):
+        r.note(LOST, t2 + i * 8.0, idle_sec=1.0)
+    left = r.player_hold_left(t2 + 16)
+    assert 0 < left <= rec.PLAYER_HOLD_MAX_SEC, left
+
+
+def test_a_client_nobody_is_at_is_still_restarted_at_once():
+    """The bound must not become a wait of its own — the ordinary case is unchanged."""
+    r = rec.Recovery()
+    said = _deaf(r, rec.STRIKES)             # `idle_sec=None`: cannot tell
+    assert said and said[-1][0] == rec.ACT, said
+    r2 = rec.Recovery()
+    said = [x for x in (r2.note(LOST, 1000.0 + i * 8.0, idle_sec=9999.0)
+                        for i in range(rec.STRIKES)) if x]
+    assert said and said[-1][0] == rec.ACT, said
 
 
 def test_the_lost_it_watches_for_is_the_shared_one():
