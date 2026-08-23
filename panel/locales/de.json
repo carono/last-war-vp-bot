@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "beliebig",
   "secret.autoloot.frame": "Autoplünderung ★ (Geheime Missionen)",
   "secret.autoloot.level_min": "Mindestlevel",
+  "secret.autoloot.off": "★-Auto-Beute ausschalten",
+  "secret.autoloot.on": "★-Auto-Beute einschalten",
   "secret.autoloot.rule_any": "kein Mindestlevel gesetzt — es wird jeder bereite ★ aus der Liste geplündert",
   "secret.autoloot.rule_min": "es werden ★ ab Level {lvl} geplündert, die besten zuerst",
   "secret.autoloot.rule_skip_own": "· Felder auf dem eigenen Server bleiben unberührt",

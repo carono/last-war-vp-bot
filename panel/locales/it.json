@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "qualsiasi",
   "secret.autoloot.frame": "Saccheggio automatico ★ (attività segrete)",
   "secret.autoloot.level_min": "Livello minimo",
+  "secret.autoloot.off": "Disattiva il saccheggio automatico ★",
+  "secret.autoloot.on": "Attiva il saccheggio automatico ★",
   "secret.autoloot.rule_any": "nessun livello minimo — saccheggio ogni stella pronta dell'elenco",
   "secret.autoloot.rule_min": "saccheggio le stelle di livello {lvl} e superiori, le migliori per prime",
   "secret.autoloot.rule_skip_own": "· le caselle del mio server restano intatte",

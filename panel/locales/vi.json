@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "bất kỳ",
   "secret.autoloot.frame": "Tự cướp ★ (nhiệm vụ bí mật)",
   "secret.autoloot.level_min": "Cấp thấp nhất",
+  "secret.autoloot.off": "Tắt cướp tự động ★",
+  "secret.autoloot.on": "Bật cướp tự động ★",
   "secret.autoloot.rule_any": "chưa đặt cấp thấp nhất — cướp mọi ngôi sao đã sẵn sàng trong danh sách",
   "secret.autoloot.rule_min": "cướp các ngôi sao cấp {lvl} trở lên, tốt nhất trước",
   "secret.autoloot.rule_skip_own": "· các ô trên máy chủ của mình được để yên",

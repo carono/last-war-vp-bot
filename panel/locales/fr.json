@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "indifférent",
   "secret.autoloot.frame": "Pillage auto ★ (tâches secrètes)",
   "secret.autoloot.level_min": "Niveau minimal",
+  "secret.autoloot.off": "Désactiver le pillage auto ★",
+  "secret.autoloot.on": "Activer le pillage auto ★",
   "secret.autoloot.rule_any": "aucun niveau minimal — je pille toute ★ prête de la liste",
   "secret.autoloot.rule_min": "je pille les ★ de niveau {lvl} et au-dessus, les meilleures d'abord",
   "secret.autoloot.rule_skip_own": "· les cases de mon serveur sont laissées tranquilles",

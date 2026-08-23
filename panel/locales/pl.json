@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "dowolny",
   "secret.autoloot.frame": "Automatyczna grabież ★ (tajne zadania)",
   "secret.autoloot.level_min": "Poziom minimalny",
+  "secret.autoloot.off": "Wyłącz autograbież ★",
+  "secret.autoloot.on": "Włącz autograbież ★",
   "secret.autoloot.rule_any": "brak poziomu minimalnego — grabię każdą gotową gwiazdkę z listy",
   "secret.autoloot.rule_min": "grabię gwiazdki od poziomu {lvl} wzwyż, najlepsze najpierw",
   "secret.autoloot.rule_skip_own": "· pola na własnym serwerze zostawiam w spokoju",

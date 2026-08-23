@@ -4191,7 +4191,18 @@ class SecretTasksTab(PanelTab):
                            "rows": [{"label": "secret.autoloot.level_min",
                                      "value": (str(low) if low is not None
                                                else self.t("secret.autoloot.any_level"))},
-                                    {"label": state_key, "value": state_datum}]},
+                                    {"label": state_key, "value": state_datum}],
+                           # …AND THE BOX ITSELF (#1882). The card drew the rule and the
+                           # state of a standing order the phone could not start or stop,
+                           # so «автолут выключен» was a fact with no answer to it. The
+                           # robbery is `actions/steal_secret_task.md` and the order
+                           # spawns no tool of its own, so the press is allowed out of
+                           # the house (`CLAUDE.md`, #1188) — the same rule that lets
+                           # «Автопомощь» be pressed from the card below.
+                           "actions": [{"id": "autoloot",
+                                        "label": ("secret.autoloot.off"
+                                                  if self.autoloot_var.get()
+                                                  else "secret.autoloot.on")}]},
                           # The window's pages, as the phone's cards (#1244, #1251) — a
                           # screen scrolls where a window switches. EACH CARD CARRIES
                           # ITS OWN PAGE'S SWITCHES, for the same reason the window
@@ -4586,6 +4597,11 @@ class SecretTasksTab(PanelTab):
                 return {"error": "unknown"}
             self.post(lambda: self._toggle_star(page))
             return {"ok": True}
+        if action == "autoloot":
+            # «Автолут ★» — the window's own checkbox, flipped from the phone (#1882),
+            # through the same handler a finger goes through.
+            self.post(self._toggle_autoloot)
+            return {"ok": True}
         if action == "autoassist":
             # The window's own checkbox, flipped from the phone (#1272). Through the same
             # handler a finger goes through, so the two front-ends cannot end up with the
@@ -4667,6 +4683,11 @@ class SecretTasksTab(PanelTab):
         self._zoom_level = nxt
         self._sync_zoom_combo()
         self._on_zoom_choice()
+
+    def _toggle_autoloot(self) -> None:
+        """Flip «Автолут ★» from the phone, on the Tk thread (#1882)."""
+        self.autoloot_var.set(not self.autoloot_var.get())
+        self._on_autoloot_toggle()
 
     def _toggle_autoassist(self) -> None:
         """Flip «Автопомощь» from the phone, on the Tk thread (#1272)."""

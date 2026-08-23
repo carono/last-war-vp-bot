@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "any",
   "secret.autoloot.frame": "Auto-loot ★ (secret tasks)",
   "secret.autoloot.level_min": "Minimum level",
+  "secret.autoloot.off": "Turn ★ auto-loot off",
+  "secret.autoloot.on": "Turn ★ auto-loot on",
   "secret.autoloot.rule_any": "no minimum level set — robbing every ★ the list has ready",
   "secret.autoloot.rule_min": "robbing ★ of level {lvl} and above, the best first",
   "secret.autoloot.rule_skip_own": "· tiles on my own server are left alone",

@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "cualquiera",
   "secret.autoloot.frame": "Saqueo automático ★ (tareas secretas)",
   "secret.autoloot.level_min": "Nivel mínimo",
+  "secret.autoloot.off": "Desactivar el saqueo automático ★",
+  "secret.autoloot.on": "Activar el saqueo automático ★",
   "secret.autoloot.rule_any": "sin nivel mínimo — saqueo cualquier estrella lista de la lista",
   "secret.autoloot.rule_min": "saqueo estrellas de nivel {lvl} y superiores, las mejores primero",
   "secret.autoloot.rule_skip_own": "· las casillas de mi servidor se dejan en paz",

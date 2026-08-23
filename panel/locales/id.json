@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "berapa pun",
   "secret.autoloot.frame": "Rampasan otomatis ★ (tugas rahasia)",
   "secret.autoloot.level_min": "Level terendah",
+  "secret.autoloot.off": "Matikan jarahan otomatis ★",
+  "secret.autoloot.on": "Aktifkan jarahan otomatis ★",
   "secret.autoloot.rule_any": "level terendah belum diisi — merampas setiap bintang siap dari daftar",
   "secret.autoloot.rule_min": "merampas bintang level {lvl} ke atas, yang terbaik dulu",
   "secret.autoloot.rule_skip_own": "· petak di server sendiri dibiarkan",

@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "любой",
   "secret.autoloot.frame": "Автолут ★ (секретки)",
   "secret.autoloot.level_min": "Минимальный уровень",
+  "secret.autoloot.off": "Выключить автолут ★",
+  "secret.autoloot.on": "Включить автолут ★",
   "secret.autoloot.rule_any": "минимальный уровень не задан — беру любую готовую ★ из списка",
   "secret.autoloot.rule_min": "беру ★ уровня {lvl} и выше, сначала лучшие",
   "secret.autoloot.rule_skip_own": "· на своём сервере не граблю",

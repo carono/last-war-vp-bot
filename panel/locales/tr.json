@@ -759,6 +759,8 @@
   "secret.autoloot.any_level": "fark etmez",
   "secret.autoloot.frame": "Otomatik ★ yağma (gizli görevler)",
   "secret.autoloot.level_min": "En düşük seviye",
+  "secret.autoloot.off": "★ otomatik yağmayı kapat",
+  "secret.autoloot.on": "★ otomatik yağmayı aç",
   "secret.autoloot.rule_any": "en düşük seviye verilmedi — listedeki her hazır yıldızı yağmalıyorum",
   "secret.autoloot.rule_min": "{lvl}. seviye ve üstü yıldızları yağmalıyorum, önce en iyileri",
   "secret.autoloot.rule_skip_own": "· kendi sunucumdaki kareler rahat bırakılır",
