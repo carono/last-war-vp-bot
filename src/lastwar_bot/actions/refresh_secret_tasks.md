@@ -83,8 +83,15 @@ ARGS dispatch = 1
 #    the purse the budget is measured from.
 LUA local M=DataCenter.ActDispatchTaskDataManager M.__lw_ref_keep={keep} M.__lw_ref_gold={use_diamonds} M.__lw_ref_budget={diamond_budget} M.__lw_ref_mega_cost=-1 M.__lw_ref_mega_tasks=0 local g=0 pcall(function() g=tonumber(LuaEntry.Player.gold) or 0 end) M.__lw_ref_gold0=g
 
-# 2. Open the command post. Every press below is a press inside this window.
+# 2. Open the command post, and CLAIM whatever has finished before anything else.
+#    A finished task holds its march slot until its reward is taken — live on a
+#    second account six of them sat on six of the nine marches with nothing running
+#    at all — so the cycle below would have had nowhere to send. Claiming is income
+#    and costs nothing, which is why it needs no gate; `collect_secret_tasks.md` is
+#    the same press with the boxes opened afterwards.
 TAP open_secret_post
+TAP claim_secret_task_rewards xall
+TAP dismiss_steal_reward
 
 # 3. One walk, so every question underneath is answered about the same moment.
 TAP scan_secret_post
@@ -92,7 +99,8 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nonur) or 0) I
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_run) or 0) INTO running
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_tickets) or 0) INTO tickets
-LOG "secret post: {nonur} idle non-UR, {ur} idle UR, {running} out on errands, {tickets} ticket(s) in hand"
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_done) or 0) INTO finished
+LOG "secret post: {nonur} idle non-UR, {ur} idle UR, {running} out on errands, {finished} finished and unclaimed, {tickets} ticket(s) in hand"
 
 # 4. The cycle: rescue, then refresh, then look again. `go` is re-read at the bottom of
 #    every round, so the loop ends the moment the rule is satisfied, the purses are empty
@@ -144,14 +152,21 @@ IF mega == 1
             TAP open_mega_refresh
             TAP read_mega_refresh_cost
             READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_cost) or -1) INTO mega_cost
+            READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_want) or -1) INTO mega_want
             READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_tasks) or 0) INTO mega_tasks
             READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_ok) or 0) INTO mega_ok
             READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_gold) or 0) INTO mega_gold
             IF mega_ok == 1
-                LOG "mega refresh: {mega_cost} ticket(s) for {mega_tasks} task(s), {mega_gold} diamond(s) on top — taking it"
+                LOG "mega refresh: {mega_tasks} task(s) at {mega_want} order(s), the dialog's bag row says {mega_cost}, {mega_gold} diamond(s) on top — taking it"
                 TAP confirm_mega_refresh
+                # …and then say what was REALLY taken. The dialog's item row describes
+                # the BAG, not the price: live it read «2» while the game quietly topped
+                # ten missing orders up with a thousand diamonds (#1903). A press is not
+                # believed on its own word — the purse is.
+                READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local was=tonumber(M.__lw_ref_mega_gold0) if was==nil then return 0 end local now=0 pcall(function() now=LuaEntry.Player.gold+0 end) local d=was-now if d<0 then d=0 end return d end)() INTO mega_spent
+                LOG "mega refresh: the purse went down by {mega_spent} diamond(s)"
             ELSE
-                LOG "mega refresh: {mega_cost} ticket(s) for {mega_tasks} task(s) needs {mega_gold} diamond(s) — outside the rule, left alone"
+                LOG "mega refresh: {mega_tasks} task(s) at {mega_want} order(s) would need {mega_gold} diamond(s) on top of {tickets} in the bag — outside the rule, left alone"
                 TAP cancel_mega_refresh
 
 # 7. Send what is standing: the URs the mega has just made, and — if the person asked for

@@ -15,6 +15,10 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_idle) or 0) IN
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nonur) or 0) INTO nonur
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_run) or 0) INTO running
+# …and the finished ones apart from them: a task whose errand is over still holds
+# its march slot until the reward is claimed, so counting the two together says
+# «busy» about squads that are standing in the doorway.
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_done) or 0) INTO finished
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_tickets) or 0) INTO tickets
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_goldnow) or 0) INTO diamonds
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_price) or 0) INTO price
@@ -24,4 +28,4 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_march) or 0) I
 # a clock and not by a number: there are more tasks than heroes, and the ones out know
 # their own finish to the millisecond.
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nextfree) or 0) INTO next_free
-LOG "secret post: idle={idle} non-UR={nonur} UR={ur} out={running} tickets={tickets} diamonds={diamonds} price={price} marches={marching}/{marches} next-free={next_free}s"
+LOG "secret post: idle={idle} non-UR={nonur} UR={ur} out={running} finished={finished} tickets={tickets} diamonds={diamonds} price={price} marches={marching}/{marches} next-free={next_free}s"

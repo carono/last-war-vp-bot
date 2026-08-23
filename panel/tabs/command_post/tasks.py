@@ -37,6 +37,10 @@ DIM = "#888"
 RUN_ACTION = "refresh_secret_tasks"
 READ_ACTION = "read_secret_post"
 
+#: The income half — claim what has finished and open the boxes it paid out in. Its own
+#: ability because it spends nothing at all, so it needs none of the price gates above.
+COLLECT_ACTION = "collect_secret_tasks"
+
 #: The defaults the page starts with, and what the scenario's own `ARGS` say.
 DEFAULT_KEEP = 3
 DEFAULT_BUDGET = 1200
@@ -75,7 +79,8 @@ class TasksPane:
         #: The readings, in the order they are drawn.
         self._vars = {name: tk_stringvar(self.rt.root)
                       for name in ("nonur", "ur", "running", "tickets",
-                                   "diamonds", "marches", "next_free")}
+                                   "diamonds", "marches", "next_free",
+                                   "finished")}
         for var in self._vars.values():
             var.set(UNREAD)
         #: The rule. Every one of them is an `ARGS` of the scenario and travels as one.
@@ -110,6 +115,10 @@ class TasksPane:
         for row, (key, name) in enumerate((("cmdpost.tasks.nonur", "nonur"),
                                            ("cmdpost.tasks.ur", "ur"),
                                            ("cmdpost.tasks.running", "running"),
+                                           # Counted apart from «в работе» on purpose: a
+                                           # finished task holds its march slot until its
+                                           # reward is claimed (#1903).
+                                           ("cmdpost.tasks.finished", "finished"),
                                            ("cmdpost.tasks.tickets", "tickets"),
                                            ("cmdpost.tasks.diamonds", "diamonds"),
                                            ("cmdpost.tasks.marches", "marches"),
@@ -146,8 +155,14 @@ class TasksPane:
         # A button that STARTS the ability, never one that MARKS anything (`CLAUDE.md`):
         # what it changes is in the game, and every reading above it comes back from the
         # run itself.
-        self.rt.tr(ttk.Button(rule, width=24, command=self.run_now),
-                   "cmdpost.tasks.run").pack(anchor="w", pady=(8, 0))
+        press = ttk.Frame(rule)
+        press.pack(fill="x", pady=(8, 0))
+        self.rt.tr(ttk.Button(press, width=24, command=self.run_now),
+                   "cmdpost.tasks.run").pack(side="left")
+        # Income, not a spend: claim what has finished and open the boxes. Its own button
+        # because it has none of the rule above in front of it.
+        self.rt.tr(ttk.Button(press, width=24, command=self.collect_now),
+                   "cmdpost.tasks.collect").pack(side="left", padx=(6, 0))
         self._keep_trace = self.keep_var.trace_add(
             "write", lambda *_a: self._on_rule_change())
         self.budget_var.trace_add("write", lambda *_a: self._on_rule_change())
@@ -187,6 +202,12 @@ class TasksPane:
         self.rt.play_async(RUN_ACTION, self.args(), tag=self.LOG_TAG,
                            on_result=self.from_run)
 
+    def collect_now(self) -> None:
+        """Claim the finished tasks and open their boxes. Spends nothing."""
+        self._status("cmdpost.tasks.running_now")
+        self.rt.play_async(COLLECT_ACTION, tag=self.LOG_TAG,
+                           on_result=lambda _outcome: self.refresh())
+
     def from_run(self, outcome) -> None:
         """Draw the page off the run's OWN variables — the scenario already read them.
 
@@ -221,8 +242,8 @@ class TasksPane:
         it current — exactly like the three pages beside it.
         """
         rows = [{"label": "cmdpost.tasks." + name, "value": self._vars[name].get()}
-                for name in ("nonur", "ur", "running", "tickets", "diamonds",
-                             "marches", "next_free")]
+                for name in ("nonur", "ur", "running", "finished", "tickets",
+                             "diamonds", "marches", "next_free")]
         rows.append({"label": "cmdpost.tasks.rule",
                      "value": self.rt.t("cmdpost.tasks.rule_text",
                                         keep=_int(self.keep_var.get(), DEFAULT_KEEP),

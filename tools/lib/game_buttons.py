@@ -481,6 +481,23 @@ BUTTONS: dict[str, Button] = {
         max_taps=20,
         relay=("post_refresh", "post_cost"),
     ),
+    "claim_secret_task_rewards": Button(
+        # «Получить» for every finished task at once — the manager's own `TryRewardAll`,
+        # which is what sends `hero.dispatch.batch.reward`. Income, never a cost, so it
+        # has no budget in front of it; `xall` empties the list and stops by itself.
+        lua=_lua_actions.secret_task_claim_all(),
+        wait=2.5, label="Claim the finished tasks",
+        count_lua=_lua_actions.secret_task_rewards_left(),
+        max_taps=5,
+        relay=("post_claim",),
+    ),
+    "note_the_bag": Button(
+        # Not a press: what the bag holds right now, parked so a later look can say what
+        # CHANGED. The only honest answer to «what fell out of the boxes» — the reward
+        # window is a picture and the server sends no receipt anything here can read.
+        lua=_lua_actions.bag_snapshot(),
+        wait=0.3, label="Note down what the bag holds",
+    ),
     "open_mega_refresh": Button(
         # Raises the confirm dialog and sends nothing. This is how the price is learned.
         lua=_lua_actions.secret_post_mega_open(),

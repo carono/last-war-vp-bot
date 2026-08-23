@@ -113,6 +113,10 @@ TREASURE_SCAN_ACTION = "scan_treasures"
 #: squad in one press. The whole ability, gates and all, is in the scenario (#1903).
 TASKS_RUN_ACTION = "refresh_secret_tasks"
 
+#: …and the income half: claim what has finished, then open the boxes it paid
+#: out in. Spends nothing, so it has none of the price gates the run above has.
+TASKS_COLLECT_ACTION = "collect_secret_tasks"
+
 
 def _int(value, default: int = 0) -> int:
     try:
@@ -1500,7 +1504,9 @@ class CommandPostTab(PanelTab):
                             # recipe with no tool in front of it, so the press travels
                             # (`CLAUDE.md`); the rule it plays is the one the window's
                             # page is set to, exactly as the treasure squad is.
-                            {"id": "tasks_run", "label": "cmdpost.tasks.run"}]}
+                            {"id": "tasks_run", "label": "cmdpost.tasks.run"},
+                            {"id": "tasks_collect",
+                             "label": "cmdpost.tasks.collect"}]}
 
     def _web_tasks(self) -> dict:
         """«Свои задания» — the readings the last run left, and the rule in one line."""
@@ -1630,6 +1636,13 @@ class CommandPostTab(PanelTab):
                 # (it opens nothing and spends nothing).
                 page.refresh()
             return {"ok": True}
+        if action == "tasks_collect":
+            page = self._by_key.get("tasks")
+            if page is None:
+                return {"error": "unknown"}
+            return {"ok": self.rt.play_async(
+                TASKS_COLLECT_ACTION, tag="web",
+                on_result=lambda _outcome: page.refresh())}
         if action == "tasks_run":
             page = self._by_key.get("tasks")
             if page is None:

@@ -209,3 +209,76 @@ Sixteen orders and **no diamonds**. The mega's price scaled exactly as the first
 suggested — twenty for five tasks, twelve for three, four apiece — so at the threshold of
 three it is twelve orders, which is 1 200 diamonds at the ordinary rate. Untried still:
 the diamond branch (the tickets have never run out mid-run) and the «no hero free» stop.
+
+## The mega dialog's item row is NOT the price — it is what comes out of the bag
+
+This one cost a thousand diamonds nobody had allowed (#1903, live on a second account).
+The recipe read the dialog, saw `2`, saw that the bag held 2, concluded «no diamonds
+needed» and confirmed:
+
+```
+post_mega_cost cost=2 tasks=3 ok=1 gold=0     <- what the dialog's item row said
+post_mega_done pressed=1
+…                    tickets 2 -> 0,  purse 32 921 -> 31 921
+```
+
+Twelve orders were wanted for three tasks; the bag had two; **the game took the missing
+ten in diamonds by itself**, at the ordinary hundred each. Nothing asked, nothing warned,
+and the row had shown the two it was about to take out of the bag rather than the twelve
+the refresh costs.
+
+So the row is a reading and not a gate. The gate is judged on the larger of the row and
+what the price is known to scale to — `MEGA_ITEMS_PER_TASK = 4`, measured three times
+now: 20 orders for five tasks, 12 for three, and this run's 12 for three. And a press is
+never believed on its own word: the purse is stamped when the price is read and read
+again after the confirm, so the run SAYS what it really paid.
+
+What is still unknown, because neither account had an idle non-UR task left to reproduce
+it with: where the diamond amount is drawn in that dialog. Whoever gets a chance should
+dump every text under `UIDispatchTaskRefreshConfirm` while the bag is SHORT of the price
+— there is a second cost row somewhere and reading it would turn the estimate above back
+into a measurement.
+
+## Claiming the finished tasks, and the boxes they pay out in
+
+A finished task is not an errand: its `completionTime` is in the past, its reward is
+waiting, and **it holds its march slot until the reward is claimed**. Live: six finished
+tasks on six of the nine marches with nothing running at all, `GetSingleTaskIngCount = 6`.
+Counting them as «out» is how nine marches look busy while the account is idle, so the
+scan asks the server clock and counts `done` apart from `run`.
+
+`ActDispatchTaskDataManager:TryRewardAll()` is the game's own «забрать всё» and sends
+`hero.dispatch.batch.reward`. Measured: `GetSingleTaskRewardableCount` 6 -> 0, every one
+of them `rewarded = 1`, every march slot free. It raises `UIDispatchTaskReward`, which
+`dismiss_steal_reward` already closes.
+
+The box a task pays out in is **«Загадочный ящик с припасами», item 710005**, `type` 5 —
+already inside `USABLE_ITEM_TYPES`, so the bag's ordinary `item.use` opens it and no new
+primitive was needed. One kind, not a family: the `SR/SSR/UR сундук с …` chests (type
+109) are what comes OUT of it. Live, 1 200 of them opened in twelve sends of a hundred:
+
+```
+-1200 Загадочный ящик с припасами
++1013 Сундук ресурсов, +37 Ускорение строительства 5мин, +33 Ускорение 5мин,
+ +26 Торговый контракт, +15 Ускорение лечения, +14 Ускорение тренировки,
+ +12 Секретный приказ, +11 Сундук Компонента Дрона, +11 «10 бриллиантов»,
+ +11 Ускорение исследования, +3 Билет найма выжившего, …
+```
+
+— and note the twelve refresh orders among them: the boxes pay back part of what the
+refreshing costs. «What fell out» has no other answer than a difference: the reward
+window is a picture and the server sends no receipt the panel can read, so the bag is
+noted down before and read again after.
+
+## Both gaps closed, live
+
+The two branches sooperj never reached, both exercised on the second account in one run:
+
+* **the orders ran out with diamonds forbidden** (`use_diamonds = 0`): sixteen rounds,
+  tickets 18 -> 0, five URs rescued and sent as they fell, and not one diamond spent by
+  the refresh loop.
+* **nothing left to send them with**: after the mega, three idle URs and three free march
+  slots — and the popup selected NOTHING, because the heroes were out.
+  `post_send_rows rows=3 picked=0`, and the run said so and booked its own return:
+  «3 task(s) still waiting for a squad — coming back in 7112 s, when the nearest one is
+  home».

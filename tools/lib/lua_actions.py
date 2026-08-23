@@ -12806,6 +12806,13 @@ _NUM = ("local function _num(v) if v==nil then return 0 end "
         "ok,n=pcall(function() return tonumber(v) end) if ok and n~=nil then return n end "
         "return 0 end ")
 
+#: WHAT THE MEGA REFRESH REALLY COSTS, per idle non-UR task it would improve (#1903).
+#: Measured three times on two accounts — 20 orders for five tasks, 12 for three, and a
+#: third mega that wanted 12 for three while the bag held 2 and the game silently took
+#: the missing ten in diamonds. The dialog's item row shows what will come out of the
+#: BAG, not what the refresh costs, so this is what the gate is judged on.
+MEGA_ITEMS_PER_TASK = 4
+
 #: The window every press below lives in.
 _POST_WIN = "UIWindowNames.UIDispatchTaskMain"
 
@@ -12862,12 +12869,14 @@ _REFRESH_ITEM = ("(function() local ok,v=pcall(function() "
 _POST_SCAN = (
     _NUM +
     "local M=DataCenter.ActDispatchTaskDataManager "
-    "local idle,nonur,ur,run=0,0,0,0 "
+    "local idle,nonur,ur,run,done=0,0,0,0,0 "
+    "local srvnow=0 pcall(function() srvnow=math.floor(_num(UITimeManager:GetInstance():GetServerSeconds())) end) "
     "local ok,tasks=pcall(function() return M:GetAllSingleTasks() end) "
     "if ok and type(tasks)=='table' then for _,v in pairs(tasks) do "
     "local col=0 pcall(function() col=_num(v.cfg:getValue('color')) end) "
     "local ct=_num(v.completionTime) "
-    "if ct>0 then run=run+1 else idle=idle+1 "
+    "if ct>0 then if math.floor(ct/1000)<=srvnow and srvnow>0 then done=done+1 "
+    "else run=run+1 end else idle=idle+1 "
     "if col>=5 then ur=ur+1 else nonur=nonur+1 end end end end "
     "local item=" + _REFRESH_ITEM + " local tickets=0 "
     "pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
@@ -12878,7 +12887,7 @@ _POST_SCAN = (
     "local free=0 pcall(function() free=_num(M:GetSingleTaskNormalCount()) end) "
     "local ing=0 pcall(function() ing=_num(M:GetSingleTaskIngCount()) end) "
     "local maxm=0 pcall(function() maxm=math.floor(_num(M:GetMaxMarch())) end) "
-    "local now=0 pcall(function() now=math.floor(_num(UITimeManager:GetInstance():GetServerSeconds())) end) "
+    "local now=srvnow "
     "local nextfree=0 "
     "if ok and type(tasks)=='table' and now>0 then for _,v in pairs(tasks) do "
     "local ct=math.floor(_num(v.completionTime)/1000) "
@@ -12927,12 +12936,12 @@ def secret_post_scan() -> str:
             "M.__lw_ref_run=run M.__lw_ref_tickets=tickets M.__lw_ref_goldnow=gold "
             "M.__lw_ref_price=price M.__lw_ref_super=superopen M.__lw_ref_free=free "
             "M.__lw_ref_ing=ing M.__lw_ref_march=maxm M.__lw_ref_goldleft=goldleft "
-            "M.__lw_ref_nextfree=nextfree "
+            "M.__lw_ref_nextfree=nextfree M.__lw_ref_done=done "
             'CS.UnityEngine.Debug.LogError("ACT post_scan idle="..tostring(idle)'
             '.." nonur="..tostring(nonur).." ur="..tostring(ur).." run="..tostring(run)'
             '.." tickets="..tostring(tickets).." price="..tostring(price)'
             '.." goldleft="..tostring(goldleft).." march="..tostring(ing).."/"..tostring(maxm)'
-            '.." nextfree="..tostring(nextfree)) end)')
+            '.." done="..tostring(done).." nextfree="..tostring(nextfree)) end)')
 
 
 def secret_post_open() -> str:
@@ -13040,15 +13049,31 @@ def secret_post_mega_read() -> str:
             "local tip=_text(r,'TipText') "
             "if tip~=nil then local d=tip:match('<b>(%d+)</b>') or tip:match('(%d+)') "
             "tasks=tonumber(d) or 0 end end "
+            # THE DIALOG'S ITEM ROW IS NOT THE PRICE, and finding that out cost a
+            # thousand diamonds (#1903, live on a second account). With twelve orders
+            # wanted and two in the bag, the row read `2` — what will be TAKEN FROM THE
+            # BAG — and the game topped the missing ten up with diamonds by itself:
+            # tickets 2 -> 0 and the purse 32 921 -> 31 921, exactly ten at the ordinary
+            # hundred. Nothing in the recipe had allowed a diamond.
+            #
+            # So the reading is kept (it is what the dialog says) and the GATE is judged
+            # on the larger of it and what the price is known to scale to — four orders
+            # per idle non-UR task, measured three times: 20 for five, 12 for three, and
+            # the twelve this run paid for three. A gate that trusts the smaller number
+            # is a gate that spends a purse it was told not to touch.
+            "local want=cost local scale=nonur*" + str(MEGA_ITEMS_PER_TASK) + " "
+            "if tasks>0 then scale=tasks*" + str(MEGA_ITEMS_PER_TASK) + " end "
+            "if scale>want then want=scale end "
             "local need=0 local okpay=0 "
-            "if cost>=0 then if tickets>=cost then okpay=1 "
-            "elseif price>0 then need=(cost-tickets)*price "
+            "if cost>=0 then if tickets>=want then okpay=1 "
+            "elseif price>0 then need=(want-tickets)*price "
             "if need<=goldleft then okpay=1 end end end "
-            "M.__lw_ref_mega_cost=cost M.__lw_ref_mega_tasks=tasks "
+            "M.__lw_ref_mega_cost=cost M.__lw_ref_mega_want=want M.__lw_ref_mega_tasks=tasks "
             "M.__lw_ref_mega_ok=okpay M.__lw_ref_mega_gold=need "
+            "M.__lw_ref_mega_gold0=gold "
             'CS.UnityEngine.Debug.LogError("ACT post_mega_cost cost="..tostring(cost)'
-            '.." tasks="..tostring(tasks).." ok="..tostring(okpay)'
-            '.." gold="..tostring(need)) end)')
+            '.." want="..tostring(want).." tasks="..tostring(tasks)'
+            '.." ok="..tostring(okpay).." gold="..tostring(need)) end)')
 
 
 def secret_post_mega_confirm() -> str:
@@ -13165,3 +13190,112 @@ def secret_post_round_due() -> str:
             "if tickets>0 then return 1 end "
             "if price>0 and goldleft>=price then return 1 end "
             "return 0 end)()")
+
+
+# --------------------------------------------------------------------------
+# The boxes a secret task pays out in (#1903)
+# --------------------------------------------------------------------------
+#: «Загадочный ящик с припасами» — the box the day's own secret tasks hand out. A GAME
+#: config id, identical on every account and every machine, exactly like
+#: :data:`STAMINA_ITEMS` and the golden zombie's own id: nothing about one computer is
+#: written down here (`CLAUDE.md`). It is item `type` 5, which is already in
+#: :data:`USABLE_ITEM_TYPES`, so the bag will open it.
+#:
+#: One kind and not a family: the task rows in the game's own window list «Загадочный
+#: ящик с припасами» beside the hero experience and the ore, and the resource chests in
+#: the bag (`SR/SSR/UR сундук с …`, type 109) are what comes OUT of it rather than what a
+#: task pays in.
+SECRET_TASK_BOX = 710005
+
+
+def bag_snapshot() -> str:
+    """Park what the bag holds right now, id by id, so the next look can say what CHANGED.
+
+    «What fell out of the boxes» has no other answer: the reward window is a picture, the
+    server sends no itemised receipt the panel can read, and the bag is simply a table
+    that is larger afterwards. So the honest report is a DIFFERENCE, and this is its first
+    half.
+    """
+    return ("pcall(function() local m={} "
+            "for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+            "local id=0 pcall(function() id=s.itemId+0 end) "
+            "local c=0 pcall(function() c=s.count+0 end) "
+            "if id>0 then m[id]=(m[id] or 0)+c end end "
+            "DataCenter.__lw_bag_was=m end)")
+
+
+def bag_gains(limit: int = 12) -> str:
+    """Lua *expression* -> what the bag gained since :func:`bag_snapshot`, in words.
+
+    Names come from the game's own table (`ItemTemplateManager:GetName`), so the line is
+    already in the player's language and nothing here translates anything. Losses are
+    reported too — the boxes themselves go down, and a report that showed only the gains
+    would be hiding the price of its own success.
+    """
+    return ("(function() local was=DataCenter.__lw_bag_was "
+            "if type(was)~='table' then return 'nothing was noted down first' end "
+            "local now={} "
+            "for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+            "local id=0 pcall(function() id=s.itemId+0 end) "
+            "local c=0 pcall(function() c=s.count+0 end) "
+            "if id>0 then now[id]=(now[id] or 0)+c end end "
+            "local seen={} for id in pairs(was) do seen[id]=true end "
+            "for id in pairs(now) do seen[id]=true end "
+            "local rows={} "
+            "for id in pairs(seen) do local d=(now[id] or 0)-(was[id] or 0) "
+            "if d~=0 then local nm='' "
+            "pcall(function() nm=tostring(DataCenter.ItemTemplateManager:GetName(id)) end) "
+            "if nm=='' then nm='#'..tostring(id) end "
+            "rows[#rows+1]={d=d,s=(d>0 and '+' or '')..tostring(d)..' '..nm} end end "
+            "if #rows==0 then return 'nothing changed' end "
+            "table.sort(rows,function(a,b) return math.abs(a.d)>math.abs(b.d) end) "
+            "local out={} for i=1,math.min(#rows," + str(int(limit)) + ") do out[#out+1]=rows[i].s end "
+            "if #rows>" + str(int(limit)) + " then out[#out+1]='…and '..tostring(#rows-" +
+            str(int(limit)) + ")..' more' end "
+            "return table.concat(out,', ') end)()")
+
+
+def bag_holds(id_expr: str) -> str:
+    """Lua *expression* -> how many of one item the bag holds, summed over its stacks."""
+    return ("(function() local id=" + str(id_expr) + " local n=0 "
+            "for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+            "local i=0 pcall(function() i=s.itemId+0 end) "
+            "if i==id then local c=0 pcall(function() c=s.count+0 end) n=n+c end end "
+            "return n end)()")
+
+
+def secret_task_rewards_left() -> str:
+    """Lua *expression* -> how many finished tasks are still waiting to be claimed."""
+    return ("(function() local n=0 "
+            "pcall(function() n=DataCenter.ActDispatchTaskDataManager"
+            ":GetSingleTaskRewardableCount()+0 end) return n end)()")
+
+
+def secret_task_claim_all() -> str:
+    """Claim every finished task's reward in one press — the manager's own «забрать всё».
+
+    `TryRewardAll()` is the game's own button behind «Получить», and it is what sends
+    `hero.dispatch.batch.reward`. Measured live: six finished tasks, `rewardable` 6 -> 0,
+    every one of them `rewarded = 1` afterwards and the march slots free.
+
+    Claiming is income, never a cost — nothing here is gated on a budget.
+    """
+    return ("pcall(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "local before=0 pcall(function() before=M:GetSingleTaskRewardableCount()+0 end) "
+            "if before>0 then pcall(function() M:TryRewardAll() end) end "
+            'CS.UnityEngine.Debug.LogError("ACT post_claim was="..tostring(before)) end)')
+
+
+def secret_post_mega_spent() -> str:
+    """Lua *expression* -> the diamonds the mega refresh actually took.
+
+    A press is not believed on its own word (#1282, and #1903 in diamonds): the purse is
+    stamped when the price is read and read again after the confirm, so what was really
+    paid is said out loud instead of inferred from a dialog that turned out to be
+    describing something else.
+    """
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "local was=tonumber(M.__lw_ref_mega_gold0) "
+            "if was==nil then return 0 end local now=0 "
+            "pcall(function() now=LuaEntry.Player.gold+0 end) "
+            "local d=was-now if d<0 then d=0 end return d end)()")
