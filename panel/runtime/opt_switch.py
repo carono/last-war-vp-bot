@@ -50,22 +50,17 @@ def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the calle
     settings = _binder(rt)
     if settings is None:
         return False
-    # BOTH HAVE TO AGREE BEFORE A PRESS IS «уже так». The widget and the file drift
-    # apart on their own: the shell's snapshot writes a knob only when the Settings page
-    # of THAT profile has been built (`panel/__main__.py::_collect_settings` reads
-    # `_opt_vars`, and a tab builds when somebody first looks at it, #1215). So three
-    # profiles nobody had opened the page of came back from a restart with the box on in
-    # Tk and no line at all on disk — and a press that trusted the widget answered
-    # «unchanged» and repaired nothing. Comparing both means the press is idempotent AND
-    # puts the file right.
-    stored = None
-    try:
-        stored = dict(settings.values).get(key)
-    except Exception:                        # noqa: BLE001 — a reading, never the panel
-        stored = None
-    if get(rt, key) == on and stored is not None and bool(stored) == on:
-        return False
-    moved = False
+    # A PRESS ALWAYS WRITES, and only the ANSWER is «уже так». It is tempting to return
+    # early when the knob already reads the way the press asks, and it is wrong here:
+    # the widget, the binder's dict and the file drift apart on their own. The shell's
+    # snapshot writes a knob only when THAT profile's Settings page has been built
+    # (`panel/__main__.py::_collect_settings` reads `_opt_vars`, and a page builds when
+    # somebody first looks at it, #1215) — so three profiles nobody had opened came back
+    # from a restart with the box on in Tk, on in the binder, and no line at all in
+    # `config.json`. Two drafts of this returned early on that reading, answered
+    # «unchanged» and repaired nothing. Writing costs one small JSON file; not writing
+    # cost an afternoon of a knob that existed only until the panel closed.
+    moved = get(rt, key) != on
     var = None
     try:
         var = settings.var(key)
@@ -74,7 +69,6 @@ def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the calle
     if var is not None:
         try:
             var.set(on)
-            moved = True
         except Exception:                    # noqa: BLE001 — the file below still stands
             var = None
     # AND THE FILE, ALWAYS — never `settings.changed()` alone, which is what the first
@@ -89,7 +83,6 @@ def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the calle
         raw[key] = on
         settings.values = raw
         settings.save(raw)
-        moved = True
     except Exception:                        # noqa: BLE001 — one knob, never the panel
         pass
     return moved
