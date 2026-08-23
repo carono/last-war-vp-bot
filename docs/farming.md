@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥  **34%** — 51 of 150
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥  **34%** — 51 of 151
 
-🟩 51 done · 🟨 61 partly · 🟥 38 not automated
+🟩 51 done · 🟨 62 partly · 🟥 38 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -130,6 +130,11 @@ minister hands out" — the recording shows it is the profession tree, not a pos
   red dot unlit. Stage 1 is cleared with about 300 soldiers, over and over; stage 2 has
   been cleared once and stages 3 and above are still beyond it, so «five in a row» is not
   there yet.
+- 🟡 …and it can be left to the weekly timer: a row that fires on the event's own day —
+  Sunday by the GAME's clock, not the computer's — and plays three games, whatever they
+  score. Three were played end to end in a live run; the row itself ships switched off,
+  so it only starts once the person ticks it. A day the event is not open for the account
+  is said plainly and tried again later in the day instead of being ground at.
 
 ### Arms Race
 
