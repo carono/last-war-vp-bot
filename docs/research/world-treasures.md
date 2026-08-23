@@ -921,10 +921,10 @@ repeat». So it does mean «this chest has been worked». But **no chest has eve
 without it**, so there is no recording of the field flipping, and a gate needs a success
 recording (`CLAUDE.md`).
 
-It is therefore read as a hint that can only help: `dug` OPENS the claim and does not close
-the march — a target with no squad out still goes to the «new» branch and marches first.
-Being wrong costs one claim the server answers with a code the run now prints; being wrong
-the other way would cost the chest.
+It was therefore read as a hint that could only help: `dug` OPENED the claim and did not
+close the march — a target with no squad out still went to the «new» branch and marched
+first. **That order was reversed on 2026-08-23, by the success recording this paragraph
+said was missing — see «The hundred seconds a dug chest cost» below.**
 
 ## What the third door is, in the end
 
@@ -1186,3 +1186,54 @@ farming lists stay 🟡. What a live session should show is `lag=`/`worst=` on �
 пункт» and in the errand's report — the milliseconds between the chest becoming takeable and
 the first claim leaving. That is the acceptance criterion, and it is now a number on the
 screen rather than an impression.
+
+## The hundred seconds a dug chest cost, and the order it reversed (#1886)
+
+The recording the paragraph above asked for, live on 2026-08-23. The client had been in the
+CITY since 16:04; a chest of this alliance's own was on the map and nothing said so — the
+share is a thing a person does and nobody did it, and no dig broadcast reached this client.
+The player went out to the world at 18:45:07, the listener's poll fired in the same second
+(the poll is true whenever the client is in the world), and the look found the chest two
+seconds later:
+
+```
+18:45:07  [trigger] treasure_auto: игра говорит, что есть работа — запускаю сценарий
+18:45:09  seen  = 'found=1 ours=1 foreign=0 (new=1 …)'
+18:45:10  report= 'sent=1 … news=1 watch=0 [x27/scan/0s:squad1]'
+18:45:11  queue = '1) @[<x>,<y>|<server>] dug squad1'      <- ALREADY DUG when first seen
+18:45:48  report= '… [x27/scan/39s:march-unanswered]'
+18:46:08  report= 'sent=1 … [x27/scan/59s:squad1]'         <- re-send 1
+18:46:29  report= 'sent=1 … [x27/scan/79s:squad1]'         <- re-send 2
+18:46:49  report= '… lag=99974ms worst=99974ms [x27/scan/100s:claimed-waiting1/lag99974ms]'
+18:46:49  watch = 'on=1 … claims=1 paid=1 lag=99974 worst=99974 eye=looked'
+```
+
+Four marches went out and **not one of them ever appeared** as a march object: the game
+drops a dig march at a chest whose dig is already over, and it drops it in the same silence
+a refused claim comes in. The errand read that silence correctly as «the client swallowed
+the send», re-sent it three times at twenty seconds apart, ran out of re-sends, and claimed
+blind — and **that first claim was PAID** (`claims=1 paid=1`).
+
+So the missing recording exists now, and it says the opposite of the caution above: a chest
+carrying `ownerUid` was claimable with no march of ours in sight, and the march was not
+merely unnecessary but impossible. The order is therefore reversed — the claim goes first,
+no squad is spent while the ramp is being tried, and the march follows only if the server
+refuses `TREASURE_CLAIM_FIRST_TRIES` times. The old order survives as that fallback, which
+is what the 2026-08-08 case (a chest the ALLIANCE had dug and this account had not) needs.
+
+The decomposition of the hundred seconds, because only one part of it was the errand's:
+
+| slice | seconds | what it was |
+|---|---|---|
+| chest on the map, client in the city | unknown, hours possible | no door: the look needs the world scene, and nobody shared or dug it within earshot |
+| world → heard | 2 | the poll fired the second the client was out, the look found it |
+| heard → first claim | 100 | four dropped marches and the re-send ladder — **this is what #1886 removed** |
+| first claim → paid | ~0 | one send, paid |
+| queued behind another errand | 0 | no lease was lost in this window |
+
+**What is still not fixed, and is not a bug in the listener:** a chest nobody shares and
+nobody digs within earshot is invisible while the client sits in the base. The point
+manager belongs to the world scene, and the manager that would know without it
+(`ActDetectTreasureDataManager.dataDict`) has been empty every time it has been read
+(#1107, #1116). A city door would have to start from `treasure_refresh_request`, and it has
+never been proven to answer.

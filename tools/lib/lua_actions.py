@@ -3703,6 +3703,17 @@ TREASURE_MARCH_SETTLE_SEC = 20
 #: and a chest that has swallowed this many sends is written off with a word that says so.
 TREASURE_RESEND_TRIES = 3
 
+#: HOW MANY CLAIMS A CHEST THAT IS ALREADY DUG GETS BEFORE A SQUAD IS SPENT ON IT (#1886).
+#: `ownerUid` used to be a hint that opened the claim without closing the march, because
+#: «a gate needs a success recording» and there was none. There is one now, and it cost a
+#: hundred seconds: on 2026-08-23 a chest of this alliance's own was seen already dug the
+#: second the client reached the map, four marches were sent at it and NONE of them ever
+#: appeared (`march-unanswered` — the game drops a dig march at a chest whose dig is over),
+#: and the blind claim the resend ladder finally reached was PAID on its first try —
+#: `lag=99974ms`. So a dug chest is claimed first and marched at only if the server refuses
+#: this many times, which costs the other case about the length of the ramp below.
+TREASURE_CLAIM_FIRST_TRIES = 3
+
 #: `MarchStatus.TREASURE_DIGGING` (`docs/research/squad-state.md`). A march in this state
 #: carries the dig's OWN deadline in `endTime` — the moment the chest finishes being dug —
 #: which is the whole of the timing this errand is built on: the claim is scheduled AT that
@@ -4024,6 +4035,16 @@ D.__lw_treasure_auto.tick = function()
        else
         if t.claim_only and t.sent == nil then
           ready, anchor = true, (tonumber(t.dug) or tonumber(t.at) or now)
+        elseif t.sent == nil and t.dug ~= nil and not t.cf_done then
+          -- A CHEST THAT ARRIVES ALREADY DUG IS CLAIMED BEFORE ANY SQUAD IS SPENT ON IT
+          -- (#1886). The other order was deliberate and is now disproved by a recording:
+          -- the march is refused in silence when the dig is already over, the errand
+          -- reads that silence as a dropped send and re-sends it, and the chest is only
+          -- taken when the resend ladder runs out and claims blind — a hundred seconds
+          -- for a claim the server pays on its first try. The march is still there, one
+          -- ramp later, for the case this reading is wrong (`cf_done` below).
+          t.cf = true
+          ready, anchor = true, (tonumber(t.dug) or tonumber(t.at) or now)
         elseif t.sent ~= nil then
           if (tonumber(t.due) or 0) > 0 and now >= tonumber(t.due) then
             ready, anchor = true, tonumber(t.due)
@@ -4035,6 +4056,14 @@ D.__lw_treasure_auto.tick = function()
           end
         end
         if ready and t.ready_at == nil then t.ready_at = anchor or now end
+        -- …AND THE CLAIM-FIRST IS A TRY, NOT A VERDICT. `ownerUid` says «this chest has
+        -- been worked», not «this account may have it», so a chest that swallows this
+        -- many claims in silence is handed back to the march path with a clean ramp — the
+        -- old order, one ramp late, for a chest this reading was wrong about.
+        if ready and t.cf and (tonumber(t.tries) or 0) >= %(cf_tries)d then
+          t.cf, t.cf_done, t.tries, t.claimed = nil, true, 0, nil
+          ready = false
+        end
         if ready then
           local n = tonumber(t.tries) or 0
           -- The gap AFTER n tries, so the first retry is the ramp's first step and not its
@@ -4122,7 +4151,8 @@ end
        "err_foreign": int(TREASURE_ERR_NOT_IN_ALLIANCE),
        "dig_status": int(TREASURE_DIG_STATUS), "home_status": int(TREASURE_HOME_STATUS),
        "settle": int(TREASURE_MARCH_SETTLE_SEC) * 1000,
-       "resends": int(TREASURE_RESEND_TRIES), "arm_ms": int(TREASURE_DUE_ARM_MS)}
+       "resends": int(TREASURE_RESEND_TRIES), "arm_ms": int(TREASURE_DUE_ARM_MS),
+       "cf_tries": int(TREASURE_CLAIM_FIRST_TRIES)}
 
 
 def treasure_tick_define() -> str:
@@ -4356,6 +4386,9 @@ def treasure_auto_step() -> str:
         world-treasures.md`), called STRAIGHT rather than behind
         `TimerManager:DelayInvoke` — the rally join proved the direct send works from the
         daemon's thread, and a send behind a timer cannot say whether it threw.
+      * **already dug** — nothing is marched at it at all until the claim has been
+        refused (#1886). `A.tick` claims it on the beat it is queued; the squad is the
+        fallback, not the first move.
       * **anything else** — `A.tick`, and not this chunk (#1318). Waiting for a dig to end
         and claiming the moment it does is a question of MILLISECONDS, and a chunk the
         panel sends is asked every ten seconds at best. So the claim half lives in the game
@@ -4497,7 +4530,9 @@ def treasure_auto_step() -> str:
         # A chest with a squad out, or one that only ever had a uuid to claim, is the
         # watch's business — this loop leaves it alone and the note comes off the word the
         # watch wrote on it.
-        "if t.sent ~= nil or t.claim_only then "
+        # …and so is a chest the watch is claiming BEFORE it marches (#1886): a dug chest
+        # gets the ramp first, and a squad only if the server refuses it.
+        "if t.sent ~= nil or t.claim_only or (t.cf and not t.cf_done) then "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
@@ -4872,11 +4907,14 @@ local function scrape(cx, cy)
               -- chest has been worked», but no chest has ever been caught WITHOUT it, and
               -- a gate needs a success recording (`CLAUDE.md`).
               --
-              -- Read as a hint it cannot do harm: `dug` OPENS the claim, it does not close
-              -- the march — a target with no squad out still goes to the «new» branch and
-              -- marches first (see `treasure_auto_step`). Being wrong here costs one claim
-              -- that the server answers with a code the run now prints. Being wrong the
-              -- other way — writing a chest off as unworkable — would cost the chest.
+              -- Read as a hint it cannot do harm, and since #1886 it is read FIRST: a
+              -- chest marked dug is claimed before a squad is spent on it, and marched at
+              -- only when the server has refused that claim `TREASURE_CLAIM_FIRST_TRIES`
+              -- times (see `_TREASURE_TICK`). The order was the other way round until a
+              -- recording settled it: a dug chest cost 100 s of dropped marches and was
+              -- then paid on the first blind claim. Being wrong this way costs the length
+              -- of the claim ramp; being wrong the other way costs a hundred seconds, and
+              -- writing the chest off as unworkable would cost the chest.
               --
               -- `expireTime` is the chest's OWN deadline, in the game's milliseconds. It
               -- beats any age the errand could keep: a chest is worked until the map

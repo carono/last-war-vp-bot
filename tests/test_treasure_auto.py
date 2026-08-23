@@ -1262,25 +1262,66 @@ def test_a_map_that_has_never_been_walked_is_not_a_map_with_nothing_on_it():
     assert "ago=0" in str(lua.eval(lua_actions.treasure_scan_counts()))
 
 
-def test_an_owner_uid_opens_the_claim_without_closing_the_march():
-    """`TreasurePointInfo.ownerUid` is the wire's finisher field and it is read as a HINT.
-    On the first live lap 19 chests out of 19 carried it, and the one this account could
-    reason about answered `errorCode 801348 — claim repeat` — so it does mean «worked» —
-    but no chest has ever been caught WITHOUT it, and a gate needs a success recording.
+def test_a_chest_that_is_already_dug_is_claimed_before_a_squad_is_spent_on_it():
+    """THE SUCCESS RECORDING THAT WAS MISSING (#1886, live 2026-08-23). `ownerUid` used to
+    open the claim without closing the march — a dug chest was MARCHED at first, on the
+    grounds that no chest had ever been caught without the field and a gate needs a
+    success recording. One arrived and it cost a hundred seconds: the chest was seen
+    already dug the second the client reached the map, four marches were sent at it and
+    not one ever appeared (`march-unanswered`), and the blind claim the resend ladder
+    finally reached was paid on its FIRST try — `lag=99974ms`.
 
-    Read as a hint it cannot do harm, and this is the shape of that: a chest marked dug
-    with no squad out is still MARCHED at first. Being wrong costs one claim the server
-    answers with a code; being wrong the other way would cost the chest."""
-    if not _needs_lua("an owner is a hint"):
+    So the order is the other way round now: the claim goes first and no squad is spent
+    while it is being tried."""
+    if not _needs_lua("a dug chest is claimed first"):
         return
     lua = _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, True),))
     _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
     _walk(lua)
     assert _targets(lua)[0].get("dug") is not None, _targets(lua)
-    #: …and the march goes out all the same — the claim only follows it.
+    report = _step(lua)
+    assert _marched(lua) == [], _marched(lua)
+    claims = _claims(lua)
+    assert len(claims) == 1, claims
+    assert str(claims[0]["uuid"]) == str(_OTHER_UUID), claims
+    assert "claim1" in report, report
+
+
+def test_a_dug_chest_the_server_refuses_gets_its_squad_after_the_ramp():
+    """…and the claim-first is a TRY, not a verdict. `ownerUid` says «this chest has been
+    worked», never «this account may have it», so a chest that swallows the whole ramp in
+    silence is handed back to the march path — the old order, one ramp late, which is what
+    the case #1296 measured (a chest the ALLIANCE dug and we had not) actually needs."""
+    if not _needs_lua("a refused claim-first still marches"):
+        return
+    lua = _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, True),))
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+    #: every claim refused — the silence a refusal comes in, over and over.
+    for _ in range(lua_actions.TREASURE_CLAIM_FIRST_TRIES):
+        _step(lua)
+        lua.execute("NOW = NOW + %d" % (max(lua_actions.TREASURE_CLAIM_RAMP_MS) + 1))
+    assert len(_claims(lua)) == lua_actions.TREASURE_CLAIM_FIRST_TRIES, _claims(lua)
+    assert _marched(lua) == [], "no squad while the claim is still being tried"
+    #: …and only then does a squad go.
     _step(lua)
     assert len(_marched(lua)) == 1, _marched(lua)
+
+
+def test_a_dig_feed_that_arrives_while_our_squad_walks_still_waits_for_it():
+    """The claim-first is for a chest that arrives already dug with NO squad out. A march
+    already in flight keeps the rule #1296 bought: the alliance having dug it is not this
+    account having dug it, and a claim sent into a march on the road is refused."""
+    if not _needs_lua("a march in flight is not overruled"):
+        return
+    lua = _vm()
+    _announce(lua)
+    _step(lua)                                   # the squad goes out
+    _still_marching(lua, slot=1)
+    _dug(lua)                                    # …and the alliance finishes meanwhile
+    report = _step(lua)
     assert _claims(lua) == [], _claims(lua)
+    assert "dug-still-marching" in report, report
 
 
 def test_the_lap_reads_each_box_after_its_own_jump():

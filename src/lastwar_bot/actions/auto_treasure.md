@@ -30,6 +30,17 @@
 # A chest that comes through two doors stays ONE target and keeps the best half of each: a
 # uuid heard from the dig feed and a tile seen on screen are the same chest, and the look
 # upgrades it rather than queuing it twice.
+
+# A CHEST THAT IS ALREADY DUG IS CLAIMED BEFORE ANY SQUAD IS SPENT ON IT (#1886). The
+# order used to be the other way round — march first, claim after — because the field that
+# says «this one has been worked» had never been seen to be wrong and a gate needs a
+# success recording. One arrived, and it cost a hundred seconds: a chest of this alliance's
+# own was seen already dug the second the client reached the map, four marches went out at
+# it and NOT ONE ever appeared (the game drops a dig march at a chest whose dig is over,
+# and it does it in silence), and the blind claim the resend ladder finally reached was
+# paid on its first try. So the claim goes first, no squad is spent while it is being
+# tried, and the march follows only if the server refuses the whole ramp — the old order,
+# one ramp late, for the case the reading is wrong.
 #
 # THE FIRST TWO CANNOT BE A WIRE TRIGGER, and that is a measurement rather than a
 # preference. The announcement is a chat post, and the chat broadcast rides a TLS
