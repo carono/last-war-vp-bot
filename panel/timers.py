@@ -453,28 +453,6 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.do_radar_marches",
     ),
     Timer(
-        name="auto_treasure",
-        scenario=("auto_treasure",),
-        # «На вкладке действие нужна кнопка собрать сокровища, чтобы я стриггерил
-        # действие» (#1296). The errand normally runs off its own trigger, which fires
-        # when a chest is heard; this row is the other half — a person at the panel
-        # pressing «Запустить» and having the whole thing happen now: the map walked, the
-        # nearest free squad sent, the gift claimed.
-        #
-        # Five minutes, which is the period of the ONE expensive part of it. The two ears
-        # cost nothing and the map lap is what a run may pay for, and the lap has a clock
-        # of its own inside the recipe — so a shorter period here would mostly re-ask two
-        # questions that answer in a tenth of a second, and a longer one would sit out
-        # chests. OFF by default like everything else here: the trigger is the ordinary
-        # way to have this running, and two of them at once is two runs of the same queue.
-        interval_sec=300,
-        # A run FAILS when the client is not answering, which is worth another go soon —
-        # a chest is out for minutes and the whole ability is about being early.
-        retry_sec=60,
-        enabled=False,
-        label_key="timers.item.auto_treasure",
-    ),
-    Timer(
         name="attack_codename_daily",
         scenario=("attack_codename_daily",),
         # A DAY, because the thing being spent is a day's worth of reward and there is
@@ -593,6 +571,22 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
 SPLIT_ERRANDS: dict[str, tuple[str, ...]] = {
     "alliance_upkeep": ("donate_alliance_tech", "collect_alliance_gifts"),
 }
+
+#: Errands this version no longer SCHEDULES at all — the old name, mapped to the
+#: standing order that does the job now (or to an empty string when nothing replaced
+#: it). A row here is deleted from a profile's file on the next start, and its switch
+#: is carried over to the successor: an errand that was running goes on running, off
+#: the listener instead of off a clock.
+#:
+#: `auto_treasure` is the first (#1886). Walking the map every five minutes for a chest
+#: was measured twice at 19 and 21 chests found with OURS ZERO both times, and the row
+#: spent its days reporting «нечего отправлять» — while the same recipe run by the
+#: `treasure_auto` listener hears a chest in the second the client hears it. Two ways of
+#: playing one recipe is two runs over one queue, and the clock was the worse of them.
+RETIRED_ERRANDS: dict[str, str] = {
+    "auto_treasure": "treasure_auto",
+}
+
 
 #: What a retired errand used to run. An entry in a profile's file may leave the scenario
 #: out and lean on the built-in of the same name (:func:`parse_catalogue`) — and a
@@ -777,6 +771,10 @@ class Catalogue:
         self.timers: tuple[Timer, ...] = tuple(timers)
         self.path = path
         self.errors: tuple[str, ...] = tuple(errors)
+        # Errands that were dropped from this profile's file as RETIRED, and were
+        # switched ON when they went (:func:`retire_errands`). Filled by
+        # :func:`load_profile_catalogue`; the caller turns the successor listener on.
+        self.retired_on: tuple[str, ...] = ()
         self._by_name = {timer.name: timer for timer in self.timers}
 
     # -- lookup -------------------------------------------------------------
@@ -1151,7 +1149,8 @@ def offered_catalogue(template: "Catalogue | None" = None) -> Catalogue:
     """
     template = load_template() if template is None else template
     names = set(template.names())
-    offered = [t for t in template.timers if t.name not in SPLIT_ERRANDS]
+    offered = [t for t in template.timers
+               if t.name not in SPLIT_ERRANDS and t.name not in RETIRED_ERRANDS]
     offered += [t for t in DEFAULT_TIMERS if t.name not in names]
     return Catalogue(offered, template.path, template.errors)
 
@@ -1193,6 +1192,43 @@ def adopt_new_errands(catalogue: Catalogue, offered: Catalogue,
     if first_time or wanted != seen:
         _write_json(record, sorted(wanted))
     return catalogue
+
+
+def retire_errands(catalogue: Catalogue,
+                   path: str) -> "tuple[Catalogue, tuple[str, ...]]":
+    """Delete an errand this version no longer schedules; say which of them were ON.
+
+    The profile's file owns its list (:func:`parse_catalogue`) and nothing else may
+    rewrite it — with the same exception the split has: a row this version has RETIRED
+    is not a row the operator chose to keep, it is one the panel no longer knows how to
+    run on a clock. Left alone it would go on firing for ever, because its scenario is
+    still there to play: `auto_treasure` names a recipe that exists and runs perfectly
+    well — off the wrong door.
+
+    So the row goes, the file is rewritten without it, and the name is written into the
+    "already offered" record so a stale local template cannot hand it back on the next
+    launch. What comes back is the catalogue and the names that were **switched on** when
+    they were dropped: the caller turns the successor listener on for exactly those, so a
+    profile that had the errand running keeps having it done.
+    """
+    stale = [t for t in catalogue.timers if t.name in RETIRED_ERRANDS]
+    if not stale:
+        return catalogue, ()
+    kept = [t for t in catalogue.timers if t.name not in RETIRED_ERRANDS]
+    was_on = tuple(t.name for t in stale if t.enabled)
+    fresh = Catalogue(kept, catalogue.path or path, catalogue.errors)
+    save_catalogue(fresh, path)
+
+    record = seen_path(path)
+    stored = _read_seen(record)
+    if stored is None:
+        # No record yet, and :func:`adopt_new_errands` is about to take the profile's
+        # list as one — a list that no longer holds the retired name. Write it here from
+        # the list as it was, exactly as the split does, so the retirement cannot undo
+        # itself on the next launch.
+        stored = set(catalogue.names())
+    _write_json(record, sorted(stored | {t.name for t in stale}))
+    return fresh, was_on
 
 
 def split_legacy_errands(catalogue: Catalogue, offered: Catalogue,
@@ -1258,8 +1294,10 @@ def load_profile_catalogue(path: str) -> Catalogue:
 
     A file that did not exist is written from the template; one that did keeps every
     word of what is in it, gains the errands this version has learnt since
-    (:func:`adopt_new_errands`), and has any errand this version has SPLIT replaced by
-    the rows it became (:func:`split_legacy_errands`).
+    (:func:`adopt_new_errands`), has any errand this version has SPLIT replaced by
+    the rows it became (:func:`split_legacy_errands`), and loses any errand this version
+    has RETIRED (:func:`retire_errands`) — with the names that were switched on when they
+    went left on ``catalogue.retired_on`` for the caller to act on.
     """
     template = load_template()
     offered = offered_catalogue(template)
@@ -1275,10 +1313,14 @@ def load_profile_catalogue(path: str) -> Catalogue:
         # Unreadable: what came back is the FALLBACK, not this profile's list. Deciding
         # what it is missing from that would write our guess over the operator's file.
         return catalogue
-    # The split runs FIRST: it is the one that has to see the file as it was written,
-    # and it settles the "already shown" record the adoption below reads.
+    # The retirement and the split run FIRST: they are the ones that have to see the
+    # file as it was written, and they settle the "already shown" record the adoption
+    # below reads.
+    catalogue, retired_on = retire_errands(catalogue, path)
     catalogue = split_legacy_errands(catalogue, offered, path)
-    return adopt_new_errands(catalogue, offered, path)
+    catalogue = adopt_new_errands(catalogue, offered, path)
+    catalogue.retired_on = retired_on
+    return catalogue
 
 
 def _readable(path: str) -> bool:

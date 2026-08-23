@@ -1388,6 +1388,123 @@ def test_the_poll_is_true_whenever_the_client_is_out_in_the_world():
     assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, "not in the world"
 
 
+# ---------------------------------------------------------------------------
+# The clock is gone; the ear is the way in (#1886)
+# ---------------------------------------------------------------------------
+#
+# «Таймеры с сокровищем нужно переделать, убираем как таймер, он всё равно работает
+# плохо, оставляем только слушатель сокровищ и исходим от этого — услышали, отправляем
+# отряд или собираем.» The row is deleted rather than switched off: a scenario that still
+# exists is one a stale profile file goes on playing for ever, so the retirement has to
+# reach the FILE and carry the operator's switch to the listener that replaced it.
+
+
+def test_the_clock_is_gone_and_names_the_listener_that_replaced_it():
+    """No `auto_treasure` row in the catalogue any more, and the name is retired rather
+    than merely absent — an absent one comes back the moment a stale template is read."""
+    from panel import timers as timersmod                    # noqa: E402
+
+    assert not [t for t in timersmod.DEFAULT_TIMERS if t.name == "auto_treasure"], \
+        "the errand is a listener's now, not a clock's"
+    assert timersmod.RETIRED_ERRANDS.get("auto_treasure") == "treasure_auto"
+
+
+def test_a_profile_that_had_the_clock_on_keeps_having_the_job_done(tmp=None):
+    """The row goes, the switch travels, and neither comes back on the next launch.
+
+    Everything a live profile had is here: the retired row switched ON, an ordinary row
+    beside it, and a local template still offering the retired one — which is exactly the
+    installation that would otherwise re-adopt it a day later.
+    """
+    import json, tempfile                                    # noqa: E402
+    from panel import timers as timersmod                    # noqa: E402
+    from panel import triggers as triggersmod                # noqa: E402
+
+    home = Path(tempfile.mkdtemp())
+    rows = [{"name": "auto_treasure", "scenario": "auto_treasure",
+             "interval_sec": 300, "enabled": True},
+            {"name": "collect_base_resources", "scenario": "collect_base_resources",
+             "enabled": True}]
+    profile = home / "timers.json"
+    profile.write_text(json.dumps(rows), encoding="utf-8")
+    template = home / "template.json"
+    template.write_text(json.dumps(rows), encoding="utf-8")
+
+    kept = timersmod.TEMPLATE_FILE
+    timersmod.TEMPLATE_FILE = str(template)
+    try:
+        catalogue = timersmod.load_profile_catalogue(str(profile))
+        assert "auto_treasure" not in catalogue.names(), catalogue.names()
+        assert catalogue.retired_on == ("auto_treasure",), catalogue.retired_on
+        written = [e["name"] for e in json.load(open(profile, encoding="utf-8"))]
+        assert "auto_treasure" not in written, written
+        seen = json.load(open(timersmod.seen_path(str(profile)), encoding="utf-8"))
+        assert "auto_treasure" in seen, "…or a stale template hands it straight back"
+
+        #: and a second launch is a quiet one: nothing to retire, nothing to announce
+        again = timersmod.load_profile_catalogue(str(profile))
+        assert "auto_treasure" not in again.names(), again.names()
+        assert again.retired_on == (), again.retired_on
+    finally:
+        timersmod.TEMPLATE_FILE = kept
+
+    #: the switch itself travels — the listener is turned on once, and only once, so a
+    #: person who deliberately switches it off afterwards keeps it off
+    trig_template = home / "trig_template.json"
+    trig_template.write_text(json.dumps(
+        [{"name": "treasure_auto", "scenario": "auto_treasure", "kind": "poll",
+          "check": "true", "enabled": False}]), encoding="utf-8")
+    triggers = home / "triggers.json"
+    triggers.write_text(trig_template.read_text(encoding="utf-8"), encoding="utf-8")
+    kept = triggersmod.TEMPLATE_FILE
+    triggersmod.TEMPLATE_FILE = str(trig_template)
+    try:
+        assert triggersmod.turn_on(str(triggers), ("treasure_auto",)) == ("treasure_auto",)
+        rows = {e["name"]: e for e in json.load(open(triggers, encoding="utf-8"))}
+        assert rows["treasure_auto"]["enabled"] is True
+        assert triggersmod.turn_on(str(triggers), ("treasure_auto",)) == ()
+    finally:
+        triggersmod.TEMPLATE_FILE = kept
+
+
+def test_a_poll_is_told_about_in_words_rather_than_in_lua():
+    """A poll's log line names the trigger and its beat, never the check.
+
+    Live, every one of these read «слушаю (function() local D = DataCenter …»: the whole
+    Lua expression dumped where a sentence belongs. Unreadable is as good as untrue for
+    somebody trying to tell a listener that heard nothing from one that was never up.
+    """
+    from panel import triggers as triggersmod                # noqa: E402
+
+    said = []
+    watcher = triggersmod.TriggerWatcher(
+        catalogue=lambda: triggersmod.default_catalogue(), config=dict, spawn=None,
+        submit=lambda *a, **k: "queued",
+        log=lambda key, **fmt: said.append((key, fmt)))
+    poll = next(t for t in triggersmod.DEFAULT_TRIGGERS if t.name == "treasure_auto")
+    wire = next(t for t in triggersmod.DEFAULT_TRIGGERS if not t.is_poll)
+
+    watcher._say(poll, "triggers.log.on")
+    key, fmt = said[-1]
+    assert key == "triggers.log.on_poll", said
+    assert fmt == {"name": "treasure_auto", "sec": poll.interval_sec}, fmt
+
+    watcher._say(wire, "triggers.log.fire")
+    key, fmt = said[-1]
+    assert key == "triggers.log.fire", said        # a wire trigger is unchanged
+    assert fmt["event"] == wire.signal()
+
+
+def test_the_recipe_says_what_it_heard_and_not_only_what_it_pressed():
+    """A listener that cannot say «heard N, did this» is «работает плохо», only silent."""
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "auto_treasure.md").read_text(
+        encoding="utf-8")
+    assert "INTO ear" in src, "the run has to read the ear's own tally"
+    assert "the ear so far: {ear}" in src, "…and say it in the log, every run"
+    assert "nothing was sent this run ({ear})" in src, \
+        "a quiet run is the one that most needs the counts on the line"
+
+
 def _run() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

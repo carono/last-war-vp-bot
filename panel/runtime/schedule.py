@@ -259,6 +259,29 @@ class Schedule:
             # the path are not words, the sentence after them is.
             self.rt.put(f"[timer] {repo_rel(path)}: "
                         f"{i18nmod.translated(self.rt.t, problem)}")
+        self._carry_retired(self.timer_catalogue.retired_on)
+
+    def _carry_retired(self, names) -> None:
+        """An errand this version retired was ON — turn its successor listener on.
+
+        The row itself is already gone from the file (`timers.retire_errands`). What is
+        left is the operator's decision, and dropping THAT silently is how «я включал, а
+        оно не работает» happens: the panel would show one row fewer and quietly stop
+        doing the job. So the switch travels to the standing order that does the work now
+        (`timers.RETIRED_ERRANDS`), and both halves are said out loud.
+
+        Timers load before triggers (:meth:`load`), so the flip lands in the file the
+        trigger catalogue is about to be read from.
+        """
+        for name in names or ():
+            successor = timersmod.RETIRED_ERRANDS.get(name) or ""
+            if not successor:
+                self.rt.say("timer", "timers.log.retired", name=name)
+                continue
+            moved = triggersmod.turn_on(self.rt.profiles.triggers_json(), (successor,))
+            self.rt.say("timer",
+                        "timers.log.retired_on" if moved else "timers.log.retired_kept",
+                        name=name, trigger=successor)
 
     def load_triggers(self) -> None:
         """The same for the trigger catalogue, seeded from its own template."""

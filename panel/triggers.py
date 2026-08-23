@@ -52,6 +52,7 @@ import os
 import sys
 import threading
 import time
+import dataclasses
 from dataclasses import dataclass, field
 
 # tools/lib is already on sys.path when the panel imports us; a bare import keeps this
@@ -959,6 +960,36 @@ def load_profile_catalogue(path: str) -> TriggerCatalogue:
     return load_catalogue(path, seed_from=load_template())
 
 
+def turn_on(path: str, names) -> "tuple[str, ...]":
+    """Switch these standing orders ON in a profile's own file; say which actually moved.
+
+    The one thing that may flip a switch nobody touched, and it exists for one case
+    (#1886): an errand that was a TIMER is retired, the listener that replaced it does
+    the same work, and a profile that had the clock running must not quietly stop doing
+    the job because the row it was written on is gone. So the switch is carried over
+    rather than invented — `panel/timers.py::retire_errands` says which names were on.
+
+    Idempotent: a trigger already on is left alone and is not reported as moved, so a
+    person who deliberately switches the listener off afterwards keeps it off.
+    """
+    wanted = {str(name) for name in names}
+    if not wanted:
+        return ()
+    catalogue = load_profile_catalogue(path)
+    moved, rows = [], []
+    for trigger in catalogue.triggers:
+        if trigger.name in wanted and not trigger.enabled:
+            rows.append(dataclasses.replace(trigger, enabled=True))
+            moved.append(trigger.name)
+        else:
+            rows.append(trigger)
+    if not moved:
+        return ()
+    save_catalogue(TriggerCatalogue(rows, catalogue.path or path, catalogue.errors),
+                   path)
+    return tuple(moved)
+
+
 def save_catalogue(catalogue: TriggerCatalogue, path: str | None = None) -> None:
     """Write a catalogue back out in the file's own format."""
     _write_json(path or catalogue.path or TEMPLATE_FILE,
@@ -1073,7 +1104,7 @@ class TriggerWatcher:
                                  state=state)
             with self._lock:
                 self._listeners[trigger.name] = handle
-            self._log("triggers.log.on", name=trigger.name, event=trigger.signal())
+            self._say(trigger, "triggers.log.on")
             self._dbg.info("listening on %s (poll) for %s", trigger.name, trigger.signal())
             handle.start()
             # No arm-sweep: the poll's own first iteration reads the current state, so
@@ -1085,7 +1116,7 @@ class TriggerWatcher:
             return
         with self._lock:
             self._listeners[trigger.name] = handle
-        self._log("triggers.log.on", name=trigger.name, event=trigger.signal())
+        self._say(trigger, "triggers.log.on")
         self._dbg.info("listening on %s for %s", trigger.name, trigger.signal())
         # An initial sweep: a request already waiting when the ear opens had its push
         # sent before we started listening, so no trigger is coming for it. Run the
@@ -1143,6 +1174,22 @@ class TriggerWatcher:
         "refired": "triggers.log.fire_again",
     }
 
+    #: WHAT A POLL SAYS INSTEAD (#1886). A poll has no event: what it carries is a Lua
+    #: expression, and every line about it read as «слушаю (function() local D = …» — the
+    #: whole check dumped into the log where a sentence should be. Unreadable is the same
+    #: as untrue for somebody trying to tell a listener that heard nothing from one that
+    #: was never up. So a poll's lines are their own, and they name the trigger and its
+    #: period rather than its source code. The raw check is still in `debug.log`, where
+    #: whoever wants to read Lua is already looking.
+    _POLL_WORDS = {
+        "triggers.log.on": "triggers.log.on_poll",
+        "triggers.log.fire": "triggers.log.fire_poll",
+        "triggers.log.fire_waiting": "triggers.log.fire_poll_waiting",
+        "triggers.log.fire_again": "triggers.log.fire_poll_again",
+        "triggers.log.fire_more": "triggers.log.fire_poll_more",
+        "triggers.log.observed": "triggers.log.observed_poll",
+    }
+
     #: …and the outcome that is said to NOBODY. The panel is stopped — this profile's
     #: daemon is down — so the push could not be acted on by anything, and there is
     #: nothing for a person to do about this particular one (#1393). Saying it would put a
@@ -1179,6 +1226,18 @@ class TriggerWatcher:
             return
         key = self._FIRE_WORDS.get(outcome, "triggers.log.fire")
         self._note_fire(trigger, key)
+
+    def _say(self, trigger, key: str, **fmt) -> None:
+        """One line about this listener, in the words its KIND deserves.
+
+        A wire trigger is named by the event it waits for; a poll by itself and the beat
+        it asks on (:data:`_POLL_WORDS`). Nothing else about the two differs here.
+        """
+        if trigger.is_poll:
+            self._log(self._POLL_WORDS.get(key, key), name=trigger.name,
+                      sec=trigger.interval_sec, **fmt)
+        else:
+            self._log(key, name=trigger.name, event=trigger.signal(), **fmt)
 
     def _note_seen(self, name: str) -> None:
         """Count a fire against its trigger — the tally «Занятость» reads (#1416)."""
@@ -1239,10 +1298,9 @@ class TriggerWatcher:
                 self._fires[trigger.name] = [key, 0, now]
                 count = 1
         if count > 1:
-            self._log("triggers.log.fire_more", name=trigger.name,
-                      event=trigger.signal(), count=count)
+            self._say(trigger, "triggers.log.fire_more", count=count)
         else:
-            self._log(key, name=trigger.name, event=trigger.signal())
+            self._say(trigger, key)
         return True
 
     def on_listener_exit(self, name: str) -> None:

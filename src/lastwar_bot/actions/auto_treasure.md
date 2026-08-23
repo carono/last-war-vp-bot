@@ -161,8 +161,17 @@ IF asked == 1
 # is true at the moment it asks and stops pretending to be the last word.
 READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 0 end return tonumber(A.claim_sent) or 0 end)() INTO claim_sent
 
+# WHAT THE EAR HAS HEARD, said in words rather than left to be inferred from a report
+# that only counts what a PRESS did (#1886). The errand is a listener's now — the timer
+# that walked the map on a clock is gone — and a listener that cannot say «я услышал N,
+# сделал вот это» is the same «работает плохо» over again, only silent. `heard` only ever
+# grows, so two runs with the same number is a genuinely quiet minute and not a deaf one.
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'heard=0 queued=0 working=0 finished=0' end local q, w, f = 0, 0, 0 for _, t in ipairs(A.targets or {}) do if t.done then f = f + 1 elseif t.sent then w = w + 1 else q = q + 1 end end return 'heard=' .. tostring(A.news or 0) .. ' queued=' .. tostring(q) .. ' working=' .. tostring(w) .. ' finished=' .. tostring(f) end)() INTO ear
+
+LOG "the ear so far: {ear} — heard= chests this client has been told about since it started, queued= waiting for a squad, working= a squad is out or a claim is unanswered, finished= done with"
+
 IF did == 0
-    LOG "nothing was sent this run — the reason is on the report line above"
+    LOG "nothing was sent this run ({ear}) — an unchanged heard= is a quiet minute; when it has moved, the report line above says what stood in the way"
     STOP
 
 # WHERE EACH CHEST STANDS NOW, for the log and for the person reading it later. The

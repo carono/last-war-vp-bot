@@ -570,7 +570,14 @@ press, because a chest is a race — the same reasoning the rally join was rebui
 (#1281).
 
 What plays it: `src/lastwar_bot/actions/auto_treasure.md`, and the poll trigger
-`treasure_auto` in `panel/triggers.py` (10 s, `immediate`). **The poll reads the LOCAL
+`treasure_auto` in `panel/triggers.py` (10 s, `immediate`) — **which is now the only
+thing that plays it on its own** (#1886). There was a five-minute TIMER of the same name
+beside it; it is retired (`panel/timers.py::RETIRED_ERRANDS`), its row is deleted from
+every profile's `timers.json` on the next start, and the switch it carried is moved to
+this trigger. A clock and an ear over one queue is two runs of one errand, and the clock
+was the worse of the two: it spent its days reporting «нечего отправлять» while the ear
+hears a chest in the second the client hears it. The page's «Отработать сейчас» still
+plays the same recipe by hand. **The poll reads the LOCAL
 table above** — one daemon round trip, no request to the server, nothing asked of the
 map — so «poll» here means polling the panel's own ear, and the chest is heard in the
 same second the client hears it. The check is also true whenever nothing is listening, so
