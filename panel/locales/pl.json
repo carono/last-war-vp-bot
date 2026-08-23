@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Ostatnie spojrzenie na okolicę: widziano {found} skrzyń — {ours} naszych, {foreign} innych sojuszy (takich gra nie odda). {ago} s temu",
   "cmdpost.treasure.lap.never": "W tym kliencie okolica nie była jeszcze odczytana",
   "cmdpost.treasure.look": "Okolica",
-  "cmdpost.treasure.watch": "Nadzór: {live} w toku · {claims} żądań · {paid} zebranych · ostatni {lag} ms, najgorszy {worst} ms · otoczenie: {eye}",
+  "cmdpost.treasure.watch": "Nadzór: {live} w toku · {claims} żądań · {paid} zebranych · ostatni {lag} ms, najgorszy {worst} ms · usłyszał→zebrał {hear} ms · otoczenie: {eye}",
   "cmdpost.treasure.watch.off": "Nadzór nie działa — skrzynia jest zabierana tylko wtedy, gdy panel patrzy (zebranych {paid})",
   "cmdpost.treasure.watch.never": "Nadzór nie był jeszcze odczytany w tym kliencie",
   "cmdpost.treasure.watch.nolag": "—",

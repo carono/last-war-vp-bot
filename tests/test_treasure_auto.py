@@ -378,13 +378,15 @@ def test_the_alliance_feed_opens_the_claim_rather_than_closing_it():
     _announce(lua)
     _step(lua)
     _dug_and_home(lua)
+    #: …and the claim leaves in the frame the feed arrives (#1886): the hook runs the
+    #: watch itself, so the gift is not waiting for the next tick or the next press.
     _dug(lua)
-    report = _step(lua)
     claims = _claims(lua)
     assert len(claims) == 1, claims
     assert str(claims[0]["uuid"]) == str(_UUID), claims
     assert int(claims[0]["server"]) == _SERVER, claims
-    assert "claimed=1" in report, report
+    report = _step(lua)
+    assert "claim1" in report, report
 
 
 def test_the_grace_waits_for_the_march_to_be_over_as_well_as_for_the_clock():
@@ -924,7 +926,9 @@ def test_both_message_shapes_reach_the_ring():
     _dug(lua, plain=True)
     _dug(lua, uuid=_OTHER_UUID, plain=False)
     feed = _json.loads(str(lua.eval(lua_actions.treasure_watch_drain())))
-    fields = [item["f"] for item in feed["items"]]
+    #: The claim each of those provokes rides the ring too, since #1886 — the hook claims
+    #: in the frame it hears — so the two pushes are the INCOMING half of it.
+    fields = [item["f"] for item in feed["items"] if item["d"] == "in"]
     assert len(fields) == 2, feed
     assert all("uuid=" in f for f in fields), fields
 
@@ -1285,6 +1289,83 @@ def test_a_chest_that_is_already_dug_is_claimed_before_a_squad_is_spent_on_it():
     assert len(claims) == 1, claims
     assert str(claims[0]["uuid"]) == str(_OTHER_UUID), claims
     assert "claim1" in report, report
+
+
+def test_the_dig_broadcast_is_answered_in_the_frame_it_arrives():
+    """«Клад должен быть собран МГНОВЕННО.» The wire has exactly one hearable dig signal —
+    `push.detect.treasure.claim`, one per member who finishes — and until #1886 hearing it
+    only STAMPED the chest: the claim itself waited for the game-side watch (a fifth of a
+    second) or for the panel's next press (ten seconds and a cooldown). The hook now runs
+    the watch itself, so the claim leaves on the message that opened it.
+
+    No press anywhere in this test: the broadcast arrives and the gift is asked for."""
+    if not _needs_lua("the broadcast is answered at once"):
+        return
+    lua = _vm()
+    _dug(lua, plain=True)
+    claims = _claims(lua)
+    assert len(claims) == 1, "the claim must leave inside the hook, not at the next tick"
+    assert str(claims[0]["uuid"]) == str(_UUID), claims
+
+
+def test_the_tile_flipping_to_dug_is_noticed_without_anybody_saying_so():
+    """THE THIRD WATCHER, and the only one that needs nobody to speak (#1886). A tile flip
+    cannot be HEARD — the map stream is decoded on the C# side and never reaches the Lua a
+    hook can wrap — so the watch READS the chest's own point five times a second instead.
+    A dig nobody broadcast is caught in a fifth of a second rather than at the next press."""
+    if not _needs_lua("the tile is watched"):
+        return
+    lua = _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, False),))
+    _park_scan(lua, server=_SERVER, step=20, every=0, lag=0)
+    _walk(lua)
+    _step(lua)                                   # still being dug — a squad goes
+    assert len(_marched(lua)) == 1, _marched(lua)
+    assert _targets(lua)[0].get("dug") is None, _targets(lua)
+    #: the client has to be holding that tile for its point manager to answer at all —
+    #: live as well as here, which is why this watcher is a backstop and not the gate.
+    _park_camera(lua, *_CHEST_AT)
+    #: the alliance finishes and says nothing at all — only the tile changes
+    lua.execute("CHESTS[%d].ownerUid = '1000000000000009'"
+                % (_CHEST_AT[1] * _MAP + _CHEST_AT[0] + 1))
+    lua.execute("if DataCenter.__lw_treasure_auto.tick then "
+                "DataCenter.__lw_treasure_auto.tick() end")
+    t = _targets(lua)[0]
+    assert t.get("dug") is not None, t
+    assert str(t.get("dug_by")) == "tile", t
+
+
+def test_the_status_when_it_was_heard_is_written_down_as_the_plan():
+    """The branch is a decision taken once, at the moment the chest is heard, and it is
+    readable afterwards: `claim` for a chest already dug, `march` for one still being dug.
+    A branch rediscovered by whoever looks next is a branch that can disagree with itself."""
+    if not _needs_lua("the plan is written down"):
+        return
+    dug = _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, True),))
+    _park_scan(dug, server=_SERVER, step=20, every=0, lag=0)
+    _walk(dug)
+    assert str(_targets(dug)[0].get("plan")) == "claim", _targets(dug)
+
+    digging = _scan_vm(chests=((_CHEST_AT, _OTHER_UUID, _SERVER, False),))
+    _park_scan(digging, server=_SERVER, step=20, every=0, lag=0)
+    _walk(digging)
+    assert str(_targets(digging)[0].get("plan")) == "march", _targets(digging)
+    _step(digging)
+    assert len(_marched(digging)) == 1, _marched(digging)
+
+
+def test_the_run_says_how_long_the_chest_waited_from_being_heard():
+    """`lag` measures from the chest becoming takeable, which is the errand's own half.
+    The player's sentence is «услышали — собрали», so the whole distance is measured too
+    and printed beside it — a number, not an impression."""
+    if not _needs_lua("heard-to-claim is reported"):
+        return
+    lua = _vm()
+    _dug(lua, plain=True)                        # heard and claimed in one instant
+    _reward(lua)
+    report = _step(lua)
+    assert "heard-to-claim=0ms" in report, report
+    watch = str(lua.eval(lua_actions.treasure_reaper_state()))
+    assert "hear=0" in watch, watch
 
 
 def test_a_dug_chest_the_server_refuses_gets_its_squad_after_the_ramp():

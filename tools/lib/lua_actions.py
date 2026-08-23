@@ -3415,7 +3415,12 @@ local function harvest(cmd, obj)
     local known = false
     for _, t in ipairs(A.targets or {}) do
       if tostring(t.uuid) == key then known = true
-        if not t.dug then t.dug = nowms() end end
+        if not t.dug then t.dug, t.dug_by = nowms(), "push" end
+        -- THE STATUS BRANCH, DECIDED THE SECOND IT IS HEARD (#1886): a chest that is dug
+        -- and has no squad of ours out is CLAIMED, never marched at. A chest whose squad
+        -- is on the road keeps the rule #1296 bought and waits for its own legs.
+        if t.sent == nil and t.plan == nil then t.plan = "claim" end
+      end
     end
     -- A CHEST NOBODY SHARED IS STILL A CHEST (#1296, learned on the first live one).
     -- The alliance dug a treasure for twenty minutes and not one `world.treasure.share.
@@ -3430,10 +3435,16 @@ local function harvest(cmd, obj)
       A.seen[key] = nowms()
       A.targets = A.targets or {}
       A.targets[#A.targets+1] = {uuid = u, pid = 0, x = 0, y = 0, server = 0,
-                                 at = nowms(), dug = nowms(), claim_only = true,
-                                 src = "dig-feed"}
+                                 at = nowms(), dug = nowms(), dug_by = "push",
+                                 claim_only = true, plan = "claim", src = "dig-feed"}
       A.news = (A.news or 0) + 1
     end
+    -- …AND IT IS ANSWERED IN THE SAME FRAME IT ARRIVED. The watch would get to this chest
+    -- within a fifth of a second and the panel within ten, and neither is «мгновенно»
+    -- when the claim could leave on the message that opened it. So the tick is run right
+    -- here, inside the hook: heard and claimed are one instant, and everything the claim
+    -- needs was already on the table.
+    pcall(function() if A.tick ~= nil then A.tick() end end)
     return
   end
   -- The announcement. A chest shared into alliance chat travels as an ordinary chat
@@ -3928,6 +3939,35 @@ D.__lw_treasure_auto.tick = function()
   pcall(function() reward = UIManager.Instance:IsWindowOpen(
     UIWindowNames.UIGiftPackageRewardGet) and true or false end)
   local live, claimed, paid, expired, waiting, resent = 0, 0, 0, 0, 0, 0
+  -- THE THIRD WATCHER OF THE DIG, and the only one that needs nobody to say anything
+  -- (#1886). The wire has exactly one hearable dig signal — `push.detect.treasure.claim`,
+  -- one per member who finishes — and the map stream that would be the other one is
+  -- decoded on the C# side and never reaches `SFSNetwork.HandleMessage`, so no Lua hook
+  -- can hear a tile flip. What Lua CAN do is read the tile the client already holds: the
+  -- point info for a chest we are tracking carries the finisher (`ownerUid`) the moment
+  -- the dig is over. One `GetPointInfo` per tracked chest, five times a second, on tiles
+  -- the client has loaded anyway — so a dig nobody broadcast is still caught inside a
+  -- fifth of a second instead of at the panel's next look.
+  --
+  -- It is a BACKSTOP and not the gate, and the limit is worth knowing: the point manager
+  -- only answers for tiles the client is currently holding, so a chest the camera has
+  -- walked away from reads `nil` and nothing is stamped. Costing nothing when it cannot
+  -- answer is the whole reason it may run on every beat.
+  local pm = nil
+  pcall(function() pm = _G.WS and _G.WS.PointManager end)
+  if pm ~= nil then
+    for _, t in ipairs(A.targets or {}) do
+      if not t.done and t.dug == nil and (tonumber(t.pid) or 0) > 0 then
+        local who = nil
+        pcall(function()
+          local info = pm:GetPointInfo(tonumber(t.pid))
+          if info ~= nil then who = tostring(info.ownerUid or "") end end)
+        if who ~= nil and who ~= "" and who ~= "0" then
+          t.dug, t.dug_by = now, "tile"
+        end
+      end
+    end
+  end
   for _, t in ipairs(A.targets or {}) do
    if not t.done then
     -- 1. WHAT THE SERVER SAID ABOUT THIS CHEST. The reply to a claim carries an
@@ -4035,7 +4075,7 @@ D.__lw_treasure_auto.tick = function()
        else
         if t.claim_only and t.sent == nil then
           ready, anchor = true, (tonumber(t.dug) or tonumber(t.at) or now)
-        elseif t.sent == nil and t.dug ~= nil and not t.cf_done then
+        elseif t.sent == nil and t.dug ~= nil and t.plan ~= "march" then
           -- A CHEST THAT ARRIVES ALREADY DUG IS CLAIMED BEFORE ANY SQUAD IS SPENT ON IT
           -- (#1886). The other order was deliberate and is now disproved by a recording:
           -- the march is refused in silence when the dig is already over, the errand
@@ -4043,7 +4083,7 @@ D.__lw_treasure_auto.tick = function()
           -- taken when the resend ladder runs out and claims blind — a hundred seconds
           -- for a claim the server pays on its first try. The march is still there, one
           -- ramp later, for the case this reading is wrong (`cf_done` below).
-          t.cf = true
+          t.plan = "claim"
           ready, anchor = true, (tonumber(t.dug) or tonumber(t.at) or now)
         elseif t.sent ~= nil then
           if (tonumber(t.due) or 0) > 0 and now >= tonumber(t.due) then
@@ -4060,8 +4100,9 @@ D.__lw_treasure_auto.tick = function()
         -- been worked», not «this account may have it», so a chest that swallows this
         -- many claims in silence is handed back to the march path with a clean ramp — the
         -- old order, one ramp late, for a chest this reading was wrong about.
-        if ready and t.cf and (tonumber(t.tries) or 0) >= %(cf_tries)d then
-          t.cf, t.cf_done, t.tries, t.claimed = nil, true, 0, nil
+        if ready and t.plan == "claim" and t.sent == nil and not t.claim_only
+           and (tonumber(t.tries) or 0) >= %(cf_tries)d then
+          t.plan, t.tries, t.claimed = "march", 0, nil
           ready = false
         end
         if ready then
@@ -4092,6 +4133,14 @@ D.__lw_treasure_auto.tick = function()
                 t.claim_at = now
                 t.lag = now - (tonumber(t.ready_at) or now)
                 A.lag_ms = t.lag
+                -- …AND THE NUMBER THE PLAYER ACTUALLY ASKED FOR (#1886): «услышали —
+                -- собрали», end to end. `lag` measures from the chest becoming takeable,
+                -- which is the errand's own half; this measures from the second the
+                -- client learned of the chest at all, which is the sentence the player
+                -- said. On a chest heard already dug the two are the same number.
+                t.hear = now - (tonumber(t.at) or now)
+                A.hear_ms = t.hear
+                if t.hear > (tonumber(A.hear_worst) or -1) then A.hear_worst = t.hear end
                 if t.lag > (tonumber(A.lag_worst) or -1) then A.lag_worst = t.lag end
               end
               t.state = "claim" .. tostring(t.tries)
@@ -4348,7 +4397,8 @@ def treasure_reaper_stop() -> str:
 def treasure_reaper_state() -> str:
     """Lua *expression* -> what the watch is doing, and the number the criterion needs.
 
-    ``on=<0|1> ticks=<n> live=<n> claims=<n> paid=<n> lag=<ms> worst=<ms> eye=<why>`` —
+    ``on=<0|1> ticks=<n> live=<n> claims=<n> paid=<n> lag=<ms> worst=<ms> hear=<ms>
+    eye=<why>`` —
     `lag` is the milliseconds between a chest becoming takeable and the first claim for it
     leaving, which is «в первую секунду» said as a number rather than as an impression,
     and `worst` is the worst one this client has seen so an average cannot hide a bad chest.
@@ -4365,6 +4415,9 @@ def treasure_reaper_state() -> str:
         ".. ' paid=' .. tostring(A.paid_all or 0) "
         ".. ' lag=' .. tostring(A.lag_ms or -1) "
         ".. ' worst=' .. tostring(A.lag_worst or -1) "
+        # «услышали — собрали», the whole distance, which is the sentence the player used
+        # and the one `lag` alone cannot answer (#1886).
+        ".. ' hear=' .. tostring(A.hear_ms or -1) "
         ".. ' eye=' .. tostring(A.look_why or 'never') end)()"
     )
 
@@ -4532,7 +4585,7 @@ def treasure_auto_step() -> str:
         # watch wrote on it.
         # …and so is a chest the watch is claiming BEFORE it marches (#1886): a dug chest
         # gets the ramp first, and a squad only if the server refuses it.
-        "if t.sent ~= nil or t.claim_only or (t.cf and not t.cf_done) then "
+        "if t.sent ~= nil or t.claim_only or t.plan == 'claim' then "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
@@ -4621,7 +4674,9 @@ def treasure_auto_step() -> str:
         # measurement, so it is reported as one.
         ".. ((tonumber(A.lag_ms) ~= nil) and (' lag=' .. tostring(A.lag_ms) .. 'ms') or '') "
         ".. ((tonumber(A.lag_worst) ~= nil) "
-        "and (' worst=' .. tostring(A.lag_worst) .. 'ms') or '') "
+        "and (' worst=' .. tostring(A.lag_worst) .. 'ms') or '') "        # …AND THE SAME DISTANCE MEASURED FROM THE EAR (#1886): «услышали — собрали».
+        ".. ((tonumber(A.hear_ms) ~= nil) "
+        "and (' heard-to-claim=' .. tostring(A.hear_ms) .. 'ms') or '') "
         ".. ' watch=' .. tostring((A.reap_on and 1) or 0) "
         # …and what the SERVER last said no to, if it said anything. A claim it refuses
         # answers with an `errorCode`, and a run that claimed and was refused otherwise
@@ -5149,9 +5204,15 @@ def treasure_scan_harvest() -> str:
         "else "
         "A.seen = A.seen or {} A.seen[key] = A.seen[key] or now "
         "A.targets = A.targets or {} "
+        # THE STATUS THE CHEST WAS IN WHEN IT WAS FOUND, written down as the plan
+        # (#1886): a chest the tile says is already dug is claimed and never marched at;
+        # one that is still being dug gets a squad. The branch is taken here, once, rather
+        # than rediscovered by whoever looks next.
         "A.targets[#A.targets+1] = {uuid = f.uuid, pid = f.pid, x = f.x, y = f.y, "
         "server = tonumber(f.server) or 0, at = now, src = 'scan', "
         "expire = tonumber(f.expire) or 0, "
+        "plan = (f.dug and 'claim' or 'march'), "
+        "dug_by = (f.dug and 'tile' or nil), "
         "dug = (f.dug and now or nil)} "
         "A.news = (A.news or 0) + 1 "
         "fresh = fresh + 1 end end end "

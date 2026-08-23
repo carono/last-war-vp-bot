@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Última olhada nos arredores: {found} baús à vista — {ours} nossos, {foreign} de outras alianças (o jogo não os entrega). Há {ago} s",
   "cmdpost.treasure.lap.never": "Neste cliente os arredores ainda não foram lidos",
   "cmdpost.treasure.look": "Arredores",
-  "cmdpost.treasure.watch": "Vigilância: {live} em curso · {claims} pedidos · {paid} recolhidos · último {lag} ms, pior {worst} ms · arredores: {eye}",
+  "cmdpost.treasure.watch": "Vigilância: {live} em curso · {claims} pedidos · {paid} recolhidos · último {lag} ms, pior {worst} ms · ouvido→recolhido {hear} ms · arredores: {eye}",
   "cmdpost.treasure.watch.off": "A vigilância não está a correr — um baú só é recolhido quando o painel olha ({paid} recolhidos)",
   "cmdpost.treasure.watch.never": "A vigilância ainda não foi lida neste cliente",
   "cmdpost.treasure.watch.nolag": "—",

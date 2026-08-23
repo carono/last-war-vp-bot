@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Last look around: {found} chests in view — {ours} ours, {foreign} of other alliances (the game will not give those). {ago} s ago",
   "cmdpost.treasure.lap.never": "Nothing has been looked at in this client yet",
   "cmdpost.treasure.look": "Surroundings",
-  "cmdpost.treasure.watch": "Watch: {live} in hand · {claims} claims · {paid} taken · last {lag} ms, worst {worst} ms · surroundings: {eye}",
+  "cmdpost.treasure.watch": "Watch: {live} in hand · {claims} claims · {paid} taken · last {lag} ms, worst {worst} ms · heard→taken {hear} ms · surroundings: {eye}",
   "cmdpost.treasure.watch.off": "The watch is not running — a chest is only taken when the panel looks ({paid} taken)",
   "cmdpost.treasure.watch.never": "The watch has not been read in this client yet",
   "cmdpost.treasure.watch.nolag": "—",

@@ -31,6 +31,16 @@
 # uuid heard from the dig feed and a tile seen on screen are the same chest, and the look
 # upgrades it rather than queuing it twice.
 
+# THE BRANCH IS TAKEN BY THE CHEST'S STATUS, THE SECOND IT IS HEARD (#1886): still being
+# dug — a squad goes; already dug — the gift is claimed and no squad is spent at all. And
+# the dig is WATCHED rather than waited out, by all three signals the client has: the
+# alliance's own `push.detect.treasure.claim`, which now claims INSIDE the hook that hears
+# it rather than on the next tick; our own march's dig deadline, pinned to the millisecond
+# with the game's timer; and the chest's own tile, read five times a second out of the
+# client's point manager, which is the only one that needs nobody to say anything. There
+# is no fourth: the map stream is decoded on the C# side and never reaches the Lua the
+# panel can hook, so a tile flip cannot be HEARD, only looked at.
+#
 # A CHEST THAT IS ALREADY DUG IS CLAIMED BEFORE ANY SQUAD IS SPENT ON IT (#1886). The
 # order used to be the other way round — march first, claim after — because the field that
 # says «this one has been worked» had never been seen to be wrong and a gate needs a
@@ -131,9 +141,9 @@ LOG "the line above is what the run did: sent= marches that went out, claimed= c
 # a press; this is written by the thing that runs between presses, and the two disagreeing
 # is the one symptom worth chasing — a watch that says `on=0` after an arm is a client that
 # lost its timer, and every claim is back to waiting for a panel tick.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 lag=-1 worst=-1 eye=never' end return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) .. ' ticks=' .. tostring(A.ticks or 0) .. ' live=' .. tostring(A.t_live or 0) .. ' claims=' .. tostring(A.claims_all or 0) .. ' paid=' .. tostring(A.paid_all or 0) .. ' lag=' .. tostring(A.lag_ms or -1) .. ' worst=' .. tostring(A.lag_worst or -1) .. ' eye=' .. tostring(A.look_why or 'never') end)() INTO watch
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'on=0 ticks=0 live=0 claims=0 paid=0 lag=-1 worst=-1 hear=-1 eye=never' end return 'on=' .. tostring((A.reap_on and A.reap_on ~= 0) and 1 or 0) .. ' ticks=' .. tostring(A.ticks or 0) .. ' live=' .. tostring(A.t_live or 0) .. ' claims=' .. tostring(A.claims_all or 0) .. ' paid=' .. tostring(A.paid_all or 0) .. ' lag=' .. tostring(A.lag_ms or -1) .. ' worst=' .. tostring(A.lag_worst or -1) .. ' hear=' .. tostring(A.hear_ms or -1) .. ' eye=' .. tostring(A.look_why or 'never') end)() INTO watch
 
-LOG "the line above is the game-side watch: on= is its timer alive, ticks= how many times it has looked since the client started, live= chests it is working right now, claims=/paid= what it has sent and been paid for, lag=/worst= milliseconds from takeable to claim (-1 = no chest has been taken yet), eye= what the second ear last saw — «looked» on the map, «city» in the base, and «no-point-manager» when the client has not been out on the map since it started"
+LOG "the line above is the game-side watch: on= is its timer alive, ticks= how many times it has looked since the client started, live= chests it is working right now, claims=/paid= what it has sent and been paid for, lag=/worst= milliseconds from takeable to claim (-1 = no chest has been taken yet), hear= milliseconds from HEARING the chest to claiming it — «услышали — собрали» end to end — eye= what the second ear last saw — «looked» on the map, «city» in the base, and «no-point-manager» when the client has not been out on the map since it started"
 
 # One number: how many sends this run actually made. `0` is an ordinary quiet minute —
 # nothing was announced, or the squads are all out — and not a failure.
@@ -177,9 +187,9 @@ READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then re
 # that walked the map on a clock is gone — and a listener that cannot say «я услышал N,
 # сделал вот это» is the same «работает плохо» over again, only silent. `heard` only ever
 # grows, so two runs with the same number is a genuinely quiet minute and not a deaf one.
-READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'heard=0 queued=0 working=0 finished=0' end local q, w, f = 0, 0, 0 for _, t in ipairs(A.targets or {}) do if t.done then f = f + 1 elseif t.sent then w = w + 1 else q = q + 1 end end return 'heard=' .. tostring(A.news or 0) .. ' queued=' .. tostring(q) .. ' working=' .. tostring(w) .. ' finished=' .. tostring(f) end)() INTO ear
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'heard=0 queued=0 working=0 finished=0 to-claim=0 to-march=0' end local q, w, f, c, m = 0, 0, 0, 0, 0 for _, t in ipairs(A.targets or {}) do if t.done then f = f + 1 elseif t.sent then w = w + 1 else q = q + 1 if t.plan == 'claim' or t.claim_only then c = c + 1 else m = m + 1 end end end return 'heard=' .. tostring(A.news or 0) .. ' queued=' .. tostring(q) .. ' working=' .. tostring(w) .. ' finished=' .. tostring(f) .. ' to-claim=' .. tostring(c) .. ' to-march=' .. tostring(m) end)() INTO ear
 
-LOG "the ear so far: {ear} — heard= chests this client has been told about since it started, queued= waiting for a squad, working= a squad is out or a claim is unanswered, finished= done with"
+LOG "the ear so far: {ear} — heard= chests this client has been told about since it started, queued= waiting for a squad, working= a squad is out or a claim is unanswered, finished= done with, to-claim/to-march= the branch each queued chest was put on by its STATUS when it was heard"
 
 IF did == 0
     LOG "nothing was sent this run ({ear}) — an unchanged heard= is a quiet minute; when it has moved, the report line above says what stood in the way"

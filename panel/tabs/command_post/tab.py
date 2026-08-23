@@ -1323,6 +1323,9 @@ class TreasuresPane(_Pane):
                              lag=(self.rt.t("cmdpost.treasure.watch.nolag")
                                   if lag < 0 else "%d" % lag),
                              worst=max(0, _int(watch.get("worst"), -1)),
+                             hear=(self.rt.t("cmdpost.treasure.watch.nolag")
+                                   if _int(watch.get("hear"), -1) < 0
+                                   else "%d" % _int(watch.get("hear"), -1)),
                              eye=str(watch.get("eye") or "?"))
         self.after(lambda: self._watch_var.set(text))
 

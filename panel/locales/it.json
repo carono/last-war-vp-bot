@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Ultima occhiata ai dintorni: {found} scrigni in vista — {ours} nostri, {foreign} di altre alleanze (il gioco non li consegna). {ago} s fa",
   "cmdpost.treasure.lap.never": "In questo client i dintorni non sono ancora stati letti",
   "cmdpost.treasure.look": "Dintorni",
-  "cmdpost.treasure.watch": "Sorveglianza: {live} in corso · {claims} richieste · {paid} raccolti · ultimo {lag} ms, peggiore {worst} ms · dintorni: {eye}",
+  "cmdpost.treasure.watch": "Sorveglianza: {live} in corso · {claims} richieste · {paid} raccolti · ultimo {lag} ms, peggiore {worst} ms · sentito→raccolto {hear} ms · dintorni: {eye}",
   "cmdpost.treasure.watch.off": "La sorveglianza non è attiva — uno scrigno viene raccolto solo quando il pannello guarda ({paid} raccolti)",
   "cmdpost.treasure.watch.never": "La sorveglianza non è ancora stata letta in questo client",
   "cmdpost.treasure.watch.nolag": "—",

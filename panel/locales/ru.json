@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Последнее чтение окружения: увидено {found} — наших {ours}, чужих альянсов {foreign} (такие игра не отдаёт). {ago} с назад",
   "cmdpost.treasure.lap.never": "Окружение в этом клиенте ещё не читалось",
   "cmdpost.treasure.look": "Окружение",
-  "cmdpost.treasure.watch": "Слежение: в работе {live} · запросов {claims} · забрано {paid} · последний {lag} мс, худший {worst} мс · окружение: {eye}",
+  "cmdpost.treasure.watch": "Слежение: в работе {live} · запросов {claims} · забрано {paid} · последний {lag} мс, худший {worst} мс · услышал→забрал {hear} мс · окружение: {eye}",
   "cmdpost.treasure.watch.off": "Слежение не запущено — сокровище забирается только когда смотрит панель (забрано {paid})",
   "cmdpost.treasure.watch.never": "Слежение в этом клиенте ещё не читалось",
   "cmdpost.treasure.watch.nolag": "—",

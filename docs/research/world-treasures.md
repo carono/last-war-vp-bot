@@ -1237,3 +1237,38 @@ manager belongs to the world scene, and the manager that would know without it
 (`ActDetectTreasureDataManager.dataDict`) has been empty every time it has been read
 (#1107, #1116). A city door would have to start from `treasure_refresh_request`, and it has
 never been proven to answer.
+
+## Is there a push for «the dig is finished»? — the answer, and the three watchers (#1886)
+
+Asked directly, and answered off the recorded live session rather than off a guess.
+
+**There is exactly ONE hearable dig signal: `push.detect.treasure.claim`** — one per member
+who finishes their part (fourteen of them in the 2026-08-07 recording). It reaches the Lua
+VM: probed live on 2026-08-08, a real one reads `PAIRS[operator=table uuid=…]`, which is
+why the errand's ear can hook it at all.
+
+**There is no second one, and this is a limit rather than an oversight.** The tile does
+flip — `push.world.point.update` with the finisher filled in — but the map stream is
+decoded on the C# side and never reaches `SFSNetwork.HandleMessage`, so no Lua hook can
+hear it (the pcap scanners exist for exactly this reason). `push.detect.event.info` is the
+event's own notification, not a dig; `receive.detect.event.reward` is the payment.
+
+So the dig is watched three ways at once, and all three are in the game rather than in the
+panel:
+
+| watcher | what it is | how fast |
+|---|---|---|
+| the alliance's broadcast | `push.detect.treasure.claim`, now answered INSIDE the hook that hears it — the claim leaves on the message that opened it | one frame |
+| our own march | `MarchStatus.TREASURE_DIGGING` carries the dig's `endTime`; a one-shot of the game's timer is pinned to that millisecond | 0 ms by construction |
+| the chest's own tile | `WorldScene.PointManager:GetPointInfo(pid).ownerUid`, read for each tracked chest on every beat of the watch | ≤ 200 ms, and only while the client still holds that tile |
+
+And the branch itself is taken by STATUS at the moment the chest is heard, once, and
+written on the target as `plan`: `claim` for a chest already dug — no squad is spent on it
+at all — and `march` for one still being dug. `march` is also where a `claim` chest ends up
+if the server refuses it `TREASURE_CLAIM_FIRST_TRIES` times, which is the 2026-08-08 case
+(a chest the ALLIANCE had dug and this account had not) surviving as the fallback.
+
+The acceptance number is printed by the errand and drawn on «Командный пункт»:
+`heard-to-claim=<ms>` in the report, `hear=<ms>` in the watch line — the whole distance the
+player asked about («услышали — собрали»), beside `lag=`, which measures the errand's own
+half from the chest becoming takeable.

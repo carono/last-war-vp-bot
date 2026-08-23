@@ -1239,7 +1239,7 @@
   "cmdpost.treasure.lap": "Última mirada al entorno: {found} cofres a la vista — {ours} nuestros, {foreign} de otras alianzas (el juego no los entrega). Hace {ago} s",
   "cmdpost.treasure.lap.never": "En este cliente aún no se ha leído el entorno",
   "cmdpost.treasure.look": "Entorno",
-  "cmdpost.treasure.watch": "Vigilancia: {live} en curso · {claims} solicitudes · {paid} recogidos · último {lag} ms, peor {worst} ms · alrededores: {eye}",
+  "cmdpost.treasure.watch": "Vigilancia: {live} en curso · {claims} solicitudes · {paid} recogidos · último {lag} ms, peor {worst} ms · oído→recogido {hear} ms · alrededores: {eye}",
   "cmdpost.treasure.watch.off": "La vigilancia no está en marcha — un cofre solo se recoge cuando el panel mira ({paid} recogidos)",
   "cmdpost.treasure.watch.never": "La vigilancia aún no se ha leído en este cliente",
   "cmdpost.treasure.watch.nolag": "—",
