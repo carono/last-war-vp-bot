@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Perintah rahasia:",
   "cmdpost.tasks.diamonds": "Berlian:",
   "cmdpost.tasks.marches": "Pasukan jalan:",
+  "cmdpost.tasks.next_free": "Regu terdekat pulang dalam (dtk):",
   "cmdpost.tasks.rule": "Aturan",
   "cmdpost.tasks.keep": "Berhenti di bukan UR:",
   "cmdpost.tasks.use_diamonds": "Boleh memakai berlian",

@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Secret orders:",
   "cmdpost.tasks.diamonds": "Diamonds:",
   "cmdpost.tasks.marches": "Marches:",
+  "cmdpost.tasks.next_free": "Nearest squad home in (s):",
   "cmdpost.tasks.rule": "Rule",
   "cmdpost.tasks.keep": "Stop at non-UR:",
   "cmdpost.tasks.use_diamonds": "May spend diamonds",

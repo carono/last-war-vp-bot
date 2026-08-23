@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Gizli emirler:",
   "cmdpost.tasks.diamonds": "Elmas:",
   "cmdpost.tasks.marches": "Yürüyüş:",
+  "cmdpost.tasks.next_free": "En yakın birlik dönüyor (sn):",
   "cmdpost.tasks.rule": "Kural",
   "cmdpost.tasks.keep": "UR olmayanda dur:",
   "cmdpost.tasks.use_diamonds": "Elmas harcanabilir",

@@ -12877,7 +12877,12 @@ _POST_SCAN = (
     "local superopen=0 pcall(function() if M:CheckSuperRefreshOpen() then superopen=1 end end) "
     "local free=0 pcall(function() free=_num(M:GetSingleTaskNormalCount()) end) "
     "local ing=0 pcall(function() ing=_num(M:GetSingleTaskIngCount()) end) "
-    "local maxm=0 pcall(function() maxm=math.floor(_num(M:GetMaxMarch())) end) ")
+    "local maxm=0 pcall(function() maxm=math.floor(_num(M:GetMaxMarch())) end) "
+    "local now=0 pcall(function() now=math.floor(_num(UITimeManager:GetInstance():GetServerSeconds())) end) "
+    "local nextfree=0 "
+    "if ok and type(tasks)=='table' and now>0 then for _,v in pairs(tasks) do "
+    "local ct=math.floor(_num(v.completionTime)/1000) "
+    "if ct>now then local d=ct-now if nextfree==0 or d<nextfree then nextfree=d end end end end ")
 
 #: How many diamonds this run is still allowed to spend: the budget it was armed with,
 #: less what the purse has actually gone down by. Read off the PURSE rather than counted
@@ -12922,10 +12927,12 @@ def secret_post_scan() -> str:
             "M.__lw_ref_run=run M.__lw_ref_tickets=tickets M.__lw_ref_goldnow=gold "
             "M.__lw_ref_price=price M.__lw_ref_super=superopen M.__lw_ref_free=free "
             "M.__lw_ref_ing=ing M.__lw_ref_march=maxm M.__lw_ref_goldleft=goldleft "
+            "M.__lw_ref_nextfree=nextfree "
             'CS.UnityEngine.Debug.LogError("ACT post_scan idle="..tostring(idle)'
             '.." nonur="..tostring(nonur).." ur="..tostring(ur).." run="..tostring(run)'
             '.." tickets="..tostring(tickets).." price="..tostring(price)'
-            '.." goldleft="..tostring(goldleft).." march="..tostring(ing).."/"..tostring(maxm)) end)')
+            '.." goldleft="..tostring(goldleft).." march="..tostring(ing).."/"..tostring(maxm)'
+            '.." nextfree="..tostring(nextfree)) end)')
 
 
 def secret_post_open() -> str:
@@ -12962,6 +12969,7 @@ def secret_post_refreshes_left() -> str:
     """
     return ("(function() " + _POST_SCAN + _GOLD_LEFT +
             "local keep=tonumber(M.__lw_ref_keep) or 0 "
+            "if ur>0 then return 0 end "
             "if nonur<=keep then return 0 end "
             "if tickets>0 then return 1 end "
             "if price>0 and goldleft>=price then return 1 end "
@@ -13084,3 +13092,76 @@ def secret_post_dispatch_confirm() -> str:
             "local r=_root(UIWindowNames.UIDispatchTaskSuperPopup) "
             "local hit=_press(r,'ConfirmBtn') or _press(r,'confirmBtn') "
             'CS.UnityEngine.Debug.LogError("ACT post_send_done pressed="..tostring(hit and 1 or 0)) end)')
+
+
+def secret_post_batch_read() -> str:
+    """Look into «Мега развертывание» before confirming it: how many will actually go.
+
+    The popup arrives with a squad already chosen for every idle task AND with its own
+    «только UR» toggle already on (`View.isOnlySelectUR`), so on the reading this was
+    written from five rows were offered and exactly ONE was `selected` — the idle UR.
+    That is the game's own answer to «send the thing the refresh just won», and it is
+    why this ability never needs to pick heroes itself.
+
+    Parks two numbers: how many rows the popup holds and how many of them are selected.
+    Zero selected is not an error — it is «there is nothing here the rule wants sent»,
+    and the recipe closes the popup instead of confirming it.
+    """
+    return ("pcall(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "local w=UIManager.Instance:GetWindow(UIWindowNames.UIDispatchTaskSuperPopup) "
+            "local rows,picked=0,0 "
+            "if w~=nil and type(w.View)=='table' then "
+            "for _,d in pairs(w.View.datas or {}) do rows=rows+1 "
+            "if d.selected then picked=picked+1 end end end "
+            "M.__lw_ref_rows=rows M.__lw_ref_picked=picked "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_rows rows="..tostring(rows)'
+            '.." picked="..tostring(picked)) end)')
+
+
+def secret_post_batch_all() -> str:
+    """Untick «только UR» so the popup offers every idle task, not just the UR ones.
+
+    The last step of a run, and only when the person asked for it: the tasks left over
+    after the refreshing are the ones the rule was content to keep, and sending them is
+    what turns them into rewards instead of leaving squads idle. The toggle is the
+    game's own — flipping it is what re-selects the rows, so nothing here has to know
+    which they are.
+    """
+    return ("pcall(function() "
+            "local w=UIManager.Instance:GetWindow(UIWindowNames.UIDispatchTaskSuperPopup) "
+            "if w==nil or type(w.View)~='table' then return end "
+            "local t=w.View.toggleOnlySelectUR if t==nil then return end "
+            "local u=t.unity_uitoggle if u==nil then return end "
+            "if u.isOn then u.isOn=false end "
+            'CS.UnityEngine.Debug.LogError("ACT post_send_all only_ur=0") end)')
+
+
+def secret_post_batch_cancel() -> str:
+    """Close the dispatch popup unpressed — the answer when nothing in it may be sent."""
+    return ("pcall(function() local mgr=UIManager.Instance "
+            "local n=UIWindowNames.UIDispatchTaskSuperPopup "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+            "if ok and open then local w=mgr:GetWindow(n) "
+            "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end "
+            "end end)")
+
+
+def secret_post_round_due() -> str:
+    """Lua *expression* -> 1 while the alternating cycle still has a round to do.
+
+    The cycle is «send, then refresh» and not «refresh, then send» — the correction the
+    first live run earned (#1903). A refresh re-rolls every task nobody has sent, so a UR
+    that a refresh has just produced is destroyed by the NEXT refresh unless a squad goes
+    out on it first. The game agrees loudly: while an idle UR stands there it hides
+    «Обновить» altogether, which is why seven presses in a row moved nothing.
+
+    So a round is due when there is a UR to rescue, or when the rule still owes an
+    ordinary refresh and something can pay for it.
+    """
+    return ("(function() " + _POST_SCAN + _GOLD_LEFT +
+            "local keep=tonumber(M.__lw_ref_keep) or 0 "
+            "if ur>0 then return 1 end "
+            "if nonur<=keep then return 0 end "
+            "if tickets>0 then return 1 end "
+            "if price>0 and goldleft>=price then return 1 end "
+            "return 0 end)()")

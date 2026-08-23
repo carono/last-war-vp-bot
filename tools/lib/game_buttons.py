@@ -506,6 +506,25 @@ BUTTONS: dict[str, Button] = {
         wait=2.0, label="Open the batch dispatch",
         relay=("post_send_open",),
     ),
+    "read_batch_dispatch": Button(
+        # What the popup would actually send, BEFORE anything is confirmed: how many
+        # rows it holds and how many its own «только UR» toggle has selected. Zero
+        # selected is the honest «nothing here the rule wants» and the recipe closes it.
+        lua=_lua_actions.secret_post_batch_read(),
+        wait=0.4, label="Read the batch dispatch",
+        relay=("post_send_rows",),
+    ),
+    "select_all_batch_dispatch": Button(
+        # Untick «только UR» — the last step of a run, when the leftovers are to be sent
+        # too. The toggle is the game's own, so flipping it is what re-selects the rows.
+        lua=_lua_actions.secret_post_batch_all(),
+        wait=0.8, label="Send the leftovers too",
+        relay=("post_send_all",),
+    ),
+    "cancel_batch_dispatch": Button(
+        lua=_lua_actions.secret_post_batch_cancel(),
+        wait=0.6, label="Close the batch dispatch unpressed",
+    ),
     "confirm_batch_dispatch": Button(
         # The press that sends `hero.dispatch.batch.start`. The game's own handler moves
         # the world camera onto the tasks' point afterwards; that is the button, not a

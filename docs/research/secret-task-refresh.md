@@ -133,3 +133,79 @@ POST /api/actions/run   {"profile": "<name>", "name": "<a recipe under actions/d
 A window's root GameObject is `w.gameObject` on a window that has finished loading and
 `nil` on one that has not — `w.View.gameObject` answers either way, and a probe that
 skipped the fallback read «no go» about a window plainly on screen.
+
+## The order is «send, then refresh» — and a live run is what proved it
+
+The first version of the ability refreshed to the end and sent everything afterwards. It
+refreshed three times, a UR fell out on the third, and **the next seven presses did
+nothing at all** — no ticket spent, no task moved:
+
+```
+post_refresh pressed=1 nonur=5 tickets=25
+post_refresh pressed=1 nonur=5 tickets=24
+post_refresh pressed=1 nonur=5 tickets=23
+post_refresh pressed=1 nonur=4 tickets=22    ← a UR appeared
+post_refresh pressed=1 nonur=4 tickets=22    ← and nothing moved again, seven times
+```
+
+Read off the window afterwards, with the idle UR still standing there:
+
+```
+refreshBtn   interactable=true  activeInHierarchy=false  activeSelf=false
+superBtn     activeSelf=false
+superBtns    activeSelf=true    (superRefreshBtn + superDispatchBtn)
+```
+
+**The client HIDES «Обновить» while an idle UR is waiting** and shows the «мега» pair in
+its place. It is not a limit and not a cooldown: a refresh re-rolls every task nobody has
+sent, so the game refuses to let the thing that was just paid for be thrown away. Send the
+UR and the button comes back — measured, four rounds in a row.
+
+So the cycle is: send whatever is selected, THEN refresh once, then look again. A UR that
+could not be sent (no free hero, no march slot) stops the cycle instead of being refreshed
+past — losing a UR is worse than losing a turn.
+
+## Sending only the UR — the game's own toggle
+
+`UIDispatchTaskSuperPopup` («Мега развертывание») is not all-or-nothing. Its view carries
+
+```
+View.isOnlySelectUR   = true          -- already on when the popup opens
+View.toggleOnlySelectUR.unity_uitoggle -- the Toggle behind it
+View.datas = { {heroList=#3, index=1, selected=true,  taskInfo=…},   -- the idle UR
+               {heroList=#2, index=2, selected=false, taskInfo=…}, … }
+```
+
+— five rows offered, exactly one selected, and that one the idle UR. So «send the task the
+refresh just won» is the game's own answer and nothing here has to pick heroes. Untick the
+toggle and every row is selected, which is what the run's last step does for the leftovers.
+
+`MsgDefines.DispatchStart = hero.dispatch.start` exists for a single task, and is not
+needed while the popup answers this well.
+
+## There are more tasks than heroes, and the client says when one is home
+
+A running task's `completionTime` is the game's own millisecond clock, so «wait for a
+squad» is never a poll. The scan takes the nearest one, and the scenario leaves the
+seconds in `next_run_in` — the schedule books this errand's next turn for exactly then
+(docs/dsl.md; the same convention `tavern_free_pull.md` uses). A run that sent everything
+leaves `0` and the timer's own period stands.
+
+## The whole ability, proven live
+
+One run, from five idle tasks (four non-UR and the UR the broken version had abandoned):
+
+```
+idle=5 nonur=4 ur=1 run=4 tickets=22
+  sending 1 UR task(s) before touching the refresh      -> run=5
+  refresh 22->21->20->19, a UR falls
+  sending 1 UR task(s) before touching the refresh      -> run=6
+  refresh -> nonur=3, the threshold                     -> the cycle ends, 4 rounds
+mega refresh: cost=12 tasks=3 ok=1 gold=0 -> confirmed  -> tickets 18->6, nonur=0 ur=3
+sending 3 of the 3 idle task(s)                         -> idle=0 run=9 march=9/9
+```
+
+Sixteen orders and **no diamonds**. The mega's price scaled exactly as the first reading
+suggested — twenty for five tasks, twelve for three, four apiece — so at the threshold of
+three it is twelve orders, which is 1 200 diamonds at the ordinary rate. Untried still:
+the diamond branch (the tickets have never run out mid-run) and the «no hero free» stop.

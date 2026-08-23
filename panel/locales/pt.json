@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Ordens secretas:",
   "cmdpost.tasks.diamonds": "Diamantes:",
   "cmdpost.tasks.marches": "Marchas:",
+  "cmdpost.tasks.next_free": "Próximo esquadrão volta em (s):",
   "cmdpost.tasks.rule": "Regra",
   "cmdpost.tasks.keep": "Parar em não UR:",
   "cmdpost.tasks.use_diamonds": "Pode gastar diamantes",

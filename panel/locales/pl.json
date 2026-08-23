@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Tajne rozkazy:",
   "cmdpost.tasks.diamonds": "Diamenty:",
   "cmdpost.tasks.marches": "Marsze:",
+  "cmdpost.tasks.next_free": "Najbliższy oddział wróci za (s):",
   "cmdpost.tasks.rule": "Reguła",
   "cmdpost.tasks.keep": "Zatrzymać się na nie-UR:",
   "cmdpost.tasks.use_diamonds": "Można wydawać diamenty",

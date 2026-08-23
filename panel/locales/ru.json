@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Секретных приказов:",
   "cmdpost.tasks.diamonds": "Алмазов:",
   "cmdpost.tasks.marches": "Маршей:",
+  "cmdpost.tasks.next_free": "Ближайший отряд вернётся через (с):",
   "cmdpost.tasks.rule": "Правило",
   "cmdpost.tasks.keep": "Останавливаться на не-UR:",
   "cmdpost.tasks.use_diamonds": "Можно тратить алмазы",

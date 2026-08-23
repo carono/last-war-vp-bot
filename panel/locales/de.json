@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Geheimbefehle:",
   "cmdpost.tasks.diamonds": "Diamanten:",
   "cmdpost.tasks.marches": "Märsche:",
+  "cmdpost.tasks.next_free": "Nächster Trupp zurück in (s):",
   "cmdpost.tasks.rule": "Regel",
   "cmdpost.tasks.keep": "Halt bei Nicht-UR:",
   "cmdpost.tasks.use_diamonds": "Diamanten ausgeben erlaubt",

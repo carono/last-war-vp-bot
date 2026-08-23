@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Lệnh mật:",
   "cmdpost.tasks.diamonds": "Kim cương:",
   "cmdpost.tasks.marches": "Lượt hành quân:",
+  "cmdpost.tasks.next_free": "Đội gần nhất về sau (giây):",
   "cmdpost.tasks.rule": "Quy tắc",
   "cmdpost.tasks.keep": "Dừng ở số không phải UR:",
   "cmdpost.tasks.use_diamonds": "Được tiêu kim cương",

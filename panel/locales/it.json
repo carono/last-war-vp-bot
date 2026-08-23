@@ -1541,6 +1541,7 @@
   "cmdpost.tasks.tickets": "Ordini segreti:",
   "cmdpost.tasks.diamonds": "Diamanti:",
   "cmdpost.tasks.marches": "Marce:",
+  "cmdpost.tasks.next_free": "Prossima squadra di ritorno tra (s):",
   "cmdpost.tasks.rule": "Regola",
   "cmdpost.tasks.keep": "Fermarsi a non UR:",
   "cmdpost.tasks.use_diamonds": "Può spendere diamanti",

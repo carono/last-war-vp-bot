@@ -75,7 +75,7 @@ class TasksPane:
         #: The readings, in the order they are drawn.
         self._vars = {name: tk_stringvar(self.rt.root)
                       for name in ("nonur", "ur", "running", "tickets",
-                                   "diamonds", "marches")}
+                                   "diamonds", "marches", "next_free")}
         for var in self._vars.values():
             var.set(UNREAD)
         #: The rule. Every one of them is an `ARGS` of the scenario and travels as one.
@@ -112,7 +112,11 @@ class TasksPane:
                                            ("cmdpost.tasks.running", "running"),
                                            ("cmdpost.tasks.tickets", "tickets"),
                                            ("cmdpost.tasks.diamonds", "diamonds"),
-                                           ("cmdpost.tasks.marches", "marches"))):
+                                           ("cmdpost.tasks.marches", "marches"),
+                                           # «Почему не отправлено» is answered by a
+                                           # clock: there are more tasks than heroes, and
+                                           # the ones out say when they are home (#1903).
+                                           ("cmdpost.tasks.next_free", "next_free"))):
             self.rt.tr(ttk.Label(state), key).grid(row=row, column=0, sticky="w",
                                                    padx=(0, 8), pady=1)
             ttk.Label(state, textvariable=self._vars[name]).grid(
@@ -218,7 +222,7 @@ class TasksPane:
         """
         rows = [{"label": "cmdpost.tasks." + name, "value": self._vars[name].get()}
                 for name in ("nonur", "ur", "running", "tickets", "diamonds",
-                             "marches")]
+                             "marches", "next_free")]
         rows.append({"label": "cmdpost.tasks.rule",
                      "value": self.rt.t("cmdpost.tasks.rule_text",
                                         keep=_int(self.keep_var.get(), DEFAULT_KEEP),

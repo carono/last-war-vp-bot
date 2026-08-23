@@ -1,18 +1,35 @@
-# Refresh the day's own secret tasks by the price rule, then send every squad at once.
-# ru: Обновление своих секретных заданий по правилу цен и пакетная отправка отрядов.
+# Refresh the day's own secret tasks by the price rule, sending each UR the moment it falls.
+# ru: Обновление своих секретных заданий по правилу цен, с отправкой каждого выпавшего UR сразу.
 #
 # THE PLAYER'S OWN TASKS, not anybody else's. The other three abilities on this tab spend
 # daily counters the server gives away — `steal_secret_task.md` robs a stranger's tile,
 # `assist_secret_task.md` helps an alliancemate, `help_ally.md` answers building requests.
 # This one spends a CURRENCY, and that is what every gate below is about.
 #
-# THE RULE, in the words it was given in: spend tickets while there are tickets; when
-# they run out spend diamonds; and take the mega refresh when the tickets cover it, or
-# cover it all but a small top-up in diamonds — otherwise go on with ordinary refreshes
-# first and let the diamonds come after.
+# THE ORDER IS «SEND, THEN REFRESH», AND THAT CORRECTION COST A LIVE RUN (#1903). The
+# first version refreshed to the end and sent everything afterwards. It refreshed three
+# times, a UR fell out on the third — and the next seven presses did nothing at all,
+# because A REFRESH RE-ROLLS EVERY TASK NOBODY HAS SENT. The thing that was paid for is
+# exactly the thing the next refresh throws away.
 #
-# THE PRICES WERE MEASURED, NOT ASSUMED (#1903), and two of the three were not what they
-# were thought to be:
+# The game says the same in its own way, which is how the stall was diagnosed: while an
+# idle UR is standing there the window HIDES «Обновить» (`refreshBtn` goes inactive and
+# the «мега» pair takes its place). It is not a limit and not a cooldown — it is the
+# client refusing to let a win be re-rolled. Send the UR and the button comes back.
+#
+# So each round is: send whatever the dispatch popup has selected, then refresh once, then
+# look again. If a UR could NOT be sent — no heroes free, no march slot — the round STOPS
+# rather than refreshing past it, and says why. Losing a UR is worse than losing a turn.
+#
+# HEROES RUN OUT, AND THAT IS ORDINARY. There are more tasks than there are heroes to man
+# them, and the ones already out come back at a time the client knows to the millisecond.
+# So a run that could not send everything does not wait and does not forget: it leaves the
+# seconds to the nearest returning squad in `next_run_in`, and the schedule books this
+# errand's next turn for exactly then (docs/dsl.md, the convention `tavern_free_pull.md`
+# uses).
+#
+# THE PRICES WERE MEASURED, NOT ASSUMED, and two of the three were not what they were
+# thought to be:
 #   * an ordinary refresh costs ONE «Секретный приказ» — the item
 #     `GetDispatchSetting('refresh_item')` names. The window's own button says so:
 #     `refreshBtn` carries `<how many you have>/<what it costs>`. Only when the items run
@@ -27,21 +44,20 @@
 #     spending 1 520 002 of them.
 #
 # WHICH TASKS COUNT. Only the IDLE ones («считать только свободные задания»): a task with
-# a squad already out is skipped by the mega refresh, has nothing for the batch dispatch
-# to send, and cannot be re-rolled. Quality is the config row's `color` — 5 is UR, and
-# anything above it is treated as UR too, because a rarity nobody has seen yet must not
-# read as «not UR» and be thrown away. The `cfgId` digits say nothing about either.
+# a squad already out is skipped by the mega refresh, cannot be re-rolled, and has nothing
+# for the dispatch to send. Quality is the config row's `color` — 5 is UR, 4 and 3 are
+# below it, and anything ABOVE 5 counts as UR too, because a rarity nobody has seen yet
+# must not read as «not UR» and be thrown away. The `cfgId` digits say nothing about it.
 #
 # IT PRESSES THE GAME'S OWN BUTTONS. `hero.dispatch.refresh` carries a `costType` whose
 # values are written down nowhere we can read, so building the frame by hand is a guess
-# between «spend a ticket» and «spend diamonds» — a guess the player pays for. The
-# window's button already knows which the player can afford, and the batch dispatch's
-# popup picks a squad for every task by itself, which is the one part a hand-built frame
-# would have to invent.
+# between «spend a ticket» and «spend diamonds» — a guess the player pays for. And the
+# dispatch popup arrives with a squad already chosen for every task AND its own «только
+# UR» toggle already on, so «send the one the refresh just won» is the game's own answer
+# rather than a hero-picker written here.
 #
-# THE CAMERA MOVES AT THE END. The game's own handler for the batch dispatch closes the
-# popup and takes the world view to the tasks' point. That is the button, not a choice
-# this makes — pass `dispatch = 0` when the map must be left alone.
+# THE CAMERA MOVES ON A SEND. The game's own handler closes the popup and takes the world
+# view to the tasks' point. That is the button, not a choice this makes.
 
 # The number of idle non-UR tasks this is content to stop at. Above it, ordinary
 # refreshes; at or below it, the mega refresh is considered.
@@ -56,8 +72,10 @@ ARGS use_diamonds = 1
 # costs nothing.
 ARGS diamond_budget = 1200
 
-# Take the mega refresh at all (it is the one press that improves every idle task at
-# once), and send the squads afterwards. Either may be turned off on its own.
+# Take the mega refresh at all (the one press that lifts every idle non-UR task to UR),
+# and, at the very end, send the tasks the rule was content to keep as well. Either may
+# be turned off on its own; the UR rescue above is not optional, because it is what makes
+# the refreshing worth paying for.
 ARGS mega = 1
 ARGS dispatch = 1
 
@@ -76,55 +94,89 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_run) or 0) INT
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_tickets) or 0) INTO tickets
 LOG "secret post: {nonur} idle non-UR, {ur} idle UR, {running} out on errands, {tickets} ticket(s) in hand"
 
-# 4. Ordinary refreshes, tickets first and diamonds only inside the budget. `xall`
-#    re-reads the rule between presses, so this stops the instant the idle non-UR tasks
-#    reach the threshold, the tickets run out with no diamonds allowed, or the budget
-#    will not cover one more.
-TAP refresh_secret_task xall
+# 4. The cycle: rescue, then refresh, then look again. `go` is re-read at the bottom of
+#    every round, so the loop ends the moment the rule is satisfied, the purses are empty
+#    or a UR is stuck for want of a squad.
+READ_LUA (function() local function _num(v) if v==nil then return 0 end local ok,n=pcall(function() return v+0 end) if ok and n~=nil then return n end ok,n=pcall(function() return tonumber(v) end) if ok and n~=nil then return n end return 0 end local M=DataCenter.ActDispatchTaskDataManager local idle,nonur,ur,run=0,0,0,0 local ok,tasks=pcall(function() return M:GetAllSingleTasks() end) if ok and type(tasks)=='table' then for _,v in pairs(tasks) do local col=0 pcall(function() col=_num(v.cfg:getValue('color')) end) local ct=_num(v.completionTime) if ct>0 then run=run+1 else idle=idle+1 if col>=5 then ur=ur+1 else nonur=nonur+1 end end end end local item=(function() local ok,v=pcall(function() return DataCenter.ActDispatchTaskDataManager:GetDispatchSetting('refresh_item') end) local n=0 if ok and v~=nil then pcall(function() n=v+0 end) end return n end)() local tickets=0 pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do if _num(s.itemId)==item then tickets=tickets+_num(s.count) end end end) local gold=0 pcall(function() gold=_num(LuaEntry.Player.gold) end) local price=0 pcall(function() price=_num(M:GetTaskRefreshSetting()) end) local superopen=0 pcall(function() if M:CheckSuperRefreshOpen() then superopen=1 end end) local free=0 pcall(function() free=_num(M:GetSingleTaskNormalCount()) end) local ing=0 pcall(function() ing=_num(M:GetSingleTaskIngCount()) end) local maxm=0 pcall(function() maxm=math.floor(_num(M:GetMaxMarch())) end) local now=0 pcall(function() now=math.floor(_num(UITimeManager:GetInstance():GetServerSeconds())) end) local nextfree=0 if ok and type(tasks)=='table' and now>0 then for _,v in pairs(tasks) do local ct=math.floor(_num(v.completionTime)/1000) if ct>now then local d=ct-now if nextfree==0 or d<nextfree then nextfree=d end end end end local budget=tonumber(M.__lw_ref_budget) or 0 local gold0=tonumber(M.__lw_ref_gold0) or gold local spent=gold0-gold if spent<0 then spent=0 end local goldleft=budget-spent if goldleft<0 then goldleft=0 end if (tonumber(M.__lw_ref_gold) or 0)==0 then goldleft=0 end local keep=tonumber(M.__lw_ref_keep) or 0 if ur>0 then return 1 end if nonur<=keep then return 0 end if tickets>0 then return 1 end if price>0 and goldleft>=price then return 1 end return 0 end)() INTO go
+WHILE go == 1 LIMIT 24
+    TAP open_secret_post
+    TAP scan_secret_post
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
+    # 4a. Anything the game has selected goes out FIRST — with «только UR» on, that is
+    #     precisely the task the last refresh won.
+    IF ur > 0
+        TAP open_batch_dispatch
+        TAP read_batch_dispatch
+        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_picked) or 0) INTO picked
+        IF picked > 0
+            LOG "sending {picked} UR task(s) before touching the refresh"
+            TAP confirm_batch_dispatch
+        ELSE
+            LOG "a UR is idle and the game selected nothing to send it with — no free hero or no march slot"
+            TAP cancel_batch_dispatch
+    # 4b. …and only then the refresh, and only if the rescue actually worked.
+    TAP open_secret_post
+    TAP scan_secret_post
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
+    IF ur > 0
+        LOG "stopping: {ur} UR task(s) are still standing idle, and a refresh would throw them away"
+        READ_LUA 0 INTO go
+    ELSE
+        TAP refresh_secret_task
+        READ_LUA (function() local function _num(v) if v==nil then return 0 end local ok,n=pcall(function() return v+0 end) if ok and n~=nil then return n end ok,n=pcall(function() return tonumber(v) end) if ok and n~=nil then return n end return 0 end local M=DataCenter.ActDispatchTaskDataManager local idle,nonur,ur,run=0,0,0,0 local ok,tasks=pcall(function() return M:GetAllSingleTasks() end) if ok and type(tasks)=='table' then for _,v in pairs(tasks) do local col=0 pcall(function() col=_num(v.cfg:getValue('color')) end) local ct=_num(v.completionTime) if ct>0 then run=run+1 else idle=idle+1 if col>=5 then ur=ur+1 else nonur=nonur+1 end end end end local item=(function() local ok,v=pcall(function() return DataCenter.ActDispatchTaskDataManager:GetDispatchSetting('refresh_item') end) local n=0 if ok and v~=nil then pcall(function() n=v+0 end) end return n end)() local tickets=0 pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do if _num(s.itemId)==item then tickets=tickets+_num(s.count) end end end) local gold=0 pcall(function() gold=_num(LuaEntry.Player.gold) end) local price=0 pcall(function() price=_num(M:GetTaskRefreshSetting()) end) local superopen=0 pcall(function() if M:CheckSuperRefreshOpen() then superopen=1 end end) local free=0 pcall(function() free=_num(M:GetSingleTaskNormalCount()) end) local ing=0 pcall(function() ing=_num(M:GetSingleTaskIngCount()) end) local maxm=0 pcall(function() maxm=math.floor(_num(M:GetMaxMarch())) end) local now=0 pcall(function() now=math.floor(_num(UITimeManager:GetInstance():GetServerSeconds())) end) local nextfree=0 if ok and type(tasks)=='table' and now>0 then for _,v in pairs(tasks) do local ct=math.floor(_num(v.completionTime)/1000) if ct>now then local d=ct-now if nextfree==0 or d<nextfree then nextfree=d end end end end local budget=tonumber(M.__lw_ref_budget) or 0 local gold0=tonumber(M.__lw_ref_gold0) or gold local spent=gold0-gold if spent<0 then spent=0 end local goldleft=budget-spent if goldleft<0 then goldleft=0 end if (tonumber(M.__lw_ref_gold) or 0)==0 then goldleft=0 end local keep=tonumber(M.__lw_ref_keep) or 0 if ur>0 then return 1 end if nonur<=keep then return 0 end if tickets>0 then return 1 end if price>0 and goldleft>=price then return 1 end return 0 end)() INTO go
 
-# 5. Say where that got to, whether or not anything was pressed. A standing order that
-#    reports nothing is indistinguishable from a broken one.
+# 5. Say where that got to, whether or not anything was pressed.
 TAP scan_secret_post
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nonur) or 0) INTO nonur
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ur) or 0) INTO ur
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_tickets) or 0) INTO tickets
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_goldleft) or 0) INTO gold_left
-LOG "after refreshing: {nonur} idle non-UR left, {tickets} ticket(s), {gold_left} diamond(s) of the budget"
+LOG "after refreshing: {nonur} idle non-UR left, {ur} idle UR, {tickets} ticket(s), {gold_left} diamond(s) of the budget"
 
 # 6. The mega refresh — the one press that lifts every idle non-UR task to UR at once.
-#    Its price is only ever drawn, so the dialog is opened to be READ; what the rule
-#    decides afterwards is whether it is confirmed or closed unpressed.
+#    Its price is only ever drawn, so the dialog is opened to be READ; the rule decides
+#    afterwards whether it is confirmed or closed unpressed. Never while a UR is standing
+#    idle: what it produces would be waiting for a squad beside one that already is.
 IF mega == 1
-    IF nonur > 0
-        TAP open_mega_refresh
-        TAP read_mega_refresh_cost
-        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_cost) or -1) INTO mega_cost
-        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_tasks) or 0) INTO mega_tasks
-        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_ok) or 0) INTO mega_ok
-        READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_gold) or 0) INTO mega_gold
-        IF mega_ok == 1
-            LOG "mega refresh: {mega_cost} ticket(s) for {mega_tasks} task(s), {mega_gold} diamond(s) on top — taking it"
-            TAP confirm_mega_refresh
-        ELSE
-            LOG "mega refresh: {mega_cost} ticket(s) for {mega_tasks} task(s) needs {mega_gold} diamond(s) — outside the rule, left alone"
-            TAP cancel_mega_refresh
+    IF ur == 0
+        IF nonur > 0
+            TAP open_secret_post
+            TAP open_mega_refresh
+            TAP read_mega_refresh_cost
+            READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_cost) or -1) INTO mega_cost
+            READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_tasks) or 0) INTO mega_tasks
+            READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_ok) or 0) INTO mega_ok
+            READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_mega_gold) or 0) INTO mega_gold
+            IF mega_ok == 1
+                LOG "mega refresh: {mega_cost} ticket(s) for {mega_tasks} task(s), {mega_gold} diamond(s) on top — taking it"
+                TAP confirm_mega_refresh
+            ELSE
+                LOG "mega refresh: {mega_cost} ticket(s) for {mega_tasks} task(s) needs {mega_gold} diamond(s) — outside the rule, left alone"
+                TAP cancel_mega_refresh
 
-# 7. Send every idle task's squad in one press. The popup fills the squads itself; the
-#    confirm is the `hero.dispatch.batch.start`, and the camera follows it to the point.
-IF dispatch == 1
-    TAP scan_secret_post
-    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_idle) or 0) INTO idle
-    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ing) or 0) INTO marching
-    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_march) or 0) INTO marches
-    IF idle > 0
-        LOG "sending {idle} squad(s); {marching} of {marches} marches already out"
-        TAP open_batch_dispatch
+# 7. Send what is standing: the URs the mega has just made, and — if the person asked for
+#    it — the tasks the rule was content to keep as well. The popup fills every squad
+#    itself; its confirm is the `hero.dispatch.batch.start`.
+TAP open_secret_post
+TAP scan_secret_post
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_idle) or 0) INTO idle
+IF idle > 0
+    TAP open_batch_dispatch
+    IF dispatch == 1
+        TAP select_all_batch_dispatch
+    TAP read_batch_dispatch
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_rows) or 0) INTO rows
+    READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_picked) or 0) INTO picked
+    IF picked > 0
+        LOG "sending {picked} of the {rows} idle task(s)"
         TAP confirm_batch_dispatch
     ELSE
-        LOG "nothing idle to send — {marching} of {marches} marches out"
+        LOG "nothing of the {rows} idle task(s) can be sent — no free hero or no march slot"
+        TAP cancel_batch_dispatch
 
-# 8. One last look, so whoever pressed this — the window or the phone — is told the
-#    state it LEFT rather than the one it started from. The panel draws its page off
-#    these, which is how a press made from a phone still moves the numbers in the window.
+# 8. One last look, so whoever pressed this — the window or the phone — is told the state
+#    it LEFT rather than the one it started from. The panel draws its page off these,
+#    which is how a press made from a phone still moves the numbers in the window.
 TAP scan_secret_post
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_idle) or 0) INTO idle
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nonur) or 0) INTO nonur
@@ -135,7 +187,16 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_goldnow) or 0)
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_price) or 0) INTO price
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ing) or 0) INTO marching
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_march) or 0) INTO marches
-LOG "secret post: idle={idle} non-UR={nonur} UR={ur} out={running} tickets={tickets} diamonds={diamonds} price={price} marches={marching}/{marches}"
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nextfree) or 0) INTO next_free
+LOG "secret post: idle={idle} non-UR={nonur} UR={ur} out={running} tickets={tickets} diamonds={diamonds} price={price} marches={marching}/{marches} next-free={next_free}s"
 
-# 9. Leave the screen as it was found.
+# 9. What is left unsent is not abandoned. The nearest squad's own finish time — which the
+#    client knows to the millisecond — becomes this errand's next turn, plus a minute so
+#    the hero is really back. Nothing left over, or nothing out: `0`, and the timer's own
+#    period stands.
+READ_LUA (function() local M=DataCenter.ActDispatchTaskDataManager local idle=tonumber(M.__lw_ref_idle) or 0 if idle<=0 then return 0 end local free=tonumber(M.__lw_ref_nextfree) or 0 if free<=0 then return 0 end return free+60 end)() INTO next_run_in
+IF idle > 0
+    LOG "{idle} task(s) still waiting for a squad — coming back in {next_run_in} s, when the nearest one is home"
+
+# 10. Leave the screen as it was found.
 TAP close_secret_post

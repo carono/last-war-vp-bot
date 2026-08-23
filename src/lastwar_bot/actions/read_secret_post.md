@@ -20,4 +20,8 @@ READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_goldnow) or 0)
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_price) or 0) INTO price
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_ing) or 0) INTO marching
 READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_march) or 0) INTO marches
-LOG "secret post: idle={idle} non-UR={nonur} UR={ur} out={running} tickets={tickets} diamonds={diamonds} price={price} marches={marching}/{marches}"
+# …and when the nearest squad is home, because «why is this task not sent» is answered by
+# a clock and not by a number: there are more tasks than heroes, and the ones out know
+# their own finish to the millisecond.
+READ_LUA (tonumber(DataCenter.ActDispatchTaskDataManager.__lw_ref_nextfree) or 0) INTO next_free
+LOG "secret post: idle={idle} non-UR={nonur} UR={ur} out={running} tickets={tickets} diamonds={diamonds} price={price} marches={marching}/{marches} next-free={next_free}s"
