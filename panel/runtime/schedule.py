@@ -424,7 +424,7 @@ class Schedule:
             # `relaunch_held` is that half on its own — which is what makes «профиль
             # выключен» mean the account is not playing.
             if not (recovery_errand and not self.rt.gate.relaunch_held()):
-                return "timers.log.skip_daemon"
+                return "timers.log.skip_link"
         if recovery_errand:
             # …EXCEPT WHILE A KICK IS BEING WAITED OUT (#1291). The exemption above
             # exists because these errands are the answer to «the client is down»; a
@@ -522,7 +522,7 @@ class Schedule:
             # still there to act on. The scheduler holds it behind its gate and offers
             # it again on its own beat (`TimerScheduler._retry_gated`), giving up only
             # once the moment it was about has certainly passed.
-            self.timers.park_gated(trigger, "timers.log.skip_daemon")
+            self.timers.park_gated(trigger, "timers.log.skip_link")
             return "held"
         return self.timers.submit(trigger)
 

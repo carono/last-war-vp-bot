@@ -193,14 +193,15 @@ class LuaService:
             # route one profile's calls into another account's game.
             srv.setsockopt(socket.SOL_SOCKET,
                            getattr(socket, "SO_EXCLUSIVEADDRUSE", socket.SO_REUSEADDR), 1)
-            bound = False
-            for _ in range(BIND_TRIES):
-                try:
-                    srv.bind((self._host, port))
-                    bound = True
-                    break
-                except OSError:
-                    time.sleep(BIND_WAIT)
+            bound = self._bind(srv, port)
+            if not bound:
+                # SOMETHING IS ALREADY ON IT, and after #1911 that is almost always a
+                # daemon of the OLD architecture: it outlived the panel that started it,
+                # exactly as it was built to, and it is now an orphan holding the door
+                # this profile's child tools come through. It answers the protocol, so
+                # it can be asked to go — politely, once — and the bind retried.
+                self._retire(port)
+                bound = self._bind(srv, port)
             if not bound:
                 srv.close()
                 self._say_once(f"port {port} is held by something else",
@@ -212,6 +213,31 @@ class LuaService:
         self._watch()
         self._note("listening on %s:%s for the child tools", self._host, port)
         return True
+
+    def _bind(self, srv: socket.socket, port: int) -> bool:
+        """Take the port, waiting out a listener that is on its way out."""
+        for _ in range(BIND_TRIES):
+            try:
+                srv.bind((self._host, port))
+                return True
+            except OSError:
+                time.sleep(BIND_WAIT)
+        return False
+
+    def _retire(self, port: int) -> None:
+        """Ask whatever is on this port to go. Best effort, and never an error.
+
+        The one thing that CAN be there and should not: a daemon from before the panel
+        held its own link. It speaks this protocol and its `shutdown` is honoured, so
+        the door comes free without anybody killing a process by hand — and a listener
+        that is something else entirely simply ignores an unknown line.
+        """
+        try:
+            lua_client.DaemonClient(port=port, token="").shutdown()
+        except Exception:                             # noqa: BLE001 — a courtesy
+            return
+        self._note("asked the listener on port %s to let it go", port)
+        time.sleep(BIND_WAIT)
 
     def forget(self, port: int) -> None:
         """Let a port go — a profile was closed, or its port setting moved."""
