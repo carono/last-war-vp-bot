@@ -685,7 +685,7 @@ class Recovery:
     # -- deciding ------------------------------------------------------------
     def note(self, link: str, now: float,
              idle_sec: "float | None" = None,
-             kicked: bool = False) -> "tuple | None":
+             kicked: bool = False, dead: int = 0) -> "tuple | None":
         """Feed one link reading. Returns what to SAY and DO, or ``None`` for nothing.
 
         The answer is `(locale_key, fmt)` when something should be said, and the caller
@@ -730,7 +730,17 @@ class Recovery:
         else:
             self._kick_run = 0
 
-        if link != game_link.LOST and not kicked:
+        # WHAT COUNTS AS A DEAF READING (#1910). `lost` — and the shape the socket table
+        # cannot decide: one conversation stranded while another is established
+        # (`game_link.classify`). That shape is BOTH «the game died and the control
+        # channel lived» (#1266) and «the client abandoned a gateway set and settled on
+        # another port» (measured live 2026-08-24), so the sockets may not call it either
+        # way — but it is exactly as suspicious as a loss, and it is what the server
+        # probe is for. Counting it here is what keeps #1266's protection: a genuinely
+        # dead game fails the probe twice and is restarted, and a live one answers and
+        # clears the count.
+        suspect = link == game_link.LOST or (link == game_link.UNKNOWN and dead > 0)
+        if not suspect and not kicked:
             # Anything else ends the run — including `offline`, which is the PROCESS
             # being gone and the watchdog's business, not this one's. Two things must
             # not both relaunch the same client.
@@ -751,7 +761,7 @@ class Recovery:
             self._why = "kick" if self.kick_hold_left(now) > 0 else ""
             return None
 
-        if link == game_link.LOST:
+        if suspect:
             # THE CLOCK THE PLAYER GATE READS. Stamped on the first reading of a run and
             # cleared with the run, so it measures «how long has this client been deaf»
             # and not «how many times have we looked».

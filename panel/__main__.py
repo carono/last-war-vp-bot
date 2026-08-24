@@ -3866,7 +3866,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # a person is playing in, which it did once (#1259).
         self._act_on(self._rt.recovery.note(found.link, now,
                                             idle_sec=game_link.idle_sec(),
-                                            kicked=kicked))
+                                            kicked=kicked, dead=found.dead))
         # …AND THE CONFIRMATION THE DECISION ASKED FOR (#1910). `note` above sets the
         # want only once every other reason to restart is already satisfied, so a healthy
         # account never reaches this line and never pays for a probe.

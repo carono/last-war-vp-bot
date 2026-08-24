@@ -197,24 +197,33 @@ def test_the_established_one_wins_over_the_stale_ones_beside_it():
     assert found.link == gp.ONLINE and found.dead == 0, found
 
 
-def test_a_live_socket_of_ANOTHER_service_does_not_vouch_for_a_dead_game():
-    """The night this cost, in one table (#1266, docs/…/server-link-status.md §2.2).
+def test_a_live_socket_of_ANOTHER_service_still_does_not_vouch_for_a_dead_game():
+    """The night this cost (#1266) — and the day the same table meant the opposite.
 
     The client keeps a chat / control channel on a port of its own. It survived while
     every game socket went half-closed, and «an established socket outranks a pile of
-    dead ones» — true when they are ONE conversation — handed back `online, dead=0`
-    without ever reaching the count. The panel wrote `link=online` all night, the
-    recovery never counted a strike, the gate let every scenario through, and every
-    timer pressed into a socket the far end had closed.
+    dead ones» — true when they are ONE conversation — handed back `online, dead=0`.
+    The panel wrote `link=online` all night and every timer pressed into a socket the
+    far end had closed. So this shape must never read GREEN, and it does not.
+
+    It must not read `lost` either, and that is #1910. Measured live on 2026-08-24 the
+    identical table meant a healthy client: `10012:est=0,dead=6  10935:est=1,dead=0`,
+    the client having abandoned a gateway set and settled on another port, answering
+    every server probe while every send was refused for hours.
+
+    So the sockets say `unknown` — never green, never a verdict — and carry the `dead`
+    count that marks this as the ambiguous shape rather than an ordinary silence.
+    `Recovery.note` treats it as exactly as suspicious as a loss and the server probe
+    decides, so #1266's client is still restarted and #1910's is left alone.
     """
     dead_game = [_Conn(111, "CLOSE_WAIT", port=10012, ip=f"203.0.113.{n}")
                  for n in range(1, 7)]
     chat = _Conn(111, "ESTABLISHED", port=17935, ip="198.51.100.4")
     with _Machine([111], dead_game + [chat]):
         found = gp.probe("LastWar.exe")
-    assert found.link == gp.LOST, f"the control channel vouched for the game: {found}"
-    assert found.dead == 6, found.dead
-    assert found.conn is None, found.conn
+    assert found.link != gp.ONLINE, f"the control channel vouched for the game: {found}"
+    assert found.link == game_link.UNKNOWN, found.link
+    assert found.dead == 6, "the evidence was dropped with the verdict"
 
 
 def test_the_same_two_services_on_a_HEALTHY_client_are_still_green():
@@ -253,8 +262,14 @@ def test_the_verdict_is_taken_per_conversation_and_not_per_process():
                                      conn(10012, "CLOSE_WAIT", "203.0.113.2"),
                                      conn(17935, "ESTABLISHED", "198.51.100.4")])
     assert talks == {10012: (None, 2), 17935: ("198.51.100.4:17935", 0)}, talks
+    # …and one stranded beside one established is the shape the table CANNOT decide
+    # (#1910): it is #1266's dead game beside a live control channel AND a client that
+    # abandoned a gateway set and settled elsewhere, and those are opposite. `unknown`,
+    # and the server probe decides — see tests/test_engine_link_gate.py.
     assert game_link.classify([conn(10012, "CLOSE_WAIT"),
-                               conn(17935, "ESTABLISHED")])[0] == game_link.LOST
+                               conn(17935, "ESTABLISHED")])[0] == game_link.UNKNOWN
+    # …and with nothing established anywhere it is still an unambiguous loss.
+    assert game_link.classify([conn(10012, "CLOSE_WAIT")])[0] == game_link.LOST
     # …and one conversation answering for itself is still the ordinary afternoon.
     assert game_link.classify([conn(10012, "CLOSE_WAIT", "203.0.113.1"),
                                conn(10012, "ESTABLISHED", "203.0.113.2")])[0] \

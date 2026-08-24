@@ -840,6 +840,38 @@ def test_a_probe_that_never_came_back_counts_as_a_refusal():
     assert r.probe_due(2000.0 + rec.PROBE_GAP_SEC + 1) is True, "never asked again"
 
 
+def test_the_shape_the_sockets_cannot_decide_is_still_suspicious():
+    """#1266's protection, kept while its verdict was given up (#1910).
+
+    `game_link.classify` no longer calls «one stranded conversation beside one
+    established» a loss, because that table means two opposite things. It must not
+    therefore be IGNORED: a genuinely dead game behind a live control channel is exactly
+    that shape, and the whole of #1266 is that nothing noticed it for a night.
+
+    So it counts toward the run exactly as a loss does, and the probe decides.
+    """
+    r = rec.Recovery()
+    said = []
+    for i in range(DEAF_READINGS):
+        got = r.note(UNKNOWN, 1000.0 + i * 8, idle_sec=10_000.0, dead=6)
+        if got:
+            said.append(got)
+    assert said and said[0][0] == rec.HOLD_CONFIRM, said
+
+
+def test_an_unknown_with_nothing_behind_it_is_still_not_a_reason():
+    """…and «I cannot tell» with NO half-closed socket stays what it always was.
+
+    A client 45 seconds into starting up, or a machine that will not attribute a foreign
+    process's sockets. Never a fault, never a run, never a restart (§3).
+    """
+    r = rec.Recovery()
+    said = [x for x in (r.note(UNKNOWN, 1000.0 + i * 8, idle_sec=10_000.0, dead=0)
+                        for i in range(DEAF_READINGS * 2)) if x]
+    assert said == [], said
+    assert r.restarts == 0
+
+
 def test_an_answered_probe_is_believed_for_a_while():
     """Found LIVE, not by reading (#1910). The sockets can be wrong for hours.
 
@@ -1152,8 +1184,11 @@ class _Power:
 
 
 class _Found:
-    def __init__(self, link, pid=4242):
+    def __init__(self, link, pid=4242, dead=0):
         self.link, self.running, self.pid = link, True, pid
+        #: Half-closed sockets behind the verdict — what tells «no verdict» from «the
+        #: shape the table cannot decide» (#1910, `game_link.classify`).
+        self.dead = dead
 
 
 def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,

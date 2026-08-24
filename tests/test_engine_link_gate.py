@@ -75,20 +75,42 @@ def test_a_live_socket_beside_the_dead_ones_wins():
     assert state == game_link.ONLINE and conn == "203.0.113.9:10012"
 
 
-def test_a_live_socket_of_another_service_does_not_win():
-    """…and it stops winning at the point it stops being the SAME conversation (#1266).
+def test_a_live_socket_of_another_service_no_longer_DECIDES_either_way():
+    """One conversation stranded, another established — and the table cannot tell (#1910).
 
-    The gate in this file is the second thing the night of 2026-08-06 defeated: every
-    `LUA` / `TAP` / `GAME` / `JUMP` was let through against a client whose game sockets
-    were all half-closed, because the chat channel's one live socket answered for them
-    (docs/research/server-link-status.md §2.2). The rule above is unchanged and still
-    right — a live socket beats the dead ones BESIDE it. A live socket of somebody
-    else's port is not beside them.
+    This shape used to be read as `lost`, bought with #1266: the night of 2026-08-06,
+    every `LUA` / `TAP` / `GAME` / `JUMP` was let through against a client whose game
+    sockets were all half-closed, because the chat channel's one live socket answered
+    for them (docs/research/server-link-status.md §2.2).
+
+    Measured on 2026-08-24, the SAME shape with the opposite meaning: `10012:est=0,
+    dead=6  10935:est=1,dead=0` — the client had abandoned a gateway set and settled on
+    another port, the server answered every probe, and every `join_rally` was refused
+    for hours because this reading called it dead.
+
+    Grouped by port the two tables are identical, so calling either one on the sockets
+    is a guess — and a guess is never a fault here (§3). `unknown` fails OPEN, and what
+    decides is an active question to the game server (`panel/runtime/recovery.py`). The
+    `dead` count travels so a caller can see this is the ambiguous shape and not an
+    ordinary silence; `Recovery.note` treats it as exactly as suspicious as a loss.
     """
     dead_game = [_Conn("CLOSE_WAIT", f"203.0.113.{n}", 10012) for n in range(1, 7)]
     state, conn, dead = game_link.classify(
         dead_game + [_Conn("ESTABLISHED", "198.51.100.4", 17935)])
-    assert state == game_link.LOST, f"the control channel vouched for the game: {state}"
+    assert state == game_link.UNKNOWN, f"the sockets guessed anyway: {state}"
+    assert dead == 6, dead
+    assert conn, "the established conversation was thrown away with the verdict"
+
+
+def test_a_client_with_nothing_established_is_still_a_loss():
+    """The one shape the sockets MAY decide on their own, and it is unambiguous.
+
+    Something was talking, it is half-closed, and nothing on this client is established.
+    There is no other conversation for the evidence to belong to.
+    """
+    dead_game = [_Conn("CLOSE_WAIT", f"203.0.113.{n}", 10012) for n in range(1, 7)]
+    state, conn, dead = game_link.classify(dead_game)
+    assert state == game_link.LOST, state
     assert dead == 6 and conn is None, (dead, conn)
 
 

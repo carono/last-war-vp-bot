@@ -191,9 +191,30 @@ def classify(sockets) -> tuple:
     """
     talks = conversations(sockets)
     stranded = sum(dead for conn, dead in talks.values() if dead and conn is None)
-    if stranded:
-        return LOST, None, stranded
     conn = live_endpoint(sockets)
+    if stranded and not conn:
+        # UNAMBIGUOUS. Something was talking, it is half-closed, and NOTHING on this
+        # client is established: whatever the stranded conversation was, the client is
+        # not having any other. This is the reading #1266 was bought with, and it is the
+        # only shape that may be called a loss on the sockets alone.
+        return LOST, None, stranded
+    if stranded and conn:
+        # …AND THE SHAPE THE TABLE CANNOT DECIDE (#1910). One conversation stranded,
+        # another established. That is BOTH of these at once, and they are opposite:
+        #
+        #   * the game died and the CONTROL channel lived on — #1266, a night of timers
+        #     pressing into a socket the far end had closed;
+        #   * the client abandoned a gateway set and settled on another port — measured
+        #     live on 2026-08-24, `10012:est=0,dead=6  10935:est=1,dead=0`, while the
+        #     server answered every probe and every `join_rally` was refused for it.
+        #
+        # Grouped by port they are the same table, so calling either one on the sockets
+        # is guessing — and this module's own rule is that a guess is never a fault
+        # (§3). So it is UNKNOWN, which fails OPEN, and the thing that CAN tell them
+        # apart decides: an active question to the game server
+        # (`panel/runtime/recovery.py`, the probe). `dead` travels so a caller can see
+        # this is the ambiguous shape and not an ordinary silence.
+        return UNKNOWN, conn, stranded
     return (ONLINE, conn, 0) if conn else (UNKNOWN, None, 0)
 
 
