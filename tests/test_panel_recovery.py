@@ -840,6 +840,46 @@ def test_a_probe_that_never_came_back_counts_as_a_refusal():
     assert r.probe_due(2000.0 + rec.PROBE_GAP_SEC + 1) is True, "never asked again"
 
 
+def test_an_answered_probe_is_believed_for_a_while():
+    """Found LIVE, not by reading (#1910). The sockets can be wrong for hours.
+
+    Measured the same evening: `classify` said `lost` continuously while the server
+    answered every probe. The decision kept reaching the confirmation and the
+    confirmation kept asking — one round trip into the game every twenty-five seconds,
+    for ever, to re-establish a fact that had not changed.
+    """
+    r = rec.Recovery()
+    _sockets_say_deaf(r)
+    assert r.probe_due(2000.0) is True
+    r.probe_started(2000.0)
+    r.note_probe(True, 2000.5)                       # the server answered
+    assert r.probe_due(2000.5 + rec.PROBE_GAP_SEC + 1) is False, "asked again at once"
+    # …and the want is re-armed by THE DECISION, never by the clock: the sockets have to
+    # still be saying `lost` for another probe to be worth anything.
+    later = 2000.5 + rec.PROBE_OK_HOLD_SEC + 1
+    r.note(LOST, later, idle_sec=10_000.0)
+    assert r.probe_due(later) is True, "never asked again"
+
+
+def test_the_refusal_is_said_on_the_edge_and_then_rarely():
+    """The same sentence every twenty-five seconds is the noise, not the news.
+
+    It is worth saying the moment it becomes true — «панель ничего не делает» and
+    «панель держит перезапуск» must never look alike — and worth nothing at all on the
+    hundredth repetition.
+    """
+    r = rec.Recovery()
+    first = [x for x in (r.note(LOST, 1000.0 + i * 8, idle_sec=10_000.0)
+                         for i in range(DEAF_READINGS)) if x]
+    assert first and first[0][0] == rec.HOLD_CONFIRM, first
+    again = [x for x in (r.note(LOST, 1000.0 + (DEAF_READINGS + i) * 8,
+                                idle_sec=10_000.0)
+                         for i in range(DEAF_READINGS)) if x]
+    assert again == [], f"the refusal repeated inside its own window: {again}"
+    late = r.note(LOST, 1000.0 + rec.CONFIRM_SAY_SEC + 100, idle_sec=10_000.0)
+    assert late and late[0] == rec.HOLD_CONFIRM, "it never said it again at all"
+
+
 def test_the_decision_line_carries_the_numbers_it_was_made_on():
     """«На основании ЧЕГО» — measured, never computed (#1910).
 

@@ -205,6 +205,22 @@ PROBE_DEADLINE_SEC = 8.0
 #: same breath are one question: a reconnecting client is briefly unable to answer either.
 PROBE_GAP_SEC = 20.0
 
+#: HOW LONG AN ANSWERED PROBE IS BELIEVED FOR (#1910, found live).
+#:
+#: The socket reading can be wrong for HOURS — measured on this machine the same evening:
+#: `classify` said `lost` continuously while the server was answering every probe. The
+#: decision therefore kept reaching the confirmation, and the confirmation kept asking:
+#: one round trip into the game every twenty-five seconds, for ever, to re-establish a
+#: fact that had not changed. A server that answered is a client that is talking, and
+#: that is worth five minutes of not asking again.
+PROBE_OK_HOLD_SEC = 300.0
+
+#: …and how often the REFUSAL is said while it stays true. Same reasoning and the same
+#: number as the daemon's standing failure (`GameLink.FAIL_SAY_SEC`): the first one is
+#: news, the hundredth is the noise this codebase keeps relearning. Live it was two lines
+#: every twenty-five seconds.
+CONFIRM_SAY_SEC = 300.0
+
 #: THE SHORTEST GAP BETWEEN TWO STRIKES THAT COUNT (#1702). Three consecutive `lost`
 #: readings are meant to be «about half a minute of a client that cannot be heard» — and
 #: they are only that if the three are three independent LOOKS. They were not: the socket
@@ -398,7 +414,7 @@ class Recovery:
     """
 
     __slots__ = ("_probe_fails", "_probe_at", "_probe_flying", "_probe_want",
-                 "_confirm_held", "_probe_last_ok",
+                 "_confirm_held", "_confirm_at", "_probe_last_ok",
                  "_run", "_run_at", "_lost_since",
                  "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_down_run", "_down_last", "_down_wait", "_down_held",
@@ -422,8 +438,9 @@ class Recovery:
         #: Does the decision WANT one? Set the moment everything else says «restart», so
         #: a healthy account never pays for a probe at all.
         self._probe_want = False
-        #: …and whether the wait for confirmation has already been said once.
+        #: …and whether the wait for confirmation has already been said, and when.
         self._confirm_held = False
+        self._confirm_at = 0.0
         #: When a probe last came back OK — the contrary signal, for the log line.
         self._probe_last_ok = 0.0
         #: Consecutive `lost` readings so far.
@@ -891,9 +908,10 @@ class Recovery:
         if not kicked and self._probe_fails < PROBE_FAILS:
             self._why = "confirm"
             self._probe_want = True
-            if self._confirm_held:
+            if self._confirm_held and (now - self._confirm_at) < CONFIRM_SAY_SEC:
                 return None
             self._confirm_held = True
+            self._confirm_at = now
             # THE SYMMETRIC LINE: why the restart is NOT happening, in the same numbers
             # the act would have quoted. Without it a restart withheld and a restart
             # never considered look identical, which is the whole failure mode this
@@ -951,7 +969,9 @@ class Recovery:
         self._probe_at = 0.0
         self._probe_flying = False
         self._probe_want = False
+        self._probe_last_ok = 0.0
         self._confirm_held = False
+        self._confirm_at = 0.0
 
     def probe_due(self, now: float) -> bool:
         """Should the panel ask the server something RIGHT NOW? (#1910)
@@ -973,6 +993,11 @@ class Recovery:
             self._probe_flying = False
             self._probe_fails += 1
         if not self._probe_want:
+            return False
+        if self._probe_last_ok and (now - self._probe_last_ok) < PROBE_OK_HOLD_SEC:
+            # THE SERVER ANSWERED RECENTLY. Nothing about the client has changed since,
+            # and the sockets have been wrong about it for the whole of that window —
+            # asking again is a round trip spent re-proving what is already known.
             return False
         if self._probe_fails >= PROBE_FAILS:
             # ENOUGH ASKED. The confirmation is complete and the decision acts on the
@@ -997,7 +1022,10 @@ class Recovery:
             self._probe_last_ok = now
             self._probe_fails = 0
             self._probe_want = False
-            self._confirm_held = False
+            # `_confirm_held` is deliberately NOT cleared: the refusal is still true and
+            # still the same refusal, and clearing it here is what made the sentence
+            # repeat every twenty-five seconds live. It is re-armed by time
+            # (:data:`CONFIRM_SAY_SEC`) and by the link coming back, nothing else.
             return
         self._probe_fails += 1
 
