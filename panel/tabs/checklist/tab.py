@@ -436,12 +436,24 @@ class ChecklistTab(PanelTab):
         title = self.t(errand.title_key)
         self.say("checklist", "checklist.log.run", title=title)
         started = self.rt.play_async(
-            errand.scenario, tag="checklist",
+            errand.scenario, self._args_for(key), tag="checklist",
             on_result=lambda outcome, title=title: self._ran_back(outcome, title),
             on_done=lambda key=key: self._ran(key))
         if not started:
             self._ran(key)
         return started
+
+    def _args_for(self, key: str) -> dict:
+        """What this errand is played WITH — empty for all but one of them.
+
+        «Отправка грузовиков» is the only line on the board that carries a choice, and
+        the choice is an argument of its scenario rather than a branch in here: the tab
+        turns the radio button into `{"refresh": …, "target": …}` and `send_trucks.md`
+        does the rest. Every other errand is a press with nothing to say.
+        """
+        if key == modelmod.TRUCK_ERRANDS[0].key:
+            return modelmod.truck_args(self._truck_mode.get())
+        return {}
 
     def _ran_back(self, outcome, title: str) -> None:
         """Say what came of it — the scenario's own words, never a guess of ours."""
@@ -554,22 +566,13 @@ class ChecklistTab(PanelTab):
         self._fact(counter, "checklist.trucks.sent", self._truck_sent(), bold=True)
         self._fact(counter, "checklist.trucks.idle", self._truck_idle())
 
-        press = ttk.Frame(box)
-        press.pack(fill="x", padx=6, pady=(2, 2))
-        # DISABLED, and that is the whole state of it: there is no dispatch scenario
-        # yet, so there is nothing for a press to play (`CLAUDE.md` — an ability is a
-        # scenario and the panel only plays them). A button that answered «not yet»
-        # when pressed would be the same emptiness with an extra click in front of it;
-        # a greyed one says so before anybody reaches for it. The phone shows the same
-        # button in the same state (`web_view`), and the day the scenario lands both
-        # come alive in the same commit.
-        self.tr(ttk.Button(press, state="disabled"),
-                "checklist.trucks.send").pack(anchor="w")
-        # Under the button rather than beside it: «пока нельзя, нет сценария» is a
-        # sentence, and a sentence does not stand next to a button in a third of a tab.
-        self.tr(ttk.Label(press, foreground="#888", wraplength=WRAP_PX,
-                          justify="left"), "checklist.trucks.not_yet").pack(
-            anchor="w", pady=(2, 0))
+        # NO PRESS OF ITS OWN, and that is a change rather than an omission (#1908).
+        # The block used to carry a greyed «Отправить» because the row above it had
+        # nothing to play: the errand had no scenario, so it drew no button either. It
+        # has one now, so the row draws «Выполнить» like every other line on the board —
+        # and a second button beside it, doing exactly the same thing through exactly
+        # the same gate, is one more way for the two front-ends to disagree about which
+        # presses exist. The counter and the setting stay; the press is the row's.
 
         modes = ttk.Frame(box)
         modes.pack(fill="x", padx=6, pady=(4, 0))
@@ -776,21 +779,21 @@ class ChecklistTab(PanelTab):
                 {"label": "checklist.trucks.idle", "value": self._truck_idle()}]
 
     def _web_truck_items(self) -> list:
-        """The press and the three modes — the same two things, and no button.
+        """The three modes, exactly as the window draws them — and no press.
 
-        **The press is here and it carries no action**, exactly as the window's is drawn
-        greyed: there is no dispatch scenario yet, and `web_press` runs scenarios and
-        nothing else (`CLAUDE.md`). A phone that could press it would be reaching for an
-        ability the machine does not have either.
+        The press is on the ROW, like every other errand's, and the phone gets it from
+        `_web_item` along with the rest (#1908). This block used to carry a dead
+        «Отправить» because the row had no ability to play; it has one now, and one
+        press per ability is the whole point of the gate they share.
 
         The mode is a READING here and a radio in the window — the same shape «Ралли»
         settled on for its switches. The phone can see which of the three is on, which is
         what somebody away from the machine needs; changing what the dispatch will spend
-        belongs where the person can see the fleet.
+        belongs where the person can see the fleet. **That difference predates this
+        commit and is unchanged by it**; it is the same one every «Ралли» switch has.
         """
         chosen = modelmod.truck_mode(self._truck_mode.get())
-        items = [{"label": "checklist.trucks.send", "pill": "checklist.trucks.not_yet"}]
-        items += [{"label": "checklist.trucks.mode." + mode,
+        items = [{"label": "checklist.trucks.mode." + mode,
                    "pill": ("checklist.trucks.chosen" if mode == chosen
                             else "checklist.trucks.unchosen")}
                   for mode in modelmod.TRUCK_MODES]

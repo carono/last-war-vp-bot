@@ -280,6 +280,69 @@ BUTTONS: dict[str, Button] = {
     # «Сбор ресурсов с грузовика». Recording 20260730_130004 caught the wire: the
     # tap, the collect and the modal-close are all one command with a different
     # `action` int, so the press needs no window and no bubble lookup.
+    # -- the trade station's fleet: rotate, then dispatch (#1908) --------------
+    # A DIFFERENT truck from the three below: this is the fleet a commander sends to
+    # another server, not the accumulator parked on the base. Every one of these is a
+    # press on the game's own «Супер режим» window — see the long note above
+    # `truck_station_stamp` in lua_actions.py for why the window and not the wire.
+    "arm_truck_station": Button(
+        # Not a press: what the wallet and the bag held before anything was spent, so
+        # «what did that cost» is answered by subtraction rather than by belief.
+        lua=_lua_actions.truck_station_stamp(),
+        wait=0.2, label="Note what the trade run may spend",
+        relay=("trk_arm",),
+    ),
+    "open_truck_station": Button(
+        lua=_lua_actions.truck_station_open(),
+        # The window loads its fleet, its tabs and its prices from the server; a shorter
+        # pause reads an empty `truckShowDataList` and decides there is nothing to do.
+        wait=2.5, label="Open the trade station's super mode",
+    ),
+    "close_truck_station": Button(
+        lua=_lua_actions.truck_station_close(),
+        wait=0.6, label="Close the trade station's super mode",
+    ),
+    "scan_truck_station": Button(
+        lua=_lua_actions.truck_station_scan(),
+        wait=0.4, label="Scan the trade station",
+        relay=("trk_scan",),
+    ),
+    "select_truck_refresh": Button(
+        # Ticks only the trucks BELOW the target — never the window's own «select all»,
+        # which at the UR target would re-roll a truck that is already UR and charge for
+        # it. Reads the price afterwards and sends nothing.
+        lua=_lua_actions.truck_refresh_select(),
+        wait=0.5, label="Choose the trucks to rotate",
+        relay=("trk_select",),
+    ),
+    "refresh_trucks": Button(
+        # THE PRESS THAT STARTS THE SPEND — and often does not finish it: with several
+        # trucks ticked the game raises a second confirm instead of sending. The wait is
+        # what gives that dialog a frame to appear in, so the step after this one can
+        # see it.
+        lua=_lua_actions.truck_refresh_press(),
+        wait=1.5, label="Rotate the chosen trucks",
+        relay=("trk_refresh",),
+    ),
+    "confirm_truck_rotation": Button(
+        # …and THIS is what actually sends, when a dialog came up. A no-op when the
+        # press went straight through, so it is safe to play unconditionally.
+        lua=_lua_actions.truck_refresh_confirm(),
+        wait=2.2, label="Answer the rotation's confirm",
+        relay=("trk_confirm",),
+    ),
+    "select_truck_departure": Button(
+        lua=_lua_actions.truck_send_select(),
+        wait=0.5, label="Choose the trucks to send",
+        relay=("trk_pick",),
+    ),
+    "press_truck_departure": Button(
+        # THE PRESS THAT SPENDS THE DAY'S ALLOWANCE. The escorting squads are the
+        # window's own, which is the whole reason this is a press.
+        lua=_lua_actions.truck_send_press(),
+        wait=2.5, label="Send the chosen trucks out",
+        relay=("trk_send",),
+    ),
     "truck_reward_refresh": Button(
         lua=_lua_actions.truck_reward_refresh(),
         wait=0.6, label="Read the truck's load",

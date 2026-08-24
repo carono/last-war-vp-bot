@@ -412,6 +412,23 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.secret_tasks_day",
     ),
     Timer(
+        name="send_trucks",
+        scenario=("send_trucks",),
+        # A DAY, and a fallback rather than a schedule — the same shape as
+        # `secret_tasks_day` above and for the same reason (#1908). The allowance is a
+        # daily one, so a day with the whole fleet standing starts here; but a truck
+        # that HAS gone out comes home at a moment the client knows to the millisecond,
+        # and the recipe books its own next turn with it (:data:`NEXT_RUN_VAR`). A
+        # second row on a period would wake between those instants, take the same game
+        # claim and find a station with nothing standing at it.
+        interval_sec=DAY_SEC,
+        # A failure here is a client that was not answering — the presses no-op on a
+        # locked or empty station. Half an hour, because the day has hours in it.
+        retry_sec=1800,
+        enabled=False,
+        label_key="timers.item.send_trucks",
+    ),
+    Timer(
         name="do_radar_tasks",
         scenario=("do_radar_tasks",),
         # Half an hour. The board hands out errands on its own clock all day, and the

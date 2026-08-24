@@ -13309,3 +13309,376 @@ def secret_post_mega_spent() -> str:
             "if was==nil then return 0 end local now=0 "
             "pcall(function() now=LuaEntry.Player.gold+0 end) "
             "local d=was-now if d<0 then d=0 end return d end)()")
+
+
+# ---------------------------------------------------------------------------
+# The trade station's fleet: rotate a truck's rarity, then send it out (#1908)
+# ---------------------------------------------------------------------------
+# The THIRD truck in this file, and the only one that spends anything. The other
+# two are income: `trucks_ready_count` counts the supply trucks that have arrived
+# at the base and `truck_reward_*` empties the idle accumulator parked on it.
+# These press the TRADE STATION — the fleet a commander dispatches to another
+# server, other players rob on the way, and the initiator empties on arrival.
+#
+# EVERYTHING HERE IS THE GAME'S OWN «Супер режим» WINDOW, and that is a decision
+# rather than a convenience. `UILWTruckSuperDeparture` holds both halves of the
+# ability — a Refresh tab that lifts several trucks' rarity in one send, and a
+# Departure tab that sends several trucks with their escorts in one more — and
+# both halves live in the VIEW rather than in the data manager
+# (`UILWTruckSuperDeparture.View`, measured live on three accounts, #1908):
+#
+#   canSelectRefreshTruckIndexMap    which trucks the refresh may touch at all —
+#                                    and it already excludes one that is at the
+#                                    top rarity, which is a gate nothing here has
+#                                    to reinvent
+#   canSelectDepartureTruckIndexMap  …and which may be sent
+#   recordSelectRefreshTruckIndexMap the selection itself, index -> true
+#   recordSelectDepartureTruckIndexMap
+#   selectRefreshReindeerCart        the «all the way to the sleigh» toggle
+#   isUnlockReindeerCart             whether this account has that toggle at all
+#   CalcRefreshTruckCost()           …which SETS refreshSelectTruckNeedTicketCount
+#   refreshSelectTruckNeedTicketCount  the price of the current selection, in
+#                                    Trade Contracts
+#   ownTicketCount                   how many are in the bag
+#   oneTicket2DiamondNum             what one costs in diamonds when the bag is
+#                                    short — the game tops a short bag up itself
+#   OnBtnRefreshOrDepartureClick()   the ONE button, whichever tab is up
+#   OnTabItemClick(n)                1 = Refresh, 2 = Departure
+#
+# THE PRICE WAS MEASURED, ONE TRUCK AT A TIME, and it is flat: three contracts to
+# bring ANY truck to UR — a level-1 truck and a level-4 truck cost the same — and
+# six to bring it to the Reindeer Sleigh Ride. Three trucks to the sleigh is
+# therefore 18 contracts, and none of that is written down here: the selection is
+# made, `CalcRefreshTruckCost()` is called, and the number the game answers is what
+# the gate is judged on. A price read off a table is a price that was true once.
+#
+# RARITY IS TWO FIELDS, NOT ONE. `quality` runs 1..5 — 5 is UR — and the sleigh is
+# `quality == 10` with `isSpecialURQuality == true` beside it. So «is this truck
+# already good enough» is asked as: at the UR target, anything from 5 up; at the
+# sleigh target, only the special flag. Anything ABOVE 5 that is not the sleigh
+# counts as UR too, for the reason the secret tasks give: a rarity nobody has seen
+# yet must not read as «not good enough» and be re-rolled away.
+#
+# WHAT IS NOT HERE. An account whose trade station has no super mode would rotate
+# one truck at a time (`train.change`, `LWMyStationDataManager:TryChangeTrain`) —
+# and there is no such account to measure against: all three that were open when
+# this was written have the super window and the sleigh unlocked. So the scan reads
+# the fact and the scenario says so rather than guessing at a frame that spends
+# contracts; see docs/research/truck-dispatch.md.
+
+#: The window both halves of the ability live in.
+_TRUCK_WIN = "UIWindowNames.UILWTruckSuperDeparture"
+
+#: …and the second confirm it raises when a press would throw away something good.
+_TRUCK_CONFIRM = "UIWindowNames.UILWTruckSuperDepartureRefreshSecondConfirm"
+
+#: The station manager, and the view of the window in front of it. Both are asked
+#: for every step, because a window the person closed under the panel's feet is an
+#: ordinary thing and must read as «not open» rather than raise.
+_TRUCK_M = ("local M=DataCenter and DataCenter.LWMyStationDataManager ")
+
+_TRUCK_VIEW = (
+    "local function _tview() local ok,w=pcall(function() "
+    "return UIManager.Instance:GetWindow(" + _TRUCK_WIN + ") end) "
+    "if not ok or w==nil then return nil end local v=nil "
+    "pcall(function() v=w.View end) return v end ")
+
+#: Is this truck already at or above what the run is aiming for? `target` is 10 for
+#: the Reindeer Sleigh Ride and 5 for UR — the game's own `quality` numbers, so the
+#: setting travels as the thing it names.
+_TRUCK_ENOUGH = (
+    "local function _enough(t,target) if t==nil then return true end "
+    "local sp=false pcall(function() sp=(t.isSpecialURQuality==true) end) "
+    "if sp then return true end "
+    "if target>=10 then return false end "
+    "return _num(t.quality)>=5 end ")
+
+#: The item a rotation is paid for in — asked of the game, never spelled out.
+_TRUCK_ITEM = ("(function() local ok,v=pcall(function() "
+               "return DataCenter.LWMyStationDataManager:GET_CHANGE_TRAIN_ITEM_ID() end) "
+               "local n=0 if ok and v~=nil then pcall(function() n=v+0 end) end "
+               "return n end)()")
+
+
+def truck_station_stamp() -> str:
+    """Stamp the two purses the run is measured from, and clear the last run's verdicts.
+
+    The three knobs a person can change — what rarity the run aims for, whether diamonds
+    may top a short bag of contracts up, and how many of them may go — are set by the
+    scenario's own `LUA` line just above this, because `TAP` takes no arguments and the
+    values come out of `ARGS`. This deliberately does NOT touch them: it only writes down
+    what the wallet and the bag held at the start, so «what did that cost» can be answered
+    by subtraction rather than by trusting a press's own word.
+
+    A budget of 0 means NO CEILING, and that is the operator's instruction for this
+    ability in their own words — «в супер режиме всегда обновляем до требуемого уровня НЕ
+    ТОРГУЯСЬ». The secret tasks' ceiling of 1200 is a rule about a different screen and a
+    different currency; carrying it over here would be inventing a limit nobody asked for.
+    """
+    return ("pcall(function() " + _NUM + _TRUCK_M +
+            "if not M then return end "
+            "if M.__lw_trk_target==nil then M.__lw_trk_target=10 end "
+            "if M.__lw_trk_gold==nil then M.__lw_trk_gold=1 end "
+            "if M.__lw_trk_budget==nil then M.__lw_trk_budget=0 end "
+            "M.__lw_trk_cost=-1 M.__lw_trk_want=0 M.__lw_trk_ok=0 M.__lw_trk_need=0 "
+            "M.__lw_trk_picked=0 "
+            "local g=0 pcall(function() g=_num(LuaEntry.Player.gold) end) "
+            "M.__lw_trk_gold0=g "
+            "local item=" + _TRUCK_ITEM + " local tick=0 "
+            "pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+            "if _num(s.itemId)==item then tick=tick+_num(s.count) end end end) "
+            "M.__lw_trk_tick0=tick "
+            'CS.UnityEngine.Debug.LogError("ACT trk_arm target="..tostring(M.__lw_trk_target)'
+            '.." gold="..tostring(M.__lw_trk_gold).." budget="..tostring(M.__lw_trk_budget)'
+            '.." tickets="..tostring(tick)) end)')
+
+
+def truck_station_open() -> str:
+    """Open «Супер режим» — the window both halves of the ability live in."""
+    return ("pcall(function() UIManager.Instance:OpenWindow(" + _TRUCK_WIN + ") end)")
+
+
+def truck_station_close() -> str:
+    """Close the window, and the second confirm if one is still standing."""
+    return ("pcall(function() local mgr=UIManager.Instance "
+            "for _,n in ipairs({" + _TRUCK_CONFIRM + ", " + _TRUCK_WIN + "}) do "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+            "if ok and open then local w=mgr:GetWindow(n) "
+            "if w and w.Ctrl and w.Ctrl.CloseSelf then "
+            "pcall(function() w.Ctrl:CloseSelf() end) end end end end)")
+
+
+def truck_station_scan() -> str:
+    """Walk the fleet once and park every number the recipe branches on.
+
+    A snapshot rather than a dozen separate reads, for the reason every other scan in
+    this file gives: a truck that arrives between two of them would be counted as idle
+    by one question and as travelling by the next.
+
+    The station's lock is asked FIRST and parked as its own flag, because a locked
+    station answers `0` dispatched exactly like an idle one — drawn straight that reads
+    as «nothing sent yet today» on an account that cannot send anything at all.
+    """
+    return ("pcall(function() " + _NUM + _TRUCK_M + _TRUCK_VIEW + _TRUCK_ENOUGH +
+            "if not M then return end "
+            "local lock=1 pcall(function() if not M:IsTruckFunctionLock() then lock=0 end end) "
+            "local sent=0 pcall(function() sent=_num((M:GetDepartureCount())) end) "
+            "local cap=0 pcall(function() cap=_num((M:GetMaxDailyCount())) end) "
+            "local ready=0 pcall(function() ready=_num((M:GetRealReadyCount())) end) "
+            "local item=" + _TRUCK_ITEM + " local tick=0 "
+            "pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+            "if _num(s.itemId)==item then tick=tick+_num(s.count) end end end) "
+            "local gold=0 pcall(function() gold=_num(LuaEntry.Player.gold) end) "
+            "local target=_num(M.__lw_trk_target) if target<=0 then target=10 end "
+            "local v=_tview() local win=(v~=nil) and 1 or 0 "
+            "local sleigh=0 local rate=0 local own=tick "
+            "if v~=nil then pcall(function() if v.isUnlockReindeerCart==true then sleigh=1 end end) "
+            "pcall(function() rate=_num(v.oneTicket2DiamondNum) end) "
+            "pcall(function() own=_num(v.ownTicketCount) end) end "
+            # How many trucks are already where the run wants them, and how many it
+            # would still like to improve. The two are counted off DIFFERENT lists on
+            # purpose:
+            #
+            #   * `good` and `fleet` come from the station manager, which holds every
+            #     truck the account owns whether it is standing or on the road. Counting
+            #     them off the window instead made the closing line say «0 at the target»
+            #     about three sleighs that had just been dispatched — the window rebuilds
+            #     its rows around what can be acted on, and a truck in flight cannot;
+            #   * `poor` comes from the window, because it is «how many presses are
+            #     there», and a truck the refresh may not touch is not one of them.
+            "local poor,good,fleet=0,0,0 "
+            "pcall(function() for _,t in pairs(M:GetMyTrainList() or {}) do "
+            "fleet=fleet+1 if _enough(t,target) then good=good+1 end end end) "
+            "pcall(function() for i=1,8 do local d=v and v.truckShowDataList[i] "
+            "local t=d and d.truckData "
+            "if t~=nil and not _enough(t,target) and v.canSelectRefreshTruckIndexMap "
+            "and v.canSelectRefreshTruckIndexMap[i] then poor=poor+1 end end end) "
+            "M.__lw_trk_lock=lock M.__lw_trk_sent=sent M.__lw_trk_cap=cap "
+            "M.__lw_trk_ready=ready M.__lw_trk_tick=tick M.__lw_trk_goldnow=gold "
+            "M.__lw_trk_win=win M.__lw_trk_sleigh=sleigh M.__lw_trk_rate=rate "
+            "M.__lw_trk_own=own M.__lw_trk_poor=poor M.__lw_trk_good=good "
+            "M.__lw_trk_fleet=fleet "
+            'CS.UnityEngine.Debug.LogError("ACT trk_scan lock="..tostring(lock)'
+            '.." sent="..tostring(sent).."/"..tostring(cap).." ready="..tostring(ready)'
+            '.." tickets="..tostring(tick).." poor="..tostring(poor).." good="..tostring(good)'
+            '.." window="..tostring(win).." sleigh="..tostring(sleigh)) end)')
+
+
+def truck_refresh_select() -> str:
+    """Tick exactly the trucks that are below the target, and read what that costs.
+
+    Not «select all»: the window's own button ticks every truck it MAY touch, and at
+    the UR target that includes a truck which is already UR — a press would re-roll a
+    win and pay for the privilege. So the selection is built here, one index at a time,
+    out of the trucks the game says are selectable AND that :data:`_TRUCK_ENOUGH` says
+    are not good enough yet.
+
+    The price is the game's own: the selection is set, `CalcRefreshTruckCost()` is
+    called, and `refreshSelectTruckNeedTicketCount` is what it answers. Parked beside it
+    is the verdict — contracts alone if the bag covers it, otherwise the diamonds the
+    game would silently top the shortfall up with, judged against the ceiling the run
+    was armed with (0 = none, which is this ability's default).
+    """
+    return ("pcall(function() " + _NUM + _TRUCK_M + _TRUCK_VIEW + _TRUCK_ENOUGH +
+            "if not M then return end local v=_tview() "
+            "M.__lw_trk_cost=-1 M.__lw_trk_want=0 M.__lw_trk_ok=0 M.__lw_trk_need=0 "
+            "if v==nil then return end "
+            "local target=_num(M.__lw_trk_target) if target<=0 then target=10 end "
+            # The sleigh is a tech of its own. An account without it cannot be asked
+            # for one, so the run quietly aims at UR instead and says so in the scan.
+            "local sleigh=false pcall(function() sleigh=(v.isUnlockReindeerCart==true) end) "
+            "if target>=10 and not sleigh then target=5 end "
+            "M.__lw_trk_aim=target "
+            "pcall(function() v:OnTabItemClick(1) end) "
+            "pcall(function() v.selectRefreshReindeerCart=(target>=10) end) "
+            "local map=v.recordSelectRefreshTruckIndexMap "
+            "if type(map)~='table' then return end "
+            "for k in pairs(map) do map[k]=nil end "
+            "local want=0 "
+            "pcall(function() for i=1,8 do local d=v.truckShowDataList[i] "
+            "local t=d and d.truckData "
+            "if t~=nil and v.canSelectRefreshTruckIndexMap "
+            "and v.canSelectRefreshTruckIndexMap[i] and not _enough(t,target) then "
+            "map[i]=true want=want+1 end end end) "
+            "local cost=0 "
+            "pcall(function() v:CalcRefreshTruckCost() end) "
+            "pcall(function() cost=_num(v.refreshSelectTruckNeedTicketCount) end) "
+            "local own=0 pcall(function() own=_num(v.ownTicketCount) end) "
+            "local rate=0 pcall(function() rate=_num(v.oneTicket2DiamondNum) end) "
+            "local budget=_num(M.__lw_trk_budget) "
+            "local allow=(_num(M.__lw_trk_gold)~=0) "
+            "local need=0 local ok=0 "
+            "if want>0 then if own>=cost then ok=1 "
+            "elseif allow and rate>0 then need=(cost-own)*rate "
+            "if budget<=0 or need<=budget then ok=1 end end end "
+            "M.__lw_trk_cost=cost M.__lw_trk_want=want M.__lw_trk_ok=ok "
+            "M.__lw_trk_need=need M.__lw_trk_own=own M.__lw_trk_rate=rate "
+            'CS.UnityEngine.Debug.LogError("ACT trk_select want="..tostring(want)'
+            '.." aim="..tostring(target).." cost="..tostring(cost).." own="..tostring(own)'
+            '.." need="..tostring(need).." ok="..tostring(ok)) end)')
+
+
+def truck_refresh_press() -> str:
+    """Press the window's own button on the Refresh tab — the press that starts the spend.
+
+    The game's button rather than a `train.batch.change` built here, for the reason the
+    secret tasks give about theirs: what a rotation costs and which purse it comes out
+    of is the client's decision, and a frame written by hand is a guess between «spend a
+    contract» and «spend diamonds» that the player pays for.
+
+    It does not always finish the job. Measured live: with three trucks ticked the click
+    raised `UILWTruckSuperDepartureRefreshSecondConfirm` and sent NOTHING — the run's
+    first attempt reported success against an unchanged bag of 358 contracts. So the
+    answer to that dialog is a step of its own (:func:`truck_refresh_confirm`), because a
+    dialog needs a frame to appear in and nothing inside one Lua chunk can wait for it.
+    """
+    return ("pcall(function() " + _TRUCK_VIEW +
+            "local v=_tview() if v==nil then return end "
+            "pcall(function() v:OnBtnRefreshOrDepartureClick() end) "
+            'CS.UnityEngine.Debug.LogError("ACT trk_refresh pressed=1") end)')
+
+
+def truck_refresh_confirm() -> str:
+    """Answer the second confirm, if the press raised one — this is what actually sends.
+
+    The dialog's own confirm is `TrySendRefreshMsg` on the view behind it, and calling
+    that is what took 18 contracts out of a bag of 358 and turned three trucks into
+    sleighs on the run this was written from. It is reached through the VIEW rather than
+    by hunting a button called `ConfirmBtn` under the dialog's root: the first version did
+    hunt for one, found nothing under any of the four usual names, and reported a
+    successful rotation that had not happened.
+
+    Guarded on the dialog being open, so a press that went straight through cannot be
+    sent a second time.
+    """
+    return ("pcall(function() " + _TRUCK_VIEW +
+            "local mgr=UIManager.Instance "
+            "local ok,open=pcall(function() return mgr:IsWindowOpen(" + _TRUCK_CONFIRM + ") end) "
+            "local sent=0 "
+            "if ok and open then local v=_tview() "
+            "if v~=nil then pcall(function() v:TrySendRefreshMsg() end) sent=1 end "
+            "local w=mgr:GetWindow(" + _TRUCK_CONFIRM + ") "
+            "if w and w.Ctrl and w.Ctrl.CloseSelf then "
+            "pcall(function() w.Ctrl:CloseSelf() end) end end "
+            'CS.UnityEngine.Debug.LogError("ACT trk_confirm sent="..tostring(sent)) end)')
+
+
+def truck_send_select() -> str:
+    """Tick the trucks that are to go out, best first, and never more than the day allows.
+
+    «Send what there is room for» is the whole of it. The window says which trucks MAY
+    be sent; the day's allowance says how many presses are left, and the two are not the
+    same number — a fleet of three standing at a station with one dispatch banked sends
+    ONE. When the allowance is the smaller of the two, the trucks are ranked by rarity
+    and the best go: a sleigh held back for tomorrow is a sleigh somebody re-rolls away.
+    """
+    return ("pcall(function() " + _NUM + _TRUCK_M + _TRUCK_VIEW +
+            "if not M then return end local v=_tview() "
+            "M.__lw_trk_picked=0 if v==nil then return end "
+            "pcall(function() v:OnTabItemClick(2) end) "
+            "local map=v.recordSelectDepartureTruckIndexMap "
+            "if type(map)~='table' then return end "
+            "for k in pairs(map) do map[k]=nil end "
+            "local rows={} "
+            "pcall(function() for i=1,8 do local d=v.truckShowDataList[i] "
+            "local t=d and d.truckData "
+            "if t~=nil and v.canSelectDepartureTruckIndexMap "
+            "and v.canSelectDepartureTruckIndexMap[i] then "
+            "rows[#rows+1]={i=i,q=_num(t.quality)} end end end) "
+            "table.sort(rows,function(a,b) if a.q==b.q then return a.i<b.i end return a.q>b.q end) "
+            "local sent=0 pcall(function() sent=_num((M:GetDepartureCount())) end) "
+            "local cap=0 pcall(function() cap=_num((M:GetMaxDailyCount())) end) "
+            "local left=cap-sent if left<0 then left=0 end "
+            "local picked=0 "
+            "for _,r in ipairs(rows) do if picked>=left then break end "
+            "map[r.i]=true picked=picked+1 end "
+            "M.__lw_trk_picked=picked M.__lw_trk_left=left M.__lw_trk_standing=#rows "
+            'CS.UnityEngine.Debug.LogError("ACT trk_pick picked="..tostring(picked)'
+            '.." standing="..tostring(#rows).." left="..tostring(left)) end)')
+
+
+def truck_send_press() -> str:
+    """Send the ticked trucks — the view's own `TrySendDepartureMsg`, and not the button.
+
+    The Refresh tab and the Departure tab share one button, and driven from Lua the two
+    behave differently: on the Refresh tab `OnBtnRefreshOrDepartureClick` raises the
+    second confirm, and on the Departure tab it does nothing whatsoever. That is not a
+    guess — a whole run pressed it against three trucks standing at a station with five
+    dispatches banked and left the counter at 0/5; the same selection sent all three the
+    moment `TrySendDepartureMsg` was called. (The handler presumably wants the button it
+    was wired to, which a call from outside has not got.)
+
+    So this is the sender the button ends at, called directly, and the click is not made
+    at all — a click that MIGHT work followed by a send that certainly does is two
+    dispatches out of a five-a-day allowance the first time the click starts working.
+
+    The escorting squads are still the window's own: it arrives with five heroes against
+    every truck, which is the part a hand-built `train.send` would have to invent.
+    """
+    return ("pcall(function() " + _TRUCK_VIEW +
+            "local v=_tview() if v==nil then return end "
+            "pcall(function() v:TrySendDepartureMsg() end) "
+            'CS.UnityEngine.Debug.LogError("ACT trk_send sent=1") end)')
+
+
+def truck_gold_spent() -> str:
+    """Lua *expression* -> how many diamonds the purse has gone down by since the arm.
+
+    A press is not believed on its own word — the purse is. The game tops a short bag of
+    contracts up with diamonds by itself and says so nowhere a recipe can read, which is
+    how a mega refresh once cost a thousand diamonds nobody had allowed (#1903).
+    """
+    return ("(function() local M=DataCenter.LWMyStationDataManager "
+            "local was=tonumber(M.__lw_trk_gold0) if was==nil then return 0 end "
+            "local now=0 pcall(function() now=LuaEntry.Player.gold+0 end) "
+            "local d=was-now if d<0 then d=0 end return d end)()")
+
+
+def truck_tickets_spent() -> str:
+    """Lua *expression* -> how many Trade Contracts have left the bag since the arm."""
+    return ("(function() " + _NUM + "local M=DataCenter.LWMyStationDataManager "
+            "local was=tonumber(M.__lw_trk_tick0) if was==nil then return 0 end "
+            "local item=" + _TRUCK_ITEM + " local now=0 "
+            "pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
+            "if _num(s.itemId)==item then now=now+_num(s.count) end end end) "
+            "local d=was-now if d<0 then d=0 end return d end)()")

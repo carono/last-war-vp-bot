@@ -151,7 +151,8 @@ class Errand:
 #: a dash out of the scenario rather than a zero, and a dash is «unknown» (above), which
 #: is what a feature this account does not have honestly looks like.
 TRUCK_ERRANDS: tuple = (
-    Errand("send_trucks", "trucks_send_left", QUOTA, cap="trucks_send_cap"),
+    Errand("send_trucks", "trucks_send_left", QUOTA, cap="trucks_send_cap",
+           scenario="send_trucks"),
 )
 
 #: The field beside the quota: how many trucks could go out RIGHT NOW. Not an errand of
@@ -164,25 +165,51 @@ TRUCK_IDLE_FIELD = "trucks_idle"
 #: game offers them («Супер режим», `super_trucklaunch_*`): to UR by hand, to UR by
 #: itself, or all the way to the Reindeer Sleigh Ride by itself.
 #:
-#: **The setting manages ITSELF and nothing else so far.** There is no dispatch scenario
-#: yet, so nothing reads this to act on; it is stored in the profile and drawn, and the
-#: day the ability lands it is what the ability will be told to do. Kept here rather than
-#: in the tab so it is Tk-free and testable.
+#: The setting is what the ability is TOLD TO DO now (#1908): :func:`truck_args` turns
+#: the chosen one into `send_trucks`'s arguments, and the press passes them. Kept here
+#: rather than in the tab so it is Tk-free and testable.
 TRUCK_MODE_UR_MANUAL = "ur_manual"
 TRUCK_MODE_UR_AUTO = "ur_auto"
 TRUCK_MODE_SLEIGH_AUTO = "sleigh_auto"
 
 TRUCK_MODES: tuple = (TRUCK_MODE_UR_MANUAL, TRUCK_MODE_UR_AUTO, TRUCK_MODE_SLEIGH_AUTO)
 
-#: What a profile that has never been asked does: nothing by itself. An automatic refresh
-#: spends Trade Contracts and diamonds, and a default that spends is a default nobody
-#: chose.
-TRUCK_MODE_DEFAULT = TRUCK_MODE_UR_MANUAL
+#: What a profile that has never been asked does: rotate all the way to the sleigh.
+#:
+#: It used to be «nothing by itself», on the grounds that a default which spends is a
+#: default nobody chose. The operator overruled that in as many words (#1908) — «по
+#: умолчанию ОЛЕНЬЯ УПРЯЖКА», because the sleigh is worth more than the UR and the
+#: contracts it costs have nothing else to be spent on. The rotation still says what it
+#: paid, and turning it off is one radio button.
+TRUCK_MODE_DEFAULT = TRUCK_MODE_SLEIGH_AUTO
+
+#: The `quality` numbers the game itself uses, which is how the setting reaches the
+#: scenario: 5 is UR and 10 is the Reindeer Sleigh Ride. Nothing here invents a scale of
+#: its own — `send_trucks.md` compares a truck's own `quality` against this number.
+TRUCK_QUALITY_UR = 5
+TRUCK_QUALITY_SLEIGH = 10
 
 
 def truck_mode(raw) -> str:
     """The stored mode, or the default — never something the panel cannot draw."""
     return raw if raw in TRUCK_MODES else TRUCK_MODE_DEFAULT
+
+
+def truck_args(raw) -> dict:
+    """The chosen mode as `send_trucks`'s arguments — the whole of what the setting DOES.
+
+    Three modes, two knobs. «By hand» sends the fleet exactly as it stands and spends no
+    contracts; the other two rotate first, and differ only in what they aim at. The
+    scenario holds every other gate — the day's allowance, the price, the lock on a
+    station the base has not unlocked — because that is where an ability's gates live
+    (`CLAUDE.md`), and this is the one line of it a person chose.
+    """
+    mode = truck_mode(raw)
+    if mode == TRUCK_MODE_UR_MANUAL:
+        return {"refresh": 0}
+    return {"refresh": 1,
+            "target": (TRUCK_QUALITY_SLEIGH if mode == TRUCK_MODE_SLEIGH_AUTO
+                       else TRUCK_QUALITY_UR)}
 
 
 #: The errands the game ANSWERS, in the order a day is played: the base first, then the
@@ -405,7 +432,7 @@ TRUCKS = "send_trucks"
 #: `docs/farming.md`. The ORDER above is the order they will come back in, and each is
 #: one `shown=True` away.
 GROUPS: tuple = (
-    Group(TRUCKS, TRUCK_ERRANDS, shown=False),
+    Group(TRUCKS, TRUCK_ERRANDS),
     Group(CODENAME, CODENAME_ERRANDS, source=CODENAME),
     Group("read", READ_ERRANDS, shown=False),
     Group("blind", BLIND_ERRANDS, shown=False),

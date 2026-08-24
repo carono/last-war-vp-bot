@@ -158,14 +158,16 @@ def test_progress_counts_only_the_lines_that_were_actually_answered():
     """An unknown line and a closed one are in neither half of «сделано N из M»."""
     day = modelmod.parse(FULL)
     # The board's own lines are the shown groups', so the counting is checked there.
+    # `FULL` has the whole day's allowance still banked, so the trucks line is one
+    # undone errand in every count below and the event is what varies.
     assert modelmod.progress(modelmod.states(day, modelmod.parse(CODENAME_SHUT))) == \
-        (0, 0), "an event that is not on was counted as work somebody owes"
-    assert modelmod.progress(modelmod.states(day, None)) == (0, 0), \
+        (0, 1), "an event that is not on was counted as work somebody owes"
+    assert modelmod.progress(modelmod.states(day, None)) == (0, 1), \
         "a line nobody could read was counted"
     assert modelmod.progress(modelmod.states(day, modelmod.parse(CODENAME_OPEN))) == \
-        (0, 1)
+        (0, 2)
     done = modelmod.parse("open=1 attacks=3 need=3 left=0 maxdmg=5 targets=1 until=60")
-    assert modelmod.progress(modelmod.states(day, done)) == (1, 1)
+    assert modelmod.progress(modelmod.states(day, done)) == (1, 2)
     # …and the raw counting rule, over states built by hand, so it holds for the groups
     # that are still switched off (#1275) and will be counted again when they come back.
     by_hand = [modelmod.state_of(e, modelmod.parse(
@@ -179,14 +181,14 @@ def test_progress_counts_only_the_lines_that_were_actually_answered():
 # which groups are on the board at all (#1275)
 # ---------------------------------------------------------------------------
 def test_only_the_groups_that_are_switched_on_reach_the_board():
-    """One group is drawn — and the other three are OFF, not deleted.
+    """Two groups are drawn — and the other two are OFF, not deleted.
 
     The board went up faster than its lines could be watched working in a live game, so
     it is put back a group at a time as each is confirmed. What this pins is that «off»
     means off everywhere at once — no line in the states, no line in the progress — and
     that the catalogue still holds every group, so switching one back on is one word.
     """
-    assert [g.key for g in modelmod.visible()] == [modelmod.CODENAME]
+    assert [g.key for g in modelmod.visible()] == [modelmod.TRUCKS, modelmod.CODENAME]
     assert [g.key for g in modelmod.GROUPS] == [modelmod.TRUCKS, modelmod.CODENAME,
                                                 "read", "blind"], \
         "a hidden group was deleted instead of switched off — it cannot come back now"
@@ -196,7 +198,7 @@ def test_only_the_groups_that_are_switched_on_reach_the_board():
 
     board = [s.key for s in modelmod.states(modelmod.parse(FULL),
                                             modelmod.parse(CODENAME_OPEN))]
-    assert board == ["codename"], board
+    assert board == ["send_trucks", "codename"], board
     # …and the errands of a hidden group are still there to be read by anybody who asks.
     assert modelmod.BY_KEY["base_resources"].readable
     assert modelmod.state_of(modelmod.BY_KEY["base_resources"],
@@ -206,8 +208,8 @@ def test_only_the_groups_that_are_switched_on_reach_the_board():
 def test_a_line_of_a_hidden_group_cannot_be_pressed_from_either_front_end():
     """Off in the window is off on the phone — the press is gated in `run`, not at a widget."""
     assert modelmod.is_visible("codename")
-    for hidden in ("base_resources", "skills", "send_trucks", "ministry",
-                   "alliance_gifts"):
+    assert modelmod.is_visible("send_trucks")
+    for hidden in ("base_resources", "skills", "ministry", "alliance_gifts"):
         assert not modelmod.is_visible(hidden), hidden
         tab = _tab(codename=CODENAME_OPEN)
         assert tab.run(hidden) is False, f"«{hidden}» is off the board and ran anyway"
@@ -247,14 +249,17 @@ def test_the_blocks_stand_three_to_a_row_and_nothing_measures_a_column():
 
 def test_the_board_reads_only_the_scenarios_the_shown_groups_need():
     """A poll for numbers nobody is drawn is a round trip an hour for a blank."""
-    assert modelmod.visible_sources() == frozenset({modelmod.CODENAME})
+    assert modelmod.visible_sources() == frozenset({modelmod.DAILY, modelmod.CODENAME})
     tab = _tab()
     assert tab.refresh() is True
-    assert tab.rt.played == [modelmod.CODENAME_ACTION], tab.rt.played
+    assert sorted(tab.rt.played) == sorted([modelmod.ACTION,
+                                            modelmod.CODENAME_ACTION]), tab.rt.played
     from panel.tabs.checklist import tab as tabmod
     assert tabmod.WIRE_PATTERNS_BY_SOURCE[modelmod.DAILY] == tabmod.WIRE_PATTERNS
-    assert tab._patterns() == (), \
-        "the board still listens for pushes about groups it does not draw"
+    # …and with the trucks drawn again the board listens for a truck going out, which is
+    # what makes its counter move within seconds rather than at the next poll.
+    assert tab._patterns() == tabmod.WIRE_PATTERNS, \
+        "the board stopped listening for pushes about a group it draws"
 
 
 def test_the_countdown_is_to_the_games_next_day():
@@ -436,9 +441,13 @@ def test_the_trucks_are_the_first_group_and_carry_their_own_line():
     assert first.key == modelmod.TRUCKS
     assert first.title_key == "checklist.group.send_trucks"
     assert [e.key for e in first.errands] == ["send_trucks"]
-    # …and it is the first group that will come BACK: switched off until its line has
-    # been watched working live (#1275), and still first in the order when it is on.
-    assert first.shown is False
+    # …and it is the first group that CAME back: it was off until its line had been
+    # watched working in a live game (#1275), and #1908 is that live run — three trucks
+    # rotated to sleighs for 18 contracts and all three dispatched, on a real account.
+    assert first.shown is True
+    # …and the line carries the ability, which is what earned it the switch.
+    assert first.errands[0].scenario == "send_trucks"
+    assert first.errands[0].runnable
     # …and it left the blind half, because it is read now.
     assert "send_trucks" not in [e.key for e in modelmod.BLIND_ERRANDS]
     assert modelmod.BY_KEY["send_trucks"].readable
@@ -474,17 +483,42 @@ def test_the_scenario_answers_the_field_beside_the_quota():
     assert ("put('%s'" % modelmod.TRUCK_IDLE_FIELD) in text
 
 
-def test_the_three_modes_are_exclusive_and_default_to_spending_nothing():
+def test_the_three_modes_are_exclusive_and_default_to_the_sleigh():
     assert modelmod.TRUCK_MODES == (modelmod.TRUCK_MODE_UR_MANUAL,
                                     modelmod.TRUCK_MODE_UR_AUTO,
                                     modelmod.TRUCK_MODE_SLEIGH_AUTO)
     assert len(set(modelmod.TRUCK_MODES)) == 3
-    # An automatic refresh spends contracts and diamonds; a profile nobody asked does not.
-    assert modelmod.TRUCK_MODE_DEFAULT == modelmod.TRUCK_MODE_UR_MANUAL
+    # It used to default to spending nothing. The operator overruled that in as many
+    # words (#1908) — «по умолчанию ОЛЕНЬЯ УПРЯЖКА» — because the sleigh is worth more
+    # than the UR and the contracts have nothing else to be spent on.
+    assert modelmod.TRUCK_MODE_DEFAULT == modelmod.TRUCK_MODE_SLEIGH_AUTO
     for junk in (None, "", "по-своему", 7, True, ["ur_auto"]):
         assert modelmod.truck_mode(junk) == modelmod.TRUCK_MODE_DEFAULT
     for mode in modelmod.TRUCK_MODES:
         assert modelmod.truck_mode(mode) == mode
+
+
+def test_the_mode_is_what_the_ability_is_told_to_do():
+    """The setting's whole effect: two arguments of `send_trucks`, and nothing else.
+
+    The quality numbers are the GAME's own — 5 is UR, 10 is the Reindeer Sleigh Ride —
+    so the setting reaches the scenario as the thing it names rather than as a word the
+    recipe would have to translate.
+    """
+    assert modelmod.truck_args(modelmod.TRUCK_MODE_UR_MANUAL) == {"refresh": 0}
+    assert modelmod.truck_args(modelmod.TRUCK_MODE_UR_AUTO) == \
+        {"refresh": 1, "target": modelmod.TRUCK_QUALITY_UR}
+    assert modelmod.truck_args(modelmod.TRUCK_MODE_SLEIGH_AUTO) == \
+        {"refresh": 1, "target": modelmod.TRUCK_QUALITY_SLEIGH}
+    # Junk falls back to the default, exactly as the mode itself does.
+    assert modelmod.truck_args("whatever") == \
+        modelmod.truck_args(modelmod.TRUCK_MODE_DEFAULT)
+    # …and the scenario really declares both of them, with the sleigh as its own default.
+    recipe = (_REPO / "src" / "lastwar_bot" / "actions"
+              / "send_trucks.md").read_text(encoding="utf-8")
+    assert re.search(r"^ARGS target = %d$" % modelmod.TRUCK_QUALITY_SLEIGH,
+                     recipe, re.M)
+    assert re.search(r"^ARGS refresh = 1$", recipe, re.M)
 
 
 def test_the_mode_is_kept_by_the_profile_and_nothing_else_is():
@@ -501,26 +535,25 @@ def test_the_mode_is_kept_by_the_profile_and_nothing_else_is():
 
 
 def test_the_phone_sees_the_counter_the_press_and_the_mode_that_is_on():
-    """The trucks' card is OFF with its group — and is whole for the day it comes back.
-
-    While the group is hidden (#1275) the phone must not carry a card the window does not
-    draw, so what is pinned here is both halves: nothing on the screen, and the rows and
-    items the screen is built from still saying the right things.
-    """
+    """The trucks' card is ON, and it carries the same press the window draws (#1908)."""
     tab = _tab()
     tab.apply_config({"truck_mode": modelmod.TRUCK_MODE_UR_AUTO})
-    assert not [c for c in tab.web_view()["cards"]
-                if c.get("title") == "checklist.group.send_trucks"], \
-        "a switched-off group has a card on the phone the window does not draw"
+    assert [c for c in tab.web_view()["cards"]
+            if c.get("title") == "checklist.group.send_trucks"], \
+        "the window draws the trucks and the phone has no card for them"
 
     rows = {r["label"]: r["value"] for r in tab._web_truck_rows()}
     assert rows["checklist.trucks.sent"] == "0 / 5"
     assert rows["checklist.trucks.idle"] == "3"
 
     items = {i["label"]: i for i in tab._web_truck_items()}
-    assert items["checklist.trucks.send"]["pill"] == "checklist.trucks.not_yet"
-    assert not items["checklist.trucks.send"].get("actions"), \
-        "the phone offers a dispatch the panel cannot do either"
+    assert "checklist.trucks.send" not in items, \
+        "the block grew a second press beside the row's own"
+    # …and the press itself is the ROW's, offered to the phone like every other errand's.
+    card = [c for c in tab.web_view()["cards"]
+            if c.get("title") == "checklist.group.send_trucks"][0]
+    row = [i for i in card["items"] if i["label"] == "checklist.item.send_trucks"][0]
+    assert row["actions"][0]["args"] == {"key": "send_trucks"}
     chosen = [m for m in modelmod.TRUCK_MODES
               if items["checklist.trucks.mode." + m]["pill"] ==
               "checklist.trucks.chosen"]
@@ -533,9 +566,22 @@ def test_a_game_that_did_not_answer_shows_a_dash_and_not_a_zero():
             for c in tab.web_view()["cards"] for r in c.get("rows") or ()}
     assert rows["checklist.codename.attacks"] == "—"
     assert rows["checklist.codename.damage"] == "—"
-    assert rows["checklist.web.read"] == "—"
-    # …and the hidden group's own counter says the same rather than a zero.
+    # …and the trucks' own counter says the same rather than a zero.
     assert tab._truck_sent() == "—" and tab._truck_idle() == "—"
+
+
+def test_a_board_that_has_read_nothing_at_all_says_so():
+    """«прочитано —» is about the READINGS, so it needs both of them missing (#1908).
+
+    It used to be enough to withhold the event: the trucks were switched off, so the
+    day's own reading was not one the board was drawn from and its age counted for
+    nothing. With the trucks back, a board holding a daily reading has been read, and
+    the dash belongs to a board holding neither.
+    """
+    tab = _tab(None, codename=None)
+    rows = {r["label"]: r["value"]
+            for c in tab.web_view()["cards"] for r in c.get("rows") or ()}
+    assert rows["checklist.web.read"] == "—"
 
 
 def test_the_board_hears_a_truck_go_out_rather_than_waiting_for_the_poll():
@@ -555,7 +601,7 @@ def test_every_word_the_board_can_say_is_in_every_locale():
     wanted += ["checklist.state." + s for s in
                (modelmod.DONE, modelmod.TODO, modelmod.UNKNOWN, modelmod.CLOSED)]
     wanted += ["checklist.trucks." + s for s in
-               ("sent", "idle", "send", "not_yet", "mode", "chosen", "unchosen")]
+               ("sent", "idle", "mode", "chosen", "unchosen")]
     wanted += ["checklist.trucks.mode." + m for m in modelmod.TRUCK_MODES]
     for lang, table in sorted(shipped.items()):
         missing = [k for k in wanted if k not in table]
@@ -755,7 +801,8 @@ def test_pressing_plays_the_scenario_and_re_reads_and_marks_nothing():
     before = [s.state for s in tab.states()]
     assert tab.run("codename") is True
     # …the ability, then the reading the board is drawn from — and nothing else.
-    assert tab.rt.played == [modelmod.CODENAME_ATTACK, modelmod.CODENAME_ACTION]
+    assert tab.rt.played == [modelmod.CODENAME_ATTACK,
+                             modelmod.ACTION, modelmod.CODENAME_ACTION]
     # The row did not move: the stub answers no reading, so the board is what it was.
     assert [s.state for s in tab.states()] == before
 
@@ -791,7 +838,7 @@ def test_the_board_wide_press_is_read_it_again_and_nothing_else():
     assert [a["id"] for a in tab.web_view()["actions"]] == ["refresh"]
     assert tab.web_press("refresh", {}) == {"ok": True}
     # One reading, because one group is drawn. The day's comes back with its groups.
-    assert tab.rt.played == [modelmod.CODENAME_ACTION]
+    assert tab.rt.played == [modelmod.ACTION, modelmod.CODENAME_ACTION]
 
 
 def test_the_codename_press_is_offered_only_while_the_event_is_running():
@@ -853,12 +900,15 @@ def test_the_codename_block_is_the_events_own_numbers_and_stays_when_it_is_shut(
 def test_the_board_refreshes_itself_and_says_so_when_it_cannot():
     tab = _tab()
     assert tab.refresh() is True
-    assert tab.rt.played == [modelmod.CODENAME_ACTION]
+    assert tab.rt.played == [modelmod.ACTION, modelmod.CODENAME_ACTION]
     # …and a game that is busy leaves the previous readings alone rather than clearing
     # them: something else holding the claim is not the game saying the board is empty.
     busy = _tab(plays=False)
     assert busy.refresh() is False
-    assert busy.rt.played == [modelmod.CODENAME_ACTION]
+    # The first read is attempted and refused, and the second is not attempted at all:
+    # the claim is held by something else, so asking again would be asking the same
+    # question of the same door.
+    assert busy.rt.played == [modelmod.ACTION]
     assert busy._reading.get("base_ready") == 4
     assert busy._codename.get("attacks") == 0 and not busy._codename.error
     assert busy._busy is False, "a refused read left the tab thinking it is reading"

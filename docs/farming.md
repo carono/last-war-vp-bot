@@ -5,7 +5,7 @@
 <!-- progress:start -->
 🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥  **35%** — 53 of 152
 
-🟩 53 done · 🟨 63 partly · 🟥 36 not automated
+🟩 53 done · 🟨 64 partly · 🟥 35 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -218,8 +218,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Trucks
 
 - 🟡 Collecting arrived trucks — see Resources
-- ❌ Sending trucks out
-- 🟡 Counting the dispatches — the checklist says how many trade trucks have gone out today, how many the day allows and how many are standing ready to go, and the number moves by itself as trucks leave. Sending them is still done by hand
+- 🟡 Sending trucks out — one press rotates the fleet up to the rarity you asked for and then sends out as many trucks as the day still allows. The rarity is a choice on the daily checklist: leave them as they stand, lift them to UR, or lift them all the way to the Reindeer Sleigh Ride, which is what it does unless you say otherwise, because the sleigh is worth more than a UR. Only a truck that is BELOW what you asked for is touched, so one that is already there is never re-rolled and never paid for; the price is read out of the game before anything is spent — three trade contracts a truck to UR, six to the sleigh — and when the bag is short the game makes the difference up in diamonds, which is allowed here on purpose and said out loud afterwards with what the purse actually lost. It sends the best trucks first when the day has fewer dispatches left than there are trucks standing, and it says what it could not send and why. A station the base has not unlocked yet is reported as locked rather than as «nothing sent today». Run live end to end on a real account — three trucks lifted to sleighs for 18 contracts and all three dispatched — but not yet watched through a working day
+- 🟡 Counting the dispatches — the checklist says how many trade trucks have gone out today, how many the day allows and how many are standing ready to go, and the number moves by itself as trucks leave. The press that spends it sits on the same line, in the window and on the phone alike
 - 🟡 Finding trucks worth robbing — the bot can list every truck on the map with its type, level, cargo and how many robberies it has left, and there is now a page for them in the panel: where each one is RIGHT NOW — the coordinate moves as you watch it, because a truck is walked along the leg it is on instead of being left on the tile it was first heard on — the next stop beside it, how big the load is, how many times it has been robbed and how long is left of its run, the fattest first. A point that is NOT live says so rather than passing for one. Proven live: going to a truck's coordinate lands on it while it is moving. Robbing one is not automated
 - 🟡 Watching the alliance train — a page of its own: whose train it is, how many carriages it has and how many people are aboard, how full it still is, where it is right now and where its next stop is, and when it arrives. It only runs during its event, so the page is empty most of the week and says so — and the log now says «trains 0» out loud beside the mines and trucks it did find, which is a different sentence from a page that failed to read anything. Rebuilt from a recording; not yet watched during a live train
 
@@ -309,13 +309,13 @@ The routine as it is actually played, against what the bot covers.
 |---|---|
 | Every 20 min — donate to alliance technology | ✅ · on a schedule 🟡 |
 | Every 4 h — Arms Race objectives | ❌ |
-| Every 4 h — send the second batch of trucks | ❌ |
+| Every 4 h — send the second batch of trucks | 🟡 one press, and it comes back by itself when the nearest truck is home |
 
 ### Every day
 
 | | |
 |---|---|
-| Send 3 trucks, then 2 more | ❌ |
+| Send 3 trucks, then 2 more | 🟡 rotated to the rarity you chose and sent up to the day's allowance |
 | Collect the base and the resource truck | ✅ base, on a schedule 🟡 · 🟡 truck |
 | Send secret missions out | ✅ refreshed by the price rule, each UR sent the moment it falls, and every squad put out — proven live end to end (nine of nine marches, nothing idle) |
 | Help with 5 UR or star secret tasks | ❌ |
