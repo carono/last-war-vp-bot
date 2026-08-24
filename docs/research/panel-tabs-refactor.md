@@ -231,7 +231,7 @@ second implementation that rots, it is the same six lines minus the notebook.
 | `_log_q`, `_log_put`, `_say`, `_pump_log`, `_append_log`, `_open/_close_panel_log`, `_log_tag`, `_log_severity`, `_log_cap`, `_trim_log` | `runtime/log.py::LogBus` (no Tk) |
 | `_log`, `_insert_line`, `_redraw_log`, `_clear_log`, `_install_log_copy`, coord/photo links | **shell** — the «Главная» tab's `LogView` (§4.4) |
 | `_profiles`, `_settings`, `_opt_vars`, `_opt*`, `_collect_settings`, `_apply_settings_to_ui`, `_install_autosave`, `_loading`, `_save_settings` | `runtime/settings.py::SettingsBinder` |
-| `_client`, `_daemon_port`, `_daemon_up`, `_ensure_daemon`, `_restart_daemon`, `_rebind_daemon`, `_current_server`, `_act`, `_claim_busy`, `_release_busy`, `_jump` | `runtime/daemon.py::GameLink` |
+| `_client`, `_daemon_port`, `_daemon_up`, `_ensure_daemon`, `_restart_daemon`, `_rebind_daemon`, `_current_server`, `_act`, `_claim_busy`, `_release_busy`, `_jump` | `runtime/link.py::GameLink` |
 | the six `from lastwar_bot import script_engine` sites (`_run_command`, `_run_md_action`, `_load_scenario_into_editor`, `_scenario_problem`, `_run_timer_action`) | `runtime/actions.py::ActionRunner` |
 | `_child`, `_child_env`, `_python` | `runtime/children.py` |
 | `_arm`, `_disarm`, `_disarm_all`, `_on_tk`, `_loops` | `runtime/tick.py` |

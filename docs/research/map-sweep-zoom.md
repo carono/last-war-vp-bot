@@ -383,7 +383,7 @@ before it is called one.
   A profile written before this still carries the two dead keys; they are named in
   `tests/test_panel_profile_compat.py` as retired so an old profile does not read as a
   setting the panel has lost.
-* `panel/runtime/daemon.py`, `panel/tabs/secret_tasks/sweep.py` — the sweep passes the
+* `panel/runtime/link.py`, `panel/tabs/secret_tasks/sweep.py` — the sweep passes the
   height; every other jump still does not.
 * Settings → «Автообъезд карты» → «Высота камеры», bounded at 600 so the knob cannot be
   turned to a height that finds nothing.

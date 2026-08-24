@@ -839,7 +839,7 @@ What was built instead — the same three guards §5 already names, applied here
 * **Read the thing, not a proxy for it.** `GameLink.health()` answers one of THREE states
   — no daemon / a daemon on a client that is gone / a daemon on the client that is
   running — by asking the ping for the pid it holds and comparing it with the pid that is
-  actually running. That reading is `panel/runtime/daemon.py`'s alone now, and
+  actually running. That reading is `panel/runtime/link.py`'s alone now, and
   `Panel._daemon_stale` asks it rather than keeping a second copy. The pid that is
   running is read WITHOUT the daemon (`game_client.running_pid` /
   `session_pids_of`), since asking the daemon whether the daemon is right compares an

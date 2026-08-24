@@ -150,7 +150,7 @@ read a byte out of our own region while the game runs freely, and cost it nothin
 
 * **`lua_actions.jump_to_coord(x, y, server=None)`** resolves the server INSIDE the
   chunk (`current_server_expr()`). One trip to the VM instead of two, and the line it
-  logs says which server it landed on. `panel/runtime/daemon.py` no longer reads it
+  logs says which server it landed on. `panel/runtime/link.py` no longer reads it
   first; `script_engine`'s `JUMP` no longer falls back to `HOME_SERVER`, which is 0 on a
   machine that never set it.
 * **`settle` can be a deadline** — `lua_eval.collect(..., early=True)`, carried to the

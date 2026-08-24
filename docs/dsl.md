@@ -109,7 +109,7 @@ What the player does with it (`panel/runtime/host.py::play_async`,
   a run that stopped and a run that resumed are visible rather than mysterious.
 
 **A detached run steps aside for another DETACHED one as well**
-(`panel/runtime/daemon.py::_yield_above`). Below-background is a FLOOR, not a queue: it
+(`panel/runtime/link.py::_yield_above`). Below-background is a FLOOR, not a queue: it
 means nothing may be made to wait for a detached run, and read strictly it would also
 mean two detached runs can never make each other park. The moment there were two —
 the golden-zombie hunt, which runs for hours, and the rally auto-join — that would have
