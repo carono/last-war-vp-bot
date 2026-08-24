@@ -408,16 +408,24 @@ class Schedule:
         press through — a recipe would fail, be written down as a failure and sit out a
         retry hold for nothing — so the errand does not start, no client is put back, and
         the reason is said once by the gate rather than per tick by every caller
-        (`panel/runtime/gate.py`). The recovery errands are gated too, deliberately: they
-        are the exception to «the game is not running» because they are its cure, and
-        they are NOT an exception to «the panel has been stopped». That is what makes
-        «Стоп всё» hold — its two acts end the client and the daemon, and the client would
-        otherwise be back within eight seconds, put there by the very errand this gate now
-        holds.
+        (`panel/runtime/gate.py`). The recovery errands are the ONE exception, and only to
+        the daemon half (#1910): they are the cure for a client that is down, a daemon
+        with no client to attach to is not alive, and holding them on that is a cure
+        locked behind its own illness. They are still NOT an exception to «the panel has
+        been stopped» — `gate.relaunch_held()` is that half on its own, and it is what
+        makes «Стоп всё» hold: its two acts end the client and the daemon, and the client
+        would otherwise be back within eight seconds, put there by this very errand.
         """
+        recovery_errand = name is not None and self._is_recovery(name)
         if not self.rt.gate.alive():
-            return "timers.log.skip_daemon"
-        if name is not None and self._is_recovery(name):
+            # …EXCEPT THE ERRAND THAT PUTS THE CLIENT BACK (#1910). It is the cure for a
+            # daemon that has no client to hold, so gating it on the daemon's own
+            # liveness is a cure locked behind the illness. The SWITCH still holds it —
+            # `relaunch_held` is that half on its own — which is what makes «профиль
+            # выключен» mean the account is not playing.
+            if not (recovery_errand and not self.rt.gate.relaunch_held()):
+                return "timers.log.skip_daemon"
+        if recovery_errand:
             # …EXCEPT WHILE A KICK IS BEING WAITED OUT (#1291). The exemption above
             # exists because these errands are the answer to «the client is down»; a
             # kicked client is not down, it is TAKEN, and playing the six-hourly

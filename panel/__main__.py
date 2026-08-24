@@ -3894,8 +3894,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # stop. Restarting the DAEMON is deliberately below the gate rather than behind
         # it — a stale daemon holds the gate, and a cure behind the gate it is the cure
         # for is a state nothing can leave.
-        if key in runtime.recovery.RESTARTS and not self._rt.gate.alive():
-            self._dbg.info("recovery %s held: nothing may run right now", key)
+        # …AND IT IS THE SWITCH THAT HOLDS IT, NOT THE DAEMON (#1910). This used to ask
+        # `gate.alive()`, which answers «no» for the very reason this is about to cure:
+        # a daemon with no client is not alive, and putting the client back is what gives
+        # it one. Live that was a closed loop — seventeen daemon restarts, zero client
+        # restarts, a watchdog held at every poll by the missing client itself.
+        if key in runtime.recovery.RESTARTS and self._rt.gate.relaunch_held():
+            self._dbg.info("recovery %s held: this profile is switched off", key)
             return
         self._say("game", key, **fmt)
         if key in runtime.recovery.RESTARTS:
@@ -4130,8 +4135,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # press is how the client used to be back eight seconds after it. The crash is
         # still ANNOUNCED above — knowing the client went is worth a line whatever is
         # allowed to act on it — and only the relaunch is held.
-        if not self._rt.gate.alive():
-            self._dbg.info("watchdog held: nothing may run right now")
+        # THE SWITCH, NOT THE DAEMON (#1910) — see the same change beside the recovery's
+        # verdict. «Профиль выключен» still stops the watchdog dead, which is what #1393
+        # needed; «демон не отвечает» must not, because the client this is about to put
+        # back is what the daemon has been failing to attach to.
+        if self._rt.gate.relaunch_held():
+            self._dbg.info("watchdog held: this profile is switched off")
             return
         # SAID ONCE, ASKED EVERY POLL — and the two used to be the same `return`. This
         # method acted on the EXACT strike (`!= WATCHDOG_STRIKES`), so a client that

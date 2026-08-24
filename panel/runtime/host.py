@@ -27,7 +27,7 @@ from .bus import EventBus
 from .children import ChildFactory
 from .daemon import GameLink
 from .day_reset import DayReset
-from .gate import DaemonGate
+from .gate import RELAUNCH_ACTIONS, DaemonGate
 from .health import ProfileHealth
 from .i18n import Translator
 from .intake import Intake as IntakeLedger
@@ -47,7 +47,9 @@ from .tick import Ticker
 #: A fifth way of putting the client back is one line here. `recover_from_kick` is in the
 #: set although nothing plays it yet (`docs/research/session-kick.md`): the day it is
 #: switched on it must already be inside the lock, not added to it afterwards.
-RELAUNCHES = frozenset({"launch_game", "restart_game", "recover_from_kick"})
+#: ONE list, kept in `panel/runtime/gate.py`, because the relaunch lock and the
+#: gate's exemption for these must never disagree about what a relaunch is (#1910).
+RELAUNCHES = RELAUNCH_ACTIONS
 
 #: How long after a relaunch finishes the next one is still refused. A client told to
 #: start is not up yet, and the reading that triggered the first — «no process», «link

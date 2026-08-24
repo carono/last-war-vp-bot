@@ -238,18 +238,47 @@ def test_a_held_timer_makes_no_attempt_at_all():
     assert s.store.last_run(BASE) == 0.0, "a held errand had its clock moved"
 
 
-def test_even_the_errand_that_puts_the_client_back_is_held():
-    """`restart_game` is exempt from «the game is not running» and not from this.
+def test_the_errand_that_puts_the_client_back_is_held_by_the_SWITCH():
+    """…and by the switch alone (#1910). It used to be held by the daemon as well.
 
-    That exemption exists because the recovery errands are the cure for a client that is
-    down (#1259). They are not the cure for a panel somebody stopped — and they are
-    exactly what used to undo «Стоп всё» within a tick of it being pressed.
+    The exemption exists because the recovery errands are the cure for a client that is
+    down (#1259). They are not the cure for a panel somebody stopped, and they are
+    exactly what used to undo «Стоп всё» within a tick of it being pressed — so the
+    SWITCH holds them, and that is the half of #1393 that was doing the work.
+
+    What must NOT hold them is the daemon, and that is what this task changed. A daemon
+    with no client to attach to is not alive; the thing that gives it one is this very
+    errand. Live on 2026-08-24 `default` sat in that loop all afternoon — no client,
+    seventeen daemon restarts, zero client restarts, the watchdog held at every poll by
+    the missing client itself.
     """
     tmp = Path(tempfile.mkdtemp())
     rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
-    s = _Scheduler(tmp, _cfg(**{RESTART: 3600}), gate=lambda name: rt.gate.reason())
+
+    # The switch is on and the daemon is gone: the cure runs.
+    assert rt.gate.relaunch_held() is False
+    assert rt.gate.blocks(RESTART) == "", "the cure was held by the illness"
+    s = _Scheduler(tmp, _cfg(**{RESTART: 3600}),
+                   gate=lambda name: _schedule_gate(rt, name))
     s.sched.tick_once()
-    assert s.ran == [], f"the client was put back with no daemon: {s.ran}"
+    assert s.ran == [RESTART], f"the client was not put back: {s.ran}"
+
+    # …and «Профиль работает» unticked stops it dead, which is what «Стоп всё» means.
+    rt.power.set(False)
+    assert rt.gate.relaunch_held() is True
+    assert rt.gate.blocks(RESTART) == "action.held.off"
+    s2 = _Scheduler(Path(tempfile.mkdtemp()), _cfg(**{RESTART: 3600}),
+                    gate=lambda name: _schedule_gate(rt, name))
+    s2.sched.tick_once()
+    assert s2.ran == [], f"a switched-off profile put its client back: {s2.ran}"
+
+
+def _schedule_gate(rt, name):
+    """`Schedule.gate`'s two lines, as the scheduler sees them (`schedule.py`)."""
+    recovery = name == RESTART
+    if not rt.gate.alive() and not (recovery and not rt.gate.relaunch_held()):
+        return "timers.log.skip_daemon"
+    return None
 
 
 def test_the_daemon_coming_back_gives_one_run_and_not_a_queue():

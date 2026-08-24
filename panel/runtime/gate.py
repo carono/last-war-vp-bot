@@ -29,10 +29,19 @@ than a round trip. Two things keep it from being a stale belief instead of a fac
   an errand that believes that calls `ensure()`, which would start the daemon the press
   had just stopped.
 
-WHAT IT DOES NOT GATE. A person's own press. A button in the window or on the phone that
+WHAT IT DOES NOT GATE. A person's own press, and putting the CLIENT back. A button in the window or on the phone that
 starts the client, brings the daemon up or plays a scenario is somebody standing there
 asking for it, and this is not the object that says no to a human being. It gates what
 runs BY ITSELF.
+
+And it does not gate the CURE on the illness (#1910). Restarting the daemon was already
+below this gate — a stale daemon holds the gate that holds its own cure — and putting the
+CLIENT back turned out to be the same shape: a daemon with no client to attach to is not
+alive, so gating `launch_game` / `restart_game` on «is the daemon alive» is a closed loop.
+Live on 2026-08-24 a profile sat in it all afternoon: no client, seventeen daemon
+restarts, ZERO client restarts. The SWITCH still holds them — see
+:meth:`DaemonGate.relaunch_held` and :data:`RELAUNCH_ACTIONS` — which is the half of
+#1393 that was doing the work, and the half «Стоп всё» needs.
 
 PER PROFILE, LIKE EVERYTHING ELSE THAT IS AN ACCOUNT'S (`CLAUDE.md`). One of these lives
 on each :class:`~panel.runtime.host.PanelRuntime`; there is no module-level state here at
@@ -52,6 +61,19 @@ import profile_health
 #: turns: long enough that an unlucky poll does not send every gate question to the
 #: socket, short enough that a poll which has died is noticed rather than quoted for ever.
 FRESH_SEC = 30.0
+
+#: The scenarios that PUT THE CLIENT BACK, and the one family the daemon half of this
+#: gate may not hold (#1910). A daemon with no client to attach to is not alive, and the
+#: thing that gives it one is exactly these — so gating them on «is the daemon alive» is
+#: a cure locked behind the illness. Live on 2026-08-24 that is precisely where `default`
+#: sat: no client, seventeen daemon restarts, ZERO client restarts, and a watchdog held
+#: at every poll by the gate the missing client had shut. The SWITCH still holds them —
+#: «профиль выключен» has to mean the account is not playing — which is the half #1393
+#: actually needed and the half that keeps «Стоп всё» honest.
+#:
+#: `panel/runtime/host.py` imports this as `RELAUNCHES`: it is one list, in one place,
+#: because the relaunch lock and this gate must never disagree about what a relaunch is.
+RELAUNCH_ACTIONS = frozenset({"launch_game", "restart_game", "recover_from_kick"})
 
 
 class DaemonGate:
@@ -123,7 +145,25 @@ class DaemonGate:
             return ""
         if self.alive():
             return ""
-        return "action.held.off" if self._switched_off() else "action.held.daemon"
+        if self._switched_off():
+            return "action.held.off"
+        if name in RELAUNCH_ACTIONS:
+            # THE CURE IS NOT HELD BY THE ILLNESS (:data:`RELAUNCH_ACTIONS`). The daemon
+            # is down or holding a client that has gone; putting a client back is what
+            # makes it live again, and it needs no game link to do it.
+            return ""
+        return "action.held.daemon"
+
+    def relaunch_held(self) -> bool:
+        """Is putting the CLIENT back held right now? Only the switch may hold it (#1910).
+
+        Asked by the detectors that would relaunch — the process watchdog and the
+        recovery's verdict — instead of :meth:`alive`, which they used to ask and which
+        answers «no» for the very reason they are about to cure. The switch still stops
+        them dead: that is what «Стоп всё» и «профиль выключен» have to mean, and it is
+        the half of #1393 that was doing the work all along.
+        """
+        return self._switched_off()
 
     def _read(self) -> bool:
         """The reading itself: the switch first, then the poll's verdict, then the port.
