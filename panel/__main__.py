@@ -3711,8 +3711,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
                     found.link, found.dead, "yes" if found.conn else "no")
             except Exception as exc:          # noqa: BLE001 — a note, never the poll
                 self._link_detail = f"unreadable: {exc}"
+            # …AND WHETHER THE SERVER HAS JUST ANSWERED (#1910). A reading somebody
+            # else already took — never a fresh round trip for the sake of a colour.
+            confirmed = self._rt.recovery.link_confirmed(time.time())
+            shown = runtime.game_process.worded(found, confirmed)
             self._rt.health.update(found, warm=warm, stale=stale,
-                                   session=session, kicked=kicked)
+                                   session=session, kicked=kicked,
+                                   confirmed=confirmed)
             # …and THE GATE, asked here on the worker rather than in the paint below.
             # It reads the verdict written one line up, so it costs a dict lookup — but
             # right after a daemon has been started or stopped it asks the port instead,
@@ -3734,9 +3739,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
             if not warm and self._rt.power.on:
                 self._start_daemon()
             self._later(0, lambda: (
-                self._set_status_msg(found.message),
+                self._set_status_msg(shown),
                 self._status_lbl.configure(
-                    foreground=LINK_COLOURS.get(found.link, "#888")),
+                    # GREEN ON A FRESH ANSWER (#1910). The colour follows the SENTENCE,
+                    # and the sentence is the one the confirmation may have upgraded —
+                    # a strip whose words and colour disagreed would be worse than
+                    # either of them alone.
+                    foreground=LINK_COLOURS.get(
+                        runtime.game_process.ONLINE
+                        if (confirmed and found.link == game_link.UNKNOWN)
+                        else found.link, "#888")),
                 # …and the tab's own light, which is the only thing about this profile
                 # that is visible while ANOTHER profile's page is on screen (#1299).
                 self._paint_tab_light(),

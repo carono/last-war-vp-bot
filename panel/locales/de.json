@@ -179,6 +179,8 @@
   "develop.run.title": "Sniffer-Aufzeichnung",
   "develop.sniff.frame": "Eine Sitzung aufzeichnen",
   "develop.sniff.toggle": "Sniffer",
+  "game.st.confirmed": "online (pid {pid}) — der Server antwortet",
+  "game.st.session_confirmed": "online in der Sitzung von {user} (pid {pid}) — der Server antwortet",
   "gate.held": "NICHTS LÄUFT — der Daemon ist gestoppt, {mins} Min.",
   "gate.log.held": "der Daemon läuft nicht — Timer und Auslöser warten; es wird nichts gestartet",
   "gate.log.free": "der Daemon ist zurück — Timer und Auslöser laufen wieder",

@@ -179,6 +179,8 @@
   "develop.run.title": "Nagranie podsłuchu",
   "develop.sniff.frame": "Nagraj sesję",
   "develop.sniff.toggle": "Podsłuch",
+  "game.st.confirmed": "online (pid {pid}) — serwer odpowiada",
+  "game.st.session_confirmed": "online w sesji {user} (pid {pid}) — serwer odpowiada",
   "gate.held": "NIC SIĘ NIE URUCHAMIA — demon zatrzymany, {mins} min",
   "gate.log.held": "demon nie działa — timery i wyzwalacze czekają; nic nie zostanie uruchomione",
   "gate.log.free": "demon wrócił — timery i wyzwalacze znów działają",

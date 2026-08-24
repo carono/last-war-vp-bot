@@ -652,7 +652,7 @@ class Recovery:
                 # unanswered out of how many a restart needs. Drawn because it is the
                 # difference between «панель вот-вот перезапустит» and «панель считает
                 # клиент живым», which used to be one indistinguishable silence.
-                "probe": self.probe_state(),
+                "probe": self.probe_state(now),
                 # …and the reading that says nothing is reaching the game at all, while
                 # every other one still looks healthy: errands that pressed nothing.
                 "barren": self._barren, "barren_of": BARREN,
@@ -1039,10 +1039,37 @@ class Recovery:
             return
         self._probe_fails += 1
 
-    def probe_state(self) -> dict:
-        """What both front-ends draw about the confirmation. Numbers, never words."""
+    def link_confirmed(self, now: float) -> bool:
+        """Did the game SERVER answer us recently? (#1910)
+
+        The one positive fact this module holds about the link, and the only thing that
+        may paint it green when the socket table will not commit: an active question the
+        server itself answered. It has a shelf life on purpose — the SAME one the probe
+        already trusts an answer for (:data:`PROBE_OK_HOLD_SEC`) — because «the server
+        replied» is a statement about a moment, and a moment that is far enough back is
+        not a statement about now.
+
+        Read by whoever DRAWS, and it never asks anything: the answer was measured when
+        the decision needed it, and painting a strip may not be the thing that spends a
+        round trip (the same rule `panel/runtime/health.py` keeps about its own light).
+        """
+        return bool(self._probe_last_ok
+                    and (now - self._probe_last_ok) < PROBE_OK_HOLD_SEC)
+
+    def probe_state(self, now: float = 0.0) -> dict:
+        """What both front-ends draw about the confirmation. Numbers, never words.
+
+        `now` comes from the caller for the reason every other clock in this module
+        does: it has no import of its own and must not grow one — a decision module that
+        reads the wall clock is a decision module a test cannot drive.
+        """
         return {"fails": self._probe_fails, "of": PROBE_FAILS,
-                "flying": self._probe_flying, "wanted": self._probe_want}
+                "flying": self._probe_flying, "wanted": self._probe_want,
+                # …AND WHETHER THE SERVER HAS ANSWERED RECENTLY (#1910). Drawn on both
+                # front-ends: it is what makes a link the sockets will not vouch for
+                # read as live rather than as «не подтверждено».
+                "confirmed": self.link_confirmed(now),
+                "for_sec": int(PROBE_OK_HOLD_SEC)}
 
     def note_session(self, playing: "bool | None", link: str, now: float,
                      idle_sec: "float | None" = None) -> "tuple | None":

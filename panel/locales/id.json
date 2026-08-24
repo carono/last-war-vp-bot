@@ -179,6 +179,8 @@
   "develop.run.title": "Rekaman pengendus",
   "develop.sniff.frame": "Rekam satu sesi",
   "develop.sniff.toggle": "Pengendus",
+  "game.st.confirmed": "daring (pid {pid}) — server menjawab",
+  "game.st.session_confirmed": "daring di sesi {user} (pid {pid}) — server menjawab",
   "gate.held": "TIDAK ADA YANG BERJALAN — daemon dihentikan, {mins} mnt",
   "gate.log.held": "daemon tidak berjalan — timer dan pemicu menunggu; tidak ada yang dijalankan",
   "gate.log.free": "daemon kembali — timer dan pemicu berjalan lagi",

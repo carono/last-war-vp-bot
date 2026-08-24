@@ -912,6 +912,42 @@ def test_the_refusal_is_said_on_the_edge_and_then_rarely():
     assert late and late[0] == rec.HOLD_CONFIRM, "it never said it again at all"
 
 
+def test_a_fresh_server_answer_is_what_paints_the_link_live():
+    """Green comes from a FACT with a shelf life, never from an absence of bad signs.
+
+    The sockets on this machine sit permanently in the shape they will not vouch for
+    (`game_link.classify`, #1910), so a light that could only ever be amber for it would
+    be amber for ever — and an amber nobody can clear is an amber nobody reads. What
+    clears it is the game SERVER having answered, and only for as long as that answer is
+    worth anything.
+    """
+    r = rec.Recovery()
+    assert r.link_confirmed(1000.0) is False, "green before anything was measured"
+    r.probe_started(1000.0)
+    r.note_probe(True, 1000.5)
+    assert r.link_confirmed(1000.5) is True
+    assert r.link_confirmed(1000.5 + rec.PROBE_OK_HOLD_SEC - 1) is True
+    assert r.link_confirmed(1000.5 + rec.PROBE_OK_HOLD_SEC + 1) is False, \
+        "a stale answer went on painting the link live"
+
+
+def test_a_refused_probe_never_paints_anything_live():
+    """…and the other direction, which is the one that would be dangerous."""
+    r = rec.Recovery()
+    r.probe_started(1000.0)
+    r.note_probe(False, 1000.5)
+    assert r.link_confirmed(1000.5) is False
+
+
+def test_both_front_ends_are_handed_the_confirmation():
+    """One reading, two screens — the rule this repository keeps for every state."""
+    r = rec.Recovery()
+    r.probe_started(1000.0)
+    r.note_probe(True, 1000.5)
+    st = r.state(1001.0)["probe"]
+    assert st["confirmed"] is True and st["for_sec"] == int(rec.PROBE_OK_HOLD_SEC), st
+
+
 def test_the_decision_line_carries_the_numbers_it_was_made_on():
     """«На основании ЧЕГО» — measured, never computed (#1910).
 

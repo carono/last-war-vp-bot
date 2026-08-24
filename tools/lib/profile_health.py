@@ -137,7 +137,7 @@ class Health:
 
 def verdict(*, link: str, running: bool, daemon: str = DAEMON_UNASKED,
             session: str = SESSION_CANNOT_TELL, kicked: bool = False,
-            error: str = "", read: bool = True) -> Health:
+            error: str = "", read: bool = True, confirmed: bool = False) -> Health:
     """The one light for one profile, from readings somebody else has already taken.
 
     Deliberately a pure function of ids: no socket, no round trip, no clock. Everything
@@ -157,7 +157,16 @@ def verdict(*, link: str, running: bool, daemon: str = DAEMON_UNASKED,
     4. **link lost** → red. Positive evidence the server hung up.
     5. **at the login screen** → red. The process is up and the account is not playing.
     6. **daemon down / stale** → amber. The game plays; the panel cannot drive it.
-    7. **link unknown** → amber. No verdict is not a fault (`game_link.classify`).
+    7. **link unknown** → amber, UNLESS the game server has just answered an active
+       probe (``confirmed``, #1910). The sockets decline to say which conversation is
+       the game whenever one is stranded beside another that is established, and on this
+       machine that is the ordinary state of a healthy client — so a light that could
+       only ever be amber for it would be amber for ever, and an amber nobody can clear
+       is an amber nobody reads. A REPLY FROM THE SERVER is positive evidence and outranks
+       a reading that was declined; it has a shelf life
+       (`panel/runtime/recovery.py::PROBE_OK_HOLD_SEC`) and the light goes back to amber
+       when it runs out. `lost` is NOT upgraded by it — that verdict is unambiguous — and
+       nothing else in the ladder moves.
     8. **session not asked** → amber. The last thing between «looks fine» and «is fine».
     9. otherwise green.
 
@@ -189,7 +198,7 @@ def verdict(*, link: str, running: bool, daemon: str = DAEMON_UNASKED,
         # default: an argument left out may not be worth more than an argument that
         # came back healthy.
         return made(WARN, UNREAD)
-    if link != game_link.ONLINE:
+    if link != game_link.ONLINE and not confirmed:
         return made(WARN, LINK_UNKNOWN)
     if session != IN_SESSION:
         return made(WARN, SESSION_UNKNOWN)

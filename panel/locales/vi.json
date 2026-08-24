@@ -179,6 +179,8 @@
   "develop.run.title": "Bản ghi của trình nghe lén",
   "develop.sniff.frame": "Ghi một phiên",
   "develop.sniff.toggle": "Nghe lén",
+  "game.st.confirmed": "trực tuyến (pid {pid}) — máy chủ có hồi đáp",
+  "game.st.session_confirmed": "trực tuyến trong phiên của {user} (pid {pid}) — máy chủ có hồi đáp",
   "gate.held": "KHÔNG CÓ GÌ CHẠY — daemon đã dừng, {mins} phút",
   "gate.log.held": "daemon không chạy — bộ hẹn giờ và trình kích hoạt đang chờ; sẽ không có gì được khởi chạy",
   "gate.log.free": "daemon đã trở lại — bộ hẹn giờ và trình kích hoạt hoạt động trở lại",

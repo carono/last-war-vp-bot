@@ -226,6 +226,47 @@ def test_a_poll_that_raised_leaves_amber_and_keeps_what_it_knew():
     assert any("online (pid 1)" in line for line in health.lines(_words))
 
 
+def test_a_link_the_sockets_will_not_vouch_for_goes_green_on_a_server_ANSWER():
+    """The one thing allowed to clear that amber, and it is positive evidence (#1910).
+
+    `game_link.classify` declines to make a verdict whenever one conversation is
+    stranded beside another that is established — measured on this machine, the ordinary
+    state of a perfectly healthy client. Amber for ever is amber nobody reads, so a
+    REPLY from the game server outranks a reading that was declined. Its shelf life is
+    `panel/runtime/recovery.py::PROBE_OK_HOLD_SEC`, and when it runs out the light goes
+    honestly back.
+    """
+    amber = ph.verdict(
+        link=game_link.UNKNOWN, running=True, daemon=ph.DAEMON_LIVE,
+        session=ph.IN_SESSION)
+    assert amber.colour == ph.WARN, amber
+    assert amber.reason == ph.LINK_UNKNOWN, amber
+
+    green = ph.verdict(
+        link=game_link.UNKNOWN, running=True, daemon=ph.DAEMON_LIVE,
+        session=ph.IN_SESSION, confirmed=True)
+    assert green.colour == ph.OK, green
+
+
+def test_a_server_answer_does_NOT_clear_the_unambiguous_verdicts():
+    """It upgrades a reading that was declined — never one that was made.
+
+    `lost` is the one shape the sockets may decide on their own (something stranded and
+    nothing established anywhere); a kick is the game's own words; a client that is not
+    running is not a link question at all. None of them is a matter of opinion, so none
+    is a matter a probe may overrule.
+    """
+    for kw in ({"link": game_link.LOST},
+               {"link": game_link.ONLINE, "kicked": True},
+               {"link": game_link.OFFLINE, "running": False}):
+        args = {"link": game_link.LOST, "running": True,
+                "daemon": ph.DAEMON_LIVE,
+                "session": ph.IN_SESSION}
+        args.update(kw)
+        got = ph.verdict(confirmed=True, **args)
+        assert got.colour == ph.BAD, (kw, got)
+
+
 def _run() -> int:
     failed = 0
     for name, func in sorted(globals().items()):

@@ -179,6 +179,8 @@
   "develop.run.title": "Запись снифера",
   "develop.sniff.frame": "Запись сессии",
   "develop.sniff.toggle": "Снифер",
+  "game.st.confirmed": "онлайн (pid {pid}) — сервер отвечает",
+  "game.st.session_confirmed": "онлайн в сессии {user} (pid {pid}) — сервер отвечает",
   "gate.held": "НИЧЕГО НЕ ЗАПУСКАЕТСЯ — демон остановлен, {mins} мин",
   "gate.log.held": "демон не работает — таймеры и триггеры ждут, ничего не запускается",
   "gate.log.free": "демон снова жив — таймеры и триггеры снова работают",

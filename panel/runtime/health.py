@@ -93,21 +93,25 @@ class ProfileHealth:
 
     # -- writing -------------------------------------------------------------
     def update(self, probe, *, warm: bool, stale: bool, session: str,
-               kicked: bool = False):
+               kicked: bool = False, confirmed: bool = False):
         """Take one poll's readings and keep the light they make.
 
         ``probe`` is `panel.runtime.game_process.Probe` — the client's state and the
         sentence for it. ``warm`` / ``stale`` are the pair the status poll already holds
         about the daemon, and they are turned into the rule's own id HERE rather than in
         the window: nothing under `panel/` should have to spell a reading's vocabulary.
-        ``session`` is `game_clock.session_state`'s answer.
+        ``session`` is `game_clock.session_state`'s answer. ``confirmed`` is
+        `Recovery.link_confirmed` — the game server answered an active probe recently,
+        which is the one thing allowed to clear the amber of a link the SOCKETS declined
+        to make a verdict on (#1910). It is a reading somebody else already took: drawing
+        may never be the thing that spends a round trip.
         """
         self._client = getattr(probe, "message", None)
         self._health = profile_health.verdict(
             link=getattr(probe, "link", profile_health.SESSION_CANNOT_TELL),
             running=bool(getattr(probe, "running", False)),
             daemon=profile_health.daemon_id(bool(warm), bool(stale)),
-            session=session, kicked=bool(kicked))
+            session=session, kicked=bool(kicked), confirmed=bool(confirmed))
         self._at = time.time()
         return self._health
 

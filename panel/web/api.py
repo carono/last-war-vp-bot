@@ -482,7 +482,15 @@ class WebApi:
         exe, user = self._client_args(rt)
         try:
             found = game_process.probe(exe, user=user)
-            running, link, message = found.running, found.link, found.message
+            # THE SAME SENTENCE THE WINDOW DRAWS (#1910). A link the sockets decline to
+            # vouch for reads as live while the game SERVER is answering an active probe,
+            # and the phone must not be the front-end that still says «не подтверждено»
+            # about a client the machine is calling healthy. One composer, both screens.
+            confirmed = rt.recovery.link_confirmed(now)
+            running, message = found.running, game_process.worded(found, confirmed)
+            link = (game_process.ONLINE
+                    if (confirmed and found.link == game_process.UNKNOWN)
+                    else found.link)
         except Exception as exc:             # noqa: BLE001 — a reading, never the server
             running, link, message = False, game_process.UNKNOWN, str(exc)
         label = i18nmod.translated(rt.t, message)

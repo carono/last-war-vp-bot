@@ -179,6 +179,8 @@
   "develop.run.title": "Grabación del rastreador",
   "develop.sniff.frame": "Grabar una sesión",
   "develop.sniff.toggle": "Rastreador",
+  "game.st.confirmed": "en línea (pid {pid}) — el servidor responde",
+  "game.st.session_confirmed": "en línea en la sesión de {user} (pid {pid}) — el servidor responde",
   "gate.held": "NADA SE EJECUTA — el demonio está detenido, {mins} min",
   "gate.log.held": "el demonio no está activo — los temporizadores y disparadores esperan; no se inicia nada",
   "gate.log.free": "el demonio ha vuelto — los temporizadores y disparadores funcionan de nuevo",

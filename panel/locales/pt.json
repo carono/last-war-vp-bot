@@ -179,6 +179,8 @@
   "develop.run.title": "Gravação do farejador",
   "develop.sniff.frame": "Gravar uma sessão",
   "develop.sniff.toggle": "Farejador",
+  "game.st.confirmed": "online (pid {pid}) — o servidor responde",
+  "game.st.session_confirmed": "online na sessão de {user} (pid {pid}) — o servidor responde",
   "gate.held": "NADA ESTÁ A CORRER — o daemon está parado, {mins} min",
   "gate.log.held": "o daemon não está ativo — temporizadores e gatilhos aguardam; nada será iniciado",
   "gate.log.free": "o daemon voltou — temporizadores e gatilhos voltam a funcionar",

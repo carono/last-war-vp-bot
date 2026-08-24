@@ -179,6 +179,8 @@
   "develop.run.title": "Session du renifleur",
   "develop.sniff.frame": "Enregistrer une session",
   "develop.sniff.toggle": "Renifleur",
+  "game.st.confirmed": "en ligne (pid {pid}) — le serveur répond",
+  "game.st.session_confirmed": "en ligne dans la session de {user} (pid {pid}) — le serveur répond",
   "gate.held": "RIEN NE TOURNE — le démon est arrêté, {mins} min",
   "gate.log.held": "le démon ne tourne pas — minuteries et déclencheurs attendent ; rien ne sera lancé",
   "gate.log.free": "le démon est revenu — minuteries et déclencheurs fonctionnent à nouveau",

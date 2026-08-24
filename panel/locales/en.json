@@ -179,6 +179,8 @@
   "develop.run.title": "Sniffer run",
   "develop.sniff.frame": "Record a session",
   "develop.sniff.toggle": "Sniffer",
+  "game.st.confirmed": "online (pid {pid}) — the server answers",
+  "game.st.session_confirmed": "online in {user}'s session (pid {pid}) — the server answers",
   "gate.held": "NOTHING IS RUNNING — the daemon is stopped, {mins} min",
   "gate.log.held": "the daemon is down — timers and triggers are waiting; nothing will be started",
   "gate.log.free": "the daemon is back — timers and triggers are running again",

@@ -228,6 +228,37 @@ _WORDS = {
     UNKNOWN: ("game.st.running", "game.st.session_running"),
 }
 
+#: …and the sentence for a link the SOCKETS will not vouch for while the SERVER has just
+#: answered (#1910). Its own words because it is its own state: not «не подтверждено»,
+#: which is what the table alone can say, and not the plain «онлайн», which would claim
+#: the sockets said something they did not.
+_CONFIRMED_WORDS = ("game.st.confirmed", "game.st.session_confirmed")
+
+
+def worded(found, confirmed: bool = False) -> Message:
+    """The sentence to SHOW — the socket reading, with a fresh server answer folded in.
+
+    `confirmed` is `Recovery.link_confirmed`: the game server answered an active probe
+    inside its shelf life. It only ever UPGRADES a reading that the sockets declined to
+    make (`UNKNOWN`), and it never touches `ONLINE` — which is already better evidence —
+    nor `LOST`, which is the one unambiguous socket verdict, nor a client that is not
+    running at all.
+
+    Both front-ends call this and neither composes a sentence of its own: the window's
+    strip and the phone's card have to mean the same thing by the same reading, and the
+    first time they do not, one of them is telling somebody the account is fine.
+    """
+    if not (confirmed and found.running and found.link == UNKNOWN):
+        return found.message
+    plain, in_session = _CONFIRMED_WORDS
+    user, pid = found.user, found.pid
+    fmt = {"pid": pid}
+    if user:
+        fmt["user"] = user
+    english = (f"running in {user}'s session (pid {pid}), the server answers" if user
+               else f"running (pid {pid}), the server answers")
+    return Message(in_session if user else plain, english, **fmt)
+
 #: `Link.reason` → the key for a client that is not there. No session half: every one of
 #: these either names the user in its own text or has nothing to do with a session.
 _OFF_WORDS = {

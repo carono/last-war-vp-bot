@@ -179,6 +179,8 @@
   "develop.run.title": "Registrazione dello sniffer",
   "develop.sniff.frame": "Registra una sessione",
   "develop.sniff.toggle": "Sniffer",
+  "game.st.confirmed": "online (pid {pid}) — il server risponde",
+  "game.st.session_confirmed": "online nella sessione di {user} (pid {pid}) — il server risponde",
   "gate.held": "NIENTE È IN FUNZIONE — il demone è fermo, {mins} min",
   "gate.log.held": "il demone non è attivo — timer e trigger aspettano; non viene avviato nulla",
   "gate.log.free": "il demone è tornato — timer e trigger funzionano di nuovo",

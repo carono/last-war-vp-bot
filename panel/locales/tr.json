@@ -179,6 +179,8 @@
   "develop.run.title": "Koklayıcı kaydı",
   "develop.sniff.frame": "Bir oturum kaydet",
   "develop.sniff.toggle": "Koklayıcı",
+  "game.st.confirmed": "çevrimiçi (pid {pid}) — sunucu yanıt veriyor",
+  "game.st.session_confirmed": "{user} oturumunda çevrimiçi (pid {pid}) — sunucu yanıt veriyor",
   "gate.held": "HİÇBİR ŞEY ÇALIŞMIYOR — arka plan servisi durdurulmuş, {mins} dk",
   "gate.log.held": "arka plan servisi çalışmıyor — zamanlayıcılar ve tetikleyiciler bekliyor; hiçbir şey başlatılmayacak",
   "gate.log.free": "arka plan servisi geri geldi — zamanlayıcılar ve tetikleyiciler yeniden çalışıyor",
