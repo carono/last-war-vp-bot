@@ -235,7 +235,7 @@ _WORDS = {
 _CONFIRMED_WORDS = ("game.st.confirmed", "game.st.session_confirmed")
 
 
-def worded(found, confirmed: bool = False) -> Message:
+def worded(found, confirmed: bool = False, user: "str | None" = None) -> Message:
     """The sentence to SHOW — the socket reading, with a fresh server answer folded in.
 
     `confirmed` is `Recovery.link_confirmed`: the game server answered an active probe
@@ -248,10 +248,15 @@ def worded(found, confirmed: bool = False) -> Message:
     strip and the phone's card have to mean the same thing by the same reading, and the
     first time they do not, one of them is telling somebody the account is fine.
     """
-    if not (confirmed and found.running and found.link == UNKNOWN):
+    if not (confirmed and getattr(found, "running", False)
+            and getattr(found, "link", "") == UNKNOWN):
         return found.message
     plain, in_session = _CONFIRMED_WORDS
-    user, pid = found.user, found.pid
+    # `user` is the CALLER's, because a `Probe` does not carry one — it is the profile's
+    # Windows session and the profile is what knows it. The first draft read it off the
+    # probe, which is a `Link` field, and the sentence came back as an AttributeError
+    # printed where the client's state should have been.
+    pid = getattr(found, "pid", None)
     fmt = {"pid": pid}
     if user:
         fmt["user"] = user

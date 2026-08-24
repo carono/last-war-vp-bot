@@ -487,7 +487,8 @@ class WebApi:
             # and the phone must not be the front-end that still says «не подтверждено»
             # about a client the machine is calling healthy. One composer, both screens.
             confirmed = rt.recovery.link_confirmed(now)
-            running, message = found.running, game_process.worded(found, confirmed)
+            running, message = found.running, game_process.worded(found, confirmed,
+                                                                    user)
             link = (game_process.ONLINE
                     if (confirmed and found.link == game_process.UNKNOWN)
                     else found.link)

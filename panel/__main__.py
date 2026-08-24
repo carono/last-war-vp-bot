@@ -3714,7 +3714,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # …AND WHETHER THE SERVER HAS JUST ANSWERED (#1910). A reading somebody
             # else already took — never a fresh round trip for the sake of a colour.
             confirmed = self._rt.recovery.link_confirmed(time.time())
-            shown = runtime.game_process.worded(found, confirmed)
+            shown = runtime.game_process.worded(
+                found, confirmed, runtime.game_process.profile_user(self._binder))
             self._rt.health.update(found, warm=warm, stale=stale,
                                    session=session, kicked=kicked,
                                    confirmed=confirmed)
