@@ -163,6 +163,10 @@ class GameLink:
         # that something is — which is the whole difference between «занято» and a
         # readable answer once more than one profile is open (§4.3, #1226).
         self._name = name if name is not None else (lambda: None)
+        #: THE STANDING FAILURE, so it is said on the edge and not on every poll
+        #: (#1910, :meth:`_say_failure`): what went wrong last, and when it was said.
+        self._fail_said = ""
+        self._fail_at = 0.0
         #: "the daemon went warm / is starting / failed", said in one word. PUBLIC
         #: and reassignable like `on_settled`: the shell rebinds it per session, so
         #: the indicator that gets painted is the one on THAT profile's page (#1206).
@@ -642,7 +646,13 @@ class GameLink:
                             stdout=sink, stderr=subprocess.STDOUT,
                             stdin=subprocess.DEVNULL)
             except Exception as exc:                  # noqa: BLE001
-                self._log.say("daemon", "log.daemon.launch_failed", error=exc)
+                # SAID ON THE EDGE, TRIED EVERY POLL (#1910). The supervisor above is
+                # unconditional on purpose — «его задача запуститься» — and the first
+                # live run of it printed «не удалось запустить: nobody is logged on as
+                # …» seven times a minute, for ever, in three profiles at once. The
+                # attempt is right; the repetition is the failure mode this codebase
+                # keeps relearning, so the SENTENCE is throttled and the act is not.
+                self._say_failure("log.daemon.launch_failed", str(exc), error=exc)
                 self._note_error("launch failed")
                 self.on_state("error", False)
                 return False
@@ -654,6 +664,7 @@ class GameLink:
                 # has not happened yet — but it is given the rest of the tries anyway,
                 # since the daemon re-aims itself at a client that is still booting.
                 if self.up(fresh=True) and self.health() == DAEMON_LIVE:
+                    self.note_started()
                     self._log.say("daemon", "log.daemon.ready")
                     self._note("ready on port %s", port)
                     self.on_state("warm", True)
@@ -665,6 +676,7 @@ class GameLink:
             # in its own colour — and it is NOT a failed start. Reporting it as one is
             # what sent the recovery into a wait that doubled to half an hour while the
             # only thing missing was a game nobody was starting.
+            self.note_started()
             self._log.say("daemon", "log.daemon.listening_no_client")
             self._note_warn("listening on port %s, holds no client", port)
             self.on_state("nolink", None)
@@ -674,17 +686,43 @@ class GameLink:
         # reason is fetched rather than left in a file nobody opens: the daemon writes
         # why it could not start to its own log, and until now that was the only place
         # it existed (#1555, #1556).
-        self._log.say("daemon", "log.daemon.timeout")
         why = self.launch_error()
         if why:
-            self._log.say("daemon", "log.daemon.failed_because", port=port, why=why)
+            self._say_failure("log.daemon.failed_because", why, port=port, why=why)
         else:
-            self._log.say("daemon", "log.daemon.failed_silent", port=port,
-                          path=self._log_path())
+            self._say_failure("log.daemon.failed_silent", "silent", port=port,
+                              path=self._log_path())
         self._note_error("did not come up on port %s within timeout: %s", port,
                          why or "its log says nothing")
         self.on_state("error", False)
         return False
+
+    #: HOW OFTEN A STANDING FAILURE IS REPEATED (#1910). A daemon that cannot start is
+    #: retried on every status poll — eight seconds — and a profile whose Windows session
+    #: is simply not logged on fails instantly, every time, all night. The first live run
+    #: of the unconditional supervisor put seven identical lines a minute into three
+    #: profiles' logs. Five minutes is often enough that a person watching sees it is
+    #: still true, and rare enough that the log stays readable.
+    FAIL_SAY_SEC = 300.0
+
+    def _say_failure(self, key: str, fingerprint: str, **fmt) -> None:
+        """Say why the daemon will not start — on the EDGE, then rarely.
+
+        `fingerprint` is what makes two failures the same failure: a REASON that has
+        changed is news whatever the clock says, because it usually means the person has
+        just fixed one thing and hit the next.
+        """
+        now = time.monotonic()
+        same = fingerprint == self._fail_said
+        if same and self._fail_at and (now - self._fail_at) < self.FAIL_SAY_SEC:
+            self._note_warn("still failing: %s", fingerprint)
+            return
+        self._fail_said, self._fail_at = fingerprint, now
+        self._log.say("daemon", key, **fmt)
+
+    def note_started(self) -> None:
+        """A daemon came up — the next failure is a fresh incident and is said at once."""
+        self._fail_said, self._fail_at = "", 0.0
 
     #: How many lines of the daemon's own log the failure line quotes. Enough for a
     #: traceback's last frame and its exception, short enough to stay one log line.
