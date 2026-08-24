@@ -37,6 +37,7 @@ import logging
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
@@ -53,7 +54,7 @@ from panel import profile as profilemod                    # noqa: E402
 from panel.runtime import game_process as gp               # noqa: E402
 from panel.runtime.actions import ActionRunner             # noqa: E402
 from panel.runtime.children import ChildFactory, LEASE_VAR  # noqa: E402
-from panel.runtime.daemon import GameLink                  # noqa: E402
+from panel.runtime.link import GameLink                  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +125,7 @@ class _Client:
 
 
 def _link(daemon: _Daemon, log=None) -> GameLink:
-    link = GameLink(port=lambda: daemon.port, python=lambda: "python", log=log or _Log(),
-                    env=dict, cwd=str(_REPO), daemon_script="x")
+    link = GameLink(port=lambda: daemon.port, log=log or _Log(), cwd=str(_REPO),)
     link.client = daemon.client(token="")
     # THE FAKE DAEMON IS REACHABLE, and saying so is what makes this file mean the same
     # thing on every machine. `_claim_lease` short-circuits on `up()` — a daemon that
@@ -287,8 +287,7 @@ class _Spawned:
 
 def _cold_link(port: int, user=None) -> GameLink:
     """A link whose daemon is never up, so `ensure` always reaches the start."""
-    link = GameLink(port=lambda: port, python=lambda: "python", log=_Log(),
-                    env=dict, cwd=str(_REPO), daemon_script="x",
+    link = GameLink(port=lambda: port, log=_Log(), cwd=str(_REPO),
                     user=(lambda: user) if user else None)
     # `fresh=` since #1226: a check inside `ensure`'s start loop asks for a reading
     # rather than the remembered one, so the double has to accept it.
@@ -296,44 +295,41 @@ def _cold_link(port: int, user=None) -> GameLink:
     return link
 
 
-def _ensure_watching_popen(link) -> list:
-    """Run `link.ensure()` with the spawn recorded and the retry loop cut to one turn."""
-    import subprocess
+def test_a_client_in_another_session_is_reached_through_a_process_over_there() -> None:
+    """A hijack finds its client in the session it is itself running in (#1218, #1911).
 
-    from panel.runtime import daemon as daemonmod
-
-    spawned: list = []
-    saved_popen, saved_tries, saved_wait = (subprocess.Popen, daemonmod.START_TRIES,
-                                            daemonmod.START_WAIT)
-    subprocess.Popen = lambda *a, **kw: (spawned.append(a), _Spawned())[1]
-    daemonmod.START_TRIES, daemonmod.START_WAIT = 1, 0
-    try:
-        link.ensure()                     # it never comes up; the START is the point
-    finally:
-        subprocess.Popen = saved_popen
-        daemonmod.START_TRIES, daemonmod.START_WAIT = saved_tries, saved_wait
-    return spawned
-
-
-def test_a_daemon_for_another_session_is_started_INSIDE_it() -> None:
-    """A daemon hijacks a thread of the client it drives, and finds that client in the
-    session it is itself running in. Started here for a profile whose game is in
-    session 4, it would bind the right port and then drive this desktop's game — or
-    none at all. So the session decides HOW it is started, not just what it finds."""
+    So the panel cannot drive the second account's client from its own process at all.
+    That profile keeps a small connector beside its client — started by this link, owned
+    by it, supervised by nobody — and «which session» is what decides that it exists.
+    """
     link = _cold_link(47655, user="player2")
     seen: dict = {}
-    link._start_in_session = lambda user, port: seen.update(user=user, port=port)
-    spawned = _ensure_watching_popen(link)
-    assert seen == {"user": "player2", "port": 47655}, seen
-    assert spawned == [], "a daemon for another session must not be spawned here"
+    link._ensure_remote = lambda: seen.update(remote=True) or True
+    assert link.ensure() is True
+    assert seen == {"remote": True}, seen
 
 
-def test_a_daemon_for_this_desktop_is_still_spawned_here() -> None:
-    """The single-account case, untouched: no session named means the ordinary child."""
+def test_this_desktops_client_is_taken_in_the_panels_own_process() -> None:
+    """The ordinary case, and the whole of #1911: no process is started for it."""
+    import subprocess
+
     link = _cold_link(47654)
-    link._start_in_session = lambda user, port: (_ for _ in ()).throw(
-        AssertionError("nothing named a session"))
-    assert len(_ensure_watching_popen(link)) == 1
+    attached: list = []
+    link.service = lambda: types.SimpleNamespace(
+        listen=lambda port: True,
+        reattach=lambda: attached.append(True) or True,
+        traffic_age=lambda: None, error=lambda: "")
+    link._ensure_remote = lambda: (_ for _ in ()).throw(
+        AssertionError("this desktop's client is not reached over a port"))
+    spawned: list = []
+    saved = subprocess.Popen
+    subprocess.Popen = lambda *a, **kw: (spawned.append(a), _Spawned())[1]
+    try:
+        assert link.ensure() is True
+    finally:
+        subprocess.Popen = saved
+    assert attached == [True], "the panel never took hold of the client"
+    assert spawned == [], "a process was started for a client on this very desktop"
 
 
 def test_a_session_nobody_is_logged_on_to_is_a_refusal_not_a_crash() -> None:

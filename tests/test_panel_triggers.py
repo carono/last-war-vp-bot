@@ -827,7 +827,7 @@ class _Link:
 
 
 class _Gate:
-    """`DaemonGate` as the poll sees it: one question, and whether it was asked."""
+    """`LinkGate` as the poll sees it: one question, and whether it was asked."""
 
     def __init__(self, open_: bool = True):
         self.open = open_

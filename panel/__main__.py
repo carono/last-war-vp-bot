@@ -1,6 +1,7 @@
-"""Last War control panel — navigation + secret-task monitoring (daemon-backed).
+"""Last War control panel — navigation + secret-task monitoring.
 
-Actions run through the warm Lua daemon (tools/lua_daemon.py) so every button dispatches
+Actions run through the warm Lua VM the panel holds itself (panel/runtime/lua_service.py,
+#1911) so every button dispatches
 in ~0.1 s instead of spawning a fresh process that re-resolves the il2cpp hijack (~5 s). The
 panel auto-starts the daemon if it is not already running. In-game recipes live in
 tools/lib/lua_actions.py (shared with the standalone scripts, so nothing drifts) and the
@@ -104,6 +105,7 @@ from .runtime import autostart_dialog as autostartdlg
 from .runtime import game_control as gamectl
 from .runtime import hotkeys
 from .runtime import health as healthmod
+import profile_health
 from .runtime import interrupt as interruptmod
 from .runtime import panel_control as panelctl
 from .runtime import power as powermod
@@ -162,7 +164,7 @@ LOG_SEVERITY_WORDS = runtime.log.SEVERITY_WORDS
 
 # -- the boot ---------------------------------------------------------------
 # How long the splash may hold the window back while the systems come up. Longer
-# than a healthy boot needs and longer than `_ensure_daemon`'s own wait, so the
+# than a healthy boot needs and longer than `_ensure_link`'s own wait, so the
 # ceiling is only ever reached when something is genuinely stuck; past it the panel
 # opens and says so, because a half-started system is still a usable panel and a
 # window that never appears is not.
@@ -215,24 +217,11 @@ UPDATE_COLOURS = {
 # without it the panel sat for an hour showing "running (pid …)" over a client
 # that had crashed, every timer tick failing into the retry hold.
 STATUS_POLL_MS = 8000
-# What each link state looks like on the strip (panel/runtime/game_process.py decides
-# which one it is). Green is the ONLY state that means the account is actually playing:
-# a client that lost the server keeps its window, its pid and every Lua getter, so
-# painting «работает» green over it is the whole bug this table exists to end. Amber is
-# «не знаю» — a client that has not opened a game socket yet (a launch takes about 45
-# seconds), or a machine that will not show us this client's sockets at all. Neither is
-# a fault, and painting either red is how a warning stops being read by the second day.
-LINK_COLOURS = {
-    runtime.game_process.ONLINE: "#3c3",
-    runtime.game_process.LOST: "#c33",
-    runtime.game_process.UNKNOWN: "#e8c069",
-    runtime.game_process.OFFLINE: "#c33",
-}
-# The three colours of a profile's own light, on its tab (#1299,
-# panel/runtime/health.py). The same green and the same red as the link strip above, on
-# purpose: two shades of «плохо» in one window is a person working out which is worse
-# instead of reading either. Amber is the strip's amber for exactly the same reason —
-# it means «cannot tell», here as there.
+# THE THREE COLOURS, and there are three of them everywhere (#1911): the profile's dot
+# on its tab, the link indicator on the strip and the status sentence beside it all read
+# out of one verdict (`tools/lib/profile_health.py`). Red is «нет клиента», amber is
+# «есть клиент, трафика нет», green is «сервер отвечает» — and nothing else exists, so a
+# person never has to work out which of two ambers is worse.
 HEALTH_COLOURS = {
     healthmod.OK: "#3c3",
     healthmod.WARN: "#e8c069",
@@ -485,10 +474,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_main_nb", "_main_controls", "_lazy_tabs", "_plugin_tabs",
         "_shown_tab",
         # the two strips
-        "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_daemon_busy",
+        "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_link_busy",
         "_recovery_var",
         "_power_var", "_power_lbl", "_link_detail",
-        "_daemon_var", "_daemon_lbl",
+        "_link_var", "_link_lbl",
         # the account summary
         "_dash_values", "_dash_stop", "_dash_err", "_dash_view",
         # the map sweep
@@ -655,7 +644,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._say("macro", "log.macro.listening")
         else:
             self._say("macro", "log.macro.unavailable")
-        self._splash_step("splash.daemon", 0.6)
+        self._splash_step("splash.link", 0.6)
         # Bringing the systems up is the slow half of the boot — the monitors, the
         # schedule, the trigger listeners, the chat history, the daemon, the account
         # strip. It runs on its own thread (it waits on processes and on the game),
@@ -666,7 +655,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._boot_step: "queue.Queue[tuple]" = queue.Queue()
         self._boot_done = threading.Event()
         self._boot_lock = threading.Lock()
-        # ONE THREAD PER SESSION, not one after another: `_ensure_daemon` blocks for up
+        # ONE THREAD PER SESSION, not one after another: `_ensure_link` blocks for up
         # to half a minute, and two profiles must not mean two minutes of splash.
         self._boot_left = len(sessions)
         for session in sessions:
@@ -1311,7 +1300,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # that gets painted must be the one on this profile's page.
         self._game.on_settled = self._bound(
             lambda: self._later(400, self._refresh_status))
-        self._game.on_state = self._bound(self._daemon_state)
+        self._game.on_state = self._bound(self._link_state)
         # «I am still here», once a minute, from this window's event queue and once per
         # OPEN PROFILE — the hourly scheduled check reads one per profile
         # (panel/runtime/autostart.py), and a profile this panel is quietly farming
@@ -1335,7 +1324,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # things reach for it — the «⭮» button, «Включить обратно» and the status poll's
         # own cure for a port nothing answers — and a start racing a start is a second
         # process that cannot bind the port, prints a line nobody reads and exits.
-        self._daemon_busy = threading.Lock()
+        self._link_busy = threading.Lock()
         # How many consecutive polls have found the server connection gone, so only
         # the edges reach the log rather than every eight seconds of it
         # (see `_announce_link`).
@@ -1511,7 +1500,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         while the bar follows the phases it reports.
 
         BOOT_MAX_WAIT_SEC is the ceiling. A daemon that never comes up already costs
-        half a minute of waiting inside `_ensure_daemon`, and no start-up step is
+        half a minute of waiting inside `_ensure_link`, and no start-up step is
         worth holding the whole window hostage — past the ceiling the panel opens
         anyway and whatever is still coming up says so in the log.
         """
@@ -1640,9 +1629,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _autoloot_limit(self) -> int:
         return self._opt_int("autoloot_limit", low=1, high=50)
 
-    def _daemon_up(self) -> bool:
-        """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)"""
-        return self._game.up()
+    def _link_lands(self) -> bool:
+        """Does a chunk reach THIS profile's client right now? (#1911)"""
+        return self._game.ready()
 
     @property
     def _client(self):
@@ -1657,7 +1646,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _rebind_daemon(self) -> None:
         """Point the panel's own client at the profile's daemon port."""
         if self._game.rebind():
-            self._say("daemon", "log.daemon.port", port=self._game.port())
+            self._say("link", "log.link.port", port=self._game.port())
             self._refresh_status()
 
     # -- i18n (panel/runtime/i18n.py holds it; these stay as the panel's names) ----
@@ -2446,7 +2435,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # Worked out while the link is alive, SAID once the page is gone: a line
                 # about the daemon put into the log of the profile being deleted is a
                 # line written into a file that is about to be removed.
-                note = self._stop_daemon_of(name)
+                note = self._let_link_go_of(name)
                 self._close_profile(name)
             if note is not None:
                 self._say("profile", note[0], **note[1])
@@ -2489,7 +2478,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._open_profile(other)
         return len(self._workspace) > 1
 
-    def _stop_daemon_of(self, name: str):
+    def _let_link_go_of(self, name: str):
         """Ask this profile's daemon to exit — nothing will ever ask it for anything again.
 
         A daemon deliberately outlives the panel (docs/research/multi-profile-panel.md
@@ -2516,20 +2505,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
         others = runtime.provision.clients(self._workspace.profiles, exclude=name)
         sharing = sorted(n for n, client in others.items() if client.port == port)
         if sharing:
-            return ("log.profile.daemon_kept",
+            return ("log.profile.link_kept",
                     {"port": port, "others": ", ".join(sharing)})
         if not rt.game.up():
             return None
-        client = rt.game.client
 
         def work() -> None:
             try:
-                client.shutdown()
-            except Exception:                # noqa: BLE001 — a daemon, not the window
+                rt.game.let_go()
+            except Exception:                # noqa: BLE001 — a link, not the window
                 pass
 
-        threading.Thread(target=work, name="panel-daemon-stop", daemon=True).start()
-        return ("log.profile.daemon_stopped", {"port": port})
+        threading.Thread(target=work, name="panel-link-let-go", daemon=True).start()
+        return ("log.profile.link_stopped", {"port": port})
 
     # -- persistent settings ------------------------------------------------
     def _collect_settings(self) -> dict:
@@ -2830,14 +2818,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # poll — and the poll is eight seconds away.
         self._status_msg = None
         self._hook(self._retranslate_status, "top-status")
-        self._tr(ttk.Label(top), "top.daemon").pack(side="left", padx=(12, 0))
-        self._daemon_var = tk.StringVar(value=self._t("daemon.pending"))
-        self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
-        self._daemon_lbl.pack(side="left", padx=6)
+        self._tr(ttk.Label(top), "top.link").pack(side="left", padx=(12, 0))
+        self._link_var = tk.StringVar(value=self._t("link.pending"))
+        self._link_lbl = ttk.Label(top, textvariable=self._link_var, foreground="#888")
+        self._link_lbl.pack(side="left", padx=6)
         # Restarting the daemon used to mean killing it from outside the panel: a
         # wedged lua_daemon left every button dead with no way back in the UI.
-        self._tr(ttk.Button(top, width=3, command=self._restart_daemon),
-                 "daemon.restart").pack(side="left", padx=(2, 0))
+        self._tr(ttk.Button(top, width=3, command=self._reattach_link),
+                 "link.reattach").pack(side="left", padx=(2, 0))
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
         # ONE SWITCH FOR THE WHOLE PROFILE (#1882). It was a pair of buttons — «Стоп
         # всё» and «Включить обратно» — and a state that lived in memory: a panel
@@ -3321,23 +3309,22 @@ class Panel(runtime.SessionScoped, tk.Tk):
         traceback.print_exception(exc, val, tb)
 
 
-    def _dbg_status(self, game_ok: bool, daemon_warm: bool, link=None,
-                    daemon_stale: bool = False) -> None:
+    def _dbg_status(self, game_ok: bool, health=None) -> None:
         """Record a systems snapshot: DEBUG every poll, INFO only when it changes.
 
-        ``link`` is the server connection as `panel/runtime/game_process.py` found it,
-        and it is here for the morning after: «game=up» all night with «link=lost» from
-        03:41 is the difference between a panel that was lying and a client that was.
+        ``health`` is the one verdict the poll made (`tools/lib/profile_health.py`), and
+        it is here for the morning after: «game=up» all night with «link=no_traffic»
+        from 03:41 is the difference between a panel that was lying and a client that
+        was.
 
         Runs on the Tk thread (the status poll's after-callback), so it can read the
         timer/trigger checkbuttons safely. This is the "statuses of systems" stream —
-        daemon, game, how many timers/triggers are armed, and whether the dashboard
-        poll is up or complaining.
+        the link, the game, how many timers/triggers are armed, and whether the
+        dashboard poll is up or complaining.
 
         The counts come from the schedule, not from the rows: the rows belong to the
         «Таймеры» tab and are not here when the profile switches it off, whereas the
-        schedule answers either way — off the widgets while they exist, off the saved
-        catalogue when they do not. That is the same reading the schedule fires on.
+        schedule answers either way.
         """
         dbg = getattr(self, "_dbg", None)
         if dbg is None:
@@ -3349,18 +3336,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except (tk.TclError, AttributeError):
             timers_on = triggers_on = -1
         dash = "err" if self._dash_err else ("on" if self._dash_stop else "off")
-        # THREE WORDS, because two of them were the same lie. This line is the record
-        # anybody reads the morning after, and `daemon=warm` is what it said 194 times
-        # in one day over a client that was not up-and-online — three of those with no
-        # client process at all (#1287, docs/research/daemon-architecture.md §3).
-        word = "warm" if daemon_warm else "down"
-        if daemon_warm and daemon_stale:
-            word = "stale"
-        snap = (bool(game_ok), str(link or ""), word, timers_on, triggers_on, dash)
-        msg = ("systems: game=%s link=%s daemon=%s timers_on=%s triggers_on=%s "
+        # ONE VERDICT, SAID IN ITS OWN WORDS. It used to be two flags about a daemon,
+        # and both of them were the same lie: `daemon=warm` was recorded 194 times in
+        # one day over a client that was not up-and-online (#1287). Now the line carries
+        # the colour and the reason that made it.
+        colour = getattr(health, "colour", "?")
+        reason = getattr(health, "reason", "?")
+        snap = (bool(game_ok), str(colour), str(reason), timers_on, triggers_on, dash)
+        msg = ("systems: game=%s link=%s (%s) timers_on=%s triggers_on=%s "
                "dashboard=%s"
-               % ("up" if game_ok else "down", link or "?",
-                  word, timers_on, triggers_on, dash))
+               % ("up" if game_ok else "down", colour, reason,
+                  timers_on, triggers_on, dash))
         if snap != self._dbg_status_prev:
             self._dbg_status_prev = snap
             dbg.info(msg)
@@ -3452,14 +3438,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # alone (no start/stop plumbing to get out of step with it).
         self._boot_at("splash.schedule", 0.82)
         self._schedule.start()
-        self._boot_at("splash.daemon", 0.90)
+        self._boot_at("splash.link", 0.90)
         # …UNLESS THIS PROFILE IS SWITCHED OFF (#1882). The boot is the one place that
         # starts a daemon without asking the gate — the gate is shut precisely because
         # there is no daemon yet — so it is the one place that has to ask the switch
         # instead. Without this an account somebody stopped came back up on the next
         # restart of the panel, which is what made the old in-memory mark useless.
         if self._rt.power.on:
-            self._ensure_daemon()
+            self._ensure_link()
         else:
             self._say("panel", "power.log.boot_off")
         # The server used to be read here to fill the «Сервер» box of the jump block.
@@ -3550,12 +3536,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """Run ``func`` on the Tk thread from a worker and wait for it to finish."""
         self._tick.on_tk(func, timeout)
 
-    def _ensure_daemon(self) -> bool:
-        """Make sure this profile's daemon is up (panel/runtime/daemon.py). Blocks."""
+    def _ensure_link(self) -> bool:
+        """Make sure a chunk can reach this profile's client. Blocks (#1911)."""
         return self._game.ensure()
 
-    def _daemon_act(self, act) -> bool:
-        """Run ONE start or restart of this profile's daemon, off the Tk thread.
+    def _link_act(self, act) -> bool:
+        """Run ONE attach of this profile's client, off the Tk thread.
 
         Both cures come through here, and so does the gate's notification (#1393):
         whoever changes a daemon's existence says so, or the schedule spends up to a
@@ -3569,7 +3555,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         second daemon, which cannot bind, prints to a console nobody has and exits.
         ``False`` means one was already in flight and this press did nothing.
         """
-        if not self._daemon_busy.acquire(blocking=False):
+        if not self._link_busy.acquire(blocking=False):
             self._dbg.info("daemon act skipped: one is already in flight")
             return False
 
@@ -3577,67 +3563,59 @@ class Panel(runtime.SessionScoped, tk.Tk):
             try:
                 act()
             finally:
-                self._daemon_busy.release()
+                self._link_busy.release()
                 self._rt.gate.changed()
 
         threading.Thread(target=self._bound(work), daemon=True).start()
         return True
 
-    def _restart_daemon(self) -> None:
-        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back."""
-        self._daemon_act(self._game.restart)
+    def _reattach_link(self) -> None:
+        """The ⭮ beside the link indicator: let the client go and take hold of it again."""
+        self._link_act(self._game.reattach)
 
-    def _start_daemon(self) -> bool:
-        """Start a daemon that is DOWN — the cure a running panel did not have (#1410).
+    def _take_link(self) -> bool:
+        """Take hold of the client when nothing is landing — the poll's own cure (#1911).
 
-        `ensure()`, never `restart()`: nothing answers the port, so there is nothing to
-        shut down, and `restart` would say «перезапускаю» over a process that has not
-        been running — a sentence that sends the next reader looking for it.
+        `ensure()`, which for this desktop's client is an attach in this process and for
+        a client in another Windows session is «is the connector over there answering,
+        and start it if it is not».
 
-        ``False`` when a start or restart is already in flight, so the caller can hold
-        its tongue instead of announcing one that is not happening.
+        ``False`` when an attach is already in flight, so the caller can hold its tongue
+        instead of announcing one that is not happening.
         """
-        return self._daemon_act(self._ensure_daemon)
+        return self._link_act(self._ensure_link)
 
-    def _daemon_state(self, state: str, ok) -> None:
-        """Paint the daemon indicator from the link, whichever thread reports it.
+    def _link_state(self, state: str, ok) -> None:
+        """Paint the link indicator from the link, whichever thread reports it.
 
         The link says what happened in one word; the words the operator reads are this
         window's business, and so is getting onto the Tk thread to write them.
         """
-        key = {"warm": "daemon.warm", "starting": "daemon.starting",
-               # LISTENING, WITHOUT A CLIENT — its own word (#1910). It is not «тёплый»,
-               # because nothing can be pressed through it; it is not «ошибка», because
-               # the daemon has done its whole job. Drawing it as either is what made
-               # «демон не стартует» unreadable: the indicator blamed the daemon for a
-               # game that was not running.
-               "nolink": "daemon.nolink",
-               "error": "daemon.error"}.get(state, "daemon.none")
+        key = {"green": "link.green", "amber": "link.amber",
+               "attaching": "link.attaching"}.get(state, "link.amber")
         try:
-            self._later(0, lambda: self._set_daemon(self._t(key), ok))
+            self._later(0, lambda: self._set_link(self._t(key), ok))
         except (tk.TclError, RuntimeError):      # the window is going away
             pass
 
-    def _daemon_word(self, warm: bool, stale: bool) -> tuple:
-        """The word and the colour for the daemon indicator: ``(text, ok)``.
+    def _link_word(self) -> tuple:
+        """The word and the colour for the link indicator: ``(text, ok)``.
 
-        Three states, the same three the link answers with (`GameLink.health`). The
-        middle one had nowhere to be drawn before #1286 and was therefore drawn as the
-        good one — a daemon holding a client that is gone answers its port, so «тёплый»
-        was what a person saw for half an hour while nothing they pressed reached the
-        game. Amber rather than red: the daemon is there, and the panel is already
-        restarting it.
+        THE THREE STATUSES AND NOTHING ELSE (#1911) — red is «нет клиента», amber is
+        «есть клиент, трафика нет» with the reason in the tooltip, green is «сервер
+        отвечает». Read off the verdict the poll has just made, so the indicator, the
+        tab's dot and the phone's pill cannot disagree.
         """
-        if not warm:
-            return self._t("daemon.none"), False
-        if stale:
-            return self._t("daemon.stale"), None
-        return self._t("daemon.warm"), True
+        health = self._rt.health
+        colour = health.colour
+        return (i18nmod.translated(self._t, health.message()),
+                True if colour == profile_health.OK
+                else (None if colour == profile_health.WARN else False))
 
-    def _set_daemon(self, text: str, ok) -> None:
+    def _set_link(self, text: str, ok) -> None:
         color = "#3c3" if ok else ("#888" if ok is None else "#c33")
-        self._daemon_var.set(text)
-        self._daemon_lbl.configure(foreground=color)
+        self._link_var.set(text)
+        self._link_lbl.configure(foreground=color)
 
     # -- status: read on a clock, not only when something asks ---------------
     #
@@ -3662,30 +3640,33 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         def work() -> None:
             kicked = False
-            stale = False
             try:
+                # THE THREE READINGS THE THREE STATUSES ARE MADE OF (#1911), and not one
+                # of them is a socket. Is there a client process; does a chunk reach its
+                # Lua VM (our own wiring); does the game SERVER answer. The last is an
+                # active probe made below on its own throttle — here we only read what
+                # it last said.
                 found = self._game_probe()
-                warm = self._daemon_up()
-                # IS THE DAEMON ON THE CLIENT THAT IS RUNNING? One loopback round trip,
-                # on THIS thread because it is a socket. Two pids, compared — the fault
-                # that cost six pointless client restarts is a fact, not an inference
-                # (#1268, panel/runtime/recovery.py).
-                stale = self._daemon_stale(found, warm)
-                # HAS THE ACCOUNT BEEN TAKEN? Asked whatever the sockets say, because a
-                # kick can sit behind a link that reads `online` — one surviving
-                # conversation out of six — and while this was asked only on a lost link
-                # the one flag that knew was never consulted for two and a quarter hours
-                # (#1270, docs/research/server-link-status.md §5.3). On THIS thread: it
-                # is a round trip into the game VM.
-                kicked = self._read_kicked(found, warm)
-                # …AND IS IT IN A SESSION AT ALL (#1299)? The last thing between «looks
-                # fine» and «is fine»: a client at the login screen has sockets, a pid
-                # and a warm daemon, and answers everything else with a plausible lie.
-                session = self._read_session(found, warm, stale)
+                lands = self._rt.game.plumbing()
+                now = time.time()
+                server = self._rt.recovery.server_state(now)
+                # …and the one reading that tells a WEDGED client from a bug of ours.
+                # Asked only when nothing is landing: it enumerates windows.
+                responding = True
+                if lands == profile_health.NOT_LANDING:
+                    responding = self._rt.game.responding()
+                # HAS THE ACCOUNT BEEN TAKEN? Asked whatever else is true, because a kick
+                # can sit behind a link that looks perfect — one surviving conversation
+                # out of six — and it buys the other device a wait rather than a restart
+                # (#1270, #1291). On THIS thread: it is a round trip into the game VM.
+                kicked = self._read_kicked(found, lands)
+                # …AND IS IT IN A SESSION AT ALL (#1549)? The maintenance case: the
+                # client is up, we can drive it, and it is sitting on a closed door.
+                session = self._read_session(found, lands)
             except Exception as exc:          # noqa: BLE001 — a reading, never the panel
-                # «Не смогли прочитать» is its own answer and it is AMBER — never green,
-                # and never the red of a client that is demonstrably gone (#1296). The
-                # strip keeps whatever it last said; only the light stops claiming.
+                # A reading that never came is «no client» with the fault in the tooltip
+                # (#1911): three colours means three, and there is no colour for «could
+                # not look». The strip keeps whatever it last said.
                 self._rt.health.failed(exc)
                 self._dbg.error("status poll failed", exc_info=True)
                 self._later(0, self._paint_tab_light)
@@ -3697,98 +3678,56 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # (panel/runtime/health.py). Made here rather than on the Tk thread because
             # everything it needs is in this frame, and it is plain data — no widget is
             # touched until the hand-over below.
-            # WHAT THE TABLE ACTUALLY HELD, kept for the probe to be paired with
-            # (#1910). Taken here because `found` is already in hand and the walk is
-            # already paid for; asking again on the Tk thread would be a second walk of
-            # a few hundred sockets per poll.
-            try:
-                # `client_sockets` takes PIDS off the shared walk — `found` is the
-                # verdict, not the pid list, and handing it one is how the first draft
-                # of this note produced «—» for every reading.
-                self._link_detail = "%s | link=%s dead=%s conn=%s" % (
-                    game_link.explain(game_link.client_sockets(
-                        [found.pid] if found.pid else [])),
-                    found.link, found.dead, "yes" if found.conn else "no")
-            except Exception as exc:          # noqa: BLE001 — a note, never the poll
-                self._link_detail = f"unreadable: {exc}"
-            # …AND WHETHER THE SERVER HAS JUST ANSWERED (#1910). A reading somebody
-            # else already took — never a fresh round trip for the sake of a colour.
-            confirmed = self._rt.recovery.link_confirmed(time.time())
+            health = self._rt.health.update(found, plumbing=lands, server=server,
+                                            responding=responding,
+                                            error=self._rt.game.error())
             shown = runtime.game_process.worded(
-                found, confirmed, runtime.game_process.profile_user(self._binder))
-            self._rt.health.update(found, warm=warm, stale=stale,
-                                   session=session, kicked=kicked,
-                                   confirmed=confirmed)
+                found, health.colour == profile_health.OK,
+                runtime.game_process.profile_user(self._binder))
             # …and THE GATE, asked here on the worker rather than in the paint below.
-            # It reads the verdict written one line up, so it costs a dict lookup — but
-            # right after a daemon has been started or stopped it asks the port instead,
-            # and a socket probe belongs on this thread and not on the one that draws
-            # (panel/runtime/gate.py). Asked every poll on purpose: the schedule only
-            # asks when an errand comes due, and the mark on screen must not wait for one.
+            # It reads the verdict written one line up, so it costs a dict lookup.
             self._rt.gate.alive()
-            # THE DAEMON'S SUPERVISOR, AND IT ASKS NOTHING (#1910). A daemon's job is to
-            # come up and listen; it does not depend on a client, on the gate, or on the
-            # link. So the port not answering is answered here, on the ordinary beat,
-            # with no cooldown to earn and no verdict to pass — the recovery still says
-            # WHY in its own words below, but it is no longer the thing that decides
-            # whether an attempt happens at all.
-            #
-            # THE ONE EXCEPTION IS THE PERSON'S OWN SWITCH. «Профиль работает» unticked
-            # means this account is not playing, and `panic.stop` stops the daemon on
-            # purpose (#1882) — a supervisor that put it straight back would make that
-            # press meaningless. Agreed explicitly rather than assumed.
-            if not warm and self._rt.power.on:
-                self._start_daemon()
+            # THE LINK'S OWN SUPERVISOR, AND IT IS ONE LINE NOW (#1911). There is no
+            # process to start: if a chunk is not landing, take hold of the client
+            # again. The attach is seconds and blocks, so it goes on its own thread —
+            # and it is not tried while the person has switched the profile off, which
+            # is what «Стоп всё» arranged.
+            if lands == profile_health.NOT_LANDING and ok and self._rt.power.on:
+                self._take_link()
             self._later(0, lambda: (
                 self._set_status_msg(shown),
                 self._status_lbl.configure(
-                    # GREEN ON A FRESH ANSWER (#1910). The colour follows the SENTENCE,
-                    # and the sentence is the one the confirmation may have upgraded —
-                    # a strip whose words and colour disagreed would be worse than
-                    # either of them alone.
-                    foreground=LINK_COLOURS.get(
-                        runtime.game_process.ONLINE
-                        if (confirmed and found.link == game_link.UNKNOWN)
-                        else found.link, "#888")),
+                    foreground=HEALTH_COLOURS.get(health.colour, "#888")),
                 # …and the tab's own light, which is the only thing about this profile
                 # that is visible while ANOTHER profile's page is on screen (#1299).
                 self._paint_tab_light(),
-                # THE INDICATOR SAYS WHAT `health` FOUND, not what the port did. «Тёплый»
-                # over a daemon holding a client that has gone is the sentence this whole
-                # task is about (#1286): the port answers, so `up()` is True, and the
-                # person reading the strip is told the one thing that is not so. The
-                # reading is free here — the poll has just made it, two lines up.
-                self._set_daemon(*self._daemon_word(warm, stale)),
-                self._dbg_status(ok, warm, found.link, stale),
-                self._paint_game_buttons(found.link),
-                self._announce_link(found),
-                self._recovery_check(found, kicked, stale, warm, session),
+                # THE INDICATOR SAYS WHICH OF THE THREE THIS IS, in the same words the
+                # tooltip and the phone use — one verdict, drawn three places.
+                self._set_link(*self._link_word()),
+                self._dbg_status(ok, health),
+                self._paint_game_buttons(ok),
+                self._announce_link(health),
+                self._recovery_check(found, health, kicked, session),
                 self._paint_power(),
                 self._paint_gate(),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
 
-    def _announce_link(self, found) -> None:
-        """Say it in the log the moment the server connection goes, and when it returns.
+    def _announce_link(self, health) -> None:
+        """Say it in the log the moment the game stops answering, and when it returns.
 
         The strip is only true while somebody is looking at it, and this is the state
-        nobody looks for: the client is up, the daemon is warm, every errand reports
-        success, and the account has been doing nothing since some hour of the night.
-        A line in the log is what puts a time on it afterwards.
+        nobody looks for: the client is up, every errand reports success, and the account
+        has been doing nothing since some hour of the night. A line in the log is what
+        puts a time on it afterwards.
 
-        Only the edges are said — a lost link would otherwise repeat every eight seconds
-        until morning — and the loss only after WATCHDOG_STRIKES consecutive readings of
-        it, the same patience the crash gets and for the same reason: a client that is
-        reconnecting has, for a moment, exactly the sockets of one that has given up.
-        The recovery is said only after a loss was announced, so an ordinary start-up
-        does not announce a connection nobody watched go.
+        Only the edges are said — an amber link would otherwise repeat every eight
+        seconds until morning — and the loss only after WATCHDOG_STRIKES consecutive
+        readings of it, the same patience the crash gets and for the same reason: a
+        client reconnecting looks briefly exactly like one that has given up.
         """
-        gp = runtime.game_process
-        if found.link != gp.LOST:
-            # …and only ONLINE is a recovery. A client that was killed and relaunched
-            # goes LOST → OFFLINE → ONLINE, and «клиент снова на связи» is the
-            # watchdog's line to say about that, not this one's.
-            if self._link_gone >= WATCHDOG_STRIKES and found.link == gp.ONLINE:
+        if health.reason != profile_health.NO_TRAFFIC:
+            if self._link_gone >= WATCHDOG_STRIKES and health.colour == profile_health.OK:
                 self._say("game", "log.game.link_back")
             self._link_gone = 0
             return
@@ -3805,50 +3744,25 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if getattr(self, "_status_msg", None) is not None:
             self._status_var.set(i18nmod.translated(self._t, self._status_msg))
 
-    def _daemon_stale(self, found, warm: bool) -> bool:
-        """Is this profile's daemon holding a client that is not the one running?
-
-        The positive half of #1268, and it is two integers rather than a diagnosis: the
-        pid `{"op":"ping"}` names against the pid the probe just found. Anything missing
-        — no daemon, no client, a daemon that will not say — is ``False``, because the
-        cure is a restart and «I could not tell» is never a reason for one (the rule
-        `panel/runtime/recovery.py` already keeps for `unknown` link readings).
-
-        Runs on the status thread: it is a socket, and the reading guards itself with
-        `up()` so a profile whose daemon is down pays nothing for asking.
-
-        ONE DEFINITION OF STALE, and it lives on the link (`GameLink.health`) because
-        `ensure` has to ask the same question before it says «already warm» over a
-        daemon holding a client that is gone (#1286). A warm daemon that names NO client
-        while one is running is the same fault wearing a different answer — it never
-        attached, or it let go — and the same restart fixes it; it is also what a daemon
-        says in the seconds after a client is replaced, which is what DAEMON_STRIKES is
-        for.
-        """
-        if not warm or not found.running or not found.pid:
-            return False
-        return self._rt.game.health(found.pid) == runtime.daemon.DAEMON_STALE
-
-    def _recovery_check(self, found, kicked: bool = False,
-                        stale: bool = False, warm: bool = True,
+    def _recovery_check(self, found, health, kicked: bool = False,
                         session: str = "") -> None:
         """Restart a client the server has stopped hearing — the other half of a crash.
 
         The watchdog below notices the PROCESS going away. This notices the account
         going away underneath a process that is still drawing: a server that hung up on
         an idle client, or a session kicked because the account logged in on another
-        device. From outside they are one state (`link == lost`) and they have one cure.
+        device. Both are amber with the reason `no_traffic` (#1911), and they have one
+        cure.
+
+        **THE OTHER AMBER IS NOT FED IN HERE, EVER.** `no_connection` means a chunk does
+        not reach the client's VM while the client itself is answering Windows — that is
+        OUR wiring, the cure is a fix, and restarting a client over it is #1268's six
+        pointless relaunches committed on purpose. `client_hung` is fed in: a wedged
+        process is exactly what a restart is for.
 
         Everything that makes it safe to leave on overnight — a run of readings rather
-        than one, `unknown` never counting, a cooldown between restarts — is in
-        `panel/runtime/recovery.py` and pinned by `tests/test_panel_recovery.py`. What
-        is here is the wiring: the same `watchdog` switch as the crash half (from the
-        person's side it is one promise, and a dead client and a deaf one are the same
-        thing to whoever is not looking), the log line, and the press.
-
-        Nothing pauses the schedule for this, because the schedule pauses itself: with
-        the client down `Schedule.gate` holds every errand except the recovery one and
-        says so, and lifts on its own when the client is back (#1259).
+        than one, an unasked question never counting, a cooldown between restarts — is
+        in `panel/runtime/recovery.py` and pinned by `tests/test_panel_recovery.py`.
         """
         now = time.time()
         # HOW LONG A KICK BUYS THE OTHER DEVICE, off the profile rather than out of the
@@ -3857,58 +3771,44 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._rt.recovery.kick_hold_sec = 60.0 * self._opt_int("kick_hold_min",
                                                                low=0, high=1440)
         self._paint_recovery(self._rt.recovery.state(now))
-        # THE DAEMON FIRST. It is asked on every poll, not only on a lost link, because
-        # its fault is true while the link is perfectly ONLINE — which is the shape it
-        # had live, and the reason a decision hung off `link == lost` would never have
-        # been asked at all (#1268).
-        self._act_on(self._rt.recovery.note_daemon(stale, now))
-        # …AND THE OTHER DAEMON FAULT: nothing answers the port at all (#1410). Nobody in
-        # a running panel used to put THAT one back — `ensure()` is called from the errand
-        # path and the gate holds every errand while the daemon is down, so the cure sat
-        # behind the gate that was waiting for it. Live that left a daemon down for ten
-        # minutes after the client was already playing, and the profile farmed nothing
-        # until the panel itself was restarted.
-        #
-        # «Стоп всё» is answered HERE rather than in the decision: stopping this profile's
-        # daemon is half of that press, so while the profile is stopped the reading is
-        # simply not a fault and no run of them accumulates (#1393). The client is
-        # deliberately not asked about — see `Recovery.note_daemon_down`.
-        self._act_on(self._rt.recovery.note_daemon_down(
-            not warm and self._rt.power.on, now))
+        deaf = health.reason in (profile_health.NO_TRAFFIC, profile_health.CLIENT_HUNG)
         # «Is somebody at the machine» — the gate that stops this closing a window
         # a person is playing in, which it did once (#1259).
-        self._act_on(self._rt.recovery.note(found.link, now,
+        self._act_on(self._rt.recovery.note(deaf, now,
                                             idle_sec=game_link.idle_sec(),
-                                            kicked=kicked, dead=found.dead))
-        # …AND THE CONFIRMATION THE DECISION ASKED FOR (#1910). `note` above sets the
-        # want only once every other reason to restart is already satisfied, so a healthy
-        # account never reaches this line and never pays for a probe.
-        if self._rt.recovery.probe_due(now):
+                                            kicked=kicked, running=found.running,
+                                            talking=health.colour == profile_health.OK))
+        # …AND THE ACTIVE QUESTION THE WHOLE MODEL RESTS ON (#1911). Two reasons to ask:
+        # the decision wants confirmation before it restarts anything, or the light has
+        # simply not heard from the server lately and green has to be earned rather than
+        # assumed. Both are throttled inside the recovery, so this is at most one round
+        # trip every couple of minutes on a healthy profile.
+        if found.running and health.plumbing == profile_health.LANDING \
+                and (self._rt.recovery.probe_due(now)
+                     or self._rt.recovery.probe_idle_due(now)):
             self._probe_server(now)
         # …AND THE CLOSED DOOR (#1549). Last, because every branch above it is a fault
         # and this one is not: the client is fine and the server is shut, which is the
-        # state recorded in docs/research/server-maintenance.md where `game=up
-        # link=online daemon=warm` held for the whole window and nothing had a cure.
+        # state recorded in docs/research/server-maintenance.md.
         #
         # `session` is `game_clock`'s three-valued answer and it is passed through as
         # three: `in_session` is playing, `login` is demonstrably not, and «не смог
-        # спросить» is `None` — which maintenance also looks like from here, and which
-        # `note_session` deliberately treats as not-playing after its grace.
+        # спросить» is `None` — which maintenance also looks like from here.
         import game_clock                     # lazy: tools/lib, and only on this path
 
         playing = (True if session == game_clock.IN_SESSION
                    else False if session == game_clock.LOGIN_SCREEN else None)
         self._act_on(self._rt.recovery.note_session(
-            playing, found.link, now, idle_sec=game_link.idle_sec()))
+            playing, health.colour == profile_health.OK, now,
+            idle_sec=game_link.idle_sec()))
 
     def _act_on(self, said) -> None:
         """Say what the recovery decided, and do it. One door for both decisions.
 
         ASK THE SETS, never a constant. `ACT_KICK` was added beside `ACT` and the panel
         went on testing `key == ACT`, so a kicked client was told it was being restarted
-        and never was (#1259). There are four acts now and two cures, and the only way
-        that stays true as a fifth arrives is for the wiring to ask which set the key is
-        in rather than to enumerate keys.
+        and never was (#1259). There is ONE cure left — the client (#1911) — and the sets
+        stay, because that is what keeps a fifth act from being announced and never done.
         """
         if said is None:
             return
@@ -3919,21 +3819,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # who has to be told that their errands are pressing nothing, since nothing
             # is going to act on it for them.
             self._say("game", key, **fmt)
-            return
-        if key in runtime.recovery.DAEMON_STARTS:
-            # A DAEMON THAT IS DOWN, AND THE ONE CURE THAT IS NOT THE WATCHDOG'S (#1410).
-            # In front of the switch on purpose: `watchdog` is «поднимать ИГРУ при
-            # падении», the boot brings this profile's daemon up whatever it is set to,
-            # and with the port dead nothing in the profile works at all — no timer, no
-            # trigger, no reading on screen, and no relaunch of the client either, since
-            # the gate holds that too. Behind the gate is where it must NOT be: the gate
-            # is shut precisely because this daemon is down.
-            #
-            # Said only if a start was actually begun. One start at a time — the boot's
-            # own `ensure`, the «⭮» button and this share a lock — and a press that found
-            # one already in flight has nothing to announce.
-            if self._start_daemon():
-                self._say("game", key, **fmt)
             return
         if not self._opt_bool("watchdog"):
             return
@@ -3969,13 +3854,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
             if key in runtime.recovery.KICK_ACTS:
                 self._rt.recovery.note_kick_restart(time.time())
             self._rt.play_async("restart_game")
-        elif key in runtime.recovery.DAEMON_RESTARTS:
-            # THE SAME METHOD THE «⭮» BUTTON PRESSES, deliberately — the cure already
-            # existed beside the daemon indicator and only the decision to reach for it
-            # was missing. A second one here would be a second thing to keep in step,
-            # and the first draft of this actually wrote one: a duplicate `def` that
-            # silently overrode the button's.
-            self._restart_daemon()
 
     #: The scenario the server probe plays, and the one thing it needs: a warzone that
     #: is NOT this account's. The client answers about its own out of its own memory, so
@@ -4041,7 +3919,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._rt.recovery.note_probe(ok, time.time())
         self._say("game", "log.game.probe_alive" if ok else "log.game.probe_deaf")
 
-    def _read_session(self, found, warm: bool, stale: bool) -> str:
+    def _read_session(self, found, lands: str) -> str:
         """Is this client in a session, or sitting at the login screen? (#1299)
 
         THE READING THAT DECIDES GREEN. Everything above it is free and none of it can
@@ -4053,10 +3931,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         two failure modes kept apart: «answered, and it is not a clock» is the login
         screen and paints red; «could not ask» is amber and never anything else.
 
-        ASKED ONLY OF A CLIENT THAT ALREADY LOOKS FINE, which is what makes it cheap: a
-        client that is off, lost, unknown, or whose daemon is down or stale, is already
-        amber or red on readings that cost nothing, so there is nothing for a round trip
-        to add. Throttled at :data:`SESSION_POLL_SEC` and measured at 31–81 ms.
+        ASKED ONLY OF A CLIENT WE CAN ACTUALLY DRIVE, which is what makes it cheap: a
+        client that is not there, or one nothing lands in, is already red or amber on
+        readings that cost nothing, so there is nothing for a round trip to add.
+        Throttled at :data:`SESSION_POLL_SEC` and measured at 31–81 ms.
 
         Forgiving in exactly the way `_read_kicked` is: a read that failed leaves the
         last answer standing, because the alternative is a tab that flickers amber every
@@ -4065,9 +3943,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         import game_clock                     # lazy: tools/lib, and only on this path
 
-        gp = runtime.game_process
-        if not warm or stale or not getattr(found, "running", False) \
-                or found.link != gp.ONLINE:
+        if lands != profile_health.LANDING or not getattr(found, "running", False):
             self._session_at, self._session_was = 0.0, ""
             return game_clock.CANNOT_TELL
         now = time.time()
@@ -4082,7 +3958,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._session_was = said
         return self._session_was or game_clock.CANNOT_TELL
 
-    def _read_kicked(self, found, warm: bool) -> bool:
+    def _read_kicked(self, found, lands: str) -> bool:
         """Is the client showing the game's own «вход с другого устройства» modal?
 
         ASKED WHATEVER THE SOCKETS SAY (#1270). It used to be asked only while the link
@@ -4098,11 +3974,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         `tools/lib/game_kick.py` — the reading had to become conclusive on its own
         before it could be trusted against a healthy-looking link.
 
-        Only ever through a WARM daemon, and only with a client to ask: `evaluator()`
-        would otherwise build a local `LuaEval`, which costs seconds and an attach, on a
-        status poll that runs every eight seconds for ever.
+        Only ever asked while chunks are landing, and only with a client to ask: an
+        attach costs seconds, and a status poll that ran one every eight seconds for
+        ever would be paying it all night over a game that is not running.
         """
-        if not warm or not getattr(found, "running", False):
+        if lands != profile_health.LANDING or not getattr(found, "running", False):
             self._kick_at, self._kick_was = 0.0, False
             return False
         now = time.time()
@@ -4110,15 +3986,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # otherwise on the throttle. The previous answer is what fills the gaps: the
         # recovery counts CONSECUTIVE readings, and a throttle that reported «no kick»
         # in between would keep resetting the run it exists to feed.
-        due = (found.link == runtime.game_process.LOST or self._kick_was
-               or (now - self._kick_at) >= KICK_POLL_SEC)
+        due = self._kick_was or (now - self._kick_at) >= KICK_POLL_SEC
         if not due:
             return self._kick_was
         try:
             import game_kick
 
-            said = game_kick.read(self._rt.game.evaluator(),
-                                  link_lost=found.link == runtime.game_process.LOST)
+            said = game_kick.read(self._rt.game.evaluator())
         except Exception:                    # noqa: BLE001 — a reading, never the fault
             said = None
         self._kick_at = now
@@ -4146,26 +4020,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # that never finished. It finishes; the person is owed the minute it does.
             text = self._t("status.recovery.player",
                            mins=-(-int(st.get("player_hold_left", 0)) // 60))
-        elif why == "daemon_cooldown":
-            text = self._t("status.recovery.daemon_wait",
-                           mins=int(st.get("daemon_cooldown_left", 0) // 60) + 1)
-        elif st.get("daemon_down"):
-            # NOTHING ANSWERS THE PORT — the other daemon fault, and it must not be drawn
-            # as the first one (#1410). «Держит не тот клиент» and «не отвечает вовсе»
-            # both arrive as `blame == daemon`, and a strip saying the first over a
-            # process that is not there sends a person hunting for it.
-            text = self._t("status.recovery.daemon_down",
-                           n=st.get("daemon_down", 0),
-                           of=st.get("down_strikes", 0),
-                           done=st.get("daemon_restarts", 0))
-        elif st.get("blame") == "daemon":
-            # WHAT is being restarted, not just that something is. A person watching the
-            # strip during the six pointless restarts had no way to learn that the panel
-            # was reaching for the wrong thing (#1268).
-            text = self._t("status.recovery.daemon",
-                           n=st.get("daemon_stale", 0),
-                           of=st.get("daemon_strikes", 0),
-                           done=st.get("daemon_restarts", 0))
         elif st.get("stalled_for"):
             # THE CLOSED DOOR (#1549). Above `fruitless` and below the two deliberate
             # holds, because it is a state of the WORLD rather than a fault: the client
@@ -4718,7 +4572,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _paint_gate(self) -> None:
         """Say on screen that nothing may run, and for how long (#1393).
 
-        Draws the ANSWER the status poll's worker has already taken (`DaemonGate.state`)
+        Draws the ANSWER the status poll's worker has already taken (`LinkGate.state`)
         and never asks for a fresh one: a paint that probes a socket is a paint that
         freezes the window, and this one runs on every poll and after every press.
         """
@@ -4831,8 +4685,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         def work() -> None:
             try:
-                if not self._daemon_up() and not self._ensure_daemon():
-                    self._say(tag, "log.no_daemon")
+                if not self._link_lands() and not self._ensure_link():
+                    self._say(tag, "log.no_link")
                     return
                 for ln in self._client.run(chunk, marker="ACT", settle=settle):
                     self._log_put(f"[{tag}] {ln}")
@@ -4886,7 +4740,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             return
         gamectl.play(self._rt, control.id)
 
-    def _paint_game_buttons(self, link: str) -> None:
+    def _paint_game_buttons(self, running: bool) -> None:
         """Grey the presses that would mean nothing — off the SAME reading the phone gets.
 
         Runs on the Tk thread from the status poll, so «Закрыть игру» goes flat within
@@ -4899,7 +4753,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             if button is None:
                 continue
             try:
-                button.configure(state=("normal" if gamectl.available(control, link)
+                button.configure(state=("normal" if gamectl.available(control, running)
                                         else "disabled"))
             except tk.TclError:              # the page is going away under us
                 return
@@ -4949,8 +4803,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         def work() -> None:
             try:
-                if not self._daemon_up() and not self._ensure_daemon():
-                    self._say("cmd", "log.no_daemon")
+                if not self._link_lands() and not self._ensure_link():
+                    self._say("cmd", "log.no_link")
                     return
                 ctx = self._actions.context(
                     hwnd=0, on_event=lambda msg: self._log_put(f"[cmd] {msg}"))

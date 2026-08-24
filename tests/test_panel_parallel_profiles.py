@@ -384,7 +384,7 @@ class _Link:
     """The claim half of `GameLink`, with no daemon behind it — which is the case."""
 
     def __init__(self, profile: str, port: int) -> None:
-        from panel.runtime.daemon import GameLink
+        from panel.runtime.link import GameLink
 
         self.link = GameLink.__new__(GameLink)
         self.link._busy = False
@@ -393,12 +393,29 @@ class _Link:
         self.link._name = lambda: profile
         self.link._log = _SilentLog()
         self.link._client = None
-        self.link._client_port = port
+        self.link._client_for = (port, None)
+        self.link._dbg = None
+        self.link._said_fail = ""
+        self.link._user = lambda: None
         self.link._up_seen = (0.0, None, False)
         self.link._said_busy = None
 
     def __getattr__(self, name):
         return getattr(self.link, name)
+
+
+def _fresh() -> None:
+    """Start a case with nothing held — the registry AND the in-process lease (#1911).
+
+    The lease used to belong to a daemon per port, so two links on two ports could not
+    see each other's. The panel holds ONE Lua service per process now (one Windows
+    session holds one client), so the lease is shared by construction — which is the
+    point — and a case that wants a clean board has to say so.
+    """
+    claims.clear()
+    from panel.runtime import lua_service
+
+    lua_service.forget_local()
 
 
 class _SilentLog:
@@ -414,7 +431,7 @@ class _SilentLog:
 
 def test_two_profiles_on_ONE_client_take_turns_with_no_daemon_to_ask() -> None:
     """The hole: with no daemon, `_claim_lease` says yes to everybody."""
-    claims.clear()
+    _fresh()
     first, second = _Link("main", 47654), _Link("alt", 47654)
     try:
         assert first.claim("timer") is True
@@ -427,8 +444,16 @@ def test_two_profiles_on_ONE_client_take_turns_with_no_daemon_to_ask() -> None:
 
 
 def test_two_profiles_on_TWO_clients_never_wait_for_each_other() -> None:
-    claims.clear()
+    """TWO clients means two Windows sessions (#1911).
+
+    A desktop holds one Last War client — the second lives in its own session with its
+    own connector — so «two clients» is «one local link and one remote one», and they
+    share nothing: not the registry key, and not the in-process lease, which belongs to
+    the one client this panel's own session has.
+    """
+    _fresh()
     first, second = _Link("main", 47654), _Link("alt", 47655)
+    second.link._user = lambda: "other-session"
     try:
         assert first.claim("timer") is True
         assert second.claim("timer") is True
@@ -438,7 +463,7 @@ def test_two_profiles_on_TWO_clients_never_wait_for_each_other() -> None:
 
 
 def test_a_refusal_names_the_profile_that_is_holding_the_client() -> None:
-    claims.clear()
+    _fresh()
     first, second = _Link("main", 47654), _Link("alt", 47654)
     try:
         first.claim("timer")
@@ -457,7 +482,7 @@ def test_a_profile_cannot_release_the_client_another_one_is_driving() -> None:
     shutting down would hand the FIRST one's client to anybody, in the middle of its
     errand. That is the one failure this registry exists to prevent.
     """
-    claims.clear()
+    _fresh()
     first, second = _Link("main", 47654), _Link("alt", 47654)
     try:
         assert first.claim("timer") is True
@@ -471,7 +496,7 @@ def test_a_profile_cannot_release_the_client_another_one_is_driving() -> None:
 
 
 def test_nothing_is_left_held_when_a_claim_is_refused() -> None:
-    claims.clear()
+    _fresh()
     first, second = _Link("main", 47654), _Link("alt", 47654)
     try:
         first.claim("timer")
@@ -495,7 +520,7 @@ def test_a_profile_waiting_for_the_client_says_so_ONCE() -> None:
     into its own log — which is how a shared client came to read as two profiles' logs
     being crossed.
     """
-    claims.clear()
+    _fresh()
     first, second = _Link("main", 47654), _Link("alt", 47654)
     try:
         first.claim("timer")
@@ -530,7 +555,7 @@ def test_the_client_changing_hands_is_said_again() -> None:
 
 def test_getting_the_client_re_arms_the_line() -> None:
     """Once this profile has HAD the game, losing it again is news once more."""
-    claims.clear()
+    _fresh()
     first, second = _Link("main", 47654), _Link("alt", 47654)
     try:
         first.claim("timer")
@@ -692,10 +717,13 @@ def test_a_daemon_that_is_not_there_is_not_a_second_of_frozen_window() -> None:
     on the Tk thread, once per profile, whenever an account was not up yet. And the
     answer was never remembered, so asking twice cost two.
     """
-    from panel.runtime import daemon as daemonmod
+    from panel.runtime import link as daemonmod
 
     assert daemonmod.UP_TIMEOUT_SEC <= 0.5, daemonmod.UP_TIMEOUT_SEC
+    # A profile whose client lives in ANOTHER Windows session: the only link that still
+    # asks a port at all (#1911). The panel's own desktop is driven in-process.
     link = _Link("main", 47654)
+    link.link._user = lambda: "other-session"
     asked: list = []
 
     import lua_client

@@ -42,8 +42,9 @@
        reading can prove is proved, amber for «works in part» and for every «cannot
        tell», red for «is not playing». Tapping one looks at that account AND says, in
        words, which reading gave it that colour — a dot with no explanation leaves a
-       person staring at red with no way to tell whether to fix the client or the
-       daemon. Shown only with more than one account open, as the window's own strip is. -->
+       person staring at amber with no way to tell whether to restart the client or to
+       go and find our own bug. Shown only with more than one account open, as the
+       window's own strip is. -->
   <div id="profile-lights" class="lights" hidden></div>
 
   <main>
@@ -56,22 +57,22 @@
         <p id="power-mark" class="small"></p>
         <!-- WHY NOTHING IS HAPPENING — a different sentence from the mark above it
              (#1393). That one says somebody pressed «Стоп всё»; this one says the state
-             it left: this profile's daemon is down, so no timer, no trigger and no
-             watchdog will try anything until it is back. -->
+             it left: the panel cannot reach this client, so no timer, no trigger and no
+             watchdog will try anything until it can. -->
         <p id="gate-mark" class="small"></p>
         <!-- «Профиль работает»: one box for the whole account, the same one the
-             window draws (#1882). Off means off — the client is closed, the daemon
-             stopped, and nothing automatic runs until it is ticked again. -->
+             window draws (#1882). Off means off — the client is closed, the link let
+             go, and nothing automatic runs until it is ticked again. -->
         <div id="power-controls" class="controls"></div>
         <!-- Start it, close it, put it back. The three the window has, drawn from
              /api/state so the phone never decides for itself which of them applies. -->
         <div id="game-controls" class="controls"></div>
       </div>
       <div class="card">
-        <div class="row"><span data-i18n="web.ui.daemon"></span><b id="daemon-dot" class="pill"></b></div>
-        <p id="daemon-text" class="muted small"></p>
-        <p id="daemon-user" class="muted small" hidden></p>
-        <p id="daemon-shared" class="small bad" hidden></p>
+        <div class="row"><span data-i18n="web.ui.link"></span><b id="link-dot" class="pill"></b></div>
+        <p id="link-text" class="muted small"></p>
+        <p id="link-user" class="muted small" hidden></p>
+        <p id="link-shared" class="small bad" hidden></p>
       </div>
       <div class="card">
         <div class="row"><span data-i18n="web.ui.doing"></span><b id="busy-dot" class="pill"></b></div>

@@ -70,23 +70,26 @@ RESTART = "restart_game"
 # nothing else, and a fake that offers more would let a change slip past this test.
 
 class _Link:
-    """A daemon link that answers `up()` off a value the test sets."""
+    """A link that answers `ready()` — «does a chunk land» — off a value the test sets."""
 
     def __init__(self, up: bool = True) -> None:
         self.answer = up
-        self.probes = 0                 # how many times the PORT was asked
+        self.probes = 0                 # how many times the LINK was asked directly
         self.stopped = 0
         self.ensured = 0
         self.forgot = 0
 
-    def up(self) -> bool:
+    def ready(self, fresh: bool = False) -> bool:
         self.probes += 1
+        return self.answer
+
+    def up(self, fresh: bool = False) -> bool:
         return self.answer
 
     def forget_up(self) -> None:
         self.forgot += 1
 
-    def stop(self) -> bool:
+    def let_go(self) -> bool:
         self.stopped += 1
         self.answer = False
         return True
@@ -98,27 +101,34 @@ class _Link:
 
 
 class _Light:
-    """`ProfileHealth` as the gate sees it: one verdict and when it was made."""
+    """`ProfileHealth` as the gate sees it: one verdict and when it was made.
 
-    def __init__(self, daemon: str = profile_health.DAEMON_LIVE, at=None) -> None:
-        self.current = types.SimpleNamespace(daemon=daemon)
+    The gate asks ONE thing of it since #1911 — does a chunk reach the client — because
+    that is «может ли панель что-то нажать». A server that is silent is amber and does
+    NOT hold this gate: its cure is a restart, and refusing to press anything meanwhile
+    is how #1910 lost hours of banners to a socket reading that was simply wrong.
+    """
+
+    def __init__(self, plumbing: str = profile_health.LANDING, at=None) -> None:
+        self.current = types.SimpleNamespace(plumbing=plumbing)
         self.read_at = time.time() if at is None else at
 
-    def set(self, daemon: str, at=None) -> None:
-        self.current = types.SimpleNamespace(daemon=daemon)
+    def set(self, plumbing: str, at=None) -> None:
+        self.current = types.SimpleNamespace(plumbing=plumbing)
         self.read_at = time.time() if at is None else at
 
 
 class _RT:
     """Everything the gate and the press lean on, and nothing else."""
 
-    def __init__(self, up: bool = True, daemon: str = profile_health.DAEMON_LIVE) -> None:
+    def __init__(self, up: bool = True,
+                 plumbing: str = profile_health.LANDING) -> None:
         self.game = _Link(up)
-        self.health = _Light(daemon)
+        self.health = _Light(plumbing)
         self.said: list = []
         self.played: list = []
         self.power = powermod.Power()
-        self.gate = gatemod.DaemonGate(self)
+        self.gate = gatemod.LinkGate(self)
 
     def say(self, tag: str, key: str, **fmt) -> None:
         self.said.append(key)
@@ -164,7 +174,7 @@ def _cfg(**seconds) -> dict:
 
 # --- switching a profile off is two acts ------------------------------------
 
-def test_switching_off_closes_the_client_and_stops_the_daemon_and_does_nothing_else():
+def test_switching_off_closes_the_client_and_lets_the_link_go_and_nothing_else():
     """The whole flip, in two lines — and the four things it must NOT touch.
 
     The old one stopped the schedule, every tab, every child and the run in flight. Each
@@ -180,7 +190,7 @@ def test_switching_off_closes_the_client_and_stops_the_daemon_and_does_nothing_e
     assert powermod.set_on(rt, False) is True
 
     assert rt.played == ["quit_game"], rt.played
-    assert rt.game.stopped == 1, "the daemon was not stopped"
+    assert rt.game.stopped == 1, "the link was not let go"
     assert rt.power.off, "the switch was not written"
     # …and the gate was told, or the schedule would spend up to a poll's period acting
     # on a reading taken while the daemon was still there — and an errand that believes
@@ -188,7 +198,7 @@ def test_switching_off_closes_the_client_and_stops_the_daemon_and_does_nothing_e
     assert rt.game.forgot >= 1, "the gate was not told the daemon had gone"
 
 
-def test_the_daemon_still_goes_when_the_client_will_not_close():
+def test_the_link_still_goes_when_the_client_will_not_close():
     """A claim refused is not a reason to leave the daemon running.
 
     The press is what somebody reaches for when things have gone wrong, and «the client
@@ -198,7 +208,7 @@ def test_the_daemon_still_goes_when_the_client_will_not_close():
     rt = _RT()
     rt.play_async = lambda *a, **kw: False          # something more urgent holds it
     panicmod.stop(rt)                               # the act itself, flag already written
-    assert rt.game.stopped == 1, "the daemon survived a refused quit"
+    assert rt.game.stopped == 1, "the link survived a refused quit"
 
 
 def test_switching_back_on_brings_the_daemon_back_and_starts_no_client():
@@ -209,7 +219,7 @@ def test_switching_back_on_brings_the_daemon_back_and_starts_no_client():
     itself, once. A launch from here as well would be the second relaunch racing the
     first.
     """
-    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
     rt.power.set(False, time.time())
     assert powermod.set_on(rt, True) is True
     _settle(lambda: rt.game.ensured == 1)
@@ -228,7 +238,7 @@ def test_a_held_timer_makes_no_attempt_at_all():
     still due the moment the daemon is back.
     """
     tmp = Path(tempfile.mkdtemp())
-    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
     s = _Scheduler(tmp, _cfg(**{BASE: 3600, RESTART: 3600}),
                    gate=lambda name: rt.gate.reason())
     for _ in range(5):
@@ -253,7 +263,7 @@ def test_the_errand_that_puts_the_client_back_is_held_by_the_SWITCH():
     the missing client itself.
     """
     tmp = Path(tempfile.mkdtemp())
-    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
 
     # The switch is on and the daemon is gone: the cure runs.
     assert rt.gate.relaunch_held() is False
@@ -289,13 +299,13 @@ def test_the_daemon_coming_back_gives_one_run_and_not_a_queue():
     exactly as it would have if the daemon had never gone.
     """
     tmp = Path(tempfile.mkdtemp())
-    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
     s = _Scheduler(tmp, _cfg(**{BASE: 3600}), gate=lambda name: rt.gate.reason())
     for _ in range(5):
         s.sched.tick_once()
     assert s.ran == []
 
-    rt.health.set(profile_health.DAEMON_LIVE)
+    rt.health.set(profile_health.LANDING)
     rt.game.answer = True
     s.sched.tick_once()
     s.sched.tick_once()                       # …and the turn after it is not a repeat
@@ -354,7 +364,7 @@ def test_a_reading_nobody_has_refreshed_is_not_believed():
     assert rt.game.probes == 1, "the port was not asked"
 
     stale = _RT(up=False)
-    stale.health.set(profile_health.DAEMON_LIVE, at=time.time() - gatemod.FRESH_SEC - 1)
+    stale.health.set(profile_health.LANDING, at=time.time() - gatemod.FRESH_SEC - 1)
     assert stale.gate.alive() is False, "a reading older than FRESH_SEC was believed"
 
 
@@ -369,8 +379,8 @@ def test_a_verdict_from_before_the_stop_is_not_evidence_about_after_it():
     rt = _RT(up=True)
     assert rt.gate.alive() is True
 
-    rt.game.stop()                          # …the daemon is gone, the light is not yet
-    assert rt.health.current.daemon == profile_health.DAEMON_LIVE
+    rt.game.let_go()                        # …the link is gone, the light is not yet
+    assert rt.health.current.plumbing == profile_health.LANDING
     rt.gate.changed()
     assert rt.gate.alive() is False, "the gate quoted a verdict from before the stop"
 
@@ -394,16 +404,16 @@ def test_the_switch_shuts_the_gate_over_a_perfectly_live_daemon():
     assert rt.gate.alive() is True, "ticking it back on left the gate shut"
 
 
-def test_a_stale_daemon_is_not_an_alive_one():
-    """A port that answers is not a link that carries a chunk (#1286).
+def test_a_link_that_lands_nothing_is_not_an_alive_one():
+    """Reaching the client is what «alive» means (#1286, #1911).
 
-    An errand run against a daemon holding a client that has gone fails, is written down
-    as a failure and sits out its retry hold for nothing. Restarting THAT daemon is the
-    recovery's business and is deliberately not behind this gate.
+    An errand run through a link that carries nothing fails, is written down as a
+    failure and sits out its retry hold for nothing. Taking hold of the client again is
+    the poll's business and is deliberately not behind this gate.
     """
-    rt = _RT(daemon=profile_health.DAEMON_IS_STALE)
+    rt = _RT(plumbing=profile_health.NOT_LANDING)
     assert rt.gate.alive() is False
-    assert rt.gate.reason() == "timers.log.skip_daemon"
+    assert rt.gate.reason() == "timers.log.skip_link"
 
 
 def test_the_edge_is_said_once_and_the_state_is_left_on_screen():
@@ -414,13 +424,13 @@ def test_the_edge_is_said_once_and_the_state_is_left_on_screen():
     task is here to quieten; saying nothing at all is how a stopped panel and an idle one
     look the same (#1262). So: the change is said, and the mark carries it in between.
     """
-    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
     for _ in range(10):
         rt.gate.alive()
     assert rt.said.count("gate.log.held") == 1, rt.said
     assert rt.gate.state()["held"] is True
 
-    rt.health.set(profile_health.DAEMON_LIVE)
+    rt.health.set(profile_health.LANDING)
     for _ in range(10):
         rt.gate.alive()
     assert rt.said.count("gate.log.free") == 1, rt.said
@@ -441,7 +451,7 @@ def test_two_profiles_are_two_answers():
     profiles at once, each with its own daemon on its own port, and «all stopped» in one
     of them is not a sentence about any of the others (`CLAUDE.md`).
     """
-    first = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    first = _RT(up=False, plumbing=profile_health.NOT_LANDING)
     second = _RT()
     assert first.gate.alive() is False
     assert second.gate.alive() is True
@@ -464,8 +474,8 @@ def test_a_run_nobody_marked_as_a_press_is_held_and_says_so():
     """
     from panel.runtime import actions as actionsmod
 
-    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
-    assert rt.gate.blocks(BASE) == "action.held.daemon"
+    rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
+    assert rt.gate.blocks(BASE) == "action.held.link"
 
     said: list = []
     runner = actionsmod.ActionRunner(
@@ -473,7 +483,7 @@ def test_a_run_nobody_marked_as_a_press_is_held_and_says_so():
                                   put=lambda msg: None),
         gate=lambda name, human: rt.gate.blocks(name, human=human))
     assert runner.run(BASE) is False, "a held run played the scenario anyway"
-    assert said == ["action.held.daemon"], f"a held run said {said!r}, not the hold"
+    assert said == ["action.held.link"], f"a held run said {said!r}, not the hold"
 
 
 def test_the_hold_names_which_of_the_two_it_is():
@@ -493,7 +503,7 @@ def test_a_persons_press_is_never_held():
     Closing the client is the plainest case — it is what switching the profile OFF has
     to do, and a gate that held it would be holding its own cure.
     """
-    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    rt = _RT(up=False, plumbing=profile_health.NOT_LANDING)
     assert rt.gate.blocks("quit_game", human=True) == ""
     rt.power.set(False)
     assert rt.gate.blocks("quit_game", human=True) == ""

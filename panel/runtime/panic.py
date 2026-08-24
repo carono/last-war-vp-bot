@@ -82,7 +82,7 @@ def stop(rt) -> None:
     rt.say("panel", "panic.log")
 
     def second() -> None:
-        stop_daemon(rt)
+        let_link_go(rt)
         # Said when both acts are DONE rather than when they were asked for: the whole
         # value of the line is that it names the state the panel is now in, and a client
         # takes seconds to close.
@@ -102,37 +102,36 @@ def stop(rt) -> None:
         then()
 
 
-def stop_daemon(rt) -> bool:
+def let_link_go(rt) -> bool:
     """The second act on its own — and the gate is told, in the same breath.
 
-    Whoever stops a daemon has to say so (`panel/runtime/gate.py::changed`), or the
+    Whoever lets a link go has to say so (`panel/runtime/gate.py::changed`), or the
     schedule spends up to eight seconds — the status poll's period — believing the last
     verdict it was given. An errand that believes a daemon is warm calls `ensure()`, and
     `ensure()` would start the very daemon this has just stopped.
     """
     try:
-        return rt.game.stop()
+        return rt.game.let_go()
     finally:
         rt.gate.changed()
 
 
 def resume(rt) -> None:
-    """The switch going back ON for ONE profile: bring its daemon back.
+    """The switch going back ON for ONE profile: take hold of its client again.
 
-    The inverse of :func:`stop`, and deliberately not «start the client» as well: with a
-    daemon up the gate opens, and whatever puts a client back — the six-hourly
+    The inverse of :func:`stop`, and deliberately not «start the client» as well: with
+    the link back the gate opens, and whatever puts a client back — the six-hourly
     `restart_game`, the watchdog, the recovery — does it by itself, once. Starting one
     here as well would be the second relaunch racing the first, which is what the
     relaunch lock in `panel/runtime/host.py` exists to stop.
 
-    On a worker for the same reason as its opposite: `ensure` waits for a daemon to come
-    up, which is seconds.
+    On a worker for the same reason as its opposite: an attach is seconds.
     """
     def work() -> None:
         try:
             rt.game.ensure()
         except Exception:                 # noqa: BLE001 — a press, never the panel
-            rt.dbg("daemon").error("resume failed", exc_info=True)
+            rt.dbg("link").error("resume failed", exc_info=True)
         finally:
             rt.gate.changed()
             rt.say("panel", "panic.resumed")

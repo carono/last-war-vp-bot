@@ -89,30 +89,32 @@ def get(action: str):
     return BY_ID.get(str(action or ""))
 
 
-def is_up(link: str) -> bool:
-    """Is there a client to act on, given the four-state link?
+def is_up(running) -> bool:
+    """Is there a client to act on?
 
-    Everything except `offline` is a client: `lost` is one that cannot reach the
-    server, `unknown` is one whose sockets could not be read (an ordinary answer for a
-    second account, and not a fault). Both are clients, and both are worth restarting.
+    ONE READING, and it is the process (#1911). It used to be the four-state socket
+    verdict, where everything except `offline` counted as a client — which was the same
+    question asked the long way round, through a reading that could not answer it: the
+    sockets cannot say which conversation is the game, and for a night they called a
+    healthy client dead.
     """
-    return str(link or game_process.OFFLINE) != game_process.OFFLINE
+    return bool(running)
 
 
-def available(control, link: str) -> bool:
-    """May ``control`` be pressed with the client in state ``link``?"""
-    return bool(control) and control.wants_client == is_up(link)
+def available(control, running) -> bool:
+    """May ``control`` be pressed with the client as it is now?"""
+    return bool(control) and control.wants_client == is_up(running)
 
 
-def state(link: str, running: str = "") -> list:
+def state(up, playing: str = "") -> list:
     """The three presses as the phone receives them — id, word, question, may-I.
 
     Everything the browser needs to draw the row and nothing it could get wrong: it
     does not know which scenario a press plays, and cannot be taught to, because the
     press travels as an id and this module resolves it.
 
-    ``enabled`` is the WINDOW's rule exactly — the link, and nothing else — so a button
-    one front-end greys is greyed on the other. ``running`` is not a rule but a
+    ``enabled`` is the WINDOW's rule exactly — is there a client, and nothing else — so
+    a button one front-end greys is greyed on the other. ``playing`` is not a rule but a
     reading: which of the three is being played this second. The window says that on
     its activity strip and in its log, both of which are on screen the whole time; a
     phone showing one card at a time has neither in view, so it marks the button. How a
@@ -121,15 +123,15 @@ def state(link: str, running: str = "") -> list:
     """
     return [{"id": control.id, "label": control.label,
              "confirm": control.confirm,
-             "enabled": available(control, link),
-             "running": bool(running) and control.scenario == running}
+             "enabled": available(control, up),
+             "running": bool(playing) and control.scenario == playing}
             for control in CONTROLS]
 
 
-def play(rt, action: str, link: str | None = None) -> dict:
+def play(rt, action: str, up: "bool | None" = None) -> dict:
     """Say the line and play the scenario — the whole of what a press does.
 
-    ``link`` is what the presser believed the client was doing. Given, it is checked:
+    ``up`` is whether the presser believed there was a client. Given, it is checked:
     a phone that has been in a pocket for a minute may well be showing a «Стоп» for a
     client that is already gone, and pressing it would run a recipe to no purpose. Left
     out (the window, which greys its buttons off the same reading a moment earlier),
@@ -142,12 +144,12 @@ def play(rt, action: str, link: str | None = None) -> dict:
     control = get(action)
     if control is None:
         return {"error": "unknown"}
-    if link is not None and not available(control, link):
+    if up is not None and not available(control, up):
         return {"ok": False, "unavailable": True, "id": control.id}
     rt.say(TAG, control.saying)
     # A PERSON PRESSED IT — in the window or on the phone, this table is both front-
-    # ends' one door (#1910). Starting a client with the daemon down is precisely what
-    # these buttons are for, so the gate does not get to hold them.
+    # ends' one door (#1910). Starting a client while the link is amber is precisely
+    # what these buttons are for, so the gate does not get to hold them.
     started = rt.play_async(control.scenario, tag=TAG, human=True)
     return {"ok": bool(started), "busy": not started, "id": control.id,
             "name": control.scenario}

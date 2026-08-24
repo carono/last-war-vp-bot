@@ -315,8 +315,16 @@ How, and how not:
   prints something the old code could not, that line appearing in a run. «Перезапустил» on
   its own is a sentence, not evidence.
 
-The Lua daemon is a separate process and does NOT need this — it is the panel's own
-Python that is frozen at import time.
+**And the restart now costs the warm VM too (#1911).** There is no Lua daemon process
+any more: the panel holds the game's Lua VM itself (`panel/runtime/lua_service.py`),
+so a restart drops the attach and pays for a new one — seconds, once, per profile whose
+client is on this desktop. It changes nothing about the rule: a fix nobody restarted into
+is a fix that is not there.
+
+The one process that still exists is the connector for a client in ANOTHER Windows
+session (`tools/lua_daemon.py`), started and owned by the panel that needs it. It is not
+supervised, not re-elected and not «warm» or «stale» — a panel that cannot reach it
+starts another one.
 
 ### Definition of done
 

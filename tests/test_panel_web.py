@@ -213,7 +213,7 @@ class _Runtime:
         # …and the gate, for the same reason (#1393): `/api/state` sends the phone
         # whether anything may run at all, and the real object is pure state — it reads
         # the light above and this runtime's `game.up()`, and probes nothing until asked.
-        self.gate = gatemod.DaemonGate(self)
+        self.gate = gatemod.LinkGate(self)
         # …and the profile's one light, for the same reason: `/api/profiles` draws the
         # phone's copy of the tab strip out of the LAST verdict the window's status poll
         # made (#1299), and a fake would pin a shape this file invented.
@@ -307,8 +307,8 @@ def test_the_state_says_what_the_runtime_says():
         rt, api = _api(home)
         state = api.state()
         assert state["profile"] == "test"
-        assert state["daemon"]["port"] == 47654
-        assert state["daemon"]["up"] is False
+        assert state["link"]["port"] == 47654
+        assert state["link"]["up"] is False
         assert state["timers"]["on"] == 1, state["timers"]
         # The TITLE — see `test_the_front_page_names_the_errand_rather_than_its_id`.
         assert state["timers"]["next_name"] == "Collect"
@@ -667,18 +667,20 @@ def test_every_open_account_carries_its_own_light():
     """The phone's copy of the window's tab strip (#1299).
 
     One entry per open account, with the colour and the words already said — and a
-    profile nothing has polled yet is AMBER, never green: a light that reads «all
-    fine» because nobody looked is the one thing the whole rule exists to prevent.
+    profile nothing has polled yet is RED, never green (#1911): amber means «there is a
+    client and no traffic», so it may not double as «nobody has looked», and a light
+    that reads «all fine» because nobody looked is what the whole rule exists to stop.
     """
     with tempfile.TemporaryDirectory() as home:
         first, second, _ws = _two_profiles(home)
+        import profile_health as ph
+
         second.health.update(
-            type("_P", (), {"link": "online", "running": True,
-                            "message": "online (pid 1)"})(),
-            warm=True, stale=False, session="in_session")
+            type("_P", (), {"running": True, "message": "running (pid 1)"})(),
+            plumbing=ph.LANDING, server=ph.ANSWERING)
         lights = apimod.WebApi(first).profiles()["lights"]
         assert [light["name"] for light in lights] == ["main", "second"], lights
-        assert lights[0]["colour"] == "warn" and lights[0]["reason"] == "unread", lights
+        assert lights[0]["colour"] == "bad" and lights[0]["reason"] == "no_client", lights
         assert lights[1]["colour"] == "ok", lights
         # …and each of them says WHY, in words, so a tap can explain the colour.
         assert all(light["text"] and light["tip"] for light in lights), lights
@@ -827,16 +829,25 @@ def test_a_certificate_that_will_not_load_refuses_to_serve():
 # window plays, and that the two front-ends decide availability out of the ONE table —
 # a phone offering «Стоп» that the window greys out is the divergence CLAUDE.md forbids
 # and the reason `panel/runtime/game_control.py` exists at all.
-def _link_is(api, rt, link: str) -> None:
-    """Pretend the probe found the client in this state, without a process to find."""
-    api._status[rt.profiles.active] = (time.time(), link != gamectl.game_process.OFFLINE,
-                                       link, "")
+def _link_is(api, rt, running) -> None:
+    """Pretend the probe found the client like this, without a process to find.
+
+    ``running`` is the whole question the presses turn on since #1911: is there a client.
+    The four-state socket verdict is gone — it could not say which conversation was the
+    game, and it answered «dead» over a client the server was talking to all night.
+    """
+    running = bool(running)
+    import profile_health as ph
+
+    api._status[rt.profiles.active] = (
+        time.time(), running, ph.WARN if running else ph.BAD,
+        ph.NO_TRAFFIC if running else ph.NO_CLIENT, "")
 
 
 def test_the_state_page_carries_the_three_presses():
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
-        _link_is(api, rt, gamectl.game_process.ONLINE)
+        _link_is(api, rt, True)
         controls = api.state()["game"]["controls"]
         assert [c["id"] for c in controls] == ["launch", "quit", "restart"]
         # The words are locale KEYS the browser says out of the same table the window
@@ -851,10 +862,10 @@ def test_a_press_that_would_mean_nothing_is_not_offered():
     """«Стоп» with no client, «Запуск» with one — the same rule the window greys by."""
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
-        _link_is(api, rt, gamectl.game_process.OFFLINE)
+        _link_is(api, rt, False)
         off = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
         assert off == {"launch": True, "quit": False, "restart": False}
-        _link_is(api, rt, gamectl.game_process.ONLINE)
+        _link_is(api, rt, True)
         on = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
         assert on == {"launch": False, "quit": True, "restart": True}
 
@@ -868,7 +879,7 @@ def test_a_stranded_client_may_still_be_stopped_and_restarted():
     """
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
-        for link in (gamectl.game_process.LOST, gamectl.game_process.UNKNOWN):
+        for link in (True,):
             _link_is(api, rt, link)
             row = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
             assert row == {"launch": False, "quit": True, "restart": True}, link
@@ -877,7 +888,7 @@ def test_a_stranded_client_may_still_be_stopped_and_restarted():
 def test_pressing_one_plays_the_scenario_and_says_so():
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
-        _link_is(api, rt, gamectl.game_process.ONLINE)
+        _link_is(api, rt, True)
         answer = api.game("restart")
         assert answer["ok"] and rt.played == ["restart_game"]
         # …under the game tag, so the log does not file it as a scenario somebody ran
@@ -890,7 +901,7 @@ def test_pressing_the_one_that_no_longer_applies_runs_nothing():
     """A phone out of a pocket is showing a minute-old page, and a thumb is faster."""
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
-        _link_is(api, rt, gamectl.game_process.OFFLINE)
+        _link_is(api, rt, False)
         answer = api.game("quit")
         assert answer["unavailable"] and not answer["ok"]
         assert rt.played == [], "a recipe ran for a client that is not there"
@@ -899,7 +910,7 @@ def test_pressing_the_one_that_no_longer_applies_runs_nothing():
 def test_a_press_refused_by_the_claim_is_busy_and_not_an_error():
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
-        _link_is(api, rt, gamectl.game_process.ONLINE)
+        _link_is(api, rt, True)
         rt.busy_next = True
         answer = api.game("quit")
         assert answer["busy"] and not answer["ok"]
@@ -918,7 +929,7 @@ def test_a_press_lands_on_the_account_it_names():
     with tempfile.TemporaryDirectory() as home:
         first, second, _ws = _two_profiles(home)
         api = apimod.WebApi(first)
-        _link_is(api, second, gamectl.game_process.ONLINE)
+        _link_is(api, second, True)
         api.game("quit", "second")
         assert second.played == ["quit_game"] and first.played == []
 
@@ -949,7 +960,7 @@ def test_the_window_and_the_phone_draw_the_same_three():
             # …and the greying is the table's rule, asked of the table, for both answers
             # it has: a link that is up enables what `available` enables, and one that
             # is not disables what it disables.
-            for link in (gamectl.game_process.ONLINE, gamectl.game_process.OFFLINE):
+            for link in (True, False):
                 app._paint_game_buttons(link)
                 for control in gamectl.CONTROLS:
                     on = str(buttons[control.id].cget("state")) != "disabled"

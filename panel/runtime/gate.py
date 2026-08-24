@@ -22,7 +22,7 @@ than a round trip. Two things keep it from being a stale belief instead of a fac
 * a reading older than :data:`FRESH_SEC` is not used at all — a runtime with no window
   behind it (a tab launched on its own) has nobody polling, and «nobody has looked» may
   never read as «alive»;
-* :meth:`DaemonGate.changed` throws away everything known so far. Whoever starts or
+* :meth:`LinkGate.changed` throws away everything known so far. Whoever starts or
   stops a daemon says so, and the next question is answered by asking the port rather
   than by quoting a reading taken before the thing happened. Without it «Стоп всё» would
   leave up to eight seconds in which an errand still believed the daemon was warm — and
@@ -40,7 +40,7 @@ CLIENT back turned out to be the same shape: a daemon with no client to attach t
 alive, so gating `launch_game` / `restart_game` on «is the daemon alive» is a closed loop.
 Live on 2026-08-24 a profile sat in it all afternoon: no client, seventeen daemon
 restarts, ZERO client restarts. The SWITCH still holds them — see
-:meth:`DaemonGate.relaunch_held` and :data:`RELAUNCH_ACTIONS` — which is the half of
+:meth:`LinkGate.relaunch_held` and :data:`RELAUNCH_ACTIONS` — which is the half of
 #1393 that was doing the work, and the half «Стоп всё» needs.
 
 PER PROFILE, LIKE EVERYTHING ELSE THAT IS AN ACCOUNT'S (`CLAUDE.md`). One of these lives
@@ -76,7 +76,7 @@ FRESH_SEC = 30.0
 RELAUNCH_ACTIONS = frozenset({"launch_game", "restart_game", "recover_from_kick"})
 
 
-class DaemonGate:
+class LinkGate:
     """One profile's «may anything run right now», and the two lines that say it changed."""
 
     __slots__ = ("rt", "_lock", "_open", "_since", "_changed_at")
@@ -96,7 +96,7 @@ class DaemonGate:
 
     # -- the question --------------------------------------------------------
     def alive(self) -> bool:
-        """Is this profile's daemon up and holding the client it should be?
+        """Does a chunk reach this profile's client right now? (#1911)
 
         The one question. ``True`` lets the automatic side of the panel do what it was
         going to do; ``False`` means it does nothing at all and says nothing about it —
@@ -117,7 +117,7 @@ class DaemonGate:
         """
         if self.alive():
             return None
-        return "timers.log.skip_off" if self._switched_off() else "timers.log.skip_daemon"
+        return "timers.log.skip_off" if self._switched_off() else "timers.log.skip_link"
 
     def blocks(self, name: str = "", *, human: bool = False) -> str:
         """May this SCENARIO be played right now? ``""`` when it may.
@@ -152,7 +152,7 @@ class DaemonGate:
             # is down or holding a client that has gone; putting a client back is what
             # makes it live again, and it needs no game link to do it.
             return ""
-        return "action.held.daemon"
+        return "action.held.link"
 
     def relaunch_held(self) -> bool:
         """Is putting the CLIENT back held right now? Only the switch may hold it (#1910).
@@ -166,20 +166,21 @@ class DaemonGate:
         return self._switched_off()
 
     def _read(self) -> bool:
-        """The reading itself: the switch first, then the poll's verdict, then the port.
+        """The reading itself: the switch first, then the poll's verdict, then the link.
 
-        Deliberately the poll's THREE-state verdict and not a bare `up()`: a daemon that
-        answers its port while holding a client that has gone lands nothing in the game
-        (#1286), so an errand run against it fails, is written down as a failure and sits
-        out its retry hold for nothing. Stale is not alive. It is also not this object's
-        business to fix — the recovery restarts a stale daemon and is deliberately NOT
-        gated on this, or a stale daemon would hold the gate that holds its own cure.
+        Deliberately «does a chunk LAND» and not «is something reachable» (#1911). The
+        panel holds the client itself now, so there is no port that can answer while
+        nothing behind it works — but there is still an attach that can have failed, and
+        an errand run through a link that lands nothing fails, is written down as a
+        failure and sits out its retry hold for nothing.
+
+        A SERVER THAT IS SILENT DOES NOT HOLD THIS GATE. That amber is the client's own
+        deafness, its cure is a restart, and refusing to press anything meanwhile is how
+        #1910 lost hours of banners to a socket reading that was simply wrong. What runs
+        against a deaf client fails visibly, which is the honest outcome.
         """
         # THE SWITCH BEFORE ANYTHING ELSE (#1882). «Профиль работает» is what a person
-        # decided; a daemon answering its port is only what a machine is doing. Asked
-        # here rather than beside each caller so that a daemon somebody starts by hand
-        # while the switch is off — the «⭮» button, a stray `ensure()` — opens nothing:
-        # the gate is shut on the flag, not on the port.
+        # decided; a link that happens to be warm is only what a machine is doing.
         if self._switched_off():
             return False
         health = getattr(self.rt, "health", None)
@@ -187,14 +188,14 @@ class DaemonGate:
         # STRICTLY newer than the change, because the wall clock is not fine-grained:
         # Windows ticks it every ~16 ms, so a poll and a `changed()` in the same instant
         # carry the same stamp — and «the same instant» has to fall on the side of
-        # distrusting the reading. The cost of being wrong that way is one socket probe.
+        # distrusting the reading.
         if read_at > self._changed_at and (time.time() - read_at) <= FRESH_SEC:
-            return getattr(health.current, "daemon", "") == profile_health.DAEMON_LIVE
+            return getattr(health.current, "plumbing", "") == profile_health.LANDING
         # Nobody is polling this runtime (a tab launched on its own), the poll has died,
-        # or something has just started or stopped a daemon and the last verdict predates
-        # it. Ask the port — 0.35 s at worst, and cached for a second inside `up()`.
+        # or something has just re-attached and the last verdict predates it. Ask the
+        # link — an object in this process, so the answer costs nothing.
         try:
-            return bool(self.rt.game.up())
+            return bool(self.rt.game.ready())
         except Exception:                     # noqa: BLE001 — a reading, never the panel
             return False
 
@@ -209,7 +210,7 @@ class DaemonGate:
             return False
 
     def changed(self) -> None:
-        """A daemon of this profile was just started or stopped — distrust what is known.
+        """This profile's link was just re-made or let go — distrust what is known.
 
         Called by whoever did it. Two effects, and both matter: the port's cached answer
         is dropped, and every verdict the status poll has already made is ruled out of

@@ -1239,7 +1239,7 @@ class ChatTab(PanelTab):
             pass
         rel = repo_rel(out)
         self.say("chat", "log.chat.starting", path=rel)
-        self.say("chat", "log.chat.needs_daemon")
+        self.say("chat", "log.chat.needs_link")
         # stderr is dropped, not folded in: chat_reader's stdout is a JSONL stream and
         # a traceback interleaved into it would be parsed as a message.
         mon = self.rt.children.spawn("chat",

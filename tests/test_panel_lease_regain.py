@@ -190,11 +190,10 @@ def test_the_evaluator_built_with_the_dead_token_is_dropped():
 # the link: a NEW lease, and a dead token put back when the answer is no
 # ---------------------------------------------------------------------------
 def _link(client, port: int = 47654):
-    from panel.runtime import daemon as daemonmod
+    from panel.runtime import link as daemonmod
 
     link = daemonmod.GameLink(
-        port=lambda: port, python=lambda: "python", log=_Log(),
-        env=lambda: {}, cwd=".", daemon_script="x", name=lambda: "alice")
+        port=lambda: port, log=_Log(), cwd=".", name=lambda: "alice")
     link.client = client
     link.up = lambda fresh=False: True
     return link

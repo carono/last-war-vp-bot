@@ -79,7 +79,7 @@ class ActionRunner:
                  gate=None) -> None:
         self._log = log                   # the LogBus
         # callable(name, human) -> locale key or "" — «may anything run right now»
-        # (`panel/runtime/gate.py::DaemonGate.blocks`, #1910). HERE, because this class
+        # (`panel/runtime/gate.py::LinkGate.blocks`, #1910). HERE, because this class
         # is the one door every scenario goes through however it was started, and the
         # gate used to be asked only by the schedule, the watchdog and the recovery —
         # so a tab's poll, a wire handler and an auto-order re-armed on the panel's clock
@@ -196,7 +196,7 @@ class ActionRunner:
         ``human`` says somebody is at a button — a widget's command, a hotkey, a press
         off the phone, the profile switch carrying out its own acts. It is the ONE thing
         the daemon gate lets past, and it defaults to `False` so that a caller nobody
-        thought about is held rather than let through (:meth:`~.gate.DaemonGate.blocks`,
+        thought about is held rather than let through (:meth:`~.gate.LinkGate.blocks`,
         #1910). A held run plays nothing, says which of the two holds it is in the
         person's own words, and leaves that sentence as the context's fail reason so
         `play()` reports it rather than «no reason given».

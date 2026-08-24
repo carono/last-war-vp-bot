@@ -1,4 +1,17 @@
-r"""Persistent warm-LuaEval daemon — keeps the hijack/il2cpp resolution hot.
+r"""Warm-LuaEval connector for a client in ANOTHER Windows session (#1911).
+
+**THE PANEL IS ITS OWN DAEMON NOW.** For the client on the panel's own desktop there is
+no process here at all: `panel/runtime/lua_service.py` builds the `LuaEval` inside the
+panel and answers this very protocol on the profile's port. This file is what remains
+for the one case that cannot work that way — a hijack finds its client in the Windows
+session it is itself running in, so a second account living in its own session needs a
+small process over there. The panel starts it (`GameLink._ensure_remote`), owns it, and
+starts it again if it stops answering; nothing supervises it, and there is no «stale»,
+«warm» or «down» vocabulary about it any more.
+
+It is also still what a tool run from a shell talks to, and what `--port` documents.
+
+Persistent warm-LuaEval daemon — keeps the hijack/il2cpp resolution hot.
 
 `LuaEval.__init__` resolves the xLua facade through a thread hijack (~seconds); running
 every panel click as a new process pays that each time. This daemon builds ONE `LuaEval`
@@ -555,19 +568,12 @@ def main() -> int:
     except BaseException as exc:
         print(f"[daemon] not warm yet (game offline?): {exc}", flush=True)
 
-    # THE PANEL'S OWN WATCHDOG, FROM OUT HERE (#1910). A panel that has fallen over
-    # cannot say so, and after this task the daemon is the one process that is always up
-    # and survives a panel restart untouched — so it is the only place the watch can
-    # live. It elects ONE guard per machine by an exclusive file lock, so four daemons
-    # cannot open four panels, and it honours the farewell note a panel leaves when a
-    # person closes it. See tools/lib/panel_guard.py.
-    try:
-        import panel_guard
-
-        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        panel_guard.PanelGuard(repo).start()
-    except Exception as exc:                # noqa: BLE001 — never the daemon's job
-        print(f"[guard] not started: {exc}", flush=True)
+    # NO PANEL WATCHDOG LIVES HERE ANY MORE (#1911). It did for one task: a panel that
+    # has fallen over cannot say so, and this was the process that outlived it. The
+    # panel holds its own link now, so this process exists only for a client in ANOTHER
+    # Windows session and is started by the panel that needs it — a guard inside it
+    # would watch the panel from a process that panel started, which is a circle. The
+    # hourly Windows task (`panel/runtime/autostart.py`) is what puts a panel back.
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # SO_REUSEADDR on Windows lets a second bind *steal* a live port — with one daemon

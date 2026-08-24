@@ -66,7 +66,11 @@ def _load(name: str):
 
 rec = _load("recovery")
 
-ONLINE, LOST, OFFLINE, UNKNOWN = "online", "lost", "offline", "unknown"
+# WHAT THE BRANCH IS FED SINCE #1911: «is the game server answering us», a boolean.
+# The four socket verdicts are gone — they could not say which conversation was the
+# game — and this branch never wanted them for anything else: it is about a client the
+# panel CAN talk to that is nevertheless not in the game.
+ONLINE, LOST, OFFLINE, UNKNOWN = True, False, False, False
 AWAY = 10_000.0          # nobody has touched the keyboard in hours
 
 
@@ -88,12 +92,16 @@ def test_a_client_in_the_game_is_never_touched():
     assert r.state(7200.0)["stalled_for"] == 0
 
 
-def test_a_client_that_is_offline_or_lost_belongs_to_the_other_branches():
-    """Two things must not restart one client — the rule this module has always kept."""
-    for link in (OFFLINE, LOST, UNKNOWN):
-        r = _r()
-        assert r.note_session(False, link, 0.0, idle_sec=AWAY) is None
-        assert r.note_session(False, link, 100_000.0, idle_sec=AWAY) is None
+def test_a_client_the_server_is_not_answering_belongs_to_the_other_branch():
+    """Two things must not restart one client — the rule this module has always kept.
+
+    A silent server is `note`'s business (the deaf client, its strikes and its
+    cooldown); this branch is only for a client the panel can talk to that is sitting
+    outside the game.
+    """
+    r = _r()
+    assert r.note_session(False, False, 0.0, idle_sec=AWAY) is None
+    assert r.note_session(False, False, 100_000.0, idle_sec=AWAY) is None
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +200,7 @@ def test_the_state_carries_the_three_numbers_both_front_ends_draw():
 
 def test_the_act_is_a_client_restart_and_the_panel_knows_it():
     assert rec.ACT_STALLED in rec.RESTARTS
-    assert rec.ACT_STALLED not in rec.DAEMON_RESTARTS
+    assert rec.ACT_STALLED not in rec.SAYINGS
     assert rec.ACT_STALLED not in rec.KICK_ACTS      # it starts no kick stability clock
 
 

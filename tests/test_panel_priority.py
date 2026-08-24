@@ -117,11 +117,10 @@ def _link(port: int = 47654):
     daemon is involved — so the only things replaced are the two that would reach for
     one (`client`, `up`).
     """
-    from panel.runtime import daemon as daemonmod
+    from panel.runtime import link as daemonmod
 
     link = daemonmod.GameLink(
-        port=lambda: port, python=lambda: "python", log=_Log(),
-        env=lambda: {}, cwd=".", daemon_script="x", name=lambda: "alice")
+        port=lambda: port, log=_Log(), cwd=".", name=lambda: "alice")
     link._client = None                     # no lease to take: `_claim_lease` says yes
     link.up = lambda: False
     return link
@@ -558,7 +557,6 @@ def _schedule_stub(errand, asked: list, made: list):
     `run_errand` touches, so the thing under test is its own decisions — which level it
     claims at, and what it puts on the context.
     """
-    from panel.runtime.daemon import DAEMON_LIVE
     from panel.runtime.schedule import Schedule
 
     def context(**kw):
@@ -577,7 +575,7 @@ def _schedule_stub(errand, asked: list, made: list):
             claim=lambda owner, priority: asked.append(("claim", priority)) or True,
             claim_soon=lambda owner, priority, timeout=None: asked.append(
                 ("claim_soon", priority)) or True,
-            last_health=lambda: DAEMON_LIVE,
+            ready=lambda fresh=False: True,
             up=lambda: True,
             release=lambda: None,
             on_settled=lambda: None),

@@ -4332,7 +4332,7 @@ def test_every_coordinate_jump_lands_at_the_tile_view():
     """«Это для ЛЮБЫХ переходов по координатам» (#1272) — so the rule is in the jump
     itself and no caller can forget it: there is nothing left to pass."""
     import inspect
-    from panel.runtime import daemon as daemonmod
+    from panel.runtime import link as daemonmod
     sig = inspect.signature(daemonmod.GameLink.jump)
     assert "zoom" not in sig.parameters, "a caller can still choose a height"
     src = inspect.getsource(daemonmod.GameLink.jump)

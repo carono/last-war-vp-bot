@@ -1,5 +1,12 @@
 # The Lua daemon: what it buys, what it costs, and what «green» has to mean (#1287)
 
+> **SUPERSEDED BY #1911 — the daemon is gone.** The panel holds the game's Lua VM in its
+> own process now (`panel/runtime/lua_service.py`), there is no lifecycle to supervise,
+> and the three-status model that replaced everything below is
+> [`panel-is-the-link.md`](panel-is-the-link.md). This file is kept because the
+> MEASUREMENTS in it are what made the case: what a warm VM is worth, what «warm» never
+> proved, and how often the port answered over a client that was not there.
+
 > На русском: этот файл — исследовательская записка, как и все в `docs/research/`.
 > Список возможностей для игрока — `docs/farming.md`.
 
@@ -521,7 +528,7 @@ Two acts, and one gate.
   then stop this profile's daemon (`GameLink.stop`, sharing `_shutdown` with `restart`).
   Nothing else is switched off, so nothing else has to be switched back on: the tabs'
   boxes, the schedule's threads and the children are exactly where the person left them.
-* **`panel/runtime/gate.py` — `DaemonGate`, one per profile, on `PanelRuntime.gate`.**
+* **`panel/runtime/gate.py` — `LinkGate`, one per profile, on `PanelRuntime.gate`.**
   «Is this profile's daemon alive» is asked in front of every timer (`Schedule.gate`, now
   the FIRST check and with no exemption — the recovery errands are the cure for a client
   that died, not for a panel that was stopped), every trigger fire (`Schedule.submit`),
@@ -541,7 +548,7 @@ keep it a fact rather than a belief:
 * a verdict older than `FRESH_SEC` (30 s — three of the poll's turns) is not used, and
   the port is asked instead. A runtime with no window behind it has nobody polling, and
   «nobody has looked» may never read as «alive»;
-* `DaemonGate.changed()` rules out every verdict taken before a daemon was started or
+* `LinkGate.changed()` rules out every verdict taken before a daemon was started or
   stopped. Without it the eight seconds after «Стоп всё» still read «warm» — and an
   errand that believes that calls `ensure()`, which starts the daemon the press has just
   stopped. Whoever changes a daemon's existence says so: the press, the ⭮ button, the
@@ -559,7 +566,7 @@ A stopped panel and an idle one used to be the same silence (§#1262). Now:
 * the EDGE is said once in the profile's log — `gate.log.held` when it closes,
   `gate.log.free` when it opens — and never per tick;
 * the STATE is a mark that cannot scroll away: `gate.held` on the window's top strip and
-  on the phone's «Состояние» card, out of `DaemonGate.state()` in both front-ends;
+  on the phone's «Состояние» card, out of `LinkGate.state()` in both front-ends;
 * a trigger that fires into a stopped panel says nothing at all in the person's log (it
   goes to `debug.log`). A busy alliance sends a push a second, and a rolled-up «пропуск»
   for each of them is the noise this whole task was about.

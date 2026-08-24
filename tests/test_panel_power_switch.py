@@ -123,17 +123,17 @@ def test_a_saved_string_reads_as_a_boolean():
 def test_the_two_acts_are_the_runtimes_and_not_written_here_again():
     src = (ROOT / "panel" / "runtime" / "power.py").read_text(encoding="utf-8")
     assert "panicmod.stop(rt)" in src, "switching off does not close the client"
-    assert "panicmod.resume(rt)" in src, "switching on does not bring the daemon back"
+    assert "panicmod.resume(rt)" in src, "switching on does not take the link back"
     acts = (ROOT / "panel" / "runtime" / "panic.py").read_text(encoding="utf-8")
-    assert "quit_game" in acts and "stop_daemon" in acts, acts[:400]
+    assert "quit_game" in acts and "let_link_go" in acts, acts[:400]
 
 
-def test_the_boot_asks_the_switch_before_it_starts_a_daemon():
-    """The one place that starts a daemon without asking the gate has to ask this."""
+def test_the_boot_asks_the_switch_before_it_takes_the_link():
+    """The one place that takes the client without asking the gate has to ask this."""
     shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
-    at = shell.index('self._boot_at("splash.daemon"')
+    at = shell.index('self._boot_at("splash.link"')
     window = shell[at:at + 800]
-    assert "power.on" in window and "_ensure_daemon()" in window, window[:400]
+    assert "power.on" in window and "_ensure_link()" in window, window[:400]
 
 
 def test_nothing_automatic_may_run_while_the_switch_is_off():

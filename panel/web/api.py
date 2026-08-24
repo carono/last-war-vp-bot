@@ -48,11 +48,12 @@ import os
 import threading
 import time
 
+import profile_health
+
 from .. import i18n as i18nmod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from ..runtime import autostart as autostartmod
-from ..runtime import daemon as daemonmod
 from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
 from ..runtime import interrupt as interruptmod
@@ -312,14 +313,14 @@ class WebApi:
         """One reading of everything the front page shows, for one profile."""
         rt = self._runtime(profile)
         name = self._name_of(rt)
-        running, link, label = self._client_status(name, rt)
+        running, colour, reason, label = self._client_status(name, rt)
         step = rt.activity.current()
         return {
             "profile": name,
             "lang": rt.i18n.lang,
-            # `link` is the honest half and `running` the old one: a client that has
-            # lost the server is still running, and the phone paints the LINK
-            # (panel/runtime/game_process.py — online | lost | unknown | offline).
+            # `colour` is the honest half and `running` the old one: a client that has
+            # lost the server is still running, and the phone paints the COLOUR — the
+            # three statuses and nothing else (#1911).
             #
             # `controls` is the client's whole life — start it, close it, put it back —
             # and it is computed HERE rather than in the browser on purpose: the window
@@ -332,10 +333,11 @@ class WebApi:
             # long until another is allowed. Numbers, so the page says them in its own
             # language — and the phone is the front-end that NEEDS them, because the
             # person holding it cannot see the log scrolling past.
-            "game": {"running": running, "link": link, "text": label,
+            "game": {"running": running, "colour": colour, "reason": reason,
+                     "text": label,
                      "recovery": rt.recovery.state(time.time()),
                      "controls": game_control.state(
-                         link, str((step.fmt.get("name") if step else "") or ""))},
+                         running, str((step.fmt.get("name") if step else "") or ""))},
             # `busy` is a PROPERTY on the real link (panel/runtime/daemon.py) and a
             # method on none of them — read it, never call it.
             #
@@ -357,15 +359,13 @@ class WebApi:
             # verdict the status poll made rather than asked for here: the page polls
             # faster than that poll runs, and the reading walks the process list.
             # Empty («nobody has asked lately») draws as it always did, off `up`.
-            "daemon": {"up": rt.game.up(), "port": self._port(rt),
-                       # TWO FACTS, NOT ONE (#1910). «Слушает» is the daemon's own job
-                       # and is what its supervisor answers for; «держит клиента» is what
-                       # a scenario needs. The window grew a word of its own for the
-                       # middle state (`daemon.nolink`), so the phone is handed the same
-                       # distinction rather than being left to infer it from three other
-                       # fields.
-                       "attached": rt.game.last_health() == daemonmod.DAEMON_LIVE,
-                       "stale": rt.game.last_health() == daemonmod.DAEMON_STALE,
+            # THE LINK, and it is the same three statuses the window draws (#1911).
+            # `colour` is the whole verdict; `lands` is the half of it a person can act
+            # on — «панель дотягивается до клиента» — and the phone gets it because
+            # amber for OUR wiring and amber for a deaf client want opposite responses.
+            "link": {"up": rt.game.up(), "port": self._port(rt),
+                       "colour": colour, "reason": reason,
+                       "lands": rt.health.current.plumbing == profile_health.LANDING,
                        "busy": bool(rt.game.busy),
                        "shared": self._shared_client(name, rt),
                        "user": self._client_args(rt)[1] or ""},
@@ -466,37 +466,37 @@ class WebApi:
         return names
 
     def _client_status(self, name: str, rt) -> tuple:
-        """Is this profile's client up and CONNECTED — cached per profile for
-        :data:`STATUS_TTL_SEC`.
+        """Is this profile's client up, and what colour is its link — cached per profile
+        for :data:`STATUS_TTL_SEC`.
 
-        Three things come back, because two of them are different questions: the
-        process exists, and the server is still on the other end of its socket. The
-        phone shows the second one — the first is what it used to show, and a stranded
-        client answered it with a cheerful "работает" all night long.
+        Two different questions and both come back: the process exists, and the panel's
+        one verdict about it (`tools/lib/profile_health.py`). The phone paints the
+        SECOND — the first is what it used to show, and a stranded client answered it
+        with a cheerful «работает» all night long.
+
+        The colour is READ, never made: the window's status poll takes every reading it
+        needs anyway, and a page that polls faster than that poll must not be the thing
+        that spends a round trip (#1911, and the same rule `panel/runtime/health.py`
+        keeps about its own light).
         """
-        when, running, link, label = self._status.get(
-            name, (0.0, False, game_process.OFFLINE, ""))
+        when, running, colour, reason, label = self._status.get(
+            name, (0.0, False, profile_health.BAD, profile_health.NO_CLIENT, ""))
         now = time.time()
         if now - when < STATUS_TTL_SEC:
-            return running, link, label
+            return running, colour, reason, label
         exe, user = self._client_args(rt)
         try:
             found = game_process.probe(exe, user=user)
-            # THE SAME SENTENCE THE WINDOW DRAWS (#1910). A link the sockets decline to
-            # vouch for reads as live while the game SERVER is answering an active probe,
-            # and the phone must not be the front-end that still says «не подтверждено»
-            # about a client the machine is calling healthy. One composer, both screens.
-            confirmed = rt.recovery.link_confirmed(now)
-            running, message = found.running, game_process.worded(found, confirmed,
-                                                                    user)
-            link = (game_process.ONLINE
-                    if (confirmed and found.link == game_process.UNKNOWN)
-                    else found.link)
+            health = rt.health.current
+            running = found.running
+            colour, reason = health.colour, health.reason
+            message = game_process.worded(found, colour == profile_health.OK, user)
         except Exception as exc:             # noqa: BLE001 — a reading, never the server
-            running, link, message = False, game_process.UNKNOWN, str(exc)
+            running, colour, reason = False, profile_health.BAD, profile_health.NO_CLIENT
+            message = str(exc)
         label = i18nmod.translated(rt.t, message)
-        self._status[name] = (now, bool(running), link, label)
-        return bool(running), link, label
+        self._status[name] = (now, bool(running), colour, reason, label)
+        return bool(running), colour, reason, label
 
     def _due(self, rt) -> dict:
         """How many errands are switched on, and when the next one is due."""
@@ -802,8 +802,8 @@ class WebApi:
         rt = self._runtime(profile)
         if game_control.get(action) is None:
             return {"error": "unknown"}
-        _running, link, _label = self._client_status(self._name_of(rt), rt)
-        return game_control.play(rt, action, link)
+        running, _colour, _reason, _label = self._client_status(self._name_of(rt), rt)
+        return game_control.play(rt, action, running)
 
     # -- the panel's own life -------------------------------------------------
     def panel(self, action: str, profile: str | None = None) -> dict:

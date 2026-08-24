@@ -59,12 +59,12 @@ Two readings tell them apart, and this module takes both:
 * **the positive one — the daemon names the wrong client.** `{"op":"ping"}` answers the
   pid the daemon is attached to; the status poll already knows the pid that is running.
   Different pids (or a daemon naming none while a client runs) is not an inference, it is
-  the fault itself, stated. That is :meth:`Recovery.note_daemon`;
-* **the cumulative one — the cure is not working.** :data:`FRUITLESS` client restarts with
-  the link never once coming back is, by itself, evidence that the thing being restarted
-  is not the thing that is broken. So the blame moves rather than the count going up: the
-  next act is a daemon restart, not a seventh client restart. That is inside
-  :meth:`Recovery.note`.
+  the fault itself, stated. It cannot happen any more — the panel attaches to the client
+  itself and follows it across a restart (#1911) — and the reading is gone with it;
+* **the cumulative one — the cure is not working.** Client restarts with the link never
+  once coming back are counted and drawn (`fruitless`), because «второй впустую» is worth
+  seeing. Until #1911 they moved the blame onto the daemon; there is no daemon to blame
+  now, so the count informs and decides nothing.
 
 The second is deliberately blind to WHY. It cannot know what else might be wrong — a dead
 network, a server in maintenance, an account held on another device — and it does not
@@ -102,8 +102,7 @@ trying to play.
 So a kick earns :data:`KICK_HOLD_SEC` of being left completely alone — fifteen minutes by
 default, a profile setting rather than a constant, because how long to give the other
 device back is a decision about a person and not about a client. After the wait, the
-ordinary scheme resumes exactly as it was: the strikes, the player gate, the cooldown, the
-alternation. Nothing is skipped and nothing is added — the only change is WHEN.
+ordinary scheme resumes exactly as it was: the strikes, the player gate and the cooldown. Nothing is skipped and nothing is added — the only change is WHEN.
 
 **And the wait belongs to the client, not to this module.** Three things put a client
 back: this decision, the process watchdog (`panel/__main__.py::_watchdog_check`) and the
@@ -115,33 +114,25 @@ down. A hold only one of them respects is not a hold, so the deadline is a READI
 count of errands that tried to press and pressed nothing. It is the only thing in that
 morning's log that was ever true, and nothing was counting it.
 
-THE SEVENTH (#1410): **a daemon that is DOWN had nobody to put it back.**
+THE SEVENTH, AND IT DELETED THE OTHER SIX HALVES (#1911): **there is no daemon.**
 
-The branch above is about a daemon that ANSWERS while holding a client that has gone.
-The other half — nothing answers the port at all — was nobody's business in a running
-panel, and the reason is a circle: `GameLink.ensure()` is called from the errand path
-(`panel/runtime/schedule.py`, `daemon.py`), and the gate (#1393) holds every errand
-while the daemon is down. The one thing that would start it sits behind the gate that is
-waiting for it. `note_daemon` cannot help either — its fault is a daemon that is UP.
+Everything above about a daemon — one holding a client that has gone, one nothing
+answers at all, the alternation that moved the blame between the two cures, the wait
+that doubled to half an hour while the starts kept failing — described a process that no
+longer exists. The panel holds the client itself (`panel/runtime/lua_service.py`), so
+«the panel is running» and «the link is there» are one fact, and the only thing left to
+restart is the CLIENT.
 
-Live on 2026-08-15 the client was relaunched at 00:21:42 and was back in the game by
-00:22:16; the daemon stayed down for the next ten minutes and only came back when the
-panel itself was restarted, and then in sixty seconds. The day before, the same hole was
-2 min 42 s. Nothing was broken in the meantime — the timers did not fire, the triggers
-did not poll, and the profile simply did not farm
-(`docs/research/game-launch-and-scene-control.md` §6.2).
+What replaced the readings is one verdict, made by the status poll out of two
+independent questions (`tools/lib/profile_health.py`): does a chunk land in the client's
+VM, and does the game SERVER answer a question only it can answer. This module is fed
+the amber those two make together — «there is a client and the server is silent» — and
+never the amber that means our own attach is broken, because the cure for our bug is a
+fix and not a relaunch.
 
-So :meth:`Recovery.note_daemon_down` is the third daemon reading, on its own run
-(:data:`DOWN_STRIKES`) and the same cooldown as the other one, and its act is a START
-rather than a restart — there is nothing there to shut down. It is deliberately NOT
-asked about the client: a daemon binds its port whether or not a game is running (it
-re-aims itself at one that appears), and «no client» is precisely the state where the
-gate has to be open so the watchdog can put the client back.
-
-WHAT MAY NOT START ONE is «Стоп всё»: stopping this profile's daemon is half of that
-press, and a cure that undoes it eight seconds later is the bug #1393 exists to stop.
-The caller feeds `down=False` while the profile is stopped — the same shape as the
-kick's wait, where the state that must not be acted on never reaches the run at all.
+THE SOCKET TABLE IS GONE FROM THE EVIDENCE ENTIRELY. It cannot say which conversation is
+the game: on 2026-08-24 `classify` read `lost` for hours while the server answered every
+probe, and the gate built on it refused every rally join the profile had (#1910).
 
 WHAT IT DOES **NOT** DO. It does not pause the schedule, because the schedule already
 pauses itself: while the client is not running, `Schedule.gate` holds every errand and
@@ -158,6 +149,7 @@ is dead and one that is deaf are the same thing to whoever is not looking at the
 from __future__ import annotations
 
 import game_link
+import profile_health
 
 #: Consecutive `lost` readings before a restart is allowed. The status poll runs every
 #: eight seconds, so three is about half a minute of a client that cannot be heard —
@@ -274,50 +266,17 @@ PLAYER_QUIET_SEC = 300.0
 #: can never be read as one.
 PLAYER_HOLD_MAX_SEC = 900.0
 
-#: Consecutive readings of «the daemon is attached to a client that is not the one
-#: running» before it is restarted. Two, not three: unlike a link reading this is not an
-#: inference — the two pids either match or they do not — and the only reason to wait at
-#: all is that a daemon is legitimately a few seconds behind a client that has just been
-#: replaced. The poll is eight seconds, so two is the shortest patience that survives
-#: that and nothing more.
-DAEMON_STRIKES = 2
-
-#: Consecutive readings of «nothing answers this profile's port» before a daemon is
-#: STARTED. Two, for the same reason as :data:`DAEMON_STRIKES` and one more of its own: a
-#: daemon somebody else is already bringing up — the boot's own `ensure`, the «⭮» button,
-#: «Включить обратно» — is down for the seconds that takes, and a start racing a start is
-#: a second process that cannot bind the port. Two readings is sixteen seconds of the
-#: status poll, which is longer than any of those needs to get the port bound.
-DOWN_STRIKES = 2
-
-#: How far the wait between two STARTS of a daemon may grow, in seconds. Half an hour.
+#: Client restarts with the link never once coming back, kept as a NUMBER TO SHOW.
 #:
-#: The first wait is :data:`DAEMON_COOLDOWN_SEC` and it doubles for as long as the starts
-#: do not take, because some of them never will: a profile whose client lives in a
-#: Windows session nobody is logged into answers «nobody is logged on as …» in a fraction
-#: of a second, for ever. Live on 2026-08-15 that was one act, two `[daemon]` lines and a
-#: hold, every two minutes, in a profile that could not have a daemon at all.
-#:
-#: A ceiling and not an abandonment: half an hour is still fifty attempts a day, and the
-#: first reading of a daemon that answers puts the wait back to the ordinary one — so the
-#: profile whose session comes back at lunchtime is farming again within the half hour,
-#: with the log of the morning it could not costing thirty lines instead of seven hundred.
-DOWN_WAIT_MAX_SEC = 1800.0
-
-#: Seconds between two restarts of the same daemon. Two minutes rather than the client's
-#: ten: a daemon comes back in under a second and takes nothing away from anybody, so the
-#: cost of trying again soon is a log line — where a client restart costs a login and,
-#: if somebody is playing, their session.
-DAEMON_COOLDOWN_SEC = 120.0
-
-#: Client restarts with the link never once coming back, before the blame moves to the
-#: daemon. Two: the first restart is the ordinary cure and is usually right, the second
-#: is already suspicious, and by the third the evidence that this is not the fault being
-#: fixed is better than the evidence that it is. Live it took SIX before a person looked.
+#: Until #1911 it moved the blame: two fruitless restarts and the next act was a daemon
+#: restart instead. There is no daemon, so there is nothing to alternate with — but the
+#: count is still the honest evidence that the cure is not working, and a person reading
+#: «второй перезапуск подряд впустую» can tell the difference between a panel that is
+#: fixing something and one that is repeating itself.
 FRUITLESS = 2
 
 #: Consecutive readings of «the client is showing the kick modal» before it is acted on.
-#: Two, and for the same reason as :data:`DAEMON_STRIKES` rather than the link's three:
+#: Two, and for a reason of its own rather than the link's five:
 #: this is not an inference off a socket table but the game's OWN sentence, read out of
 #: the dialog and matched against the client's own language tables
 #: (`tools/lib/game_kick.py`). The only thing a second reading buys is not acting on a
@@ -417,9 +376,6 @@ class Recovery:
                  "_confirm_held", "_confirm_at", "_probe_last_ok",
                  "_run", "_run_at", "_lost_since",
                  "_last", "_restarts", "_held", "_why", "_kicks",
-                 "_stale_run", "_down_run", "_down_last", "_down_wait", "_down_held",
-                 "_down_took",
-                 "_daemon_last", "_daemon_restarts", "_daemon_held",
                  "_fruitless", "_blame", "_kick_run", "_barren", "_barren_said",
                  "kick_hold_sec", "_kick_until", "_kick_armed", "_kick_held",
                  "_kick_wait", "_kick_acted",
@@ -462,35 +418,11 @@ class Recovery:
         self._why = ""
         #: How many of those restarts were a KICK rather than a silent hang-up.
         self._kicks = 0
-        #: Consecutive readings of «the daemon names a client that is not running».
-        self._stale_run = 0
-        #: Consecutive readings of «nothing answers this profile's port» (#1410). Its own
-        #: run, because it is the OTHER daemon fault and the two are never true at once:
-        #: a daemon cannot both answer for the wrong client and not answer at all.
-        self._down_run = 0
-        #: When a daemon was last STARTED, and how long until another may be. Its own
-        #: clock and its own wait, because this wait GROWS while the starts do not take
-        #: — see :meth:`note_daemon_down`.
-        self._down_last = 0.0
-        self._down_wait = 0.0
-        self._down_took = False
-        #: Whether the current wait has already been said. Its own flag for the same
-        #: reason: `_daemon_held` is cleared by the stale branch on every poll, and a
-        #: down daemon is never stale, so sharing it said the line every eight seconds.
-        self._down_held = False
-        #: When the daemon was last restarted, or 0.0 for never.
-        self._daemon_last = 0.0
-        #: How many daemon restarts this profile has had. Drawn beside the client's, so
-        #: «перезапускается клиент по кругу» and «перезапускается демон по кругу» cannot
-        #: be told apart by guessing.
-        self._daemon_restarts = 0
-        #: Whether the current daemon run has already said «too soon».
-        self._daemon_held = False
-        #: Client restarts since the link was last ONLINE. The count that moves the
-        #: blame: a cure that has not worked twice is evidence about the diagnosis.
+        #: Client restarts with the link never once coming back since. Drawn, because
+        #: «второй перезапуск подряд впустую» is worth seeing; it decides nothing.
         self._fruitless = 0
-        #: "" | "client" | "daemon" — WHAT this thinks is broken, for both front-ends.
-        #: A person watching a restart is owed the answer to «что именно чинится».
+        #: "" | "client" — WHAT this thinks is broken, for both front-ends. There is
+        #: only one thing left it can be: the panel holds the link itself now (#1911).
         self._blame = ""
         #: Consecutive readings of the kick modal. Its own run, because a kick is its own
         #: state and is true at moments when the link reads perfectly ONLINE (#1270).
@@ -601,13 +533,6 @@ class Recovery:
         left = 0
         if self._last:
             left = max(0, int(self._last + COOLDOWN_SEC - now))
-        daemon_left = 0
-        if self._daemon_last:
-            daemon_left = max(0, int(self._daemon_last + DAEMON_COOLDOWN_SEC - now))
-        # …and the start's own wait, which is a different clock and can be far longer
-        # (#1410). ONE number on the strip, because from outside there is one daemon and
-        # one «сколько ещё ждать» — the larger of the two is the honest answer.
-        daemon_left = max(daemon_left, int(self.down_wait_left(now)))
         return {"deaf_for": self._run, "strikes": STRIKES,
                 "restarts": self._restarts, "kicks": self._kicks,
                 "cooldown_left": left,
@@ -620,16 +545,6 @@ class Recovery:
                 # «панель что-то перезапускает» — and they mean opposite things about
                 # where the fault is.
                 "blame": self._blame,
-                "daemon_stale": self._stale_run,
-                "daemon_strikes": DAEMON_STRIKES,
-                # …and the other daemon fault, which has to be its own number on both
-                # front-ends: «держит не тот клиент» and «не отвечает вовсе» are drawn
-                # off `blame == daemon` alike, and a strip that says the first while the
-                # second is true sends a person looking for a process that is not there.
-                "daemon_down": self._down_run,
-                "down_strikes": DOWN_STRIKES,
-                "daemon_restarts": self._daemon_restarts,
-                "daemon_cooldown_left": daemon_left,
                 # …and how long the account is being left to whoever took it. Drawn on
                 # both front-ends with a countdown, because «панель ничего не делает» and
                 # «панель ждёт четырнадцать минут» look identical otherwise — and the
@@ -683,10 +598,23 @@ class Recovery:
         return max(0, int(due - now))
 
     # -- deciding ------------------------------------------------------------
-    def note(self, link: str, now: float,
+    def note(self, deaf: bool, now: float,
              idle_sec: "float | None" = None,
-             kicked: bool = False, dead: int = 0) -> "tuple | None":
-        """Feed one link reading. Returns what to SAY and DO, or ``None`` for nothing.
+             kicked: bool = False, talking: bool = False,
+             running: bool = True) -> "tuple | None":
+        """Feed one verdict about the link. What to SAY and DO, or ``None`` for nothing.
+
+        ``deaf`` is the amber the status poll made (#1911): there IS a client, chunks
+        reach its Lua VM or its window is wedged, and the game server is not answering.
+        **It is never the amber that blames OUR OWN wiring** — an attach that fails is a
+        bug to fix and restarting a client over it is #1268's six pointless relaunches
+        with the evidence in hand.
+
+        THE SOCKET TABLE IS NOT AN INPUT ANY MORE. It cannot say which conversation is
+        the game: measured on this machine, `classify` said `lost` continuously for a
+        night while the server answered every probe (#1910). What is left is what was
+        always the honest half — an active question to the server and the answer coming
+        back.
 
         The answer is `(locale_key, fmt)` when something should be said, and the caller
         restarts the client exactly when the key is :data:`ACT` — one return value for
@@ -703,22 +631,23 @@ class Recovery:
         the machine still wins, the cooldown still holds, and the cure is still the one
         act that was already wired.
 
-        The one state a kick may NOT override is `offline`: no process, nothing on
-        screen, and therefore nothing that can be showing a modal. That reading belongs
-        to the watchdog and two things must not relaunch one client — the rule this
-        module has kept since it was written, and a `kicked` left over from the poll
-        before must not be the thing that breaks it.
+        A kick reported for a client that is not there is ignored: no process, nothing
+        on screen, and therefore nothing that can be showing a modal. That reading
+        belongs to the watchdog and two things must not relaunch one client.
         """
-        kicked = bool(kicked) and link != game_link.OFFLINE
-        if link == game_link.ONLINE and not kicked:
-            # The cure WORKED — whatever it was. This is the only reading that clears
-            # the fruitless count, and it has to be ONLINE rather than «not lost»: a
-            # client that has just been relaunched is `offline` and then `unknown` for
-            # most of a minute on its way to either outcome, and counting those as
-            # success would reset the evidence every single restart and the blame would
-            # never move.
-            self._fruitless = 0
-            self._blame = ""
+        kicked = bool(kicked)
+        # A CLIENT THAT IS THERE AND NOT SHOWING THE MODAL is the account being ours
+        # again — the reading that ends a kick's wait. ``running`` is why it is not
+        # simply «not deaf» (#1911): a client that has been CLOSED is not deaf either,
+        # and clearing on that would hand the account straight back to the watchdog in
+        # the middle of the quarter of an hour the other device was being given (#1291).
+        if not deaf and not kicked and bool(running):
+            # The cure WORKED — and only a GREEN reading says so, because only the
+            # server answering proves anything about the link. A client that is merely
+            # up is what every relaunch produces for a minute either way.
+            if bool(talking):
+                self._fruitless = 0
+                self._blame = ""
             # …and the kick's wait is over the moment the account is demonstrably ours
             # again. ONLINE **and** no modal is the only reading that says so; a client
             # that has merely gone offline mid-wait proves nothing and must keep its
@@ -730,26 +659,18 @@ class Recovery:
         else:
             self._kick_run = 0
 
-        # WHAT COUNTS AS A DEAF READING (#1910). `lost` — and the shape the socket table
-        # cannot decide: one conversation stranded while another is established
-        # (`game_link.classify`). That shape is BOTH «the game died and the control
-        # channel lived» (#1266) and «the client abandoned a gateway set and settled on
-        # another port» (measured live 2026-08-24), so the sockets may not call it either
-        # way — but it is exactly as suspicious as a loss, and it is what the server
-        # probe is for. Counting it here is what keeps #1266's protection: a genuinely
-        # dead game fails the probe twice and is restarted, and a live one answers and
-        # clears the count.
-        suspect = link == game_link.LOST or (link == game_link.UNKNOWN and dead > 0)
+        # WHAT COUNTS AS A DEAF READING (#1911): the caller's amber, and nothing else.
+        suspect = bool(deaf)
         if not suspect and not kicked:
-            # Anything else ends the run — including `offline`, which is the PROCESS
+            # Anything else ends the run — including «no client», which is the PROCESS
             # being gone and the watchdog's business, not this one's. Two things must
             # not both relaunch the same client.
             self._run = 0
             self._lost_since = 0.0
             self._held = False
-            # ANY CONTRARY SIGNAL OBLITERATES THE CONFIRMATION TOO (#1910). The sockets
-            # came back, so whatever the probes said a moment ago is about a client that
-            # is now demonstrably talking. Evidence for «deaf» has to be evidence taken
+            # ANY CONTRARY SIGNAL OBLITERATES THE CONFIRMATION TOO (#1910). The link is
+            # green, so whatever the probes said a moment ago is about a client that is
+            # now demonstrably talking. Evidence for «deaf» has to be evidence taken
             # while it was deaf, all of it, or a restart is assembled out of two
             # unrelated bad minutes an hour apart.
             self._probe_clear()
@@ -862,51 +783,13 @@ class Recovery:
             self._held = True
             return (HOLD, {"mins": int((COOLDOWN_SEC - since) // 60) + 1})
 
-        # THE CURE HAS NOT WORKED, SO TRY THE OTHER ONE. Two client restarts with the
-        # link never once coming back say more about the diagnosis than about the
-        # client, and the thing nobody had tried is one port away. This is the guard
-        # that turns six identical restarts into an ALTERNATION (#1268).
-        #
-        # Alternation, not replacement, and the difference is the whole safety of it.
-        # Booking the daemon and leaving the count where it was would mean the client is
-        # never restarted again — one stuck loop swapped for another, and worse, because
-        # the client cure is the one that works most of the time. So the count resets
-        # here: client, client, daemon, client, client, daemon… Neither cure is ever
-        # abandoned, and no cure is repeated more than :data:`FRUITLESS` times without
-        # something else being tried in between. `test_a_link_that_never_comes_back_is_
-        # retried_after_every_cooldown` is what says so — it caught exactly this
-        # regression in the first draft of this branch.
-        #
-        # Booked against the DAEMON's clock and the client's counters are left alone:
-        # this is not a client restart being withheld, it is a different act.
-        #
-        # A KICK IS EXEMPT, because the alternation exists for a diagnosis nobody has.
-        # Here there is one, in the game's own words: the account is on another device,
-        # and no daemon on this machine has anything to do with that. Restarting it
-        # would be reaching for the wrong thing on purpose — the mistake #1268 is about,
-        # committed with the evidence in hand.
-        if self._fruitless >= FRUITLESS and not kicked:
-            self._blame = "daemon"
-            since_d = now - self._daemon_last if self._daemon_last else None
-            if since_d is not None and since_d < DAEMON_COOLDOWN_SEC:
-                self._why = "daemon_cooldown"
-                if self._daemon_held:
-                    return None
-                self._daemon_held = True
-                return (HOLD_DAEMON,
-                        {"mins": int((DAEMON_COOLDOWN_SEC - since_d) // 60) + 1})
-            spent = self._fruitless
-            self._daemon_last = now
-            self._daemon_restarts += 1
-            self._daemon_held = False
-            self._fruitless = 0              # …so the client is tried again next round
-            self._run = 0
-            self._lost_since = 0.0
-            self._kick_run = 0
-            self._held = False
-            self._why = ""
-            return (ACT_DAEMON_STUCK, {"n": spent})
-
+        # THERE IS ONE CURE NOW, AND SO THERE IS NOTHING TO ALTERNATE WITH (#1911).
+        # This is where two fruitless client restarts used to move the blame onto the
+        # daemon and restart that instead. There is no daemon: the panel holds the link
+        # itself, and the state that alternation was invented for — a daemon answering
+        # its port while holding a client that has gone — cannot exist. `_fruitless` is
+        # still counted and still drawn, because «второй перезапуск подряд впустую» is
+        # worth seeing; it simply no longer decides anything.
         # ===== THE CONFIRMATION (#1910) ======================================
         # Everything above has said «restart». This is the second, independent family of
         # evidence, and it is asked LAST on purpose: a healthy account never reaches this
@@ -1016,6 +899,57 @@ class Recovery:
             return False
         return not self._probe_at or (now - self._probe_at) >= PROBE_GAP_SEC
 
+    #: HOW OFTEN THE SERVER IS ASKED WHEN NOTHING IS WRONG (#1911).
+    #:
+    #: Green means «the server answered», so the light needs an answer that is not too
+    #: old — and an answer that is never refreshed turns amber for want of asking, which
+    #: is exactly the amber this model exists to make meaningful. Two minutes: a round
+    #: trip measured at under a second, asked once per two minutes, is 0.008 % of a
+    #: profile's time and keeps the green inside :data:`PROBE_OK_HOLD_SEC` with a wide
+    #: margin.
+    PROBE_REFRESH_SEC = 120.0
+
+    def probe_idle_due(self, now: float) -> bool:
+        """Should the panel ask the server just to keep the LIGHT honest? (#1911)
+
+        Separate from :meth:`probe_due`, which asks only when a restart is already
+        being considered. This one is the ordinary heartbeat of the three statuses: a
+        profile nobody is restarting still has to be able to go green.
+        """
+        if self._expire(now):
+            return True
+        if self._probe_flying:
+            return False
+        if self._probe_last_ok and (now - self._probe_last_ok) < self.PROBE_REFRESH_SEC:
+            return False
+        return not self._probe_at or (now - self._probe_at) >= PROBE_GAP_SEC
+
+    def _expire(self, now: float) -> bool:
+        """Count a probe that never came back. ``True`` if one has just been written off.
+
+        A probe that never answered IS the failure this whole reading exists to detect:
+        a stranded client accepts the send and nothing comes back. Checked by whoever
+        asks next rather than by a timer, so the mechanism stays inside the one thread
+        that already polls.
+        """
+        if self._probe_flying and (now - self._probe_at) >= PROBE_DEADLINE_SEC:
+            self._probe_flying = False
+            self._probe_fails += 1
+            return True
+        return False
+
+    def server_state(self, now: float) -> str:
+        """What the light is told about the server: one of `profile_health`'s three ids.
+
+        `ANSWERING` is the only thing that earns green, and it has a shelf life
+        (:data:`PROBE_OK_HOLD_SEC`) — «the server replied» is a statement about a moment.
+        """
+        if self.link_confirmed(now):
+            return profile_health.ANSWERING
+        if self._probe_fails:
+            return profile_health.SILENT
+        return profile_health.SERVER_UNASKED
+
     def probe_started(self, now: float) -> None:
         """One probe has just been sent. Its deadline runs from here."""
         self._probe_at = now
@@ -1071,7 +1005,7 @@ class Recovery:
                 "confirmed": self.link_confirmed(now),
                 "for_sec": int(PROBE_OK_HOLD_SEC)}
 
-    def note_session(self, playing: "bool | None", link: str, now: float,
+    def note_session(self, playing: "bool | None", talking: bool, now: float,
                      idle_sec: "float | None" = None) -> "tuple | None":
         """The client is up and connected — but is it IN THE GAME? (#1549)
 
@@ -1103,9 +1037,9 @@ class Recovery:
         :meth:`note`'s), a person at the machine wins, and a kick's wait is not
         interrupted to knock on a door.
         """
-        if link != game_link.ONLINE:
-            # Not this branch's client: no process, or a link that has gone. Both have
-            # their own cure and two of them must not restart one client.
+        if not talking:
+            # Not this branch's client: no process, or a link the server is not
+            # answering. Both have their own cure and two must not restart one client.
             self._stalled_clear()
             return None
         if playing:
@@ -1242,156 +1176,6 @@ class Recovery:
         self._barren_said = True
         return (SAY_BARREN, {"n": self._barren})
 
-    def note_daemon(self, stale: bool, now: float) -> "tuple | None":
-        """Feed one reading of «is the daemon on the client that is actually running?»
-
-        ``stale`` is a FACT the caller established by comparing two pids — the one
-        `{"op":"ping"}` names and the one the status poll found — not a guess. ``False``
-        covers both «they match» and «there is nothing to compare», because a daemon that
-        is down, or a machine with no client running, is not this fault and must not be
-        restarted on the strength of an unanswered question.
-
-        Returns `(locale_key, fmt)` or ``None``, exactly like :meth:`note`; the caller
-        restarts the DAEMON when the key is in :data:`DAEMON_RESTARTS`.
-
-        Why this is a separate reading rather than another branch of :meth:`note`: it is
-        true at times when the link is perfectly ONLINE. That was the live shape of it —
-        six sockets established, the strip saying «онлайн», and every errand failing —
-        and a decision hung off `link == lost` would never once have been asked.
-        """
-        if not stale:
-            self._stale_run = 0
-            self._daemon_held = False
-            if self._why.startswith("daemon"):
-                self._why = ""
-            if self._blame == "daemon":
-                self._blame = ""
-            return None
-
-        self._stale_run += 1
-        self._blame = "daemon"
-        if self._stale_run < DAEMON_STRIKES:
-            return None
-
-        since = now - self._daemon_last if self._daemon_last else None
-        if since is not None and since < DAEMON_COOLDOWN_SEC:
-            # Same shape as the client's wait, and the same bug avoided: the hold is
-            # re-checked every reading and only the SENTENCE is suppressed, so a daemon
-            # that stays stale is restarted again the moment the cooldown expires
-            # rather than being told about once and abandoned.
-            self._why = "daemon_cooldown"
-            if self._daemon_held:
-                return None
-            self._daemon_held = True
-            return (HOLD_DAEMON, {"mins": int((DAEMON_COOLDOWN_SEC - since) // 60) + 1})
-
-        self._daemon_last = now
-        self._daemon_restarts += 1
-        self._stale_run = 0
-        self._daemon_held = False
-        self._why = ""
-        return (ACT_DAEMON, {})
-
-    def note_daemon_down(self, down: bool, now: float) -> "tuple | None":
-        """Feed one reading of «does anything answer this profile's port at all?» (#1410)
-
-        ``down`` is a FACT the caller established by probing the port, with one thing
-        already decided for it: a profile somebody has stopped with «Стоп всё» feeds
-        ``False``, because its daemon is down BECAUSE it was stopped, and putting it back
-        is undoing the press rather than curing a fault.
-
-        Returns `(locale_key, fmt)` or ``None``, exactly like :meth:`note_daemon`; the
-        caller STARTS a daemon when the key is in :data:`DAEMON_STARTS` — never restarts
-        one, because there is nothing there to shut down and the log would say so.
-
-        Deliberately blind to the client. A daemon binds its port whether or not a game
-        is running and re-aims itself at one that appears, and «no client» is exactly the
-        state where the port has to answer: with it dead the gate holds every errand, and
-        the watchdog's own relaunch is one of them.
-
-        On the SAME cooldown as the other daemon cure, and on purpose: there is one
-        daemon per profile, so «it was touched two minutes ago» is one fact about one
-        thing. A start that does not take — a Windows session nobody is logged into, an
-        interpreter that is not there — is therefore retried every
-        :data:`DAEMON_COOLDOWN_SEC` for as long as it keeps failing, with a line each
-        time. That is the same promise the client's cure makes, for the same reason: a
-        cure that is tried once and then abandoned is how a profile spends a night doing
-        nothing while the panel believes it has done its part.
-        """
-        if not down:
-            self._down_run = 0
-            self._down_held = False
-            # …and the growth is spent: a port that answers is the only evidence there is
-            # that a start took, so the NEXT incident begins at the ordinary wait again.
-            self._down_wait = 0.0
-            # AND THE WAIT ITSELF IS SPENT, ONCE (#1854). `_down_wait` went back to the
-            # ordinary two minutes, but `_down_last` stayed where the successful start
-            # put it — so a daemon that came up in a second and was then taken away by
-            # the panel's OWN client restart was held for the rest of those two minutes,
-            # with every timer and trigger of the profile stopped behind it. Live on
-            # 2026-08-21 that was six of ten outages in two hours: the watchdog relaunches
-            # the client at 01:55:35, the daemon is down at 01:55:43, and the next start
-            # is refused until 01:57:29 for no reason but the clock. One free start is
-            # granted for the next incident; a daemon that binds and dies again inside
-            # the wait spends it and is held exactly as before.
-            self._down_took = True
-            if self._why.startswith("daemon"):
-                self._why = ""
-            if self._blame == "daemon" and not self._stale_run:
-                self._blame = ""
-            return None
-
-        self._down_run += 1
-        self._blame = "daemon"
-        if self._down_run < DOWN_STRIKES:
-            return None
-
-        left = 0.0 if self._down_took else self.down_wait_left(now)
-        if left > 0:
-            # ITS OWN «said once», and that is not tidiness (#1410). `_daemon_held`
-            # belongs to the stale branch, which is fed on every poll too and clears the
-            # flag whenever the daemon is not stale — a daemon that is DOWN is never
-            # stale, so the two together said this line every eight seconds. Live for a
-            # minute and a half before it was noticed.
-            self._why = "daemon_cooldown"
-            if self._down_held:
-                return None
-            self._down_held = True
-            return (HOLD_DAEMON_DOWN, {"mins": int(left // 60) + 1})
-
-        # NO ESCALATION FOR A DAEMON THAT IS DOWN (#1910). The wait used to DOUBLE to
-        # :data:`DOWN_WAIT_MAX_SEC` — half an hour between attempts — on the reasoning
-        # that some daemons never will start and the panel should stop repeating itself.
-        # Two things were wrong with it. The failure it was pacing was mostly not a
-        # failure at all: a daemon that came up and found no client to attach to was
-        # written down as «did not start» (`GameLink._start`), so the wait grew against a
-        # listener that was working perfectly. And the operator's rule is the plainer
-        # one — «его задача запуститься и слушать, он не может не запуститься» — so a
-        # daemon that is genuinely down is retried on the ordinary beat, and the reason
-        # it will not start is REPORTED (`GameLink.launch_error`) rather than paced.
-        self._down_wait = DAEMON_COOLDOWN_SEC
-        self._down_last = now
-        # The free start is spent whether or not it works: what earns another one is a
-        # port that answers again.
-        self._down_took = False
-        self._daemon_restarts += 1
-        self._down_run = 0
-        self._down_held = False
-        self._why = ""
-        return (ACT_DAEMON_DOWN, {})
-
-    def down_wait_left(self, now: float) -> float:
-        """Seconds before another daemon may be STARTED — 0.0 when one may be now.
-
-        The wait the LAST START earned, and nothing else: a port that has answered since
-        then buys one start straight away (`_down_took`), which
-        :meth:`note_daemon_down` applies rather than this.
-        """
-        if not self._down_last:
-            return 0.0
-        wait = self._down_wait or DAEMON_COOLDOWN_SEC
-        return max(0.0, self._down_last + wait - now)
-
 
 #: The panel says this and then plays `restart_game`.
 ACT = "log.game.deaf_restart"
@@ -1430,27 +1214,6 @@ ACT_STALLED = "log.game.stalled_restart"
 #: indistinguishable from one that has not noticed.
 HOLD_KICK = "log.game.kick_hold"
 
-#: The daemon is attached to a client that is not there — the positive reading, two pids
-#: that do not match. Restarting the CLIENT here is the six-times mistake (#1268).
-ACT_DAEMON = "log.game.daemon_restart"
-#: …and the cumulative one: this many client restarts have not brought the link back, so
-#: the thing being restarted is not the thing that is broken. Says the count, because the
-#: count is the argument.
-ACT_DAEMON_STUCK = "log.game.daemon_after_restarts"
-#: …and the daemon's own «too soon», so its wait is never silent either.
-HOLD_DAEMON = "log.game.daemon_hold"
-
-#: NOTHING answers the port — the other daemon fault, and the one a running panel had no
-#: cure for at all (#1410). The act is a START: `ensure()`, not `restart()`, because there
-#: is no daemon there to be shut down and a «перезапускаю» over an empty port is a
-#: sentence that sends the next reader looking for a process that never existed.
-ACT_DAEMON_DOWN = "log.game.daemon_down"
-#: …and its own «too soon». Its own key rather than :data:`HOLD_DAEMON`, because the two
-#: waits are in front of different acts: one is a restart held, this one is a start held,
-#: and a person reading «недавно уже перезапускался» over a daemon that has not been
-#: running at all is being told something that did not happen.
-HOLD_DAEMON_DOWN = "log.game.daemon_down_hold"
-
 #: Errands keep succeeding at nothing. Says the count and NOTHING ELSE — see
 #: :meth:`Recovery.note_run` for why this one may not become an act.
 SAY_BARREN = "log.game.barren"
@@ -1470,20 +1233,6 @@ RESTARTS = frozenset({ACT, ACT_BUSY, ACT_KICK, ACT_STALLED})
 #: that will be wrong the day a second kick act appears. What hangs off it is the
 #: escalating wait — see `Recovery.note_kick_restart`.
 KICK_ACTS = frozenset({ACT_KICK})
-
-#: …and every answer that means «restart the DAEMON now». Kept as its own set for the
-#: same reason the other one exists rather than as an `if key == …`: the two acts arrive
-#: from two different methods and a caller that tested one constant would wire half of
-#: it, which is precisely the bug this file already carries a paragraph about.
-DAEMON_RESTARTS = frozenset({ACT_DAEMON, ACT_DAEMON_STUCK})
-
-#: …and every answer that means «START a daemon now» — a third family, because it is a
-#: third ACT and not a third way of saying one of the two above. A daemon that is down is
-#: started (`GameLink.ensure`), never restarted: `restart` shuts one down first, and over
-#: an empty port that is a shutdown that fails, a line saying so, and a start that would
-#: have happened anyway. Its own set for the reason the other two have one — a caller
-#: asks which family a key is in, so a fourth act cannot end up announced and never done.
-DAEMON_STARTS = frozenset({ACT_DAEMON_DOWN})
 
 #: …and the answers that are only ever SAID. A set of its own rather than «everything not
 #: in the others», so that adding an act and forgetting to wire it fails loudly instead

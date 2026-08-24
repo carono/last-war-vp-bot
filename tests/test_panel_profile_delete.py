@@ -93,7 +93,7 @@ class _Shell:
         self._profile_var = types.SimpleNamespace(get=lambda: self._selected)
         self._selected = ""
         self._activity = types.SimpleNamespace(step=lambda *a, **k: _nothing())
-        for name in ("_delete_profile", "_make_room_to_delete", "_stop_daemon_of"):
+        for name in ("_delete_profile", "_make_room_to_delete", "_let_link_go_of"):
             setattr(self, name, types.MethodType(getattr(_PANEL, name), self))
 
     # -- the stubs the real window fills in ---------------------------------

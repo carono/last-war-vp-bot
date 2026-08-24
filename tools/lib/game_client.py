@@ -215,6 +215,46 @@ def alive(pid: "int | None") -> bool:
         return False
 
 
+def responding(pid: "int | None") -> bool:
+    """Is that client's own window still answering Windows? (#1911)
+
+    THE READING THAT TELLS A WEDGED CLIENT FROM A BUG OF OURS. When a chunk stops
+    landing there are exactly two explanations — the client's main thread is stuck, or
+    the panel's own attach is broken — and from inside the attach they look identical.
+    Windows already knows: a top-level window whose owner has not pumped its message
+    queue for five seconds is hung, and `IsHungAppWindow` is the answer.
+
+    ``True`` whenever the question cannot be asked — no pid, not Windows, no window
+    enumerated yet. A machine that will not answer may not convict a client of anything,
+    and the amber it would produce blames the wrong half.
+    """
+    if not pid:
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:                        # noqa: BLE001 — not Windows
+        return True
+    try:
+        user32 = ctypes.windll.user32
+        hung = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _each(hwnd, _lparam):
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == int(pid) and user32.IsWindowVisible(hwnd):
+                hung.append(bool(user32.IsHungAppWindow(hwnd)))
+            return True
+
+        user32.EnumWindows(_each, 0)
+    except Exception:                        # noqa: BLE001 — a reading, never the caller
+        return True
+    if not hung:
+        return True                          # no window of its own yet: nothing to say
+    return not all(hung)
+
+
 def close(pid: int, timeout: float = CLOSE_TIMEOUT_SEC, user: "str | None" = None,
           log=None) -> bool:
     """End the client at ``pid`` and wait for it to go. ``True`` once it has.

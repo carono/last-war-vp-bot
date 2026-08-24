@@ -105,17 +105,19 @@ function when(stamp, now) {
 
 /* -- the state page -------------------------------------------------------- */
 
-/* The four link states the panel can report, in the phone's two vocabularies: the word
- * on the pill, and the colour it is worn in. Same four ids as
- * panel/runtime/game_process.py and the same meaning of green — connected, and nothing
- * else. */
+/* THE THREE STATUSES (#1911), in the phone's two vocabularies: the word on the pill and
+ * the colour it is worn in. The reasons are `tools/lib/profile_health.py`'s own ids, so
+ * a reason added there cannot end up wordless here — the lookup falls back to the
+ * colour. Red is «нет клиента», amber is «есть клиент, трафика нет» with WHICH half
+ * failed in the word, green is «сервер отвечает». */
 const LINK_WORDS = {
-  online: 'web.ui.link.online',
-  lost: 'web.ui.link.lost',
-  unknown: 'web.ui.link.unknown',
-  offline: 'web.ui.off',
+  traffic: 'health.traffic',
+  no_client: 'health.no_client',
+  client_hung: 'health.client_hung',
+  no_connection: 'health.no_connection',
+  no_traffic: 'health.no_traffic',
 };
-const LINK_PILLS = { online: 'ok', lost: 'off', unknown: 'warn', offline: 'off' };
+const LINK_PILLS = { ok: 'ok', warn: 'warn', bad: 'off' };
 
 function paintState(state) {
   if ($('profile-pick').hidden) $('profile').textContent = state.profile;
@@ -125,16 +127,15 @@ function paintState(state) {
   RUNNING = (state.activity && state.activity.name) || '';
   if (RUNNING !== wasRunning && VIEW === 'actions') paintActions();
 
-  /* The LINK, not the process. A client that has lost the server keeps its window and
+  /* THE LINK, NOT THE PROCESS. A client that has lost the server keeps its window and
    * its pid, so «работает» was green over an account that had been doing nothing since
-   * the small hours; only an established connection is green now. Amber is «не видно» —
-   * a second account's sockets cannot be read from here, which is normal and not a
-   * fault (panel/runtime/game_process.py). An old panel that sends no `link` still
-   * gets the running/not-running pair it always did. */
-  const link = state.game.link || (state.game.running ? 'unknown' : 'offline');
+   * the small hours; only a server that ANSWERED is green. The colour and the reason
+   * are made once, by the window's status poll, and drawn here unchanged (#1911). */
+  const colour = state.game.colour || (state.game.running ? 'warn' : 'bad');
+  const reason = state.game.reason || '';
   const game = $('game-dot');
-  game.textContent = T(LINK_WORDS[link] || 'web.ui.off');
-  game.className = 'pill ' + (LINK_PILLS[link] || 'off');
+  game.textContent = T(LINK_WORDS[reason] || 'web.ui.off');
+  game.className = 'pill ' + (LINK_PILLS[colour] || 'off');
   $('game-text').textContent = state.game.text || '';
   /* The self-restart, in the one place a phone can see it. The window has the log
    * scrolling past and the person holding this does not, so «why did my client just
@@ -156,25 +157,6 @@ function paintState(state) {
      * which is exactly what it used to mean. */
     recEl.textContent = T('web.ui.recovery.player',
                           { mins: Math.ceil((rec.player_hold_left || 0) / 60) });
-  } else if (rec.held_by === 'daemon_cooldown') {
-    recEl.textContent = T('web.ui.recovery.daemon_wait',
-                          { mins: Math.ceil((rec.daemon_cooldown_left || 0) / 60) });
-  } else if (rec.daemon_down) {
-    /* NOTHING answers the port. The other daemon fault, and the one nobody in a running
-     * panel used to cure: `ensure()` sat behind the gate that was waiting for the very
-     * daemon it would have started, so a profile could stop farming for ten minutes with
-     * a client that was playing perfectly (#1410). Drawn before the stale line because
-     * both arrive as `blame === 'daemon'`. */
-    recEl.textContent = T('web.ui.recovery.daemon_down',
-                          { n: rec.daemon_down, of: rec.down_strikes || 0,
-                            done: rec.daemon_restarts || 0 });
-  } else if (rec.blame === 'daemon') {
-    /* WHICH thing is being restarted. A client restart and a daemon restart are both
-     * «панель что-то перезапускает» from here, and they mean opposite things about
-     * where the fault is — the phone has no log to read the difference off (#1268). */
-    recEl.textContent = T('web.ui.recovery.daemon',
-                          { n: rec.daemon_stale || 0, of: rec.daemon_strikes || 0,
-                            done: rec.daemon_restarts || 0 });
   } else if (rec.stalled_for) {
     /* THE CLOSED DOOR (#1549): the client is up, connected and not in the game — server
      * maintenance, or the login screen. The one restart in the panel that does NOT mean
@@ -214,10 +196,10 @@ function paintState(state) {
     ? '' : T('power.mark', { mins: Math.floor((pow.off_for_sec || 0) / 60) });
   $('power-mark').className = 'small' + (powerOn ? '' : ' bad');
   paintPowerSwitch(powerOn, state.watchdog !== false);
-  /* …and the state that press leaves behind, which a daemon dying on its own leaves too
-   * (#1393): nothing automatic runs while this profile's daemon is down, and a phone
-   * showing an idle-looking account with no explanation is the same silence the mark
-   * above exists to break. */
+  /* …and the state that press leaves behind, which a link that lands nothing leaves too
+   * (#1393): nothing automatic runs while the panel cannot reach this client, and a
+   * phone showing an idle-looking account with no explanation is the same silence the
+   * mark above exists to break. */
   const gate = state.gate || {};
   /* NOT WHILE THE SWITCH IS OFF: the mark above already says that in the words somebody
    * chose, and «демон остановлен» under it reads as a second, unrelated fault. */
@@ -226,38 +208,35 @@ function paintState(state) {
     ? T('gate.held', { mins: Math.floor((gate.for_sec || 0) / 60) }) : '';
   $('gate-mark').className = 'small' + (gateHeld ? ' bad' : '');
 
-  /* THREE STATES, the same three the window's indicator draws (#1286). A daemon holding
-   * a client that has gone still answers its port, so «работает» was what the phone said
-   * for half an hour while nothing the person pressed reached the game. Amber, not red:
-   * the daemon is there, and the panel is already restarting it for them. */
-  const daemon = $('daemon-dot');
-  const daemonStale = state.daemon.up && state.daemon.stale;
-  daemon.textContent = daemonStale ? T('web.ui.stale')
-    : (state.daemon.up ? T('web.ui.on') : T('web.ui.off'));
-  daemon.className = 'pill ' + (daemonStale ? 'warn' : (state.daemon.up ? 'ok' : 'off'));
-  $('daemon-text').textContent = T('web.ui.port', { port: state.daemon.port });
+  /* THE LINK'S OWN CARD: the same three statuses again, plus the one thing a person
+   * can act on — does the panel reach the client at all. Amber for OUR wiring and amber
+   * for a deaf client want opposite responses (fix us / restart it), so the phone is
+   * handed the distinction rather than being left to infer it (#1911). */
+  const linkEl = $('link-dot');
+  linkEl.textContent = T(LINK_WORDS[reason] || 'web.ui.off');
+  linkEl.className = 'pill ' + (LINK_PILLS[colour] || 'off');
+  $('link-text').textContent = T('web.ui.port', { port: state.link.port });
   /* WHICH Windows account this profile's client belongs to — the login picked on
    * «Настройки» → «Игра» (#1263). A reading, not a control: the picker is a list of
    * this machine's own accounts and that tab has no phone screen. Hidden for a profile
    * whose client is on the panel's own desktop, where there is no session to name. */
-  const sessionUser = state.daemon.user || '';
-  $('daemon-user').hidden = !sessionUser;
-  $('daemon-user').textContent = sessionUser
-    ? T('web.ui.daemon.user', { user: sessionUser }) : '';
+  const sessionUser = state.link.user || '';
+  $('link-user').hidden = !sessionUser;
+  $('link-user').textContent = sessionUser
+    ? T('web.ui.link.user', { user: sessionUser }) : '';
   /* Two profiles on ONE client farm ONE account and both look healthy doing it
    * (#1250). The phone gets the reading and no button: the login that separates them
-   * is typed on the «Настройки» tab, which has no phone screen by decision — so the
-   * line says where in the window to go rather than pretending it can be fixed here. */
-  const shared = state.daemon.shared || [];
-  $('daemon-shared').hidden = shared.length === 0;
-  $('daemon-shared').textContent = shared.length
-    ? T('web.ui.daemon.shared', { others: shared.join(', '),
+   * is typed on the «Настройки» tab, which has no phone screen by decision. */
+  const shared = state.link.shared || [];
+  $('link-shared').hidden = shared.length === 0;
+  $('link-shared').textContent = shared.length
+    ? T('web.ui.link.shared', { others: shared.join(', '),
                                   tab: T('tab.settings'), page: T('settings.tab.game'),
                                   frame: T('session.frame') })
     : '';
 
   const busy = $('busy-dot');
-  const working = !!state.activity || state.daemon.busy;
+  const working = !!state.activity || state.link.busy;
   busy.textContent = working ? T('web.ui.busy') : T('web.ui.idle');
   busy.className = 'pill ' + (working ? 'warn' : 'ok');
   $('activity').textContent = state.activity ? state.activity.text

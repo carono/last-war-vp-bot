@@ -25,16 +25,16 @@ from .power import Power
 from .recovery import Recovery as RecoveryState
 from .bus import EventBus
 from .children import ChildFactory
-from .daemon import GameLink
+from .link import GameLink
 from .day_reset import DayReset
-from .gate import RELAUNCH_ACTIONS, DaemonGate
+from .gate import RELAUNCH_ACTIONS, LinkGate
 from .health import ProfileHealth
 from .i18n import Translator
 from .intake import Intake as IntakeLedger
 from .interrupt import Interrupts
 from .log import LogBus
 from .log_view import LogSpool
-from .paths import LUA_DAEMON, REPO
+from .paths import REPO
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
 
@@ -157,7 +157,7 @@ class PanelRuntime:
         # the schedule because the schedule is not the only thing that acts by itself,
         # and three detectors with three ideas of «may I» is how «Стоп всё» used to be
         # undone eight seconds after it was pressed.
-        self.gate = DaemonGate(self)
+        self.gate = LinkGate(self)
         # …AND WHEN THIS PROFILE'S WARZONE STARTS A NEW DAY (panel/runtime/day_reset.py).
         # Everything the game hands out once a day comes back at the server's own 00:00,
         # which is neither this machine's midnight nor the same on every warzone — so the
@@ -208,14 +208,13 @@ class PanelRuntime:
             registry=lambda: self.profiles.dir())
         self.game = GameLink(
             port=self.daemon_port,
-            python=lambda: self.settings.opt_str("win_python"),
-            log=self.log, env=self.children.env, cwd=REPO,
-            daemon_script=LUA_DAEMON, on_state=daemon_state,
-            debug=self.dbg("daemon"), activity=self.activity,
+            log=self.log, cwd=REPO, on_state=daemon_state,
+            debug=self.dbg("link"), activity=self.activity,
             # A callable, like the port: it has to follow a profile switch. This is
-            # what stops the panel starting a daemon HERE for a client that lives in
-            # another Windows session — it would bind the right port and then drive
-            # this desktop's game, or nothing (#1218).
+            # what decides whether the panel holds this client ITSELF or keeps a small
+            # process beside it in another Windows session — a hijack finds its client
+            # in the session it runs in, so a foreign one cannot be driven from here
+            # (#1218, #1911).
             user=lambda: game_process.profile_user(self.settings),
             # …and whose link this is, so every claim it takes is filed under the
             # profile and a refusal names the profile holding the client (#1226).

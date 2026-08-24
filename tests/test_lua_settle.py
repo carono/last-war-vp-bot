@@ -293,7 +293,7 @@ def test_the_panel_jumps_in_one_call_and_never_reads_the_server_first():
     tkinter) — the Windows interpreter the panel runs on is the one that matters.
     """
     try:
-        import panel.runtime.daemon as daemonmod
+        import panel.runtime.link as daemonmod
     except Exception as exc:                          # noqa: BLE001
         print(f"       (skipped: the panel runtime does not import here — {exc})")
         return
@@ -328,9 +328,11 @@ def test_the_panel_jumps_in_one_call_and_never_reads_the_server_first():
     was, log = daemonmod.lua_client.is_running, _Log()
     daemonmod.lua_client.is_running = lambda *a, **k: True      # a daemon is "there"
     try:
-        link = daemonmod.GameLink(port=lambda: 47999, python=lambda: "python", log=log,
-                                  env=dict, cwd=str(ROOT), daemon_script="x")
+        link = daemonmod.GameLink(port=lambda: 47999, log=log, cwd=str(ROOT))
         link.client = _Client()
+        # The link lands chunks — which is what `jump` checks before it drives (#1911),
+        # and not what this case is about.
+        link.ready = lambda fresh=False: True
         assert link.jump(561, 492, None) is True
         for _ in range(200):                                    # it runs on a thread
             if link.client.calls and not link.busy:

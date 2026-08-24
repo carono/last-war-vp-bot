@@ -17,7 +17,7 @@ said by whoever draws them, in whatever language that window is showing
 a step can be reported from a worker thread that has no idea what language is on.
 
 WHY A SET AND NOT ONE VALUE. Several things really are in flight at once: the boot runs
-a thread per profile, an errand fires while a tab is being built, a daemon comes up
+a thread per profile, an errand fires while a tab is being built, a link is taken
 while the account strip is being read. A single «current» string means the last writer
 wins and the loser's step is lost — including the case where the loser is the long one
 and the winner finished instantly. Every step is held until it ENDS, and «what is the
@@ -26,7 +26,7 @@ running underneath comes back into view by itself.
 
 USE IT AS A CONTEXT MANAGER wherever the work is one block:
 
-    with rt.activity.step("activity.daemon.start", port=47654):
+    with rt.activity.step("activity.link.attach", port=47654):
         link.ensure()
 
 and as :meth:`begin` / :meth:`end` only where it cannot be — a build spread across

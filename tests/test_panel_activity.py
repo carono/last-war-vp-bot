@@ -15,7 +15,7 @@ to hold:
     and nothing here may be the reason an errand fails;
   * the two things that block for whole seconds report by themselves, so a tab launched
     on its own gets the same strip for free: bringing the daemon up
-    (`panel/runtime/daemon.py`) and playing a scenario (`panel/runtime/actions.py`);
+    (`panel/runtime/link.py`) and playing a scenario (`panel/runtime/actions.py`);
   * and the shell's staged page build (`panel/__main__.py::_stage`) runs its steps under
     the session they belong to, stops when that session is closed, and lets one step
     fail without dropping the rest of the page.
@@ -29,6 +29,7 @@ from __future__ import annotations
 TIER = "ui"        # Tk and a display — see tools/run_tests.py
 
 import sys
+import types
 import threading
 from pathlib import Path
 
@@ -58,7 +59,7 @@ def test_a_step_is_a_key_and_its_arguments() -> None:
 
 def test_the_newest_live_step_is_the_one_shown() -> None:
     act = Activity()
-    first = act.begin("activity.daemon.start", port=47654)
+    first = act.begin("activity.link.attach", port=47654)
     second = act.begin("activity.action", name="heal_units")
     assert act.current() is second
     # …and when it ends, what is still running underneath comes back by itself.
@@ -135,7 +136,7 @@ def test_two_threads_reporting_at_once_keep_both_steps() -> None:
 def test_a_step_seq_orders_across_two_activities() -> None:
     """Two profiles, two activities — the window shows the newer step of the two."""
     first, second = Activity("main"), Activity("alt")
-    older = first.begin("activity.daemon.start", port=47654)
+    older = first.begin("activity.link.attach", port=47654)
     newer = second.begin("activity.tab.build", tab="Ралли")
     assert newer.seq > older.seq
 
@@ -149,36 +150,38 @@ class _Log:
         pass
 
 
-def test_the_daemon_says_it_is_starting_one() -> None:
-    import panel.runtime.daemon as daemonmod
-    from panel.runtime.daemon import GameLink
+def test_taking_hold_of_the_client_says_it_is_working() -> None:
+    from panel.runtime.link import GameLink
 
     act = Activity()
     seen: list = []
     act.listen(lambda: seen.append(act.current()))
-    link = GameLink(port=lambda: 47999, python=lambda: sys.executable, log=_Log(),
-                    env=dict, cwd=str(_REPO), daemon_script="nope.py", activity=act)
-    # Nothing there, and nothing started. `health` rather than `up`, because «is there a
-    # daemon» stopped being a question about the port the moment a daemon could answer
-    # one while holding a client that had gone (#1286).
-    link.health = lambda client_pid=None: daemonmod.DAEMON_NONE
-    link.up = lambda fresh=False: False
-    link._python = lambda: "no-such-interpreter-anywhere"
+    link = GameLink(port=lambda: 47999, log=_Log(), cwd=str(_REPO), activity=act)
+    # An attach that fails: nothing lands, and the light goes amber with a reason. The
+    # STEP is what this pins — half a second of a window with nothing to say for itself
+    # is what the strip along the bottom exists for.
+    link.service = lambda: types.SimpleNamespace(
+        listen=lambda port: True, reattach=lambda: False,
+        traffic_age=lambda: None, error=lambda: "no client")
+    link.is_local = lambda: True
     assert link.ensure() is False
     keys = [s.key for s in seen if s is not None]
-    assert "activity.daemon.start" in keys, keys
+    assert "activity.link.attach" in keys, keys
     assert act.current() is None, "the step outlived the work it described"
 
 
-def test_a_daemon_already_warm_reports_nothing() -> None:
-    import panel.runtime.daemon as daemonmod
-    from panel.runtime.daemon import GameLink
+def test_a_link_that_already_lands_reports_nothing() -> None:
+    from panel.runtime.link import GameLink
 
     act = Activity()
-    link = GameLink(port=lambda: 47999, python=lambda: sys.executable, log=_Log(),
-                    env=dict, cwd=str(_REPO), daemon_script="nope.py", activity=act)
-    link.health = lambda client_pid=None: daemonmod.DAEMON_LIVE
-    link.up = lambda fresh=False: True
+    link = GameLink(port=lambda: 47999, log=_Log(), cwd=str(_REPO), activity=act)
+    link.service = lambda: types.SimpleNamespace(
+        listen=lambda port: True, reattach=lambda: True,
+        traffic_age=lambda: 0.0, error=lambda: "")
+    link.is_local = lambda: True
+    # …and the READING says a chunk landed a moment ago, which is what makes `ensure`
+    # do nothing at all (#1911).
+    link.ready = lambda fresh=False: True
     seen: list = []
     act.listen(lambda: seen.append(act.current()))
     assert link.ensure() is True

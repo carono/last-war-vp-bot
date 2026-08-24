@@ -1,4 +1,4 @@
-r"""The port a profile names reaches its daemon — from the FIRST instant, and afterwards.
+r"""The port a profile names reaches its own client — from the FIRST instant, and after.
 
 Two answers to "which daemon does this profile drive" have to agree, and for two days
 they did not (#1224). A profile whose client lives in another Windows session names a
@@ -20,7 +20,7 @@ Two independent causes, one per half of this file:
 No widget, no game, no socket: a stand-in variable, a stand-in daemon, and a port that
 moves under the link the way an applied profile moves it.
 
-    C:\Python312\python.exe tests\test_panel_daemon_port.py
+    C:\Python312\python.exe tests\test_panel_link_port.py
 """
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
         sys.path.insert(0, str(_p))
 
 import contextlib                                           # noqa: E402
-import panel.runtime.daemon as daemonmod                     # noqa: E402
-from panel.runtime.daemon import GameLink                   # noqa: E402
+import panel.runtime.link as linkmod                     # noqa: E402
+from panel.runtime.link import GameLink                   # noqa: E402
 from panel.runtime.settings import SettingsBinder           # noqa: E402
 
 
@@ -132,13 +132,13 @@ def _daemons(*daemons: _Daemon):
     live daemon driving a live account.
     """
     by_port = {d.port: d for d in daemons}
-    was = daemonmod.lua_client.DaemonClient
-    daemonmod.lua_client.DaemonClient = (
+    was = linkmod.lua_client.DaemonClient
+    linkmod.lua_client.DaemonClient = (
         lambda port=None, token=None, **kw: by_port[int(port)].client(token))
     try:
         yield
     finally:
-        daemonmod.lua_client.DaemonClient = was
+        linkmod.lua_client.DaemonClient = was
 
 
 def _binder(saved: dict, defaults: dict) -> SettingsBinder:
@@ -187,8 +187,11 @@ def test_a_null_in_the_file_is_not_a_value() -> None:
 # ---------------------------------------------------------------------------
 
 def _link(port, log=None) -> GameLink:
-    link = GameLink(port=port, python=lambda: "python", log=log or _Log(),
-                    env=dict, cwd=str(_REPO), daemon_script="x")
+    # A profile whose client lives in ANOTHER Windows session — the only case that still
+    # speaks to something over a port (#1911). A local profile is driven in-process and
+    # has no port to get wrong; this one has, and it is the one that got it wrong.
+    link = GameLink(port=port, log=log or _Log(), cwd=str(_REPO),
+                    user=lambda: "other-session")
     # THE FAKE DAEMONS ABOVE ARE REACHABLE, and `up()` has to agree with them rather
     # than with this machine's socket table. `_claim_lease` short-circuits on `up()` —
     # a daemon that cannot be reached cannot be holding a lease, and asking costs a
@@ -248,55 +251,59 @@ def test_rebind_still_reports_whether_it_moved() -> None:
         assert link.rebind() is False
 
 
-def test_ensure_asks_the_socket_rather_than_its_own_cache():
-    """«already warm» must never be said off a cached yes (#1281).
+def test_ensure_on_a_local_profile_never_asks_a_port() -> None:
+    """The panel IS the link for its own desktop (#1911): no socket decides anything.
 
-    `up()` reuses its answer for a second or so — right for the status poll and the
-    schedule's gate, which ask constantly; wrong for the one caller whose whole job is
-    to notice a daemon that has GONE. A client restarted by anything takes its daemon
-    with it, and `ensure` was answering «already warm on port 47654» off a cache, doing
-    nothing, and leaving the port dead — the rally auto-join went deaf for stretches at
-    a time with the panel reporting a warm daemon. Seen live three times in twenty
-    minutes.
-
-    Checked by asking whether the reading was FRESH, not by counting sockets: the cache
-    is what the class is allowed to keep, and the guarantee is only about this caller.
-
-    The reading itself has moved on since (#1286): `ensure` asks `health`, which asks the
-    daemon what CLIENT it is holding, because a port that answers turned out not to mean
-    a daemon that works. The freshness is the same promise one layer down — `ping` is
-    what now has to ask the socket rather than the cache — and it is still this caller's.
+    The test this replaces was about a cache in front of a `socket.connect` — «a daemon
+    that died inside the cache window is reported warm». There is no daemon and no
+    window: `ensure` on a local profile takes hold of the client in this process, and
+    the only question is whether a chunk lands.
     """
-    asked: list = []
+    lands = {"ok": False}
+    attached = []
+
+    class _Service:
+        def listen(self, port):
+            return True
+
+        def reattach(self):
+            attached.append(True)
+            lands["ok"] = True
+            return True
+
+        def traffic_age(self):
+            return 0.0 if lands["ok"] else None
+
+        def error(self):
+            return ""
 
     class _Link(GameLink):
         def __init__(self):
-            pass                                     # nothing here is needed to ask
+            self._log, self._dbg = _Log(), None
+            self._activity = linkmod.Activity()
+            self._said_fail = ""
+            self.on_state = lambda *a, **k: None
 
         def port(self):
             return 47654
 
-        def up(self, fresh: bool = False) -> bool:
-            asked.append(fresh)
-            return True
+        def user(self):
+            return None                              # this desktop's own client
 
-        def _running_pid(self):
-            return 4242                              # the client that is running
-
-        def _note(self, *a, **k):
-            pass
-
-        def on_state(self, *a, **k):
-            pass
-
+    service = _Service()
     link = _Link()
-    link._client = type("C", (), {"status": staticmethod(
-        lambda: {"ok": True, "warm": True, "pid": 4242})})()
-    link._client_port = 47654
-    assert link.ensure() is True
-    assert asked == [True], (
-        "ensure() read the cached answer; a daemon that died inside the cache window "
-        "is then reported warm and never restarted")
+    link.service = lambda: service
+    # The READING side asks the process's service without making one — a light may not
+    # be the thing that attaches (#1911) — so the stand-in stands in for that too.
+    was = linkmod.lua_service.current
+    linkmod.lua_service.current = lambda: service
+    try:
+        assert link.ready() is False, "a link nothing has landed through is not ready"
+        assert link.ensure() is True
+        assert attached == [True], "ensure() did not take hold of the client"
+        assert link.ready() is True, "a chunk landed and the link still reads amber"
+    finally:
+        linkmod.lua_service.current = was
 
 
 def _main() -> int:

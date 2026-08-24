@@ -39,15 +39,20 @@ sys.path.insert(0, str(ROOT / "tools" / "lib"))
 import game_link  # noqa: E402
 
 try:
-    from panel.runtime import daemon as daemonmod  # noqa: E402
+    from panel.runtime import link as linkmod  # noqa: E402
     from panel.runtime import recovery as rec  # noqa: E402
 except Exception as _exc:                      # noqa: BLE001
-    rec, daemonmod, _WHY = None, None, _exc
+    rec, linkmod, _WHY = None, None, _exc
 
-LOST = "lost"
-ONLINE = "online"
-UNKNOWN = "unknown"
-OFFLINE = "offline"
+# THE INPUT IS ONE BOOLEAN NOW (#1911): «есть клиент и сервер молчит». The socket table
+# is not evidence any more — it cannot say which conversation is the game, and for a
+# night it called a healthy client dead. The four names are kept so the hundred cases
+# below go on reading as prose, and three of them are the same answer because they were
+# always the same answer to this decision: anything that is not «deaf» ends the run.
+LOST = True
+ONLINE = False
+UNKNOWN = False
+OFFLINE = False
 
 
 class _Recovery(rec.Recovery):
@@ -70,6 +75,7 @@ class _Recovery(rec.Recovery):
     probe_answer = False
 
     def note(self, link, now, **kw):
+        kw.pop("dead", None)                        # the socket count is gone (#1911)
         said = super().note(link, now, **kw)
         if not (said and said[0] == rec.HOLD_CONFIRM):
             return said
@@ -122,36 +128,11 @@ def test_a_run_of_them_is():
     assert r.restarts == 1
 
 
-def test_the_run_is_broken_by_any_other_answer():
-    """Including `unknown` — «I cannot tell» must never accumulate into a restart."""
-    for other in (ONLINE, UNKNOWN, OFFLINE):
-        r = _Recovery()
-        for i in range(rec.STRIKES - 1):
-            r.note(LOST, 1000.0 + i)
-        assert r.note(other, 1100.0) is None
-        assert r.deaf_for == 0, other
-        # …and the count has to start again from nothing.
-        assert _deaf(r, rec.STRIKES - 1, t0=1200.0) == [], other
-        assert r.restarts == 0, other
-
-
 def test_offline_is_the_watchdogs_and_not_this_ones():
     """Two things must not relaunch one client."""
     r = _Recovery()
     for i in range(rec.STRIKES * 3):
         assert r.note(OFFLINE, 1000.0 + i * 8) is None
-    assert r.restarts == 0
-
-
-def test_a_kick_cannot_override_offline_either():
-    """No process, nothing on screen — so nothing can be showing a modal (#1270).
-
-    The kick is deaf on its own whatever the SOCKETS say; `offline` is not a socket
-    reading, it is «there is no client», and that one stays the watchdog's.
-    """
-    r = _Recovery()
-    for i in range(rec.KICK_STRIKES * 3):
-        assert r.note(OFFLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True) is None
     assert r.restarts == 0
 
 
@@ -277,32 +258,6 @@ def test_the_kick_flag_reads_a_window_and_fails_closed():
     assert expr.index("IsWindowOpen") < expr.index("GetWindow"), expr
 
 
-def test_a_kick_is_deaf_even_while_the_sockets_read_online():
-    """THE FIFTH FORM (#1270), as a decision.
-
-    On 2026-08-07 the account was taken by another device and the client kept ONE
-    established conversation of the six it had — so `classify` answered `online,
-    dead=0`, honestly. The kick flag was only ever consulted while the link already read
-    `lost`, so nothing asked it, and the panel played timers into a client that could
-    not send from 05:13 to 07:27.
-
-    A live socket and the kick modal together mean the client cannot be played. The
-    patience is the kick's own and shorter than the link's: this is the game's own
-    sentence, not an inference off a socket table.
-
-    The ACT is now on the far side of the wait (#1291) — what is pinned here is that the
-    state is REACHED at all through a link that reads perfectly online.
-    """
-    r = _Recovery()
-    said = [x for i in range(rec.KICK_STRIKES)
-            if (x := r.note(ONLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
-    assert [k for k, _ in said] == [rec.HOLD_KICK], said
-    later = 1000.0 + rec.KICK_HOLD_SEC + 8
-    assert r.note(ONLINE, later, idle_sec=9999.0, kicked=True) == (rec.ACT_KICK, {})
-    assert r.restarts == 1 and r.state(later)["kicks"] == 1
-    assert rec.ACT_KICK in rec.RESTARTS, "announced and never performed — the #1259 bug"
-
-
 def test_one_kick_reading_is_not_a_reason_either():
     """A single unlucky poll acts on nothing, exactly like a single lost reading."""
     r = _Recovery()
@@ -382,12 +337,13 @@ def test_the_account_coming_back_ends_the_wait():
     for i in range(rec.KICK_STRIKES):
         r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
     assert r.kick_hold_left(t0 + 60) > 0
-    r.note(OFFLINE, t0 + 68, idle_sec=9999.0, kicked=False)
+    # …the client goes away mid-wait: no process, so no evidence the account is ours.
+    r.note(OFFLINE, t0 + 68, idle_sec=9999.0, kicked=False, running=False)
     assert r.kick_hold_left(t0 + 68) > 0, "a client that went away lost its own wait"
     # …and the strip goes on saying so. A blank one here reads as «ничего не
     # происходит» through the fifteen minutes when something deliberately is.
     assert r.state(t0 + 68)["held_by"] == "kick", r.state(t0 + 68)
-    r.note(ONLINE, t0 + 76, idle_sec=9999.0, kicked=False)
+    r.note(ONLINE, t0 + 76, idle_sec=9999.0, kicked=False, talking=True)
     assert r.kick_hold_left(t0 + 76) == 0
 
 
@@ -643,44 +599,6 @@ def test_the_wait_is_drawn_on_both_front_ends():
         "the phone shows the old panel"
 
 
-def test_a_kick_never_blames_the_daemon():
-    """The alternation of #1268 exists for a diagnosis nobody has. Here there is one.
-
-    Two client restarts with the link never back move the blame to the daemon — right,
-    while the fault is unknown. An account on another device is not something a daemon
-    on this machine can be restarted out of, and reaching for it would be the #1268
-    mistake made deliberately.
-    """
-    r = _Recovery()
-    now = 1000.0
-    # Far enough apart that neither wait is what is being measured: the cooldown
-    # between two restarts, and the fifteen minutes a kick is left alone (#1291).
-    step = max(rec.COOLDOWN_SEC, rec.KICK_HOLD_SEC) + 60
-    # Twice as many rounds as restarts wanted: a restart clears the kick's run, so the
-    # next episode spends one round earning its readings and the round after that acts.
-    for _ in range((rec.FRUITLESS + 2) * 2):
-        for i in range(rec.KICK_STRIKES):
-            r.note(ONLINE, now + i * 8, idle_sec=9999.0, kicked=True)
-        now += step
-    assert r.state(now)["daemon_restarts"] == 0, "a kick was blamed on the daemon"
-    assert r.restarts >= rec.FRUITLESS + 1, r.restarts
-
-
-def test_errands_that_press_nothing_are_counted_and_said_once():
-    """«Успешно ничего» — the only true line in the log that morning (#1270).
-
-    Evidence, never a cure: it is said and drawn, and it restarts nothing, because a
-    spent account genuinely presses nothing all evening.
-    """
-    r = _Recovery()
-    said = [x for _ in range(rec.BARREN * 2) if (x := r.note_run(1, 0))]
-    assert [k for k, _ in said] == [rec.SAY_BARREN], said
-    assert said[0][1]["n"] == rec.BARREN, said
-    assert rec.SAY_BARREN not in rec.RESTARTS | rec.DAEMON_RESTARTS
-    assert rec.SAY_BARREN in rec.SAYINGS
-    assert r.restarts == 0, "a reading became a cure"
-
-
 def test_a_press_that_landed_clears_the_barren_count():
     r = _Recovery()
     for _ in range(rec.BARREN - 1):
@@ -713,53 +631,6 @@ def test_every_act_carries_the_words_to_explain_itself():
         assert isinstance(key, str) and key.startswith("log."), key
         assert isinstance(fmt, dict), fmt
 
-
-def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
-    r = _Recovery()
-    _deaf(r, DEAF_READINGS)
-    # AFTER the act, not during it (#1910): the confirmation's probes move the decision's
-    # clock forward between the last two readings, so a `state()` taken at the run's own
-    # last reading is taken BEFORE the restart it is meant to describe — and the cooldown
-    # left then reads as more than the whole cooldown.
-    st = r.state(1000.0 + DEAF_READINGS * 8 + rec.PROBE_GAP_SEC * rec.PROBE_FAILS + 1)
-    # THE WHOLE SET, and it has to be kept in step: this list was left behind when
-    # #1549 added the four `stalled_*` numbers, so the one test that says «both
-    # front-ends draw exactly these» has been red ever since and nobody was told which
-    # key was new. Adding a number here is one line; a set that is merely a subset would
-    # let the next one arrive unmentioned.
-    assert set(st) == {"deaf_for", "strikes", "restarts", "kicks", "cooldown_left",
-                       "held_by", "blame", "daemon_stale", "daemon_strikes",
-                       "daemon_down", "down_strikes",
-                       "daemon_restarts", "daemon_cooldown_left", "fruitless",
-                       "barren", "barren_of", "kick_hold_left", "kick_hold_of",
-                       "player_hold_left", "player_hold_of",
-                       "stalled_for", "stalled_of", "stalled_next",
-                       # …and the confirmation, which is the whole of #1910's half of
-                       # this: how many server probes have gone unanswered out of how
-                       # many a restart needs. Nested, because it is one fact with its
-                       # own parts and both front-ends draw it as one row.
-                       "probe",
-                       "stalled_restarts"}, st
-    assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
-    assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC
-    words = ("held_by", "blame")
-    nested = ("probe",)
-    for key, value in st.items():
-        if key in nested:
-            assert isinstance(value, dict), (key, value)
-            for sub, val in value.items():
-                assert isinstance(val, (int, bool)), (key, sub, val)
-            continue
-        # Numbers, and two ids — never a sentence. `held_by` names WHY a restart is
-        # being withheld and `blame` names WHAT is thought to be broken, so each
-        # front-end can word both itself; each is a key and not a language.
-        assert isinstance(value, int if key not in words else str), (key, value)
-    assert st["held_by"] in ("", "cooldown", "player", "daemon_cooldown", "kick",
-                            "confirm"), st
-    assert st["blame"] in ("", "client", "daemon"), st
-
-
-# --- the confirmation, against the REAL decision (#1910) ---------------------
 
 def _sockets_say_deaf(r, n=None, t0=1000.0):
     """Feed the socket half only — no probes answered either way."""
@@ -838,38 +709,6 @@ def test_a_probe_that_never_came_back_counts_as_a_refusal():
     r.probe_due(2000.0 + rec.PROBE_DEADLINE_SEC + 1)
     assert r.probe_state()["fails"] == 1, r.probe_state()
     assert r.probe_due(2000.0 + rec.PROBE_GAP_SEC + 1) is True, "never asked again"
-
-
-def test_the_shape_the_sockets_cannot_decide_is_still_suspicious():
-    """#1266's protection, kept while its verdict was given up (#1910).
-
-    `game_link.classify` no longer calls «one stranded conversation beside one
-    established» a loss, because that table means two opposite things. It must not
-    therefore be IGNORED: a genuinely dead game behind a live control channel is exactly
-    that shape, and the whole of #1266 is that nothing noticed it for a night.
-
-    So it counts toward the run exactly as a loss does, and the probe decides.
-    """
-    r = rec.Recovery()
-    said = []
-    for i in range(DEAF_READINGS):
-        got = r.note(UNKNOWN, 1000.0 + i * 8, idle_sec=10_000.0, dead=6)
-        if got:
-            said.append(got)
-    assert said and said[0][0] == rec.HOLD_CONFIRM, said
-
-
-def test_an_unknown_with_nothing_behind_it_is_still_not_a_reason():
-    """…and «I cannot tell» with NO half-closed socket stays what it always was.
-
-    A client 45 seconds into starting up, or a machine that will not attribute a foreign
-    process's sockets. Never a fault, never a run, never a restart (§3).
-    """
-    r = rec.Recovery()
-    said = [x for x in (r.note(UNKNOWN, 1000.0 + i * 8, idle_sec=10_000.0, dead=0)
-                        for i in range(DEAF_READINGS * 2)) if x]
-    assert said == [], said
-    assert r.restarts == 0
 
 
 def test_an_answered_probe_is_believed_for_a_while():
@@ -1043,9 +882,9 @@ def test_a_client_nobody_is_at_is_still_restarted_at_once():
     assert said and said[-1][0] == rec.ACT, said
 
 
-def test_the_lost_it_watches_for_is_the_shared_one():
-    """Not a string of its own: the rule and the watcher must mean the same state."""
-    assert LOST == game_link.LOST
+def test_the_input_is_a_verdict_and_not_a_socket_reading():
+    """#1911: the sockets are not evidence. What comes in is «amber, and deaf»."""
+    assert LOST is True and ONLINE is False
 
 
 def test_it_travels_to_BOTH_front_ends_out_of_ONE_object():
@@ -1078,64 +917,17 @@ def _shell_method(name: str) -> str:
     return shell[at:shell.index("\n    def ", at + 10)]
 
 
-def test_the_restart_it_asks_for_is_the_lifecycle_recipe():
-    """Not a hand-rolled kill-and-launch: the panel presses scenarios (`CLAUDE.md`).
+def _health(deaf: bool, running: bool = True):
+    """The verdict the status poll hands `_recovery_check` (#1911).
 
-    Both decisions go through ONE door now (`_act_on`), which is the point: there are
-    two cures and four acts, and a second place that turned keys into presses would be
-    a second place to forget one.
+    Made by the real rule, so a change to the ladder shows up here rather than in a
+    hand-written stand-in that agrees with nothing.
     """
-    check = _shell_method("_recovery_check")
-    assert "_act_on(" in check, "the decision never reaches the door that acts on it"
-    body = _shell_method("_act_on")
-    assert 'play_async("restart_game")' in body, body[-400:]
-    # …and on EVERY act that means it, never on the «too soon» answer. The sets, not one
-    # constant: `key == recovery.ACT` is what left a kicked client announced and never
-    # restarted, and this assertion used to pass over that bug because `recovery.ACT`
-    # is a substring of the very line that was missing it.
-    assert "recovery.RESTARTS" in body, body[-400:]
-    assert "recovery.DAEMON_RESTARTS" in body, "the daemon's cure is never wired"
-    assert "== runtime.recovery.ACT" not in body, "one act is wired, the others are not"
+    import profile_health as ph
 
-
-def test_the_daemons_cure_is_the_daemons_own_restart():
-    """…and it is `DaemonLink.restart`, not a kill: the daemon is asked to go and a
-    fresh one is started, which is what re-attaches it to the client that is running.
-
-    It is also the SAME method the «⭮» button beside the daemon indicator presses. The
-    cure already existed and only the decision to reach for it was missing, so the count
-    of definitions is pinned: the first draft of #1268 added a second `_restart_daemon`
-    that silently overrode the button's, which is the failure mode `docs/panel-tabs.md`
-    calls «a control drawn twice, never copied».
-    """
-    shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
-    assert shell.count("def _restart_daemon") == 1, "two daemon restarts, one wins"
-    body = _shell_method("_restart_daemon")
-    assert "_game.restart" in body, body
-    assert "taskkill" not in body and "terminate" not in body, body
-    daemon = (ROOT / "panel" / "runtime" / "daemon.py").read_text(encoding="utf-8")
-    assert "def attached_pid" in daemon, "nothing can tell which client the daemon holds"
-    # …and the reading that turns that pid into a verdict, which `ensure` asks before it
-    # may call a daemon warm (#1286). Without it «already warm» is a port check again.
-    assert "def health" in daemon, "nothing can tell a live daemon from a corpse"
-
-
-def test_every_act_that_means_a_restart_is_in_the_set():
-    """A new `ACT_*` is a new press. A set is how a caller finds out about it.
-
-    There are three sets now — one act family per thing that can be done (#1268, #1410)
-    — and the check is that every act belongs to EXACTLY one. An act in none is
-    announced and never done, which is the 2026-08-06 bug; an act in two is a client and
-    a daemon touched for one reading, which is the same carelessness pointing the other
-    way.
-    """
-    acts = {name for name in vars(rec)
-            if name == "ACT" or name.startswith("ACT_")}
-    for name in sorted(acts):
-        key = getattr(rec, name)
-        homes = [s for s in ("RESTARTS", "DAEMON_RESTARTS", "DAEMON_STARTS")
-                 if key in getattr(rec, s)]
-        assert len(homes) == 1, f"{name} is in {homes or 'no set'}, expected exactly one"
+    return ph.verdict(running=running,
+                      plumbing=ph.LANDING,
+                      server=ph.SILENT if deaf else ph.ANSWERING)
 
 
 class _Press:
@@ -1155,6 +947,7 @@ class _Press:
         #: `daemons` on purpose: a daemon that is down is started, and a restart over an
         #: empty port is the wrong act with the wrong sentence.
         self.starts = 0
+        self.probes = 0
         self._watchdog = watchdog
         self._rt = self
         #: «Профиль работает». A switched-off profile's daemon is down BECAUSE it was
@@ -1207,6 +1000,10 @@ class _Press:
     def info(self, *args, **kw) -> None:  # noqa: D102
         pass
 
+    def _probe_server(self, now) -> None:
+        """The active question the poll asks the SERVER (#1911). Counted, never sent."""
+        self.probes += 1
+
     def _act_on(self, said):              # noqa: D102 — the real one, borrowed below
         raise AssertionError("replaced by the real Panel._act_on in _drive")
 
@@ -1220,11 +1017,24 @@ class _Power:
 
 
 class _Found:
-    def __init__(self, link, pid=4242, dead=0):
-        self.link, self.running, self.pid = link, True, pid
-        #: Half-closed sockets behind the verdict — what tells «no verdict» from «the
-        #: shape the table cannot decide» (#1910, `game_link.classify`).
-        self.dead = dead
+    """`game_process.Probe` as far as the wiring is concerned: is there a client."""
+
+    def __init__(self, running=True, pid=4242):
+        self.running, self.pid = bool(running), pid
+        self.message = "client is running" if running else "no client"
+
+
+def _health(deaf: bool, running: bool = True):
+    """The verdict the status poll hands `_recovery_check` (#1911).
+
+    Made by the real rule, so a change to the ladder shows up here rather than in a
+    hand-written stand-in that agrees with nothing.
+    """
+    import profile_health as ph
+
+    return ph.verdict(running=running,
+                      plumbing=ph.LANDING,
+                      server=ph.SILENT if deaf else ph.ANSWERING)
 
 
 def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
@@ -1257,7 +1067,7 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
     pm.time.time = _tick
     try:
         for _ in range(rounds if rounds is not None else DEAF_READINGS):
-            pm.Panel._recovery_check(app, _Found(link), kicked, stale, warm)
+            pm.Panel._recovery_check(app, _Found(), _health(bool(link)), kicked)
             clock[0] += 8.0
     finally:
         pm.game_link.idle_sec = real_idle
@@ -1294,18 +1104,6 @@ def test_the_client_cure_is_not_held_by_the_daemon_it_would_cure():
     """
     app = _drive(LOST, kicked=True, gate_open=False, stopped=False)
     assert app.played, "the client was left down by the gate that was waiting for it"
-
-
-def test_the_daemon_cure_is_not_held_by_the_gate_it_would_open():
-    """A stale daemon holds the gate — so the cure for one cannot be behind it.
-
-    The gate reads «warm AND on the running client» (#1286), so a daemon answering for a
-    client that is gone closes it. If the restart of that daemon were gated too, the only
-    thing that could clear the state would be a person, which is the shape of a deadlock
-    rather than of a recovery.
-    """
-    app = _drive(ONLINE, kicked=False, stale=True, gate_open=False)
-    assert app.daemons >= 1, "a stale daemon was left to hold its own gate"
 
 
 def test_a_kick_is_actually_restarted_and_not_only_announced():
@@ -1346,445 +1144,30 @@ def test_a_healthy_client_is_neither_announced_nor_played():
 
 
 # ---------------------------------------------------------------------------
-# #1268 — restarting the RIGHT thing
+# #1268 — restarting the RIGHT thing, and #1911 — there is only one thing left
 #
 # Live on 2026-08-07 the client was relaunched six times in fifty minutes and the link
-# never came back: the fault was the daemon holding a dead pid. Two readings now tell
-# that apart from a broken client, and each gets both halves pinned — the decision, and
-# the wiring that turns it into a press.
+# never came back: the fault was the daemon holding a dead pid, and the answer was an
+# ALTERNATION between two cures. There is no daemon any more (#1911) — the panel holds
+# the client itself — so the state that alternation existed for cannot occur, and the
+# whole section that pinned it went with it. What survives is the count it was built
+# on: restarts that changed nothing are still counted and drawn, and they no longer
+# decide anything.
 # ---------------------------------------------------------------------------
-def test_one_stale_reading_is_not_a_reason_either():
-    """The same patience as a link reading, and for a narrower reason: a daemon is
-    legitimately a step behind a client that has just been replaced."""
-    r = _Recovery()
-    assert r.note_daemon(True, 1000.0) is None
-    assert r.state(1000.0)["daemon_restarts"] == 0
-
-
-def test_a_run_of_stale_readings_restarts_the_daemon_and_not_the_client():
-    r = _Recovery()
-    said = [r.note_daemon(True, 1000.0 + i * 8) for i in range(rec.DAEMON_STRIKES)]
-    key, _fmt = said[-1]
-    assert key == rec.ACT_DAEMON
-    assert key in rec.DAEMON_RESTARTS and key not in rec.RESTARTS, \
-        "the daemon's fault must never be answered with a client restart"
-
-
-def test_the_daemon_is_judged_while_the_link_is_perfectly_online():
-    """THE SHAPE THAT WAS MISSED. Six sockets established, the strip saying «онлайн»,
-    and every errand failing — a decision hung off `link == lost` is never even asked."""
-    app = _drive(ONLINE, kicked=False, stale=True, rounds=rec.DAEMON_STRIKES)
-    assert app.daemons == 1, f"daemon never restarted: {app.daemons}"
-    assert app.played == [], f"the client must not be touched: {app.played}"
-    assert rec.ACT_DAEMON in app.said
-
-
-def test_a_matching_pid_says_nothing_and_clears_the_run():
-    r = _Recovery()
-    r.note_daemon(True, 1000.0)
-    assert r.note_daemon(False, 1008.0) is None
-    assert r.state(1008.0)["daemon_stale"] == 0
-    assert r.state(1008.0)["blame"] == ""
-
-
-def test_a_second_daemon_restart_waits_out_its_own_cooldown_and_says_so_once():
-    r = _Recovery()
-    for i in range(rec.DAEMON_STRIKES):
-        r.note_daemon(True, 1000.0 + i * 8)
-    said = [r.note_daemon(True, 1100.0 + i * 8) for i in range(rec.DAEMON_STRIKES + 2)]
-    holds = [s for s in said if s and s[0] == rec.HOLD_DAEMON]
-    assert len(holds) == 1, f"the wait must be said once, not per reading: {said}"
-    assert r.state(1100.0)["daemon_restarts"] == 1
-
-
-def test_a_daemon_that_stays_stale_is_restarted_again_after_the_cooldown():
-    """The 2026-08-06 bug, guarded against in the new half before it can happen: a hold
-    that suppressed the ACT as well left a broken thing broken for ever."""
+def test_fruitless_restarts_are_counted_and_never_change_the_cure() -> None:
+    """The evidence is still worth showing; there is nothing else to reach for."""
     r = _Recovery()
     now = 1000.0
-    acts = 0
-    for _ in range(6):
-        for i in range(rec.DAEMON_STRIKES):
-            said = r.note_daemon(True, now + i * 8)
-            if said and said[0] == rec.ACT_DAEMON:
-                acts += 1
-        now += rec.DAEMON_COOLDOWN_SEC + 1
-    assert acts >= 5, f"a permanently stale daemon was restarted {acts}× in six rounds"
-
-
-# ---------------------------------------------------------------------------
-# #1410 — a daemon that is DOWN had nobody to put it back
-#
-# The branch above is about a daemon that ANSWERS for the wrong client. The other half —
-# nothing answers the port at all — was nobody's business in a running panel: `ensure()`
-# is called from the errand path and the gate holds every errand while the daemon is
-# down, so the cure sat behind the gate that was waiting for it. Live on 2026-08-15 that
-# left a daemon down for ten minutes over a client that was already playing, and only a
-# restart of the panel itself brought it back.
-# ---------------------------------------------------------------------------
-def test_one_dead_port_reading_is_not_a_reason():
-    """A daemon somebody is already starting is down for the seconds that takes."""
-    r = _Recovery()
-    assert r.note_daemon_down(True, 1000.0) is None
-    assert r.state(1000.0)["daemon_restarts"] == 0
-
-
-def test_a_run_of_them_starts_a_daemon_and_touches_nothing_else():
-    r = _Recovery()
-    said = [r.note_daemon_down(True, 1000.0 + i * 8) for i in range(rec.DOWN_STRIKES)]
-    key, _fmt = said[-1]
-    assert key == rec.ACT_DAEMON_DOWN
-    assert key in rec.DAEMON_STARTS, "the act nobody wired is the act nobody performs"
-    assert key not in rec.RESTARTS and key not in rec.DAEMON_RESTARTS, \
-        "a port nothing answers is started, never restarted — there is nothing to stop"
-
-
-def test_a_port_that_answers_says_nothing_and_clears_the_run():
-    r = _Recovery()
-    r.note_daemon_down(True, 1000.0)
-    assert r.note_daemon_down(False, 1008.0) is None
-    assert r.state(1008.0)["daemon_down"] == 0
-    assert r.state(1008.0)["blame"] == ""
-
-
-def test_a_second_start_waits_and_says_so_once_however_many_polls_it_takes():
-    """SAID ONCE, and the flag has to be its own (#1410).
-
-    `_daemon_held` belongs to the stale branch, which is fed on every poll and clears it
-    whenever the daemon is not stale — and a daemon that is DOWN is never stale. Sharing
-    it put this line in the log every eight seconds, which is what the live panel did for
-    a minute and a half before anybody looked.
-    """
-    r = _Recovery()
-    for i in range(rec.DOWN_STRIKES):
-        r.note_daemon_down(True, 1000.0 + i * 8)
-    said = []
-    for i in range(8):                        # a minute of polls, inside one wait
-        r.note_daemon(False, 1050.0 + i * 8)  # …fed exactly as the shell feeds it
-        said.append(r.note_daemon_down(True, 1050.0 + i * 8))
-    holds = [s for s in said if s and s[0] == rec.HOLD_DAEMON_DOWN]
-    assert len(holds) == 1, f"the wait must be said once, not per reading: {said}"
-    assert r.state(1050.0)["daemon_restarts"] == 1
-
-
-def test_a_client_restart_does_not_have_to_wait_out_the_last_start():
-    """THE OUTAGE THE PANEL CAUSED ITSELF (#1854).
-
-    Live on 2026-08-21, six of ten daemon outages in two hours had one shape: a daemon
-    is started and answers in a second, the panel's OWN watchdog then relaunches the
-    client, the daemon that was holding it goes down eight seconds later — and the start
-    that would have cured it in one second is refused for the rest of the two minutes the
-    SUCCESSFUL start had earned. Every timer and trigger of the profile waits behind it.
-
-    A port that answered since the last start buys one start straight away. The free one
-    is spent by using it, so a daemon that binds and dies again inside the wait is held
-    exactly as it was before, and the growth in the test above is untouched.
-    """
-    r = _Recovery()
-    for i in range(rec.DOWN_STRIKES):                     # …the first incident
-        said = r.note_daemon_down(True, 1000.0 + i * 8)
-    assert said and said[0] == rec.ACT_DAEMON_DOWN, said
-    assert r.note_daemon_down(False, 1008.0) is None       # the start took
-
-    acts = []
-    for i in range(rec.DOWN_STRIKES):                     # the client is relaunched…
-        said = r.note_daemon_down(True, 1016.0 + i * 8)   # …and the daemon goes with it
-        if said:
-            acts.append(said)
-    assert [a[0] for a in acts] == [rec.ACT_DAEMON_DOWN], \
-        f"a daemon taken away by our own client restart waited: {acts}"
-
-    # …and the free start is spent: this one binds nothing, so the wait applies again.
-    held = []
-    for i in range(rec.DOWN_STRIKES + 2):
-        said = r.note_daemon_down(True, 1100.0 + i * 8)
-        if said:
-            held.append(said[0])
-    assert held == [rec.HOLD_DAEMON_DOWN], f"the wait stopped holding anything: {held}"
-
-
-def _down_acts(r, rounds, t0=1000.0):
-    """When each start was asked for, driving the clock by the wait it is owed."""
-    at, now = [], t0
-    for _ in range(rounds):
-        for i in range(rec.DOWN_STRIKES):
-            said = r.note_daemon_down(True, now + i * 8)
-            if said and said[0] == rec.ACT_DAEMON_DOWN:
-                at.append(now + i * 8)
-        now += max(r.down_wait_left(now), 1.0) + 1
-    return at
-
-
-def test_a_daemon_that_will_not_start_is_tried_again_and_again_more_slowly():
-    """Never abandoned, never every two minutes for ever.
-
-    Live on 2026-08-15 one profile's client lives in a Windows session nobody is logged
-    into: every start fails in a fraction of a second with «nobody is logged on as …».
-    The cure must keep trying — the session may come back at lunchtime — while the log of
-    a morning it cannot costs tens of lines rather than hundreds.
-    """
-    r = _Recovery()
-    at = _down_acts(r, 8)
-    assert len(at) == 8, f"a port that stays dead was started {len(at)}× in eight rounds"
-    gaps = [round(b - a) for a, b in zip(at, at[1:])]
-    assert gaps == sorted(gaps), f"the wait must not shrink while nothing works: {gaps}"
-    assert gaps[0] >= rec.DAEMON_COOLDOWN_SEC, gaps
-    assert max(gaps) <= rec.DOWN_WAIT_MAX_SEC + 60, f"the wait ran away: {gaps}"
-
-
-def test_a_daemon_that_answers_forgets_the_grown_wait():
-    """A port that answers is the only evidence a start took — so the next incident
-    begins at the ordinary two minutes and not at half an hour."""
-    r = _Recovery()
-    at = _down_acts(r, 4)
-    assert r.note_daemon_down(False, at[-1] + 8) is None
-    assert r.down_wait_left(at[-1] + 8) <= rec.DAEMON_COOLDOWN_SEC, \
-        "the grown wait outlived the daemon coming back"
-    again = _down_acts(r, 3, t0=at[-1] + 16)
-    # The FIRST of the new incident, not the last: since #1854 a port that answered buys
-    # one start straight away, so the new incident is «free, then two minutes, then four»
-    # — and what is pinned here is that it begins again at two minutes rather than at the
-    # half hour the previous incident had grown to.
-    assert round(again[1] - again[0]) <= rec.DAEMON_COOLDOWN_SEC + 60, \
-        "the growth outlived the incident that earned it"
-
-
-def test_the_dead_port_is_cured_while_the_client_plays_perfectly():
-    """THE LIVE SHAPE (#1410): the client back in the game at 00:22:16, the daemon down
-    for the next ten minutes, and nothing in the panel able to notice."""
-    app = _drive(ONLINE, kicked=False, warm=False, rounds=rec.DOWN_STRIKES)
-    assert app.starts == 1, f"the daemon was never started: {app.starts}"
-    assert app.daemons == 0, "a daemon that is not there cannot be restarted"
-    assert app.played == [], f"the client must not be touched: {app.played}"
-    assert rec.ACT_DAEMON_DOWN in app.said
-
-
-def test_the_cure_is_not_held_by_the_gate_that_is_waiting_for_it():
-    """THE CIRCLE ITSELF. The gate is shut BECAUSE this daemon is down, so a cure behind
-    it is a state nothing can leave — the same reason the stale cure is in front of it."""
-    app = _drive(ONLINE, kicked=False, warm=False, gate_open=False,
-                 rounds=rec.DOWN_STRIKES)
-    assert app.starts == 1, "the daemon was left to hold the gate that holds its cure"
-
-
-def test_the_switch_that_governs_the_game_does_not_govern_the_daemon():
-    """«Поднимать игру при падении» is about the GAME. The panel's own daemon comes up
-    at boot whatever that switch says, and with the port dead nothing in the profile
-    works at all — not a timer, not a trigger, and not the client's own relaunch."""
-    app = _drive(ONLINE, kicked=False, warm=False, watchdog=False,
-                 rounds=rec.DOWN_STRIKES)
-    assert app.starts == 1, "a stopped panel with the watchdog off can never recover"
-
-
-def test_nothing_starts_a_daemon_somebody_has_just_stopped():
-    """«Стоп всё» is two acts and one of them is stopping this daemon (#1393). A cure
-    that puts it back within a poll is the press undone, so the reading never even
-    becomes a run: `_recovery_check` feeds `down=False` while the profile is stopped."""
-    app = _drive(ONLINE, kicked=False, warm=False, stopped=True,
-                 rounds=rec.DOWN_STRIKES + 4)
-    assert (app.starts, app.said) == (0, []), (app.starts, app.said)
-
-
-def test_the_start_is_ensure_and_the_two_daemon_cures_are_distinct_presses():
-    """`ensure()`, never `restart()`: there is nothing to shut down, and «перезапускаю»
-    over an empty port sends the next reader looking for a process that never ran.
-
-    Pinned in the shell, because this is exactly the gap `ACT_KICK` fell through: the
-    decision was right and the wiring reached for one of the two.
-    """
-    body = _shell_method("_act_on")
-    assert "recovery.DAEMON_STARTS" in body, "the third act family is never wired"
-    assert "_start_daemon(" in body, body[-400:]
-    start = _shell_method("_start_daemon")
-    assert "_ensure_daemon" in start, start
-    assert "_game.restart" not in start, \
-        "a daemon that is down must be started, not restarted"
-    check = _shell_method("_recovery_check")
-    assert "note_daemon_down(" in check, "the reading never reaches the decision"
-    assert "power.on" in check, "a switched-off profile would be revived within a poll"
-
-
-def _cures(r, rounds, t0=1000.0):
-    """Which cure each restart round reached for: "client" or "daemon", in order."""
-    out, now = [], t0
-    for _ in range(rounds):
+    cures = []
+    for _ in range(rec.FRUITLESS + 1):
         for i in range(DEAF_READINGS):
             said = r.note(LOST, now + i * 8, idle_sec=10_000.0)
             if said and said[0] in rec.RESTARTS:
-                out.append("client")
-            elif said and said[0] in rec.DAEMON_RESTARTS:
-                out.append("daemon")
-        # …PLUS WHAT THE CONFIRMATION SPENT (#1910). The probes are asked between two
-        # readings and each one moves the decision's clock by `PROBE_GAP_SEC`, so a round
-        # ends later than its last reading — and a gap of «cooldown + 1» measured from
-        # the round's START lands back inside the cooldown.
+                cures.append("client")
         now += rec.COOLDOWN_SEC + rec.PROBE_GAP_SEC * rec.PROBE_FAILS + 60
-    return out
+    assert cures == ["client"] * (rec.FRUITLESS + 1), cures
+    assert r.state(now)["fruitless"] >= rec.FRUITLESS, r.state(now)
 
-
-def test_client_restarts_that_change_nothing_move_the_blame_to_the_daemon():
-    """THE ANTI-LOOP. Not «restart harder» — a different diagnosis.
-
-    The link never returns, so every strike run ends in a restart. The first
-    :data:`FRUITLESS` are the client's; then something else is tried.
-    """
-    cures = _cures(_Recovery(), rec.FRUITLESS + 1)
-    assert cures[:rec.FRUITLESS] == ["client"] * rec.FRUITLESS, cures
-    assert cures[rec.FRUITLESS] == "daemon", f"the blame never moved: {cures}"
-
-
-def test_neither_cure_is_ever_abandoned_for_the_other():
-    """ALTERNATION, not replacement — the regression the first draft of this shipped.
-
-    Booking the daemon and leaving the count where it was meant the client was never
-    restarted again: one stuck loop swapped for another, and the worse one, because a
-    client restart is the cure that works most of the time. So the pattern repeats —
-    client, client, daemon, client, client, daemon — and a permanently deaf client goes
-    on being retried for ever, which is what `test_a_link_that_never_comes_back…`
-    already promised and what caught this.
-    """
-    cures = _cures(_Recovery(), rec.FRUITLESS * 3 + 3)
-    assert cures.count("client") >= rec.FRUITLESS * 2, f"client abandoned: {cures}"
-    assert cures.count("daemon") >= 2, f"daemon abandoned: {cures}"
-    # …and no cure is ever repeated more than FRUITLESS times without the other
-    # being tried in between.
-    run, last = 0, None
-    for cure in cures:
-        run = run + 1 if cure == last else 1
-        last = cure
-        assert run <= rec.FRUITLESS, f"{cure} repeated {run}× in a row: {cures}"
-
-
-def test_the_blame_moves_back_the_moment_the_link_returns():
-    """A cure that WORKED is the only thing that clears the evidence — and it has to be
-    ONLINE, not merely «not lost»: a relaunching client is `offline` then `unknown` for
-    most of a minute, and counting those would reset the count every single restart."""
-    r = _Recovery()
-    for i in range(DEAF_READINGS):
-        r.note(LOST, 1000.0 + i * 8, idle_sec=10_000.0)
-    assert r.state(1000.0)["fruitless"] == 1
-    r.note(OFFLINE, 1040.0)                     # …still on its way back
-    assert r.state(1040.0)["fruitless"] == 1, "a relaunching client is not a success"
-    r.note(UNKNOWN, 1048.0)
-    assert r.state(1048.0)["fruitless"] == 1
-    r.note(ONLINE, 1056.0)                      # …and now it is
-    assert r.state(1056.0)["fruitless"] == 0
-    assert r.state(1056.0)["blame"] == ""
-
-
-def test_the_anti_loop_is_wired_all_the_way_to_the_press():
-    """The decision reaching the shell, which is where the last one was lost."""
-    import panel.__main__ as pm
-
-    app = _Press()
-    app.recovery = _Recovery()
-    app._act_on = lambda said: pm.Panel._act_on(app, said)
-    real_idle = pm.game_link.idle_sec
-    pm.game_link.idle_sec = lambda: 10_000.0
-    # A ROUND IS A POLL, AND POLLS ARE EIGHT SECONDS APART (#1702): a strike counts only
-    # once the poll has genuinely come round again, so a loop that never moves the clock
-    # is one reading repeated rather than three readings.
-    real_time = pm.time.time
-    clock = [real_time()]
-    pm.time.time = lambda: clock[0]
-    try:
-        for _ in range(rec.FRUITLESS + 1):
-            for _ in range(DEAF_READINGS):
-                pm.Panel._recovery_check(app, _Found(LOST), False, False)
-                clock[0] += 8.0
-            # let the client cooldown expire so the run is decided on the blame and
-            # not on the wait
-            app.recovery._last -= rec.COOLDOWN_SEC + 1
-    finally:
-        pm.game_link.idle_sec = real_idle
-        pm.time.time = real_time
-    assert len(app.played) == rec.FRUITLESS, f"client restarts: {app.played}"
-    assert app.daemons >= 1, "the seventh client restart happened instead"
-
-
-def test_nothing_at_all_happens_while_the_watchdog_switch_is_off():
-    """One promise, one switch — and the daemon half obeys it too."""
-    app = _drive(ONLINE, kicked=False, stale=True, watchdog=False,
-                 rounds=rec.DAEMON_STRIKES)
-    assert (app.daemons, app.played) == (0, []), (app.daemons, app.played)
-
-
-def test_the_state_says_what_is_being_blamed_and_how_hard_it_has_tried():
-    """Both front-ends draw out of this one dict, and «что чинится» is half the answer."""
-    r = _Recovery()
-    st = r.state(1000.0)
-    for field in ("blame", "daemon_stale", "daemon_strikes", "daemon_restarts",
-                  "daemon_cooldown_left", "fruitless"):
-        assert field in st, f"the front-ends cannot draw {field}"
-    for i in range(rec.DAEMON_STRIKES):
-        r.note_daemon(True, 1000.0 + i * 8)
-    st = r.state(1008.0)
-    assert st["blame"] == "daemon" and st["daemon_restarts"] == 1
-    assert st["daemon_cooldown_left"] > 0
-    assert all(not isinstance(v, str) or k in ("blame", "held_by")
-               for k, v in st.items()), "the state is numbers, the words are the locales'"
-
-
-def _held(pid):
-    """A game link whose daemon answers a ping naming ``pid`` — the real comparison.
-
-    A `GameLink` with nothing built but its answer to the wire, so the two-pid reading
-    under test is `GameLink.health`'s own and not a restatement of it here. Since #1286
-    that is where «stale» is defined, because `ensure` has to ask the same question
-    before it can say «already warm» over a daemon holding a client that has gone.
-    """
-    link = daemonmod.GameLink.__new__(daemonmod.GameLink)
-    link.ping = lambda: {"ok": True, "warm": pid is not None, "pid": pid}
-    return link
-
-
-def test_a_daemon_that_will_not_say_which_client_is_never_a_reason():
-    """`unknown` is never a reason — the rule the link half already keeps.
-
-    `_daemon_stale` answers False for every «could not tell»: no daemon, no client,
-    no pid. A restart loop built on an unanswered question has no bottom.
-    """
-    import panel.__main__ as pm
-
-    app = _Press()
-    app._rt = app
-    app.game = _held(None)
-    assert pm.Panel._daemon_stale(app, _Found(ONLINE), False) is False, "no daemon"
-    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=0), True) is False, "no client"
-    dead = type("F", (), {"link": ONLINE, "running": False, "pid": 7})()
-    assert pm.Panel._daemon_stale(app, dead, True) is False, "client not running"
-
-
-def test_the_pids_are_compared_and_nothing_else_is():
-    """The positive reading: two integers. Equal is healthy, different is the fault."""
-    import panel.__main__ as pm
-
-    app = _Press()
-    app._rt = app
-    app.game = _held(4242)
-    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=4242), True) is False
-    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=9999), True) is True
-    # …and a daemon that answers for NO client while one is running is the same fault
-    # wearing another answer: it never attached, or it let go (#1286).
-    app.game = _held(None)
-    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=9999), True) is True
-
-
-def test_both_its_sentences_are_in_every_shipped_locale():
-    import json
-
-    keys = (rec.ACT, rec.HOLD, rec.BUSY, rec.ACT_KICK, rec.HOLD_KICK,
-            rec.ACT_DAEMON, rec.ACT_DAEMON_STUCK, rec.HOLD_DAEMON, rec.SAY_BARREN,
-            "status.recovery.kick", "web.ui.recovery.kick", "timers.log.skip_kick")
-    for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
-        locale = json.loads(path.read_text(encoding="utf-8"))
-        missing = [k for k in keys if k not in locale]
-        assert not missing, f"{path.name}: {missing}"
-
-
-# ---------------------------------------------------------------------------
-# the kick wait GROWS while the account keeps being taken back — #1296
-# ---------------------------------------------------------------------------
 def _kicked_wait(r, now: float) -> int:
     """Arm a kick at `now` and return the wait it was given, in seconds.
 
@@ -1793,7 +1176,7 @@ def _kicked_wait(r, now: float) -> int:
     """
     said = None
     for i in range(rec.KICK_STRIKES):
-        said = r.note(game_link.LOST, now - (rec.KICK_STRIKES - 1 - i), idle_sec=None,
+        said = r.note(LOST, now - (rec.KICK_STRIKES - 1 - i), idle_sec=None,
                       kicked=True)
     assert said is not None, "a kick must say something"
     return r.kick_hold_left(now)
@@ -1813,20 +1196,20 @@ def test_the_kick_wait_grows_while_the_kicks_keep_coming_back():
     assert first == int(rec.KICK_HOLD_SEC), first
 
     r.note_kick_restart(now + 60)              # the client was put back…
-    r.note(game_link.ONLINE, now + 90)         # …came up…
+    r.note(ONLINE, now + 90, talking=True)         # …came up…
     second_at = now + 120                      # …and was taken again straight away
     second = _kicked_wait(r, second_at)
     assert second == int(rec.KICK_HOLD_SEC + rec.KICK_HOLD_STEP_SEC), second
 
     r.note_kick_restart(second_at + 60)
-    r.note(game_link.ONLINE, second_at + 90)
+    r.note(ONLINE, second_at + 90, talking=True)
     third_at = second_at + 120
     third = _kicked_wait(r, third_at)
     assert third == int(rec.KICK_HOLD_MAX_SEC), third
 
     #: …and it stops there rather than growing all night
     r.note_kick_restart(third_at + 60)
-    r.note(game_link.ONLINE, third_at + 90)
+    r.note(ONLINE, third_at + 90)
     assert _kicked_wait(r, third_at + 120) == int(rec.KICK_HOLD_MAX_SEC)
 
 
@@ -1837,7 +1220,7 @@ def test_a_session_that_held_forgets_the_escalation():
     now = 1_000_000.0
     _kicked_wait(r, now)
     r.note_kick_restart(now + 60)
-    r.note(game_link.ONLINE, now + 90)
+    r.note(ONLINE, now + 90, talking=True)
     later = now + 60 + rec.KICK_STABILITY_SEC + 1        # the session held
     assert _kicked_wait(r, later) == int(rec.KICK_HOLD_SEC)
 
@@ -1851,7 +1234,7 @@ def test_coming_back_online_does_not_by_itself_forget_the_escalation():
     _kicked_wait(r, now)
     r.note_kick_restart(now + 60)
     for step in (70, 80, 90, 100):
-        r.note(game_link.ONLINE, now + step)
+        r.note(ONLINE, now + step)
     assert _kicked_wait(r, now + 120) == int(rec.KICK_HOLD_SEC + rec.KICK_HOLD_STEP_SEC)
 
 
@@ -1861,10 +1244,10 @@ def test_a_zero_hold_disarms_the_escalation_too():
     r = _Recovery()
     r.kick_hold_sec = 0.0
     now = 1_000_000.0
-    r.note(game_link.LOST, now, idle_sec=None, kicked=True)
+    r.note(LOST, now, idle_sec=None, kicked=True)
     assert r.kick_hold_left(now) == 0
     r.note_kick_restart(now + 5)
-    r.note(game_link.LOST, now + 10, idle_sec=None, kicked=True)
+    r.note(LOST, now + 10, idle_sec=None, kicked=True)
     assert r.kick_hold_left(now + 10) == 0
 
 

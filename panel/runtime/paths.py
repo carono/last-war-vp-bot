@@ -26,7 +26,9 @@ TOOLS = os.path.join(REPO, "tools")
 TOOLS_LIB = os.path.join(TOOLS, "lib")
 SRC = os.path.join(REPO, "src")
 
-# The daemon entrypoint, which the game link starts when nothing is listening.
+# The connector for a client in ANOTHER Windows session — the panel drives its own
+# desktop's client in-process (#1911), and `tools/rdp_instance.py` is what starts this
+# one over there. Kept as a path because that is where a caller looks for it.
 LUA_DAEMON = os.path.join(TOOLS, "lua_daemon.py")
 
 

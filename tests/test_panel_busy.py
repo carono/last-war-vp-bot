@@ -230,7 +230,7 @@ def test_the_snapshot_shows_this_profiles_runs_and_marks_its_claims() -> None:
     rt = _Runtime(profile="alice", endpoint=("127.0.0.1", 47654))
     run = rt.interrupts.enter("scan_map", "timer", _Ctx("JUMP 100,100"), Stop())
     run.started -= 42
-    step = rt.activity.begin("activity.daemon.start", port=47654)
+    step = rt.activity.begin("activity.link.attach", port=47654)
     step.started -= 7
     claims.clear()
     try:
@@ -243,7 +243,7 @@ def test_the_snapshot_shows_this_profiles_runs_and_marks_its_claims() -> None:
     assert snap["runs"][0]["name"] == "scan_map"
     assert snap["runs"][0]["step"] == "JUMP 100,100"
     assert snap["runs"][0]["secs"] >= 42
-    assert snap["steps"][0]["key"] == "activity.daemon.start"
+    assert snap["steps"][0]["key"] == "activity.link.attach"
     assert snap["steps"][0]["secs"] >= 7
 
     mine = {row["owner"]: row for row in snap["claims"]}
@@ -320,7 +320,7 @@ def test_every_line_the_block_draws_is_a_locale_key() -> None:
     rt = _Runtime()
     run = rt.interrupts.enter("scan_map", "timer", _Ctx("JUMP 1,1"), Stop())
     run.started -= 61
-    rt.activity.begin("activity.daemon.start", port=47654)
+    rt.activity.begin("activity.link.attach", port=47654)
     rt.tick.arm("status", 4000, lambda: None)
     claims.clear()
     try:
@@ -362,7 +362,7 @@ def _table_snapshot() -> dict:
                   "step": "JUMP 100,100", "asked": False},
                  {"name": "heal_units", "tag": "action", "secs": 120.0,
                   "step": "TAP heal_all", "asked": True}],
-        "steps": [{"key": "activity.daemon.start", "fmt": {"port": 47654},
+        "steps": [{"key": "activity.link.attach", "fmt": {"port": 47654},
                    "secs": 7.0}],
         "queue": {"running": "restart_game", "running_secs": 200.0,
                   "express": ["alliance_help"],

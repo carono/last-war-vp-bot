@@ -34,7 +34,7 @@ for _p in (_REPO_ROOT, _REPO_ROOT / "src", _REPO_ROOT / "tools", _REPO_ROOT / "t
 from lastwar_bot import script_engine as engine  # noqa: E402
 from panel.runtime import claims  # noqa: E402
 
-DAEMON = _REPO_ROOT / "panel" / "runtime" / "daemon.py"
+DAEMON = _REPO_ROOT / "panel" / "runtime" / "link.py"
 HOST = _REPO_ROOT / "panel" / "runtime" / "host.py"
 SCHEDULE = _REPO_ROOT / "panel" / "runtime" / "schedule.py"
 ACTIONS = _REPO_ROOT / "panel" / "runtime" / "actions.py"
@@ -118,7 +118,7 @@ def test_two_detached_runs_take_turns_instead_of_starving_each_other():
         claims.clear()
 
     # …and a BACKGROUND holder keeps the strict rule.
-    import panel.runtime.daemon as daemon_mod
+    import panel.runtime.link as daemon_mod
 
     class _Holder:
         _level = claims.BACKGROUND

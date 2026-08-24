@@ -321,12 +321,22 @@ def test_every_link_state_has_a_sentence_in_every_locale():
 
 
 def test_the_phone_has_a_word_for_every_state_the_panel_can_report():
-    """The pill on the phone is drawn from the same four ids (panel/web/static/app.js)."""
+    """The pill on the phone is drawn from the THREE statuses and their reasons (#1911).
+
+    The four socket ids are not a front-end vocabulary any more: the panel's one verdict
+    is `tools/lib/profile_health.py`, and both front-ends word the same reason ids.
+    """
+    import profile_health as ph
+
     root = Path(__file__).resolve().parents[1] / "panel"
     app = (root / "web" / "static" / "app.js").read_text(encoding="utf-8")
-    for state in (gp.ONLINE, gp.LOST, gp.UNKNOWN, gp.OFFLINE):
-        assert f"{state}:" in app, f"the phone paints no pill for {state}"
-    words = ["web.ui.link.online", "web.ui.link.lost", "web.ui.link.unknown"]
+    for reason in (ph.TRAFFIC, ph.NO_CLIENT, ph.CLIENT_HUNG, ph.NO_CONNECTION,
+                   ph.NO_TRAFFIC):
+        assert f"{reason}:" in app, f"the phone has no word for {reason}"
+    for colour in (ph.OK, ph.WARN, ph.BAD):
+        assert f"{colour}:" in app, f"the phone paints no pill for {colour}"
+    words = ["health.traffic", "health.no_client", "health.client_hung",
+             "health.no_connection", "health.no_traffic"]
     for path in sorted((root / "locales").glob("*.json")):
         locale = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in words if k not in locale]

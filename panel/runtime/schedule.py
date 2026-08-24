@@ -34,7 +34,7 @@ from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
 from . import claims
-from . import daemon as daemonmod
+from . import link as linkmod
 from . import game_control
 from . import game_process
 
@@ -564,7 +564,7 @@ class Schedule:
         # would go back on the queue it was marked to skip.
         if express:
             got = self.rt.game.claim_soon("timer", claims.EXPRESS,
-                                          daemonmod.YIELD_WAIT_SEC)
+                                          linkmod.YIELD_WAIT_SEC)
         elif claims.level(self.rt.game.endpoint()) < claims.BACKGROUND:
             # A DETACHED run is holding the client (#1702), and an ordinary errand
             # outranks it by declaration. A plain `claim` would be refused and the errand
@@ -572,7 +572,7 @@ class Schedule:
             # is precisely what `DETACH` promises will not happen. So it hangs a demand on
             # the door and waits the short while it takes the detached run to park.
             got = self.rt.game.claim_soon("timer", claims.BACKGROUND,
-                                          daemonmod.YIELD_WAIT_SEC)
+                                          linkmod.YIELD_WAIT_SEC)
         else:
             got = self.rt.game.claim("timer", claims.BACKGROUND)
         if not got:
@@ -600,9 +600,9 @@ class Schedule:
             # alliances, and the reading walks the process list. `ensure` makes its own
             # fresh one before it acts.
             link = self.rt.game
-            if (link.last_health() == daemonmod.DAEMON_STALE or not link.up()) \
+            if not link.ready() \
                     and not link.ensure():
-                raise RuntimeError(self.rt.t("timers.log.no_daemon"))
+                raise RuntimeError(self.rt.t("timers.log.no_link"))
             if handler is not None:
                 handler()
                 return True
