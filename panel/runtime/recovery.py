@@ -668,12 +668,12 @@ class Recovery:
             self._run = 0
             self._lost_since = 0.0
             self._held = False
-            # ANY CONTRARY SIGNAL OBLITERATES THE CONFIRMATION TOO (#1910). The link is
-            # green, so whatever the probes said a moment ago is about a client that is
-            # now demonstrably talking. Evidence for «deaf» has to be evidence taken
-            # while it was deaf, all of it, or a restart is assembled out of two
-            # unrelated bad minutes an hour apart.
-            self._probe_clear()
+            # ANY CONTRARY SIGNAL OBLITERATES THE CASE AGAINST THE CLIENT (#1910):
+            # evidence for «deaf» has to be evidence taken while it was deaf, all of
+            # it, or a restart is assembled out of two unrelated bad minutes an hour
+            # apart. The ANSWER the server gave stays (#1911) — it is what the light is
+            # made of, and wiping it here flapped the strip green-amber-green.
+            self._probe_settle()
             # …but a kick's wait outlives the reading that started it, and so must the
             # word for it: a client that went offline mid-wait (the person closed it, or
             # it gave up) is still being waited out, and a strip that went blank here
@@ -863,6 +863,21 @@ class Recovery:
         self._probe_flying = False
         self._probe_want = False
         self._probe_last_ok = 0.0
+        self._confirm_held = False
+        self._confirm_at = 0.0
+
+    def _probe_settle(self) -> None:
+        """Forget the DOUBT and keep the PROOF (#1911).
+
+        The difference matters now that the light itself is «did the server answer»:
+        wiping `_probe_last_ok` on a healthy reading turned green back to amber until
+        the next probe went out, and the strip flapped between the two every couple of
+        minutes. What a contrary signal obliterates is the case AGAINST the client — the
+        failed probes, the flight, the want — never the answer that came back.
+        """
+        self._probe_fails = 0
+        self._probe_flying = False
+        self._probe_want = False
         self._confirm_held = False
         self._confirm_at = 0.0
 
