@@ -484,6 +484,16 @@ class _Watchdog:
     def alive(self) -> bool:
         return self._gate_open
 
+    def relaunch_held(self) -> bool:               # `self._rt.gate.relaunch_held()`
+        """What the watchdog asks since #1910 — the SWITCH, never the daemon.
+
+        `gate_open=False` in the cases below always meant «somebody stopped this
+        profile», which is exactly what this half answers; the daemon half never
+        belonged here, because the client this would put back is what a daemon with
+        nothing to attach to is missing.
+        """
+        return not self._gate_open
+
     @property
     def _dbg(self):                                # the held branch says so in debug.log
         return self
@@ -903,6 +913,10 @@ class _Press:
     def alive(self) -> bool:              # noqa: D102
         return self._gate_open
 
+    def relaunch_held(self) -> bool:      # `self._rt.gate.relaunch_held()` (#1910)
+        """Only the SWITCH holds a client relaunch — never the daemon it would cure."""
+        return bool(self.power.off)
+
     @property
     def _dbg(self):                       # the held branch says so in debug.log
         return self
@@ -971,12 +985,29 @@ def test_a_client_cure_is_held_while_the_panel_is_stopped():
     The press closes the client and stops this profile's daemon. A recovery that had
     never heard of it sees a client that is down — which is precisely what it is FOR —
     and puts it straight back, undoing the press within a poll. So the client cures ask
-    the same gate the schedule asks, and say nothing while it is closed: the gate has
-    already said, once, that nothing may run.
+    the gate, and say nothing while it is shut: it has already said, once, that nothing
+    may run.
+
+    THE SWITCH IS WHAT SHUTS IT, not the daemon (#1910). «Профиль работает» is the
+    durable record of «somebody stopped this account» (#1882), and it is the half of the
+    old reading that was doing the work here all along.
     """
-    app = _drive(LOST, kicked=True, gate_open=False)
-    assert app.played == [], f"the client was put back with no daemon: {app.played}"
+    app = _drive(LOST, kicked=True, gate_open=False, stopped=True)
+    assert app.played == [], f"a switched-off profile put its client back: {app.played}"
     assert rec.ACT_KICK not in app.said, f"…and it was announced anyway: {app.said}"
+
+
+def test_the_client_cure_is_not_held_by_the_daemon_it_would_cure():
+    """THE OTHER CIRCLE, and the one that had `default` down for an afternoon (#1910).
+
+    A daemon with no client to attach to is not alive, so the gate is shut — and this
+    is the act that would give it a client. Held on `gate.alive()` it never ran: no
+    client, seventeen daemon restarts, ZERO client restarts, the watchdog refused at
+    every poll by the very thing it was there to fix. Same shape as
+    `test_the_daemon_cure_is_not_held_by_the_gate_it_would_open` below, one act along.
+    """
+    app = _drive(LOST, kicked=True, gate_open=False, stopped=False)
+    assert app.played, "the client was left down by the gate that was waiting for it"
 
 
 def test_the_daemon_cure_is_not_held_by_the_gate_it_would_open():
