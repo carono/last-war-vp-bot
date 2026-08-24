@@ -76,6 +76,8 @@
   "autostart.error.failed": "Die Aufgabenplanung hat abgelehnt: {error}",
   "busy": "beschäftigt — warte, bis die laufende Aktion fertig ist",
   "action.detached": "«{name}» läuft eigenständig — nichts anderes wartet darauf",
+  "action.held.daemon": "«{name}» wird nicht ausgeführt: der Dienst läuft nicht — nichts Automatisches startet, bis er zurück ist",
+  "action.held.off": "«{name}» wird nicht ausgeführt: dieses Profil ist ausgeschaltet",
   "busy.elsewhere": "das Spiel ist belegt — {owner} steuert es seit {sec} s",
   "busy.foreground": "der Bildschirm ist belegt — {owner} klickt darin; «{name}» übersprungen",
   "capture.ghost_op": "Geistereinsatz",

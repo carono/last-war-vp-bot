@@ -302,6 +302,7 @@ class _Grid:
                 pass
 
         started = rt.play_async("read_secret_day", args={"server": 0}, tag="servers",
+                                human=True,
                                 on_result=landed, on_done=done)
         if not started:
             self.busy = False
@@ -324,6 +325,7 @@ class _Grid:
                 pass
 
         started = rt.play_async("read_server_list", args=args, tag="servers",
+                                human=True,
                                 on_done=done)
         if not started:
             self.busy = False

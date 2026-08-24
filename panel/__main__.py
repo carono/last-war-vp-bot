@@ -4573,7 +4573,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         want = bool(self._opt_bool("profile_on"))
         # `set_on` writes the flag itself for the front-end that has no widget; here the
         # widget IS the write, so it only has to agree — and then it acts.
-        powermod.set_on(self._rt, want)
+        #
+        # …AND IT HAS TO BE TOLD SO (#1910). The checkbox is bound to the knob, so by the
+        # time this runs the flag already holds `want`; `set_on` read that as «it was
+        # already there», returned early and carried out NEITHER act. Ticking the box
+        # back on therefore wrote a `True` that started no daemon — «демон не стартует»,
+        # with a switched-off profile going on playing scenarios past the gate.
+        powermod.set_on(self._rt, want, written=True)
         if want:
             # What the boot would have started for this profile and did not, or what a
             # switch-off never stopped: an EAGER tab's own monitor. Idempotent.
@@ -4820,7 +4826,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                     return
                 ctx = self._actions.context(
                     hwnd=0, on_event=lambda msg: self._log_put(f"[cmd] {msg}"))
-                ok = self._actions.run_text(text, ctx=ctx, label="cmd")
+                ok = self._actions.run_text(text, ctx=ctx, label="cmd")   # a person typed it
                 self._say("cmd", "cmd.ok" if ok else "cmd.failed")
             except Exception as exc:                       # noqa: BLE001
                 self._say("cmd", "log.error", error=exc)

@@ -76,6 +76,8 @@
   "autostart.error.failed": "O agendador de tarefas recusou: {error}",
   "busy": "ocupado — espere a ação atual terminar",
   "action.detached": "«{name}» corre por conta própria — nada mais espera por ele",
+  "action.held.daemon": "«{name}» não é executado: o daemon está parado — nada automático arranca até ele voltar",
+  "action.held.off": "«{name}» não é executado: este perfil está desligado",
   "busy.elsewhere": "o jogo está ocupado — {owner} está conduzindo há {sec} s",
   "busy.foreground": "a tela está ocupada — {owner} está clicando nela; «{name}» ignorado",
   "capture.ghost_op": "Operações Fantasmas",

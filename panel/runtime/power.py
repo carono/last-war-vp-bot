@@ -127,12 +127,30 @@ class Power:
         on = bool(on)
         if on == self.on:
             return False
-        now = time.time() if now is None else now
+        self.stamp(on, now)
         self._write(KEY, on)
+        return True
+
+    def stamp(self, on: bool, now: "float | None" = None) -> None:
+        """Record WHEN, for a flip whose flag was written by somebody else (#1910).
+
+        The window's checkbox is bound STRAIGHT to the knob — that is what makes the
+        auto-save persist it — so by the time its command runs, `profile_on` already
+        holds what the person just asked for. :meth:`set` then correctly answers «nothing
+        moved»… and the caller took that for «nothing happened»: `profile_off_at` was
+        never written, so the mark counted from zero for ever, and :func:`set_on` returned
+        early and NEVER CARRIED OUT THE TWO ACTS. Live on 2026-08-24 that is what «демон
+        не стартует» was: ticking «Профиль работает» back on wrote the flag and started
+        nothing, because the one thing that brings a daemon back sits behind that return.
+
+        So the WRITE and the WHEN are separable, exactly as the write and the acts already
+        were: whoever moved the flag by hand says so, and this keeps the rest honest.
+        """
+        on = bool(on)
+        now = time.time() if now is None else now
         self._write(AT_KEY, 0.0 if on else now)
         if not on:
             self._count += 1
-        return True
 
     # -- the store ------------------------------------------------------------
     def _read(self, key: str):
@@ -176,8 +194,13 @@ class Power:
 # -- the flip, with what it causes -------------------------------------------
 
 
-def set_on(rt, on: bool) -> bool:
+def set_on(rt, on: bool, *, written: bool = False) -> bool:
     """Move this profile's switch and carry it out. ``False`` when it was already there.
+
+    ``written`` says the FLAG IS ALREADY WHERE IT IS ASKED FOR because a widget bound to
+    it moved it a moment ago — the window's checkbox, and only that. Then «nothing moved»
+    is not «nothing happened»: the flip is perfectly real, its write simply landed
+    somewhere else, and the two acts below are exactly what it is for (#1910).
 
     Ticked: the daemon comes back, and whatever puts the client back — the six-hourly
     errand, the watchdog, the recovery — does it by itself, once. Unticked: the client is
@@ -189,8 +212,12 @@ def set_on(rt, on: bool) -> bool:
     their order live — and which puts them on a worker, since neither may be done on the
     Tk thread.
     """
-    if not rt.power.set(bool(on)):
-        return False
+    on = bool(on)
+    if not rt.power.set(on):
+        if not written:
+            return False
+        # A widget did the write; record when, and go on to do the two acts.
+        rt.power.stamp(on)
     if on:
         panicmod.resume(rt)
     else:

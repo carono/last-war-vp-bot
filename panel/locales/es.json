@@ -76,6 +76,8 @@
   "autostart.error.failed": "El programador de tareas se negó: {error}",
   "busy": "ocupado — espera a que termine la acción en curso",
   "action.detached": "«{name}» corre por su cuenta: nada más lo espera",
+  "action.held.daemon": "«{name}» no se ejecuta: el demonio está caído; nada automático arranca hasta que vuelva",
+  "action.held.off": "«{name}» no se ejecuta: este perfil está apagado",
   "busy.elsewhere": "el juego está ocupado — {owner} lo lleva desde hace {sec} s",
   "busy.foreground": "la pantalla está ocupada — {owner} está haciendo clic en ella; «{name}» omitido",
   "capture.ghost_op": "Operaciones Fantasma",

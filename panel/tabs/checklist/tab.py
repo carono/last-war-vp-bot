@@ -180,6 +180,10 @@ class ChecklistTab(PanelTab):
         self._body = None
         self._status = None
         self._refresh_button = None
+        #: Was the read in flight asked for by a PERSON? The second half of a refresh
+        #: («Кодовое имя») is played from the first one's `on_done`, so it has to be
+        #: told what the first one was (#1910).
+        self._human = False
         self._wire_off: list = []
         #: How the trucks are to be improved before they go — a choice, not a reading,
         #: so it is a variable the profile keeps rather than something re-read.
@@ -197,7 +201,8 @@ class ChecklistTab(PanelTab):
                                          font=ui_font(weight="bold"))
         bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
-        self._refresh_button = self.tr(ttk.Button(bar, command=self.refresh),
+        self._refresh_button = self.tr(
+            ttk.Button(bar, command=lambda: self.refresh(human=True)),
                                        "checklist.refresh")
         self._refresh_button.pack(side="left")
 
@@ -340,8 +345,13 @@ class ChecklistTab(PanelTab):
         age = self._age()
         return "—" if age == float("inf") else modelmod.ago(age)
 
-    def refresh(self) -> bool:
+    def refresh(self, human: bool = False) -> bool:
         """Ask the game what the day still owes. `False` if it could not be asked now.
+
+        `human` is «Обновить» — a person is at the button, and the gate lets a press
+        past whatever the daemon is doing (#1910). The POLL and the push-driven re-read
+        leave it False, which is the whole point: this board was re-reading a client
+        that was not there every thirty seconds, in a profile that was switched off.
 
         One scenario per reading a SHOWN group is drawn from, played one after the other
         through the runtime under the claim. A refusal — something else is driving the
@@ -355,11 +365,12 @@ class ChecklistTab(PanelTab):
         if self._busy:
             return False
         self._busy = True
+        self._human = human
         self._refresh_status()
         if modelmod.DAILY not in modelmod.visible_sources():
             return self._read_codename()
         started = self.rt.play_async(
-            modelmod.ACTION, tag="checklist",
+            modelmod.ACTION, tag="checklist", human=human,
             on_result=self._read_back, on_done=self._read_codename)
         if not started:
             self._busy = False
@@ -382,7 +393,7 @@ class ChecklistTab(PanelTab):
             self._read_done()
             return False
         started = self.rt.play_async(
-            modelmod.CODENAME_ACTION, tag="checklist",
+            modelmod.CODENAME_ACTION, tag="checklist", human=self._human,
             on_result=self._codename_back, on_done=self._read_done)
         if not started:
             # A game that is busy is not an answer: the last one stays, and the status
@@ -436,7 +447,7 @@ class ChecklistTab(PanelTab):
         title = self.t(errand.title_key)
         self.say("checklist", "checklist.log.run", title=title)
         started = self.rt.play_async(
-            errand.scenario, self._args_for(key), tag="checklist",
+            errand.scenario, self._args_for(key), tag="checklist", human=True,
             on_result=lambda outcome, title=title: self._ran_back(outcome, title),
             on_done=lambda key=key: self._ran(key))
         if not started:
@@ -826,7 +837,7 @@ class ChecklistTab(PanelTab):
         anything the machine could not, and cannot tick anything either way.
         """
         if action == "refresh":
-            return {"ok": self.refresh()}
+            return {"ok": self.refresh(human=True)}
         if action == "run":
             return {"ok": self.run(str((args or {}).get("key") or ""))}
         return {"error": "unknown"}

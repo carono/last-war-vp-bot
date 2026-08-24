@@ -76,6 +76,8 @@
   "autostart.error.failed": "Bộ lập lịch tác vụ từ chối: {error}",
   "busy": "đang bận — chờ hành động hiện tại xong đã",
   "action.detached": "«{name}» chạy độc lập — không gì khác phải chờ nó",
+  "action.held.daemon": "«{name}» không được chạy: daemon đã dừng — không có gì tự động khởi chạy cho đến khi nó trở lại",
+  "action.held.off": "«{name}» không được chạy: hồ sơ này đang tắt",
   "busy.elsewhere": "trò chơi đang bận — {owner} đã điều khiển nó {sec} giây",
   "busy.foreground": "màn hình đang bận — {owner} đang bấm trong đó; bỏ qua «{name}»",
   "capture.ghost_op": "Chiến Dịch Linh Hồn",

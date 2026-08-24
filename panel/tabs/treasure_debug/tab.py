@@ -261,13 +261,14 @@ class TreasureDebugTab(PanelTab):
             return self._arm()
         self.rt.tick.disarm("treasure_debug_drain")
         started = self.rt.play_async(modelmod.UNWATCH_ACTION, tag="treasure",
-                                     on_result=self._state_back)
+                                     human=True, on_result=self._state_back)
         self._refresh_status()
         return started
 
     def _arm(self) -> bool:
         started = self.rt.play_async(
             modelmod.WATCH_ACTION, {"wide": bool(self._wide)}, tag="treasure",
+            human=True,
             on_result=self._state_back, on_done=lambda: self._schedule(self.AGAIN_MS))
         if not started:
             self.say("treasure", "treasure_debug.log.busy")

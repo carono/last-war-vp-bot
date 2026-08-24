@@ -419,6 +419,57 @@ def test_two_profiles_are_two_answers():
     assert second.said == [], f"one profile's edge was said in the other: {second.said}"
 
 
+# --- and every RUN asks it, not only the schedule (#1910) --------------------
+
+def test_a_run_nobody_marked_as_a_press_is_held_and_says_so():
+    """The hole this task closed: a scenario played past the schedule entirely.
+
+    A tab polling its board, a wire handler joining a rally off the capture's own reader,
+    an auto-order re-armed on the panel's clock — none of them is a timer and none is a
+    trigger, so none of them was asking the gate. Live on 2026-08-24 a switched-off
+    profile printed «профиль выключен» and went on playing `read_daily_checklist` every
+    thirty seconds and joining rallies all afternoon.
+
+    So the question is asked at the one door every scenario goes through, and the default
+    is HELD: a caller nobody marked is a caller nobody thought about.
+    """
+    from panel.runtime import actions as actionsmod
+
+    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    assert rt.gate.blocks(BASE) == "action.held.daemon"
+
+    said: list = []
+    runner = actionsmod.ActionRunner(
+        log=types.SimpleNamespace(say=lambda tag, key, **fmt: said.append(key),
+                                  put=lambda msg: None),
+        gate=lambda name, human: rt.gate.blocks(name, human=human))
+    assert runner.run(BASE) is False, "a held run played the scenario anyway"
+    assert said == ["action.held.daemon"], f"a held run said {said!r}, not the hold"
+
+
+def test_the_hold_names_which_of_the_two_it_is():
+    """«профиль выключен» sends a person to a checkbox; «демон не работает» to a fault.
+
+    One sentence for both would be the exact confusion #1882 removed from the schedule's
+    skip line, put straight back at the door every run comes through.
+    """
+    rt = _RT()                                    # a perfectly live daemon…
+    rt.power.set(False)                           # …and the switch off
+    assert rt.gate.blocks(BASE) == "action.held.off"
+
+
+def test_a_persons_press_is_never_held():
+    """The one exemption, and it is the module docstring's: somebody at a button.
+
+    Closing the client is the plainest case — it is what switching the profile OFF has
+    to do, and a gate that held it would be holding its own cure.
+    """
+    rt = _RT(up=False, daemon=profile_health.DAEMON_IS_NONE)
+    assert rt.gate.blocks("quit_game", human=True) == ""
+    rt.power.set(False)
+    assert rt.gate.blocks("quit_game", human=True) == ""
+
+
 # --- helpers ----------------------------------------------------------------
 
 class _Tripwire:

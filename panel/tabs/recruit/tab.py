@@ -222,6 +222,7 @@ class RecruitTab(PanelTab):
         self._paint_buttons()
         started = self.rt.play_async(
             modelmod.DRAW_ACTION, {"kind": kind, "count": count}, tag="recruit",
+            human=True,
             on_result=self._draw_back, on_done=self._draw_done)
         if not started:
             self._pulling = False

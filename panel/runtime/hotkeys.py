@@ -275,9 +275,9 @@ class HotkeyListener:
         if vk == _VK_CAPITAL:
             rt.say(TAG, "log.macro.repeat")
             self._wait_its_turn(rt)
-            rt.play_async(REPEAT_ACTION, tag=TAG)
+            rt.play_async(REPEAT_ACTION, tag=TAG, human=True)
             return
         squad = _VK_SQUAD[vk]
         rt.say(TAG, "log.macro.send", squad=squad)
         self._wait_its_turn(rt)
-        rt.play_async(SEND_ACTION, {"squad": squad}, tag=TAG)
+        rt.play_async(SEND_ACTION, {"squad": squad}, tag=TAG, human=True)

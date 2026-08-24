@@ -93,7 +93,10 @@ def stop(rt) -> None:
         # daemon blocks for as long as it takes a port to come free.
         threading.Thread(target=second, name="panel-panic", daemon=True).start()
 
-    if not rt.play_async("quit_game", tag="game", on_done=then):
+    # A PRESS, and it has to be (#1910): this IS the switch being flipped off, and a
+    # gate that held it would leave the client running for ever in a profile somebody
+    # had just switched off — the gate holding its own cure.
+    if not rt.play_async("quit_game", tag="game", on_done=then, human=True):
         # Nothing was played — something more urgent holds the client. The daemon still
         # goes, and with it everything that was going to press anything else.
         then()

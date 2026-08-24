@@ -250,6 +250,78 @@ def test_all_the_words_are_in_every_shipped_locale():
         assert not missing, f"{path.name}: {missing}"
 
 
+# --- a widget that wrote the flag first still gets its acts (#1910) ----------
+
+class _RTPower:
+    """Just enough runtime for `set_on`: a switch over a store with no widgets."""
+
+    def __init__(self, saved=None):
+        self.power = _switch(saved)
+
+
+def _acts():
+    """Capture the two acts `set_on` causes, and put `panic` back afterwards."""
+    seen = {"stop": 0, "resume": 0}
+    was = (powermod.panicmod.stop, powermod.panicmod.resume)
+    powermod.panicmod.stop = lambda rt: seen.__setitem__("stop", seen["stop"] + 1)
+    powermod.panicmod.resume = lambda rt: seen.__setitem__("resume", seen["resume"] + 1)
+    return seen, was
+
+
+def _restore(was):
+    powermod.panicmod.stop, powermod.panicmod.resume = was
+
+
+def test_a_widget_that_wrote_the_flag_first_still_gets_its_two_acts():
+    """The window's checkbox is bound to the knob, and that used to swallow the flip.
+
+    `ttk.Checkbutton` writes the variable and THEN calls its command, so by the time the
+    shell asks `set_on` the flag already holds what the person asked for. `Power.set`
+    answered «nothing moved» — correctly — and `set_on` returned on it, so ticking the
+    box back on wrote a `True` and started no daemon at all: «демон не стартует», live on
+    2026-08-24 (#1910). `written=True` is the window saying «the write was mine».
+    """
+    seen, was = _acts()
+    try:
+        rt = _RTPower({powermod.KEY: False})       # the checkbox already flipped it off
+        assert rt.power.off is True
+        assert powermod.set_on(rt, False, written=True) is True
+        assert seen["stop"] == 1, "the flip closed no client and stopped no daemon"
+
+        rt = _RTPower({powermod.KEY: True})        # …and back on, the same way
+        assert powermod.set_on(rt, True, written=True) is True
+        assert seen["resume"] == 1, "ticking it back on brought nothing back"
+    finally:
+        _restore(was)
+
+
+def test_without_that_word_a_flip_to_where_it_already_is_still_does_nothing():
+    """The phone writes through `set`, so «already there» has to stay a no-op for it."""
+    seen, was = _acts()
+    try:
+        rt = _RTPower({powermod.KEY: False})
+        assert powermod.set_on(rt, False) is False
+        assert seen == {"stop": 0, "resume": 0}, seen
+    finally:
+        _restore(was)
+
+
+def test_the_stamp_follows_a_flag_a_widget_wrote():
+    """`profile_off_at` has to be written even when `set` did not do the writing.
+
+    Live it was `profile_on=False` beside `profile_off_at=0.0`, so the mark on screen
+    counted «выключен 0 минут» however long it had been off — the number that is the
+    whole point of the mark (#1882).
+    """
+    seen, was = _acts()
+    try:
+        rt = _RTPower({powermod.KEY: False})
+        powermod.set_on(rt, False, written=True)
+        assert rt.power.since() > 0.0, "the flip left no timestamp to count from"
+    finally:
+        _restore(was)
+
+
 def _main() -> int:
     if powermod is None:
         print(f"  SKIP the runtime package will not import here: {_WHY}")

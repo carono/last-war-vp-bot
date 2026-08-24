@@ -76,6 +76,8 @@
   "autostart.error.failed": "Görev zamanlayıcı geri çevirdi: {error}",
   "busy": "meşgul — yürüyen işlemin bitmesini bekle",
   "action.detached": "«{name}» kendi başına çalışıyor — başka hiçbir şey onu beklemiyor",
+  "action.held.daemon": "«{name}» çalıştırılmıyor: servis kapalı — geri gelene kadar hiçbir otomatik iş başlamaz",
+  "action.held.off": "«{name}» çalıştırılmıyor: bu profil kapalı",
   "busy.elsewhere": "oyun meşgul — {owner} {sec} sn'dir onu sürüyor",
   "busy.foreground": "ekran meşgul — içinde {owner} tıklıyor; «{name}» atlandı",
   "capture.ghost_op": "Hayalet Operasyonu",

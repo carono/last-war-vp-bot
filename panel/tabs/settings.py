@@ -913,7 +913,7 @@ class SettingsTab(PanelTab):
         # A refused claim means nothing was started and no callback will ever come, so
         # the «…» line has to be taken back here or it stays on screen for ever.
         if not self.rt.play_async("set_graphics_load", self._graphics_args(mode),
-                                  tag="graphics",
+                                  tag="graphics", human=True,
                                   on_result=lambda out: self._graphics_done(out)):
             self._say_graphics("graphics.state.busy")
 
@@ -932,7 +932,7 @@ class SettingsTab(PanelTab):
             return
         self._say_graphics("graphics.state.reading")
         if not self.rt.play_async(
-                "read_graphics_load", tag="graphics",
+                "read_graphics_load", tag="graphics", human=True,
                 on_result=lambda out: self._graphics_read(out, then, remember)):
             self._say_graphics("graphics.state.busy")
 

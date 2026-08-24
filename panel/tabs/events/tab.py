@@ -167,7 +167,8 @@ class EventsTab(PanelTab):
     def build(self) -> None:
         bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
-        self.tr(ttk.Button(bar, command=self.refresh), "events.refresh").pack(side="left")
+        self.tr(ttk.Button(bar, command=lambda: self.refresh(human=True)),
+                "events.refresh").pack(side="left")
 
         self._status = tk_stringvar(self.rt.root)
         ttk.Label(bar, textvariable=self._status, foreground=_GREY).pack(
@@ -239,8 +240,11 @@ class EventsTab(PanelTab):
             return float("inf")
         return max(0.0, time.time() - reading.at)
 
-    def refresh(self) -> bool:
+    def refresh(self, human: bool = False) -> bool:
         """Ask the game what the events are doing. `False` if it could not be asked now.
+
+        `human` is «Обновить»; the poll and the after-a-press re-reads leave it False,
+        so a board nobody is pressing stops asking a client that is not there (#1910).
 
         A refusal — something else is driving the game — leaves the previous reading and
         its age on screen, which is the honest answer: it is what we know, and how old.
@@ -250,14 +254,14 @@ class EventsTab(PanelTab):
         self._busy = True
         self._refresh_status()
         started = self.rt.play_async(
-            modelmod.CODENAME_ACTION, tag="events",
+            modelmod.CODENAME_ACTION, tag="events", human=human,
             on_result=self._read_back, on_done=self._read_done)
         if not started:
             self._busy = False
             self._refresh_status()
         return started
 
-    def refresh_both(self) -> bool:
+    def refresh_both(self, human: bool = False) -> bool:
         """Take both readings, one after the other rather than both at once.
 
         Only one scenario may drive the client at a time, so a second read fired beside
@@ -267,10 +271,10 @@ class EventsTab(PanelTab):
         the codename one could not be started at all.
         """
         self._chain_golden = True
-        if self.refresh():
+        if self.refresh(human=human):
             return True
         self._chain_golden = False
-        return self.refresh_golden()
+        return self.refresh_golden(human=human)
 
     def _read_back(self, outcome) -> None:
         """The scenario finished (on the Tk thread). Its variable IS the board."""
@@ -329,7 +333,7 @@ class EventsTab(PanelTab):
         self._sent_key = sent_key
         self._paint_attack_button()
         started = self.rt.play_async(
-            scenario, tag="events",
+            scenario, tag="events", human=True,
             on_result=self._attack_back, on_done=self._attack_done)
         if not started:
             self._attacking = False
@@ -355,8 +359,10 @@ class EventsTab(PanelTab):
         self.rt.tick.arm("events_after_attack", self.AFTER_ATTACK_MS, self.refresh)
 
     # -- «Золотые зомби»: its reading, its press, its day -------------------
-    def refresh_golden(self) -> bool:
+    def refresh_golden(self, human: bool = False) -> bool:
         """Ask the game what the hunt has to work with. `False` if it could not be asked.
+
+        `human` as everywhere on this tab: the button sets it, the poll does not (#1910).
 
         A refusal — something else is driving the client, usually the chain itself — is
         left showing the previous reading and its age, which is the honest answer.
@@ -365,7 +371,7 @@ class EventsTab(PanelTab):
             return False
         self._golden_busy = True
         started = self.rt.play_async(
-            modelmod.GOLDEN_ACTION, tag="events",
+            modelmod.GOLDEN_ACTION, tag="events", human=human,
             on_result=self._golden_back, on_done=self._golden_done)
         if not started:
             self._golden_busy = False
@@ -574,7 +580,7 @@ class EventsTab(PanelTab):
             # the panel disagreeing with the game about something the person just did.
             self._golden_target = ""
             self._paint_target()
-        started = bool(self.rt.play_async(row[1], args, tag="events",
+        started = bool(self.rt.play_async(row[1], args, tag="events", human=True,
                                           on_result=self._step_back))
         if started:
             self._waiting.pop(action, None)
@@ -606,7 +612,7 @@ class EventsTab(PanelTab):
         started = self.rt.play_async(
             modelmod.GOLDEN_ATTACK,
             {"squad": self.squad(), "approach": 1 if self.approach() else 0},
-            tag="events",
+            tag="events", human=True,
             on_result=self._hunt_back, on_done=self._hunt_done)
         if not started:
             self._golden_running = False
@@ -842,7 +848,7 @@ class EventsTab(PanelTab):
         above it moves when the READING moves, and a run that took nothing leaves it
         exactly where it was (`CLAUDE.md`).
         """
-        started = self.rt.play_async("collect_fireworks", tag="events",
+        started = self.rt.play_async("collect_fireworks", tag="events", human=True,
                                      on_done=lambda: self.post(self._render))
         if not started:
             self.say("events", "events.codename.log.busy")
@@ -1097,7 +1103,7 @@ class EventsTab(PanelTab):
     def web_press(self, action: str, args: dict) -> dict:
         """The same three presses the window has, and nothing the window has not."""
         if action == "refresh":
-            return {"ok": self.refresh_both()}
+            return {"ok": self.refresh_both(human=True)}
         if action == "collect_fireworks":
             return {"ok": self.collect_fireworks()}
         if action in ("attack_codename", "daily_codename"):

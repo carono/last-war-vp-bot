@@ -1103,7 +1103,7 @@ class TreasuresPane(_Pane):
         """
         squad = _int(self._squad_var.get(), TREASURE_SQUADS[0])
         self.rt.play_async(TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="action",
-                           on_result=self.lap_from_run)
+                           human=True, on_result=self.lap_from_run)
 
     def _sweep_now(self) -> None:
         """Walk the whole map once and queue every chest lying on it.
@@ -1112,7 +1112,7 @@ class TreasuresPane(_Pane):
         queue — and the list below still comes from the readings afterwards.
         """
         self.rt.play_async(TREASURE_SCAN_ACTION, tag="action",
-                           on_result=self.lap_from_run)
+                           human=True, on_result=self.lap_from_run)
 
     def lap_from_run(self, outcome) -> None:
         """Put the run's own three numbers on the label — the scenario already read them.
@@ -1394,7 +1394,7 @@ class TreasuresPane(_Pane):
             "uuid": str(target["uuid"]), "server": _int(target["server"]),
             "pid": _int(target["pid"]), "x": _int(target["x"]), "y": _int(target["y"]),
             "squads": [squad],
-        }, tag="action", on_result=self.take_from_run)
+        }, tag="action", human=True, on_result=self.take_from_run)
 
     def take_from_run(self, outcome) -> None:
         """Say where the chest the press was for ended up, and re-read the list.
@@ -1641,21 +1641,21 @@ class CommandPostTab(PanelTab):
             if page is None:
                 return {"error": "unknown"}
             return {"ok": self.rt.play_async(
-                TASKS_COLLECT_ACTION, tag="web",
+                TASKS_COLLECT_ACTION, tag="web", human=True,
                 on_result=lambda _outcome: page.refresh())}
         if action == "tasks_run":
             page = self._by_key.get("tasks")
             if page is None:
                 return {"error": "unknown"}
             return {"ok": self.rt.play_async(TASKS_RUN_ACTION, page.args(), tag="web",
-                                             on_result=page.from_run)}
+                                             human=True, on_result=page.from_run)}
         if action == "treasure_auto":
             page = self._by_key.get("treasure")
             squad = (_int(page._squad_var.get(), TREASURE_SQUADS[0])
                      if page is not None and getattr(page, "_squad_var", None) is not None
                      else TREASURE_SQUADS[0])
             return {"ok": self.rt.play_async(
-                TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="web",
+                TREASURE_AUTO_ACTION, {"squads": [squad]}, tag="web", human=True,
                 on_result=(page.lap_from_run if page is not None else None))}
         if action == "treasure_take":
             # ONE chest, named by the row that offered the press. Same recipe, same
@@ -1671,7 +1671,8 @@ class CommandPostTab(PanelTab):
                 "uuid": str(args.get("uuid")), "server": _int(args.get("server")),
                 "pid": _int(args.get("pid")), "x": _int(args.get("x")),
                 "y": _int(args.get("y")), "squads": [squad],
-            }, tag="web", on_result=(page.take_from_run if page is not None else None))}
+            }, tag="web", human=True,
+                on_result=(page.take_from_run if page is not None else None))}
         if action == "treasure_sweep":
             # The map lap, and it travels for the same reason the errand does: it is ONE
             # recipe and the phone plays it whole. Nothing is parked by a tool first.
@@ -1681,7 +1682,7 @@ class CommandPostTab(PanelTab):
             # card saying what somebody read at the machine an hour ago.
             page = self._by_key.get("treasure")
             return {"ok": self.rt.play_async(
-                TREASURE_SCAN_ACTION, tag="web",
+                TREASURE_SCAN_ACTION, tag="web", human=True,
                 on_result=(page.lap_from_run if page is not None else None))}
         return {"error": "unknown"}
 

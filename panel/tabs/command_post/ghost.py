@@ -252,7 +252,8 @@ class GhostOrder:
         """
         put = lambda msg: self.rt.put(f"[ghost] {msg}")        # noqa: E731
         try:
-            outcome = self.rt.actions.play("steal_ghost_recon", on_event=put)
+            outcome = self.rt.actions.play("steal_ghost_recon", human=True,
+                                           on_event=put)
         except Exception as exc:       # noqa: BLE001 — a failed press, never the watcher
             self.rt.say("ghost", "log.ghost.spend_failed",
                         reason=f"{type(exc).__name__}: {exc}")

@@ -97,6 +97,34 @@ class DaemonGate:
             return None
         return "timers.log.skip_off" if self._switched_off() else "timers.log.skip_daemon"
 
+    def blocks(self, name: str = "", *, human: bool = False) -> str:
+        """May this SCENARIO be played right now? ``""`` when it may.
+
+        The other face of :meth:`alive`, and the one every RUN asks — because a gate that
+        only the schedule and the watchdog consulted was a gate with three doors round the
+        side (#1910). A tab polling its board, a wire handler joining a rally straight off
+        the capture's reader, an auto-order re-armed on the panel's own clock: none of
+        them is a timer, none of them is a trigger, and every one of them was pressing
+        into a client that was not there — «пытаются выполниться сценарии, а демона нет»,
+        with nothing in the log naming a hold because no hold was being asked for.
+
+        So the question is asked at the ONE door every scenario goes through
+        (`panel/runtime/actions.py::ActionRunner.run`), and the answer is a LOCALE KEY
+        rather than a bool: a run that does not happen has to say so in the person's own
+        words, and silent suppression is its own class of bug in this codebase (#1884).
+
+        ``human`` is the one exemption, and it is the same one the module docstring
+        already names: somebody standing at a button. It is passed explicitly by the
+        presses — a widget's command, a hotkey, `web_press`, the switch's own acts — and
+        defaults to FALSE everywhere else, so a path added tomorrow that nobody thought
+        about is held rather than let through.
+        """
+        if human:
+            return ""
+        if self.alive():
+            return ""
+        return "action.held.off" if self._switched_off() else "action.held.daemon"
+
     def _read(self) -> bool:
         """The reading itself: the switch first, then the poll's verdict, then the port.
 

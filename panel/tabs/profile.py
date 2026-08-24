@@ -185,6 +185,7 @@ class ProfileTab(DataTab):
         the wire.
         """
         outcome = self.rt.actions.play(WARZONE_ACTION, {"server": self._warzone_ask},
+                                      human=True,
                                        tag="profile")
         if outcome is None or not getattr(outcome, "ok", False):
             return {}

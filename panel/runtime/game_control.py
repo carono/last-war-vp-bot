@@ -145,6 +145,9 @@ def play(rt, action: str, link: str | None = None) -> dict:
     if link is not None and not available(control, link):
         return {"ok": False, "unavailable": True, "id": control.id}
     rt.say(TAG, control.saying)
-    started = rt.play_async(control.scenario, tag=TAG)
+    # A PERSON PRESSED IT — in the window or on the phone, this table is both front-
+    # ends' one door (#1910). Starting a client with the daemon down is precisely what
+    # these buttons are for, so the gate does not get to hold them.
+    started = rt.play_async(control.scenario, tag=TAG, human=True)
     return {"ok": bool(started), "busy": not started, "id": control.id,
             "name": control.scenario}

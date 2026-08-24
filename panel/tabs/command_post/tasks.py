@@ -105,7 +105,8 @@ class TasksPane:
         bar.pack(fill="x", padx=10, pady=(10, 4))
         self.rt.tr(ttk.Label(bar, font=ui_font(size=14, weight="bold")),
                    self.TITLE_KEY).pack(side="left")
-        self.rt.tr(ttk.Button(bar, width=12, command=self.refresh),
+        self.rt.tr(ttk.Button(bar, width=12,
+                              command=lambda: self.refresh(human=True)),
                    "tabx.refresh").pack(side="right")
         ttk.Label(bar, textvariable=self._status_var, foreground=DIM).pack(
             side="right", padx=8)
@@ -197,22 +198,29 @@ class TasksPane:
             self._loaded = True
             self.refresh()
 
-    def refresh(self) -> None:
-        """Read the post — the scenario's reading half. Opens nothing, spends nothing."""
+    def refresh(self, human: bool = False) -> None:
+        """Read the post — the scenario's reading half. Opens nothing, spends nothing.
+
+        `human` is somebody at «Обновить»; the first-look read leaves it False, so a
+        page opened in a profile whose daemon is down says so instead of timing out
+        (#1910).
+        """
+        self._human = human
         self._status("cmdpost.loading")
-        self.rt.play_async(READ_ACTION, tag=self.LOG_TAG, on_result=self.from_run)
+        self.rt.play_async(READ_ACTION, tag=self.LOG_TAG, human=self._human,
+                           on_result=self.from_run)
 
     def run_now(self) -> None:
         """Play the ability once, with the rule as it stands on this page."""
         self._status("cmdpost.tasks.running_now")
-        self.rt.play_async(RUN_ACTION, self.args(), tag=self.LOG_TAG,
+        self.rt.play_async(RUN_ACTION, self.args(), tag=self.LOG_TAG, human=True,
                            on_result=self.from_run)
 
     def collect_now(self) -> None:
         """Claim the finished tasks and open their boxes. Spends nothing."""
         self._status("cmdpost.tasks.running_now")
-        self.rt.play_async(COLLECT_ACTION, tag=self.LOG_TAG,
-                           on_result=lambda _outcome: self.refresh())
+        self.rt.play_async(COLLECT_ACTION, tag=self.LOG_TAG, human=True,
+                           on_result=lambda _outcome: self.refresh(human=True))
 
     def from_run(self, outcome) -> None:
         """Draw the page off the run's OWN variables — the scenario already read them.

@@ -232,7 +232,19 @@ class PanelRuntime:
                                     # profile switch, so this is a callable like the
                                     # target above and never a snapshot.
                                     books=lambda: {"store": self.store,
-                                                   "days": self.secret_days})
+                                                   "days": self.secret_days},
+                                    # …and WHETHER ANYTHING MAY RUN AT ALL (#1910). The
+                                    # gate was asked by the schedule, the watchdog and
+                                    # the recovery, and by nothing else — so a tab's
+                                    # poll, a wire handler joining a rally off the
+                                    # capture's own reader and an auto-order re-armed on
+                                    # the panel's clock all pressed into a client that
+                                    # was not there, with a switched-off profile saying
+                                    # so in the log and playing scenarios anyway. Asked
+                                    # at the one door every scenario goes through, so
+                                    # there is no fourth path to find next time.
+                                    gate=lambda name, human: self.gate.blocks(
+                                        name, human=human))
         self._schedule = None           # built on first ask (see the property below)
         self._squads = None             # …and so is the squad reader
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
@@ -649,7 +661,7 @@ class PanelRuntime:
 
     def play_async(self, name: str, args: dict | None = None, *, tag: str = "action",
                    cancel=None, on_start=None, on_done=None, on_result=None,
-                   priority: int = claims.HUMAN) -> bool:
+                   priority: int = claims.HUMAN, human: bool = False) -> bool:
         """Run one scenario on a worker thread, under the game claim.
 
         ``False`` when the claim was refused — something else is driving the game — and
@@ -696,6 +708,26 @@ class PanelRuntime:
         launch. See :meth:`_relaunch_lock`.
         """
         import threading
+
+        # THE GATE, BEFORE THE CLAIM AND BEFORE THE THREAD (#1910). `ActionRunner.run`
+        # asks it too and is the guarantee — it is the door a caller that never comes
+        # through here still has to pass — but a run refused down there has already
+        # taken the relaunch lock, reserved the client and waited out a lease against a
+        # daemon that is not answering. Asked here it costs a dict lookup, and the
+        # sentence is the same one, said once.
+        #
+        # `human` is not defaulted to True however much this method's callers are
+        # presses: the tab polls were coming through here as well, indistinguishable
+        # from a button because a button is what everybody assumed. False is the
+        # fail-safe direction — a caller nobody marked is held and says so.
+        held = self.gate.blocks(name, human=human)
+        if held:
+            self.log.say(tag, held, name=name)
+            if on_result is not None:
+                self._on_tk(lambda: on_result(Outcome(False, self.t(held, name=name))))
+            if on_done is not None:
+                self._on_tk(on_done)
+            return False
 
         if not self._relaunch_lock(name, tag):
             return False
@@ -758,11 +790,11 @@ class PanelRuntime:
                 if on_result is None:
                     self.actions.run(name, args, hwnd=0, on_event=on_event,
                                      profile=None, cancel=cancel, tag=tag,
-                                     yield_to=step_aside)
+                                     human=human, yield_to=step_aside)
                 else:
                     outcome = self.actions.play(name, args, hwnd=0, on_event=on_event,
                                                 profile=None, cancel=cancel, tag=tag,
-                                                yield_to=step_aside)
+                                                human=human, yield_to=step_aside)
             except Exception as exc:                   # noqa: BLE001 — never the panel
                 raised = str(exc)
                 self.log.put(f"[{tag}] {name}: error: {exc}")

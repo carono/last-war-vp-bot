@@ -1918,7 +1918,7 @@ class SecretTasksTab(PanelTab):
             tag="secret",
             # A person is waiting for this one — it is a press and only ever a press
             # now (#1484), so it takes the client the way every other button does.
-            priority=claims.HUMAN,
+            priority=claims.HUMAN, human=True,
             on_done=lambda: self.post(
                 lambda: self._verify_landed(server, keys, len(points))))
         if not ok:
@@ -2095,6 +2095,7 @@ class SecretTasksTab(PanelTab):
         started = self.rt.play_async(
             "scan_map", {"zoom": height, "step": step,
                          "server": int(srv) if srv.isdigit() else 0}, tag="coord",
+            human=True,
             on_start=lambda: self.post(self._sweep_began),
             on_done=self._sweep_ended)
         if not started:

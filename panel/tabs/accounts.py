@@ -146,7 +146,7 @@ class AccountsTab(DataTab):
         else:
             try:
                 out = self.rt.actions.play(
-                    "switch_account", {"server": serverid},
+                    "switch_account", {"server": serverid}, human=True,
                     on_event=lambda msg: self.rt.put(f"[accounts] {msg}"))
                 ok, reason = bool(out), out.reason
             except Exception as exc:      # noqa: BLE001 — the log gets the reason

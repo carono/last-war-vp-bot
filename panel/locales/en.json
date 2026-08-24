@@ -76,6 +76,8 @@
   "autostart.error.failed": "The task scheduler refused: {error}",
   "busy": "busy — wait for the current action to finish",
   "action.detached": "«{name}» runs on its own — nothing else waits for it",
+  "action.held.daemon": "«{name}» is not being run: the daemon is down — nothing automatic starts until it is back",
+  "action.held.off": "«{name}» is not being run: this profile is switched off",
   "busy.elsewhere": "the game is busy — {owner} has been driving it for {sec}s",
   "busy.foreground": "the screen is taken — {owner} is clicking in it; «{name}» skipped",
   "capture.ghost_op": "Ghost Ops",

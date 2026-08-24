@@ -763,7 +763,10 @@ class WebApi:
             return {"error": "unknown"}
         clean = {str(k): v for k, v in (args or {}).items()
                  if isinstance(v, (str, int, float)) and not isinstance(v, bool)}
-        started = rt.play_async(name, clean or None, tag="web")
+        # A PERSON PRESSED IT, on the phone (#1910). The web is the other front-end of
+        # the same panel, never an automatic driver, so it passes the gate exactly as a
+        # button in the window does.
+        started = rt.play_async(name, clean or None, tag="web", human=True)
         return {"ok": bool(started), "busy": not started, "name": name}
 
     # -- the client's life ----------------------------------------------------
@@ -985,7 +988,7 @@ class WebApi:
         if action == "dates" and not missing:
             return {"ok": False, "reason": "servers.all_dated"}
         rt.say("servers", "servers.log.dates" if action == "dates" else "servers.log.list")
-        started = rt.play_async("read_server_list", tag="servers",
+        started = rt.play_async("read_server_list", tag="servers", human=True,
                                 args={"store": "", "dates": missing if action == "dates" else 0})
         return {"ok": bool(started)} if started else {"ok": False, "reason": "servers.busy"}
 
@@ -1015,7 +1018,7 @@ class WebApi:
 
             rt.say("servers", "servers.secret.log.read")
             started = rt.play_async("read_secret_day", args={"server": 0},
-                                    tag="servers", on_result=landed)
+                                    tag="servers", human=True, on_result=landed)
             return {"ok": bool(started)} if started else {"ok": False,
                                                           "reason": "servers.busy"}
         state = action.split("_", 1)[1]

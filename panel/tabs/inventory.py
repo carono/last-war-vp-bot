@@ -274,7 +274,8 @@ class InventoryTab(DataTab):
         has no description» for as long as the profile lives.
         """
         try:
-            outcome = self.rt.actions.play(name, args or {}, on_event=lambda _m: None)
+            outcome = self.rt.actions.play(name, args or {}, human=True,
+                                           on_event=lambda _m: None)
         except Exception:                   # noqa: BLE001 — a read, never the window
             return None
         ctx = getattr(outcome, "ctx", None)
@@ -456,7 +457,7 @@ class InventoryTab(DataTab):
             return
         self._use_button.state(["disabled"])
         self.rt.play_async("use_item", {"item": item_id, "count": count},
-                           tag="inventory", on_result=self._used,
+                           tag="inventory", human=True, on_result=self._used,
                            on_done=lambda: self._arm_use(self._selected or {}))
 
     def _used(self, outcome) -> None:
@@ -592,7 +593,8 @@ class InventoryTab(DataTab):
         if item_id <= 0:
             return {"error": "bad_args"}
         return {"ok": self.rt.play_async("use_item", {"item": item_id, "count": count},
-                                         tag="inventory", on_result=self._used)}
+                                         tag="inventory", human=True,
+                                         on_result=self._used)}
 
 
 # ---------------------------------------------------------------------------

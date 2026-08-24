@@ -76,6 +76,8 @@
   "autostart.error.failed": "L'utilità di pianificazione ha rifiutato: {error}",
   "busy": "occupato — aspetta che finisca l'azione in corso",
   "action.detached": "«{name}» procede per conto suo — nient'altro lo aspetta",
+  "action.held.daemon": "«{name}» non viene eseguito: il demone è fermo — niente di automatico parte finché non torna",
+  "action.held.off": "«{name}» non viene eseguito: questo profilo è spento",
   "busy.elsewhere": "il gioco è occupato — {owner} lo guida da {sec} s",
   "busy.foreground": "lo schermo è occupato — {owner} ci sta cliccando; «{name}» saltato",
   "capture.ghost_op": "Operazioni Fantasma",

@@ -1194,7 +1194,8 @@ class VsDuelTab(PanelTab):
         self._paint_collected()
         started = self.rt.play_async(
             COLLECT_ACTION, args={"store": self.rt.profiles.leaderboard_db()},
-            tag="vsduel", on_result=self._collect_back, on_done=self._collect_done)
+            tag="vsduel", human=True,
+            on_result=self._collect_back, on_done=self._collect_done)
         if not started:
             self._collecting = False
             self._paint_collected()

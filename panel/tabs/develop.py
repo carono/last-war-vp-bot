@@ -1242,7 +1242,7 @@ class DevelopTab(PanelTab):
         # A refused press must NOT clear `_cancel`: the run it was refused BY is still
         # in flight, and Stop is the only thing that can end it.
         self.rt.play_async(
-            name, args, tag="action", cancel=cancel,
+            name, args, tag="action", cancel=cancel, human=True,
             on_start=lambda: self._on_run_started(name, cancel, shown),
             on_done=lambda: self._set_scenario_running(None))
 

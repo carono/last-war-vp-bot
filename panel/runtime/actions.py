@@ -75,8 +75,17 @@ class ActionRunner:
     """Runs scenarios, checks them, and reads them back for the editor."""
 
     def __init__(self, log, claim=None, release=None, target=None,
-                 activity=None, interrupts=None, regain=None, books=None) -> None:
+                 activity=None, interrupts=None, regain=None, books=None,
+                 gate=None) -> None:
         self._log = log                   # the LogBus
+        # callable(name, human) -> locale key or "" — «may anything run right now»
+        # (`panel/runtime/gate.py::DaemonGate.blocks`, #1910). HERE, because this class
+        # is the one door every scenario goes through however it was started, and the
+        # gate used to be asked only by the schedule, the watchdog and the recovery —
+        # so a tab's poll, a wire handler and an auto-order re-armed on the panel's clock
+        # each pressed into a client that was not there. A runner built without one is
+        # ungated exactly as before, which is what a test harness wants.
+        self._gate = gate
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
         # callable(ctx) -> bool — «the daemon refused this run's token; get a lease
@@ -176,12 +185,21 @@ class ActionRunner:
             on_event=on_event if on_event is not None else self._log.put, **kw)
 
     def run(self, name: str, args: dict | None = None, *, hwnd: int = 0,
-            ctx=None, on_event=None, tag: str = "action", **kw) -> bool:
+            ctx=None, on_event=None, tag: str = "action", human: bool = False,
+            **kw) -> bool:
         """Play the named scenario. ``True`` if it ran to the end.
 
         ``kw`` reaches `script_engine.run_action` untouched — that is where `profile`
         and `cancel` go, and where a new interpreter option arrives without this class
         having to learn about it first.
+
+        ``human`` says somebody is at a button — a widget's command, a hotkey, a press
+        off the phone, the profile switch carrying out its own acts. It is the ONE thing
+        the daemon gate lets past, and it defaults to `False` so that a caller nobody
+        thought about is held rather than let through (:meth:`~.gate.DaemonGate.blocks`,
+        #1910). A held run plays nothing, says which of the two holds it is in the
+        person's own words, and leaves that sentence as the context's fail reason so
+        `play()` reports it rather than «no reason given».
 
         THE CONTEXT IS ALWAYS BUILT HERE, even when the caller passed none, because a run
         that nobody holds a context for is a run nobody can stop or describe: the stop
@@ -195,6 +213,20 @@ class ActionRunner:
         whatever made somebody press the button.
         """
         from lastwar_bot import script_engine
+        held = self._held(name, human)
+        if held:
+            # SAID, NEVER SILENT (#1884, #1910). A run that did not happen and left no
+            # line is exactly the «панель молчит и ничего не делает» this whole area
+            # keeps relearning — and the sentence names WHICH hold it is, because
+            # «профиль выключен» sends a person looking for a switch and «демон не
+            # работает» sends them looking for a fault.
+            self._log.say(tag, held, name=name)
+            if ctx is not None and not getattr(ctx, "fail_reason", ""):
+                try:
+                    ctx.fail_reason = held
+                except Exception:         # noqa: BLE001 — a reason, never the refusal
+                    pass
+            return False
         if ctx is None:
             # `on_event` may arrive either as the named argument or inside `kw` (this
             # signature has taken both since long before the register) — popped either
@@ -220,6 +252,20 @@ class ActionRunner:
             # whole reason a person presses a Stop twice.
             self._log.say(tag, "interrupt.halted", name=name)
         return ok
+
+    def _held(self, name: str, human: bool) -> str:
+        """The locale key naming why this run may not happen, or ``""`` when it may.
+
+        A reading, never the run: a gate that raised would take the panel down with it,
+        and a gate that cannot be asked has to answer «go ahead» — the alternative is a
+        broken reading freezing every scenario in the profile.
+        """
+        if self._gate is None:
+            return ""
+        try:
+            return str(self._gate(name, human) or "")
+        except Exception:                 # noqa: BLE001 — a reading, never the run
+            return ""
 
     @contextlib.contextmanager
     def _registered(self, name: str, tag: str, ctx):
@@ -315,7 +361,8 @@ class ActionRunner:
         return bool(script_engine.action_detached(name))
 
     def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
-             on_event=None, cancel=None, yield_to=None, **kw) -> Outcome:
+             on_event=None, cancel=None, yield_to=None, human: bool = False,
+             **kw) -> Outcome:
         """Play the named scenario and report HOW it ended, not just whether.
 
         Use this wherever the answer to "why not?" is worth showing. `run()` stays for
@@ -332,7 +379,7 @@ class ActionRunner:
         # detached run nobody can get past (#1702).
         ctx = self.context(on_event=on_event, hwnd=hwnd, variables=args or {},
                            cancel=cancel, yield_to=yield_to)
-        ok = self.run(name, args, hwnd=hwnd, ctx=ctx, **kw)
+        ok = self.run(name, args, hwnd=hwnd, ctx=ctx, human=human, **kw)
         reason = str(getattr(ctx, "fail_reason", "") or "").strip()
         if not reason and getattr(ctx, "cancelled", False):
             # An interrupted run left no FAIL reason — it never reached one — and «no

@@ -399,7 +399,7 @@ class RallyTab(PanelTab):
         self.tr(ttk.Checkbutton(top, variable=self._autojoin_var,
                                 command=self._on_autojoin_click),
                 "rally.autojoin").pack(side="left", padx=(12, 0))
-        self.tr(ttk.Button(top, command=self.join_now),
+        self.tr(ttk.Button(top, command=lambda: self.join_now(human=True)),
                 "rally.join_now").pack(side="right")
         # Hint shows the active profile's rally log; refreshed on language/profile change.
         self._hint = ttk.Label(rally, foreground="#888", wraplength=620, justify="left")
@@ -932,7 +932,7 @@ class RallyTab(PanelTab):
         if action == "fill":
             return {"ok": self.rt.play_async(
                 "fill_empty_squads", {"squads": list(RALLY_SQUADS)}, tag="fill_squads",
-                on_done=lambda *_: self.rt.squads.refresh_async())}
+                human=True, on_done=lambda *_: self.rt.squads.refresh_async())}
         if action != "refresh":
             return {"error": "unknown"}
         self.rt.squads.refresh_async()
@@ -1194,7 +1194,7 @@ class RallyTab(PanelTab):
         zero after this stays at zero on screen — which is the truth about that squad.
         """
         self.rt.play_async("fill_empty_squads", {"squads": list(RALLY_SQUADS)},
-                           tag="fill_squads",
+                           tag="fill_squads", human=True,
                            on_done=lambda *_: self.rt.squads.refresh_async())
 
     def _stop_run(self) -> None:
@@ -1496,7 +1496,7 @@ class RallyTab(PanelTab):
         if self._autojoin_var.get() and self._may_join_again(team):
             if self._nobody_to_send():
                 return False
-            self._after(self.join_now)
+            self._after(self.join_now)   # the wire drove it: NOT a press (#1910)
         return False                      # already logged above
 
     def _nobody_to_send(self) -> bool:
@@ -1544,8 +1544,13 @@ class RallyTab(PanelTab):
         self._join_at[team] = (tried + 1, now)
         return True
 
-    def join_now(self) -> None:
+    def join_now(self, human: bool = False) -> None:
         """Join the rallies that are out, with the squads the settings page allows.
+
+        `human` is the «Присоединиться» button. The OTHER caller is the capture's own
+        reader — this tab plays the recipe past the schedule entirely, which is exactly
+        how a switched-off profile went on joining rallies all afternoon (#1910) — and it
+        leaves the gate to answer.
 
         This is what makes the «Авторалли» page real: its squad list IS the recipe's
         `squads` argument. With no squad ticked the join would be a silent no-op that
@@ -1557,7 +1562,8 @@ class RallyTab(PanelTab):
             return
         self.say("rally", "rally.joining",
                  squads=", ".join(str(s) for s in squads))
-        threading.Thread(target=self._join_work, args=(squads,), daemon=True).start()
+        threading.Thread(target=self._join_work, args=(squads, human),
+                         daemon=True).start()
 
     #: How long a join waits for the game to be free before giving the place up. A rally
     #: is seconds long during an event and the claim is held by short things — a status
@@ -1567,7 +1573,7 @@ class RallyTab(PanelTab):
     #: minute lost to «занят», with the claim let go within a second of each (#1237).
     JOIN_CLAIM_WAIT_SEC = 4.0
 
-    def _join_work(self, squads) -> None:
+    def _join_work(self, squads, human: bool = False) -> None:
         """The join itself, off the Tk thread and under the game claim.
 
         Which of the ticked squads may actually be spent is the RECIPE's business
@@ -1605,8 +1611,8 @@ class RallyTab(PanelTab):
             from ...runtime import rally_wire as rallywire
 
             book = self.rt.banners
-            out = self.rt.actions.play("join_rally",
-                                       {"squads": squads,
+            out = self.rt.actions.play("join_rally", human=human,
+                                       args={"squads": squads,
                                         "targets": rallywire.merge(
                                             target_map(self.rt), book.targets()),
                                         "slots": rallywire.merge(
