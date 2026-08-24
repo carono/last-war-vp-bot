@@ -555,6 +555,20 @@ def main() -> int:
     except BaseException as exc:
         print(f"[daemon] not warm yet (game offline?): {exc}", flush=True)
 
+    # THE PANEL'S OWN WATCHDOG, FROM OUT HERE (#1910). A panel that has fallen over
+    # cannot say so, and after this task the daemon is the one process that is always up
+    # and survives a panel restart untouched — so it is the only place the watch can
+    # live. It elects ONE guard per machine by an exclusive file lock, so four daemons
+    # cannot open four panels, and it honours the farewell note a panel leaves when a
+    # person closes it. See tools/lib/panel_guard.py.
+    try:
+        import panel_guard
+
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        panel_guard.PanelGuard(repo).start()
+    except Exception as exc:                # noqa: BLE001 — never the daemon's job
+        print(f"[guard] not started: {exc}", flush=True)
+
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # SO_REUSEADDR on Windows lets a second bind *steal* a live port — with one daemon
     # per client that would silently route a session's calls into the wrong game.

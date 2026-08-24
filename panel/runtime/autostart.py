@@ -311,12 +311,47 @@ def focus_panel(profiles, name: str | None = None) -> bool:
         return False
 
 
-def clear(profiles, name: str | None = None) -> None:
-    """Drop the heartbeat — the panel is closing on purpose."""
-    try:
-        os.unlink(profiles.heartbeat(name))
-    except OSError:
-        pass
+#: What a farewell note says, so a reader cannot mistake it for a beat (#1910).
+CLOSED = "closed"
+#: …and the other way of leaving: the panel is coming straight back on new code.
+RESTARTING = "restarting"
+
+
+def clear(profiles, name: str | None = None, why: str = CLOSED) -> None:
+    """The panel is leaving ON PURPOSE — say so, rather than deleting the beat (#1910).
+
+    IT USED TO UNLINK THE FILE, and «no file» is two different things: a panel somebody
+    closed, and a panel that has never run on this machine. The hourly check has to open
+    one for the second and must not for the first, and it could not tell them apart — so
+    a person who closed the panel got it back within the hour, and the guard being added
+    now (`tools/lua_daemon.py`, every few seconds) would have got it back at once.
+
+    A farewell note settles it: the file stays, carries no `ts` a reader could mistake
+    for a beat, and names WHY it was left. Nothing that crashes writes one — which is
+    exactly the difference being recorded.
+
+    `why` is :data:`RESTARTING` when the panel is coming straight back on fresh code
+    (`panel/runtime/panel_control.py`): the guard must not race the relaunch, and the
+    hourly check must not open a second window on top of one that is starting.
+    """
+    _write_json(profiles.heartbeat(name), {
+        "pid": os.getpid(),
+        "exe": _exe_name(),
+        "left": str(why or CLOSED),
+        "left_at": time.time(),
+        "profile": name or profiles.active,
+    })
+
+
+def farewell(profiles, name: str | None = None) -> str:
+    """``""`` unless this profile's panel left on purpose — then :data:`CLOSED` etc.
+
+    The one reading a guard must take before it puts a panel back. Deliberately its own
+    function and not a field on :class:`Liveness`: everything else there is about a beat,
+    and this is about the absence of one being explained.
+    """
+    saved = _read_json(profiles.heartbeat(name))
+    return str((saved or {}).get("left") or "")
 
 
 @dataclass(frozen=True)
@@ -359,6 +394,11 @@ def probe(profiles, name: str | None = None) -> Liveness:
     """Read the heartbeat and say whether that profile's panel is alive."""
     saved = _read_json(profiles.heartbeat(name))
     if not saved:
+        return Liveness("stopped")
+    if saved.get("left"):
+        # A FAREWELL, NOT A BEAT (#1910). The panel said it was going. Reported as
+        # «stopped» because that is what it is — and `farewell()` is what a caller asks
+        # before deciding whether stopped means «put it back».
         return Liveness("stopped")
     pid = saved.get("pid")
     try:
@@ -579,6 +619,14 @@ def check(profile: str | None = None, *, launch: bool = True) -> dict:
     live = {name: probe(profiles, name) for name in wanted}
     running = [n for n in wanted if live[n].running]
     hung = [n for n in wanted if live[n].state == "hung"]
+    # A PANEL SOMEBODY CLOSED STAYS CLOSED (#1910). «Stopped» used to be one answer for
+    # two states — closed on purpose, and never started — because the beat was DELETED on
+    # the way out. It is a farewell note now, so the two are told apart, and an hourly
+    # task that reopened a window the person had just closed no longer does.
+    #
+    # A machine that has never run the panel has no note at all, so a fresh install and a
+    # reboot still come up exactly as before.
+    goodbye = [n for n in wanted if farewell(profiles, n) == CLOSED]
     # Whose reading the record shows: the page that proves the window is up, then the one
     # that proves it is wedged, and the head when neither says anything.
     shown = live[running[0]] if running else live[hung[0]] if hung else live[head]
@@ -591,6 +639,13 @@ def check(profile: str | None = None, *, launch: bool = True) -> dict:
 
     if running:
         record["state"] = "running"
+    elif goodbye and launch and not hung:
+        # SOMEBODY CLOSED IT (#1910). Its own verdict, so the Settings page can say so
+        # rather than showing «started» for a window nobody wanted back — and so a
+        # person reading it can tell «панель закрыта» from «панель падает».
+        record["state"] = "closed"
+        _log(profiles, head, f"the panel was closed on purpose ({','.join(goodbye)}) "
+                             f"— leaving it closed")
     elif not launch:
         record["state"] = shown.state
     elif (held or others) and not hung:

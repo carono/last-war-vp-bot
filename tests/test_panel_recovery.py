@@ -50,26 +50,74 @@ UNKNOWN = "unknown"
 OFFLINE = "offline"
 
 
+class _Recovery(rec.Recovery):
+    """The real decision with the panel's probe loop bolted on (#1910).
+
+    A restart now needs TWO families of evidence: the run of `lost` readings, and server
+    probes that went unanswered. The second is asked for by the decision and answered by
+    the panel (`panel/__main__.py::_probe_server`), which is an exchange and not a call —
+    right for the panel, tedious for a hundred cases here that are about the cooldown, the
+    alternation or the kick wait and not about the probe at all.
+
+    So this is the panel's half, in four lines: when the decision asks for confirmation,
+    answer every probe it wants and put the same reading back in. `probe_answer` is what
+    the SERVER said — `False` is the deaf case every case below was written for, and
+    `True` is the new one: sockets that say deaf over a server that is still answering.
+
+    The confirmation itself is pinned against the raw :class:`recovery.Recovery`, below.
+    """
+
+    probe_answer = False
+
+    def note(self, link, now, **kw):
+        said = super().note(link, now, **kw)
+        if not (said and said[0] == rec.HOLD_CONFIRM):
+            return said
+        for _ in range(rec.PROBE_FAILS + 2):        # bounded: a pump, never a spin
+            if not self.probe_due(now):
+                break
+            self.probe_started(now)
+            self.note_probe(self.probe_answer, now)
+            now += rec.PROBE_GAP_SEC
+        return super().note(link, now, **kw)
+
+
 def _deaf(r, n, t0=1000.0, step=8.0):
-    """Feed ``n`` consecutive lost readings; return every answer that was not None."""
+    """Feed ``n`` consecutive lost readings; return every answer that was not None.
+
+    CONFIRMED BY DEFAULT (#1910). A restart now needs two families of evidence — the run
+    of `lost` readings AND server probes that went unanswered — so a helper that fed only
+    the first would be testing a decision the panel no longer makes. The probes are
+    answered here the way the panel answers them, at the moment the decision asks for
+    one, so every case below goes on pinning what it was written to pin.
+
+    `confirm=False` is the other half: the sockets say deaf and the SERVER still answers,
+    which must never restart anything.
+    """
     out = []
     for i in range(n):
-        said = r.note(LOST, t0 + i * step)
+        now = t0 + i * step
+        said = r.note(LOST, now)
         if said:
             out.append(said)
     return out
 
 
+#: How many readings it now takes to reach a restart: the run must also SPAN
+#: :data:`recovery.LOST_SPAN_SEC`, and eight seconds a look is the poll's own rate.
+DEAF_READINGS = max(rec.STRIKES, int(rec.LOST_SPAN_SEC // 8) + 2)
+
+
 def test_one_bad_reading_is_not_a_reason():
     """A reconnecting client has, for a moment, exactly the sockets of a dead one."""
-    r = rec.Recovery()
+    r = _Recovery()
     assert _deaf(r, rec.STRIKES - 1) == []
     assert r.restarts == 0
 
 
 def test_a_run_of_them_is():
-    r = rec.Recovery()
-    said = _deaf(r, rec.STRIKES)
+    r = _Recovery()
+    said = _deaf(r, DEAF_READINGS)
     assert len(said) == 1 and said[0][0] == rec.ACT, said
     assert r.restarts == 1
 
@@ -77,7 +125,7 @@ def test_a_run_of_them_is():
 def test_the_run_is_broken_by_any_other_answer():
     """Including `unknown` — «I cannot tell» must never accumulate into a restart."""
     for other in (ONLINE, UNKNOWN, OFFLINE):
-        r = rec.Recovery()
+        r = _Recovery()
         for i in range(rec.STRIKES - 1):
             r.note(LOST, 1000.0 + i)
         assert r.note(other, 1100.0) is None
@@ -89,7 +137,7 @@ def test_the_run_is_broken_by_any_other_answer():
 
 def test_offline_is_the_watchdogs_and_not_this_ones():
     """Two things must not relaunch one client."""
-    r = rec.Recovery()
+    r = _Recovery()
     for i in range(rec.STRIKES * 3):
         assert r.note(OFFLINE, 1000.0 + i * 8) is None
     assert r.restarts == 0
@@ -101,15 +149,15 @@ def test_a_kick_cannot_override_offline_either():
     The kick is deaf on its own whatever the SOCKETS say; `offline` is not a socket
     reading, it is «there is no client», and that one stays the watchdog's.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     for i in range(rec.KICK_STRIKES * 3):
         assert r.note(OFFLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True) is None
     assert r.restarts == 0
 
 
 def test_a_second_restart_waits_out_the_cooldown_and_says_so_once():
-    r = rec.Recovery()
-    assert _deaf(r, rec.STRIKES)[0][0] == rec.ACT
+    r = _Recovery()
+    assert _deaf(r, DEAF_READINGS)[0][0] == rec.ACT
 
     # Straight back to deaf: the run builds again, and the answer is a WAIT, once.
     said = _deaf(r, rec.STRIKES * 3, t0=1100.0)
@@ -119,10 +167,10 @@ def test_a_second_restart_waits_out_the_cooldown_and_says_so_once():
 
 
 def test_after_the_cooldown_it_restarts_again():
-    r = rec.Recovery()
-    _deaf(r, rec.STRIKES)
+    r = _Recovery()
+    _deaf(r, DEAF_READINGS)
     later = 1000.0 + rec.COOLDOWN_SEC + 60
-    said = _deaf(r, rec.STRIKES, t0=later)
+    said = _deaf(r, DEAF_READINGS, t0=later)
     assert [k for k, _ in said] == [rec.ACT], said
     assert r.restarts == 2
 
@@ -135,7 +183,7 @@ def test_a_link_that_never_comes_back_is_retried_after_every_cooldown():
     «жду 7 мин» at 21:47:53, and then nothing at all while the cooldown expired and the
     schedule failed every errand against the same dead client.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     acts = [i for i in range(400)
             if (said := r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0))
             and said[0] == rec.ACT]
@@ -153,7 +201,7 @@ def test_nobody_is_thrown_out_of_a_game_they_are_playing():
     «fixed» it by ending their session. An account being played is not an account in
     trouble.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     said = [r.note(LOST, 1000.0 + i * 8, idle_sec=10.0) for i in range(20)]
     assert r.restarts == 0, "it restarted the client under somebody's hands"
     spoken = [s for s in said if s]
@@ -163,23 +211,23 @@ def test_nobody_is_thrown_out_of_a_game_they_are_playing():
 
 def test_an_unreadable_idle_reading_never_lets_a_restart_through():
     """«Cannot tell» must not read as «nobody is there» — the gate only ever holds back."""
-    r = rec.Recovery()
-    for i in range(rec.STRIKES):
+    r = _Recovery()
+    for i in range(DEAF_READINGS):
         r.note(LOST, 1000.0 + i * 8, idle_sec=None)
     assert r.restarts == 1, "None must behave exactly as it did before the gate existed"
 
 
 def test_the_reason_a_restart_is_being_withheld_is_readable():
     """«Не перезапускается» must never be unexplained — the person asked for this."""
-    r = rec.Recovery()
-    for i in range(rec.STRIKES):
+    r = _Recovery()
+    for i in range(DEAF_READINGS):
         r.note(LOST, 1000.0 + i * 8, idle_sec=10.0)
     assert r.state(1000.0)["held_by"] == "player"
 
-    r2 = rec.Recovery()
-    for i in range(rec.STRIKES):
+    r2 = _Recovery()
+    for i in range(DEAF_READINGS):
         r2.note(LOST, 2000.0 + i * 8, idle_sec=9999.0)
-    for i in range(rec.STRIKES):
+    for i in range(DEAF_READINGS):
         r2.note(LOST, 2100.0 + i * 8, idle_sec=9999.0)
     st = r2.state(2100.0)
     assert st["held_by"] == "cooldown" and st["cooldown_left"] > 0, st
@@ -193,8 +241,8 @@ def test_a_kick_is_the_same_act_but_not_the_same_sentence():
     a kick leaves no trace in the client. The flag is the disconnect window
     (`lua_actions.kick_tip()`, judged by `game_kick`), and it earns its own line.
     """
-    r = rec.Recovery()
-    said = [x for i in range(rec.STRIKES)
+    r = _Recovery()
+    said = [x for i in range(DEAF_READINGS)
             if (x := r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
     assert [k for k, _ in said] == [rec.HOLD_KICK], said
     # …and the same distinction on the far side of the kick's own wait (#1291): a
@@ -207,7 +255,7 @@ def test_a_kick_is_the_same_act_but_not_the_same_sentence():
 
 def test_a_kick_does_not_override_the_person_at_the_machine():
     """The gate is the same one: being kicked is not a licence to close a live window."""
-    r = rec.Recovery()
+    r = _Recovery()
     said = [x for i in range(rec.STRIKES * 2)
             if (x := r.note(LOST, 1000.0 + i * 8, idle_sec=10.0, kicked=True))]
     assert r.restarts == 0, "a kick walked straight through the player gate"
@@ -245,7 +293,7 @@ def test_a_kick_is_deaf_even_while_the_sockets_read_online():
     The ACT is now on the far side of the wait (#1291) — what is pinned here is that the
     state is REACHED at all through a link that reads perfectly online.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     said = [x for i in range(rec.KICK_STRIKES)
             if (x := r.note(ONLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
     assert [k for k, _ in said] == [rec.HOLD_KICK], said
@@ -257,14 +305,14 @@ def test_a_kick_is_deaf_even_while_the_sockets_read_online():
 
 def test_one_kick_reading_is_not_a_reason_either():
     """A single unlucky poll acts on nothing, exactly like a single lost reading."""
-    r = rec.Recovery()
+    r = _Recovery()
     assert r.note(ONLINE, 1000.0, idle_sec=9999.0, kicked=True) is None
     assert r.restarts == 0
 
 
 def test_a_kick_that_clears_takes_its_run_with_it():
     """The modal going away is the account coming back — nothing is owed to it."""
-    r = rec.Recovery()
+    r = _Recovery()
     r.note(ONLINE, 1000.0, idle_sec=9999.0, kicked=True)
     r.note(ONLINE, 1008.0, idle_sec=9999.0, kicked=False)
     assert r.note(ONLINE, 1016.0, idle_sec=9999.0, kicked=True) is None
@@ -283,7 +331,7 @@ def test_a_kick_is_left_alone_for_a_quarter_of_an_hour():
     So the kick is SAID at once (with the minutes left) and ACTED ON at the far end of
     the wait, whereupon the ordinary scheme resumes untouched.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     t0 = 1000.0
     # The status poll's own eight seconds, right through the wait and out the far side:
     # the hold is armed on the second of them, so the run has to outlast t0 + 8 + hold.
@@ -298,7 +346,7 @@ def test_a_kick_is_left_alone_for_a_quarter_of_an_hour():
     assert said[0][1]["mins"] == int(rec.KICK_HOLD_SEC // 60), said[0]
     assert r.restarts == 1, "the client was touched inside its own wait"
     # …and while it lasts the strip has a countdown to draw rather than silence.
-    r2 = rec.Recovery()
+    r2 = _Recovery()
     for i in range(rec.KICK_STRIKES):
         r2.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
     st = r2.state(t0 + 60)
@@ -313,7 +361,7 @@ def test_the_wait_holds_even_when_the_link_goes_with_it():
     That is the hole a hold hung off `kicked` would have left, and it is the ordinary
     shape of a kick rather than an exotic one.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     t0 = 1000.0
     for i in range(rec.KICK_STRIKES):
         r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
@@ -329,7 +377,7 @@ def test_the_account_coming_back_ends_the_wait():
     Deliberately not «the modal went away»: a client that merely went offline mid-wait
     proves nothing, and clearing on that would hand it straight to the watchdog.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     t0 = 1000.0
     for i in range(rec.KICK_STRIKES):
         r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
@@ -351,7 +399,7 @@ def test_a_second_kick_buys_its_own_wait_and_a_spent_one_does_not_repeat():
     re-arms lets the second kick be answered in thirty seconds — which is the fight
     this whole thing exists to stay out of.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     t0 = 1000.0
     for i in range(rec.KICK_STRIKES):
         r.note(ONLINE, t0 + i * 8, idle_sec=9999.0, kicked=True)
@@ -389,7 +437,7 @@ def test_how_long_to_wait_is_a_setting_and_zero_is_the_old_behaviour():
                    if k not in locale]
         assert not missing, f"{path.name}: {missing}"
 
-    r = rec.Recovery()
+    r = _Recovery()
     r.kick_hold_sec = 0.0
     said = [x for i in range(rec.KICK_STRIKES)
             if (x := r.note(ONLINE, 1000.0 + i * 8, idle_sec=9999.0, kicked=True))]
@@ -468,6 +516,9 @@ class _Watchdog:
 
     def kick_hold_left(self, now) -> int:
         return self._hold_left(now)
+
+    def _probe_server(self, now) -> None:    # the confirmation's press (#1910)
+        pass
 
     @property
     def _rt(self):                                 # `self._rt.recovery` / `_rt.play_async`
@@ -600,7 +651,7 @@ def test_a_kick_never_blames_the_daemon():
     on this machine can be restarted out of, and reaching for it would be the #1268
     mistake made deliberately.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     now = 1000.0
     # Far enough apart that neither wait is what is being measured: the cooldown
     # between two restarts, and the fifteen minutes a kick is left alone (#1291).
@@ -621,7 +672,7 @@ def test_errands_that_press_nothing_are_counted_and_said_once():
     Evidence, never a cure: it is said and drawn, and it restarts nothing, because a
     spent account genuinely presses nothing all evening.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     said = [x for _ in range(rec.BARREN * 2) if (x := r.note_run(1, 0))]
     assert [k for k, _ in said] == [rec.SAY_BARREN], said
     assert said[0][1]["n"] == rec.BARREN, said
@@ -631,7 +682,7 @@ def test_errands_that_press_nothing_are_counted_and_said_once():
 
 
 def test_a_press_that_landed_clears_the_barren_count():
-    r = rec.Recovery()
+    r = _Recovery()
     for _ in range(rec.BARREN - 1):
         r.note_run(1, 0)
     assert r.note_run(1, 3) is None
@@ -642,14 +693,14 @@ def test_a_press_that_landed_clears_the_barren_count():
 def test_an_errand_that_attempted_no_counted_press_is_no_evidence():
     """A plain `TAP x3` fires blind and learns nothing; a read-only errand presses
     nothing by design. Neither may be counted as the game refusing."""
-    r = rec.Recovery()
+    r = _Recovery()
     for _ in range(rec.BARREN * 2):
         assert r.note_run(0, 0) is None
     assert r.state(1000.0)["barren"] == 0
 
 
 def test_a_healthy_client_is_never_touched_however_long_it_runs():
-    r = rec.Recovery()
+    r = _Recovery()
     for i in range(500):
         assert r.note(ONLINE, 1000.0 + i * 8) is None
     assert r.restarts == 0 and r.deaf_for == 0
@@ -657,16 +708,20 @@ def test_a_healthy_client_is_never_touched_however_long_it_runs():
 
 def test_every_act_carries_the_words_to_explain_itself():
     """A restart with no line in the log is the fault this feature exists to fix."""
-    r = rec.Recovery()
-    for key, fmt in _deaf(r, rec.STRIKES):
+    r = _Recovery()
+    for key, fmt in _deaf(r, DEAF_READINGS):
         assert isinstance(key, str) and key.startswith("log."), key
         assert isinstance(fmt, dict), fmt
 
 
 def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
-    r = rec.Recovery()
-    _deaf(r, rec.STRIKES)
-    st = r.state(1000.0 + 60)
+    r = _Recovery()
+    _deaf(r, DEAF_READINGS)
+    # AFTER the act, not during it (#1910): the confirmation's probes move the decision's
+    # clock forward between the last two readings, so a `state()` taken at the run's own
+    # last reading is taken BEFORE the restart it is meant to describe — and the cooldown
+    # left then reads as more than the whole cooldown.
+    st = r.state(1000.0 + DEAF_READINGS * 8 + rec.PROBE_GAP_SEC * rec.PROBE_FAILS + 1)
     # THE WHOLE SET, and it has to be kept in step: this list was left behind when
     # #1549 added the four `stalled_*` numbers, so the one test that says «both
     # front-ends draw exactly these» has been red ever since and nobody was told which
@@ -679,17 +734,137 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
                        "barren", "barren_of", "kick_hold_left", "kick_hold_of",
                        "player_hold_left", "player_hold_of",
                        "stalled_for", "stalled_of", "stalled_next",
+                       # …and the confirmation, which is the whole of #1910's half of
+                       # this: how many server probes have gone unanswered out of how
+                       # many a restart needs. Nested, because it is one fact with its
+                       # own parts and both front-ends draw it as one row.
+                       "probe",
                        "stalled_restarts"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
     assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC
     words = ("held_by", "blame")
+    nested = ("probe",)
     for key, value in st.items():
+        if key in nested:
+            assert isinstance(value, dict), (key, value)
+            for sub, val in value.items():
+                assert isinstance(val, (int, bool)), (key, sub, val)
+            continue
         # Numbers, and two ids — never a sentence. `held_by` names WHY a restart is
         # being withheld and `blame` names WHAT is thought to be broken, so each
         # front-end can word both itself; each is a key and not a language.
         assert isinstance(value, int if key not in words else str), (key, value)
-    assert st["held_by"] in ("", "cooldown", "player", "daemon_cooldown", "kick"), st
+    assert st["held_by"] in ("", "cooldown", "player", "daemon_cooldown", "kick",
+                            "confirm"), st
     assert st["blame"] in ("", "client", "daemon"), st
+
+
+# --- the confirmation, against the REAL decision (#1910) ---------------------
+
+def _sockets_say_deaf(r, n=None, t0=1000.0):
+    """Feed the socket half only — no probes answered either way."""
+    said = []
+    for i in range(n or DEAF_READINGS):
+        got = r.note(LOST, t0 + i * 8, idle_sec=10_000.0)
+        if got:
+            said.append(got)
+    return said
+
+
+def test_sockets_alone_never_restart_anything_any_more():
+    """THE COMPLAINT, in one case: «панель перезапускает игру, а игра жива».
+
+    Five looks over a minute of `lost` used to be the whole criterion, and the operator
+    reports it firing on clients that are perfectly alive. It is now half the evidence:
+    with no probe answered either way the decision waits, and says so.
+    """
+    r = rec.Recovery()
+    said = _sockets_say_deaf(r)
+    assert said and said[0][0] == rec.HOLD_CONFIRM, said
+    assert r.restarts == 0, "the sockets alone restarted a client"
+
+
+def test_a_server_that_still_answers_stops_the_restart_dead():
+    """The false positive this whole criterion exists to remove.
+
+    Sockets that read `lost` over a client the SERVER is still talking to. One answered
+    probe is a fact that outranks any number of socket readings, so the count is wiped
+    and nothing is restarted however long the sockets go on saying it.
+    """
+    r = rec.Recovery()
+    now = 1000.0
+    for i in range(DEAF_READINGS * 3):
+        r.note(LOST, now + i * 8, idle_sec=10_000.0)
+        while r.probe_due(now + i * 8):
+            r.probe_started(now + i * 8)
+            r.note_probe(True, now + i * 8)      # the server answered
+    assert r.restarts == 0, "a client the server answers for was restarted"
+
+
+def test_two_unanswered_probes_are_what_lets_it_through():
+    """…and the other half: the same sockets, and a server that does not answer."""
+    r = rec.Recovery()
+    said, now = [], 1000.0
+    for i in range(DEAF_READINGS):
+        got = r.note(LOST, now + i * 8, idle_sec=10_000.0)
+        if got:
+            said.append(got)
+        while r.probe_due(now + i * 8):
+            r.probe_started(now + i * 8)
+            r.note_probe(False, now + i * 8 + 1)
+            now += rec.PROBE_GAP_SEC
+    got = r.note(LOST, now + DEAF_READINGS * 8, idle_sec=10_000.0)
+    if got:
+        said.append(got)
+    kinds = [k for k, _ in said]
+    assert rec.ACT in kinds, kinds
+    assert r.restarts == 1
+
+
+def test_a_probe_that_never_came_back_counts_as_a_refusal():
+    """A stranded client ACCEPTS the send and answers nothing — that is the whole tell.
+
+    So «no reply within the deadline» has to count, or the one shape being detected would
+    be the one shape that never accumulates.
+    """
+    r = rec.Recovery()
+    _sockets_say_deaf(r)
+    r.probe_started(2000.0)
+    assert r.probe_due(2000.0 + rec.PROBE_DEADLINE_SEC / 2) is False, "asked too early"
+    assert r.probe_state()["fails"] == 0, "counted before its deadline was up"
+    # Past the deadline: the silence is recorded. Asking AGAIN is a separate question,
+    # and it waits out `PROBE_GAP_SEC` like every other probe — two asked in one breath
+    # are one ask.
+    r.probe_due(2000.0 + rec.PROBE_DEADLINE_SEC + 1)
+    assert r.probe_state()["fails"] == 1, r.probe_state()
+    assert r.probe_due(2000.0 + rec.PROBE_GAP_SEC + 1) is True, "never asked again"
+
+
+def test_the_decision_line_carries_the_numbers_it_was_made_on():
+    """«На основании ЧЕГО» — measured, never computed (#1910).
+
+    The old sentence said «не слышен серверу 24 с», and the 24 was `STRIKES * 8`: a
+    multiplication, over a poll that jitters, presented as an observation.
+    """
+    r = _Recovery()
+    said = _deaf(r, DEAF_READINGS)
+    act = [fmt for key, fmt in said if key == rec.ACT]
+    assert act, said
+    fmt = act[0]
+    assert set(fmt) == {"looks", "secs", "fails", "probe_secs", "idle"}, fmt
+    assert fmt["looks"] >= rec.STRIKES, fmt
+    assert fmt["secs"] >= rec.LOST_SPAN_SEC, fmt
+    assert fmt["fails"] >= rec.PROBE_FAILS, fmt
+
+
+def test_the_refusal_line_carries_the_same_numbers():
+    """A restart withheld and a restart never considered must not be one silence."""
+    r = rec.Recovery()
+    said = _sockets_say_deaf(r)
+    key, fmt = said[0]
+    assert key == rec.HOLD_CONFIRM
+    assert set(fmt) == {"looks", "secs", "fails", "need"}, fmt
+    assert fmt["need"] == rec.PROBE_FAILS and fmt["fails"] < rec.PROBE_FAILS, fmt
 
 
 def test_the_player_gate_holds_a_restart_back_but_not_for_ever():
@@ -704,10 +879,10 @@ def test_the_player_gate_holds_a_restart_back_but_not_for_ever():
     A lost link is not a session anybody is playing — nothing typed into that window
     reaches the server — so after `PLAYER_HOLD_MAX_SEC` the client is put back anyway.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     t = 1000.0
     # Somebody has just touched the keyboard, and goes on touching it.
-    said = [r.note(LOST, t + i * 8.0, idle_sec=1.0) for i in range(rec.STRIKES)]
+    said = [r.note(LOST, t + i * 8.0, idle_sec=1.0) for i in range(DEAF_READINGS)]
     held = [x for x in said if x]
     assert held and held[-1][0] == rec.BUSY, said
     assert r.state(t)["held_by"] == "player"
@@ -734,7 +909,7 @@ def test_the_player_hold_is_measured_from_the_link_and_not_from_the_keyboard():
     client that lost the server at three would still be deaf at midnight — the shape of
     the bug, arrived at the other way round.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     t = 1000.0
     _deaf(r, rec.STRIKES, t0=t)              # nobody at the machine: idle unknown
     # The link comes back, so the clock is cleared and nothing is being postponed.
@@ -743,7 +918,7 @@ def test_the_player_hold_is_measured_from_the_link_and_not_from_the_keyboard():
 
     # A fresh loss starts a fresh clock, even with the keyboard warm the whole time.
     t2 = t + 100
-    for i in range(rec.STRIKES):
+    for i in range(DEAF_READINGS):
         r.note(LOST, t2 + i * 8.0, idle_sec=1.0)
     left = r.player_hold_left(t2 + 16)
     assert 0 < left <= rec.PLAYER_HOLD_MAX_SEC, left
@@ -751,12 +926,12 @@ def test_the_player_hold_is_measured_from_the_link_and_not_from_the_keyboard():
 
 def test_a_client_nobody_is_at_is_still_restarted_at_once():
     """The bound must not become a wait of its own — the ordinary case is unchanged."""
-    r = rec.Recovery()
-    said = _deaf(r, rec.STRIKES)             # `idle_sec=None`: cannot tell
+    r = _Recovery()
+    said = _deaf(r, DEAF_READINGS)             # `idle_sec=None`: cannot tell
     assert said and said[-1][0] == rec.ACT, said
-    r2 = rec.Recovery()
+    r2 = _Recovery()
     said = [x for x in (r2.note(LOST, 1000.0 + i * 8.0, idle_sec=9999.0)
-                        for i in range(rec.STRIKES)) if x]
+                        for i in range(DEAF_READINGS)) if x]
     assert said and said[-1][0] == rec.ACT, said
 
 
@@ -952,7 +1127,7 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
     import panel.__main__ as pm            # by name: safe, and what the other tests do
 
     app = _Press(watchdog=watchdog, gate_open=gate_open)
-    app.recovery = rec.Recovery()
+    app.recovery = _Recovery()
     app.power = _Power(stopped)
     app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
@@ -970,7 +1145,7 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
 
     pm.time.time = _tick
     try:
-        for _ in range(rounds if rounds is not None else rec.STRIKES):
+        for _ in range(rounds if rounds is not None else DEAF_READINGS):
             pm.Panel._recovery_check(app, _Found(link), kicked, stale, warm)
             clock[0] += 8.0
     finally:
@@ -1033,7 +1208,11 @@ def test_a_kick_is_actually_restarted_and_not_only_announced():
     the decision, and the decision was right.
     """
     app = _drive(LOST, kicked=True)
-    assert app.said == [rec.ACT_KICK], app.said
+    # THE FIRST thing said, not the only one (#1910). The run of readings a restart now
+    # needs is longer than a kick's own, so the rounds that follow the kick's restart
+    # rebuild an ordinary deaf run and meet the cooldown — which is a hold, correctly
+    # said. What this case is about is that the kick was PLAYED and not merely announced.
+    assert app.said and app.said[0] == rec.ACT_KICK, app.said
     assert app.played == ["restart_game"], f"announced and not played: {app.played}"
 
 
@@ -1066,13 +1245,13 @@ def test_a_healthy_client_is_neither_announced_nor_played():
 def test_one_stale_reading_is_not_a_reason_either():
     """The same patience as a link reading, and for a narrower reason: a daemon is
     legitimately a step behind a client that has just been replaced."""
-    r = rec.Recovery()
+    r = _Recovery()
     assert r.note_daemon(True, 1000.0) is None
     assert r.state(1000.0)["daemon_restarts"] == 0
 
 
 def test_a_run_of_stale_readings_restarts_the_daemon_and_not_the_client():
-    r = rec.Recovery()
+    r = _Recovery()
     said = [r.note_daemon(True, 1000.0 + i * 8) for i in range(rec.DAEMON_STRIKES)]
     key, _fmt = said[-1]
     assert key == rec.ACT_DAEMON
@@ -1090,7 +1269,7 @@ def test_the_daemon_is_judged_while_the_link_is_perfectly_online():
 
 
 def test_a_matching_pid_says_nothing_and_clears_the_run():
-    r = rec.Recovery()
+    r = _Recovery()
     r.note_daemon(True, 1000.0)
     assert r.note_daemon(False, 1008.0) is None
     assert r.state(1008.0)["daemon_stale"] == 0
@@ -1098,7 +1277,7 @@ def test_a_matching_pid_says_nothing_and_clears_the_run():
 
 
 def test_a_second_daemon_restart_waits_out_its_own_cooldown_and_says_so_once():
-    r = rec.Recovery()
+    r = _Recovery()
     for i in range(rec.DAEMON_STRIKES):
         r.note_daemon(True, 1000.0 + i * 8)
     said = [r.note_daemon(True, 1100.0 + i * 8) for i in range(rec.DAEMON_STRIKES + 2)]
@@ -1110,7 +1289,7 @@ def test_a_second_daemon_restart_waits_out_its_own_cooldown_and_says_so_once():
 def test_a_daemon_that_stays_stale_is_restarted_again_after_the_cooldown():
     """The 2026-08-06 bug, guarded against in the new half before it can happen: a hold
     that suppressed the ACT as well left a broken thing broken for ever."""
-    r = rec.Recovery()
+    r = _Recovery()
     now = 1000.0
     acts = 0
     for _ in range(6):
@@ -1134,13 +1313,13 @@ def test_a_daemon_that_stays_stale_is_restarted_again_after_the_cooldown():
 # ---------------------------------------------------------------------------
 def test_one_dead_port_reading_is_not_a_reason():
     """A daemon somebody is already starting is down for the seconds that takes."""
-    r = rec.Recovery()
+    r = _Recovery()
     assert r.note_daemon_down(True, 1000.0) is None
     assert r.state(1000.0)["daemon_restarts"] == 0
 
 
 def test_a_run_of_them_starts_a_daemon_and_touches_nothing_else():
-    r = rec.Recovery()
+    r = _Recovery()
     said = [r.note_daemon_down(True, 1000.0 + i * 8) for i in range(rec.DOWN_STRIKES)]
     key, _fmt = said[-1]
     assert key == rec.ACT_DAEMON_DOWN
@@ -1150,7 +1329,7 @@ def test_a_run_of_them_starts_a_daemon_and_touches_nothing_else():
 
 
 def test_a_port_that_answers_says_nothing_and_clears_the_run():
-    r = rec.Recovery()
+    r = _Recovery()
     r.note_daemon_down(True, 1000.0)
     assert r.note_daemon_down(False, 1008.0) is None
     assert r.state(1008.0)["daemon_down"] == 0
@@ -1165,7 +1344,7 @@ def test_a_second_start_waits_and_says_so_once_however_many_polls_it_takes():
     it put this line in the log every eight seconds, which is what the live panel did for
     a minute and a half before anybody looked.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     for i in range(rec.DOWN_STRIKES):
         r.note_daemon_down(True, 1000.0 + i * 8)
     said = []
@@ -1190,7 +1369,7 @@ def test_a_client_restart_does_not_have_to_wait_out_the_last_start():
     is spent by using it, so a daemon that binds and dies again inside the wait is held
     exactly as it was before, and the growth in the test above is untouched.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     for i in range(rec.DOWN_STRIKES):                     # …the first incident
         said = r.note_daemon_down(True, 1000.0 + i * 8)
     assert said and said[0] == rec.ACT_DAEMON_DOWN, said
@@ -1233,7 +1412,7 @@ def test_a_daemon_that_will_not_start_is_tried_again_and_again_more_slowly():
     The cure must keep trying — the session may come back at lunchtime — while the log of
     a morning it cannot costs tens of lines rather than hundreds.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     at = _down_acts(r, 8)
     assert len(at) == 8, f"a port that stays dead was started {len(at)}× in eight rounds"
     gaps = [round(b - a) for a, b in zip(at, at[1:])]
@@ -1245,7 +1424,7 @@ def test_a_daemon_that_will_not_start_is_tried_again_and_again_more_slowly():
 def test_a_daemon_that_answers_forgets_the_grown_wait():
     """A port that answers is the only evidence a start took — so the next incident
     begins at the ordinary two minutes and not at half an hour."""
-    r = rec.Recovery()
+    r = _Recovery()
     at = _down_acts(r, 4)
     assert r.note_daemon_down(False, at[-1] + 8) is None
     assert r.down_wait_left(at[-1] + 8) <= rec.DAEMON_COOLDOWN_SEC, \
@@ -1318,13 +1497,17 @@ def _cures(r, rounds, t0=1000.0):
     """Which cure each restart round reached for: "client" or "daemon", in order."""
     out, now = [], t0
     for _ in range(rounds):
-        for i in range(rec.STRIKES):
+        for i in range(DEAF_READINGS):
             said = r.note(LOST, now + i * 8, idle_sec=10_000.0)
             if said and said[0] in rec.RESTARTS:
                 out.append("client")
             elif said and said[0] in rec.DAEMON_RESTARTS:
                 out.append("daemon")
-        now += rec.COOLDOWN_SEC + 1
+        # …PLUS WHAT THE CONFIRMATION SPENT (#1910). The probes are asked between two
+        # readings and each one moves the decision's clock by `PROBE_GAP_SEC`, so a round
+        # ends later than its last reading — and a gap of «cooldown + 1» measured from
+        # the round's START lands back inside the cooldown.
+        now += rec.COOLDOWN_SEC + rec.PROBE_GAP_SEC * rec.PROBE_FAILS + 60
     return out
 
 
@@ -1334,7 +1517,7 @@ def test_client_restarts_that_change_nothing_move_the_blame_to_the_daemon():
     The link never returns, so every strike run ends in a restart. The first
     :data:`FRUITLESS` are the client's; then something else is tried.
     """
-    cures = _cures(rec.Recovery(), rec.FRUITLESS + 1)
+    cures = _cures(_Recovery(), rec.FRUITLESS + 1)
     assert cures[:rec.FRUITLESS] == ["client"] * rec.FRUITLESS, cures
     assert cures[rec.FRUITLESS] == "daemon", f"the blame never moved: {cures}"
 
@@ -1349,7 +1532,7 @@ def test_neither_cure_is_ever_abandoned_for_the_other():
     on being retried for ever, which is what `test_a_link_that_never_comes_back…`
     already promised and what caught this.
     """
-    cures = _cures(rec.Recovery(), rec.FRUITLESS * 3 + 3)
+    cures = _cures(_Recovery(), rec.FRUITLESS * 3 + 3)
     assert cures.count("client") >= rec.FRUITLESS * 2, f"client abandoned: {cures}"
     assert cures.count("daemon") >= 2, f"daemon abandoned: {cures}"
     # …and no cure is ever repeated more than FRUITLESS times without the other
@@ -1365,8 +1548,8 @@ def test_the_blame_moves_back_the_moment_the_link_returns():
     """A cure that WORKED is the only thing that clears the evidence — and it has to be
     ONLINE, not merely «not lost»: a relaunching client is `offline` then `unknown` for
     most of a minute, and counting those would reset the count every single restart."""
-    r = rec.Recovery()
-    for i in range(rec.STRIKES):
+    r = _Recovery()
+    for i in range(DEAF_READINGS):
         r.note(LOST, 1000.0 + i * 8, idle_sec=10_000.0)
     assert r.state(1000.0)["fruitless"] == 1
     r.note(OFFLINE, 1040.0)                     # …still on its way back
@@ -1383,7 +1566,7 @@ def test_the_anti_loop_is_wired_all_the_way_to_the_press():
     import panel.__main__ as pm
 
     app = _Press()
-    app.recovery = rec.Recovery()
+    app.recovery = _Recovery()
     app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
     pm.game_link.idle_sec = lambda: 10_000.0
@@ -1395,7 +1578,7 @@ def test_the_anti_loop_is_wired_all_the_way_to_the_press():
     pm.time.time = lambda: clock[0]
     try:
         for _ in range(rec.FRUITLESS + 1):
-            for _ in range(rec.STRIKES):
+            for _ in range(DEAF_READINGS):
                 pm.Panel._recovery_check(app, _Found(LOST), False, False)
                 clock[0] += 8.0
             # let the client cooldown expire so the run is decided on the blame and
@@ -1417,7 +1600,7 @@ def test_nothing_at_all_happens_while_the_watchdog_switch_is_off():
 
 def test_the_state_says_what_is_being_blamed_and_how_hard_it_has_tried():
     """Both front-ends draw out of this one dict, and «что чинится» is half the answer."""
-    r = rec.Recovery()
+    r = _Recovery()
     st = r.state(1000.0)
     for field in ("blame", "daemon_stale", "daemon_strikes", "daemon_restarts",
                   "daemon_cooldown_left", "fruitless"):
@@ -1513,7 +1696,7 @@ def test_the_kick_wait_grows_while_the_kicks_keep_coming_back():
     Measured from the RESTART, not from the reading: the question is «did the session
     hold», and that is time after the client was put back.
     """
-    r = rec.Recovery()
+    r = _Recovery()
     now = 1_000_000.0
     first = _kicked_wait(r, now)
     assert first == int(rec.KICK_HOLD_SEC), first
@@ -1539,7 +1722,7 @@ def test_the_kick_wait_grows_while_the_kicks_keep_coming_back():
 def test_a_session_that_held_forgets_the_escalation():
     """The escalation is the memory of a FIGHT, and a fight that is over must be
     forgotten: an evening with two unrelated kicks in it is not one escalating incident."""
-    r = rec.Recovery()
+    r = _Recovery()
     now = 1_000_000.0
     _kicked_wait(r, now)
     r.note_kick_restart(now + 60)
@@ -1552,7 +1735,7 @@ def test_coming_back_online_does_not_by_itself_forget_the_escalation():
     """«The client is up» is not «the session held». Clearing the escalation on the first
     online reading would reset it seconds after every relaunch, which is the same as not
     having one at all."""
-    r = rec.Recovery()
+    r = _Recovery()
     now = 1_000_000.0
     _kicked_wait(r, now)
     r.note_kick_restart(now + 60)
@@ -1564,7 +1747,7 @@ def test_coming_back_online_does_not_by_itself_forget_the_escalation():
 def test_a_zero_hold_disarms_the_escalation_too():
     """A person who sets the hold to nothing wants the old behaviour back — no wait, and
     therefore no escalating wait either."""
-    r = rec.Recovery()
+    r = _Recovery()
     r.kick_hold_sec = 0.0
     now = 1_000_000.0
     r.note(game_link.LOST, now, idle_sec=None, kicked=True)

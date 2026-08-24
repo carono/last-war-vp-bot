@@ -165,7 +165,45 @@ import game_link
 #: hours. Deliberately larger than the strip's own announce threshold: saying «связь
 #: пропала» costs a log line and being wrong about it costs nothing, while acting on it
 #: costs a client.
-STRIKES = 3
+#:
+#: FIVE SINCE #1910, and the number is the smaller half of the change. «Не слышен
+#: серверу 24 с» was `STRIKES * 8` — three readings at the poll's nominal rate — and the
+#: operator's report is that it fires on clients that are alive. So the run is longer AND
+#: it must SPAN :data:`LOST_SPAN_SEC` of wall clock, because readings are not time: the
+#: socket table is shared and cached (`game_link.MACHINE_TTL_SEC`), and #1702 measured an
+#: announce and a restart eight seconds apart under a rule that claimed twenty-four.
+#:
+#: And the run is no longer sufficient BY ITSELF — see :data:`PROBE_FAILS`. Sockets are
+#: one family of evidence; a restart now needs two.
+STRIKES = 5
+
+#: …and how long that run must cover. A minute of a client that cannot be heard, MEASURED
+#: rather than multiplied out of the poll interval.
+LOST_SPAN_SEC = 60.0
+
+#: HOW MANY SERVER PROBES MUST FAIL before a client is called deaf (#1910).
+#:
+#: The second, independent family of evidence, and the one that is active rather than
+#: inferred: ask the game SERVER something only it can answer and require the answer.
+#: `read_server_info` about somebody else's warzone is that question — the client holds
+#: its own warzone's opening moment and answers about it out of its own memory, so only a
+#: FOREIGN one is a real round trip. A client whose socket the far end has closed cannot
+#: answer it: the send returns `true` and nothing arrives.
+#:
+#: Why not the server CLOCK, which was the first proposal: `GetServerTime()` is the local
+#: tick plus a `serverDeltaTime` fixed at login (`tools/lib/game_clock.py`), so it goes on
+#: advancing in a client that is receiving nothing. It would have read «alive» in exactly
+#: the case it was meant to catch.
+PROBE_FAILS = 2
+
+#: How long a probe may take before it counts as failed. Measured on a healthy client on
+#: 2026-08-24 — five consecutive probes, every one inside a second — so eight seconds is
+#: the status poll's own interval and eight times the observed cost.
+PROBE_DEADLINE_SEC = 8.0
+
+#: …and the shortest gap between two probes that both count. Two questions asked in the
+#: same breath are one question: a reconnecting client is briefly unable to answer either.
+PROBE_GAP_SEC = 20.0
 
 #: THE SHORTEST GAP BETWEEN TWO STRIKES THAT COUNT (#1702). Three consecutive `lost`
 #: readings are meant to be «about half a minute of a client that cannot be heard» — and
@@ -359,7 +397,9 @@ class Recovery:
     a lock nobody needs.
     """
 
-    __slots__ = ("_run", "_run_at", "_lost_since",
+    __slots__ = ("_probe_fails", "_probe_at", "_probe_flying", "_probe_want",
+                 "_confirm_held", "_probe_last_ok",
+                 "_run", "_run_at", "_lost_since",
                  "_last", "_restarts", "_held", "_why", "_kicks",
                  "_stale_run", "_down_run", "_down_last", "_down_wait", "_down_held",
                  "_down_took",
@@ -372,6 +412,20 @@ class Recovery:
                  "_stalled_restarts")
 
     def __init__(self) -> None:
+        #: THE SECOND FAMILY OF EVIDENCE (#1910): failed server probes in a row.
+        self._probe_fails = 0
+        #: When the last probe was STARTED — the deadline and the gap are both off this.
+        self._probe_at = 0.0
+        #: Is one in flight? A probe is asked for here and answered by the panel, so the
+        #: two are a request and a reply rather than a call.
+        self._probe_flying = False
+        #: Does the decision WANT one? Set the moment everything else says «restart», so
+        #: a healthy account never pays for a probe at all.
+        self._probe_want = False
+        #: …and whether the wait for confirmation has already been said once.
+        self._confirm_held = False
+        #: When a probe last came back OK — the contrary signal, for the log line.
+        self._probe_last_ok = 0.0
         #: Consecutive `lost` readings so far.
         self._run = 0
         self._run_at = 0.0
@@ -577,6 +631,11 @@ class Recovery:
                 # seeing «2 подряд впустую» can tell that the panel is about to change
                 # its mind, and why.
                 "fruitless": self._fruitless,
+                # …AND THE CONFIRMATION (#1910): how many server probes have gone
+                # unanswered out of how many a restart needs. Drawn because it is the
+                # difference between «панель вот-вот перезапустит» and «панель считает
+                # клиент живым», which used to be one indistinguishable silence.
+                "probe": self.probe_state(),
                 # …and the reading that says nothing is reaching the game at all, while
                 # every other one still looks healthy: errands that pressed nothing.
                 "barren": self._barren, "barren_of": BARREN,
@@ -661,6 +720,12 @@ class Recovery:
             self._run = 0
             self._lost_since = 0.0
             self._held = False
+            # ANY CONTRARY SIGNAL OBLITERATES THE CONFIRMATION TOO (#1910). The sockets
+            # came back, so whatever the probes said a moment ago is about a client that
+            # is now demonstrably talking. Evidence for «deaf» has to be evidence taken
+            # while it was deaf, all of it, or a restart is assembled out of two
+            # unrelated bad minutes an hour apart.
+            self._probe_clear()
             # …but a kick's wait outlives the reading that started it, and so must the
             # word for it: a client that went offline mid-wait (the person closed it, or
             # it gave up) is still being waited out, and a strip that went blank here
@@ -689,7 +754,14 @@ class Recovery:
         # up, which is the ordinary shape of a kick — so the run each of them has to
         # clear is checked separately and whichever is satisfied first decides. A kick
         # is the shorter of the two because it is a reading of the game's own words.
-        if self._run < STRIKES and self._kick_run < KICK_STRIKES:
+        # …AND THE RUN MUST COVER :data:`LOST_SPAN_SEC` OF WALL CLOCK (#1910). Five
+        # readings are five readings; the question is «has this client been deaf for a
+        # minute», and the poll's rate is not a clock (#1702 measured three «strikes» in
+        # eight seconds). A kick keeps its own shorter run: it is the game's own words,
+        # not an inference off a cached socket table.
+        deaf_for = (now - self._lost_since) if self._lost_since else 0.0
+        long_enough = self._run >= STRIKES and deaf_for >= LOST_SPAN_SEC
+        if not long_enough and self._kick_run < KICK_STRIKES:
             return None
 
         # SOMEBODY IS AT THE MACHINE. Not a reason to restart — a reason not to: the
@@ -808,6 +880,30 @@ class Recovery:
             self._why = ""
             return (ACT_DAEMON_STUCK, {"n": spent})
 
+        # ===== THE CONFIRMATION (#1910) ======================================
+        # Everything above has said «restart». This is the second, independent family of
+        # evidence, and it is asked LAST on purpose: a healthy account never reaches this
+        # line, so the probe costs nothing until something is genuinely wrong.
+        #
+        # A KICK IS EXEMPT. There is nothing to confirm — the game has said in its own
+        # words that the account is on another device (§5.3), and a probe would only ask
+        # a client that is deliberately not being talked to.
+        if not kicked and self._probe_fails < PROBE_FAILS:
+            self._why = "confirm"
+            self._probe_want = True
+            if self._confirm_held:
+                return None
+            self._confirm_held = True
+            # THE SYMMETRIC LINE: why the restart is NOT happening, in the same numbers
+            # the act would have quoted. Without it a restart withheld and a restart
+            # never considered look identical, which is the whole failure mode this
+            # module keeps rediscovering.
+            return (HOLD_CONFIRM, {"looks": self._run, "secs": int(deaf_for),
+                                   "fails": self._probe_fails, "need": PROBE_FAILS})
+
+        # CAPTURED BEFORE THE RESETS BELOW. The line quotes what was MEASURED, and the
+        # counters are about to go back to zero for the next incident.
+        looks = self._run
         self._last = now
         self._restarts += 1
         self._fruitless += 1                 # …until a reading says ONLINE
@@ -821,6 +917,9 @@ class Recovery:
         self._kick_clear()
         self._held = False
         self._why = ""
+        probe_fails, probe_secs = self._probe_fails, int(now - self._probe_at) \
+            if self._probe_at else 0
+        self._probe_clear()
         # The two are the same act and NOT the same event, so they are not the same
         # sentence: «связь пропала» is the server having stopped answering, and
         # «вход с другого устройства» is somebody holding the account. A log that
@@ -835,7 +934,77 @@ class Recovery:
             # session anybody is playing. Its own sentence: whoever was looking at that
             # window is owed the reason it closed.
             return (ACT_BUSY, {"mins": int(PLAYER_HOLD_MAX_SEC // 60)})
-        return (ACT, {"secs": STRIKES * 8})
+        # ON WHAT BASIS, IN NUMBERS (#1910). It used to say «не слышен серверу 24 с»,
+        # and the 24 was `STRIKES * 8` — arithmetic, not a measurement, over a poll that
+        # jitters. Everything here was counted: how many independent looks, how long the
+        # loss has actually lasted, how many server probes went unanswered and how long
+        # the person has been away from the machine. A restart nobody can argue with
+        # afterwards is a restart nobody can correct.
+        return (ACT, {"looks": looks, "secs": int(deaf_for),
+                      "fails": probe_fails, "probe_secs": probe_secs,
+                      "idle": int(idle_sec) if idle_sec is not None else -1})
+
+    # -- the second family of evidence: an active server probe (#1910) --------
+    def _probe_clear(self) -> None:
+        """Forget every probe. Called whenever the client proves it is talking."""
+        self._probe_fails = 0
+        self._probe_at = 0.0
+        self._probe_flying = False
+        self._probe_want = False
+        self._confirm_held = False
+
+    def probe_due(self, now: float) -> bool:
+        """Should the panel ask the server something RIGHT NOW? (#1910)
+
+        `True` only when the decision has already got as far as «restart» and is waiting
+        on confirmation, and only once per :data:`PROBE_GAP_SEC` — two questions asked in
+        one breath are one question, and a reconnecting client fails both.
+
+        A probe that never came back is counted as a failure HERE rather than by a timer:
+        the poll comes round every eight seconds anyway, so the deadline is checked by
+        whoever asks next. That keeps the whole mechanism inside the one thread that
+        already polls, which is what the rest of this module is built on.
+        """
+        if self._probe_flying:
+            if (now - self._probe_at) < PROBE_DEADLINE_SEC:
+                return False                 # still within its deadline; wait
+            # IT NEVER ANSWERED. That IS the failure this probe exists to detect: a
+            # stranded client accepts the send and nothing comes back.
+            self._probe_flying = False
+            self._probe_fails += 1
+        if not self._probe_want:
+            return False
+        if self._probe_fails >= PROBE_FAILS:
+            # ENOUGH ASKED. The confirmation is complete and the decision acts on the
+            # next reading; another question would change nothing — and in a caller that
+            # keeps asking until it is told to stop, «nothing» has no bottom.
+            return False
+        return not self._probe_at or (now - self._probe_at) >= PROBE_GAP_SEC
+
+    def probe_started(self, now: float) -> None:
+        """One probe has just been sent. Its deadline runs from here."""
+        self._probe_at = now
+        self._probe_flying = True
+
+    def note_probe(self, ok: bool, now: float) -> None:
+        """The probe came back. ``ok`` means the SERVER answered.
+
+        An answer is a contrary signal and wipes the count — the client is demonstrably
+        talking, whatever its socket table looked like a moment ago. A refusal adds one.
+        """
+        self._probe_flying = False
+        if ok:
+            self._probe_last_ok = now
+            self._probe_fails = 0
+            self._probe_want = False
+            self._confirm_held = False
+            return
+        self._probe_fails += 1
+
+    def probe_state(self) -> dict:
+        """What both front-ends draw about the confirmation. Numbers, never words."""
+        return {"fails": self._probe_fails, "of": PROBE_FAILS,
+                "flying": self._probe_flying, "wanted": self._probe_want}
 
     def note_session(self, playing: "bool | None", link: str, now: float,
                      idle_sec: "float | None" = None) -> "tuple | None":
@@ -1125,18 +1294,17 @@ class Recovery:
             self._down_held = True
             return (HOLD_DAEMON_DOWN, {"mins": int(left // 60) + 1})
 
-        # THE PREVIOUS START DID NOT TAKE, and this is the only place that can tell:
-        # the daemon is down and one was already asked for. Some of them never will —
-        # a profile whose client lives in a Windows session nobody is logged into fails
-        # in a fraction of a second, every time, for ever — so the wait doubles rather
-        # than the panel repeating the same two minutes all night. It is still never
-        # abandoned: :data:`DOWN_WAIT_MAX_SEC` is the ceiling, and the first reading of a
-        # daemon that answers puts it back to the ordinary wait.
-        # A zero wait means the last start TOOK — or that there has not been one. Either
-        # way this is a fresh incident and gets the ordinary two minutes; anything else
-        # is the same incident going round again.
-        self._down_wait = (min(self._down_wait * 2, DOWN_WAIT_MAX_SEC)
-                           if self._down_wait else DAEMON_COOLDOWN_SEC)
+        # NO ESCALATION FOR A DAEMON THAT IS DOWN (#1910). The wait used to DOUBLE to
+        # :data:`DOWN_WAIT_MAX_SEC` — half an hour between attempts — on the reasoning
+        # that some daemons never will start and the panel should stop repeating itself.
+        # Two things were wrong with it. The failure it was pacing was mostly not a
+        # failure at all: a daemon that came up and found no client to attach to was
+        # written down as «did not start» (`GameLink._start`), so the wait grew against a
+        # listener that was working perfectly. And the operator's rule is the plainer
+        # one — «его задача запуститься и слушать, он не может не запуститься» — so a
+        # daemon that is genuinely down is retried on the ordinary beat, and the reason
+        # it will not start is REPORTED (`GameLink.launch_error`) rather than paced.
+        self._down_wait = DAEMON_COOLDOWN_SEC
         self._down_last = now
         # The free start is spent whether or not it works: what earns another one is a
         # port that answers again.
@@ -1162,6 +1330,11 @@ class Recovery:
 
 #: The panel says this and then plays `restart_game`.
 ACT = "log.game.deaf_restart"
+#: …and this while the sockets say «deaf» and the SERVER PROBE has not agreed yet
+#: (#1910). The symmetric half of the line above: a restart withheld and a restart never
+#: considered are the same silence otherwise, and the person's complaint was precisely
+#: that the panel restarts on an impression. Now both directions carry their numbers.
+HOLD_CONFIRM = "log.game.deaf_confirm"
 #: …and this when it may not yet, so a wait never looks like nothing happening.
 HOLD = "log.game.deaf_hold"
 #: …and this when somebody is playing. The client is left exactly alone.

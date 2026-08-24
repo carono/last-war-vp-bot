@@ -3606,6 +3606,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         window's business, and so is getting onto the Tk thread to write them.
         """
         key = {"warm": "daemon.warm", "starting": "daemon.starting",
+               # LISTENING, WITHOUT A CLIENT — its own word (#1910). It is not «тёплый»,
+               # because nothing can be pressed through it; it is not «ошибка», because
+               # the daemon has done its whole job. Drawing it as either is what made
+               # «демон не стартует» unreadable: the indicator blamed the daemon for a
+               # game that was not running.
+               "nolink": "daemon.nolink",
                "error": "daemon.error"}.get(state, "daemon.none")
         try:
             self._later(0, lambda: self._set_daemon(self._t(key), ok))
@@ -3700,6 +3706,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # (panel/runtime/gate.py). Asked every poll on purpose: the schedule only
             # asks when an errand comes due, and the mark on screen must not wait for one.
             self._rt.gate.alive()
+            # THE DAEMON'S SUPERVISOR, AND IT ASKS NOTHING (#1910). A daemon's job is to
+            # come up and listen; it does not depend on a client, on the gate, or on the
+            # link. So the port not answering is answered here, on the ordinary beat,
+            # with no cooldown to earn and no verdict to pass — the recovery still says
+            # WHY in its own words below, but it is no longer the thing that decides
+            # whether an attempt happens at all.
+            #
+            # THE ONE EXCEPTION IS THE PERSON'S OWN SWITCH. «Профиль работает» unticked
+            # means this account is not playing, and `panic.stop` stops the daemon on
+            # purpose (#1882) — a supervisor that put it straight back would make that
+            # press meaningless. Agreed explicitly rather than assumed.
+            if not warm and self._rt.power.on:
+                self._start_daemon()
             self._later(0, lambda: (
                 self._set_status_msg(found.message),
                 self._status_lbl.configure(
@@ -3834,6 +3853,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._act_on(self._rt.recovery.note(found.link, now,
                                             idle_sec=game_link.idle_sec(),
                                             kicked=kicked))
+        # …AND THE CONFIRMATION THE DECISION ASKED FOR (#1910). `note` above sets the
+        # want only once every other reason to restart is already satisfied, so a healthy
+        # account never reaches this line and never pays for a probe.
+        if self._rt.recovery.probe_due(now):
+            self._probe_server(now)
         # …AND THE CLOSED DOOR (#1549). Last, because every branch above it is a fault
         # and this one is not: the client is fine and the server is shut, which is the
         # state recorded in docs/research/server-maintenance.md where `game=up
@@ -3925,6 +3949,64 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # and the first draft of this actually wrote one: a duplicate `def` that
             # silently overrode the button's.
             self._restart_daemon()
+
+    #: The scenario the server probe plays, and the one thing it needs: a warzone that
+    #: is NOT this account's. The client answers about its own out of its own memory, so
+    #: only a foreign one is a real question to the game server (#1910).
+    PROBE_ACTION = "read_server_info"
+
+    def _probe_target(self) -> int:
+        """A warzone id to ask the server about — the machine's list, never an account's.
+
+        `cache/servers.json` is the list of warzones the GAME has; it is machine-wide and
+        refreshed by a person's press (`CLAUDE.md`, «Game data lives only in the
+        database» — this one is deliberately still a file). The lowest id in it is a
+        stable, invented-by-nobody choice that is the same on every install.
+
+        If it happens to be this account's own warzone the probe is answered out of the
+        client's own memory and reads as «alive» — which delays a restart rather than
+        causing one, and delay is the side this whole criterion is built to err on.
+        """
+        try:
+            import server_list
+
+            known = (server_list.load() or {}).get("servers") or {}
+            ids = sorted(int(k) for k in known)
+            return ids[0] if ids else 0
+        except Exception:                     # noqa: BLE001 — a probe, never the panel
+            return 0
+
+    def _probe_server(self, now: float) -> None:
+        """Ask the game SERVER something only it can answer, and report the answer.
+
+        THE SECOND FAMILY OF EVIDENCE (#1910). The sockets are one reading and they are
+        the one the operator says fires on live clients; this one cannot be faked by a
+        client that is merely stranded, because the answer has to come back over the very
+        conversation being doubted.
+
+        A probe that cannot be STARTED is not a probe that failed — the game may be busy
+        with something else, or the daemon may be down, and counting either as evidence
+        of a deaf client is exactly the false positive being removed. It says so and the
+        decision waits; `Recovery.probe_due` will ask again on the next poll.
+        """
+        target = self._probe_target()
+        if not target:
+            self._say("game", "log.game.probe_impossible")
+            return
+        self._rt.recovery.probe_started(now)
+        started = self._rt.play_async(
+            self.PROBE_ACTION, {"server": target}, tag="game",
+            on_result=lambda outcome: self._probe_back(outcome))
+        if not started:
+            # Nothing was played, so nothing is in flight and no deadline is running.
+            self._rt.recovery.note_probe(True, time.time())
+            self._say("game", "log.game.probe_busy")
+
+    def _probe_back(self, outcome) -> None:
+        """The probe answered — or the scenario said why it could not."""
+        ok = bool(outcome is not None and getattr(outcome, "ok", False))
+        self._rt.recovery.note_probe(ok, time.time())
+        self._say("game", "log.game.probe_alive" if ok else "log.game.probe_deaf")
 
     def _read_session(self, found, warm: bool, stale: bool) -> str:
         """Is this client in a session, or sitting at the login screen? (#1299)
@@ -4552,6 +4634,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         a warm Lua VM, and the new panel picks up the same one.
         """
         self._activity.begin("activity.panel.restart")   # ended by the process ending
+        # THE FAREWELL SAYS «COMING BACK» (#1910). A restart is the one departure the
+        # guard must sit out: the window is about to be replaced, and a guard that
+        # started a second one would race the relaunch this press is already making.
+        self._restart_note = True
         try:
             self._on_close()
         except Exception:                  # noqa: BLE001 — a tab that fails to shut
@@ -4935,7 +5021,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._stop_dashboard()
             # Closed on purpose: take the heartbeat with it, so the hourly check reads
             # «not running» straight away instead of waiting for the beat to go stale.
-            self._rt.stop_heartbeat()
+            self._rt.stop_heartbeat(
+                autostartmod.RESTARTING if getattr(self, "_restart_note", False)
+                else autostartmod.CLOSED)
             self._close_panel_log()
             # Every repeating callback goes with the page. One that fires into a
             # half-torn-down panel is a traceback nobody sees and a log line nobody

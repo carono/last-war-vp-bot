@@ -358,6 +358,13 @@ class WebApi:
             # faster than that poll runs, and the reading walks the process list.
             # Empty («nobody has asked lately») draws as it always did, off `up`.
             "daemon": {"up": rt.game.up(), "port": self._port(rt),
+                       # TWO FACTS, NOT ONE (#1910). «Слушает» is the daemon's own job
+                       # and is what its supervisor answers for; «держит клиента» is what
+                       # a scenario needs. The window grew a word of its own for the
+                       # middle state (`daemon.nolink`), so the phone is handed the same
+                       # distinction rather than being left to infer it from three other
+                       # fields.
+                       "attached": rt.game.last_health() == daemonmod.DAEMON_LIVE,
                        "stale": rt.game.last_health() == daemonmod.DAEMON_STALE,
                        "busy": bool(rt.game.busy),
                        "shared": self._shared_client(name, rt),

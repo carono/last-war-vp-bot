@@ -907,11 +907,17 @@ class PanelRuntime:
 
         beat()
 
-    def stop_heartbeat(self) -> None:
-        """The panel is closing on purpose — take the beat and the lock with it.
+    def stop_heartbeat(self, why: str = "") -> None:
+        """The panel is closing on purpose — leave a farewell and take the lock.
 
         A no-op for a window that never started one, which is what keeps a standalone
         tab's `shutdown` from deleting the running panel's heartbeat.
+
+        `why` is what the note says (`panel/runtime/autostart.py::clear`): a plain close
+        by default, «coming back» when the shutdown is half of a restart. The guard in
+        the daemon reads it to tell a panel somebody closed from one that fell over
+        (#1910), and the difference is only recordable HERE — afterwards there is no
+        process left to ask.
         """
         if not getattr(self, "_heartbeat", False):
             return
@@ -919,7 +925,7 @@ class PanelRuntime:
 
         self._heartbeat = False
         self.tick.disarm("heartbeat")
-        autostartmod.clear(self.profiles)
+        autostartmod.clear(self.profiles, why=why or autostartmod.CLOSED)
         autostartmod.drop_lock(self._lock)
         self._lock, self._lock_on = None, None
 

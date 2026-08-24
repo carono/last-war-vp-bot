@@ -581,6 +581,34 @@ class GameLink:
             return self.restart()
         return self._start()
 
+    # -- the two facts, kept apart (#1910) ------------------------------------
+    def listening(self, fresh: bool = False) -> bool:
+        """IS THERE A DAEMON AT ALL? The port answers, and nothing else is asked.
+
+        The one question the daemon's own existence turns on, and it has nothing to do
+        with the client: a daemon's job is to come up and listen. Until #1910 the panel
+        had no way to say that — :meth:`ensure` reported success only for a daemon that
+        also held the running client, so a perfectly good listener was written down as a
+        failure whenever the client was missing, and the recovery answered that «failure»
+        with a wait that doubled to half an hour. Live that was seventeen daemon restarts
+        against zero client restarts.
+
+        A synonym of :meth:`up` on purpose — same reading, same cache — because the FIX
+        is which question a caller asks, not a new socket. `up()` stays for the fourteen
+        callers that mean «can I reach the port»; this one is for the two that decide
+        whether a daemon must be started, and its name is the difference.
+        """
+        return self.up(fresh=fresh)
+
+    def attached(self, client_pid: "int | None" = None) -> bool:
+        """…AND IS IT ON THE CLIENT THAT IS RUNNING? The OTHER fact (#1910).
+
+        What the scenario gate wants — a daemon nothing lands through is no use to a
+        recipe — and what the daemon's own supervisor must never ask, because the cure
+        for «no client» is a client and not a daemon.
+        """
+        return self.health(client_pid) == DAEMON_LIVE
+
     def _start(self) -> bool:
         """Launch a daemon and wait for it. Asks nothing about what is already there.
 
@@ -632,17 +660,55 @@ class GameLink:
                     return True
                 time.sleep(START_WAIT)
         if self.up(fresh=True):
-            # It is there and it never got hold of a client. Reported as its own fault,
-            # because «did not come up» would send the next reader looking for a process
-            # that is running perfectly well.
-            self._log.say("daemon", "log.daemon.no_client")
-            self._note_warn("came up on port %s but holds no client", port)
-            self.on_state("error", False)
-            return False
+            # IT IS UP. It did its job: it came up and it is listening (#1910). That it
+            # holds no client is a fact about the CLIENT, said in its own words and drawn
+            # in its own colour — and it is NOT a failed start. Reporting it as one is
+            # what sent the recovery into a wait that doubled to half an hour while the
+            # only thing missing was a game nobody was starting.
+            self._log.say("daemon", "log.daemon.listening_no_client")
+            self._note_warn("listening on port %s, holds no client", port)
+            self.on_state("nolink", None)
+            return True
+        # IT IS NOT THERE, AND THAT IS AN EMERGENCY (#1910). «Его задача запуститься и
+        # слушать, он не может не запуститься» — so this is the loud branch, and the
+        # reason is fetched rather than left in a file nobody opens: the daemon writes
+        # why it could not start to its own log, and until now that was the only place
+        # it existed (#1555, #1556).
         self._log.say("daemon", "log.daemon.timeout")
-        self._note_warn("did not come up on port %s within timeout", port)
-        self.on_state("none", False)
+        why = self.launch_error()
+        if why:
+            self._log.say("daemon", "log.daemon.failed_because", port=port, why=why)
+        else:
+            self._log.say("daemon", "log.daemon.failed_silent", port=port,
+                          path=self._log_path())
+        self._note_error("did not come up on port %s within timeout: %s", port,
+                         why or "its log says nothing")
+        self.on_state("error", False)
         return False
+
+    #: How many lines of the daemon's own log the failure line quotes. Enough for a
+    #: traceback's last frame and its exception, short enough to stay one log line.
+    LOG_TAIL_LINES = 6
+
+    def launch_error(self) -> str:
+        """The last thing this port's daemon said, for the line that reports a failure.
+
+        A daemon that will not start always knows why — the port is taken, the
+        interpreter is not where the profile says, the Windows session is not logged on,
+        something raised — and it writes it to `results/logs/lua_daemon_<port>.log` on
+        its own stdout. Nobody read it. So «демон не поднялся» was a sentence with no
+        cause anywhere in the panel, and the person's only next move was to go looking
+        for a file they had to know existed.
+
+        Best effort by construction: a missing or unreadable log is answered with ``""``
+        and the caller says so in its own words rather than raising over a diagnostic.
+        """
+        try:
+            with open(self._log_path(), encoding="utf-8", errors="replace") as fh:
+                lines = [ln.strip() for ln in fh.readlines()[-self.LOG_TAIL_LINES:]]
+        except OSError:
+            return ""
+        return " / ".join(ln for ln in lines if ln)[:400]
 
     def restart(self) -> bool:
         """Shut the daemon down and bring it back. Blocks; call off the Tk thread.
