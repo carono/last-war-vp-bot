@@ -16,6 +16,7 @@ why the import here is deferred to the call.
 from __future__ import annotations
 
 import contextlib
+import time
 import glob
 import os
 import re
@@ -86,6 +87,8 @@ class ActionRunner:
         # each pressed into a client that was not there. A runner built without one is
         # ungated exactly as before, which is what a test harness wants.
         self._gate = gate
+        #: Which refusal was last SAID about which scenario, and when (:meth:`_say_held`).
+        self._held_said: dict = {}
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
         # callable(ctx) -> bool — «the daemon refused this run's token; get a lease
@@ -215,12 +218,16 @@ class ActionRunner:
         from lastwar_bot import script_engine
         held = self._held(name, human)
         if held:
-            # SAID, NEVER SILENT (#1884, #1910). A run that did not happen and left no
-            # line is exactly the «панель молчит и ничего не делает» this whole area
-            # keeps relearning — and the sentence names WHICH hold it is, because
-            # «профиль выключен» sends a person looking for a switch and «демон не
-            # работает» sends them looking for a fault.
-            self._log.say(tag, held, name=name)
+            # SAID, NEVER SILENT (#1884, #1910) — AND SAID ONCE (#1911). A run that did
+            # not happen and left no line is the «панель молчит и ничего не делает» this
+            # area keeps relearning; a poll refused every five seconds saying it every
+            # time is the OTHER failure this codebase keeps relearning, and the live
+            # first run of the new gate printed one line per five seconds per trigger.
+            # So the sentence is said when the hold BEGINS for that scenario, and again
+            # when the reason changes — the state itself is on the strip and on the
+            # phone (`LinkGate.state`), which is what carries it in between.
+            if self._say_held(name, held):
+                self._log.say(tag, held, name=name)
             if ctx is not None and not getattr(ctx, "fail_reason", ""):
                 try:
                     ctx.fail_reason = held
@@ -252,6 +259,20 @@ class ActionRunner:
             # whole reason a person presses a Stop twice.
             self._log.say(tag, "interrupt.halted", name=name)
         return ok
+
+    #: How often a hold that STAYS true is repeated, per scenario. Five minutes: the
+    #: same number the link's own standing failure uses, and for the same reason — the
+    #: first line is news, the hundredth is noise.
+    HELD_SAY_SEC = 300.0
+
+    def _say_held(self, name: str, reason: str) -> bool:
+        """Is this refusal worth a line? The edge, then rarely — see :meth:`run`."""
+        now = time.monotonic()
+        was, at = self._held_said.get(name, ("", 0.0))
+        if was == reason and (now - at) < self.HELD_SAY_SEC:
+            return False
+        self._held_said[name] = (reason, now)
+        return True
 
     def _held(self, name: str, human: bool) -> str:
         """The locale key naming why this run may not happen, or ``""`` when it may.

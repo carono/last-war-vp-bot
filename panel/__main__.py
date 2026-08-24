@@ -3688,11 +3688,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # It reads the verdict written one line up, so it costs a dict lookup.
             self._rt.gate.alive()
             # THE LINK'S OWN SUPERVISOR, AND IT IS ONE LINE NOW (#1911). There is no
-            # process to start: if a chunk is not landing, take hold of the client
-            # again. The attach is seconds and blocks, so it goes on its own thread —
+            # process to start: if a chunk is not landing — including the first poll
+            # after a client appears, when nothing has ever landed — take hold of the
+            # client. Waiting for a NEGATIVE reading would wait for ever: the reading
+            # is «how long ago did a chunk land», and until something attaches there is
+            # no answer at all, which is how the first live run sat amber beside a
+            # perfectly good client. The attach is seconds and blocks, so it goes on its own thread —
             # and it is not tried while the person has switched the profile off, which
             # is what «Стоп всё» arranged.
-            if lands == profile_health.NOT_LANDING and ok and self._rt.power.on:
+            if lands != profile_health.LANDING and ok and self._rt.power.on:
                 self._take_link()
             self._later(0, lambda: (
                 self._set_status_msg(shown),
