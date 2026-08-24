@@ -3702,9 +3702,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # already paid for; asking again on the Tk thread would be a second walk of
             # a few hundred sockets per poll.
             try:
-                self._link_detail = game_link.explain(game_link.client_sockets(found))
-            except Exception:                 # noqa: BLE001 — a note, never the poll
-                self._link_detail = ""
+                # `client_sockets` takes PIDS off the shared walk — `found` is the
+                # verdict, not the pid list, and handing it one is how the first draft
+                # of this note produced «—» for every reading.
+                self._link_detail = "%s | link=%s dead=%s conn=%s" % (
+                    game_link.explain(game_link.client_sockets(
+                        [found.pid] if found.pid else [])),
+                    found.link, found.dead, "yes" if found.conn else "no")
+            except Exception as exc:          # noqa: BLE001 — a note, never the poll
+                self._link_detail = f"unreadable: {exc}"
             self._rt.health.update(found, warm=warm, stale=stale,
                                    session=session, kicked=kicked)
             # …and THE GATE, asked here on the worker rather than in the paint below.
