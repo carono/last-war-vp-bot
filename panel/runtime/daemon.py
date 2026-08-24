@@ -622,7 +622,13 @@ class GameLink:
         """
         port = self.port()
         user = self.user()
-        self._log.say("daemon", "log.daemon.starting")
+        # …AND NEITHER IS THE ANNOUNCEMENT OF THE ATTEMPT (#1910). The supervisor tries
+        # every eight seconds and must; saying «запускаю» each time is the same noise the
+        # failure line was throttled for, one sentence earlier in the story. While a
+        # standing failure is being sat out, the attempt goes ahead silently — what the
+        # person needs to see is WHY it will not start, and that is said on its own beat.
+        if not self._failing():
+            self._log.say("daemon", "log.daemon.starting")
         self._note("starting on port %s (session %s)", port, user or "this desktop")
         self.on_state("starting", None)
         # Up to START_TRIES × START_WAIT of waiting — thirty seconds of a window with
@@ -719,6 +725,11 @@ class GameLink:
             return
         self._fail_said, self._fail_at = fingerprint, now
         self._log.say("daemon", key, **fmt)
+
+    def _failing(self) -> bool:
+        """Is this link inside a standing failure whose sentence has already been said?"""
+        return bool(self._fail_said and self._fail_at
+                    and (time.monotonic() - self._fail_at) < self.FAIL_SAY_SEC)
 
     def note_started(self) -> None:
         """A daemon came up — the next failure is a fresh incident and is said at once."""
