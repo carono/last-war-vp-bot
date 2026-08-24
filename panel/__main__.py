@@ -3989,6 +3989,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         of a deaf client is exactly the false positive being removed. It says so and the
         decision waits; `Recovery.probe_due` will ask again on the next poll.
         """
+        # THE PAIR, WRITTEN DOWN (#1910). What the socket table said at the moment the
+        # probe was asked, beside what the probe answered. That pairing is the only way
+        # to tell a link reading that is right from one that is merely repeated, and it
+        # goes to `debug.log` rather than to the person's log: it is a diagnosis, not
+        # news.
+        try:
+            self._dbg.info("link probe: table says %s (state=%s)",
+                           game_link.explain(game_link.client_sockets(
+                               self._game_probe())), self._rt.health.current.reason)
+        except Exception:                     # noqa: BLE001 — a note, never the probe
+            pass
         target = self._probe_target()
         if not target:
             self._say("game", "log.game.probe_impossible")
@@ -4005,6 +4016,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _probe_back(self, outcome) -> None:
         """The probe answered — or the scenario said why it could not."""
         ok = bool(outcome is not None and getattr(outcome, "ok", False))
+        try:
+            self._dbg.info("link probe answered %s; table says %s", ok,
+                           game_link.explain(game_link.client_sockets(
+                               self._game_probe())))
+        except Exception:                     # noqa: BLE001 — a note, never the probe
+            pass
         self._rt.recovery.note_probe(ok, time.time())
         self._say("game", "log.game.probe_alive" if ok else "log.game.probe_deaf")
 

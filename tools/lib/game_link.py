@@ -146,6 +146,25 @@ def live_endpoint(sockets) -> "str | None":
     return None
 
 
+def explain(sockets) -> str:
+    """The socket table as ONE readable line — what the verdict was actually taken on.
+
+    «На основании чего» for the link reading, in the same spirit as the restart decision
+    (#1910). A verdict of `lost` used to be a word with nothing behind it, so a client
+    that was demonstrably talking to the server while the table said `lost` could be
+    argued about but not diagnosed. One line per conversation: the remote port, whether
+    it has an established socket, and how many half-closed ones it carries.
+
+    No addresses — a peer address is not an identifier of an account, but it is noise in
+    a log and the port is what the verdict is grouped by anyway.
+    """
+    talks = conversations(sockets)
+    if not talks:
+        return "no game-side conversations"
+    return " ".join(f"{port}:est={1 if conn else 0},dead={dead}"
+                    for port, (conn, dead) in sorted(talks.items()))
+
+
 def classify(sockets) -> tuple:
     """``(state, endpoint, dead)`` for a client that IS running, from its own sockets.
 
