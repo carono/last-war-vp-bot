@@ -447,7 +447,7 @@ stay off, its abilities need a press somewhere a person can reach.
 **A new `actions/*.md` is not finished when it runs from «Разработка».** That list is the
 tab for working on the bot, `DEFAULT_ENABLED = False`, so an ability whose only button is
 there is one an ordinary panel does not have. Give it a press on the tab its theme
-belongs to — a row on «Чеклист» for a daily errand, «Ралли» / «Секретки» /
+belongs to — a row on «Чеклист» for a daily errand, «Ралли» / «Карта» /
 «Командный пункт» for one that needs a target chosen first — and mirror it into
 `web_view` / `web_press` like any other control.
 

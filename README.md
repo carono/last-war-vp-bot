@@ -93,7 +93,7 @@ without the other fourteen in the way.
 | Accounts | every character this login has, and one button to move the client onto another |
 | Statistics | how much of each resource came in, per day |
 | Rally | raising a rally, hearing about someone else's, joining it, and the daily budget for both |
-| Secret Tasks | the starred raidable tiles, their countdowns, and the standing order that spends the day's robberies |
+| Map | the starred raidable tiles, their countdowns, and the standing order that spends the day's robberies |
 | Command Post | the raids the in-game secret post offers, the ghost operation among them |
 | VS Duel | the duel plan, a group per weekday: what to do on that day and how much it may spend |
 | Develop | the two sniffers, recorded as one session — off by default, for work on the bot itself |
