@@ -128,6 +128,18 @@
 # board that has filled up overnight cannot empty our spare pieces in one tick. If the
 # server does have a cap it will refuse, and the refusal shows in the log like any other.
 #
+# WHY IT REFUSES TO RUN TWICE IN A MINUTE (`min_gap`). This errand is woken by a WIRE
+# trigger, and a wire trigger sweeps once every time the ear is re-armed — which the panel
+# does whenever the shared capture comes back, several times an hour. Measured with the
+# listener on and nothing at all happening on the board: three runs in six minutes, none
+# of them from a push, each paying two reads to be told the same thing.
+#
+# So the FIRST thing the recipe does is look at the clock, and a turn that comes too soon
+# after the last one stops before it has asked the game anything. It is a gate on the
+# ability and therefore lives here rather than in the schedule (`CLAUDE.md`) — and it is
+# deliberately short: sixty seconds is long enough to swallow a re-arm and far too short
+# to delay a real acceptance, which is the one thing this errand must not be late for.
+#
 # WHICH SET. `kind` is the splinter set: 1 «Мобильный отряд» pieces, 2 season synthesis,
 # 3 cooking ingredients, 4 the dig-treasure pieces. 4 is the one the current event runs
 # and therefore the default; a set the account has no pieces of answers «nothing to
@@ -139,8 +151,14 @@ ARGS offer = 1
 ARGS share = 1
 ARGS offer_gap = 2
 ARGS share_cooldown = 1800
+ARGS min_gap = 60
 ARGS strict = 0
 ARGS limit = 3
+
+READ_LUA (function() local now = 0 pcall(function() now = math.floor((UITimeManager.Instance:GetServerTime() + 0) / 1000) end) if now <= 0 then now = os.time() end local last = DataCenter.__lw_spx_ran_at or 0 local since = now - last if last > 0 and since < {min_gap} then return since end DataCenter.__lw_spx_ran_at = now return -1 end)() INTO too_soon
+IF too_soon >= 0
+    LOG "the board was read {too_soon} s ago and nothing is owed to it that soon — this turn costs the game nothing"
+    STOP "read a moment ago"
 
 LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureGetALInfo, {type = {kind}}) end) pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureGetSelfInfo, {type = {kind}}) end)
 WAIT 2

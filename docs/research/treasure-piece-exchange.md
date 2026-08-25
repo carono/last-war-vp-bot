@@ -267,9 +267,27 @@ Both are fixed by a threshold each, and they are separate on purpose:
   whatever the rest of the recipe decides. A second guard rather than a better first one,
   because the first one was not wrong: it was answering a different question.
 
+### …and a third thing, found in the SAME way once the two above were quiet
+
+With the thresholds in and the board flat — nothing to post, nothing to take, no push
+anywhere — the errand still ran **three times in six minutes**. None of them was a push. A
+WIRE trigger sweeps once every time the ear is re-armed, and the panel re-arms the shared
+capture whenever it comes back, which on a live profile is several times an hour. Each of
+those sweeps paid two reads to be told the board had not moved.
+
+`cooldown_sec` does not help: it is a POLL trigger's knob (`Trigger.as_dict` only writes
+it when `is_poll`), and this one is a wire trigger. So the gate is the recipe's own and it
+is the FIRST thing it does — `min_gap`, sixty seconds, checked against a stamp in the game
+VM before a single request goes out. Long enough to swallow a re-arm, far too short to
+delay a real acceptance, which is the one thing this errand must not be late for.
+
+Verified: two runs thirteen seconds apart, and the second one stopped with
+«the board was read 16 s ago» before it asked the game anything.
+
 The lesson is not about this ability. **A rule that is quiet in a measurement of one run
 can be loud in a measurement of an hour**, and the way to find out is to switch the thing
-on and count — not to reason about how often the event «should» happen.
+on and count — not to reason about how often the event «should» happen. All three of the
+faults on this page were found that way and none of them by reading the code.
 
 ## 9. Dead ends worth not repeating
 
