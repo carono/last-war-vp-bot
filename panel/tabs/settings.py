@@ -975,7 +975,14 @@ class SettingsTab(PanelTab):
                 code = runtime.game_process.bring_up(
                     self.rt.settings, say=lambda msg: self.rt.put(f"[session] {msg}"))
             except Exception as exc:     # noqa: BLE001 — a line in the log, not a crash
-                self.post(lambda: self._brought_up(None, exc))
+                # …AND THE NAME HAS TO SURVIVE THE `except` BLOCK. Python deletes `exc`
+                # the moment the block ends, so the lambda below — which runs later, on
+                # the Tk thread — closed over a name that no longer existed and raised
+                # `NameError` instead of saying WHY the bring-up failed. The one path
+                # that reports a failed «Поднять сессию» was the one path that could not
+                # report anything (#1976).
+                failed = exc
+                self.post(lambda: self._brought_up(None, failed))
                 return
             self.post(lambda: self._brought_up(code, None))
 
