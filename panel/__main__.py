@@ -3915,8 +3915,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self.PROBE_ACTION, {"server": target}, tag="game",
             on_result=lambda outcome: self._probe_back(outcome))
         if not started:
-            # Nothing was played, so nothing is in flight and no deadline is running.
-            self._rt.recovery.note_probe(True, time.time())
+            # Nothing was played, so nothing is in flight and no deadline is running —
+            # and, since #1976, nothing is CLAIMED either. This used to write the
+            # not-asked question down as an answered one, which is the reading green is
+            # made of: a panel too busy to ask painted itself «сервер отвечает» for the
+            # next five minutes.
+            self._rt.recovery.probe_unstarted(time.time())
             self._say("game", "log.game.probe_busy")
 
     def _probe_back(self, outcome) -> None:

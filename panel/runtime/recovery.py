@@ -988,6 +988,22 @@ class Recovery:
             return
         self._probe_fails += 1
 
+    def probe_unstarted(self, now: float) -> None:
+        """The probe could not even be SENT — the game was busy with something else.
+
+        Not evidence either way, and that cuts BOTH ways (#1976). It must not add a
+        strike: a busy client is not a deaf one, which is what `note_probe(False)` would
+        say. It must not add a SUCCESS either, which is what this used to do — and a
+        success is what paints the light green, so «мы не смогли спросить» became «сервер
+        ответил» and held it for five minutes. Green is the server answering and nothing
+        else; a question nobody managed to ask leaves the light exactly where it was.
+
+        So: nothing is in flight, no deadline is running, and the next poll asks again
+        without waiting out the gap between two real probes.
+        """
+        self._probe_flying = False
+        self._probe_at = 0.0
+
     def link_confirmed(self, now: float) -> bool:
         """Did the game SERVER answer us recently? (#1910)
 
