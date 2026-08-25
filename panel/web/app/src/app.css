@@ -430,3 +430,15 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 /* Two fields side by side once there is room for them, stacked on a narrow phone. */
 .row.wrap { flex-wrap: wrap; align-items: flex-end; }
 .field.grow { flex: 1 1 140px; }
+
+/* A choice, drawn as the phone's own picker rather than as a list we would have to make
+   thumb-sized ourselves. */
+.field select {
+  min-height: var(--tap);
+  padding: 10px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: var(--ink);
+  font: inherit;
+}

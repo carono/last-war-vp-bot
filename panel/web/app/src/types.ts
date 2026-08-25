@@ -137,10 +137,13 @@ export interface Field {
   key: string
   label: string
   hint?: string
-  kind: 'switch' | 'number' | 'text'
+  kind: 'switch' | 'number' | 'text' | 'choice'
   value: string | number | boolean
   min?: number
   max?: number
+  /* `value` is the id the panel knows; `text` is what that choice calls ITSELF — data,
+   * like a player's name, never a key to translate. */
+  options?: { value: string; text: string }[]
 }
 
 export interface ViewCard {

@@ -104,6 +104,14 @@ SERVERS_PAGE = 150
 #: channel the phone is reached through, so it is not the divergence «Веб» is.
 AUTOSTART_SCREEN = "autostart"
 
+#: …and the third: which language the PANEL speaks. One choice for the whole window —
+#: every open profile switches at once (`panel/runtime/workspace.py`, #1515) — so it
+#: belongs beside the two above rather than inside one account's pages. It reaches the
+#: phone because with the window being retired (#1976) a switch only the window has is a
+#: switch nobody has; unlike the remote control's own port and token, getting it wrong
+#: costs a language and never the way back in.
+LANGUAGE_SCREEN = "language"
+
 
 class _Feed:
     """One profile's log: a ring of numbered lines, and the tap filling it.
@@ -892,6 +900,7 @@ class WebApi:
         # decision as «Серверы» above — it belongs to the window and not to an account,
         # so the phone gets it here rather than as a page inside one profile.
         out.append({"id": AUTOSTART_SCREEN, "title": "menu.autostart"})
+        out.append({"id": LANGUAGE_SCREEN, "title": "menu.language"})
         return {"screens": out}
 
     def screen(self, screen_id: str, profile: str | None = None) -> dict:
@@ -905,6 +914,8 @@ class WebApi:
             return self._servers_view(profile)
         if screen_id == AUTOSTART_SCREEN:
             return self._autostart_view(profile)
+        if screen_id == LANGUAGE_SCREEN:
+            return self._language_view(profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
@@ -1138,6 +1149,53 @@ class WebApi:
             return rt.t("autostart.check.restarted", when=when)
         return rt.t("autostart.check.failed", when=when, error=last.get("error") or "")
 
+    def _language_view(self, profile: str | None = None) -> dict:
+        """Which language the panel speaks, and the ones it could.
+
+        THE LIST IS THE FOLDER, exactly as it is in the window: there is no table of
+        languages anywhere in the code, so a twelfth locale file is a twelfth choice
+        here with nothing to edit (`panel/i18n.py`). Each option is labelled with what
+        that language calls ITSELF — data, not a key: «Русский» is not a word of the
+        panel's to translate.
+        """
+        rt = self._runtime(profile)
+        i18n = rt.i18n
+        options = [{"value": lang, "text": i18n.name(lang)} for lang in i18n.available()]
+        return {"id": LANGUAGE_SCREEN, "title": "menu.language",
+                "cards": [{"title": "menu.language",
+                           "fields": [{"key": "language", "label": "menu.language",
+                                       "kind": "choice", "value": i18n.lang,
+                                       "options": options}]}]}
+
+    def _language_press(self, action: str, args: dict, profile: str | None) -> dict:
+        """Switch the panel's language — EVERY open profile, as the window's menu does.
+
+        On the Tk thread, because switching re-renders every registered widget
+        (`Translator.retranslate`). The write is `set_lang`'s own; nothing here saves a
+        second copy of the choice.
+        """
+        if action != "set" or str(args.get("key") or "") != "language":
+            return {"error": "unknown"}
+        lang = str(args.get("value") or "").strip()
+        rt = self._runtime(profile)
+        if lang not in rt.i18n.available():
+            return {"ok": False, "reason": "web.ui.refused"}
+        box: dict = {}
+
+        def go() -> None:
+            workspace = getattr(rt, "workspace", None)
+            if workspace is not None and hasattr(workspace, "set_language"):
+                box["moved"] = bool(workspace.set_language(lang))
+                return
+            # A tab launched on its own, or a test: one translator and no workspace.
+            moved = rt.i18n.set_lang(lang)
+            if moved:
+                rt.i18n.retranslate()
+            box["moved"] = bool(moved)
+
+        self._on_tk(rt, go)
+        return {"ok": True, "unchanged": not box.get("moved")}
+
     def _autostart_press(self, action: str, profile: str | None) -> dict:
         """The same switch the window's «Автозапуск» dialog has, and nothing it has not.
 
@@ -1186,6 +1244,8 @@ class WebApi:
             return self._servers_press(action, args or {}, profile)
         if screen_id == AUTOSTART_SCREEN:
             return self._autostart_press(action, profile)
+        if screen_id == LANGUAGE_SCREEN:
+            return self._language_press(action, args or {}, profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):

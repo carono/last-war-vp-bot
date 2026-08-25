@@ -105,6 +105,27 @@ function FieldRow({
     window.setTimeout(after, 400)
   }
 
+  if (field.kind === 'choice') {
+    return (
+      <div className="field">
+        <label className="muted small" htmlFor={'f-' + field.key}>
+          {t(field.label)}
+        </label>
+        <select
+          id={'f-' + field.key}
+          value={String(field.value ?? '')}
+          onChange={(e) => void send(e.target.value)}
+        >
+          {(field.options || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.text}
+            </option>
+          ))}
+        </select>
+        {field.hint ? <p className="muted small">{t(field.hint)}</p> : null}
+      </div>
+    )
+  }
   if (field.kind === 'switch') {
     return (
       <>
