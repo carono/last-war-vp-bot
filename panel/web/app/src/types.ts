@@ -84,6 +84,12 @@ export interface TimerRow {
   last_state?: string
   retry_sec?: number
   queued?: boolean
+  /* What the EDITOR needs and the list does not: the steps, the args, and the title the
+     operator typed — empty on a built-in row, whose `title` above is a translated label
+     and must not be sent back as one (#1976). */
+  steps?: string[]
+  args?: Record<string, unknown>
+  custom_title?: string
 }
 
 export interface TriggerRow {
@@ -173,6 +179,8 @@ export interface ScreenView {
 
 export interface PressAnswer {
   ok?: boolean
+  /* What to put into `reason`'s placeholders — «имя «{name}» уже занято». */
+  fmt?: Record<string, unknown>
   pending?: boolean
   error?: string
   reason?: string

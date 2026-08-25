@@ -823,6 +823,36 @@ def _as_interval(raw, fallback: int) -> int:
     return max(MIN_INTERVAL_SEC, min(MAX_INTERVAL_SEC, value))
 
 
+def with_fields(base: Timer, *, name=None, title=None, interval=None, retry=None,
+                scenario=None, args=None, enabled=None, immediate=None,
+                weekdays=None) -> Timer:
+    """One entry with some of its fields replaced — an editor's Save, with no display.
+
+    The window's dialog and the phone's editor (#1976) both land here, so a field one
+    of them forgets is not a field the other silently defaults away: what is not named
+    keeps ``base``'s value, and everything that arrives as TEXT — a period typed into a
+    box, ``"1,3"`` for the days, the steps one per line — is coerced by the same readers
+    the file itself goes through.
+    """
+    fresh = base.name if name is None else str(name).strip()
+    return Timer(
+        name=fresh,
+        scenario=(tuple(base.scenario) if scenario is None else _as_scenario(scenario)),
+        interval_sec=(base.interval_sec if interval is None
+                      else _as_interval(interval, base.interval_sec)),
+        retry_sec=(base.retry_sec if retry is None
+                   else _as_interval(retry, base.retry_sec)),
+        enabled=(base.enabled if enabled is None else bool(enabled)),
+        immediate=(base.immediate if immediate is None else bool(immediate)),
+        weekdays=(tuple(base.weekdays) if weekdays is None else _as_weekdays(weekdays)),
+        args=(dict(base.args) if args is None else dict(args)),
+        title=(base.title if title is None else (str(title).strip() or None)),
+        # The locale key belongs to the BUILT-IN entry of that name; a renamed row is no
+        # longer that entry, and keeping it would show a translated label over the wrong
+        # errand.
+        label_key=(base.label_key if fresh == base.name else None))
+
+
 class Catalogue:
     """The configured list of timers, plus whatever was wrong with the file.
 

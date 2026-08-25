@@ -65,6 +65,7 @@ that owns a lifecycle.
 | P2 — switching character | **done** | typed confirmation replaces the window's dialog; the row's own fields fixed |
 | P2 — the errand's rule from the phone | **done** | five fields on «Свои задания»; live-checked, and a bad number is refused |
 | P2 — the rally switches from the phone | **done** | fields on «Ралли»; the capture re-points, the auto-join is the standing order |
+| P2 — the errand EDITOR from the phone | **done** | `/api/timers/save` · `/copy` · `/delete`; add, rename, copy, delete, steps, args, title — the dialog's four refusals, off its own keys |
 | P2 — what is still window-only | see below | |
 | P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
 | P3 — Tk removed | not started | after P2 |
@@ -76,12 +77,13 @@ a wrong squad sent from away is a squad that is not home when the next rally lan
 robberies whose ability is not yet ONE scenario — the ghost one still parks its targets
 with a spawned tool (#1188) — keep their readings and their standing orders and lose only
 the press, which is the order of work `CLAUDE.md` states rather than a divergence.
-Creating, renaming and deleting an ERRAND (and editing
-its steps) — the schedule travels, the editor does not — YET. That was a
-divergence («a phone that rewrites a recipe by a mistyped character is not a remote
-control») and it stopped being one the moment the person said the web gets the whole
-function; it is now simply the largest piece of P2 that is not built. The same goes for
-renaming and deleting a PROFILE: destructive, so it wants a typed confirmation like the
+The errand EDITOR is no longer among them: adding,
+renaming, copying, deleting an errand and rewriting its steps, its args and its title all
+travel now (`/api/timers/save`, `/copy`, `/delete`), and the panel refuses the same four
+things the window's dialog refuses, off the same locale keys. What made it the largest
+piece of P2 was that it had been a divergence («a phone that rewrites a recipe by a
+mistyped character is not a remote control») and stopped being one the moment the person
+said the web gets the whole function. Renaming and deleting a PROFILE is still window-only: destructive, so it wants a typed confirmation like the
 character switch has, not an exemption. Sending a CHAT message: the window spawns a tool
 to do it, so by the rule in `CLAUDE.md` the phone gets the reading and no button until
 that ability is a scenario. «Разработка»: decided to become an SPA screen behind the
@@ -189,7 +191,7 @@ after the new one has been used to drive it.**
 
   | tab | window-only | what it needs |
   |---|---|---|
-  | «Таймеры» | add / edit / copy / delete an errand, edit its steps | THE BIG ONE, and no longer a divergence: the person has said the web gets the whole function. Needs API routes and an editor screen |
+  | «Таймеры» | — | **done**: add / edit / copy / delete and the steps, the args and the title, through `/api/timers/save` · `/copy` · `/delete` and an editor that opens under the row it edits |
   | «Разработка», «Занятость» | all of it | an SPA screen behind the development switch — decided in §3, not built |
   | «Дуэль» | new / rename / delete a set, the week's grid | a screen of its own: the week is a grid of switches and amounts |
   | «Чат» | send, send coordinates, clear, monitor | the send spawns a tool — the ability becomes a scenario first (`CLAUDE.md`) |

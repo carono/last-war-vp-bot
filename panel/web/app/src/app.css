@@ -289,7 +289,7 @@ input[type='checkbox']:checked { background: color-mix(in srgb, var(--accent) 35
 input[type='checkbox']:checked::after { transform: translateX(18px); background: var(--accent); }
 input[type='checkbox']:disabled { opacity: 0.5; }
 
-input[type='search'], input[type='password'], input[type='text'] {
+input[type='search'], input[type='password'], input[type='text'], input[type='number'] {
   width: 100%;
   min-height: var(--tap);
   padding: 10px 14px;
@@ -441,4 +441,38 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   background: var(--bg-soft);
   color: var(--ink);
   font: inherit;
+}
+
+/* THE ERRAND EDITOR (#1976) — the window's dialog, on a page rather than in a Toplevel.
+   A phone has no second window to put it in, so it opens under the row it belongs to and
+   the row's own switches stay visible above it: what is being edited is never in doubt. */
+.editor { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+/* The steps, one per line, in the font a step is written in. `wrap: off` on purpose —
+   a DSL line that folded would read as two steps. */
+.editor .steps {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: var(--ink);
+  font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+/* The scenario picker beside «Добавить шагом» — the same box `.field select` draws,
+   outside a field because its label is the first option. */
+.editor select {
+  min-height: var(--tap);
+  padding: 10px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: var(--ink);
+  font: inherit;
+  flex: 1 1 140px;
+  min-width: 0;
 }

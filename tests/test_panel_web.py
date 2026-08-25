@@ -406,6 +406,131 @@ def test_the_at_once_box_goes_through_a_live_tab_like_the_switch_does():
             "the file was written behind a live tab's back")
 
 
+def test_the_phone_writes_a_whole_errand_steps_args_and_all():
+    """THE EDITOR, not only the schedule (#1976).
+
+    The window has had one since it had a Timers tab and the phone had the period and
+    the weekdays — so a scenario could be read on a phone and rewritten only at the
+    machine. The web is the front-end now, so every field the dialog has is here.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        answer = api.save_timer(
+            name="evening", original="", title="Evening",
+            interval_sec="1200", retry_sec="240", weekdays="1,3",
+            args='{"level": 30}',
+            steps="collect_base_resources\nTAP donate_1000 xall")
+        assert answer["ok"] is True, answer
+        row = {t["name"]: t for t in api.timers()["timers"]}["evening"]
+        assert row["steps"] == ["collect_base_resources", "TAP donate_1000 xall"], row
+        assert row["interval_sec"] == 1200 and row["retry_sec"] == 240, row
+        assert row["weekdays"] == [1, 3], row
+        assert row["args"] == {"level": 30}, row
+        assert row["custom_title"] == "Evening", row
+        # A brand-new errand starts OFF: one nobody has read yet must not fire a minute
+        # later.
+        assert row["enabled"] is False, row
+        saved = json.loads(Path(rt.profiles.timers_json()).read_text(encoding="utf-8"))
+        rows = saved["timers"] if isinstance(saved, dict) else saved
+        assert "evening" in {item["name"] for item in rows}
+
+
+def test_the_editor_refuses_what_the_windows_dialog_refuses():
+    """Four refusals, with the dialog's own keys — one panel, not two."""
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        assert api.save_timer(name=" ", steps="x")["reason"] == "timers.editor.err_name"
+        taken = api.save_timer(name="collect", steps="x")
+        assert taken["reason"] == "timers.editor.err_taken", taken
+        assert taken["fmt"] == {"name": "collect"}, taken
+        assert api.save_timer(name="fresh", steps="  ")["reason"] == \
+            "timers.editor.err_steps"
+        bad = api.save_timer(name="fresh", steps="x", args="{oops")
+        assert bad["reason"] == "timers.editor.err_args", bad
+        assert api.save_timer(name="x", original="nosuch", steps="x")["error"] == "unknown"
+
+
+def test_a_renamed_errand_starts_a_fresh_clock_and_drops_the_built_in_label():
+    """The name is the record key, so a rename is a delete plus an add."""
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        assert api.save_timer(name="collect_late", original="collect",
+                              steps="collect_base_resources")["ok"] is True
+        names = {t["name"] for t in api.timers()["timers"]}
+        assert "collect_late" in names and "collect" not in names, names
+
+
+def test_a_built_in_title_is_not_frozen_by_an_edit_from_the_phone():
+    """`title` is what the row is CALLED — translated. The editor sends `custom_title`.
+
+    A built-in errand's label is a locale key; an editor that sent the drawn title back
+    would write one language's words over it for good.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        labelled = timersmod.Timer(name="labelled", scenario=("a",),
+                                   label_key="timers.item.collect_base_resources")
+        rt.schedule.timer_catalogue = rt.schedule.timer_catalogue.replace(labelled)
+        row = {t["name"]: t for t in api.timers()["timers"]}["labelled"]
+        assert row["custom_title"] == "", row
+        assert api.save_timer(name="labelled", original="labelled", title="",
+                              steps="a")["ok"] is True
+        kept = rt.schedule.timer_catalogue.by_name("labelled")
+        assert kept.title is None and kept.label_key == \
+            "timers.item.collect_base_resources"
+
+
+def test_a_copy_is_off_under_a_free_name_and_a_delete_removes_the_row():
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        answer = api.copy_timer("collect")
+        assert answer["ok"] is True and answer["name"] == "collect_2", answer
+        rows = {t["name"]: t for t in api.timers()["timers"]}
+        assert rows["collect_2"]["enabled"] is False, rows["collect_2"]
+        assert rows["collect_2"]["steps"] == rows["collect"]["steps"]
+        assert api.delete_timer("collect_2")["ok"] is True
+        assert "collect_2" not in {t["name"] for t in api.timers()["timers"]}
+        assert api.delete_timer("collect_2")["error"] == "unknown"
+        assert api.copy_timer("nosuch")["error"] == "unknown"
+
+
+def test_the_whole_entry_goes_through_a_live_tab_like_every_switch_does():
+    """While the Timers tab is drawn its widgets ARE the configuration."""
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        wrote: list = []
+
+        class _Tab:
+            def web_save(self, timer, *, drop=None):
+                wrote.append((timer.name, drop))
+                return True
+
+            def web_delete(self, name):
+                wrote.append(("deleted", name))
+                return True
+
+        rt.tabs.get = lambda tab_id: _Tab() if tab_id == "timers" else None
+        assert api.save_timer(name="collect2", original="collect",
+                              steps="collect_base_resources")["ok"] is True
+        assert api.delete_timer("collect")["ok"] is True
+        assert wrote == [("collect2", "collect"), ("deleted", "collect")], wrote
+        assert not os.path.exists(rt.profiles.timers_json()), (
+            "the file was written behind a live tab's back")
+
+
+def test_every_editing_route_is_reachable_over_the_wire():
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        status, payload = api.dispatch("POST", "/api/timers/save", {},
+                                       {"name": "wired", "steps": "collect_base_resources"})
+        assert status == 200 and payload["ok"] is True, payload
+        status, payload = api.dispatch("POST", "/api/timers/copy", {}, {"name": "wired"})
+        assert status == 200 and payload["ok"] is True, payload
+        status, payload = api.dispatch("POST", "/api/timers/delete", {},
+                                       {"name": payload["name"]})
+        assert status == 200 and payload["ok"] is True, payload
+
+
 def test_the_timers_tabs_boxes_win_when_it_is_open():
     """A live Timers tab owns the switches — writing the file behind it would be undone."""
     with tempfile.TemporaryDirectory() as home:

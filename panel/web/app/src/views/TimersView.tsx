@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import { post } from '../api'
+import { useEffect, useState } from 'react'
+import { get, post } from '../api'
 import { span, t, when } from '../i18n'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
-import type { PressAnswer, TimerRow, TriggerRow } from '../types'
+import type { ActionRow, PressAnswer, TimerRow, TriggerRow } from '../types'
 
 /* The errands and, under them, the standing orders — the same two lists in the same
  * order the window's «Таймеры» tab draws them in. The listeners are a grid: one column
@@ -15,70 +15,139 @@ function weekdayNames(days: number[]): string {
   return days.map((d) => names[d - 1] || String(d)).join(', ')
 }
 
-/* The SCHEDULE of an errand, and nothing else about it (#1976). The window has had a
- * full editor since it had a Timers tab — steps, args, title — and the phone had none,
- * so a period could be read on a phone and changed only at the machine. The steps and
- * the args stay in the window's dialog on purpose: a phone that could rewrite a scenario
- * by a mistyped character is not a remote control. Committed on leaving the box, never
- * on every keystroke — «4», «40», «400» on the way to «4000» are three schedules nobody
- * asked for. */
-function ScheduleFields({ row, refresh }: { row: TimerRow; refresh: () => Promise<void> }) {
-  const [every, setEvery] = useState(String(row.interval_sec))
-  const [days, setDays] = useState((row.weekdays || []).join(','))
-  const sent = useRef({ every: String(row.interval_sec), days: (row.weekdays || []).join(',') })
+/* THE WHOLE ENTRY of an errand, and not only its schedule (#1976). The window has had
+ * an editor since it had a Timers tab, and the phone had the period and the weekdays —
+ * so the steps, the args and the title could be read on a phone and written only at the
+ * machine. That was a divergence with a reason («a phone that could rewrite a scenario
+ * by a mistyped character is not a remote control»), and the person has ended it: the
+ * web is the front-end, so it gets the whole function.
+ *
+ * Nothing is written until Save, exactly as in the window's dialog: «4», «40», «400» on
+ * the way to «4000» are three schedules nobody asked for. The panel refuses the same
+ * four things the dialog does — no name, a name another row answers to, no steps, args
+ * that are not a JSON object — and says so with the same keys, so a refusal reads the
+ * same whichever front-end asked. */
+function TimerEditor({
+  row,
+  onDone,
+  onCancel,
+}: {
+  row: TimerRow | null
+  onDone: () => Promise<void>
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(row?.name || '')
+  const [title, setTitle] = useState(row?.custom_title || '')
+  const [every, setEvery] = useState(String(row?.interval_sec ?? 3600))
+  const [retry, setRetry] = useState(String(row?.retry_sec ?? 300))
+  const [days, setDays] = useState((row?.weekdays || []).join(','))
+  const [args, setArgs] = useState(
+    row && row.args && Object.keys(row.args).length ? JSON.stringify(row.args) : '',
+  )
+  const [steps, setSteps] = useState((row?.steps || []).join('\n'))
+  const [problem, setProblem] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [scripts, setScripts] = useState<ActionRow[]>([])
+  const [pick, setPick] = useState('')
 
+  /* The picker: every scenario this profile has, appended as a step — the thirty-odd
+   * recipes are no more memorable on a phone than at the machine. Asked once, when an
+   * editor opens, and never on the poll. */
   useEffect(() => {
-    if (document.activeElement?.getAttribute('data-timer') === row.name) return
-    setEvery(String(row.interval_sec))
-    setDays((row.weekdays || []).join(','))
-    sent.current = { every: String(row.interval_sec), days: (row.weekdays || []).join(',') }
-  }, [row.interval_sec, row.weekdays, row.name])
+    void (async () => {
+      try {
+        setScripts((await get<{ actions?: ActionRow[] }>('/api/actions')).actions || [])
+      } catch {
+        /* a picker that could not be filled is a box the person types into */
+      }
+    })()
+  }, [])
 
-  const commit = async (what: 'every' | 'days', value: string) => {
-    if (sent.current[what] === value) return
-    sent.current[what] = value
-    await post('/api/timers/edit', {
-      name: row.name,
-      ...(what === 'every' ? { interval_sec: value } : { weekdays: value }),
-    })
-    await refresh()
+  const save = async () => {
+    setBusy(true)
+    try {
+      const answer = await post<PressAnswer>('/api/timers/save', {
+        name,
+        original: row?.name || '',
+        title,
+        interval_sec: every,
+        retry_sec: retry,
+        weekdays: days,
+        args,
+        steps,
+      })
+      if (!answer.ok) {
+        setProblem(
+          answer.error === 'unknown' ? t('web.ui.unknown') : t(answer.reason, answer.fmt),
+        )
+        return
+      }
+      await onDone()
+    } finally {
+      setBusy(false)
+    }
   }
 
+  const field = (key: string, value: string, set: (v: string) => void, numeric = false) => (
+    <div className="field grow">
+      <label className="muted small" htmlFor={key + '-' + (row?.name || 'new')}>
+        {t(key)}
+      </label>
+      <input
+        id={key + '-' + (row?.name || 'new')}
+        type={numeric ? 'number' : 'text'}
+        inputMode={numeric ? 'numeric' : undefined}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+      />
+    </div>
+  )
+
   return (
-    <div className="row wrap">
-      <div className="field grow">
-        <label className="muted small" htmlFor={'i-' + row.name}>
-          {t('timers.editor.interval')}
-        </label>
-        <input
-          id={'i-' + row.name}
-          data-timer={row.name}
-          type="number"
-          inputMode="numeric"
-          value={every}
-          onChange={(e) => setEvery(e.target.value)}
-          onBlur={() => void commit('every', every)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-          }}
-        />
+    <div className="editor">
+      <div className="row wrap">
+        {field('timers.editor.name', name, setName)}
+        {field('timers.editor.title', title, setTitle)}
       </div>
-      <div className="field grow">
-        <label className="muted small" htmlFor={'w-' + row.name}>
-          {t('timers.editor.weekdays')}
-        </label>
-        <input
-          id={'w-' + row.name}
-          data-timer={row.name}
-          type="text"
-          inputMode="numeric"
-          value={days}
-          onChange={(e) => setDays(e.target.value)}
-          onBlur={() => void commit('days', days)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-          }}
-        />
+      <div className="row wrap">
+        {field('timers.editor.interval', every, setEvery, true)}
+        {field('timers.editor.retry', retry, setRetry, true)}
+        {field('timers.editor.weekdays', days, setDays)}
+      </div>
+      <div className="row wrap">{field('timers.editor.args', args, setArgs)}</div>
+      <p className="muted small">{t('timers.editor.steps_hint')}</p>
+      <textarea
+        className="steps"
+        rows={6}
+        spellCheck={false}
+        value={steps}
+        onChange={(e) => setSteps(e.target.value)}
+      />
+      <div className="row wrap">
+        <select className="grow" value={pick} onChange={(e) => setPick(e.target.value)}>
+          <option value="">{t('timers.editor.pick')}</option>
+          {scripts.map((script) => (
+            <option key={script.name} value={script.name}>
+              {script.name + ' — ' + script.title}
+            </option>
+          ))}
+        </select>
+        <button
+          className="go"
+          disabled={!pick}
+          onClick={() => setSteps((was) => (was.trim() ? was.replace(/\s*$/, '\n') : '') + pick)}
+        >
+          {t('timers.editor.add_step')}
+        </button>
+      </div>
+      {problem ? <p className="bad small">{problem}</p> : null}
+      <div className="foot">
+        <button className="go" onClick={onCancel}>
+          {t('timers.editor.cancel')}
+        </button>
+        <button className="go" disabled={busy} onClick={() => void save()}>
+          {t('timers.editor.save')}
+        </button>
       </div>
     </div>
   )
@@ -130,11 +199,53 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
         }}
       />
       <p className="muted small">{bits.join(' · ')}</p>
-      {open ? <ScheduleFields row={row} refresh={refresh} /> : null}
+      {open ? (
+        <TimerEditor
+          row={row}
+          onCancel={() => setOpen(false)}
+          onDone={async () => {
+            setOpen(false)
+            await refresh()
+          }}
+        />
+      ) : null}
       <div className="foot">
         {row.queued ? <span className="pill warn">{t('web.ui.queued')}</span> : <span />}
         <button className="go" onClick={() => setOpen((was) => !was)}>
           {t('timers.edit')}
+        </button>
+        <button
+          className="go"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              await post('/api/timers/copy', { name: row.name })
+              await refresh()
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          {t('timers.duplicate')}
+        </button>
+        <button
+          className="go"
+          disabled={busy}
+          onClick={async () => {
+            // The window asks before it deletes, so the phone asks — and a thumb on a
+            // moving bus is the reason it asks, not a reason to skip asking.
+            if (!window.confirm(t('timers.confirm_delete', { name: row.title }))) return
+            setBusy(true)
+            try {
+              await post('/api/timers/delete', { name: row.name })
+              await refresh()
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          {t('timers.delete')}
         </button>
         <button
           className="go"
@@ -202,8 +313,27 @@ export function TimersView({
   now: number
   refresh: () => Promise<void>
 }) {
+  const [adding, setAdding] = useState(false)
   return (
     <>
+      <div className="foot">
+        <span />
+        <button className="go" onClick={() => setAdding(true)}>
+          {t('timers.add')}
+        </button>
+      </div>
+      {adding ? (
+        <div className="item">
+          <TimerEditor
+            row={null}
+            onCancel={() => setAdding(false)}
+            onDone={async () => {
+              setAdding(false)
+              await refresh()
+            }}
+          />
+        </div>
+      ) : null}
       <div>
         {timers.map((row) => (
           <TimerItem key={row.name} row={row} now={now} refresh={refresh} />

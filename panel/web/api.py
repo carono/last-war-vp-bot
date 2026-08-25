@@ -44,6 +44,7 @@ process probe builds — and those are translated here because the key is gone b
 from __future__ import annotations
 
 import collections
+import json
 import os
 import threading
 import time
@@ -579,6 +580,12 @@ class WebApi:
                 # telling the person something that is not true (CLAUDE.md).
                 "weekdays": list(timer.weekdays),
                 "steps": list(timer.scenario),
+                # THE OPERATOR'S OWN TITLE, empty where the row is a built-in one whose
+                # label is a locale key (#1976). `title` above is what the row is CALLED
+                # — translated — and an editor that sent that back would freeze a
+                # built-in errand's label to whatever language the phone was in.
+                "custom_title": timer.title or "",
+                "args": dict(timer.args),
             })
         return {"timers": rows, "profile": self._name_of(rt),
                 "running": bool(getattr(schedule.timers, "running", False)),
@@ -692,6 +699,125 @@ class WebApi:
             args=dict(timer.args), title=timer.title, label_key=timer.label_key)
         schedule = rt.schedule
         schedule.timer_catalogue = schedule.timer_catalogue.replace(edited)
+        timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
+        return {"ok": True, "name": name}
+
+    # -- the whole entry: add, edit, copy, delete (#1976) --------------------
+    #
+    # The window has had an editor since it had a Timers tab, and the phone had the
+    # SCHEDULE half of it and nothing else — the steps, the args and the title could be
+    # read on a phone and written only at the machine. That was a divergence with a
+    # reason («a phone that could rewrite a scenario by a mistyped character is not a
+    # remote control»), and the person has ended it: the web is the front-end, so it
+    # gets the whole function (CLAUDE.md).
+    #
+    # The validation below is the dialog's, word for word — no name, a name another row
+    # already answers to, no steps, args that are not a JSON object — because a refusal
+    # the phone words differently from the window is two panels, not one.
+    def _put_timer(self, rt, timer, drop: str | None = None) -> None:
+        """Persist one entry — through a drawn Timers tab, or into the file.
+
+        THE SAME TWO BRANCHES as every switch above, for the same reason: while that tab
+        is drawn its widgets ARE the configuration and `Catalogue.with_settings` folds
+        them back in on every save, so an entry written past them would be undone on the
+        next tick.
+        """
+        tab = rt.tabs.get("timers")
+        if tab is not None and getattr(tab, "built", True) and hasattr(tab, "web_save"):
+            done: dict = {}
+            self._on_tk(rt, lambda: done.update(
+                ok=bool(tab.web_save(timer, drop=drop))))
+            if done.get("ok"):
+                return
+        schedule = rt.schedule
+        catalogue = schedule.timer_catalogue
+        if drop and drop != timer.name:
+            catalogue = catalogue.remove(drop)
+        schedule.timer_catalogue = catalogue.replace(timer)
+        timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
+
+    def save_timer(self, *, name: str, original: str = "", title=None,
+                   interval_sec=None, retry_sec=None, weekdays=None, args=None,
+                   steps=None, profile: str | None = None) -> dict:
+        """Add a new errand, or rewrite one whole — steps, args, title and schedule.
+
+        ``original`` is the name the row had: empty for a new errand, and different
+        from ``name`` when the person renamed it, which is a delete plus an add because
+        the name is the key the last-run record is filed under.
+        """
+        rt = self._runtime(profile)
+        catalogue = rt.schedule.timer_catalogue
+        fresh = str(name or "").strip()
+        was = str(original or "").strip()
+        base = catalogue.by_name(was) if was else None
+        if was and base is None:
+            return {"error": "unknown"}
+        if not fresh:
+            return {"ok": False, "reason": "timers.editor.err_name"}
+        clash = catalogue.by_name(fresh)
+        if clash is not None and fresh != was:
+            return {"ok": False, "reason": "timers.editor.err_taken",
+                    "fmt": {"name": fresh}}
+        scenario = timersmod._as_scenario(
+            steps.splitlines() if isinstance(steps, str) else (steps or ()))
+        if not scenario:
+            return {"ok": False, "reason": "timers.editor.err_steps"}
+        if isinstance(args, str):
+            raw = args.strip()
+            try:
+                args = json.loads(raw) if raw else {}
+            except ValueError as exc:
+                return {"ok": False, "reason": "timers.editor.err_args",
+                        "fmt": {"error": str(exc)}}
+        if args is None:
+            args = {} if base is None else dict(base.args)
+        if not isinstance(args, dict):
+            return {"ok": False, "reason": "timers.editor.err_args",
+                    "fmt": {"error": '{"name": value}'}}
+        if base is None:
+            # A brand-new errand starts OFF: one nobody has read yet should not fire a
+            # minute later. Everything else it has is what the editor sent.
+            base = timersmod.Timer(name=fresh, scenario=scenario,
+                                   interval_sec=timersmod.DEFAULT_INTERVAL_SEC,
+                                   enabled=False)
+        edited = timersmod.with_fields(
+            base, name=fresh, title=title, interval=interval_sec, retry=retry_sec,
+            scenario=scenario, args=args, weekdays=weekdays)
+        self._put_timer(rt, edited, drop=(was or None))
+        return {"ok": True, "name": fresh}
+
+    def copy_timer(self, name: str, profile: str | None = None) -> dict:
+        """A copy of one errand under a free name, switched off.
+
+        Off, and under a name of its own, for the reason the window's «Копировать» has
+        always had: the name is the id the schedule keys its clock on, so a copy that
+        answered to the original's record would inherit its last run — and two clocks on
+        one errand is rarely what a duplicate was for.
+        """
+        rt = self._runtime(profile)
+        catalogue = rt.schedule.timer_catalogue
+        timer = catalogue.by_name(name)
+        if timer is None:
+            return {"error": "unknown"}
+        copy = timersmod.with_fields(timer, name=catalogue.unique_name(timer.name),
+                                     enabled=False)
+        self._put_timer(rt, copy)
+        return {"ok": True, "name": copy.name}
+
+    def delete_timer(self, name: str, profile: str | None = None) -> dict:
+        """Delete one errand. The asking is the front-end's; this is the doing."""
+        rt = self._runtime(profile)
+        if rt.schedule.timer_catalogue.by_name(name) is None:
+            return {"error": "unknown"}
+        tab = rt.tabs.get("timers")
+        if tab is not None and getattr(tab, "built", True) \
+                and hasattr(tab, "web_delete"):
+            done: dict = {}
+            self._on_tk(rt, lambda: done.update(ok=bool(tab.web_delete(name))))
+            if done.get("ok"):
+                return {"ok": True, "name": name}
+        schedule = rt.schedule
+        schedule.timer_catalogue = schedule.timer_catalogue.remove(name)
         timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
         return {"ok": True, "name": name}
 
@@ -1483,6 +1609,17 @@ class WebApi:
                     str(body.get("name") or ""),
                     interval_sec=body.get("interval_sec"),
                     weekdays=body.get("weekdays"), profile=who))
+            if path == "/api/timers/save":
+                return _answer(self.save_timer(
+                    name=str(body.get("name") or ""),
+                    original=str(body.get("original") or ""),
+                    title=body.get("title"), interval_sec=body.get("interval_sec"),
+                    retry_sec=body.get("retry_sec"), weekdays=body.get("weekdays"),
+                    args=body.get("args"), steps=body.get("steps"), profile=who))
+            if path == "/api/timers/copy":
+                return _answer(self.copy_timer(name, who))
+            if path == "/api/timers/delete":
+                return _answer(self.delete_timer(name, who))
             if path == "/api/timers/run":
                 return _answer(self.run_timer(name, who))
             if path == "/api/triggers/set":

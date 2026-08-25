@@ -690,6 +690,36 @@ class TimersTab(PanelTab):
         self.say("timer", "timers.log.edited", name=timer.name)
         return True
 
+    def web_save(self, timer, *, drop: str | None = None) -> bool:
+        """Write one WHOLE entry from the phone — a new errand, an edit, or a copy.
+
+        THROUGH THE TAB AND NOT AROUND IT, for the reason :meth:`web_edit` gives at
+        length: while this tab is drawn its widgets ARE the configuration, so an entry
+        written straight into `timers.json` behind them would be undone by the next
+        save and look, from the phone, like an editor that does not stay.
+
+        ``drop`` is the name the entry HAD when it is a rename: the name is the record
+        key, so the row starts a fresh clock rather than inheriting the old one's —
+        exactly what the window's dialog does with the same two calls.
+        """
+        catalogue = self._timer_catalogue
+        if drop and drop != timer.name:
+            catalogue = catalogue.remove(drop)
+        self._write_timer(catalogue.replace(timer))
+        self._select_timer(timer.name)
+        self.say("timer", "timers.log.saved", name=timer.name)
+        return True
+
+    def web_delete(self, name: str) -> bool:
+        """Delete one errand from the phone. The confirmation is the caller's."""
+        if self._timer_catalogue.by_name(name) is None:
+            return False
+        if getattr(self, "_timer_selected", None) == name:
+            self._timer_selected = None
+        self._write_timer(self._timer_catalogue.remove(name))
+        self.say("timer", "timers.log.deleted", name=name)
+        return True
+
     def _timer_edit(self) -> None:
         timer = self._selected_timer()
         if timer is not None:
@@ -705,17 +735,13 @@ class TimersTab(PanelTab):
         back to the module's default and overwrites what the operator typed in the
         JSON, and a dialog's callback is unreachable from a test that has no display.
         """
-        return timersmod.Timer(
-            name=name, scenario=scenario,
-            interval_sec=timersmod._as_interval(interval, timer.interval_sec),
-            retry_sec=timersmod._as_interval(retry, timer.retry_sec),
-            enabled=enabled, immediate=immediate,
-            weekdays=timersmod._as_weekdays(weekdays),
-            args=args, title=title.strip() or None,
-            # The locale key belongs to the BUILT-IN entry of that name; a renamed
-            # row is no longer that entry, and keeping it would show a translated
-            # label over the wrong errand.
-            label_key=timer.label_key if name == timer.name else None)
+        # …and the fields themselves are folded in by `panel/timers.py`, because the
+        # phone's editor (#1976) does the same job with no dialog around it and two
+        # copies of "which field falls back to what" is how one of them drifts.
+        return timersmod.with_fields(
+            timer, name=name, title=title, interval=interval, retry=retry,
+            scenario=scenario, args=args, enabled=enabled, immediate=immediate,
+            weekdays=weekdays)
 
     def _edit_timer_dialog(self, timer, is_new: bool) -> None:
         """The row's whole entry, in a window: name, title, period, retry, steps, args.
