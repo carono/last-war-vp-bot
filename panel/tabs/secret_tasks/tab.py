@@ -778,6 +778,13 @@ class SecretTasksTab(PanelTab):
         # moments of one live session — while the page showed 1 row, because a row ages
         # out after fifteen minutes and only three buttons could ever re-confirm one.
         self._monster_follow_tick()
+        # …and the monster list's own move into `panel.db`'s `monsters` table, here for
+        # the same reason (#1963). The page's `restore` runs when somebody OPENS the tab,
+        # and the profile this was reported on had the clock polling for a page nobody
+        # had opened in days — so the 9.8 MB blob the table replaces would have sat there
+        # for ever on exactly the profiles it costs the most. It is one transaction, once
+        # per profile in its life, and it also sweeps what the old list never aged out.
+        self.monsters.adopt_store()
 
     def on_show(self) -> None:
         """Somebody opened the tab: restore the last session's list, start the

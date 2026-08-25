@@ -786,24 +786,36 @@ class MonsterGrid(WorldGrid):
         except Exception:                    # noqa: BLE001 — the ageing, never the tab
             pass
 
-    def restore(self) -> None:
-        """Read the page's own list back out of `monsters`, freshest first.
+    def adopt_store(self) -> None:
+        """Carry the older homes into `monsters`, once, and sweep what they bring.
 
-        The one-time import comes first and covers both older homes — the `blobs` row
-        this page kept between #1465 and #1963, and the JSON file that predates the
-        blob — so a profile opened by a newer panel keeps everything it had gathered.
+        **AT BOOT, not at the first look**, and the bug report is the reason (#1963):
+        `restore` runs when somebody OPENS the tab, and the profile this was found on had
+        the follow clock polling for a page nobody had opened in days. Leaving the import
+        there would mean the 9.8 MB blob it replaces sits in the database for ever on
+        exactly the profiles that suffer most from it.
+
+        The sweep is part of it and not a nicety: what comes across is every monster the
+        page ever saw, because the fifteen-minute rule had never run at all — 10 850 of
+        those 31 828 rows were already past their deadline. A start that carried them in
+        and left them there would inherit the growth along with the rows.
         """
         from ...runtime.store import monsters_import_blob_once
 
         store = self.tab.rt.store
-        cutoff = time.time() - SIGHTING_TTL_SEC
         try:
             monsters_import_blob_once(store, self.OLD_STATE_BLOB, self.state_path())
-            # …and sweep, once, before anything reads: the blob that comes across is
-            # every monster the page ever saw, because the ageing had never run at all
-            # (#1963 — 10 850 of 31 828 rows were already past the deadline). A start
-            # that carried them in and left them there would inherit the growth too.
-            store.monsters_prune(cutoff)
+            store.monsters_prune(time.time() - SIGHTING_TTL_SEC)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def restore(self) -> None:
+        """Read the page's own list back out of `monsters`, freshest first."""
+
+        store = self.tab.rt.store
+        cutoff = time.time() - SIGHTING_TTL_SEC
+        try:
+            self.adopt_store()
             records = store.monsters_all(cutoff=cutoff)
         except Exception:                    # noqa: BLE001 — a restore, never the tab
             return
