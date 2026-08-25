@@ -1493,12 +1493,12 @@ class CommandPostTab(PanelTab):
 
     # -- the phone ------------------------------------------------------------
     #
-    # READING ONLY, for the same reason the secret tasks are: the ghost robbery presses
-    # through `actions/steal_ghost_recon.md` now, but it still spawns a tool first to PARK
-    # the chosen squads — the recipe cannot fill the queue it spends (`CLAUDE.md`, task
-    # #1188). A «Ограбить» here would carry that spawn outside the house, which is the
-    # half of the ability `web_press` may not run. What travels is what decides whether to
-    # go home: which raids are up, at what level, and how long they last.
+    # THE GHOST ROBBERY TRAVELS NOW (#1976). It used to be reading-only here because the
+    # press spawned a tool to PARK the chosen squads before the recipe could spend them,
+    # and a spawn is the half of an ability `web_press` may not run. That half is gone:
+    # the queue is an `ARGS` of `actions/steal_ghost_recon.md` and the panel hands it
+    # over, so «Ограбить всех» is one recipe played whole — the order of work `CLAUDE.md`
+    # states, finished rather than excepted.
     WEB_SCREEN = True
 
     def web_view(self) -> "dict | None":
@@ -1521,10 +1521,13 @@ class CommandPostTab(PanelTab):
                  self._web_treasures(coords), self._web_tasks()]
         # «Отработать сейчас» travels because it is a press and the ability behind it is
         # ONE recipe (#1296, CLAUDE.md «A press travels only when the ability is a
-        # scenario»). The ghost robbery beside it still parks its targets with a tool
-        # first, which is why that card has a reading and no button.
+        # scenario»). So does «Ограбить всех» beside it, since #1976 made the ghost
+        # robbery one recipe too — it takes its queue as an argument and parks nothing
+        # with a child.
         return {"cards": [c for c in cards if c], "now": now,
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
+                            {"id": "ghost_rob",
+                             "label": "cmdpost.ghost.steal_all"},
                             {"id": "treasure_auto",
                              "label": "cmdpost.treasure.auto"},
                             {"id": "treasure_sweep",
@@ -1552,13 +1555,12 @@ class CommandPostTab(PanelTab):
         at the machine and nowhere else is a switch that stops existing on the day Tk
         does.
 
-        What has NOT moved is the robbery. This page's one still parks its targets with a
-        spawned tool before the recipe presses (#1188), so «Ограбить» and «Ограбить всех»
-        are not here and must not be added until that ability is one scenario — the order
-        of work `CLAUDE.md` states. The distinction is the whole of it: what may not
-        travel is the PRESS, and this is the rule our own watcher obeys, exactly like the
-        rally auto-join the phone has been able to move through the schedule all along.
-        Five robberies a day spent at the wrong level are five nobody gets back.
+        And since #1976 the ROBBERY has moved too. It was held back while the press
+        needed a spawned tool to park its targets first; that tool is out of the path —
+        the queue is an argument of the recipe — so «Ограбить всех» is a screen action,
+        and it robs exactly what this page would rob by itself: `rob_candidates`, under
+        the same «минимальный уровень» the field above sets. Never «everything on the
+        map»: five robberies a day spent at the wrong level are five nobody gets back.
         """
         pane = self._by_key.get("ghost")
         low = pane.level_min() if pane is not None else None
@@ -1681,6 +1683,18 @@ class CommandPostTab(PanelTab):
             if answer is None:
                 answer = self._web_press_ghost(key, args.get("value"))
             return answer if answer is not None else {"error": "unknown"}
+        if action == "ghost_rob":
+            # «Ограбить всех», and it plays what the window's button plays: the page's
+            # own list, filtered by the page's own rule, handed to the recipe as its
+            # queue. Nothing here re-derives the choice and nothing here presses.
+            page = self._by_key.get("ghost")
+            if page is None:
+                return {"error": "unknown"}
+            if not page.order.run_once():
+                # Already robbing. Say so rather than parking a second set of squads on
+                # top of the one being pressed — the five a day are not refundable.
+                return {"ok": False, "reason": "cmdpost.ghost.busy"}
+            return {"ok": True}
         if action == "refresh":
             page = self._by_key.get("tasks")
             if page is not None:

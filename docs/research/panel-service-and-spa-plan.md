@@ -59,7 +59,8 @@ that owns a lifecycle.
 | P2 — the panel's language | **done** | screen, every open profile switches at once |
 | P2 — which profiles are open | **done** | `panel/runtime/profile_control.py`, shell-registered |
 | the web is the MAIN front-end | **decided** | «Веб теперь главный инструмент, ему и полный функционал» — `CLAUDE.md` and `docs/panel-tabs.md` rewritten; new goes to the web only |
-| P2 — the ghost standing order from the phone | **done** | switch + level as fields; «Ограбить» still absent until #1188's tool goes |
+| P2 — the ghost standing order from the phone | **done** | switch + level as fields |
+| P2 — the ghost ROBBERY from the phone | **written, not yet live** | the ability became one recipe first: `ARGS queue` on `actions/steal_ghost_recon.md`, the panel hands the squads over and spawns nothing. «Ограбить всех» is a screen action; nothing here has been pressed in a real game |
 | P2 — the Windows-session block | **done** | diagnosis is state now, «Проверить» and «Поднять сессию» are presses |
 | P2 — the picture quality | **done** | a `choice` field plus the client's own reading; the read verified live |
 | P2 — switching character | **done** | typed confirmation replaces the window's dialog; the row's own fields fixed |
@@ -77,10 +78,11 @@ that owns a lifecycle.
 
 **Still window-only, and why.** JOINING a rally — the three switches of the automatic
 side travel, the join itself does not, because it is a send with SQUADS chosen for it and
-a wrong squad sent from away is a squad that is not home when the next rally lands. The
-robberies whose ability is not yet ONE scenario — the ghost one still parks its targets
-with a spawned tool (#1188) — keep their readings and their standing orders and lose only
-the press, which is the order of work `CLAUDE.md` states rather than a divergence.
+a wrong squad sent from away is a squad that is not home when the next rally lands. That
+is now the ONLY press held back by the order-of-work rule: the ghost robbery was the other
+one, and #1976 finished the ability instead of excepting it — its queue is an argument of
+the recipe, exactly as the secret-task one's became in #1272, so no child is spawned and
+the press travels.
 The errand EDITOR is no longer among them: adding,
 renaming, copying, deleting an errand and rewriting its steps, its args and its title all
 travel now (`/api/timers/save`, `/copy`, `/delete`), and the panel refuses the same four
@@ -206,8 +208,8 @@ after the new one has been used to drive it.**
   | «Таймеры» | — | **done**: add / edit / copy / delete and the steps, the args and the title, through `/api/timers/save` · `/copy` · `/delete` and an editor that opens under the row it edits |
   | «Разработка», «Занятость» | all of it | an SPA screen behind the development switch — decided in §3, not built |
   | «Дуэль» | — | **done**: a card per day of switches, ceilings, details and picks, plus a sets card that creates, renames and deletes |
-  | «Чат» | send, send coordinates, clear, monitor | the send spawns a tool — the ability becomes a scenario first (`CLAUDE.md`) |
-  | «Командный пункт» | «Ограбить» / «Ограбить всех», jump, scan | the ghost robbery parks its targets with a tool first (#1188) — same order of work |
+  | «Чат» | clear, monitor, the emoji picker, the sticker grid | **the send travels**: `CHAT_SEND` made it one recipe. The picker and the grid are sprites on THIS machine's disk — a gap awaiting an answer, not a divergence |
+  | «Командный пункт» | «Ограбить» on ONE row, jump, scan | **«Ограбить всех» travels**: the queue became an `ARGS` of the recipe (#1976). A per-row press would have to re-derive the gates the page applies, so it waits for a row that carries its own uuid |
   | «Ралли» | join now, launch / stop a run | the join needs squads chosen for it — a screen, not a button. The kind filter's «все / никакие» travel now |
   | «Сокровища (отладка)» | «Копировать» | **the filter travels** as four switches; the clipboard is the MACHINE's and means nothing on a phone — «Сохранить» is the same fragment kept as a file |
   | «Секретки», «Профиль», «Инвентарь», «Аккаунты», «Игроки» | nothing of substance | — |

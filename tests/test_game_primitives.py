@@ -511,7 +511,10 @@ def test_ghost_recon_recipe_is_a_noop_while_the_event_is_closed():
 
     path = se.resolve_action("steal_ghost_recon")
     assert path is not None, "actions/steal_ghost_recon.md is missing"
-    stmts = se.parse_text(path.read_text(encoding="utf-8"))
+    # Through `prepare_source`, exactly as the engine does: the recipe takes its targets
+    # as `ARGS queue` since #1976, and a declaration is not a statement.
+    body, _merged = se.prepare_source(path.read_text(encoding="utf-8"), {})
+    stmts = se.parse_text(body)
     taps = [s for s in stmts if isinstance(s, se.TapStmt)]
     assert [s.name for s in taps] == ["steal_ghost_recon", "dismiss_ghost_recon_reward"]
     assert taps[0].count is None, "the press must be TAP … xall, not a fixed count"

@@ -1011,10 +1011,11 @@ Three things bound it:
 
 * **A press travels only when the ability is a scenario.** `web_press` runs
   `rt.actions` / `rt.play_async` and nothing else. Where a tab still drives the game by
-  hand — or half by hand (#1188 — the secret-task and ghost robberies press through a
-  scenario, but still spawn a tool to park the targets, because the recipe cannot fill
-  the queue it spends), the web gets the reading and no button. First the whole ability
-  through `rt.actions`, then the button.
+  hand — or half by hand, pressing through a scenario but spawning a tool to park its
+  targets first — the web gets the reading and no button. First the whole ability through
+  `rt.actions`, then the button. Both robberies were in that state and neither is: the
+  queue is an `ARGS` of the recipe now (#1272 the secret task, #1976 the ghost), so a
+  «recipe cannot fill the queue it spends» is a fact about `TAP`, not about a recipe.
 * **A DIVERGENCE IS NOT YOURS TO DECIDE.** When the two sides genuinely should differ —
   something impossible on a phone, something pointless in a window — that is a
   conversation with the person, not a judgement call. Ask, agree, then write the

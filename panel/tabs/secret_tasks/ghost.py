@@ -213,11 +213,12 @@ class _GhostGrid(grid.TaskGrid):
     def collectable(self, row) -> bool:
         """Never from here — the ghost robbery lives in «Командный пункт» (#1188).
 
-        Not an oversight: its press SPENDS a queue a standalone tool has to park the
-        targets in, and another copy of those two steps, in another place, is the thing
-        the rule about it forbids. The
-        row still says whether the game would allow the robbery — that is what the state
-        cell is for — and the coordinate still walks the camera there.
+        Not an oversight: the robbery has a page of its own, with the list it chooses
+        out of, the level rule it obeys and the standing order that spends the five a
+        day. A second «Ограбить» here would be a second opinion on the same budget —
+        which is what the rule about one ability in one place forbids. The row still says
+        whether the game would allow the robbery — that is what the state cell is for —
+        and the coordinate still walks the camera there.
         """
         return False
 

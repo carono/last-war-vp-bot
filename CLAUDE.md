@@ -106,8 +106,11 @@ because the one-line version plays a recipe over an empty queue, robs nothing an
 nothing — was right about the ONE-LINE version and wrong as a verdict. The swap costs
 what it always costs: the recipe has to grow the argument, park what it is given, and say
 in its own words what the caller used to read off the tool's stdout. **The ghost robbery
-still spawns**, and the same reasoning is waiting for whoever takes it: measure the child
-before deciding it is affordable.
+went the same way in #1976**, for the same measured reason and at the same price: `ARGS
+queue`, a park in the opening `LUA`, and the two lines the panel used to read off the
+child's stdout said by the recipe instead (`ghost_taken`, `ghost_steals_spent`). Neither
+robbery spawns anything now. The lesson stands for whatever is next: measure the child
+before deciding it is affordable, and do not ship the one-line version.
 
 ## Every panel tab is a plugin
 
@@ -242,18 +245,21 @@ def web_press(self, action, args) -> dict:
 ### A press travels only when the ability is a scenario
 
 `web_press` runs what `rt.actions` / `rt.play_async` runs and nothing else. Where a tab
-still drives the game by hand — or half by hand, which the GHOST robbery still is: it
-presses through a scenario but spawns a tool to PARK the targets first (#1188; the
-secret-task one stopped needing that in #1272) — **the web gets the READING and no
-button**, and the tab's own reading is mirrored as usual.
+still drives the game by hand — or half by hand: it presses through a scenario but spawns
+a tool to PARK the targets first — **the web gets the READING and no button**, and the
+tab's own reading is mirrored as usual. Both robberies used to be in that state; neither
+is (#1272 the secret task, #1976 the ghost), and «Операция Призрак» has its «Ограбить
+всех» on the phone because the ability is one recipe now, not because an exception was
+made for it.
 
-**What that forbids is the PRESS, and never the standing order behind it** — a
-distinction #1976 had to make out loud. «Операция Призрак» keeps its switch and its
-minimum level on the phone as FIELDS while «Ограбить» stays out of the web: the switch is
-the rule OUR OWN watcher obeys, exactly like the rally auto-join the phone has been able
-to move through the schedule all along, and a knob nobody can reach once the window is
-deleted is worse than one somebody can get wrong. The robbery itself waits for the tool
-in front of it to go.
+**What the rule forbids is the PRESS, and never the standing order behind it** — a
+distinction #1976 had to make out loud, and it is what let the ghost card carry its switch
+and its minimum level on the phone as FIELDS through the months when «Ограбить» could not
+go. A switch is the rule OUR OWN watcher obeys, exactly like the rally auto-join the phone
+has been able to move through the schedule all along, and a knob nobody can reach once the
+window is deleted is worse than one somebody can get wrong. **Joining a rally is where
+that still bites**: the three switches of the automatic side travel and the join itself
+does not.
 
 This is an ORDER OF WORK, not a way out of the rule: first the ability becomes a
 scenario, then the button appears in the web. A second copy of a hand-driven press,

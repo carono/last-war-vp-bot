@@ -35,11 +35,15 @@ Usage (run under the Windows Python so it can reach the warm daemon)
 
 `--all` takes every squad the client says is robbable right now, newest-finished
 first, up to the day's remaining budget. `--targets` robs exactly the «uuid:server»
-pairs it is given, in that order, and re-derives nothing — that is what the panel's
-standing order uses, because the choice belongs to the list the «Командный пункт»
-page keeps and not to a second reading of the map (#1256). `--queue-only` parks the
-targets in the game VM so `actions/steal_ghost_recon.md`
-(`TAP steal_ghost_recon xall`) can spend them.
+pairs it is given, in that order, and re-derives nothing. `--queue-only` parks the
+targets in the game VM so `actions/steal_ghost_recon.md` (`TAP steal_ghost_recon
+xall`) can spend them.
+
+THE PANEL NO LONGER RUNS ANY OF THIS (#1976). Its standing order and its «Ограбить
+всех» hand the chosen squads to the recipe as its `queue` argument and it parks them
+itself — a spawned child cost five seconds before the first press, which is the whole
+of the race. What is left here is the command line: `--status`, `--list`, and a
+robbery by hand when there is no panel in front of you.
 
 **Outside the event this does nothing and says so.** `IsOpenDay()` is false six
 days a week, `taskList` is empty, and every press is gated on it.
@@ -578,12 +582,10 @@ def main() -> int:
     ev.run(lua_actions.ghost_recon_queue_set(pairs), MARKER, 0.6, early=True)
 
     if args.queue_only:
-        # THIS LINE IS A CONTRACT, not just a report — see the same note in
-        # tools/steal_secret_task.py. «Командный пункт» runs this tool with
-        # `--queue-only` and then plays `actions/steal_ghost_recon.md` itself (#1188);
-        # «queued …» at the start of a line is how its reader tells «the targets are
-        # parked» from a shut event or an empty list, neither of which touches the
-        # queue (panel/tabs/command_post/ghost.py, QUEUED_MARK).
+        # Nobody parses this line any more (#1976): «Командный пункт» used to read
+        # «queued N» off this stdout to tell «the targets are parked» from a shut event
+        # or an empty list, and now it names the queue to the recipe instead. It stays a
+        # report for whoever is at the command line.
         print("queued %d target(s) — run actions/steal_ghost_recon.md to spend them"
               % len(pairs))
         return 0
