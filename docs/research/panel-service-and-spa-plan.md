@@ -58,6 +58,7 @@ that owns a lifecycle.
 | P2 — an errand's schedule from the phone | **done** | `/api/timers/edit`, period and weekdays |
 | P2 — the panel's language | **done** | screen, every open profile switches at once |
 | P2 — which profiles are open | **done** | `panel/runtime/profile_control.py`, shell-registered |
+| P2 — the errand's rule from the phone | **done** | five fields on «Свои задания»; live-checked, and a bad number is refused |
 | P2 — the rally switches from the phone | **done** | fields on «Ралли»; the capture re-points, the auto-join is the standing order |
 | P2 — what is still window-only | see below | |
 | P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
@@ -170,14 +171,30 @@ after the new one has been used to drive it.**
 * **20 tabs** in the registry. **12** offer a web screen today; the `default` profile
   shows **8** tab screens + 2 non-tab screens (`servers`, `autostart`).
 * **~203 interactive Tk controls** across the tabs (buttons, checkbuttons, entries,
-  combos). **~85 web actions** are declared today — so the web has roughly **40 %** of the
-  window's press surface.
-* **Not on the web at all:** «Настройки» (999 lines, 38 per-profile keys plus every tab's
-  own settings page), the «Таймеры» tab's editor (the schedule has API routes, its editing
-  UI does not), the tab on/off page, «Параметры» (web / profile / language / autostart —
-  only autostart is exposed), «Разработка» (deliberately desktop-only; under one front-end
-  it becomes either an SPA screen behind the development switch, or is dropped — a decision
-  for the person).
+  combos) — the first, crude count. **The press surface is much closer than that number
+  reads**, and the reason it looked so far apart is that the two sides were counted by
+  different rules: a window control is a widget, a web control is an action id OR a field
+  in a card, and a screen mirrors a whole table of window boxes with one toggle action.
+
+  Counted by NAME instead — every control the window draws with a locale key, against
+  every `label` a tab's own `web_view` declares — what the phone genuinely does not have
+  is a short list, and most of it is deliberate:
+
+  | tab | window-only | deliberate? |
+  |---|---|---|
+  | «Разработка», «Занятость» | all of it | yes — `WEB_SCREEN = False` |
+  | «Чат» | send, send coordinates, clear, monitor | yes — the send spawns a tool |
+  | «Таймеры» | add / edit / copy / delete an errand, edit its steps | yes — a recipe rewritten by a thumb |
+  | «Дуэль» | new / rename / delete a set, the week's grid | yes — a day's speedups aimed by a thumb |
+  | «Командный пункт» | ghost: switch, level, «Ограбить», jump, scan | asked; unanswered — see «still window-only» above |
+  | «Ралли» | join now, launch / stop a run, the two drill switches, the kind filter's «все / никакие» | the join and the run: yes. The drill switches and the filter buttons: NOT decided, the next thing to take |
+  | «Настройки» | bring the RDP session up, check it, refresh the graphics reading | not decided — a press worth having on a phone |
+  | «Сокровища (отладка)» | copy, keep-messages switch | debug surface; low value |
+  | «Секретки» | nothing of substance — every box travels as its own toggle action | — |
+  | «Профиль», «Инвентарь», «Аккаунты», «Игроки» | one press each (`profile.warzone.mine`, `inventory.use`, `accounts.switch`) | not decided |
+
+  So the remaining P2 work is **tens of controls, not two hundred**, and half of what is
+  left is a decision rather than code.
 * **API:** 21 routes today; the SPA needs roughly 40 (settings read/write, timers editing,
   tab toggles, per-tab settings pages, parameters).
 * **i18n:** 2153 keys × 11 locales, already served whole by `/api/i18n`. The SPA keeps the
