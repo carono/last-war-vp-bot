@@ -1,0 +1,56 @@
+/* Talking to the panel: two verbs, one rule.
+ *
+ * WHICH ACCOUNT TRAVELS ON EVERY REQUEST. A window may hold four profiles open and they
+ * are four clients, four schedules and four logs — a page that asked without saying
+ * which would show one of them and imply the others (`panel/web/api.py`). A GET carries
+ * it in the query, a POST in the BODY: the API ignores `?profile=` on a POST.
+ *
+ * Nothing here decides anything. Every call is one route, and a route is one call onto
+ * the runtime — an ability is a scenario and this plays it (CLAUDE.md).
+ */
+
+let profile = ''
+
+/** Whose panel is being looked at. Empty means «the session the server came up with». */
+export function currentProfile(): string {
+  return profile
+}
+
+export function setProfile(name: string): void {
+  profile = name
+}
+
+/** Raised when the panel says the token is not good — the caller shows the login box. */
+export class Unauthorised extends Error {}
+
+function withProfile(path: string): string {
+  if (!profile) return path
+  return path + (path.includes('?') ? '&' : '?') + 'profile=' + encodeURIComponent(profile)
+}
+
+export async function get<T>(path: string): Promise<T> {
+  const answer = await fetch(withProfile(path), { headers: { Accept: 'application/json' } })
+  if (answer.status === 401) throw new Unauthorised('unauthorised')
+  if (!answer.ok) throw new Error('http ' + answer.status)
+  return (await answer.json()) as T
+}
+
+export async function post<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+  const answer = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile, ...(body || {}) }),
+  })
+  if (answer.status === 401) throw new Unauthorised('unauthorised')
+  return (await answer.json()) as T
+}
+
+/** Is this browser already carrying a good token? Answered without one. */
+export async function ping(): Promise<boolean> {
+  try {
+    const answer = await fetch('/api/ping')
+    return !!(await answer.json()).authorised
+  } catch {
+    return false
+  }
+}

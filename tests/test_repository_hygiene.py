@@ -63,7 +63,11 @@ def _read(rel: str) -> str:
 #: question for a person, not a default yes.
 SOURCE_SUFFIXES = {".py", ".md", ".json", ".bat", ".cmd", ".ps1", ".sh", ".txt", ".lua",
                    ".toml", ".js", ".html", ".css", ".yml", ".yaml", ".cfg", ".ini",
-                   ".example"}
+                   ".example",
+                   # The web front-end (#1976): TypeScript, and TypeScript with JSX in
+                   # it. Text like every other line above, and written down here rather
+                   # than assumed, which is what this set is for.
+                   ".ts", ".tsx"}
 
 #: …and the few files a repository carries that have no suffix at all.
 SOURCE_NAMES = {"LICENSE", ".gitignore", ".gitattributes"}

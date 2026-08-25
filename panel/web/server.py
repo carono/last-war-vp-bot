@@ -547,6 +547,12 @@ def _make_handler(server: WebServer):
             name = "index.html" if path in ("", "/") else path.lstrip("/")
             root = static_dir()
             full = os.path.normpath(os.path.join(root, name))
+            # A FOLDER IS ITS OWN INDEX. The React front-end is a folder of its own
+            # (`static/app/`, #1976) served beside the page it will replace, so «/app»
+            # and «/app/» have to mean the file inside it — otherwise the only way in is
+            # to type the name of a build artefact.
+            if os.path.isdir(full):
+                full = os.path.join(full, "index.html")
             if not full.startswith(root) or not os.path.isfile(full):
                 self._send(404, b"", "text/plain")
                 return

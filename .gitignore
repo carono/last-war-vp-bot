@@ -152,3 +152,9 @@ tools/_*.py
 /accounts.json
 accounts*.json
 !tools/data/accounts.example.json
+
+# The web front-end's dependencies. The BUNDLE is committed (`panel/web/static/app/`)
+# because the machine that runs the game has Python and no Node; what is fetched to
+# build it is not.
+panel/web/app/node_modules/
+panel/web/app/tsconfig.tsbuildinfo
