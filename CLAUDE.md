@@ -148,14 +148,37 @@ product and a copy of it — they are two ways of drawing the same runtime, and 
 moment one of them is behind, whoever is reading THAT one is being told something that
 is not true any more, with no way to know it.
 
-So it travels **both ways, in the same commit**:
+### …and for the length of the migration it travels ONE way: into the web
+
+**The person has decided, in these words: «Веб теперь главный инструмент, ему и полный
+функционал» (#1976).** The web is not the mobile copy of the window any more — it is the
+front-end, and the window is kept only until it is deleted. So while the migration runs,
+read the rule below like this:
+
+* **NEW GOES ONLY INTO THE WEB.** A button, a field, a reading, a screen — it is written
+  in `web_view()` / `web_press()` and the tab's `build()` is left alone. Where the two
+  ways of doing something would cost the same, choose the web every time.
+* **The window gets an edit only when control would otherwise be LOST before Tk goes** —
+  a fix to something already there, not a new ability.
+* Everything the window has and the web has not is a GAP TO CLOSE IN THE WEB, never a
+  reason to add to the window.
+
+That inverts the second bullet below and nothing else: the first still stands whole,
+because the web must never be the side that is behind. When Tk is deleted (P3 of
+`docs/research/panel-service-and-spa-plan.md`) this section is replaced by the single
+front-end's contract and both bullets go.
+
+So it travels **both ways, in the same commit** — until the paragraph above applies,
+which for the duration of #1976 it does:
 
 * **Window → web.** A tab that grows a button, a field, a reading or a status line
   updates its `web_view()` — and `web_press()` if it is a press.
 * **Web → window.** A screen, a card, a button or a fact added to `web_view()` gets its
   counterpart in the tab's `build()`. The web does not run ahead of the window either:
   a control that exists only on the phone is a control the person at the machine cannot
-  find, and the next agent reading the tab has no idea it is there.
+  find, and the next agent reading the tab has no idea it is there. **Suspended by the
+  decision above for the length of the migration** — a control the phone has and the
+  window has not is now the ordinary case, and it is how the window empties.
 
 Neither side catches up with the other once a quarter; they move together. A tab's
 screen is data (`docs/panel-tabs.md`, «The phone's copy of this tab»), so mirroring an
@@ -223,6 +246,14 @@ still drives the game by hand — or half by hand, which the GHOST robbery still
 presses through a scenario but spawns a tool to PARK the targets first (#1188; the
 secret-task one stopped needing that in #1272) — **the web gets the READING and no
 button**, and the tab's own reading is mirrored as usual.
+
+**What that forbids is the PRESS, and never the standing order behind it** — a
+distinction #1976 had to make out loud. «Операция Призрак» keeps its switch and its
+minimum level on the phone as FIELDS while «Ограбить» stays out of the web: the switch is
+the rule OUR OWN watcher obeys, exactly like the rally auto-join the phone has been able
+to move through the schedule all along, and a knob nobody can reach once the window is
+deleted is worse than one somebody can get wrong. The robbery itself waits for the tool
+in front of it to go.
 
 This is an ORDER OF WORK, not a way out of the rule: first the ability becomes a
 scenario, then the button appears in the web. A second copy of a hand-driven press,

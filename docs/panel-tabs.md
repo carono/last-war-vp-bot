@@ -874,6 +874,13 @@ The panel has two front-ends: this window and the web one a phone opens
 (`panel/web/`, docs/research/panel-web.md). A tab hands the second one its screen as
 DATA and the browser draws it with a single renderer:
 
+> **While #1976 runs, the web is the MAIN front-end and the window is the copy.** The
+> person's words: «Веб теперь главный инструмент, ему и полный функционал». So anything
+> NEW is written in `web_view()` / `web_press()` only, and `build()` is touched just
+> enough to keep control from being lost before Tk is deleted. Read the mirroring rule in
+> `CLAUDE.md` with that inversion in place: window → web still binds, web → window is
+> suspended, and a control the phone has and the window has not is now the ordinary case.
+
 ```python
 WEB_SCREEN = True                       # this tab has a phone screen
 
@@ -924,6 +931,16 @@ a number. The renderer draws the control the kind names and moves it by pressing
 with `{"key": …, "value": …}`, so the tab that owns a knob answers for it in `web_press`
 and nothing about the knob's MEANING leaves the tab. A card may also carry `note` — a
 locale key, drawn under the heading, for the sentence a page needs before its controls.
+
+The renderer draws a card's **fields above its rows**: readings explain a card, knobs
+are what a person opened it to move, and «Ралли» carries three switches over a table of
+sixty-eight budget lines — a control under that table is a control nobody scrolls to.
+
+**A knob may travel where the PRESS beside it may not.** «Операция Призрак» has its
+switch and its minimum level as fields while «Ограбить» is still absent, because the
+robbery spawns a tool to park its targets first (`CLAUDE.md`, #1188) and the switch is
+merely the rule the panel's own watcher obeys. Ask which of the two a control is before
+deciding it cannot travel.
 
 **Which fields are words and which are data is fixed.** `title`, `label`, `empty`,
 `pill` are **locale keys** and are said by the browser out of the panel's own table;

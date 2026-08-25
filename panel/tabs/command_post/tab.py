@@ -200,6 +200,34 @@ class _Pane:
         """This profile's warm-daemon evaluator (raises if there is no daemon)."""
         return self.rt.game.evaluator()
 
+    def _web_press_ghost(self, key: str, value) -> "dict | None":
+        """The ghost standing order's switch or its level; ``None`` for another key.
+
+        The SWITCH goes through `order.toggle`, which is what the window's checkbox is
+        bound to: the watcher is started and stopped there and nowhere else, so a switch
+        thrown from a phone brings the same thread up as one thrown at the machine.
+
+        The LEVEL is remembered the way every typed box on this page is — the variable is
+        traced, so setting it writes the profile, and the rule line is repainted for
+        whoever is standing at the window. Anything that is not a whole number is stored
+        as EMPTY, which is «any level»: a half-typed box must never quietly become level
+        0 and spend the day's five robberies on the first tile the watcher sees.
+        """
+        if key not in ("ghost_autoloot", "ghost_level_min"):
+            return None
+        page = self._by_key.get("ghost")
+        if page is None:
+            return {"error": "unknown"}
+        if key == "ghost_autoloot":
+            page.autoloot_var.set(bool(value))
+            page.order.toggle()
+            return {"ok": True}
+        raw = str(value or "").strip()
+        if raw and not raw.isdigit():
+            return {"ok": False, "reason": "web.ui.not_a_number"}
+        page.level_min_var.set(raw)
+        return {"ok": True}
+
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
         if not self._loaded:
@@ -1516,21 +1544,33 @@ class CommandPostTab(PanelTab):
     def _web_ghost(self, coords, now) -> dict:
         """«Операция Призрак» — what the last scan wrote down, and what will be taken.
 
-        The standing order's two facts ride with the tiles (#1256). They are a READING,
-        like everything else on this screen: the switch and the level box stay in the
-        window, because this is the page whose robbery still parks its targets with a tool
-        before the recipe presses (#1188) —
-        but «что вообще будет взято» is precisely what somebody away from the machine
-        needs to know, and a list of squads without it says nothing about it.
+        The standing order's two facts ride with the tiles (#1256) — and since #1976 they
+        are KNOBS here rather than readings. The person has decided the web is the MAIN
+        front-end and gets the whole of the panel's function; the window is kept only
+        until it is deleted and grows nothing new. From that decision a switch reachable
+        at the machine and nowhere else is a switch that stops existing on the day Tk
+        does.
+
+        What has NOT moved is the robbery. This page's one still parks its targets with a
+        spawned tool before the recipe presses (#1188), so «Ограбить» and «Ограбить всех»
+        are not here and must not be added until that ability is one scenario — the order
+        of work `CLAUDE.md` states. The distinction is the whole of it: what may not
+        travel is the PRESS, and this is the rule our own watcher obeys, exactly like the
+        rally auto-join the phone has been able to move through the schedule all along.
+        Five robberies a day spent at the wrong level are five nobody gets back.
         """
         pane = self._by_key.get("ghost")
         low = pane.level_min() if pane is not None else None
         on = bool(pane.autoloot_var.get()) if pane is not None else False
-        rows = [{"label": "ghost.autoloot",
-                 "value": self.rt.t("ghost.state.on" if on else "ghost.state.off")},
-                {"label": "ghost.level_min",
-                 "value": (str(low) if low is not None
-                           else self.rt.t("ghost.any_level"))}]
+        fields = [{"key": "ghost_autoloot", "label": "ghost.autoloot",
+                   "hint": "ghost.hint", "kind": opt_value.SWITCH, "value": on},
+                  # A number that may be EMPTY, and empty is «any level» — so it travels
+                  # as text rather than as a number the browser would helpfully turn into
+                  # a 0. Zero here is not «no bound», it is every squad on the map.
+                  {"key": "ghost_level_min", "label": "ghost.level_min",
+                   "kind": opt_value.TEXT,
+                   "value": (str(low) if low is not None else "")}]
+        rows = []
         items = []
         try:
             import lastwar_proto as proto
@@ -1545,8 +1585,8 @@ class CommandPostTab(PanelTab):
                            "value": str(m.steal_count or 0)}],
                 "until": float(m.expire_time) / 1000.0 if m.expire_time else None,
             })
-        return {"title": "cmdpost.tab.ghost", "rows": rows, "items": items,
-                "empty": "cmdpost.ghost.empty"}
+        return {"title": "cmdpost.tab.ghost", "rows": rows, "fields": fields,
+                "items": items, "empty": "cmdpost.ghost.empty"}
 
     def _web_shared(self, coords) -> dict:
         """«Общие миссии» — what the alliance has shared, as the pane has them."""
@@ -1629,13 +1669,16 @@ class CommandPostTab(PanelTab):
         assembles a step of it.
         """
         if action == "set":
-            # «Свои задания» answers for its own five knobs and says so by returning
-            # something; nothing else on this screen has a field yet, so an unclaimed
-            # key is a press that did not come from here (#1976).
-            page = self._by_key.get("tasks")
+            # Two pages own knobs on this screen and each answers for its own by
+            # returning something; a key neither claims is a press that did not come
+            # from here (#1976).
             args = args if isinstance(args, dict) else {}
-            answer = (page.web_set(str(args.get("key") or ""), args.get("value"))
+            key = str(args.get("key") or "")
+            page = self._by_key.get("tasks")
+            answer = (page.web_set(key, args.get("value"))
                       if page is not None else None)
+            if answer is None:
+                answer = self._web_press_ghost(key, args.get("value"))
             return answer if answer is not None else {"error": "unknown"}
         if action == "refresh":
             page = self._by_key.get("tasks")
@@ -1694,6 +1737,34 @@ class CommandPostTab(PanelTab):
                 TREASURE_SCAN_ACTION, tag="web", human=True,
                 on_result=(page.lap_from_run if page is not None else None))}
         return {"error": "unknown"}
+
+    def _web_press_ghost(self, key: str, value) -> "dict | None":
+        """The ghost standing order's switch or its level; ``None`` for another key.
+
+        The SWITCH goes through `order.toggle`, which is what the window's checkbox is
+        bound to: the watcher is started and stopped there and nowhere else, so a switch
+        thrown from a phone brings the same thread up as one thrown at the machine.
+
+        The LEVEL is remembered the way every typed box on this page is — the variable is
+        traced, so setting it writes the profile, and the rule line is repainted for
+        whoever is standing at the window. Anything that is not a whole number is stored
+        as EMPTY, which is «any level»: a half-typed box must never quietly become level
+        0 and spend the day's five robberies on the first tile the watcher sees.
+        """
+        if key not in ("ghost_autoloot", "ghost_level_min"):
+            return None
+        page = self._by_key.get("ghost")
+        if page is None:
+            return {"error": "unknown"}
+        if key == "ghost_autoloot":
+            page.autoloot_var.set(bool(value))
+            page.order.toggle()
+            return {"ok": True}
+        raw = str(value or "").strip()
+        if raw and not raw.isdigit():
+            return {"ok": False, "reason": "web.ui.not_a_number"}
+        page.level_min_var.set(raw)
+        return {"ok": True}
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
