@@ -61,6 +61,7 @@ that owns a lifecycle.
 | the web is the MAIN front-end | **decided** | «Веб теперь главный инструмент, ему и полный функционал» — `CLAUDE.md` and `docs/panel-tabs.md` rewritten; new goes to the web only |
 | P2 — the ghost standing order from the phone | **done** | switch + level as fields; «Ограбить» still absent until #1188's tool goes |
 | P2 — the Windows-session block | **done** | diagnosis is state now, «Проверить» and «Поднять сессию» are presses |
+| P2 — the picture quality | **done** | a `choice` field plus the client's own reading; the read verified live |
 | P2 — switching character | **done** | typed confirmation replaces the window's dialog; the row's own fields fixed |
 | P2 — the errand's rule from the phone | **done** | five fields on «Свои задания»; live-checked, and a bad number is refused |
 | P2 — the rally switches from the phone | **done** | fields on «Ралли»; the capture re-points, the auto-join is the standing order |
@@ -194,7 +195,6 @@ after the new one has been used to drive it.**
   | «Чат» | send, send coordinates, clear, monitor | the send spawns a tool — the ability becomes a scenario first (`CLAUDE.md`) |
   | «Командный пункт» | «Ограбить» / «Ограбить всех», jump, scan | the ghost robbery parks its targets with a tool first (#1188) — same order of work |
   | «Ралли» | join now, launch / stop a run, the kind filter's «все / никакие» | the join needs squads chosen for it — a screen, not a button. The filter's two buttons are small |
-  | «Настройки» | the graphics reading's «Обновить» | small |
   | «Сокровища (отладка)» | copy, keep-messages switch | debug surface; low value |
   | «Секретки», «Профиль», «Инвентарь», «Аккаунты», «Игроки» | nothing of substance | — |
 
