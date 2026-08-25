@@ -799,7 +799,10 @@ class RallyTab(PanelTab):
     #: The three switches the phone may MOVE, and the one place their names are written.
     #: `web_press` refuses a `set` naming anything else, so the screen's press surface is
     #: exactly this tuple rather than whatever a caller can spell.
-    WEB_SWITCHES = ("monitor", "alert", "autojoin")
+    #: …and the two of «Авторалли» beside them: whether the Alliance Exercise is joined
+    #: by itself, and whether a banner is raised for it. Plain settings the joiner reads
+    #: as it goes, so moving one needs nothing but the write.
+    WEB_SWITCHES = ("monitor", "alert", "autojoin", "drill", "drill_banner")
 
     def _web_autojoin_card(self) -> dict:
         """The three switches, one per line — and SWITCHES on the phone too, since #1976.
@@ -830,6 +833,12 @@ class RallyTab(PanelTab):
                  "kind": opt_value.SWITCH, "value": bool(self._alert_var.get())},
                 {"key": "autojoin", "label": "rally.autojoin",
                  "kind": opt_value.SWITCH, "value": self._autojoin_on()},
+                {"key": "drill", "label": "autorally.drill.enabled",
+                 "kind": opt_value.SWITCH,
+                 "value": bool(self.autorally._drill_on_var.get())},
+                {"key": "drill_banner", "label": "autorally.drill.banner",
+                 "kind": opt_value.SWITCH,
+                 "value": bool(self.autorally._drill_banner_var.get())},
             ],
         }
 
@@ -982,6 +991,14 @@ class RallyTab(PanelTab):
             return {"error": "unknown"}
         if key == "autojoin":
             self._set_autojoin(on)
+        elif key in ("drill", "drill_banner"):
+            # «Авторалли»'s own two. They start nothing and stop nothing — the joiner
+            # reads them when a banner arrives — so there is no capture to re-point and
+            # the write is the whole of the press.
+            (self.autorally._drill_on_var if key == "drill"
+             else self.autorally._drill_banner_var).set(on)
+            self.rt.settings.changed()
+            return {"ok": True}
         else:
             (self._monitor_var if key == "monitor" else self._alert_var).set(on)
         self._sync_capture()
