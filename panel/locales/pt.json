@@ -289,6 +289,7 @@
   "log.game.back": "o cliente voltou",
   "log.game.link_lost": "a ligação ao servidor caiu — o cliente continua rodando, mas tudo o que lê é de ontem",
   "log.game.link_back": "a ligação ao servidor voltou",
+  "log.game.link_ready": "a ligação ao jogo ficou pronta {secs} s depois de o cliente aparecer",
   "log.game.deaf_restart": "reinicio o cliente: sockets perdidos em {looks} olhares durante {secs}s · {fails} sondas ao servidor sem resposta (a última há {probe_secs}s) · ninguém na máquina há {idle}s",
   "log.game.deaf_restart_busy": "o servidor não ouve o cliente e há alguém no computador — reinício mesmo assim após {mins} min",
   "log.game.deaf_hold": "o cliente não é ouvido, mas foi reiniciado há pouco — aguardando {mins} min",

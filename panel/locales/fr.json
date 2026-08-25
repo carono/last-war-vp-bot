@@ -289,6 +289,7 @@
   "log.game.back": "le client est revenu",
   "log.game.link_lost": "la connexion au serveur a disparu — le client tourne toujours, mais tout ce qu'il lit date d'hier",
   "log.game.link_back": "la connexion au serveur est revenue",
+  "log.game.link_ready": "la liaison avec le jeu était prête {secs} s après l'apparition du client",
   "log.game.deaf_restart": "je redémarre le client : sockets perdus sur {looks} regards en {secs}s · {fails} sondes serveur sans réponse (la dernière il y a {probe_secs}s) · personne à la machine depuis {idle}s",
   "log.game.deaf_restart_busy": "le client n'est plus entendu du serveur et quelqu'un est à la machine — redémarrage quand même après {mins} min",
   "log.game.deaf_hold": "le client n'est pas entendu, mais il vient d'être redémarré — attente de {mins} min",

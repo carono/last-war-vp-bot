@@ -1,0 +1,188 @@
+# Plan: the panel becomes a Windows service, the interface becomes a React SPA (#1976)
+
+Status: **approved 2026-08-25**, in progress. What was approved differs from the first
+draft in one decisive way — see «The door, not the supervisor» below.
+
+## 0. What the person asked for, as a number
+
+> «Если работает сервис, значит мне нужно только запустить игру, и все связи должны
+> быстро и без проблем с игрой устанавливаться.»
+
+That is the acceptance criterion of the whole piece of work, and it is measurable:
+
+**From the game client appearing to the light being green — the game server answering —
+with not one action by the person. Measured today: 37 s (a watchdog relaunch on the live
+`default` profile: the client process appeared at 16:07:27 and the link went green at
+16:08:04; most of it was attach attempts refused while the client was still loading its
+own code, retried on a five-second watch and an eight-second poll). Target: the client's
+own boot plus a couple of seconds — no wait that belongs to the panel.**
+
+The panel now SAYS the number itself, once per appearance of a client
+(`log.game.link_ready`), so the criterion is checked by reading the log rather than by
+anybody's impression. First live reading after the change, on `default`:
+**«связь с игрой поднялась за 18 с после появления клиента»** — a panel restart against
+a client that was already up, which is the other half of the same measurement.
+
+Three consequences that are part of the criterion and not decoration:
+
+* the attach happens the moment a client is there — not on the next tick of a slow poll,
+  and never after a wait that grows;
+* the trap of «the first look after the client appears does not take it» does not come
+  back: the look repeats at ONE fixed short rate while nothing is held;
+* a link that cannot be made is a loud failure with its reason, said ONCE — not silence,
+  and not the same sentence every eight seconds.
+
+## The door, not the supervisor
+
+The service **does not start the panel and does not supervise it**. The panel comes up
+with the Windows session, exactly as the session itself does, and CONNECTS to the
+service; the service never reaches into a session. This is the whole answer to «will it
+be the daemon all over again»: there is no process anybody has to bring up, so there is
+nothing that can fail to come up. Starting a panel into a session stays as a rare manual
+button, if it is built at all.
+
+What the service is: the port, TLS, the token, the SPA, the register of panels that have
+connected, and the routing to them. What it is not: a watchdog, a retry loop, a thing
+that owns a lifecycle.
+
+## 1. Target architecture
+
+Two processes, and the split is forced by Windows, not chosen for taste.
+
+```
+  Windows service  "LastWarBot"   (session 0, LocalSystem, starts at boot)
+      ├─ HTTP/HTTPS endpoint, token, TLS, the SPA bundle
+      ├─ a register of the PANELS that have connected to it, and routing to them
+      ├─ its own log (Event Log + file), start/stop/restart through `sc` / services.msc
+      └─ starts nothing, restarts nothing, watches nothing
+
+  Panel  (one per interactive Windows session, started BY THE SESSION — a logon task,
+          exactly the way the session's own programs come up)
+      ├─ everything today's panel process is, minus Tk:
+      │    PanelRuntime per profile, schedule, triggers, stores, captures, children
+      ├─ the Lua VM held in-process (#1911: lua_service.py, link.py) + the lease socket
+      ├─ foreground input (pydirectinput), screenshots (mss), window search, il2cpp attach
+      └─ CONNECTS OUT to the service and answers what it is asked; nothing connects in
+```
+
+The panel is what it is today with the window taken off. Nothing about scenarios, the
+link's three statuses, the profiles, the stores or the schedule changes shape.
+
+## 2. Session 0 — the honest answer
+
+A Windows service runs in session 0. It has **no desktop, no window station of a user,
+no foreground, no screen**. The bot needs all four:
+
+| what the bot needs | works from session 0? | consequence |
+|---|---|---|
+| `pydirectinput` foreground input (the game ignores `PostMessage`) | **no** | must live in the agent |
+| screenshots (`mss`) | **no** (black / access denied) | must live in the agent |
+| finding the game window by title | **no** (different window station) | must live in the agent |
+| il2cpp attach / thread hijack of the client | technically yes as SYSTEM (SeDebug), but the client is in a user session and ACE is hostile to foreign tokens (see the multi-instance wall) | keep it in the agent, where it is proven |
+| a client in ANOTHER Windows session (RDP) | already solved by a small process over there, started by the panel | unchanged: agent per session |
+
+So: **the service never touches the game.** It supervises, serves the web and routes.
+This is the same shape the repository already uses for a second client, so it is not a
+new mechanism, it is the existing one made the rule.
+
+**What the service genuinely buys:** an endpoint that is up before anybody signs in and
+stays up when they sign out, clean `start/stop/restart` by Windows, one process nobody
+closes by accident — and, the one that matters most, **the cure is no longer locked
+behind the illness**: a panel that will not talk is still reachable and still restartable
+from the outside.
+
+**What it does NOT buy, and must not be promised:** the bot still cannot play without an
+interactive session — the GAME CLIENT itself needs one. If the user logs off, the client
+dies with the session. Mitigation is the one already in the tree: the service keeps the
+session alive / re-creates it by connecting to the machine's own RDP address with stored
+credentials (one credential slot per address, so one address per account). Price:
+credentials must be stored on the machine, and a disconnected session costs GPU
+(measured earlier: a disconnected session is roughly three times the cost, 10 FPS floor).
+
+**Other prices:** the service runs as SYSTEM, so every launch of a child must carry an
+explicit user token and an explicit elevation; a crashed agent is silent unless the
+service reports it; there is no window and no console to look at while debugging — only
+the log and the web.
+
+## 3. What is removed, and in what order (control is never lost)
+
+The rule for the whole migration: **the old way of driving the panel is deleted only
+after the new one has been used to drive it.**
+
+* **P0 — the door and the panel, Tk still there.** The panel connects to the service;
+  the service starts nothing. Nothing about the interface changes; the existing web page and
+  the Tk window both keep working. Done when: the machine reboots, nobody logs in, the
+  service is running, and the web endpoint answers `/api/profiles` with all four profiles.
+* **P1 — React SPA at parity with today's web.** New bundle served by the service on the
+  same routes; the old `panel/web/static/*` stays until the SPA covers it. Done when: the
+  SPA does everything the current page does on a phone, on the `default` profile, live.
+* **P2 — the gap (section 4) is filled.** Every tab, screen and control that only the
+  window has appears in the SPA. Done when: the inventory list below is empty.
+* **P3 — Tk is deleted.** `panel/__main__.py` (the shell), `panel/widgets.py`, every
+  `build()`, `settings_page()`, the dialogs, `log_view`, the splash. Tab state moves from
+  Tk variables to plain runtime state; the clock moves from the Tk `after` queue to the
+  agent's own loop (only 5 files use `after`, so the clock is the small half; the 164 Tk
+  variables in tabs are the large one). Done when: the agent imports no `tkinter`.
+* **P4 — the rules follow the code.** The «both front-ends» sections of `CLAUDE.md` and
+  `docs/panel-tabs.md` are rewritten for one front-end, and the parity tests
+  (`tests/test_panel_web_screens.py` and relatives) are replaced by tests of the single
+  contract: every tab produces a screen, every screen is keys and data, every declared
+  action has a handler.
+
+## 4. Volume of stage 2, measured
+
+* **20 tabs** in the registry. **12** offer a web screen today; the `default` profile
+  shows **8** tab screens + 2 non-tab screens (`servers`, `autostart`).
+* **~203 interactive Tk controls** across the tabs (buttons, checkbuttons, entries,
+  combos). **~85 web actions** are declared today — so the web has roughly **40 %** of the
+  window's press surface.
+* **Not on the web at all:** «Настройки» (999 lines, 38 per-profile keys plus every tab's
+  own settings page), the «Таймеры» tab's editor (the schedule has API routes, its editing
+  UI does not), the tab on/off page, «Параметры» (web / profile / language / autostart —
+  only autostart is exposed), «Разработка» (deliberately desktop-only; under one front-end
+  it becomes either an SPA screen behind the development switch, or is dropped — a decision
+  for the person).
+* **API:** 21 routes today; the SPA needs roughly 40 (settings read/write, timers editing,
+  tab toggles, per-tab settings pages, parameters).
+* **i18n:** 2153 keys × 11 locales, already served whole by `/api/i18n`. The SPA keeps the
+  rule unchanged — no literal in a component; a lint test scans the JSX exactly as
+  `tests/test_panel_i18n.py` scans the tabs today.
+* **Replaced:** 1169 lines of hand-written JS + 165 HTML + 460 CSS.
+
+Rough size: ~25 screens, ~200 controls, ~20 new API routes, plus the Tk removal
+(~15 k lines of tab code loses its drawing half and keeps its reading half).
+
+## 5. Stack and delivery
+
+* React + TypeScript + Vite; a small state layer (React Query-style polling over the
+  existing routes — the API is already poll-shaped); one mobile-first design system.
+* Built bundle committed under `panel/web/app/` and served by the service as static files;
+  no Node on the target machine, no CDN, works on a LAN with no internet.
+* Update: the bundle travels with the repository, exactly as the panel does now; the
+  service serves whatever is on disk after a restart.
+
+## 6. Access from outside
+
+Unchanged in principle, stricter in practice: token in a cookie, HTTPS when a certificate
+is configured. What changes with the service: the port and the certificate stop being a
+per-window setting stored under a profile and become the SERVICE's configuration; the
+service can bind before any user logs in; and the token becomes rotatable from the SPA
+itself (which is safe once the panel is no longer reachable another way, and a locked-out
+person can still reset it from the machine with `sc stop` + a config file).
+
+## 7. Risks
+
+1. **No session, no game.** The service is up and reports healthy while nothing can be
+   played, if the interactive session is gone. The status must say this explicitly, in the
+   link colours it already has.
+2. **The panel's own start.** It comes up with the session, so «the session came up and
+   the panel did not» is the one remaining way to have no panel. It is the same failure
+   as today's — the hourly task exists for exactly it — and it is visible from the
+   service, which can say «no panel has connected from that session» in words.
+3. **Debugging gets harder.** No window, no console. Everything a person could see by
+   looking at the window must be readable in the log and in the SPA before Tk is deleted.
+4. **Tk state removal is wide, not deep.** 164 Tk variables hold tab state; each is a
+   small mechanical change, but there are many, and a missed one is a setting that stops
+   persisting.
+5. **The parity rule disappears** — approved by the person for this work. Until P4 lands,
+   the rule still stands and both front-ends must be kept in step.

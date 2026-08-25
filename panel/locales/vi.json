@@ -289,6 +289,7 @@
   "log.game.back": "client đã trở lại",
   "log.game.link_lost": "kết nối tới máy chủ đã mất — client vẫn chạy, nhưng mọi thứ nó đọc đều là của hôm qua",
   "log.game.link_back": "kết nối tới máy chủ đã trở lại",
+  "log.game.link_ready": "kết nối tới game sẵn sàng sau {secs} giây kể từ khi client xuất hiện",
   "log.game.deaf_restart": "khởi động lại client: socket mất qua {looks} lần nhìn trong {secs}s · {fails} lần dò máy chủ không hồi đáp (lần cuối {probe_secs}s trước) · không có ai ở máy suốt {idle}s",
   "log.game.deaf_restart_busy": "máy chủ không nghe thấy client và có người đang ở máy — vẫn khởi động lại sau {mins} phút",
   "log.game.deaf_hold": "không nghe thấy client, nhưng vừa khởi động lại — chờ {mins} phút",

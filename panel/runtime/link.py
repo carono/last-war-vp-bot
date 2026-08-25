@@ -277,6 +277,20 @@ class GameLink:
         """Drop the remembered answer — something just changed the far end."""
         self._up_seen = (0.0, None, False)
 
+    def link_wait(self) -> "float | None":
+        """Seconds from this client appearing to now — once per appearance (#1976).
+
+        The number the whole panel is judged by: a person starts the game and nothing
+        else, and this is how long they waited for it to work. Local clients only — a
+        client in another Windows session is started over there and the panel has no
+        honest moment to measure from, so it says nothing rather than a number it made
+        up.
+        """
+        if not self.is_local():
+            return None
+        service = lua_service.current()
+        return None if service is None else service.take_wait()
+
     def traffic_age(self) -> "float | None":
         """Seconds since a chunk last came back out of the game, or ``None``.
 

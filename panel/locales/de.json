@@ -289,6 +289,7 @@
   "log.game.back": "der Client ist zurück",
   "log.game.link_lost": "die Serververbindung ist weg — der Client läuft noch, aber alles, was er liest, ist von gestern",
   "log.game.link_back": "die Serververbindung ist wieder da",
+  "log.game.link_ready": "die Spielverbindung stand {secs} s nach dem Erscheinen des Clients",
   "log.game.deaf_restart": "starte den Client neu: Sockets bei {looks} Blicken über {secs}s verloren · {fails} Server-Proben ohne Antwort (letzte vor {probe_secs}s) · seit {idle}s niemand am Rechner",
   "log.game.deaf_restart_busy": "der Client ist für den Server nicht erreichbar und jemand sitzt am Rechner — nach {mins} Min trotzdem Neustart",
   "log.game.deaf_hold": "der Client ist nicht erreichbar, wurde aber kürzlich neu gestartet — warte {mins} Min",

@@ -289,6 +289,7 @@
   "log.game.back": "istemci geri geldi",
   "log.game.link_lost": "sunucu bağlantısı gitti — istemci hâlâ çalışıyor, ama okuduğu her şey dünden kalma",
   "log.game.link_back": "sunucu bağlantısı geri geldi",
+  "log.game.link_ready": "istemci göründükten {secs} sn sonra oyun bağlantısı hazırdı",
   "log.game.deaf_restart": "istemciyi yeniden başlatıyorum: {secs}s boyunca {looks} bakışta soketler kayıp · {fails} sunucu yoklaması yanıtsız (sonuncusu {probe_secs}s önce) · {idle}s makinenin başında kimse yok",
   "log.game.deaf_restart_busy": "istemci sunucuya ulaşamıyor ve makine başında biri var — {mins} dk sonra yine de yeniden başlatılıyor",
   "log.game.deaf_hold": "istemci duyulmuyor ama az önce yeniden başlatıldı — {mins} dk bekleniyor",

@@ -236,6 +236,15 @@ class Daemon:
             return True
         return bool(game_client.session_pids())
 
+    def client_present(self) -> bool:
+        """Is there a client to attach to? The public name of the reading above.
+
+        The watch in `panel/runtime/lua_service.py` asks it to know whether there is
+        anything to catch (#1976), and a caller outside this module has no business
+        reaching for an underscore.
+        """
+        return self._client_present()
+
     def follow_client(self) -> bool:
         """Let go of a client that has gone, and take hold of the one replacing it.
 

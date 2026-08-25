@@ -53,6 +53,19 @@ import lua_client
 #: this is never the slow part.
 WATCH_SEC = 5.0
 
+#: …and how often it looks while NOTHING IS HELD (#1976). A client that has just been
+#: started is not attachable for the better part of a minute — its il2cpp module is not
+#: loaded, then it has no window, then its main thread is not where a hijack can reach
+#: it — and every one of those refusals is cheap. So the look is faster exactly while
+#: there is something to catch, and drops back to :data:`WATCH_SEC` the moment a client
+#: is held.
+#:
+#: TWO FIXED RATES AND NOTHING BETWEEN THEM. Not a backoff, not an escalation, not a
+#: doubling: the thing this replaces is a five-second wait that turned «I started the
+#: game» into «the panel picks it up when it gets round to it», and a scheme that grows
+#: its own wait is how that becomes half an hour (#1910).
+CATCH_SEC = 1.5
+
 #: How long a bind is retried before the service gives up on the port. A panel that has
 #: just been restarted may find its own previous listener still letting go.
 BIND_TRIES, BIND_WAIT = 20, 0.25
@@ -163,6 +176,10 @@ class LuaService:
         self._error = ""
         #: …and what has already been said about it, so a standing failure is one line.
         self._said = ""
+        #: WHEN A CLIENT WAS FIRST SEEN WITH NOTHING HELD (#1976) — the start of the one
+        #: number the person judges this panel by: «I started the game, how long until it
+        #: works». Stamped by the watch, read once by whoever announces green.
+        self._seen_at: "float | None" = None
 
     # -- the connection ------------------------------------------------------
     @property
@@ -322,7 +339,7 @@ class LuaService:
         same cure with the process kept.
         """
         while True:
-            time.sleep(WATCH_SEC)
+            time.sleep(CATCH_SEC if self.catching() else WATCH_SEC)
             try:
                 self._daemon.follow_client()
                 self._daemon.heartbeat()
@@ -332,6 +349,40 @@ class LuaService:
                     self.reattach()
             except BaseException as exc:              # noqa: BLE001 — never the last word
                 self._note_warn("watch: %s", exc)
+            self._mark_seen()
+
+    def catching(self) -> bool:
+        """Is there something to catch — i.e. is nothing held? Then look again soon."""
+        return not self._daemon.is_warm()
+
+    def _mark_seen(self) -> None:
+        """Keep the stamp the «how long did it take» line is measured from.
+
+        Set when a client is there and nothing is held; cleared when the client is not
+        there at all, so a client that comes back an hour later is timed from ITS OWN
+        appearance rather than from the last one. Never cleared merely by attaching: the
+        number is about GREEN, and green is the game server answering, which happens some
+        seconds after the hold is taken.
+        """
+        if self._daemon.is_warm():
+            return
+        try:
+            there = self._daemon.client_present()
+        except BaseException:                         # noqa: BLE001 — a reading
+            return
+        if not there:
+            self._seen_at = None
+        elif self._seen_at is None:
+            self._seen_at = time.monotonic()
+
+    def take_wait(self) -> "float | None":
+        """Seconds since the client appeared — ONCE, then ``None`` until it appears again.
+
+        Consumed by whoever says the line, so «связь поднялась за N с» is said once per
+        appearance however many times the light is repainted.
+        """
+        at, self._seen_at = self._seen_at, None
+        return None if at is None else time.monotonic() - at
 
     # -- the door the child tools come through -------------------------------
     def _accept(self, srv: socket.socket) -> None:

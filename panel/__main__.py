@@ -3730,6 +3730,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         readings of it, the same patience the crash gets and for the same reason: a
         client reconnecting looks briefly exactly like one that has given up.
         """
+        # THE NUMBER THE PANEL IS JUDGED BY (#1976): a person starts the game and does
+        # nothing else, and this says how long they waited. Said on the first green after
+        # a client appeared — the link object hands the measurement over once, so this
+        # cannot turn into a line per poll.
+        if health.colour == profile_health.OK:
+            waited = self._rt.game.link_wait()
+            if waited is not None:
+                self._say("game", "log.game.link_ready", secs=f"{waited:.0f}")
         if health.reason != profile_health.NO_TRAFFIC:
             if self._link_gone >= WATCHDOG_STRIKES and health.colour == profile_health.OK:
                 self._say("game", "log.game.link_back")

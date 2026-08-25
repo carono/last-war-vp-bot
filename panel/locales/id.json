@@ -289,6 +289,7 @@
   "log.game.back": "klien kembali",
   "log.game.link_lost": "koneksi ke server hilang — klien masih berjalan, tapi semua yang dibacanya sudah basi",
   "log.game.link_back": "koneksi ke server kembali",
+  "log.game.link_ready": "koneksi ke game siap {secs} d setelah klien muncul",
   "log.game.deaf_restart": "memulai ulang klien: soket hilang pada {looks} pengamatan selama {secs}s · {fails} uji server tanpa jawaban (terakhir {probe_secs}s lalu) · tidak ada orang di mesin selama {idle}s",
   "log.game.deaf_restart_busy": "klien tidak terdengar server dan ada orang di mesin — tetap dimulai ulang setelah {mins} mnt",
   "log.game.deaf_hold": "klien tidak terdengar, tetapi baru saja dimulai ulang — menunggu {mins} mnt",

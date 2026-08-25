@@ -289,6 +289,7 @@
   "log.game.back": "the client is back",
   "log.game.link_lost": "the server connection is gone — the client is still up, but nothing it reads is new",
   "log.game.link_back": "the server connection is back",
+  "log.game.link_ready": "the game link was ready {secs} s after the client appeared",
   "log.game.deaf_restart": "restarting the client: sockets lost on {looks} looks over {secs}s · {fails} server probes unanswered (last {probe_secs}s ago) · nobody at the machine for {idle}s",
   "log.game.deaf_restart_busy": "the client cannot be heard by the server and somebody is at the machine — restarting it anyway after {mins} min",
   "log.game.deaf_hold": "the client cannot be heard, but it was restarted recently — waiting {mins} min",
