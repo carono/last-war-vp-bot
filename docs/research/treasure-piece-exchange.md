@@ -56,7 +56,7 @@ class was instantiated offline and handed a parameter table with a recording
 | `DispatchTreasureExchangeRecord` | `hero.dispatch.get.exchange.record` | `{type}` |
 | `DispatchTreasureLikeExchangeRecord` | `hero.dispatch.like.exchange.record` | `{uuid}` |
 | `DispatchTreasureRemoveExchangeShow` | `hero.dispatch.remove.exchange.record.show` | `{type}` |
-| `DispatchTreasureSendALInfo` | `hero.dispatch.send.exchange.info` | — (share to alliance chat) |
+| `DispatchTreasureSendALInfo` | `hero.dispatch.send.exchange.info` | `{uuid}` — announce it in the alliance chat |
 | `DispatchTreasurePushExchange` | **`push.treasure.fragment.exchange`** | — (server → client) |
 
 **`…exchange.info` is the board; `…exchange.record` is the LOG.** They are one word apart
@@ -140,28 +140,68 @@ always answerable. Nothing about the board makes the rule inapplicable.
 Our own offer is the same idea at the extremes: **ask for the scarcest piece, pay with the
 most plentiful one** — which is always a trade our own rule would take.
 
-## 6. The push, and what it is worth
+## 6. Announcing an offer — «опубликовать в чат альянса»
 
-`push.treasure.fragment.exchange` exists — it is in `MsgDefines`, and
-`Net.Msgs.DispatchTreasure.DispatchTreasurePushExchangeMessage` has a `HandleMessage` of
-its own. **Its payload has not been observed yet**: it arrives when somebody takes OUR
-offer, and no swap of ours had gone through while this was being written. That is stated
-plainly rather than guessed at.
+The button beside a freshly stood offer is **one call and nothing else**:
 
-Nothing here depends on the payload. The trigger `piece_exchange` fires the whole errand on
-the command NAME, and the errand re-reads the board from the game — the same shape
-`watch_fireworks.md` uses, minus the urgency: a swap is not a race the way a firework or a
-chest is, so it goes through the ordinary schedule rather than jumping the queue. If the
-push turns out never to reach the capture, the half-hourly timer still does the whole job;
-the push only makes the reaction prompt.
+```
+hero.dispatch.send.exchange.info {uuid}
+```
 
-## 7. What the panel plays
+The client posts no chat message of its own — the server puts the card into the alliance
+chat from our name. So this is **not** the mechanism `tools/lib/chat_share.py` uses for a
+coordinate (`post = 13` with an `attachmentId` JSON through `ChatManager2.Net`), and
+nothing about it needed inventing: the controller's `SendALShareMsg` reaches exactly this
+one command.
+
+The uuid is our own record's, which only exists once the server has answered the post —
+hence the wait between the two steps in `exchange_treasure_pieces.md`. An announcement
+built from the record held before the post names the offer that was just withdrawn.
+
+**It is also the shortest road to the answer in §7.** An offer nobody has seen is an offer
+nobody takes, so waiting to learn what arrives when ours is accepted meant waiting for an
+alliancemate to happen to open the board. A card in the chat replaces that with a card in
+the chat.
+
+## 7. The push — CAUGHT, and what it carries
+
+**There is one, and this is it**, off the wire watch on 2026-08-25, minutes after the
+first offer of ours was announced in the chat:
+
+```
+push.treasure.fragment.exchange {DIG_GAME_TREASURE_FRAGMENT = 1}
+```
+
+One field, and the field NAME is the set — the same string `SplinterExchangeInfo.cfgData`
+carries as `LogRedPoint` (set 1 is `TREASURE_FRAGMENT`). The value is a flag. **There is no
+uuid in it, no piece id, and nobody's name**: it says «something on that board has moved»,
+which is what the game draws its red dot from, and nothing more.
+
+That is enough, and it is exactly the shape the listener was built for. The trigger
+`piece_exchange` fires the errand on the command NAME and the errand re-reads the board
+from the game — it never needed a field out of the push, which is why it was written that
+way before the push had been seen.
+
+**It arrives for our own actions too** (posting and announcing both produced one), and
+that cannot loop: a run woken by the push finds the offer already standing, sends nothing
+and announces nothing, so no further push follows.
+
+How it was got, and it is worth repeating for the next unobserved push: the offer had been
+standing for half an hour with nobody looking at it. The chat announcement (§6) put it in
+front of the alliance, and the answer came within minutes — the piece we had asked for
+turned up in the bag and the board went quiet. **An offer nobody has seen is a listener
+nobody can test.**
+
+The half-hourly timer stays regardless: if the push ever fails to reach the capture, the
+errand still does the whole job on its own clock.
+
+## 8. What the panel plays
 
 | file | what it is |
 |---|---|
 | `actions/exchange_treasure_pieces.md` | the ability: read the board, take what the rule approves of, keep an offer of ours standing |
 | `actions/read_piece_exchange.md` | the reading the page draws, with the same verdict on each offer |
-| `actions/withdraw_piece_offer.md` | take our own offer off the board |
+| `actions/withdraw_piece_offer.md` | take our own offer off the board (and get the held piece back) |
 | `panel/tabs/secret_tasks/pieces.py` | the page and its copy on the phone — no Lua, no gate, no rule of its own |
 | timer `exchange_treasure_pieces` | half-hourly, off by default |
 | trigger `piece_exchange` | on `push.treasure.fragment.exchange`, off by default |
@@ -173,7 +213,7 @@ never trade on different rules. The rule itself is pinned by
 runs it under `lupa` against an invented bag and board — no game, no client, no pieces
 spent, and a rule edited in the recipe and nowhere else still fails the test.
 
-## 8. Dead ends worth not repeating
+## 9. Dead ends worth not repeating
 
 * `string.dump` is refused by this client's sandbox, so no sender could be read by
   decompiling. Building the message offline with a recording parameter table answers the

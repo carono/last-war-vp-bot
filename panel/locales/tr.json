@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "katı «<»",
   "pieces.strict.no": "«≤», eşit takas alınır",
   "pieces.strict.on": "Eşit takasları reddet",
-  "pieces.strict.off": "Eşit takasları kabul et"
+  "pieces.strict.off": "Eşit takasları kabul et",
+  "pieces.share": "Yeni teklifi ittifak sohbetinde duyur",
+  "pieces.share.yes": "evet, yeni teklif duyurulur",
+  "pieces.share.no": "hayır",
+  "pieces.share.on": "Yeni teklifleri duyur",
+  "pieces.share.off": "Teklifleri duyurmayı bırak"
 }

@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "stretto «<»",
   "pieces.strict.no": "«≤», lo scambio alla pari si prende",
   "pieces.strict.on": "Rifiutare gli scambi alla pari",
-  "pieces.strict.off": "Accettare gli scambi alla pari"
+  "pieces.strict.off": "Accettare gli scambi alla pari",
+  "pieces.share": "Annunciare una nuova offerta nella chat dell'alleanza",
+  "pieces.share.yes": "sì, una nuova offerta viene annunciata",
+  "pieces.share.no": "no",
+  "pieces.share.on": "Annunciare le nuove offerte",
+  "pieces.share.off": "Non annunciare più le offerte"
 }

@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "строго «<»",
   "pieces.strict.no": "«≤», равный обмен берём",
   "pieces.strict.on": "Не брать равные обмены",
-  "pieces.strict.off": "Брать равные обмены"
+  "pieces.strict.off": "Брать равные обмены",
+  "pieces.share": "Публиковать новое предложение в чат альянса",
+  "pieces.share.yes": "да, новое предложение объявляется",
+  "pieces.share.no": "нет",
+  "pieces.share.on": "Публиковать новые предложения",
+  "pieces.share.off": "Не публиковать предложения"
 }

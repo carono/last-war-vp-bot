@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "ściśle «<»",
   "pieces.strict.no": "«≤», wymianę po równo bierzemy",
   "pieces.strict.on": "Odrzucać wymiany po równo",
-  "pieces.strict.off": "Przyjmować wymiany po równo"
+  "pieces.strict.off": "Przyjmować wymiany po równo",
+  "pieces.share": "Ogłaszać nową ofertę na czacie sojuszu",
+  "pieces.share.yes": "tak, nowa oferta jest ogłaszana",
+  "pieces.share.no": "nie",
+  "pieces.share.on": "Ogłaszać nowe oferty",
+  "pieces.share.off": "Przestać ogłaszać oferty"
 }

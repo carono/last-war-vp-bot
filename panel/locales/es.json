@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "estricto «<»",
   "pieces.strict.no": "«≤», el intercambio a la par se acepta",
   "pieces.strict.on": "Rechazar intercambios a la par",
-  "pieces.strict.off": "Aceptar intercambios a la par"
+  "pieces.strict.off": "Aceptar intercambios a la par",
+  "pieces.share": "Anunciar una nueva oferta en el chat de la alianza",
+  "pieces.share.yes": "sí, una oferta nueva se anuncia",
+  "pieces.share.no": "no",
+  "pieces.share.on": "Anunciar las ofertas nuevas",
+  "pieces.share.off": "Dejar de anunciar ofertas"
 }

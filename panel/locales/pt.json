@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "estrito «<»",
   "pieces.strict.no": "«≤», a troca igual é aceita",
   "pieces.strict.on": "Recusar trocas iguais",
-  "pieces.strict.off": "Aceitar trocas iguais"
+  "pieces.strict.off": "Aceitar trocas iguais",
+  "pieces.share": "Anunciar uma nova oferta no chat da aliança",
+  "pieces.share.yes": "sim, uma oferta nova é anunciada",
+  "pieces.share.no": "não",
+  "pieces.share.on": "Anunciar as ofertas novas",
+  "pieces.share.off": "Parar de anunciar ofertas"
 }

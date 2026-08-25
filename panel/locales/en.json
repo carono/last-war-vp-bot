@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "strict «<»",
   "pieces.strict.no": "«≤», an even swap is taken",
   "pieces.strict.on": "Refuse even swaps",
-  "pieces.strict.off": "Allow even swaps"
+  "pieces.strict.off": "Allow even swaps",
+  "pieces.share": "Announce a new offer in the alliance chat",
+  "pieces.share.yes": "yes, a new offer is announced",
+  "pieces.share.no": "no",
+  "pieces.share.on": "Announce new offers",
+  "pieces.share.off": "Stop announcing offers"
 }

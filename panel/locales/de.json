@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "streng «<»",
   "pieces.strict.no": "«≤», gleicher Tausch wird genommen",
   "pieces.strict.on": "Gleiche Tausche ablehnen",
-  "pieces.strict.off": "Gleiche Tausche zulassen"
+  "pieces.strict.off": "Gleiche Tausche zulassen",
+  "pieces.share": "Neues Angebot im Allianzchat ankündigen",
+  "pieces.share.yes": "ja, ein neues Angebot wird angekündigt",
+  "pieces.share.no": "nein",
+  "pieces.share.on": "Neue Angebote ankündigen",
+  "pieces.share.off": "Angebote nicht mehr ankündigen"
 }

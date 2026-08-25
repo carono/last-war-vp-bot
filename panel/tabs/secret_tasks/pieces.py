@@ -21,6 +21,11 @@ how many trades one run may make; both travel to the scenario as ARGS, and to th
 half-hourly errand through `Schedule.register_args`, so the button and the timer can never
 disagree about the rule.
 
+There is a third box, and it is the one to think twice about: «опубликовать в чат альянса»
+posts a newly stood offer into the chat LIVING PEOPLE read. It is on because an offer
+nobody sees is an offer nobody takes, and it is not spam because the recipe only announces
+a run that actually posted something new — one message per offer, never one per tick.
+
 THE ROWS ARE THE GAME'S, ALWAYS. Nothing here is marked done by a press: the table is
 replaced whole by every read, so an offer that has gone is an offer somebody took. A
 press starts a trade and then re-reads — the shape `CLAUDE.md` calls ordinary and wanted.
@@ -107,6 +112,12 @@ class PiecesPage:
         #: exchanges was found anywhere in the client (#1975), so the ceiling that stops
         #: a board filled overnight from emptying our spare pieces has to be here.
         self.limit_var = tk.StringVar(master=root, value="3")
+        #: Whether a newly posted offer is announced in the alliance chat — the game's
+        #: own «опубликовать в чат альянса» button, one call, the server posts the card
+        #: from our name. On by default and NOT spam, because it only happens in the run
+        #: that actually posted a new offer: one message per offer, never one per tick.
+        #: Living people read that chat, so the box is here as well as in the recipe.
+        self.share_var = tk.BooleanVar(master=root, value=True)
         #: Whether the errand keeps an offer of ours standing. A standing offer holds
         #: back one copy of the piece it pays with (measured live: the count drops while
         #: it is up and returns on withdrawal), but the recipe always pays with the piece
@@ -145,6 +156,7 @@ class PiecesPage:
         return {"kind": self.board.get("set") or DEFAULT_SET,
                 "accept": 1,
                 "offer": 1 if self.offer_var.get() else 0,
+                "share": 1 if self.share_var.get() else 0,
                 "strict": 1 if self.strict_var.get() else 0,
                 "limit": max(0, _int(self.limit_var.get(), 3))}
 
@@ -170,6 +182,8 @@ class PiecesPage:
                                                                     padx=(2, 12))
         tab.tr(ttk.Checkbutton(bar, variable=self.offer_var), "pieces.offer").pack(
             side="left")
+        tab.tr(ttk.Checkbutton(bar, variable=self.share_var), "pieces.share").pack(
+            side="left", padx=(12, 0))
 
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=(6, 4))
@@ -279,16 +293,18 @@ class PiecesPage:
     # -- settings ------------------------------------------------------------------
     def config(self) -> dict:
         return {"strict": bool(self.strict_var.get()), "limit": self.limit_var.get(),
-                "offer": bool(self.offer_var.get())}
+                "offer": bool(self.offer_var.get()),
+                "share": bool(self.share_var.get())}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self.strict_var.set(bool(raw.get("strict", False)))
         self.limit_var.set(str(raw.get("limit") or "3"))
         self.offer_var.set(bool(raw.get("offer", True)))
+        self.share_var.set(bool(raw.get("share", True)))
 
     def persist_vars(self) -> list:
-        return [self.strict_var, self.limit_var, self.offer_var]
+        return [self.strict_var, self.limit_var, self.offer_var, self.share_var]
 
     # -- the phone -------------------------------------------------------------------
     def web_card(self) -> dict:
@@ -307,7 +323,10 @@ class PiecesPage:
                 {"label": "pieces.strict",
                  "value": self.tab.t("pieces.strict.yes" if self.strict_var.get()
                                      else "pieces.strict.no")},
-                {"label": "pieces.limit", "value": self.limit_var.get()}]
+                {"label": "pieces.limit", "value": self.limit_var.get()},
+                {"label": "pieces.share",
+                 "value": self.tab.t("pieces.share.yes" if self.share_var.get()
+                                     else "pieces.share.no")}]
         rows += [{"label": "pieces.piece", "value": "%s: %d" % (piece, count)}
                  for piece, count in board["have"]]
         items = [{"text": offer["name"] or "—",
@@ -326,7 +345,10 @@ class PiecesPage:
                                        else "pieces.offer.on")},
                             {"id": "pieces_strict",
                              "label": ("pieces.strict.off" if self.strict_var.get()
-                                       else "pieces.strict.on")}]}
+                                       else "pieces.strict.on")},
+                            {"id": "pieces_share",
+                             "label": ("pieces.share.off" if self.share_var.get()
+                                       else "pieces.share.on")}]}
 
     def web_press(self, action: str) -> "dict | None":
         """One of the card's four buttons, or `None` when it is not ours."""
@@ -351,5 +373,11 @@ class PiecesPage:
             # trades, so a phone that could read the rule and not answer it would be
             # showing a decision nobody away from the machine can make.
             self.strict_var.set(not self.strict_var.get())
+            return {"ok": True}
+        if action == "pieces_share":
+            # Whether the next NEW offer is announced to the alliance. A switch and not
+            # a press: the announcement rides on the post, so «publish it now» would be
+            # a second message about an offer the chat has already seen.
+            self.share_var.set(not self.share_var.get())
             return {"ok": True}
         return None

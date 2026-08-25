@@ -55,6 +55,7 @@
 #     hero.dispatch.fragment.exchange             {uuid}      -- accept somebody's offer
 #     hero.dispatch.call.fragment.exchange        {type, needFragment, costFragment}
 #     hero.dispatch.cancel.fragment.exchange      {uuid}      -- withdraw our own
+#     hero.dispatch.send.exchange.info            {uuid}      -- announce it in al. chat
 #
 # WHAT A POSTED OFFER COSTS: one copy of the piece it PAYS with, held back for as long
 # as it stands, and handed straight back when it is withdrawn. Measured live twice, and
@@ -76,6 +77,26 @@
 # the wire watch (`actions/dev/_t1975_push.md`) after a run that reported a posted offer
 # and left the board empty.
 #
+# ANNOUNCING IT IN THE ALLIANCE CHAT — the game's own «опубликовать в чат альянса»
+# button, and it is ONE call: `hero.dispatch.send.exchange.info {uuid}`. The client sends
+# no chat message of its own; the server posts the card from our name, which is why this
+# is not the mechanism `tools/lib/chat_share.py` uses for a coordinate (post = 13 with an
+# `attachmentId` JSON through `ChatManager2.Net`). Nothing here needed inventing.
+#
+# It is on by default, and the reason it is not spam is WHEN it happens: only in the run
+# that actually POSTED a new offer. A run that finds our offer already standing, or that
+# withdraws it because the seven are level, announces nothing — so the alliance sees one
+# message per offer and not one every half hour. `share = 0` switches it off entirely.
+#
+# THE ANNOUNCEMENT IS A SEPARATE STEP because it needs the uuid, and the uuid only exists
+# once the server has answered the post. Hence the `WAIT` between them: an announcement
+# built from the record we had before the post would name the offer we just withdrew.
+#
+# It is also what makes the LISTENER answerable. The one thing about this ability that
+# could not be measured is what arrives when somebody takes OUR offer — an offer nobody
+# has seen is an offer nobody takes, so the wait for that answer is the wait for a mate
+# to happen to open the board. A card in the chat shortens it to a card in the chat.
+#
 # NO DAILY CAP IS KNOWN. Nothing in the client's own books counts exchanges the way
 # `hero.dispatch.list` counts the day's steals and assists, and none was found. `limit`
 # is therefore OURS, not the game's: a ceiling on how many offers one run may take, so a
@@ -90,6 +111,7 @@
 ARGS kind = 4
 ARGS accept = 1
 ARGS offer = 1
+ARGS share = 1
 ARGS strict = 0
 ARGS limit = 3
 
@@ -101,5 +123,8 @@ LOG "the board, and what the rule made of it: {report}"
 
 READ_LUA (function() local kind = {kind} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 0 end local list = {} pcall(function() list = M:GetAlExchangeDataList(kind) or {} end) local n = 0 for _ in pairs(list) do n = n + 1 end return n end)() INTO offers
 IF offer > 0
-    READ_LUA (function() local kind = {kind} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 'no such set' end local ids = info.fragGoodsIdList or {} local have = {} local order = {} for _, id in ipairs(ids) do have[id + 0] = 0 order[#order+1] = id + 0 end if #order == 0 then return 'the set is empty on this account' end pcall(function() for _, it in pairs(DataCenter.ItemData.ItemInfos or {}) do local id = it.itemId if id ~= nil and have[id + 0] ~= nil then have[id + 0] = have[id + 0] + ((it.count or 0) + 0) end end end) local want, pay = order[1], order[1] for _, id in ipairs(order) do if have[id] < have[want] then want = id end if have[id] > have[pay] then pay = id end end local suuid, sneed, scost = -1, 0, 0 pcall(function() local s = M:GetSelfExchangeData(kind) if s then suuid = (s.uuid or -1) + 0 sneed = (s.needFragment or 0) + 0 scost = (s.costFragment or 0) + 0 end end) local function num(n) return string.format('%d', n) end local function drop() pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCancelExchange, {uuid = suuid}) end) end if want == pay or have[pay] <= have[want] then if suuid > 0 then drop() return 'the seven are level (' .. have[want] .. ' each) — there is nothing worth asking for, so the standing offer was withdrawn' end return 'the seven are level (' .. have[want] .. ' each) — nothing worth asking for, nothing posted' end if suuid > 0 and sneed == want and scost == pay then return 'already standing, and it asks for the right thing: need=' .. num(want) .. ' pay=' .. num(pay) end local note = '' if suuid > 0 then drop() note = 'withdrew ' .. num(sneed) .. '<-' .. num(scost) .. ', ' end pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCallExchange, {type = kind, needFragment = math.floor(want), costFragment = math.floor(pay)}) end) return note .. 'posted: we need ' .. num(want) .. ' (' .. have[want] .. ' held) and pay ' .. num(pay) .. ' (' .. have[pay] .. ' held)' end)() INTO stall
+    READ_LUA (function() local kind = {kind} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 'no such set' end local ids = info.fragGoodsIdList or {} local have = {} local order = {} for _, id in ipairs(ids) do have[id + 0] = 0 order[#order+1] = id + 0 end if #order == 0 then return 'the set is empty on this account' end pcall(function() for _, it in pairs(DataCenter.ItemData.ItemInfos or {}) do local id = it.itemId if id ~= nil and have[id + 0] ~= nil then have[id + 0] = have[id + 0] + ((it.count or 0) + 0) end end end) local want, pay = order[1], order[1] for _, id in ipairs(order) do if have[id] < have[want] then want = id end if have[id] > have[pay] then pay = id end end local suuid, sneed, scost = -1, 0, 0 pcall(function() local s = M:GetSelfExchangeData(kind) if s then suuid = (s.uuid or -1) + 0 sneed = (s.needFragment or 0) + 0 scost = (s.costFragment or 0) + 0 end end) local function num(n) return string.format('%d', n) end local function drop() pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCancelExchange, {uuid = suuid}) end) end if want == pay or have[pay] <= have[want] then if suuid > 0 then drop() DataCenter.__lw_spx_posted = false return 'the seven are level (' .. have[want] .. ' each) — there is nothing worth asking for, so the standing offer was withdrawn' end return 'the seven are level (' .. have[want] .. ' each) — nothing worth asking for, nothing posted' end if suuid > 0 and sneed == want and scost == pay then DataCenter.__lw_spx_posted = false return 'already standing, and it asks for the right thing: need=' .. num(want) .. ' pay=' .. num(pay) end local note = '' if suuid > 0 then drop() note = 'withdrew ' .. num(sneed) .. '<-' .. num(scost) .. ', ' end pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCallExchange, {type = kind, needFragment = math.floor(want), costFragment = math.floor(pay)}) end) DataCenter.__lw_spx_posted = true return note .. 'posted: we need ' .. num(want) .. ' (' .. have[want] .. ' held) and pay ' .. num(pay) .. ' (' .. have[pay] .. ' held)' end)() INTO stall
     LOG "our own offer: {stall}"
+    WAIT 2
+    READ_LUA (function() local kind = {kind} if {share} == 0 then return 'not announced — «опубликовать в чат альянса» is switched off' end if DataCenter.__lw_spx_posted ~= true then return 'nothing new to announce — the offer standing is the one the alliance was already told about' end DataCenter.__lw_spx_posted = false local M = DataCenter.SplinterExchangeManager local uuid, need, cost = -1, 0, 0 pcall(function() local d = M:GetSelfExchangeData(kind) if d then uuid = (d.uuid or -1) + 0 need = (d.needFragment or 0) + 0 cost = (d.costFragment or 0) + 0 end end) if uuid <= 0 then return 'the post has not come back yet — nothing to announce, the next run will' end local ok = pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureSendALInfo, {uuid = uuid}) end) if not ok then return 'the announcement was refused by the client' end return 'announced in the alliance chat: we need ' .. string.format('%d', need) .. ' and pay ' .. string.format('%d', cost) end)() INTO announced
+    LOG "the alliance chat: {announced}"

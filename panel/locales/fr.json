@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "strict « < »",
   "pieces.strict.no": "« ≤ », l'échange à égalité est pris",
   "pieces.strict.on": "Refuser les échanges à égalité",
-  "pieces.strict.off": "Accepter les échanges à égalité"
+  "pieces.strict.off": "Accepter les échanges à égalité",
+  "pieces.share": "Annoncer une nouvelle offre dans le chat de l'alliance",
+  "pieces.share.yes": "oui, une nouvelle offre est annoncée",
+  "pieces.share.no": "non",
+  "pieces.share.on": "Annoncer les nouvelles offres",
+  "pieces.share.off": "Ne plus annoncer les offres"
 }

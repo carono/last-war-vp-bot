@@ -2146,5 +2146,10 @@
   "pieces.strict.yes": "nghiêm ngặt «<»",
   "pieces.strict.no": "«≤», đổi ngang vẫn nhận",
   "pieces.strict.on": "Từ chối đổi ngang",
-  "pieces.strict.off": "Chấp nhận đổi ngang"
+  "pieces.strict.off": "Chấp nhận đổi ngang",
+  "pieces.share": "Đăng đề nghị mới lên trò chuyện liên minh",
+  "pieces.share.yes": "có, đề nghị mới được đăng",
+  "pieces.share.no": "không",
+  "pieces.share.on": "Đăng đề nghị mới",
+  "pieces.share.off": "Ngừng đăng đề nghị"
 }
