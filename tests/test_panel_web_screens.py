@@ -67,6 +67,16 @@ def _keys_in(view: dict) -> list:
         for row in card.get("rows") or ():
             if row.get("label"):
                 found.append(row["label"])
+        # A KNOB'S OWN LABEL IS A KEY TOO (#1976). Since a card may SET as well as show,
+        # most of what a screen says is now in its fields — «Дуэль» alone declares a
+        # hundred of them — and none of it was being read here.
+        for field in card.get("fields") or ():
+            if field.get("label"):
+                found.append(field["label"])
+        for action in card.get("actions") or ():
+            found.append(action.get("label", ""))
+            found.append(action.get("prompt", ""))
+            found.append(action.get("confirm", ""))
         for item in card.get("items") or ():
             if item.get("pill"):
                 found.append(item["pill"])
@@ -82,6 +92,8 @@ def _keys_in(view: dict) -> list:
     for action in view.get("actions") or ():
         found.append(action.get("label", ""))
         found.append(action.get("prompt", ""))
+        # A press that ASKS FIRST names its question the same way (#1976).
+        found.append(action.get("confirm", ""))
     return [k for k in found if k]
 
 
