@@ -105,6 +105,7 @@ from .autoassist import AutoAssist
 from .autoloot import AutoLoot
 from .capture import Capture
 from .ghost import GhostAllianceGrid, GhostGrid, GhostMapGrid
+from .pieces import PiecesPage
 from .shared import SharedMarks
 from .star_round import StarRound
 from . import world
@@ -715,6 +716,10 @@ class SecretTasksTab(PanelTab):
         # The round itself is `actions/sweep_star_servers.md`; this only refuses to start
         # one while the sniffer above is down, and says afterwards what reached the list.
         self.round = StarRound(rt, self)
+        # «Обмен кусочками» — the second tab of «Мобильный отряд» (#1975). A page of
+        # its own rather than rows on another: it is a BOARD with its own presses,
+        # and the ability behind it is three scenarios of its own.
+        self.pieces = PiecesPage(self)
         # The second table (#1244): what the alliancemates are running, filled by its
         # own read — see `_roster`.
 
@@ -757,6 +762,10 @@ class SecretTasksTab(PanelTab):
         # look: the errand fires whether or not anybody opens this tab, and a
         # precondition nobody registered is a lap walked into a dead sniffer (#1479).
         self.round.register()
+        # …and the piece-exchange errand's own knobs, for the same reason: the
+        # four-hourly run reads them LIVE, so a `gap` moved on the page is the gap
+        # the next run trades on, whether or not anybody has opened this tab.
+        self.pieces.register()
         if self.monitor_var.get():
             self.capture.start()
         # …and the ghost sniffer, whose switch lives on its own page (#1251). Two
@@ -925,6 +934,9 @@ class SecretTasksTab(PanelTab):
         for page in self._grid_pages():
             page.retranslate()
             page.render()
+        # …and «Обмен кусочками», whose column heads and verdict words are its own
+        # (#1975). Not a grid page, so it is named rather than swept up by the loop.
+        self.pieces.retranslate()
 
     def _retranslate_pages(self) -> None:
         """Rewrite the notebook's own tab labels (#1251).
@@ -1016,6 +1028,9 @@ class SecretTasksTab(PanelTab):
             "coord_server": self.coord_srv_var.get(),
             "coord_history": list(self._jump_hist),
             "coord_zoom": self._zoom_level,
+            # «Обмен кусочками» keeps its two knobs and its box under its own key,
+            # exactly as every other page here has since #1251.
+            "pieces": self.pieces.config(),
         }
 
     def apply_config(self, raw) -> None:
@@ -1081,6 +1096,7 @@ class SecretTasksTab(PanelTab):
         self._set_jump_history(raw.get("coord_history"))
         self._zoom_level = str(raw.get("coord_zoom") or self._zoom_level)
         self._sync_zoom_combo()
+        self.pieces.apply_config(raw.get("pieces"))
         self._refresh_rule_hints()
 
     def _grid_pages(self) -> tuple:
@@ -1099,7 +1115,8 @@ class SecretTasksTab(PanelTab):
                 self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_min_var,
                 self.autoassist_var, self.assist_level_var,
-                self.coord_x_var, self.coord_y_var, self.coord_srv_var]
+                self.coord_x_var, self.coord_y_var, self.coord_srv_var] \
+            + self.pieces.persist_vars()
 
     # -- UI -------------------------------------------------------------------
     def build(self) -> None:
@@ -1297,6 +1314,7 @@ class SecretTasksTab(PanelTab):
         self._add_page(self.ghost.build(book), "secrettasks.page.ghost", self.ghost)
         self._add_page(self.ghost_allies.build(book), "secrettasks.page.ghost_allies",
                        self.ghost_allies)
+        self._add_page(self.pieces.build(book), "secrettasks.page.pieces")
         self._add_page(self.ghost_map.build(book), "secrettasks.page.ghost_map",
                        self.ghost_map)
         # …and the rest of the map, in the order a person reads it: the ground first,
@@ -4327,6 +4345,12 @@ class SecretTasksTab(PanelTab):
                            "actions": [self._ghost_monitor_action(),
                                        self._star_action("ghost_map"),
                                        self._clear_action("ghost_map")]},
+                          # …and «Обмен кусочками», in the notebook's own order —
+                          # the phone's card carries the same counts, the same offers
+                          # with the same verdict on each, the same two knobs and the
+                          # same three presses (#1975). Every one of them plays a
+                          # scenario, which is what lets them out of the house.
+                          self.pieces.web_card(),
                           # …and the rest of the map, one card per page, in the order
                           # the window's notebook holds them (#1289). Readings only:
                           # gathering a mine, attacking a monster and robbing a truck
@@ -4579,6 +4603,11 @@ class SecretTasksTab(PanelTab):
         «Показывать исчерпанные» and «Очистить список» decide nothing in the game, only
         the local list, so the phone gets the same two the window has.
         """
+        # «Обмен кусочками» answers for its own four buttons and says so by returning
+        # something; anything else falls through to the tab's own presses (#1975).
+        pressed = self.pieces.web_press(action)
+        if pressed is not None:
+            return pressed
         if action == "refresh":
             # The window's «Обновить» refreshes both tables, so the phone's does too.
             self.refresh_both()

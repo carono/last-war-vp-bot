@@ -572,6 +572,28 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.upgrade_decorations",
     ),
     Timer(
+        name="exchange_treasure_pieces",
+        scenario=("exchange_treasure_pieces",),
+        # HALF AN HOUR. The board is the alliance's, so what it holds changes when a
+        # mate posts something and at no other time — there is no clock in the game to
+        # follow and no reward that expires. A tick costs two asks and one local
+        # decision, and the recipe presses nothing when the rule says nothing is worth
+        # taking, so this is cheap enough to run often and pointless to run oftener:
+        # the offer we keep standing is what actually catches the trades, and it stands
+        # between ticks.
+        interval_sec=1800,
+        # Five minutes. A run FAILS only when the client is not answering; a board with
+        # nothing on it is a clean success that says so.
+        retry_sec=300,
+        enabled=False,
+        # NO `args` BLOCK ON PURPOSE. The rule's two knobs and the «выставлять своё» box
+        # live on «Обмен кусочками», and the page hands them over live
+        # (`Schedule.register_args`, `panel/tabs/secret_tasks/pieces.py`). A block here
+        # would be a second copy of the rule that stops agreeing with the page the first
+        # time somebody moves it.
+        label_key="timers.item.exchange_treasure_pieces",
+    ),
+    Timer(
         name="play_frontline_breakthrough",
         scenario=("play_frontline_breakthrough",),
         # SUNDAY, and named as a weekday rather than as a period (`Timer.weekdays`).

@@ -638,6 +638,26 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.firework_watch",
     ),
     Trigger(
+        name="piece_exchange",
+        # SOMEBODY TOOK OUR OFFER. `push.treasure.fragment.exchange` is the game's own
+        # announcement that a piece swap has gone through, and it is the answer to the
+        # question this ability could not otherwise ask: an offer of ours stands on the
+        # board indefinitely, costs nothing while it stands, and the only moment worth
+        # acting on is the moment it is consumed — a piece has arrived, the seven counts
+        # have moved, and the offer that was up is gone.
+        #
+        # So this fires the whole errand rather than a re-post: the run re-reads the
+        # board, takes anything the rule now approves of and stands a fresh offer,
+        # which is exactly what the half-hourly row does. Nothing here is time-critical
+        # — a swap is not a race the way a firework or a chest is — so it goes through
+        # the ordinary schedule rather than jumping the queue.
+        kind=KIND_WIRE,
+        event_pattern="push.treasure.fragment.exchange",
+        scenario=("exchange_treasure_pieces",),
+        enabled=False,
+        label_key="triggers.item.piece_exchange",
+    ),
+    Trigger(
         name="ghost_recon_alliance",
         # The alliance's ghost-recon squads announce themselves on the wire
         # (push.ghost.recon.alliance.single, add/change/remove). The client keeps the
