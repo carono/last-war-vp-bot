@@ -1043,6 +1043,8 @@
   "accounts.empty": "no hay personajes — pulsa Refrescar (el juego tiene que estar en marcha)",
   "accounts.hint": "Los personajes de esta cuenta, tal como los enumera el propio servidor — la misma lista que enseña la pantalla «Personajes» del juego, leída sin abrirla. El nivel, el poder y la etiqueta de alianza salen de la misma respuesta. «Cambiar» hace lo que hace tocar un personaje en el juego: el cliente se desconecta y vuelve como él, lo que tarda unos segundos.",
   "accounts.confirm": "¿Cambiar a {name} en el servidor {server}? Esto corta la sesión actual y reconecta como ese personaje — todo lo que el panel esté haciendo ahora mismo se para con ello.",
+  "accounts.confirm.web": "Escribe el número del servidor para confirmar el cambio: el cliente se desconecta y vuelve como ese personaje.",
+  "accounts.confirm.refused": "el número del servidor no coincide: no se ha cambiado nada",
   "accounts.switching": "cambiando…",
   "accounts.switched": "[accounts] cambiado a {name} (servidor {server})",
   "accounts.switch_fail": "[accounts] el cambio a {name} falló: {state}",

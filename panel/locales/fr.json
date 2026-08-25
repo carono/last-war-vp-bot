@@ -1043,6 +1043,8 @@
   "accounts.empty": "aucun personnage — appuie sur Rafraîchir (le jeu doit tourner)",
   "accounts.hint": "Les personnages de ce compte, tels que le serveur lui-même les énumère — la même liste que montre l'écran « Personnages » du jeu, lue sans l'ouvrir. Le niveau, la puissance et l'étiquette d'alliance viennent de la même réponse. « Changer » fait ce que fait un appui sur un personnage dans le jeu : le client se déconnecte et revient sous celui-ci, ce qui prend quelques secondes.",
   "accounts.confirm": "Passer à {name} sur le serveur {server} ? Cela coupe la session en cours et reconnecte sous ce personnage — tout ce que le panneau est en train de faire s'arrête avec.",
+  "accounts.confirm.web": "Saisissez le numéro du serveur pour confirmer le changement — le client se déconnecte et revient sous ce personnage.",
+  "accounts.confirm.refused": "le numéro du serveur ne correspond pas — rien n'a été changé",
   "accounts.switching": "changement…",
   "accounts.switched": "[accounts] passé à {name} (serveur {server})",
   "accounts.switch_fail": "[accounts] le passage à {name} a échoué : {state}",

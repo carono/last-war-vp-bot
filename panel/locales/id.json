@@ -1043,6 +1043,8 @@
   "accounts.empty": "tidak ada karakter — tekan Segarkan (permainan harus berjalan)",
   "accounts.hint": "Karakter pada akun ini, seperti yang didaftar server sendiri — daftar yang sama dengan yang ditampilkan layar «Karakter» di permainan, dibaca tanpa membukanya. Level, kekuatan, dan tanda aliansi berasal dari jawaban yang sama. «Ganti» melakukan apa yang dilakukan menyentuh sebuah karakter di permainan: klien keluar lalu kembali sebagai karakter itu, dan itu makan beberapa detik.",
   "accounts.confirm": "Ganti ke {name} di server {server}? Ini memutus sesi yang sedang berjalan dan menyambung ulang sebagai karakter itu — semua yang sedang dikerjakan panel berhenti bersamanya.",
+  "accounts.confirm.web": "Ketik nomor server untuk mengonfirmasi perpindahan — klien akan keluar dan kembali sebagai karakter itu.",
+  "accounts.confirm.refused": "nomor server tidak cocok — tidak ada yang dipindahkan",
   "accounts.switching": "mengganti…",
   "accounts.switched": "[accounts] berganti ke {name} (server {server})",
   "accounts.switch_fail": "[accounts] pergantian ke {name} gagal: {state}",

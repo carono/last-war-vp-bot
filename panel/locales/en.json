@@ -1043,6 +1043,8 @@
   "accounts.empty": "no characters — press Refresh (needs the game running)",
   "accounts.hint": "The characters on this account, as the server itself lists them — the same list the game's «Characters» screen shows, read without opening it. Level, power and the alliance tag come from the same answer. «Switch» does what tapping a character in the game does: the client logs out and comes back as it, which takes a few seconds.",
   "accounts.confirm": "Switch to {name} on server {server}? This disconnects the current session and reconnects as that character — anything the panel is doing right now stops with it.",
+  "accounts.confirm.web": "Type the server number to confirm the switch — the client logs out and comes back as that character.",
+  "accounts.confirm.refused": "the server number does not match — nothing was switched",
   "accounts.switching": "switching…",
   "accounts.switched": "[accounts] switched to {name} (server {server})",
   "accounts.switch_fail": "[accounts] switch to {name} failed: {state}",

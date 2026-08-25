@@ -1043,6 +1043,8 @@
   "accounts.empty": "keine Charaktere — drücke «Auffrischen» (das Spiel muss laufen)",
   "accounts.hint": "Die Charaktere dieses Kontos, so wie der Server selbst sie aufzählt — dieselbe Liste, die das Fenster «Charaktere» im Spiel zeigt, nur ohne es zu öffnen. Level, Kampfkraft und das Kürzel der Allianz stammen aus derselben Antwort. «Wechseln» tut, was ein Tippen auf einen Charakter im Spiel tut: der Client meldet sich ab und kommt als dieser zurück, was ein paar Sekunden dauert.",
   "accounts.confirm": "Zu {name} auf Server {server} wechseln? Das trennt die laufende Sitzung und verbindet neu als dieser Charakter — alles, was das Pult gerade tut, hört damit auf.",
+  "accounts.confirm.web": "Gib die Servernummer ein, um den Wechsel zu bestätigen — der Client meldet sich ab und kehrt als dieser Charakter zurück.",
+  "accounts.confirm.refused": "die Servernummer stimmt nicht — es wurde nichts gewechselt",
   "accounts.switching": "wechsle…",
   "accounts.switched": "[accounts] zu {name} gewechselt (Server {server})",
   "accounts.switch_fail": "[accounts] der Wechsel zu {name} ist fehlgeschlagen: {state}",

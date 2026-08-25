@@ -1043,6 +1043,8 @@
   "accounts.empty": "karakter yok — Tazele'ye bas (oyunun çalışıyor olması gerekir)",
   "accounts.hint": "Bu hesaptaki karakterler, sunucunun kendi saydığı gibi — oyundaki «Karakterler» ekranının gösterdiği listenin aynısı, o ekranı açmadan okunmuş. Seviye, güç ve ittifak etiketi de aynı yanıttan gelir. «Geç», oyunda bir karaktere dokunmakla aynı şeyi yapar: istemci çıkış yapar ve o karakter olarak geri gelir, bu birkaç saniye sürer.",
   "accounts.confirm": "{server} sunucusundaki {name} karakterine geçilsin mi? Bu, yürüyen oturumu keser ve o karakter olarak yeniden bağlanır — panelin şu an yaptığı her şey onunla birlikte durur.",
+  "accounts.confirm.web": "Geçişi onaylamak için sunucu numarasını yaz — istemci çıkış yapıp o karakterle geri döner.",
+  "accounts.confirm.refused": "sunucu numarası eşleşmedi — hiçbir şey değiştirilmedi",
   "accounts.switching": "geçiliyor…",
   "accounts.switched": "[accounts] {name} karakterine geçildi (sunucu {server})",
   "accounts.switch_fail": "[accounts] {name} karakterine geçiş başarısız: {state}",

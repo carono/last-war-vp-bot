@@ -1043,6 +1043,8 @@
   "accounts.empty": "nenhum personagem — aperte Atualizar (o jogo precisa estar rodando)",
   "accounts.hint": "Os personagens desta conta, como o próprio servidor os lista — a mesma lista que a tela «Personagens» do jogo mostra, lida sem abri-la. Nível, poder e a sigla da aliança vêm da mesma resposta. «Trocar» faz o que tocar num personagem no jogo faz: o cliente sai e volta como ele, o que leva alguns segundos.",
   "accounts.confirm": "Trocar para {name} no servidor {server}? Isso corta a sessão atual e reconecta como aquele personagem — tudo o que o painel estiver fazendo agora para junto.",
+  "accounts.confirm.web": "Escreve o número do servidor para confirmar a troca — o cliente sai e volta como essa personagem.",
+  "accounts.confirm.refused": "o número do servidor não corresponde — nada foi trocado",
   "accounts.switching": "trocando…",
   "accounts.switched": "[accounts] trocado para {name} (servidor {server})",
   "accounts.switch_fail": "[accounts] a troca para {name} falhou: {state}",

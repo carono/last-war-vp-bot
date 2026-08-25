@@ -1043,6 +1043,8 @@
   "accounts.empty": "brak postaci — naciśnij Odśwież (gra musi działać)",
   "accounts.hint": "Postacie na tym koncie, tak jak wylicza je sam serwer — ta sama lista, którą pokazuje ekran «Postacie» w grze, odczytana bez otwierania go. Poziom, moc i skrót sojuszu pochodzą z tej samej odpowiedzi. «Przełącz» robi to, co dotknięcie postaci w grze: klient się wylogowuje i wraca jako ona, co zajmuje kilka sekund.",
   "accounts.confirm": "Przełączyć na {name} na serwerze {server}? To przerywa bieżącą sesję i łączy się na nowo jako ta postać — wszystko, co panel właśnie robi, zatrzyma się razem z nią.",
+  "accounts.confirm.web": "Wpisz numer serwera, aby potwierdzić przejście — klient wyloguje się i wróci jako ta postać.",
+  "accounts.confirm.refused": "numer serwera się nie zgadza — nic nie przełączono",
   "accounts.switching": "przełączam…",
   "accounts.switched": "[accounts] przełączono na {name} (serwer {server})",
   "accounts.switch_fail": "[accounts] przełączenie na {name} nie powiodło się: {state}",

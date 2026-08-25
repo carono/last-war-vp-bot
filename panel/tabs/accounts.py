@@ -65,14 +65,70 @@ class AccountsTab(DataTab):
             return []
 
     def web_cards(self, rows) -> list:
-        """Every character this login has. The switch itself stays in the window —
-        moving the client to another account is not a thumb-sized decision, and it is
-        one of the few presses that cannot be undone from a bus."""
+        """Every character this login has, with the switch on the ones that are not
+        in play — the same shape the window's table has (#1976).
+
+        THE SWITCH TRAVELS NOW. It used to stay in the window on the grounds that moving
+        the client to another account is not a thumb-sized decision, which is true and is
+        not an argument for leaving it where nobody will be able to reach it: the person
+        has decided the web is the front-end and the window is going. What the window
+        really had was not exclusivity but a CONFIRMATION, so the press carries one — the
+        phone asks for the server number to be typed, and a press whose text does not
+        match it does nothing at all.
+
+        The fields are the ones `tools/account_switch.py` actually answers with
+        (`serverid`, `nickname`, `zone`, `level`, `power`, `alliance`, `is_current`).
+        They were `name`/`server` here, which no row has ever carried, so every line on
+        the phone read «?» with an empty detail beside it.
+        """
         items = []
         for row in rows or ():
-            items.append({"text": str(row.get("name") or row.get("nick") or "?"),
-                          "detail": str(row.get("server") or row.get("serverId") or "")})
+            server = str(row.get("serverid") or "")
+            name = str(row.get("nickname") or "").strip() or f"#{row.get('gameUid', '')}"
+            facts = [{"label": "accounts.col.server", "value": server},
+                     {"label": "accounts.col.level",
+                      "value": str(row.get("level") or "—")},
+                     {"label": "accounts.col.power",
+                      "value": _group(row.get("power")) or "—"}]
+            if row.get("alliance"):
+                facts.append({"label": "accounts.col.alliance",
+                              "value": str(row.get("alliance"))})
+            item = {"text": name, "detail": str(row.get("zone") or ""), "facts": facts}
+            if row.get("is_current"):
+                item["pill"] = "accounts.current"
+            elif server:
+                item["actions"] = [{"id": "switch", "label": "accounts.switch",
+                                    "prompt": "accounts.confirm.web",
+                                    "args": {"server": server}}]
+            items.append(item)
         return [{"title": "tab.accounts", "items": items, "empty": "tabx.no_game"}]
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """«Перейти» — the same relog the window's button plays, typed to confirm.
+
+        The typed number IS the confirmation, and it is checked against the row's own
+        server rather than against anything the phone sent alongside it: a mis-tap on a
+        list of characters is the mistake this guards, and «press it again» is not an
+        answer when the press logs the client out.
+        """
+        if action != "switch":
+            return super().web_press(action, args)
+        data = args or {}
+        server = str(data.get("server") or "").strip()
+        if not server or str(data.get("text") or "").strip() != server:
+            return {"ok": False, "reason": "accounts.confirm.refused"}
+        row = next((r for r in (self._last_data or ())
+                    if str(r.get("serverid") or "") == server), None)
+        if row is None or row.get("is_current"):
+            return {"error": "unknown"}
+        if self._busy:
+            return {"ok": False, "reason": "web.ui.refused"}
+        self._busy = True
+        name = row.get("nickname") or server
+        self.rt.put(self.rt.t("accounts.switching"))
+        threading.Thread(target=self._switch_work, args=(server, name),
+                         daemon=True).start()
+        return {"ok": True, "busy": True}
 
     def render(self, rows) -> None:
         for child in self._scroll.winfo_children():

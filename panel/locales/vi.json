@@ -1043,6 +1043,8 @@
   "accounts.empty": "không có nhân vật nào — hãy bấm Làm mới (trò chơi phải đang chạy)",
   "accounts.hint": "Các nhân vật của tài khoản này, đúng như chính máy chủ liệt kê — cùng danh sách mà màn hình «Nhân vật» trong trò chơi hiện ra, chỉ là đọc mà không phải mở nó. Cấp, lực chiến và mã liên minh cũng từ cùng câu trả lời đó. «Chuyển» làm đúng việc mà chạm vào một nhân vật trong trò chơi vẫn làm: client thoát ra rồi quay lại dưới nhân vật ấy, mất vài giây.",
   "accounts.confirm": "Chuyển sang {name} ở máy chủ {server}? Việc này cắt phiên hiện tại và nối lại dưới nhân vật đó — mọi việc bảng đang làm lúc này sẽ dừng theo.",
+  "accounts.confirm.web": "Nhập số máy chủ để xác nhận chuyển — client sẽ thoát và quay lại bằng nhân vật đó.",
+  "accounts.confirm.refused": "số máy chủ không khớp — không có gì được chuyển",
   "accounts.switching": "đang chuyển…",
   "accounts.switched": "[accounts] đã chuyển sang {name} (máy chủ {server})",
   "accounts.switch_fail": "[accounts] chuyển sang {name} thất bại: {state}",
