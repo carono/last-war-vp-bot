@@ -230,14 +230,18 @@ function Card({
           {t(card.flow.key, card.flow.fmt)}
         </div>
       ) : null}
+      {/* THE KNOBS BEFORE THE READINGS (#1976). A card may carry both, and «Ралли»
+          carries three switches above a table of sixty-eight budget lines — a control
+          under that table is a control nobody scrolls to. Readings explain a card;
+          knobs are what a person opened it to move. */}
+      {(card.fields || []).map((field) => (
+        <FieldRow key={field.key} field={field} screen={screen} after={after} />
+      ))}
       {rows.map((row, i) => (
         <div className="kv" key={i}>
           <span className="k">{t(row.label)}</span>
           <span className="v">{row.value}</span>
         </div>
-      ))}
-      {(card.fields || []).map((field) => (
-        <FieldRow key={field.key} field={field} screen={screen} after={after} />
       ))}
       {items.map((item, i) => (
         <Item key={i} item={item} now={now} screen={screen} after={after} />

@@ -55,6 +55,7 @@ import time
 from tkinter import ttk
 
 from ...runtime import game_process
+from ...runtime import opt_value
 from ...runtime import log as logmod
 from ...runtime.paths import TOOLS, repo_rel
 from ...widgets import (ScrollableFrame, install_numeric_field, tk_stringvar,
@@ -730,7 +731,8 @@ class RallyTab(PanelTab):
         # phone and the window disagree about what belonged to the automatic mode.
         switches, page = self._web_autojoin_card(), self._web_autorally_card()
         cards.append({"title": "autorally.group",
-                      "items": list(switches["items"]) + list(page["items"]),
+                      "fields": list(switches["fields"]),
+                      "items": list(page["items"]),
                       "rows": page["rows"]})
         # …AND THE BANNERS THEMSELVES, which is the whole reason a phone is being held
         # (#1324). The same block the window draws: what is standing, what it is going
@@ -794,8 +796,13 @@ class RallyTab(PanelTab):
             item["pill"] = "rally_roster.mine"
         return item
 
+    #: The three switches the phone may MOVE, and the one place their names are written.
+    #: `web_press` refuses a `set` naming anything else, so the screen's press surface is
+    #: exactly this tuple rather than whatever a caller can spell.
+    WEB_SWITCHES = ("monitor", "alert", "autojoin")
+
     def _web_autojoin_card(self) -> dict:
-        """The three switches, one per line, each saying on or off. READINGS.
+        """The three switches, one per line — and SWITCHES on the phone too, since #1976.
 
         THE ANSWER TO «the boxes are ticked and nothing happens» (#1237), which is the
         one question this screen could not answer. Where the squads are it already
@@ -803,19 +810,26 @@ class RallyTab(PanelTab):
         so a person away from the machine saw three squads standing at home beside a
         rally nobody joined and no way to tell which switch was the quiet one.
 
-        Three lines and not one, because they are three separate things now: the archive
-        is written or it is not, the bell rings or it does not, the join goes out or it
-        does not, and any of them can be the reason nothing is happening.
+        …and then seeing the quiet one from a bus and being unable to move it is the same
+        answer half-given. They are READINGS no longer: the window is being retired
+        (`docs/research/panel-service-and-spa-plan.md`), and by the reasoning that ended
+        the «Настройки» divergence, a knob with no screen is a knob NOBODY can reach.
+        What stays window-only is the JOIN itself and the squads it would spend — a wrong
+        squad sent from a bus is a squad that is not home when the next rally lands.
+
+        Three lines and not one, because they are three separate things: the archive is
+        written or it is not, the bell rings or it does not, the join goes out or it does
+        not, and any of them can be the reason nothing is happening.
         """
         return {
             "title": "rally.frame",
-            "items": [
-                {"label": "rally.monitor",
-                 "pill": _switch(self._monitor_var.get())},
-                {"label": "rally.alert",
-                 "pill": _switch(self._alert_var.get())},
-                {"label": "rally.autojoin",
-                 "pill": _switch(self._autojoin_on())},
+            "fields": [
+                {"key": "monitor", "label": "rally.monitor",
+                 "kind": opt_value.SWITCH, "value": bool(self._monitor_var.get())},
+                {"key": "alert", "label": "rally.alert",
+                 "kind": opt_value.SWITCH, "value": bool(self._alert_var.get())},
+                {"key": "autojoin", "label": "rally.autojoin",
+                 "kind": opt_value.SWITCH, "value": self._autojoin_on()},
             ],
         }
 
@@ -919,11 +933,20 @@ class RallyTab(PanelTab):
         nobody anywhere: it asks the game for the army of every squad reading zero
         (#1285). Safe from a bus in a way a join is not — nothing leaves the base.
 
-        Joining a rally from the phone is deliberately NOT here yet: the join is a
-        send with squads chosen for it, and choosing them is «Автосбор» above — a
-        reading here, editable only at the machine. A wrong squad sent from a bus is a
-        squad that is not home when the next rally lands.
+        …and the three switches of the automatic side, which the phone may MOVE since
+        #1976 (`WEB_SWITCHES`). They go through the same calls the window's own boxes
+        make — the capture is re-pointed by `_sync_capture` and the auto-join is the
+        standing order, never a second copy of it — so a switch thrown from a bus and one
+        thrown at the machine are the same write.
+
+        Joining a rally from the phone is deliberately NOT here: the join is a send with
+        squads chosen for it, and choosing them is «Автосбор» above — a reading here,
+        editable only at the machine. A wrong squad sent from a bus is a squad that is
+        not home when the next rally lands.
         """
+        if action == "set":
+            return self._web_press_switch(str((args or {}).get("key") or ""),
+                                          bool((args or {}).get("value")))
         if action == "roster":
             # The window's «Обновить» beside the block, mirrored: it starts a READING
             # and marks nothing (#1324). The screen catches up on the next poll.
@@ -940,6 +963,28 @@ class RallyTab(PanelTab):
         # how much of the day is spent (#1317). Asked HERE and not in `web_view`, which
         # the phone polls — a VM read per poll is a read a banner pays for.
         self._refresh_day()
+        return {"ok": True}
+
+    def _web_press_switch(self, key: str, on: bool) -> dict:
+        """Throw one of the three switches, exactly as its box in the window does.
+
+        The AUTO-JOIN is not a variable of this tab's: it is the `rally_auto_join`
+        standing order, and there is one state with two places drawing it (#1281). So it
+        is moved through :meth:`_set_autojoin` and never by setting the box — a second
+        copy is what made the two disagree the first time.
+
+        Every switch ends in `_sync_capture`, which is the one place the capture child's
+        lifetime is decided: three switches share it, and whichever of them moved, it is
+        that call and not the caller that decides whether the child comes up, goes down
+        or is re-pointed.
+        """
+        if key not in self.WEB_SWITCHES:
+            return {"error": "unknown"}
+        if key == "autojoin":
+            self._set_autojoin(on)
+        else:
+            (self._monitor_var if key == "monitor" else self._alert_var).set(on)
+        self._sync_capture()
         return {"ok": True}
 
     def refresh_squads(self) -> None:

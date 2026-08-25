@@ -307,6 +307,11 @@ class PanelTab:
         from the type the knob was DECLARED with (`panel/runtime/opt_value.py`), never
         from a guess about its name.
 
+        A card may carry both, and the renderer draws its FIELDS ABOVE ITS ROWS: readings
+        explain a card, knobs are what a person opened it to move, and «Ралли» carries
+        three switches over a table of sixty-eight budget lines — a control under that
+        table is a control nobody scrolls to.
+
         WHICH FIELDS ARE WORDS AND WHICH ARE DATA is fixed and not negotiable, because
         it is what keeps the eleven languages honest: `title`, `label`, `empty` and
         `pill` are **locale keys** and are said by the browser out of the panel's own
