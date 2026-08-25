@@ -38,6 +38,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ...runtime import game_process
+from ...runtime import opt_value
 from ...runtime.paths import TOOLS
 from ...widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
                         font as ui_font)
