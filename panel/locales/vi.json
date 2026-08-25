@@ -863,6 +863,7 @@
   "timers.log.already_running": "{name}: đang chạy rồi — không rút lại được, hãy chờ nó xong",
   "timers.log.cancelled": "{name}: đã lấy khỏi hàng đợi",
   "timers.log.deleted": "{name}: đã xóa",
+  "timers.log.edited": "lịch của «{name}» đã được đổi từ điện thoại",
   "timers.log.done": "{name}: xong",
   "timers.log.day_reset": "ngày máy chủ: đặt lại lúc {at} — nhiệm vụ hằng ngày đến hạn khi đó",
   "timers.log.duplicated": "{name} → {copy}: đã chép (đang tắt)",

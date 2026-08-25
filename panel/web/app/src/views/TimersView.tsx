@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { post } from '../api'
 import { span, t, when } from '../i18n'
 import { SwitchRow } from '../ui/SwitchRow'
@@ -15,9 +15,79 @@ function weekdayNames(days: number[]): string {
   return days.map((d) => names[d - 1] || String(d)).join(', ')
 }
 
+/* The SCHEDULE of an errand, and nothing else about it (#1976). The window has had a
+ * full editor since it had a Timers tab — steps, args, title — and the phone had none,
+ * so a period could be read on a phone and changed only at the machine. The steps and
+ * the args stay in the window's dialog on purpose: a phone that could rewrite a scenario
+ * by a mistyped character is not a remote control. Committed on leaving the box, never
+ * on every keystroke — «4», «40», «400» on the way to «4000» are three schedules nobody
+ * asked for. */
+function ScheduleFields({ row, refresh }: { row: TimerRow; refresh: () => Promise<void> }) {
+  const [every, setEvery] = useState(String(row.interval_sec))
+  const [days, setDays] = useState((row.weekdays || []).join(','))
+  const sent = useRef({ every: String(row.interval_sec), days: (row.weekdays || []).join(',') })
+
+  useEffect(() => {
+    if (document.activeElement?.getAttribute('data-timer') === row.name) return
+    setEvery(String(row.interval_sec))
+    setDays((row.weekdays || []).join(','))
+    sent.current = { every: String(row.interval_sec), days: (row.weekdays || []).join(',') }
+  }, [row.interval_sec, row.weekdays, row.name])
+
+  const commit = async (what: 'every' | 'days', value: string) => {
+    if (sent.current[what] === value) return
+    sent.current[what] = value
+    await post('/api/timers/edit', {
+      name: row.name,
+      ...(what === 'every' ? { interval_sec: value } : { weekdays: value }),
+    })
+    await refresh()
+  }
+
+  return (
+    <div className="row wrap">
+      <div className="field grow">
+        <label className="muted small" htmlFor={'i-' + row.name}>
+          {t('timers.editor.interval')}
+        </label>
+        <input
+          id={'i-' + row.name}
+          data-timer={row.name}
+          type="number"
+          inputMode="numeric"
+          value={every}
+          onChange={(e) => setEvery(e.target.value)}
+          onBlur={() => void commit('every', every)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          }}
+        />
+      </div>
+      <div className="field grow">
+        <label className="muted small" htmlFor={'w-' + row.name}>
+          {t('timers.editor.weekdays')}
+        </label>
+        <input
+          id={'w-' + row.name}
+          data-timer={row.name}
+          type="text"
+          inputMode="numeric"
+          value={days}
+          onChange={(e) => setDays(e.target.value)}
+          onBlur={() => void commit('days', days)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
 function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh: () => Promise<void> }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
   const days = row.weekdays || []
   // A row that names its weekdays has no period: it fires at the start of a matching
   // GAME day and at nothing else, so it says its days where the others say «каждые …».
@@ -60,8 +130,12 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
         }}
       />
       <p className="muted small">{bits.join(' · ')}</p>
+      {open ? <ScheduleFields row={row} refresh={refresh} /> : null}
       <div className="foot">
         {row.queued ? <span className="pill warn">{t('web.ui.queued')}</span> : <span />}
+        <button className="go" onClick={() => setOpen((was) => !was)}>
+          {t('timers.edit')}
+        </button>
         <button
           className="go"
           disabled={busy}

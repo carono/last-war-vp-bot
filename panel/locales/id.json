@@ -863,6 +863,7 @@
   "timers.log.already_running": "{name}: sudah berjalan — tidak bisa ditarik, tunggu selesai",
   "timers.log.cancelled": "{name}: diambil dari antrean",
   "timers.log.deleted": "{name}: dihapus",
+  "timers.log.edited": "jadwal «{name}» diubah dari ponsel",
   "timers.log.done": "{name}: selesai",
   "timers.log.day_reset": "hari server: reset pukul {at} — tugas harian jatuh tempo saat itu",
   "timers.log.duplicated": "{name} → {copy}: disalin (dimatikan)",

@@ -863,6 +863,7 @@
   "timers.log.already_running": "{name}: zaten çalışıyor — geri alınamaz, bitmesini bekle",
   "timers.log.cancelled": "{name}: sıradan alındı",
   "timers.log.deleted": "{name}: silindi",
+  "timers.log.edited": "«{name}» zamanlaması telefondan değiştirildi",
   "timers.log.done": "{name}: bitti",
   "timers.log.day_reset": "sunucu günü: sıfırlama {at} — günlük görevler o zaman gelecek",
   "timers.log.duplicated": "{name} → {copy}: kopyalandı (kapalı)",

@@ -863,6 +863,7 @@
   "timers.log.already_running": "{name}: läuft schon — nicht mehr zurückzunehmen, warte es ab",
   "timers.log.cancelled": "{name}: aus der Warteschlange genommen",
   "timers.log.deleted": "{name}: gelöscht",
+  "timers.log.edited": "der Zeitplan von «{name}» wurde vom Telefon aus geändert",
   "timers.log.done": "{name}: fertig",
   "timers.log.day_reset": "Servertag: Reset um {at} — tägliche Aufgaben sind dann wieder fällig",
   "timers.log.duplicated": "{name} → {copy}: kopiert (ausgeschaltet)",

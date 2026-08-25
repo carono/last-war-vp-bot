@@ -863,6 +863,7 @@
   "timers.log.already_running": "{name}: już się wykonuje — nie da się wycofać, poczekaj",
   "timers.log.cancelled": "{name}: zdjęte z kolejki",
   "timers.log.deleted": "{name}: usunięte",
+  "timers.log.edited": "harmonogram «{name}» zmieniono z telefonu",
   "timers.log.done": "{name}: gotowe",
   "timers.log.day_reset": "doba serwera: reset o {at} — zadania dzienne będą wtedy wymagalne",
   "timers.log.duplicated": "{name} → {copy}: skopiowane (wyłączone)",

@@ -662,6 +662,34 @@ class TimersTab(PanelTab):
         self._write_timer(self._timer_catalogue.remove(timer.name))
         self.say("timer", "timers.log.deleted", name=timer.name)
 
+    def web_edit(self, name: str, *, interval_sec=None, weekdays=None) -> bool:
+        """Re-schedule one errand from the phone: its period, its days, or both (#1976).
+
+        THROUGH THE TAB AND NOT AROUND IT, for the reason every switch already goes this
+        way: while this tab is drawn its widgets ARE the configuration — the schedule
+        reads them on every tick (`Schedule.timer_config`) and `Catalogue.with_settings`
+        folds them back in on every save — so a period written straight into
+        `timers.json` behind them would be overwritten by the next tick and look, from
+        the phone, like a field that does not stay.
+
+        What it may change is the SCHEDULE and nothing else. The steps, the args and the
+        title are the operator's text and belong to the editor in the window; a phone
+        that could rewrite a scenario by accident is not a remote control.
+        """
+        timer = self._timer_catalogue.by_name(name)
+        if timer is None:
+            return False
+        edited = self._edited_timer(
+            timer, name=timer.name, title=timer.title or "",
+            interval=(timer.interval_sec if interval_sec is None else interval_sec),
+            retry=timer.retry_sec, scenario=timer.scenario, args=dict(timer.args),
+            enabled=timer.enabled, immediate=timer.immediate,
+            weekdays=(",".join(str(d) for d in timer.weekdays) if weekdays is None
+                      else weekdays))
+        self._write_timer(self._timer_catalogue.replace(edited))
+        self.say("timer", "timers.log.edited", name=timer.name)
+        return True
+
     def _timer_edit(self) -> None:
         timer = self._selected_timer()
         if timer is not None:

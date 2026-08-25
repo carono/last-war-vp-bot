@@ -640,6 +640,47 @@ class WebApi:
         timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
         return {"ok": True, "name": name, "immediate": bool(immediate)}
 
+    def edit_timer(self, name: str, *, interval_sec=None, weekdays=None,
+                   profile: str | None = None) -> dict:
+        """Re-schedule one errand from the phone: its period, its days, or both (#1976).
+
+        The window has had an editor since it had a Timers tab and the phone had none,
+        so an errand's period could be READ on a phone and changed only at the machine —
+        the divergence `CLAUDE.md` forbids, arrived at by way of «the dialog is hard to
+        draw». This is the half that is not a dialog: what an errand's schedule IS.
+
+        THE SAME TWO BRANCHES as every switch above, for the same reason. While a Timers
+        tab is drawn its widgets are the configuration and `with_settings` folds them
+        back in on every save, so a period written past them would be undone on the next
+        tick. With no such tab the saved catalogue IS the configuration and is written
+        here — and `Catalogue.replace` writes the whole entry, which is what keeps the
+        steps and the args exactly as they were.
+        """
+        rt = self._runtime(profile)
+        timer = rt.schedule.timer_catalogue.by_name(name)
+        if timer is None:
+            return {"error": "unknown"}
+        tab = rt.tabs.get("timers")
+        if tab is not None and getattr(tab, "built", True) and hasattr(tab, "web_edit"):
+            done: dict = {}
+            self._on_tk(rt, lambda: done.update(ok=bool(tab.web_edit(
+                name, interval_sec=interval_sec, weekdays=weekdays))))
+            if done.get("ok"):
+                return {"ok": True, "name": name}
+        edited = timersmod.Timer(
+            name=timer.name, scenario=timer.scenario,
+            interval_sec=(timer.interval_sec if interval_sec is None
+                          else timersmod._as_interval(interval_sec, timer.interval_sec)),
+            retry_sec=timer.retry_sec, enabled=timer.enabled,
+            immediate=timer.immediate,
+            weekdays=(tuple(timer.weekdays) if weekdays is None
+                      else timersmod._as_weekdays(weekdays, timer.weekdays)),
+            args=dict(timer.args), title=timer.title, label_key=timer.label_key)
+        schedule = rt.schedule
+        schedule.timer_catalogue = schedule.timer_catalogue.replace(edited)
+        timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
+        return {"ok": True, "name": name}
+
     # -- the standing orders -------------------------------------------------
     def triggers(self, profile: str | None = None) -> dict:
         """Every listener, its switch, the event it waits for and whether an ear is up.
@@ -1275,6 +1316,11 @@ class WebApi:
             if path == "/api/timers/now":
                 return _answer(self.set_timer_immediate(
                     name, bool(body.get("immediate")), who))
+            if path == "/api/timers/edit":
+                return _answer(self.edit_timer(
+                    str(body.get("name") or ""),
+                    interval_sec=body.get("interval_sec"),
+                    weekdays=body.get("weekdays"), profile=who))
             if path == "/api/timers/run":
                 return _answer(self.run_timer(name, who))
             if path == "/api/triggers/set":

@@ -863,6 +863,7 @@
   "timers.log.already_running": "{name} : déjà en cours — impossible de revenir en arrière, laisse finir",
   "timers.log.cancelled": "{name} : retiré de la file",
   "timers.log.deleted": "{name} : supprimé",
+  "timers.log.edited": "l'horaire de «{name}» a été modifié depuis le téléphone",
   "timers.log.done": "{name} : terminé",
   "timers.log.day_reset": "journée serveur : réinitialisation à {at} — les tâches quotidiennes sont ensuite dues",
   "timers.log.duplicated": "{name} → {copy} : copié (désactivé)",
