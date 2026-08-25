@@ -2151,5 +2151,7 @@
   "pieces.share.yes": "ya, tawaran baru diumumkan",
   "pieces.share.no": "tidak",
   "pieces.share.on": "Umumkan tawaran baru",
-  "pieces.share.off": "Berhenti mengumumkan tawaran"
+  "pieces.share.off": "Berhenti mengumumkan tawaran",
+  "pieces.offer_gap": "Cadangan untuk tawaran kita",
+  "pieces.share_every": "Obrolan, paling cepat tiap (mnt)"
 }

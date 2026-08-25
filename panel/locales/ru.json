@@ -2151,5 +2151,7 @@
   "pieces.share.yes": "да, новое предложение объявляется",
   "pieces.share.no": "нет",
   "pieces.share.on": "Публиковать новые предложения",
-  "pieces.share.off": "Не публиковать предложения"
+  "pieces.share.off": "Не публиковать предложения",
+  "pieces.offer_gap": "Запас для своего предложения",
+  "pieces.share_every": "В чат не чаще (мин)"
 }

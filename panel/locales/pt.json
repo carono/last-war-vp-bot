@@ -2151,5 +2151,7 @@
   "pieces.share.yes": "sim, uma oferta nova é anunciada",
   "pieces.share.no": "não",
   "pieces.share.on": "Anunciar as ofertas novas",
-  "pieces.share.off": "Parar de anunciar ofertas"
+  "pieces.share.off": "Parar de anunciar ofertas",
+  "pieces.offer_gap": "Reserva para a nossa oferta",
+  "pieces.share_every": "Chat, no máximo a cada (min)"
 }

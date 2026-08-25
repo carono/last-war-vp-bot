@@ -229,6 +229,48 @@ never trade on different rules. The rule itself is pinned by
 runs it under `lupa` against an invented bag and board — no game, no client, no pieces
 spent, and a rule edited in the recipe and nowhere else still fails the test.
 
+## 9. What switching the listener on actually did (measured)
+
+The trigger and the half-hourly row were turned on for one profile and watched. Seven
+minutes later, off the profile's own log:
+
+| reading | number |
+|---|---|
+| runs of the errand | 18 |
+| woken by the push | 18 (every one — the timer's own turn never came round) |
+| offers stood | 18 |
+| **messages into the alliance chat** | **34, in four minutes** |
+| digs at the start / at the end | 14 / 14 |
+
+Both of the numbers in bold are faults, and neither was visible from a single run.
+
+**The loop is real and it runs through living people.** An offer we stand is taken within
+seconds by an active alliance; the acceptance is a push; the push wakes the errand; the
+errand finds no offer of ours, stands a fresh one and announces it — and that one is taken
+too. Nothing here is a bug in the ordinary sense: every swap obeyed the rule and every
+announcement obeyed «one message per offer». The guard was simply written for a world
+where offers are rare, and nothing in the recipe knew how often an offer would be.
+
+**And the churn bought nothing.** Eighteen swaps and the digs left never moved off
+fourteen. With the seven counts one apart, an offer that asks for the scarcest piece and
+pays with the most plentiful just moves the shortage from one piece to another: the floor
+cannot rise, because the piece paid with becomes the new floor. A swap only raises it when
+the piece we pay with is at least **two** above the piece we ask for.
+
+Both are fixed by a threshold each, and they are separate on purpose:
+
+* `offer_gap` (2) — how far apart the most plentiful and the scarcest must be before an
+  offer of OURS is worth standing. It governs only what we POST. What we ACCEPT stays the
+  operator's «≤»: an even swap somebody else is paying for costs us nothing, while
+  standing one of our own costs a held piece and a message in a channel people read.
+* `share_cooldown` (30 min) — a floor under how often the chat may be written to at all,
+  whatever the rest of the recipe decides. A second guard rather than a better first one,
+  because the first one was not wrong: it was answering a different question.
+
+The lesson is not about this ability. **A rule that is quiet in a measurement of one run
+can be loud in a measurement of an hour**, and the way to find out is to switch the thing
+on and count — not to reason about how often the event «should» happen.
+
 ## 9. Dead ends worth not repeating
 
 * `string.dump` is refused by this client's sandbox, so no sender could be read by

@@ -2151,5 +2151,7 @@
   "pieces.share.yes": "evet, yeni teklif duyurulur",
   "pieces.share.no": "hayır",
   "pieces.share.on": "Yeni teklifleri duyur",
-  "pieces.share.off": "Teklifleri duyurmayı bırak"
+  "pieces.share.off": "Teklifleri duyurmayı bırak",
+  "pieces.offer_gap": "Kendi teklifimiz için fazlalık",
+  "pieces.share_every": "Sohbet, en fazla (dk) bir"
 }

@@ -83,10 +83,32 @@
 # is not the mechanism `tools/lib/chat_share.py` uses for a coordinate (post = 13 with an
 # `attachmentId` JSON through `ChatManager2.Net`). Nothing here needed inventing.
 #
-# It is on by default, and the reason it is not spam is WHEN it happens: only in the run
-# that actually POSTED a new offer. A run that finds our offer already standing, or that
-# withdraws it because the seven are level, announces nothing — so the alliance sees one
-# message per offer and not one every half hour. `share = 0` switches it off entirely.
+# It is on by default, and it is kept from being spam by TWO things, because one was not
+# enough (measured, and it is the whole of the paragraph below): it happens only in the run
+# that actually POSTED a new offer, AND not oftener than `share_cooldown` seconds — thirty
+# minutes by default — however many offers those runs post. `share = 0` switches it off.
+#
+# THE SECOND GUARD IS THERE BECAUSE THE FIRST ONE FAILED IN THE LIVE GAME. With the
+# listener on and an active alliance, every offer we stood was taken within seconds; the
+# push woke the errand, which stood a fresh one and announced it, which was taken, and so
+# on. Measured: **eighteen offers and thirty-four chat messages in four minutes**, none of
+# them wrong by the rule and all of them noise in a channel living people read. «One
+# message per offer» is only quiet while offers are rare, and nothing in the recipe knew
+# how often an offer would be.
+#
+# THE SAME MEASUREMENT FOUND THE OTHER HALF OF IT: those eighteen swaps left the digs
+# exactly where they started, at fourteen. With the seven counts one apart, an offer that
+# asks for the scarcest and pays with the most plentiful moves the shortage from one piece
+# to another and the floor never rises — a perpetual, honest, pointless churn. So the offer
+# step now needs a real gap before it posts at all: `offer_gap`, 2 by default, because a
+# swap only raises the floor when the piece we pay with is at least two above the piece we
+# ask for. Everything below that is left alone, and a standing offer that has stopped being
+# worth it is withdrawn.
+#
+# Note the asymmetry, and that it is deliberate: this is the rule for OUR OWN offer only.
+# What we ACCEPT is the operator's «≤» above and is not touched by `offer_gap` — taking an
+# even swap somebody else is paying for costs us nothing, while standing one of our own
+# costs a held piece and a message in the chat.
 #
 # THE ANNOUNCEMENT IS A SEPARATE STEP because it needs the uuid, and the uuid only exists
 # once the server has answered the post. Hence the `WAIT` between them: an announcement
@@ -115,6 +137,8 @@ ARGS kind = 4
 ARGS accept = 1
 ARGS offer = 1
 ARGS share = 1
+ARGS offer_gap = 2
+ARGS share_cooldown = 1800
 ARGS strict = 0
 ARGS limit = 3
 
@@ -126,8 +150,8 @@ LOG "the board, and what the rule made of it: {report}"
 
 READ_LUA (function() local kind = {kind} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 0 end local list = {} pcall(function() list = M:GetAlExchangeDataList(kind) or {} end) local n = 0 for _ in pairs(list) do n = n + 1 end return n end)() INTO offers
 IF offer > 0
-    READ_LUA (function() local kind = {kind} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 'no such set' end local ids = info.fragGoodsIdList or {} local have = {} local order = {} for _, id in ipairs(ids) do have[id + 0] = 0 order[#order+1] = id + 0 end if #order == 0 then return 'the set is empty on this account' end pcall(function() for _, it in pairs(DataCenter.ItemData.ItemInfos or {}) do local id = it.itemId if id ~= nil and have[id + 0] ~= nil then have[id + 0] = have[id + 0] + ((it.count or 0) + 0) end end end) local want, pay = order[1], order[1] for _, id in ipairs(order) do if have[id] < have[want] then want = id end if have[id] > have[pay] then pay = id end end local suuid, sneed, scost = -1, 0, 0 pcall(function() local s = M:GetSelfExchangeData(kind) if s then suuid = (s.uuid or -1) + 0 sneed = (s.needFragment or 0) + 0 scost = (s.costFragment or 0) + 0 end end) local function num(n) return string.format('%d', n) end local function drop() pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCancelExchange, {uuid = suuid}) end) end if want == pay or have[pay] <= have[want] then if suuid > 0 then drop() DataCenter.__lw_spx_posted = false return 'the seven are level (' .. have[want] .. ' each) — there is nothing worth asking for, so the standing offer was withdrawn' end return 'the seven are level (' .. have[want] .. ' each) — nothing worth asking for, nothing posted' end if suuid > 0 and sneed == want and scost == pay then DataCenter.__lw_spx_posted = false return 'already standing, and it asks for the right thing: need=' .. num(want) .. ' pay=' .. num(pay) end local note = '' if suuid > 0 then drop() note = 'withdrew ' .. num(sneed) .. '<-' .. num(scost) .. ', ' end pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCallExchange, {type = kind, needFragment = math.floor(want), costFragment = math.floor(pay)}) end) DataCenter.__lw_spx_posted = true return note .. 'posted: we need ' .. num(want) .. ' (' .. have[want] .. ' held) and pay ' .. num(pay) .. ' (' .. have[pay] .. ' held)' end)() INTO stall
+    READ_LUA (function() local kind = {kind} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 'no such set' end local ids = info.fragGoodsIdList or {} local have = {} local order = {} for _, id in ipairs(ids) do have[id + 0] = 0 order[#order+1] = id + 0 end if #order == 0 then return 'the set is empty on this account' end pcall(function() for _, it in pairs(DataCenter.ItemData.ItemInfos or {}) do local id = it.itemId if id ~= nil and have[id + 0] ~= nil then have[id + 0] = have[id + 0] + ((it.count or 0) + 0) end end end) local want, pay = order[1], order[1] for _, id in ipairs(order) do if have[id] < have[want] then want = id end if have[id] > have[pay] then pay = id end end local suuid, sneed, scost = -1, 0, 0 pcall(function() local s = M:GetSelfExchangeData(kind) if s then suuid = (s.uuid or -1) + 0 sneed = (s.needFragment or 0) + 0 scost = (s.costFragment or 0) + 0 end end) local function num(n) return string.format('%d', n) end local function drop() pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCancelExchange, {uuid = suuid}) end) end if want == pay or (have[pay] - have[want]) < {offer_gap} then if suuid > 0 then drop() DataCenter.__lw_spx_posted = false return 'nothing worth asking for: the scarcest is ' .. have[want] .. ' and the most plentiful ' .. have[pay] .. ', which is under the ' .. {offer_gap} .. ' a swap needs to raise the floor — the standing offer was withdrawn' end return 'nothing worth asking for: the scarcest is ' .. have[want] .. ' and the most plentiful ' .. have[pay] .. ', which is under the ' .. {offer_gap} .. ' a swap needs to raise the floor — nothing posted' end if suuid > 0 and sneed == want and scost == pay then DataCenter.__lw_spx_posted = false return 'already standing, and it asks for the right thing: need=' .. num(want) .. ' pay=' .. num(pay) end local note = '' if suuid > 0 then drop() note = 'withdrew ' .. num(sneed) .. '<-' .. num(scost) .. ', ' end pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureCallExchange, {type = kind, needFragment = math.floor(want), costFragment = math.floor(pay)}) end) DataCenter.__lw_spx_posted = true return note .. 'posted: we need ' .. num(want) .. ' (' .. have[want] .. ' held) and pay ' .. num(pay) .. ' (' .. have[pay] .. ' held)' end)() INTO stall
     LOG "our own offer: {stall}"
     WAIT 2
-    READ_LUA (function() local kind = {kind} if {share} == 0 then return 'not announced — «опубликовать в чат альянса» is switched off' end if DataCenter.__lw_spx_posted ~= true then return 'nothing new to announce — the offer standing is the one the alliance was already told about' end DataCenter.__lw_spx_posted = false local M = DataCenter.SplinterExchangeManager local uuid, need, cost = -1, 0, 0 pcall(function() local d = M:GetSelfExchangeData(kind) if d then uuid = (d.uuid or -1) + 0 need = (d.needFragment or 0) + 0 cost = (d.costFragment or 0) + 0 end end) if uuid <= 0 then return 'the post has not come back yet — nothing to announce, the next run will' end local ok = pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureSendALInfo, {uuid = uuid}) end) if not ok then return 'the announcement was refused by the client' end return 'announced in the alliance chat: we need ' .. string.format('%d', need) .. ' and pay ' .. string.format('%d', cost) end)() INTO announced
+    READ_LUA (function() local kind = {kind} if {share} == 0 then return 'not announced — «опубликовать в чат альянса» is switched off' end if DataCenter.__lw_spx_posted ~= true then return 'nothing new to announce — the offer standing is the one the alliance was already told about' end DataCenter.__lw_spx_posted = false local now = 0 pcall(function() now = math.floor((UITimeManager.Instance:GetServerTime() + 0) / 1000) end) if now <= 0 then now = os.time() end local last = DataCenter.__lw_spx_said_at or 0 local wait = {share_cooldown} - (now - last) if last > 0 and wait > 0 then return 'held back: the alliance chat was told about an offer ' .. (now - last) .. ' s ago and this one may be announced in ' .. wait .. ' s' end local M = DataCenter.SplinterExchangeManager local uuid, need, cost = -1, 0, 0 pcall(function() local d = M:GetSelfExchangeData(kind) if d then uuid = (d.uuid or -1) + 0 need = (d.needFragment or 0) + 0 cost = (d.costFragment or 0) + 0 end end) if uuid <= 0 then return 'the post has not come back yet — nothing to announce, the next run will' end local ok = pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureSendALInfo, {uuid = uuid}) end) if not ok then return 'the announcement was refused by the client' end DataCenter.__lw_spx_said_at = now return 'announced in the alliance chat: we need ' .. string.format('%d', need) .. ' and pay ' .. string.format('%d', cost) end)() INTO announced
     LOG "the alliance chat: {announced}"

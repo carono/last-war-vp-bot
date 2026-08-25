@@ -2151,5 +2151,7 @@
   "pieces.share.yes": "có, đề nghị mới được đăng",
   "pieces.share.no": "không",
   "pieces.share.on": "Đăng đề nghị mới",
-  "pieces.share.off": "Ngừng đăng đề nghị"
+  "pieces.share.off": "Ngừng đăng đề nghị",
+  "pieces.offer_gap": "Mức dư cho đề nghị của ta",
+  "pieces.share_every": "Trò chuyện, không dày hơn (phút)"
 }

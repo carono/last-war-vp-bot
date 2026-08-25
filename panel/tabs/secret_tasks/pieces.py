@@ -112,6 +112,19 @@ class PiecesPage:
         #: exchanges was found anywhere in the client (#1975), so the ceiling that stops
         #: a board filled overnight from emptying our spare pieces has to be here.
         self.limit_var = tk.StringVar(master=root, value="3")
+        #: How far apart the most plentiful and the scarcest piece must be before an
+        #: offer of OURS is worth standing. 2, because a swap only raises the floor when
+        #: the piece we pay with is at least two above the one we ask for — at 1 the
+        #: shortage simply moves from piece to piece for ever (#1975, measured live:
+        #: eighteen swaps in four minutes and the digs never moved off fourteen). It does
+        #: NOT govern what we accept; that is the operator's «≤» and is deliberately
+        #: laxer, because an even swap somebody else pays for costs us nothing.
+        self.offer_gap_var = tk.StringVar(master=root, value="2")
+        #: The floor under how often the alliance chat may be written to, in MINUTES.
+        #: «One message per offer» was the only guard at first and it was not one: with
+        #: the listener on and an active alliance, eighteen offers became thirty-four
+        #: messages in four minutes.
+        self.share_every_var = tk.StringVar(master=root, value="30")
         #: Whether a newly posted offer is announced in the alliance chat — the game's
         #: own «опубликовать в чат альянса» button, one call, the server posts the card
         #: from our name. On by default and NOT spam, because it only happens in the run
@@ -157,6 +170,8 @@ class PiecesPage:
                 "accept": 1,
                 "offer": 1 if self.offer_var.get() else 0,
                 "share": 1 if self.share_var.get() else 0,
+                "offer_gap": max(1, _int(self.offer_gap_var.get(), 2)),
+                "share_cooldown": max(0, _int(self.share_every_var.get(), 30)) * 60,
                 "strict": 1 if self.strict_var.get() else 0,
                 "limit": max(0, _int(self.limit_var.get(), 3))}
 
@@ -180,6 +195,12 @@ class PiecesPage:
         tab.tr(ttk.Label(bar), "pieces.limit").pack(side="left")
         NumericEntry(bar, textvariable=self.limit_var, width=4).pack(side="left",
                                                                     padx=(2, 12))
+        tab.tr(ttk.Label(bar), "pieces.offer_gap").pack(side="left")
+        NumericEntry(bar, textvariable=self.offer_gap_var, width=4).pack(side="left",
+                                                                        padx=(2, 12))
+        tab.tr(ttk.Label(bar), "pieces.share_every").pack(side="left")
+        NumericEntry(bar, textvariable=self.share_every_var, width=4).pack(
+            side="left", padx=(2, 12))
         tab.tr(ttk.Checkbutton(bar, variable=self.offer_var), "pieces.offer").pack(
             side="left")
         tab.tr(ttk.Checkbutton(bar, variable=self.share_var), "pieces.share").pack(
@@ -294,7 +315,9 @@ class PiecesPage:
     def config(self) -> dict:
         return {"strict": bool(self.strict_var.get()), "limit": self.limit_var.get(),
                 "offer": bool(self.offer_var.get()),
-                "share": bool(self.share_var.get())}
+                "share": bool(self.share_var.get()),
+                "offer_gap": self.offer_gap_var.get(),
+                "share_every": self.share_every_var.get()}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
@@ -302,9 +325,12 @@ class PiecesPage:
         self.limit_var.set(str(raw.get("limit") or "3"))
         self.offer_var.set(bool(raw.get("offer", True)))
         self.share_var.set(bool(raw.get("share", True)))
+        self.offer_gap_var.set(str(raw.get("offer_gap") or "2"))
+        self.share_every_var.set(str(raw.get("share_every") or "30"))
 
     def persist_vars(self) -> list:
-        return [self.strict_var, self.limit_var, self.offer_var, self.share_var]
+        return [self.strict_var, self.limit_var, self.offer_var, self.share_var,
+                self.offer_gap_var, self.share_every_var]
 
     # -- the phone -------------------------------------------------------------------
     def web_card(self) -> dict:
@@ -324,9 +350,11 @@ class PiecesPage:
                  "value": self.tab.t("pieces.strict.yes" if self.strict_var.get()
                                      else "pieces.strict.no")},
                 {"label": "pieces.limit", "value": self.limit_var.get()},
+                {"label": "pieces.offer_gap", "value": self.offer_gap_var.get()},
                 {"label": "pieces.share",
                  "value": self.tab.t("pieces.share.yes" if self.share_var.get()
-                                     else "pieces.share.no")}]
+                                     else "pieces.share.no")},
+                {"label": "pieces.share_every", "value": self.share_every_var.get()}]
         rows += [{"label": "pieces.piece", "value": "%s: %d" % (piece, count)}
                  for piece, count in board["have"]]
         items = [{"text": offer["name"] or "—",
