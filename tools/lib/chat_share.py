@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -206,3 +207,99 @@ def share_point(ev, room_id: str, attachment: str, peer_uid=None, lang: str = "r
         lang_room=lang_room,
     )
     return any("chat_point_sent" in ln for ln in ev.run(chunk, MARKER, 1.4))
+
+
+# ---------------------------------------------------------------------------
+# Text, emoji and stickers — the payload half, shared with the DSL primitive
+# ---------------------------------------------------------------------------
+# These lived in `tools/chat_send.py` while the CLI was the only sender. The
+# `CHAT_SEND` statement needs exactly the same three things (resolve the emoji
+# tokens, put text on the wire, put a sticker on the wire), and a second copy of
+# them inside the engine would be the ability written down twice, so they moved
+# here and the CLI imports them back.
+
+_EMOJI_TOKEN = re.compile(r"\{e:(\d+)\}")
+
+
+def resolve_emoji_pua(ev, ids) -> dict:
+    """Map each emoji id -> its inline PUA character, live from the game config.
+
+    `GetEmojiDataById(id).name` is a PUA hex stem (e.g. 101 -> "e006" -> U+E006).
+    """
+    if not ids:
+        return {}
+    id_list = ",".join(str(int(i)) for i in ids)
+    chunk = (
+        'local em=DataCenter.ChatEmojiTemplateManager '
+        'for _,id in ipairs({%s}) do '
+        'local d=em:GetEmojiDataById(id) '
+        'CS.UnityEngine.Debug.LogError("ACT emojipua "..id.."="..'
+        'tostring(d and d.name or "")) end' % id_list
+    )
+    out = {}
+    for ln in ev.run(chunk, MARKER, 1.0):
+        if "emojipua " in ln:
+            body = ln.split("emojipua ", 1)[1].strip()
+            if "=" in body:
+                sid, name = body.split("=", 1)
+                name = name.strip()
+                if name and name != "nil":
+                    try:
+                        out[int(sid)] = chr(int(name, 16))
+                    except ValueError:
+                        pass
+    return out
+
+
+def assemble_text(ev, text: str) -> str:
+    """Replace `{e:<id>}` tokens in `text` with their live PUA emoji characters.
+
+    An id the game does not know is left standing as its token — a message that
+    arrives with «{e:999}» in it says what went wrong; one silently short of a
+    glyph does not.
+    """
+    ids = [int(m) for m in _EMOJI_TOKEN.findall(text)]
+    if not ids:
+        return text
+    pua = resolve_emoji_pua(ev, ids)
+    return _EMOJI_TOKEN.sub(lambda m: pua.get(int(m.group(1)), m.group(0)), text)
+
+
+def preview_text(text: str) -> str:
+    """The message as a terminal or a log can show it (PUA glyphs render nowhere)."""
+    return _EMOJI_TOKEN.sub(lambda m: "[e:%s]" % m.group(1), text or "")
+
+
+def send_text(ev, room_id: str, text: str) -> bool:
+    """Send `text` (emoji tokens resolved here) to `room_id`. True when confirmed."""
+    msg = assemble_text(ev, text)
+    return any("chat_sent" in ln
+               for ln in ev.run(lua_actions.chat_send_text(room_id, msg), MARKER, 1.4))
+
+
+def send_sticker(ev, room_id: str, sticker_id: int) -> bool:
+    """Send sticker `sticker_id` to `room_id`. True when the game confirmed it."""
+    return any("chat_sticker_sent" in ln
+               for ln in ev.run(lua_actions.chat_send_sticker(room_id, int(sticker_id)),
+                                MARKER, 1.4))
+
+
+def parse_coords(text: str):
+    """(x, y, server|None) from any coordinate spelling the project accepts.
+
+    Delegates to `tools/lib/coords.py` (the canonical parser: "X:600 Y:400",
+    "@[600,400|100]", "(600,400)", ...) and additionally accepts the plain "600,400"
+    pair, which the shared parser deliberately ignores in prose. Raises `ValueError`
+    when there is no coordinate in the string at all.
+    """
+    import coords as _coords
+
+    hits = _coords.parse(text or "")
+    if hits:
+        _, _, x, y, server = hits[0]
+        return x, y, server
+    m = re.fullmatch(r"\s*(\d{1,4})\s*[,; ]\s*(\d{1,4})\s*(?:[|@]\s*(\d{1,5})\s*)?",
+                     text or "")
+    if m:
+        return int(m.group(1)), int(m.group(2)), (int(m.group(3)) if m.group(3) else None)
+    raise ValueError("cannot read a coordinate out of %r" % text)

@@ -68,6 +68,7 @@ that owns a lifecycle.
 | P2 — the errand EDITOR from the phone | **done** | `/api/timers/save` · `/copy` · `/delete`; add, rename, copy, delete, steps, args, title — the dialog's four refusals, off its own keys |
 | P2 — «Дуэль»: the whole week and the sets | **done** | six day cards of switches, ceilings, details and picks; the sets card creates, renames and deletes; a screen action may `confirm` now |
 | P2 — the rally kind filter's «все / никакие» | **done** | two screen actions; `set_all_kinds` moves the STATE and the boxes after it, so it works with no drawn tab |
+| P2 — answering in CHAT from the phone | **written, not yet live** | the ability became one recipe first: `CHAT_SEND` in the DSL, `actions/send_chat_message.md` over it, the tool kept as the command line. The panel was down and Windows interop from WSL with it, so nothing here has been sent in a real game — the window's three sends and the phone's two are the first thing to try when it is up |
 | P2 — the treasure feed's own filter | **done** | four switches on «Сокровища (отладка)»; the clipboard press stays at the machine |
 | P2 — what is still window-only | see below | |
 | P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
@@ -87,9 +88,17 @@ things the window's dialog refuses, off the same locale keys. What made it the l
 piece of P2 was that it had been a divergence («a phone that rewrites a recipe by a
 mistyped character is not a remote control») and stopped being one the moment the person
 said the web gets the whole function. Renaming and deleting a PROFILE is still window-only: destructive, so it wants a typed confirmation like the
-character switch has, not an exemption. Sending a CHAT message: the window spawns a tool
-to do it, so by the rule in `CLAUDE.md` the phone gets the reading and no button until
-that ability is a scenario. «Разработка»: decided to become an SPA screen behind the
+character switch has, not an exemption. Sending a CHAT message is no longer among them, and it is the
+worked example of the ORDER OF WORK the rule states rather than an exception to it: the
+window spawned a tool, so the phone had the reading and no box; `CHAT_SEND` made the
+ability one recipe, `panel/tabs/chat.py` plays it from both sides, and the phone answers
+into the room its own card is showing (never «wherever the window is looking» — outgoing
+chat cannot be unsent). The emoji picker and the sticker grid have NOT travelled
+yet, and that is a GAP AWAITING AN ANSWER rather than a divergence anybody decided: they
+are grids of sprites the client extracted onto THIS machine's disk, so putting them on a
+phone means serving those images over the remote-control port. Ask before building it —
+and until it is asked, a phone can still send an emoji, because `{e:<id>}` tokens are
+resolved inside the recipe and the ids are printable with the tool. «Разработка»: decided to become an SPA screen behind the
 development switch, not built yet. The remote control's own port, token and certificate:
 the standing divergence, and the one thing that will need an answer before the window
 goes — see the note in the risks below.

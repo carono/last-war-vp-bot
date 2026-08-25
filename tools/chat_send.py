@@ -67,7 +67,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -78,7 +77,6 @@ import lua_actions  # noqa: E402
 import lua_client  # noqa: E402
 
 MARKER = "ACT"
-_EMOJI_TOKEN = re.compile(r"\{e:(\d+)\}")
 
 
 def _log(msg: str) -> None:
@@ -96,51 +94,12 @@ def resolve_self_uid(ev) -> str:
     return chat_share.self_profile(ev).get("uid", "")
 
 
-def resolve_emoji_pua(ev, ids) -> dict:
-    """Map each emoji id -> its inline PUA character, live from the game config.
-
-    `GetEmojiDataById(id).name` is a PUA hex stem (e.g. 101 -> "e006" -> U+E006).
-    """
-    if not ids:
-        return {}
-    id_list = ",".join(str(int(i)) for i in ids)
-    chunk = (
-        'local em=DataCenter.ChatEmojiTemplateManager '
-        'for _,id in ipairs({%s}) do '
-        'local d=em:GetEmojiDataById(id) '
-        'CS.UnityEngine.Debug.LogError("ACT emojipua "..id.."="..'
-        'tostring(d and d.name or "")) end' % id_list
-    )
-    out = {}
-    for ln in ev.run(chunk, MARKER, 1.0):
-        if "emojipua " in ln:
-            body = ln.split("emojipua ", 1)[1].strip()
-            if "=" in body:
-                sid, name = body.split("=", 1)
-                name = name.strip()
-                if name and name != "nil":
-                    try:
-                        out[int(sid)] = chr(int(name, 16))
-                    except ValueError:
-                        pass
-    return out
-
-
-def assemble_text(ev, text: str) -> str:
-    """Replace `{e:<id>}` tokens in `text` with their live PUA emoji characters."""
-    ids = [int(m) for m in _EMOJI_TOKEN.findall(text)]
-    if not ids:
-        return text
-    pua = resolve_emoji_pua(ev, ids)
-    missing = [i for i in ids if i not in pua]
-    if missing:
-        _log("WARN: unknown emoji id(s): %s (left as literal token)"
-             % ", ".join(map(str, missing)))
-
-    def sub(m):
-        return pua.get(int(m.group(1)), m.group(0))
-
-    return _EMOJI_TOKEN.sub(sub, text)
+# The payload half — emoji resolution, the text/sticker sends and the coordinate
+# parser — lives in tools/lib/chat_share.py, so the `CHAT_SEND` statement of the DSL
+# and this CLI put the very same bytes on the wire (#1976).
+resolve_emoji_pua = chat_share.resolve_emoji_pua
+assemble_text = chat_share.assemble_text
+parse_coords = chat_share.parse_coords
 
 
 def list_emoji(ev) -> None:
@@ -177,43 +136,21 @@ def send(ev, room: str, text=None, sticker=None, dry=False) -> int:
         if dry:
             _log("[dry-run] not sent")
             return 0
-        for ln in ev.run(lua_actions.chat_send_sticker(room, sticker), MARKER, 1.4):
-            if "chat_sticker_sent" in ln:
-                _log("sent (sticker %d)" % sticker)
-                return 0
+        if chat_share.send_sticker(ev, room, sticker):
+            _log("sent (sticker %d)" % sticker)
+            return 0
         _log("WARN: no send confirmation from the game")
         return 1
 
-    msg = assemble_text(ev, text)
-    # Show a readable preview (PUA glyphs won't render in most terminals).
-    preview = _EMOJI_TOKEN.sub(lambda m: "[e:%s]" % m.group(1), text)
-    _log("room=%s  msg=%r  (%d bytes utf-8)" % (room, preview, len(msg.encode("utf-8"))))
+    _log("room=%s  msg=%r" % (room, chat_share.preview_text(text)))
     if dry:
         _log("[dry-run] not sent")
         return 0
-    for ln in ev.run(lua_actions.chat_send_text(room, msg), MARKER, 1.4):
-        if "chat_sent" in ln:
-            _log("sent")
-            return 0
+    if chat_share.send_text(ev, room, text):
+        _log("sent")
+        return 0
     _log("WARN: no send confirmation from the game")
     return 1
-
-
-def parse_coords(text: str):
-    """(x, y, server|None) from any coordinate spelling the project accepts.
-
-    Delegates to tools/lib/coords.py (the canonical parser: "X:600 Y:400",
-    "@[600,400|100]", "(600,400)", "600/400", ...) and additionally accepts the plain
-    "600,400" pair, which the shared parser deliberately ignores in prose.
-    """
-    hits = coords_fmt.parse(text)
-    if hits:
-        _, _, x, y, server = hits[0]
-        return x, y, server
-    m = re.fullmatch(r"\s*(\d{1,4})\s*[,; ]\s*(\d{1,4})\s*(?:[|@]\s*(\d{1,5})\s*)?", text)
-    if m:
-        return int(m.group(1)), int(m.group(2)), (int(m.group(3)) if m.group(3) else None)
-    raise ValueError("cannot read a coordinate out of %r" % text)
 
 
 build_point_attachment = chat_share.point_attachment

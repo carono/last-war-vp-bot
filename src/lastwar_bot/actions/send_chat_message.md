@@ -1,41 +1,47 @@
 # Send a chat message (text / emoji / sticker / coordinates) to a player DM or a channel.
 # ru: Отправить сообщение в чат (текст / эмодзи / стикер / координаты) — в ЛС или в канал.
 #
-# Unlike the other recipes, a chat send is PARAMETERISED (who + what), so it is not
-# a fixed "tap a button" script — it is driven by the tool that carries the payload:
+# The ability, in one file. It used to be a TOOL the chat tab spawned, which is why the
+# phone had the chat's reading and no box to answer in (`CLAUDE.md`, «A press travels
+# only when the ability is a scenario»); `CHAT_SEND` is the primitive that let it become
+# a recipe, and `tools/chat_send.py` stayed on as the command line around the same code.
 #
-#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --text "Тест"
-#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --text "hi {e:101}{e:106}"
-#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --sticker 35
-#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --coords "600,400"
-#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --my-base
-#     C:\Python312\python.exe tools\chat_send.py --room country_100 --text "hello world"
-#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --text "hi" --dry-run
-#     C:\Python312\python.exe tools\chat_send.py --list-emoji     # ids for {e:<id>}
-#     C:\Python312\python.exe tools\chat_send.py --list-sticker   # sticker ids
+# WHAT IT IS GIVEN
+#   room    the room to send into, outright:
+#             World     country_<server>
+#             National  custom_lang_<lang>_<server>
+#             Alliance  alliance_<serverId>_<allianceId>
+#             DM        custom_<peerUid>_<selfUid>_v2
+#   to      a peer's uid instead — the DM room is built around it, with the sender's
+#           own uid read live from the game
+#   text    the message. Inline emoji are `{e:<id>}` tokens inside it and are resolved
+#           to their glyphs before the send (`tools/chat_send.py --list-emoji` prints
+#           the ids). A sticker is NOT text — the game will not carry one alongside a
+#           message, so it travels in `sticker`.
+#   sticker a sticker id, sent as its own message (`--list-sticker`)
+#   coords  a coordinate to share as a tappable map pin — "600,400", "X:600 Y:400",
+#           "@[600,400|100]" all read. A pin is not the text "600,400": the game
+#           renders it into a bubble the receiver can tap.
+#   server  the warzone of that coordinate, when the coordinate does not name one
+#           (default: the sender's own)
+#   label   the caption on the shared pin
 #
-# --to <uid>   builds the DM room custom_<peerUid>_<selfUid>_v2 (self uid is read
-#              live from the game). --room targets any channel directly:
-#                World     country_<server>
-#                National  custom_lang_<lang>_<server>
-#                Alliance  alliance_<serverId>_<allianceId>
+# Text, a sticker and a pin may travel together — each is its own message, in that
+# order. `CHAT_SENT` is left behind as 1 when the game confirmed every part of it.
 #
-# Emoji are inline: reference them in --text with {e:<id>} tokens; the tool resolves
-# each id to its Private Use Area glyph before sending. Stickers are a separate
-# manager call, so pass them with --sticker (not inside --text).
+# OUTGOING CHAT CANNOT BE UNSENT. The room is decided by the caller, on purpose: the
+# panel shows which room the box is answering into before a word is typed.
 #
-# Coordinates are NOT text: --coords "X,Y" shares a map pin (--coord-server /
-# --coord-label / --coord-type tune it) and --my-base shares the player's own base
-# the way the chat "share my position" button does. Accepted coordinate spellings are
-# whatever tools/lib/coords.py parses ("X:600 Y:400", "@[600,400|100]", "(600,400)").
-#
-# Everything runs inside the game's own Lua VM through the warm daemon (no pixels,
-# no foreground input). Text / emoji funnel through ChatManager2:__sendToRoom,
-# stickers through ChatEmojiTemplateManager:TrySendSticker, and coordinates through
-# ChatManager2.Net:SendSFSMessage("chat.room.send", ...) — __sendToRoom drops the
-# attachment. The shared recipes live in tools/lib/lua_actions.py (chat_send_text /
-# chat_send_sticker / chat_share_point); the reverse-engineering is written up in
-# docs/research/chat-send.md and docs/research/chat-coord-share.md.
-#
-# Outgoing chat cannot be unsent — use --dry-run to preview the resolved room id and
-# payload first.
+# Everything runs inside the game's own Lua VM — no pixels, no foreground input. Text
+# and emoji funnel through ChatManager2:__sendToRoom, stickers through
+# ChatEmojiTemplateManager:TrySendSticker, and a pin through the chat connection's own
+# share command (__sendToRoom drops the attachment). The reverse-engineering is written
+# up in docs/research/chat-send.md and docs/research/chat-coord-share.md.
+ARGS room =
+ARGS to =
+ARGS text =
+ARGS sticker =
+ARGS coords =
+ARGS server =
+ARGS label =
+CHAT_SEND ROOM room TO to TEXT text STICKER sticker COORDS coords SERVER server LABEL label

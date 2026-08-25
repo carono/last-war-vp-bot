@@ -30,9 +30,13 @@ that is going to stay off has to give its abilities a press somewhere else.
 
 Two kinds of file are not abilities and are skipped:
 
-* **no DSL body.** `send_chat_message.md` is a page of documentation for
-  `tools/chat_send.py` — a chat send is parameterised (who, what), so there is no
-  fixed recipe to run. A file with no statement in it presses nothing.
+* **no DSL body.** A file with no statement in it presses nothing. There was one such
+  file for a long time — `send_chat_message.md`, a page of documentation for
+  `tools/chat_send.py`, on the grounds that a chat send is parameterised (who, what)
+  and so could not be a fixed recipe. It is a recipe now (#1976): the parameters travel
+  as `ARGS` and `CHAT_SEND` names the VARIABLES that hold them, which is what let the
+  phone press a send at all. The skip stays because it is «no statements» and not a
+  list of filenames.
 * **`actions/dev/`.** Experimental by definition; the checkbox on «Разработка» is
   exactly where they belong until they are proven.
 
@@ -164,21 +168,6 @@ def test_an_exemption_names_a_scenario_that_exists():
     for name, reason in EXEMPT.items():
         assert (ACTIONS / f"{name}.md").is_file(), f"EXEMPT names a missing {name}.md"
         assert reason.strip(), f"EXEMPT[{name}] has no reason"
-
-
-def test_a_documentation_file_is_not_mistaken_for_an_ability():
-    """The skip is «no statements», not a list of filenames — so it stays true.
-
-    `send_chat_message.md` is the one such file today. If it ever grows a body it
-    becomes an ability and the test above starts asking where its button is, which is
-    the correct thing to happen.
-    """
-    doc = ACTIONS / "send_chat_message.md"
-    if not doc.is_file():
-        raise _Skip("send_chat_message.md is gone")
-    assert not _statements(doc), (
-        "send_chat_message.md has a DSL body now — it is an ability, so it needs a home "
-        "and this test should be removed")
 
 
 # ---------------------------------------------------------------------------

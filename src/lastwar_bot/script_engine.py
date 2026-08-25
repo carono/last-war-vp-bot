@@ -288,6 +288,22 @@ _READ_LUA_RE = re.compile(
 _SCAN_MONSTERS_RE = re.compile(
     r"^SCAN_MONSTERS\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
 )
+# CHAT_SEND [ROOM <var>] [TO <var>] [TEXT <var>] [STICKER <var>] [COORDS <var>]
+#           [SERVER <var>] [LABEL <var>]
+# Put a message in front of a player — text (with inline emoji), a sticker, or a map
+# pin — through the client's own chat manager. NO PIXELS AND NO WINDOW.
+#
+# EVERY OPERAND NAMES A VARIABLE, NEVER THE PAYLOAD ITSELF. `ARGS` substitution is
+# textual and happens before the file is parsed, so a message written into the line
+# would be a stranger's words rewriting the script that carries them: a quote ends the
+# operand, a newline ends the statement. Naming the variable keeps the words data —
+# they are read out of `ctx.vars` at run time and go to the game as escaped bytes
+# (`lua_actions._lua_bytes`), which is the whole reason the sending ability could
+# become a recipe at all (#1976).
+_CHAT_SEND_RE = re.compile(r"^CHAT_SEND\b(.*)$", re.IGNORECASE)
+_CHAT_SEND_OPT_RE = re.compile(
+    r"\b(ROOM|TO|TEXT|STICKER|COORDS|SERVER|LABEL)\s+([A-Za-z_]\w*)", re.IGNORECASE)
+
 # Numeric variable condition: `attempts > 0`, `haswin == 0`, etc. Evaluated after
 # the screen/profile/missions predicates so those keywords keep priority.
 _VAR_COND_RE = re.compile(
@@ -491,6 +507,25 @@ class ScanMonstersStmt(_Stmt):
     three measurements that decide how a caller uses it.
     """
     var: str
+
+
+@dataclass(slots=True)
+class ChatSendStmt(_Stmt):
+    """Send one chat message; every field is the NAME of a variable holding a value.
+
+    A target (`room` outright, or `to` — a peer uid the DM room is built around) and at
+    least one payload (`text`, `sticker`, `coords`) are required; an operand whose
+    variable is unset or empty is simply not part of this send, which is what lets one
+    recipe serve the text box, the sticker picker and the coordinate share.
+    """
+    room: str
+    to: str
+    #: `TEXT` — named `msg` because `_Stmt.text` is the source line itself.
+    msg: str
+    sticker: str
+    coords: str
+    server: str
+    label: str
 
 
 @dataclass(slots=True)
@@ -914,6 +949,32 @@ def _parse_one(lines, i, indent):
         else:
             count = int(raw)
         return TapStmt(text=text, line_no=ln, name=m.group(1), count=count), i + 1
+
+    m = _CHAT_SEND_RE.match(text)
+    if m:
+        rest = m.group(1)
+        seen = {}
+        for opt in _CHAT_SEND_OPT_RE.finditer(rest):
+            seen[opt.group(1).lower()] = opt.group(2)
+        leftover = _CHAT_SEND_OPT_RE.sub("", rest).strip()
+        if leftover:
+            # The sweep's rule: an ignored modifier sends something other than what the
+            # line says, and a chat message cannot be unsent.
+            raise ScriptParseError(
+                f"line {ln}: unrecognised CHAT_SEND option: {leftover!r}")
+        if not seen.get("room") and not seen.get("to"):
+            raise ScriptParseError(
+                f"line {ln}: CHAT_SEND needs a target — ROOM <var> or TO <var>")
+        if not any(seen.get(k) for k in ("text", "sticker", "coords")):
+            raise ScriptParseError(
+                f"line {ln}: CHAT_SEND needs a payload — TEXT / STICKER / COORDS <var>")
+        return ChatSendStmt(
+            text=text, line_no=ln,
+            room=seen.get("room", ""), to=seen.get("to", ""),
+            msg=seen.get("text", ""), sticker=seen.get("sticker", ""),
+            coords=seen.get("coords", ""), server=seen.get("server", ""),
+            label=seen.get("label", ""),
+        ), i + 1
 
     m = _SCAN_MONSTERS_RE.match(text)
     if m:
@@ -1515,6 +1576,8 @@ class Interpreter:
                 self._do_read_lua(stmt)
             case ScanMonstersStmt():
                 self._do_scan_monsters(stmt)
+            case ChatSendStmt():
+                self._do_chat_send(stmt)
 
     # ---- conditions ----
 
@@ -2723,6 +2786,87 @@ class Interpreter:
         self.ctx.vars[stmt.var] = value
         found = 0 if not value else len(str(value).split("|"))
         self._log(f"SCAN_MONSTERS -> {found} monster(s) INTO {stmt.var}")
+
+    def _do_chat_send(self, stmt: ChatSendStmt) -> None:
+        """Send text / a sticker / a map pin into a chat room, and say whether it landed.
+
+        `CHAT_SENT` is left in the variables — 1 when the game confirmed every part of
+        the send, 0 when one of them came back silent. A recipe that cares gates on it;
+        the panel reads it off the outcome.
+
+        The three sends are the ones `tools/chat_send.py` has always made, out of the
+        very same `tools/lib/chat_share.py` — the CLI stayed, this statement is what
+        lets the ABILITY be one recipe, and therefore what lets a phone press it
+        (`CLAUDE.md`, «A press travels only when the ability is a scenario»).
+        """
+        self._tools_lib_on_path()
+        try:
+            import chat_share
+        except ImportError as exc:              # pragma: no cover — a broken checkout
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: CHAT_SEND needs tools/lib — {exc}") from exc
+
+        ev = self._evaluator()
+        peer = self._chat_value(stmt.to)
+        room = self._chat_value(stmt.room)
+        text = self._chat_value(stmt.msg)
+        sticker = self._chat_value(stmt.sticker)
+        coords_in = self._chat_value(stmt.coords)
+        label = self._chat_value(stmt.label)
+
+        profile = {}
+        if not room or coords_in:
+            # A DM room is built around the sender's own uid, and a shared pin is
+            # labelled with the sender — both need the profile, nothing else does.
+            profile = chat_share.self_profile(ev)
+            if not profile.get("uid"):
+                raise ScriptRuntimeError(
+                    f"line {stmt.line_no}: CHAT_SEND could not read the own profile "
+                    f"(is the game logged in?)")
+        if not room:
+            room = chat_share.dm_room(peer, profile["uid"])
+
+        ok = True
+        if text:
+            sent = chat_share.send_text(ev, room, text)
+            self._log(f"CHAT_SEND {room} <- {chat_share.preview_text(text)!r} "
+                      f"({'sent' if sent else 'no confirmation'})")
+            ok = ok and sent
+        # A sticker id of 0 is «no sticker», not sticker number nought: an unset
+        # argument that reads as a number would send whatever the game keeps at 0.
+        sticker_id = int(float(sticker)) if sticker else 0
+        if sticker_id > 0:
+            sent = chat_share.send_sticker(ev, room, sticker_id)
+            self._log(f"CHAT_SEND {room} <- sticker {sticker_id} "
+                      f"({'sent' if sent else 'no confirmation'})")
+            ok = ok and sent
+        if coords_in:
+            try:
+                x, y, server = chat_share.parse_coords(str(coords_in))
+            except ValueError as exc:
+                raise ScriptRuntimeError(f"line {stmt.line_no}: {exc}") from exc
+            named = self._chat_value(stmt.server)
+            server = int(float(named or 0)) or server or int(profile.get("srv") or 0)
+            if not server:
+                raise ScriptRuntimeError(
+                    f"line {stmt.line_no}: CHAT_SEND has no server for the coordinate")
+            att = chat_share.point_attachment(x, y, server, label=label or None,
+                                              uid=profile.get("uid"))
+            sent = chat_share.share_point(ev, room, att,
+                                          peer_uid=peer or None)
+            self._log(f"CHAT_SEND {room} <- @[{x},{y}|{server}] "
+                      f"({'sent' if sent else 'no confirmation'})")
+            ok = ok and sent
+        self.ctx.vars["CHAT_SENT"] = 1 if ok else 0
+
+    def _chat_value(self, name: str) -> str:
+        """The variable `name` as a stripped string; empty when unset or not named."""
+        if not name:
+            return ""
+        value = self.ctx.vars.get(name)
+        if value is None or value is False:
+            return ""
+        return str(value).strip()
 
     def _do_collect_vs_duel(self, stmt: CollectVsDuelStmt) -> None:
         """Read the alliance duel and, when asked, write it into a ranking history.

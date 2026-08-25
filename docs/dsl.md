@@ -889,6 +889,48 @@ clones are not in the register. Those need `scan_map_monsters.md`, which is 147 
 no uuid. The two are different questions, and `actions/list_world_monsters.md` is the
 recipe for this one.
 
+### `CHAT_SEND [ROOM v] [TO v] [TEXT v] [STICKER v] [COORDS v] [SERVER v] [LABEL v]`
+
+Put a message in front of a player — text (inline emoji included), a sticker, or a
+tappable map pin — through the client's own chat manager. No pixels, no window, no
+foreground input.
+
+```
+ARGS room =
+ARGS text =
+CHAT_SEND ROOM room TEXT text
+```
+
+**Every operand names a VARIABLE, never the payload itself.** `ARGS` substitution is
+textual and happens before the file is parsed, so a message written into the line would
+be a stranger's words rewriting the script that carries them: a quote ends the operand
+and a newline ends the statement. Named, the words stay data — they are read out of the
+variables at run time and reach the game as escaped bytes.
+
+| operand | the variable holds |
+|---|---|
+| `ROOM` | the room id outright — `country_<server>`, `custom_lang_<lang>_<server>`, `alliance_<serverId>_<allianceId>`, `custom_<peerUid>_<selfUid>_v2` |
+| `TO` | a peer's uid instead; the DM room is built around it, with the sender's own uid read live |
+| `TEXT` | the message. `{e:<id>}` tokens in it are resolved to their emoji glyphs first (`tools/chat_send.py --list-emoji` prints the ids) |
+| `STICKER` | a sticker id — its own message, because the game will not carry one alongside text |
+| `COORDS` | a coordinate to share as a pin: `600,400`, `X:600 Y:400`, `@[600,400\|100]` all read |
+| `SERVER` | the warzone of that coordinate, when the coordinate does not name one (default: the sender's own) |
+| `LABEL` | the caption on the shared pin |
+
+A target (`ROOM` or `TO`) and at least one payload are required; a line missing either,
+or carrying a modifier the statement does not know, is refused at parse time — a chat
+message cannot be unsent, so a silently ignored operand would send something other than
+what the line says. Text, a sticker and a pin may travel together, each as its own
+message, in that order.
+
+`CHAT_SENT` is left in the variables: 1 when the game confirmed every part of the send,
+0 when one of them came back silent.
+
+The ability is `actions/send_chat_message.md`, the code behind the statement is
+`tools/lib/chat_share.py` (shared with the `tools/chat_send.py` command line), and the
+reverse-engineering is in `docs/research/chat-send.md` and
+`docs/research/chat-coord-share.md`.
+
 ### `VISIT_MAP POINTS x,y;x,y [ZOOM height] [EVERY seconds] SERVER id`
 
 Walk the camera over the tiles you **name**, instead of over the whole map. The

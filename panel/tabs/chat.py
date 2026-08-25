@@ -168,10 +168,16 @@ class ChatTab(PanelTab):
         self._clear_chat()
     # -- the phone ------------------------------------------------------------
     #
-    # READING ONLY. Sending is `tools/chat_send.py` — a tool the tab spawns, not a DSL
-    # scenario — and the rule for this whole port is that a press goes through a
-    # scenario or does not go at all. Reading is the half that is useful away from the
-    # machine anyway: what the alliance is saying, and whether somebody wrote to you.
+    # Reading AND answering. It was the reading alone while sending was a tool the tab
+    # spawned — a press travels only when the ability is a scenario — and
+    # `actions/send_chat_message.md` is that scenario now, so the box to answer in
+    # travels too: a message and a map pin, into the room the card is showing.
+    #
+    # THE ROOM COMES FROM WHAT IS ON SCREEN, never from «wherever the window happens
+    # to be looking»: a channel card answers its own channel, and a private message
+    # answers the ROW it came from, because the window's open thread belongs to whoever
+    # is at the machine. Outgoing chat cannot be unsent, so this is the one mistake
+    # this tab must not make.
     #
     # It costs no game read at all: the messages are in this character's own SQLite
     # history, which the reader child fills whether or not anybody is looking.
@@ -189,13 +195,68 @@ class ChatTab(PanelTab):
             rows = self._web_messages(chat_type)
             if not rows and chat_type not in ("world", "alliance", "dm"):
                 continue                       # a quiet corner is not worth a card
-            cards.append({"title": f"chat.tab.{chat_type}", "items": rows,
-                          "empty": "chat.empty", "flow": self._web_flow()})
+            card = {"title": f"chat.tab.{chat_type}", "items": rows,
+                    "empty": "chat.empty", "flow": self._web_flow()}
+            if chat_type != "dm" and self._chat_room(chat_type):
+                # No room, no box: a card that has never had a message has nowhere to
+                # answer into, and an «Отправить» that can only be refused is worse
+                # than no button (the window greys its target line the same way). The
+                # DM card has no whole-card room at all — see `_web_messages`.
+                card["actions"] = [
+                    {"id": "send", "label": "chat.send",
+                     "prompt": "chat.send.prompt", "args": {"type": chat_type}},
+                    {"id": "coords", "label": "chat.send_coords",
+                     "prompt": "chat.send_coords.prompt", "args": {"type": chat_type}},
+                ]
+            cards.append(card)
         return {"cards": cards, "now": _time.time(),
                 "actions": []}
 
+    def web_press(self, action: str, args: dict) -> dict:
+        """Answer into one card's room — the window's two sends, and nothing else.
+
+        Both play `send_chat_message`. The emoji picker and the sticker grid have not
+        travelled yet — they are grids of sprites the client extracted onto THIS
+        machine's disk, so a phone would need them served over the remote-control port,
+        which is a question for the person and not a call anybody here gets to make. A
+        phone can still send an emoji meanwhile: `{e:<id>}` tokens are resolved inside
+        the recipe.
+        """
+        args = args or {}
+        chat_type = str(args.get("type") or "")
+        if action not in ("send", "coords") or chat_type not in CHAT_TABS:
+            return {"error": "unknown"}
+        # A DM answers the room the ROW named; a channel is its own room. Never
+        # «whatever thread the window has open» — outgoing chat cannot be unsent.
+        room = str(args.get("room") or "").strip()
+        if room and room not in self._known_rooms(chat_type):
+            return {"error": "unknown"}
+        room = room or ("" if chat_type == "dm" else self._chat_room(chat_type))
+        if not room:
+            return {"ok": False, "reason": "chat.no_room"}
+        typed = str(args.get("text") or "").strip()
+        if not typed:
+            return {"ok": False, "reason": "chat.nothing_typed"}
+        if action == "send":
+            return {"ok": self._chat_send({"text": typed}, typed[:40], room=room)}
+        found = coords.parse(typed)
+        if not found:
+            return {"ok": False, "reason": "chat.no_coords"}
+        _s, _e, x, y, srv = found[0]
+        payload = {"coords": f"{x},{y}"}
+        if srv is not None:
+            payload["server"] = str(srv)
+        return {"ok": self._chat_send(payload, coords.fmt(x, y, srv), room=room)}
+
     def _web_messages(self, chat_type: str) -> list:
-        """The newest messages of one type, oldest first — as the window shows them."""
+        """The newest messages of one type, oldest first — as the window shows them.
+
+        A DM row carries its OWN room as a reply button. A private conversation is one
+        of many, and the card cannot be answered as a whole: the window's «open thread»
+        is the window's, and a phone that replied into it would answer whoever the
+        person at the machine happens to be reading. A message, on the other hand, says
+        exactly who it came from.
+        """
         rows = list(self._chat_msgs.get(chat_type) or ())[-self.WEB_MESSAGES:]
         if not rows and self._chat_store is not None:
             try:
@@ -207,9 +268,15 @@ class ChatTab(PanelTab):
             text = str(row.get("msg") or "").strip()
             if not text:
                 continue                       # a sticker or a photo: the window's job
-            out.append({"text": str(row.get("sender_name") or "?"),
-                        "note": text,
-                        "until": None})
+            item = {"text": str(row.get("sender_name") or "?"),
+                    "note": text,
+                    "until": None}
+            room = str(row.get("room_id") or "").strip()
+            if chat_type == "dm" and room:
+                item["actions"] = [{"id": "send", "label": "chat.send",
+                                    "prompt": "chat.send.prompt",
+                                    "args": {"type": chat_type, "room": room}}]
+            out.append(item)
         return out
 
         if self._chat_store is not None:
@@ -373,6 +440,28 @@ class ChatTab(PanelTab):
             except tk.TclError:
                 pass
 
+    def _known_rooms(self, chat_type: str) -> set:
+        """Every room this tab has actually SEEN a message of `chat_type` in.
+
+        A press names its room, so this is what stops it naming any other: a phone that
+        could post an arbitrary room id would be a way to write into a channel the
+        panel never opened.
+        """
+        rooms = set()
+        for record in self._chat_msgs.get(chat_type, ()):
+            room = str(record.get("room_id") or "").strip()
+            if room:
+                rooms.add(room)
+        if self._chat_store is not None and not rooms:
+            try:
+                for record in self._chat_store.recent(chat_type, self.WEB_MESSAGES):
+                    room = str(record.get("room_id") or "").strip()
+                    if room:
+                        rooms.add(room)
+            except Exception:                  # noqa: BLE001 — a closed store is empty
+                pass
+        return rooms
+
     def _chat_room(self, chat_type: str) -> str:
         """The room to answer in.
 
@@ -396,42 +485,32 @@ class ChatTab(PanelTab):
             pass
 
     # -- sending -------------------------------------------------------------
-    def _chat_send(self, args: list, what: str) -> None:
-        """Run tools/chat_send.py with ``args``, streaming its output into the log.
+    def _chat_send(self, args: dict, what: str, room: str = "") -> bool:
+        """Play `send_chat_message` with `args`, into the room the tab is answering in.
 
-        A child, like the monitors: the send walks the Lua VM several times and must
-        not sit on the Tk thread. It does not claim the busy flag — a chat message is
-        not a game action competing for the camera, and making a reply wait behind a
-        collect run would be its own kind of wrong.
+        It used to spawn `tools/chat_send.py`, which is why the phone had this tab's
+        reading and no box to answer in: a press travels only when the ability is a
+        scenario (`CLAUDE.md`). The ability is one now — `CHAT_SEND` in the DSL — so
+        both front-ends press the same recipe and neither assembles a line of Lua.
+
+        A press, therefore at `claims.HUMAN`: a reply that waited out a collect run
+        would be a reply nobody sends from the panel. Nothing here sits on the Tk
+        thread — `play_async` hands the run to a worker and answers at once.
         """
-        room = self._chat_room(self._active_chat_type())
+        room = room or self._chat_room(self._active_chat_type())
         if not room:
             self.say("chat", "chat.no_room")
-            return
-        cmd = [self.rt.children.python(), "-u", os.path.join(TOOLS, "chat_send.py"),
-               "--room", room] + args
+            return False
         self.say("chat", "chat.sending", room=room, what=what)
-        proc = self.rt.children.spawn_raw(cmd, "chat")
-        if proc is None:
-            return
-        threading.Thread(target=self._chat_send_reader, args=(proc,),
-                         daemon=True).start()
-
-    def _chat_send_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                line = raw.rstrip()
-                if line:
-                    self.rt.put(f"[chat] {line}")
-        except Exception:
-            pass
+        return bool(self.rt.play_async("send_chat_message", dict(args, room=room),
+                                       tag="chat", human=True))
 
     def _chat_send_text(self) -> None:
         text = self._chat_msg_var.get().strip()
         if not text:
             return
         self._chat_msg_var.set("")
-        self._chat_send(["--text", text], text[:40])
+        self._chat_send({"text": text}, text[:40])
 
     def _chat_send_coords(self) -> None:
         """Share the coordinate written in the message box as a map pin.
@@ -447,9 +526,9 @@ class ChatTab(PanelTab):
             self.say("chat", "chat.no_coords")
             return
         _s, _e, x, y, srv = found[0]
-        args = ["--coords", f"{x},{y}"]
+        args = {"coords": f"{x},{y}"}
         if srv is not None:
-            args += ["--coord-server", str(srv)]
+            args["server"] = str(srv)
         # The box held the coordinate, not a message — clear it like a send does, or
         # the next «Отправить» would post the pin's text alongside the pin.
         self._chat_msg_var.set("")
@@ -541,7 +620,7 @@ class ChatTab(PanelTab):
         """Send one sticker as its own message, then close the picker."""
         sid = str(item.get("id", ""))
         if sid:
-            self._chat_send(["--sticker", sid], f"sticker {sid}")
+            self._chat_send({"sticker": sid}, f"sticker {sid}")
         win = getattr(self, "_emoji_win", None)
         if win is not None:
             try:
