@@ -204,9 +204,41 @@ class SettingsTab(PanelTab):
             {"title": "settings.tab.game", "rows": game_rows,
              "fields": [self._web_field("watchdog", None),
                         self._web_field("kick_hold_min", (0, 1440))]},
+            self._web_session_card(),
             self._web_tabs_card(),
         ]
         return {"title": "tab.settings", "cards": cards}
+
+    def _web_session_card(self) -> dict:
+        """«Windows-сессия»: what the two knobs amount to, and the two presses (#1976).
+
+        The block that answers WHICH CLIENT this profile drives was the one place on the
+        page a phone could read nothing and press nothing — and it is exactly the block
+        somebody needs when they are away: a session that is gone means a profile that
+        farms nothing all night, and the cure was a button on a desktop nobody was
+        sitting at. The knobs themselves stay READINGS (the divergence this page already
+        keeps, above); what travels is the diagnosis and the two presses that make it
+        current or put it right.
+
+        The three lines are the window's own, in the order it draws them: what the knobs
+        mean, is this profile sharing somebody else's client, and the verdict «Проверить»
+        last came back with — which is state now, so a check made at the machine is
+        readable from the phone and the other way round.
+        """
+        # `_session_means_text` is two knobs and a format string — free. The other three
+        # ask WINDOWS (a process list, a credential store, a session table) and are read
+        # by «Проверить», never here: `web_view` runs on every poll of every phone that
+        # has the screen open, and a process enumeration on that path is the stall this
+        # contract exists to prevent (`docs/panel-tabs.md`, and the psutil measurement
+        # in #1306's neighbourhood).
+        lines = [self._session_means_text(),
+                 getattr(self, "_session_shared_line", ""),
+                 getattr(self, "_session_verdict_text", ""),
+                 getattr(self, "_session_cred_text", "")]
+        return {"title": "session.frame",
+                "items": [{"text": line} for line in lines if line],
+                "actions": [{"id": "session_check", "label": "session.check"},
+                            {"id": "session_up", "label": "session.bring_up"}]}
 
     def _web_machine_row(self, key: str) -> dict:
         """A path the MACHINE answered, worded exactly as the window words it."""
@@ -241,6 +273,19 @@ class SettingsTab(PanelTab):
         """Move one knob, or one tab's tick. Runs on the Tk thread, like every press."""
         if action == "debug_send":
             self._send_debug_archive()
+            return {"ok": True}
+        if action == "session_check":
+            # The same reading the window's button makes — live Windows, on the Tk
+            # thread, exactly as a finger does it. The verdict is state, so the phone
+            # sees it on its next poll.
+            self._check_session()
+            return {"ok": True}
+        if action == "session_up":
+            # …and the cure. It spawns its own worker (an RDP logon and a launcher take
+            # minutes), says what it is doing in the log as it goes, and re-reads the
+            # verdict when it ends — so the phone watches it in the journal exactly as
+            # the window does.
+            self._bring_up_session()
             return {"ok": True}
         if action != "set":
             return {"error": "unknown"}
@@ -791,11 +836,19 @@ class SettingsTab(PanelTab):
         # person to press something that is no longer written there.
         fmt["button"] = self.t("game.launch").strip("▶ ")
         fmt["up"] = self.t("session.bring_up")
+        # THE VERDICT IS STATE, and the label merely draws it (#1976). It used to live
+        # nowhere but in a Tk label, so the answer to «which client does this profile
+        # actually drive» existed only for somebody standing at the machine — and the
+        # web is the front-end that is staying.
+        self._session_verdict_text = self.t(f"session.check.{kind}", **fmt)
+        # …and the «this profile is on somebody else's client» line beside it, read HERE
+        # rather than in `web_view` for the reason given there: it asks Windows.
+        self._session_shared_line = self._session_shared_text()
         try:
             self._session_verdict.configure(
-                text=self.t(f"session.check.{kind}", **fmt),
+                text=self._session_verdict_text,
                 foreground=self._VERDICT_COLOURS.get(kind, "#c33"))
-        except tk.TclError:
+        except (AttributeError, tk.TclError):
             pass
         self._paint_credential()
         self._refresh_session_user_state()
@@ -809,8 +862,6 @@ class SettingsTab(PanelTab):
         used to bring the session up as its owner.
         """
         label = getattr(self, "_session_cred", None)
-        if label is None:
-            return
         state = runtime.game_process.credential_state(self.rt.settings)
         if state is None:
             text, colour = "", "#888"
@@ -826,6 +877,11 @@ class SettingsTab(PanelTab):
             text = self.t("session.cred.none", server=state.get("server"),
                           user=state.get("user"))
             colour = "#888"
+        #: Whose password is on this address, as STATE — the phone asks the same
+        #: question and there is no second way to answer it.
+        self._session_cred_text = text
+        if label is None:
+            return
         try:
             label.configure(text=text, foreground=colour)
         except tk.TclError:
