@@ -170,3 +170,15 @@ trade on different rules.
 * Ids read out of the game are Lua numbers and print as `771011.0`. `string.format('%d', …)`
   rather than `tostring`, and `v + 0` rather than `tonumber` (which fails silently inside a
   `pcall` on this client).
+* **And a float id is refused on the WIRE, not just misprinted.** Posting an offer with
+  `needFragment = 771011.0` comes back as
+
+  ```
+  hero.dispatch.call.fragment.exchange {errorCode = "E000000", errorMsg = "not fragment item"}
+  ```
+
+  — which reads as «you do not hold that piece» about a piece there are twenty of. The
+  identical post with an integer wins. So the two ids are `math.floor`ed on the way out.
+  The failure is silent from the client's side: `pcall` succeeds, the run reports a posted
+  offer, and only the board being empty afterwards says otherwise. This is what the wire
+  watch (`actions/dev/_t1975_push.md`) is for.
