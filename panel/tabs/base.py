@@ -297,6 +297,8 @@ class PanelTab:
                  "fields": [{"key":  "log_max_lines",   # the knob's own id — DATA
                              "label": "opt.log_max_lines",       # a KEY
                              "hint":  "opt.log_max_lines.hint",  # a KEY, or absent
+                             # …or "choice", which also carries
+                             #    "options": [{"value": "low", "text": "Экономия"}]
                              "kind":  "switch" | "number" | "text",
                              "value": 4000,             # DATA, in the knob's own type
                              "min": 200, "max": 200000}]}]}   # numbers only

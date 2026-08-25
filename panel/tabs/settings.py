@@ -205,6 +205,7 @@ class SettingsTab(PanelTab):
              "fields": [self._web_field("watchdog", None),
                         self._web_field("kick_hold_min", (0, 1440))]},
             self._web_session_card(),
+            self._web_graphics_card(),
             self._web_tabs_card(),
         ]
         return {"title": "tab.settings", "cards": cards}
@@ -256,6 +257,31 @@ class SettingsTab(PanelTab):
             field["min"], field["max"] = bounds[0], bounds[1]
         return field
 
+    def _web_graphics_card(self) -> dict:
+        """«Качество графики»: which picture this profile asks for, and what the client
+        says it is actually drawing (#1976).
+
+        The mode is a CHOICE rather than two buttons because it is one setting with two
+        values, and the phone draws a choice as a list. Pressing it plays the same
+        scenario the window's radio button does — the ability is `set_graphics_load.md`
+        and nothing about it is assembled here.
+
+        The line under it is a reading of the CLIENT, not of the setting: the two part
+        company the moment the game restarts, because it comes back at full quality
+        without telling anybody. «Обновить» asks again.
+        """
+        mode = self.rt.settings.opt_str("graphics_mode")
+        options = [{"value": name, "text": self.t(f"graphics.mode.{name}")}
+                   for name in ("standard", "low")]
+        line = getattr(self, "_graphics_line", "")
+        return {"title": "graphics.frame",
+                "note": "graphics.hint",
+                "fields": [{"key": "graphics_mode", "label": "graphics.frame",
+                            "kind": opt_value.CHOICE, "value": mode,
+                            "options": options}],
+                "items": ([{"text": line}] if line else []),
+                "actions": [{"id": "graphics_refresh", "label": "graphics.refresh"}]}
+
     def _web_tabs_card(self) -> dict:
         """«Вкладки»: one switch per tab this profile could show, and what applies it."""
         from .. import tabs as tabsreg
@@ -273,6 +299,11 @@ class SettingsTab(PanelTab):
         """Move one knob, or one tab's tick. Runs on the Tk thread, like every press."""
         if action == "debug_send":
             self._send_debug_archive()
+            return {"ok": True}
+        if action == "graphics_refresh":
+            # The window's own button: five Lua round trips, asked of the client rather
+            # than of the setting. It marks nothing.
+            self._read_graphics()
             return {"ok": True}
         if action == "session_check":
             # The same reading the window's button makes — live Windows, on the Tk
@@ -295,6 +326,18 @@ class SettingsTab(PanelTab):
         value = (args or {}).get("value")
         if key.startswith("tab:"):
             return self._web_press_tab(key[4:], bool(value))
+        if key == "graphics_mode":
+            # Not the generic write below: this knob has an ACT behind it, and storing
+            # it without applying would leave the profile asking for a picture the client
+            # is not drawing — which is precisely the disagreement the line under it
+            # exists to show. Same order as the window's radio: move the setting, then
+            # play the scenario.
+            mode = str(value or "")
+            if mode not in ("standard", "low"):
+                return {"error": "unknown"}
+            opt_value.set(self.rt, key, mode)
+            self._apply_graphics(mode)
+            return {"ok": True}
         if key in runtime.settings.MACHINE_KEYS or key in ("daemon_port", "rdp_session",
                                                            "rdp_user"):
             # Not a field on this screen, so a press naming one did not come from it.
@@ -1054,6 +1097,10 @@ class SettingsTab(PanelTab):
         return self.t(f"graphics.mode.{self.rt.settings.opt_str('graphics_mode')}")
 
     def _say_graphics(self, key: str, **fmt) -> None:
+        # The line is STATE and the label draws it (#1976): what the client says it is
+        # drawing is a reading, and a reading that lives only in a Tk label is one the
+        # front-end that is staying cannot show.
+        self._graphics_line = self.t(key, **fmt)
         label = getattr(self, "_graphics_state", None)
         if label is None:
             return

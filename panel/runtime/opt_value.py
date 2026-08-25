@@ -28,7 +28,11 @@ from __future__ import annotations
 #: The kinds a front-end knows how to draw. Anything else is shown as text, which is
 #: what a knob nobody has thought about deserves — never a control that silently
 #: rewrites a value it did not understand.
-SWITCH, NUMBER, TEXT = "switch", "number", "text"
+SWITCH, NUMBER, TEXT, CHOICE = "switch", "number", "text", "choice"
+#: `CHOICE` is the one kind :func:`kind` can never answer with — a list of
+#: possibilities is not a property of the DEFAULT a knob was declared with, so a
+#: card that wants one names it and supplies its `options` itself
+#: («Качество графики», #1976).
 
 
 def _binder(rt):
