@@ -31,6 +31,10 @@ column** (#1968). «Метка» in the table is `tab.note_of` — the person's 
 note, or both — so «Только с меткой» keeps a row that has EITHER. It read the person's
 own mark alone until #1968, and on a live register with eight hundred game notes and no
 mark of its own that filter emptied a grid whose every visible row plainly had a Метка.
+The HEADING follows the same column for the same reason (#1971) — it ordered by the
+person's own mark alone, so on that register every key was the empty string and pressing
+«Метка» moved nothing at all. Both are :func:`~panel.runtime.players.mark_of`, said
+once.
 
 ## Nothing here ever asks the game anything
 
@@ -56,9 +60,9 @@ import json
 import time
 
 from ...runtime.players import (  # noqa: F401  (the page's own vocabulary)
-    CHECKPOINT_SOURCES, FIELDS, SOURCES, SRC_ALLIANCE, SRC_CHAT, SRC_MAP,
-    SRC_PERSON, SRC_PROFILE, SRC_RALLY, SRC_REMARK, SRC_TILE, PlayerBook,
-    provenance_of,
+    CHECKPOINT_SOURCES, EMPTY_LAST, FIELDS, SOURCES, SRC_ALLIANCE, SRC_CHAT,
+    SRC_MAP, SRC_PERSON, SRC_PROFILE, SRC_RALLY, SRC_REMARK, SRC_TILE, PlayerBook,
+    mark_of, provenance_of,
 )
 
 #: How old a sighting has to be before «давно не виден» claims it. A week: the map is
@@ -167,8 +171,7 @@ def matches(row: dict, f: dict, now: float) -> bool:
     # notes and no mark of its own answered the filter with an empty grid while every
     # visible row plainly had a Метка. A filter narrows what is DRAWN; it cannot mean
     # something the column does not say.
-    if f.get("noted") and not ((row.get("note") or "").strip()
-                               or (row.get("remark") or "").strip()):
+    if f.get("noted") and not mark_of(row):
         return False
     return True
 
@@ -192,7 +195,9 @@ SORT_KEYS = {
                          str(r.get("uid"))),
     "server": lambda r: (int(r.get("server_id") or 0), str(r.get("uid"))),
     "seen": lambda r: (float(r.get("last_seen") or 0), str(r.get("uid"))),
-    "note": lambda r: ((r.get("note") or "").casefold(), str(r.get("uid"))),
+    # BY WHAT THE CELL SHOWS, not by the field behind it (#1971) — `mark_of` is the
+    # person's own mark or the game's note, exactly as the column draws it.
+    "note": lambda r: (mark_of(r).casefold(), str(r.get("uid"))),
 }
 
 #: What the table opens on before anybody clicks a heading: the freshest sighting
@@ -201,10 +206,18 @@ DEFAULT_SORT = ("seen", True)
 
 
 def sort_rows(rows, sort=None) -> list:
-    """`sort` is `(column, descending)`; None means :data:`DEFAULT_SORT`."""
+    """`sort` is `(column, descending)`; None means :data:`DEFAULT_SORT`.
+
+    A column in :data:`~panel.runtime.players.EMPTY_LAST` keeps its empty rows at the
+    BOTTOM both ways round (#1971): the second pass is `list.sort`, which is stable, so
+    everything the first pass decided survives it and only the blanks move.
+    """
     column, down = sort or DEFAULT_SORT
     key = SORT_KEYS.get(column) or SORT_KEYS[DEFAULT_SORT[0]]
-    return sorted(rows, key=key, reverse=bool(down))
+    out = sorted(rows, key=key, reverse=bool(down))
+    if column in EMPTY_LAST:
+        out.sort(key=lambda r: 0 if str(key(r)[0]) else 1)
+    return out
 
 
 def load_checkpoint(path: str) -> list:

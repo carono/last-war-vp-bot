@@ -202,11 +202,27 @@ COLUMNS = (
 #: searches and the case-folded keys the table sorts by. They exist because SQLite's own
 #: `LOWER()` is ASCII-only, and most of this register is not — a Cyrillic nickname would
 #: match and sort by its raw code points, so «поиск не находит» for half the players.
-DERIVED = ("search_text", "name_fold", "alliance_fold", "note_fold")
+DERIVED = ("search_text", "name_fold", "alliance_fold", "note_fold", "mark_fold")
 
 
 def _fold(value) -> str:
     return str(value or "").casefold()
+
+
+def mark_of(row: dict) -> str:
+    """THE «Метка» THE PERSON SEES — the person's own mark, or the game's note behind it.
+
+    The table draws two notes in one column (`panel/tabs/players/tab.py::note_of`), so
+    everything the column is narrowed or ordered BY has to mean the same thing: the
+    filter «Только с меткой» keeps a row that has either (#1968), and the heading sorts
+    by whichever of them is on screen (#1971). Read here, in one sentence, so the two
+    front-ends and the two definitions of the filter cannot drift apart.
+
+    The «both» spelling the cell uses («моя (в игре: их)») is a TRANSLATED template and
+    deliberately not what this returns: an order that depends on the panel's language is
+    an order that changes when somebody switches it.
+    """
+    return (row.get("note") or "").strip() or (row.get("remark") or "").strip()
 
 
 def search_text_of(row: dict) -> str:
@@ -230,7 +246,11 @@ def _derived_of(row: dict) -> dict:
     return {"search_text": search_text_of(row),
             "name_fold": _fold(row.get("name")),
             "alliance_fold": _fold(row.get("alliance_abbr")),
-            "note_fold": _fold(row.get("note"))}
+            # The person's own mark alone, and the mark the COLUMN shows. Two columns
+            # because they answer two questions and only one of them is on screen:
+            # `mark_fold` is what the heading orders by (#1971).
+            "note_fold": _fold(row.get("note")),
+            "mark_fold": _fold(mark_of(row))}
 
 
 def row_of(record) -> dict:
@@ -269,8 +289,18 @@ SORT_COLUMNS = {
     "coords": ("COALESCE(x, 0)", "COALESCE(y, 0)"),
     "server": ("COALESCE(server_id, 0)",),
     "seen": ("COALESCE(last_seen, 0)",),
-    "note": ("note_fold",),
+    # The column shows `mark_of` — the person's mark or the game's note behind it — so
+    # that is what it orders by (#1971). It ordered by `note_fold`, the person's own
+    # mark alone, until then: on a live register with 884 game notes and not one mark of
+    # its own every key was the empty string, so pressing «Метка» sorted 323 000 rows by
+    # the tie-break and the table did not move.
+    "note": ("mark_fold",),
 }
+
+#: Columns whose EMPTY rows stay at the bottom whichever way the heading is pressed.
+#: «Метка» is one: nine rows in ten have none, and a descending press that floats them
+#: all to the top is a second way of showing an empty table.
+EMPTY_LAST = frozenset({"note"})
 
 #: What the table opens on before anybody clicks a heading.
 DEFAULT_SORT = ("seen", True)
@@ -343,8 +373,10 @@ def where_of(f: dict, now: float) -> tuple:
             params.append(now - window)
 
     if f.get("noted"):
-        # Both notes, because the column the filter narrows shows both (#1968) — see
-        # `panel/tabs/players/registry.py::matches`.
+        # Both notes, because the column the filter narrows shows both (#1968) — the
+        # same sentence as :func:`mark_of`, said in SQL. Not `mark_fold <> ''`: a
+        # derived column is only as right as the last write, and what a person is
+        # filtering by is the two notes themselves.
         clauses.append("(TRIM(COALESCE(note, '')) <> '' "
                        "OR TRIM(COALESCE(remark, '')) <> '')")
 
@@ -352,11 +384,20 @@ def where_of(f: dict, now: float) -> tuple:
 
 
 def order_of(sort=None) -> str:
-    """One sort as an ORDER BY — the same columns and tie-break as `registry.SORT_KEYS`."""
+    """One sort as an ORDER BY — the same columns and tie-break as `registry.SORT_KEYS`.
+
+    A column in :data:`EMPTY_LAST` leads with its own emptiness, ASCENDING whichever way
+    the rest goes: that clause is not part of the order the person asked for, it is the
+    rule that keeps the rows they asked to see on screen (#1971).
+    """
     column, down = sort or DEFAULT_SORT
     columns = SORT_COLUMNS.get(column) or SORT_COLUMNS[DEFAULT_SORT[0]]
     way = "DESC" if down else "ASC"
-    return ", ".join(f"{c} {way}" for c in columns) + f", uid {way}"
+    parts = [f"{c} {way}" for c in columns] + [f"uid {way}"]
+    if column in EMPTY_LAST:
+        first = columns[0]
+        parts.insert(0, f"(COALESCE({first}, '') = '') ASC")
+    return ", ".join(parts)
 
 
 class PlayerBook:

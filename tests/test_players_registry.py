@@ -289,6 +289,38 @@ def test_sorting_is_stable_and_every_column_has_an_order():
         assert len(reg.sort_rows(rows, (column, True))) == 3, column
 
 
+def test_the_mark_column_sorts_by_what_the_cell_shows():
+    """«Метка» is two notes drawn as one column, so it ORDERS by both (#1971).
+
+    It ordered by the person's own mark alone, and on a live register — hundreds of
+    game notes, not one mark of its own — every key was the empty string: the heading
+    sorted by the tie-break and the table did not move.
+    """
+    rows = _rows() + [REMARKED]
+    order = lambda down: [r["uid"] for r in reg.sort_rows(rows, ("note", down))]  # noqa: E731
+    # Ascending: «farm» (a person's mark) before «sniped me» (the game's note), and the
+    # rows with neither at the BOTTOM rather than in front of them.
+    assert order(False)[:2] == ["2", "9"]
+    assert set(order(False)[2:]) == {"1", "3"}
+    # …and descending turns the marked rows round WITHOUT floating the blank ones up.
+    assert order(True)[:2] == ["9", "2"]
+    assert set(order(True)[2:]) == {"1", "3"}
+    # Stable: the blanks keep the order the first pass gave them, both ways round.
+    assert order(False)[2:] == sorted(order(False)[2:], reverse=False)
+    for down in (True, False):
+        assert len(reg.sort_rows(rows, ("note", down))) == len(rows)
+
+
+def test_a_mark_is_ordered_case_and_alphabet_blind():
+    """The fold is why there is a column for it: SQLite's LOWER() is ASCII-only."""
+    rows = [dict(REMARKED, uid="a", remark="Zebra"),
+            dict(REMARKED, uid="b", remark="apple"),
+            dict(REMARKED, uid="c", remark="Яблоко"),
+            dict(REMARKED, uid="d", remark="яблоня")]
+    assert [r["uid"] for r in reg.sort_rows(rows, ("note", False))] == [
+        "b", "a", "c", "d"]
+
+
 def test_the_sql_filter_and_the_readable_one_never_disagree():
     """Two definitions of one filter, and this is the price of keeping them (#1398).
 
@@ -332,7 +364,14 @@ def test_the_sql_filter_and_the_readable_one_never_disagree():
 
 def test_every_column_sorts_the_same_way_in_both():
     with _tmpdir() as tmp:
-        rows = _rows()
+        # BOTH KINDS OF NOTE ARE IN HERE ON PURPOSE (#1971): «Метка» is the one column
+        # whose order is not a column of the table, so it is the one the two definitions
+        # can silently disagree about — and they did, for as long as the SQL ordered by
+        # the person's mark and the readable one was about to stop.
+        rows = _rows() + [REMARKED,
+                          dict(REMARKED, uid="8", name="Player8", remark="Яблоко"),
+                          dict(REMARKED, uid="7", name="Player7", remark="apple",
+                               note="farm")]
         book = _store(tmp)
         book.sighted([dict(r, seen_at=r["last_seen"]) for r in rows],
                      source=reg.SRC_MAP, now=NOW)

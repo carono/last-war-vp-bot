@@ -359,11 +359,39 @@ MIGRATIONS: tuple = (
         "CREATE INDEX ix_monsters_server  ON monsters(server)",
         "CREATE INDEX ix_monsters_level   ON monsters(level)",
     ),
+    # -- v7: the mark the «Метка» column SHOWS, so the heading can order by it (#1971) -
+    #
+    # The column draws two notes — the person's own mark and the game's note behind it
+    # (`players.mark_of`) — and it sorted by `note_fold`, the person's mark alone. On a
+    # live register with 884 game notes and not one mark of its own that is 323 000 rows
+    # whose key is the empty string: pressing the heading sorted by the tie-break and the
+    # table did not move.
+    #
+    # `fold()` is this store's own function (`Store.connect`) and not SQLite's `LOWER`,
+    # which is ASCII-only — most of what people write in these notes is not.
+    (
+        "ALTER TABLE players ADD COLUMN mark_fold TEXT",
+        """UPDATE players
+              SET mark_fold = fold(
+                  COALESCE(NULLIF(TRIM(COALESCE(note, '')), ''),
+                           TRIM(COALESCE(remark, ''))))""",
+        "CREATE INDEX ix_players_mark ON players(mark_fold)",
+    ),
 )
 
 #: What the code in this checkout expects. A database above it was written by a NEWER
 #: panel — see :meth:`Store.connect` for why that is refused rather than migrated back.
 CODE_VERSION = len(MIGRATIONS)
+
+
+def _fold(value) -> str:
+    """`str.casefold`, and what «fold» means everywhere in this panel.
+
+    Said here as well as in `panel/runtime/players.py` because a store must not import a
+    page's vocabulary to open a connection — one line, and the test that matters is that
+    the two agree (`tests/test_players_registry.py`).
+    """
+    return str(value or "").casefold()
 
 
 class StoreTooNew(RuntimeError):
@@ -445,6 +473,11 @@ class Store:
         # convenience — every row of it can be seen again by looking at the map again.
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # SQLite's own LOWER() is ASCII-only, and most of what this panel stores is not
+        # — so the case-folded columns are folded in Python on the way in. A MIGRATION
+        # has no Python to reach for, so the same fold is lent to SQL here. Deterministic
+        # on purpose: it lets SQLite use it in an index or a partial one.
+        conn.create_function("fold", 1, _fold, deterministic=True)
         with self._lock:
             self._open.append(conn)
         self._local.conn = conn
