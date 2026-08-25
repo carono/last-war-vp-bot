@@ -108,6 +108,7 @@ from .runtime import health as healthmod
 import profile_health
 from .runtime import interrupt as interruptmod
 from .runtime import panel_control as panelctl
+from .runtime import profile_control as profilectl
 from .runtime import power as powermod
 from .runtime import rally_wire as rallywire
 from .runtime import settings_dialog as settingsdlg
@@ -625,6 +626,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # anywhere else, so a panel could be put back but never put down except by
         # somebody standing at the machine (#1702).
         panelctl.set_handler(self._quit_now, panelctl.QUIT)
+        # …and WHICH ACCOUNTS ARE OPEN, asked for from the phone (#1976). Opening a
+        # profile builds a page and its tabs and closing one takes that page out, so it
+        # is the shell's press exactly as the two above are, and the same registration
+        # is what lets a front-end that is not this window make it.
+        profilectl.set_handler(self._profile_press)
         # «Стоп всё» / «Включить обратно» register nothing here any more (#1882): the
         # pair became ONE checkbox per profile, and its state is a setting the phone
         # writes through the same door the window does (panel/runtime/power.py).
@@ -2086,6 +2092,24 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # daemon alone can block for half a minute and the window must stay answerable.
         threading.Thread(target=self._bound(self._startup, session),
                          daemon=True).start()
+
+    def _profile_press(self, action: str, name: str) -> bool:
+        """Carry out one profile press from either front-end (`profile_control`).
+
+        On the Tk thread, because both halves build or destroy widgets. `open` is the
+        combo's own behaviour said in one word: a profile that is open is gone to, one
+        that is not is opened beside it — and one that does not exist yet is created,
+        which is what `Workspace.open` has always done with a name it has not seen.
+        """
+        if action == profilectl.OPEN:
+            self._switch_profile(name)
+            return self._workspace.get(name) is not None
+        if action == profilectl.CLOSE:
+            if self._workspace.get(name) is None or len(self._workspace) <= 1:
+                return False
+            self._close_profile(name)
+            return self._workspace.get(name) is None
+        return False
 
     def _close_profile(self, name: str | None = None) -> None:
         """Close one open profile: its errands, its captures, its claim, its page.

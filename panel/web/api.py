@@ -58,6 +58,7 @@ from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
 from ..runtime import interrupt as interruptmod
 from ..runtime import opt_switch as optswitch
+from ..runtime import profile_control as profilectl
 from ..runtime import power as powermod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
@@ -111,6 +112,11 @@ AUTOSTART_SCREEN = "autostart"
 #: switch nobody has; unlike the remote control's own port and token, getting it wrong
 #: costs a language and never the way back in.
 LANGUAGE_SCREEN = "language"
+
+#: …and the fourth: WHICH ACCOUNTS are open at all. The window has it on «Параметры»;
+#: the phone had nothing, so somebody away from the machine could watch four profiles and
+#: neither open a fifth nor close one that was misbehaving (`panel/runtime/profile_control.py`).
+PROFILES_SCREEN = "profiles"
 
 
 class _Feed:
@@ -901,6 +907,8 @@ class WebApi:
         # so the phone gets it here rather than as a page inside one profile.
         out.append({"id": AUTOSTART_SCREEN, "title": "menu.autostart"})
         out.append({"id": LANGUAGE_SCREEN, "title": "menu.language"})
+        if profilectl.available():
+            out.append({"id": PROFILES_SCREEN, "title": "menu.profile"})
         return {"screens": out}
 
     def screen(self, screen_id: str, profile: str | None = None) -> dict:
@@ -916,6 +924,8 @@ class WebApi:
             return self._autostart_view(profile)
         if screen_id == LANGUAGE_SCREEN:
             return self._language_view(profile)
+        if screen_id == PROFILES_SCREEN:
+            return self._profiles_view(profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
@@ -1149,6 +1159,96 @@ class WebApi:
             return rt.t("autostart.check.restarted", when=when)
         return rt.t("autostart.check.failed", when=when, error=last.get("error") or "")
 
+    def _profiles_view(self, profile: str | None = None) -> dict:
+        """Every profile this installation has, and which of them this window holds.
+
+        The list is the FOLDER, like the languages: a profile is a directory, so one made
+        by hand is one more row here with nothing to register. Each row says whether it is
+        open and whether it is the page the window is showing, and offers the one press
+        that applies to it — «Открыть» for a profile that is closed, «Закрыть» for one
+        that is open. The last open profile offers neither: a window with nothing open is
+        a window with nothing in it, and the workspace refuses it (#1206).
+        """
+        rt = self._runtime(profile)
+        workspace = getattr(rt, "workspace", None)
+        open_names = list(workspace.names) if workspace is not None else [self._name_of(rt)]
+        showing = getattr(getattr(workspace, "current", None), "name", "") or self._name_of(rt)
+        try:
+            everything = list(rt.profiles.list())
+        except Exception:                    # noqa: BLE001 — a reading, never the panel
+            everything = list(open_names)
+        items = []
+        for name in everything:
+            is_open = name in open_names
+            actions = []
+            if not is_open:
+                actions.append({"id": profilectl.OPEN, "label": "profile.open",
+                                "args": {"name": name}})
+            elif len(open_names) > 1:
+                actions.append({"id": profilectl.CLOSE, "label": "profile.close_one",
+                                "args": {"name": name}})
+            items.append({
+                "text": name,
+                # WHICH CLIENT this profile drives — the one fact that decides whether it
+                # farms its own account or somebody else's (#1252). A reading here as it
+                # is in the window's own section.
+                "detail": self._profile_client_text(rt, name),
+                "pill": ("web.ui.profile.showing" if name == showing
+                         else "web.ui.profile.open" if is_open else ""),
+                "actions": actions,
+            })
+        return {"id": PROFILES_SCREEN, "title": "menu.profile",
+                "cards": [{"title": "menu.profile", "note": "profile.open_hint",
+                           "items": items}],
+                "actions": [{"id": profilectl.OPEN, "label": "profile.new",
+                             "prompt": "profile.new.prompt", "value": ""}]}
+
+    def _profile_client_text(self, rt, name: str) -> str:
+        """«console, port 47654» / «session <login>, port 47655» — the window's words."""
+        try:
+            values = rt.profiles.load(name) or {}
+        except Exception:                    # noqa: BLE001 — a reading
+            values = {}
+        port = values.get("daemon_port") or ""
+        user = str(values.get("rdp_user") or "") if values.get("rdp_session") else ""
+        if user:
+            return rt.t("session.client.session", user=user, port=port)
+        return rt.t("session.client.console", port=port)
+
+    def _profiles_press(self, action: str, args: dict, profile: str | None) -> dict:
+        """Open or close one profile — the SHELL's press, handed to the Tk thread.
+
+        A press with no name is «Создать»: the prompt's text arrives as `args.text`, and
+        opening a name that has no directory yet is what creates it — the same thing the
+        window's combo has always done and the command line before it.
+        """
+        if action not in profilectl.BY_ID:
+            return {"error": "unknown"}
+        if not profilectl.available():
+            return {"ok": False, "reason": "web.ui.refused"}
+        name = str(args.get("name") or args.get("text") or "").strip()
+        if not name:
+            return {"ok": False, "reason": "web.ui.refused"}
+        rt = self._runtime(profile)
+        box: dict = {}
+        done = threading.Event()
+
+        def go() -> None:
+            try:
+                box["ok"] = profilectl.carry_out(action, name)
+            finally:
+                done.set()
+
+        # HANDED OVER, NOT WAITED FOR ON A SHORT LEASH. Opening a profile builds a page
+        # and its tabs — seconds, deliberately staged — so the answer that matters is
+        # «принято, идёт» rather than a timeout dressed up as a refusal (#1331).
+        self._hand_over(rt, go)
+        if not done.wait(PRESS_TIMEOUT_SEC):
+            return {"ok": True, "pending": True, "name": name}
+        if not box.get("ok"):
+            return {"ok": False, "reason": "web.ui.refused"}
+        return {"ok": True, "name": name}
+
     def _language_view(self, profile: str | None = None) -> dict:
         """Which language the panel speaks, and the ones it could.
 
@@ -1246,6 +1346,8 @@ class WebApi:
             return self._autostart_press(action, profile)
         if screen_id == LANGUAGE_SCREEN:
             return self._language_press(action, args or {}, profile)
+        if screen_id == PROFILES_SCREEN:
+            return self._profiles_press(action, args or {}, profile)
         rt = self._runtime(profile)
         tab = rt.tabs.get(screen_id)
         if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
