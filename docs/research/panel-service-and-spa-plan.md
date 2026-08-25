@@ -58,12 +58,20 @@ that owns a lifecycle.
 | P2 — an errand's schedule from the phone | **done** | `/api/timers/edit`, period and weekdays |
 | P2 — the panel's language | **done** | screen, every open profile switches at once |
 | P2 — which profiles are open | **done** | `panel/runtime/profile_control.py`, shell-registered |
+| P2 — the rally switches from the phone | **done** | fields on «Ралли»; the capture re-points, the auto-join is the standing order |
 | P2 — what is still window-only | see below | |
 | P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
 | P3 — Tk removed | not started | after P2 |
 | P4 — the rules and the parity tests | partly | the `settings` divergence is already rewritten |
 
-**Still window-only, and why.** Creating, renaming and deleting an ERRAND (and editing
+**Still window-only, and why.** JOINING a rally — the three switches of the automatic
+side travel, the join itself does not, because it is a send with SQUADS chosen for it and
+a wrong squad sent from away is a squad that is not home when the next rally lands. The
+ghost robbery's own standing order (its switch and its minimum level) for the reason in
+`CLAUDE.md`: that robbery still parks its targets with a tool before the recipe presses
+(#1188), and whether the ORDER may travel while the PRESS may not was asked of the person
+and not answered — so the rule as written stands and the card keeps its readings. Creating,
+renaming and deleting an ERRAND (and editing
 its steps) — the schedule travels, the scenario does not, because a phone that rewrites a
 recipe by a mistyped character is not a remote control. Renaming and deleting a PROFILE,
 for the same reason plus «destructive». Sending a CHAT message: the window spawns a tool
