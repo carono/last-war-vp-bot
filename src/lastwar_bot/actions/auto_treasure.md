@@ -49,6 +49,13 @@
 # Struck out either way, the uuid goes into a ledger all three doors read, so the dig
 # feed, the chat share and the look cannot hand a spent chest back as news the moment the
 # list is pruned. `gone=` and `dropped=[…]` in the report are that, said in words.
+#
+# AND ONE ANSWER IS NEITHER «GONE» NOR A RETRY (#1965). `activity_sports_uitips_015 day
+# times limit N` is the day's allowance of REWARDS being spent — the chest is untouched by
+# it — so the chest is HELD rather than struck out, and the hold ends at the game's own
+# reset stamp. The allowance is counted per treasure GROUP, measured live: one group full
+# and another with room in the same read, so a refusal holds the chest it was sent for and
+# the errand only stands down altogether when every counter the client keeps says full.
 
 # THE BRANCH IS TAKEN BY THE CHEST'S STATUS, THE SECOND IT IS HEARD (#1886): still being
 # dug — a squad goes; already dug — the gift is claimed and no squad is spent at all. And
@@ -155,6 +162,19 @@ TAP treasure_auto_step
 READ_LUA (DataCenter.__lw_treasure_auto and DataCenter.__lw_treasure_auto.report or "the step left no report — the press did not run") INTO report
 
 LOG "the line above is what the run did: sent= marches that went out, claimed= claims sent, paid= gifts actually received (the reward window came up, or the server answered «claim repeat», which is the same thing said from the other side), waiting= chests whose squad is still out or whose claim has not answered, resent= sends the client had dropped in silence and which went again, gone= chests struck off because the GAME said they are not there — the server's «treasure is null» in answer to a claim, or a tile the client holds that no longer carries the chest — with dropped=[…] naming the last one in words, lag=/worst= how long the last and the worst chest waited between becoming takeable and their first claim leaving — the acceptance criterion in milliseconds — watch= whether the game-side clock is running, and one note per chest"
+
+# THE DAY'S REWARD ALLOWANCE, ASKED RATHER THAN INFERRED (#1965). The server refuses a
+# claim with `activity_sports_uitips_015 day times limit N` once the day's rewards are
+# spent, and that is a fact about the DAY and not about the chest — the chest is still on
+# the map and still diggable, it is simply worth nothing to this account until the reset.
+# The client keeps the same books, so they are read here instead of being guessed at:
+# `dailyGot` is one counter per treasure group and `CheckTreasureReachDailyLimit` is the
+# game's own verdict on each. Read live while the refusals were arriving, the counters
+# disagreed — one group full, another with room — which is why one refusal holds the chest
+# it was sent for and never the whole errand.
+READ_LUA (function() local A = DataCenter.__lw_treasure_auto if A == nil then return 'the auto errand has never been armed' end local until_ms = tonumber(A.day_until) or 0 return 'full=' .. ((A.day_full and until_ms > 0) and 1 or 0) .. ' held=' .. tostring(A.t_held or 0) .. ' refused=' .. tostring(A.limit_all or 0) .. ' groups=[' .. tostring(A.day_groups or '') .. '] reset=' .. tostring(A.day_reset or 0) end)() INTO day
+
+LOG "the day's reward allowance: {day} — full=1 is «дневной лимит наград исчерпан — до сброса суток за кладами не хожу»: nothing is claimed and no squad is sent while it stands. held= chests standing still for it, refused= claims the server has answered «day times limit» since the client started, groups= the client's own counter per treasure group with /full on the ones that are spent — a group that is not full is exactly why one refusal never stands the whole errand down — and reset= the game's own stamp the hold ends at, so the day turning over lets every chest go by itself, with no restart and no hand on the panel"
 
 # WHAT THE WATCH ITSELF IS DOING, read apart from the press. The report above is written by
 # a press; this is written by the thing that runs between presses, and the two disagreeing

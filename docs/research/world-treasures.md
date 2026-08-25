@@ -1148,7 +1148,7 @@ which chest it claimed last (`A.claim_uuid` / `A.claim_at`), so a code arriving 
 of a claim is that chest's answer: `801348` finishes it as had, `801354` finishes it as
 another alliance's, anything else is a refusal worth retrying.
 
-### The four codes, and the two that were being thrown away (#1898)
+### The five codes, and the two that were being thrown away (#1898)
 
 A claim can be answered four ways, and the panel logs of four live profiles hold every one
 of them. Counted over a day of ordinary play:
@@ -1159,6 +1159,7 @@ of them. Counted over a day of ordinary play:
 | `801348` | `claim repeat` | 64 | this account has already had it |
 | `801354` | `player not in same alliance. <uuid>` | 63 | another alliance's chest |
 | `detect_dig_err_01` | `treasure not complete` | 3 | the chest IS there and the dig is **not** over |
+| `activity_sports_uitips_015` | `day times limit N` | 21 | the day's **rewards** are used up — nothing to do with this tile (#1965) |
 
 **Two of the four are not numbers**, and the code that read them did `tonumber(code)`. So
 the commonest answer the server gives — by a factor of five over every other one put
@@ -1171,6 +1172,52 @@ A code is compared as TEXT from here on. `E100123` finishes the chest as `gone`;
 claim-first branch (#1886) is a guess made off `ownerUid`, and this is the server
 correcting it, so a chest with a tile goes back on the march path rather than on being
 claimed.
+
+### The fifth code is about the DAY, and it is counted per group (#1965)
+
+`activity_sports_uitips_015 day times limit N` — «вы достигли дневного лимита
+вознаграждений» — is the one answer that says nothing at all about the tile it was sent
+for. The chest is still on the map, still diggable and still somebody else's to take; it
+is simply worth nothing to this account until the day resets. Read as a refusal worth
+retrying, which is what it was, it kept the retry ramp running at a chest that could not
+pay — and kept squads marching at chests that could not pay either, which is the more
+expensive half.
+
+**The allowance is per treasure GROUP, and that is a measurement rather than a reading of
+the message.** Asked of the live client on 2026-08-25 while the refusals were arriving:
+
+| what was asked | what the client answered |
+|---|---|
+| `ActDetectTreasureDataManager.dailyGot` | two counters — one group at `10`, another at `9` |
+| `CheckTreasureReachDailyLimit(<first>)` | `true` |
+| `CheckTreasureReachDailyLimit(<second>)` | `false` |
+| `activity_detect_dig_times_expire` | `1787709600000` = 2026-08-26 02:00 UTC |
+
+So it is neither one purse for the account nor a property of a tile, and the two obvious
+designs are both wrong: standing the whole errand down on the first refusal writes off a
+group that still had room, and writing the chest off for good loses it after the reset.
+
+What the errand does instead has two halves, both in `_TREASURE_TICK`:
+
+* **the chest that was refused is HELD**, not struck out — `hold_until` is the game's own
+  reset stamp, so it is skipped by the claim ramp and gets no squad, and the day turning
+  over gives it back with nobody pressing anything. It never enters the spent ledger,
+  because it was never a verdict on the chest;
+* **the errand stands down altogether only when EVERY counter the client keeps says
+  full** — then there is no chest anywhere that can be paid for, and `held=` plus
+  `day-limit=[дневной лимит наград исчерпан — до сброса суток за кладами не хожу]`
+  is what the report says instead of a queue full of `waiting=`.
+
+The counters are read locally — no message leaves, nothing on screen moves — at most every
+`TREASURE_DAY_LIMIT_ASK_MS`, and at once on a refusal, which is the moment they change.
+
+**The reset is never computed on this side.** `activity_detect_dig_times_expire` is the
+game's own boundary for this very counter, so the day is the GAME's day and no clock of
+this machine's is involved. A client that cannot be asked at all — the manager not there
+yet — falls back to a short blind hold (`TREASURE_DAY_LIMIT_BLIND_MS`) and retries, rather
+than guessing at somebody's midnight; and `dailyGot` being EMPTY is read as «nobody has
+asked this client yet», never as «the day is spent» (the fresh-client trap the finder
+above already carries).
 
 ### The ground says the same thing, and does not need to be asked
 

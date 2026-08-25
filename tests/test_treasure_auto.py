@@ -1876,6 +1876,158 @@ def test_a_live_chest_is_still_claimed_the_instant_it_is_heard():
         "heard and claimed are the same instant"
 
 
+# --- the day's reward allowance (#1965) -------------------------------------------
+
+def _day_manager(lua, groups=((602, 10, True), (39, 9, False)), reset_in_ms=3600000):
+    """The client's own books on the day's rewards, as `ActDetectTreasureDataManager`.
+
+    Shaped after a live read on 2026-08-25, while the refusals were arriving: `dailyGot`
+    is one counter per treasure GROUP and `CheckTreasureReachDailyLimit` answers per
+    group — `602` full and `39` not, in the same read. The ids here are that shape and not
+    that account's numbers, which is the point: what the test pins is one-full-one-not, not
+    which group anybody happened to be digging.
+    """
+    got = ", ".join("[%d] = %d" % (g, n) for g, n, _ in groups)
+    full = ", ".join("[%d] = %s" % (g, "true" if f else "false") for g, _, f in groups)
+    lua.execute("""
+DataCenter.ActDetectTreasureDataManager = {
+  dailyGot = {%s},
+  __full = {%s},
+  activity_detect_dig_times_expire = NOW + %d,
+  CheckTreasureReachDailyLimit = function(self, group)
+    return self.__full[group] and true or false end,
+}
+""" % (got, full, int(reset_in_ms)))
+
+
+def _day_state(lua) -> dict:
+    return {k: v for k, v in lua.eval(
+        "(function() local A = DataCenter.__lw_treasure_auto "
+        "return {full = A.day_full and 1 or 0, held = A.t_held or 0, "
+        "until_ms = A.day_until or 0, groups = A.day_groups or '', "
+        "refused = A.limit_all or 0} end)()").items()}
+
+
+def test_the_day_limit_holds_the_chest_instead_of_claiming_it_into_the_dark():
+    """The live bug (#1965): «вы достигли дневного лимита вознаграждений», then nothing.
+
+    The server answers a claim with `activity_sports_uitips_015 day times limit N`, which
+    is the day's REWARDS being spent and says nothing whatever about the tile. Before this,
+    the code fell through every verdict and the retry ramp went on claiming — the same
+    silence #1898 was about, one code later.
+    """
+    if not _needs_lua("the day limit holds a chest"):
+        return
+    lua = _vm()
+    _day_manager(lua)
+    _dug(lua)
+    assert len(_claims(lua)) == 1, "the chest is claimed the second it is heard"
+
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    report = _step(lua)
+
+    assert _why(lua) is None, "the chest is HELD, not written off — it is still there"
+    assert _queued(lua) == 1, _targets(lua)
+    assert "held=1" in report, report
+    assert int(_day_state(lua)["refused"]) == 1, _day_state(lua)
+
+    #: …and not one further claim, however long the errand is left running
+    before = len(_claims(lua))
+    for _ in range(8):
+        lua.execute("NOW = NOW + 16000")
+        _step(lua)
+    assert len(_claims(lua)) == before, _claims(lua)
+
+
+def test_the_hold_lets_go_by_itself_when_the_game_says_the_day_turned_over():
+    """No restart and no hand on the panel: the hold is measured against the GAME's stamp.
+
+    `activity_detect_dig_times_expire` is the reset the client itself keeps — read live as
+    the ordinary 02:00 UTC boundary — so the day turning over lifts every hold at once.
+    """
+    if not _needs_lua("the hold ends at the reset"):
+        return
+    lua = _vm()
+    #: well inside the target's own ttl — this test is about the hold, not about a chest
+    #: that sat on the list too long
+    _day_manager(lua, reset_in_ms=600000)
+    _dug(lua)
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    _step(lua)
+    before = len(_claims(lua))
+
+    #: the day turns over — and the client's counters go back with it
+    lua.execute("NOW = NOW + 700000")
+    _day_manager(lua, groups=((602, 0, False), (39, 0, False)))
+    _step(lua)
+
+    assert len(_claims(lua)) > before, "the chest is claimed again after the reset"
+    assert _queued(lua) == 1, _targets(lua)
+
+
+def test_one_group_being_full_does_not_stand_the_whole_errand_down():
+    """The measurement that decided the design (#1965).
+
+    The allowance is counted per treasure GROUP: read live, `602` was full and `39` was
+    not, in the same breath as the refusals. So a refusal is a verdict on the chest it was
+    sent for and never on the map — a chest of the group with room is still worth a squad.
+    """
+    if not _needs_lua("one group full"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((602, 10, True), (39, 9, False)))
+    _dug(lua)
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    _step(lua)
+
+    state = _day_state(lua)
+    assert int(state["full"]) == 0, state
+    assert "/full" in str(state["groups"]), state
+
+    #: a second chest, heard after the refusal, is claimed exactly as before
+    before = len(_claims(lua))
+    _dug(lua, uuid=_OTHER_UUID)
+    assert len(_claims(lua)) > before, "the group with room is still worked"
+
+
+def test_every_counter_full_stops_the_sending_and_says_so_in_words():
+    """And when there is genuinely nothing left to be paid for, the errand says it.
+
+    A stalled queue that explains itself is the whole of requirement #1884: no chest is
+    claimed, no squad is spent, and the line names the day rather than leaving a person to
+    work it out from a report full of `waiting=`.
+    """
+    if not _needs_lua("every counter full"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((602, 10, True), (39, 10, True)))
+    _announce(lua)                       # a chest with a TILE — a squad could go
+    report = _step(lua)
+
+    assert _marched(lua) == [], "no squad is spent on a chest that cannot be paid for"
+    assert _claims(lua) == [], _claims(lua)
+    assert "day-limit=[" in report, report
+    assert "дневной лимит наград исчерпан" in report, report
+    assert int(_day_state(lua)["full"]) == 1, _day_state(lua)
+
+
+def test_a_client_that_counts_nothing_is_not_a_client_that_is_full():
+    """`dailyGot` is filled by a REPLY, so a fresh client tracks no group at all (#1116).
+
+    Reading that as «the day is spent» would stand the errand down on a client nobody had
+    asked yet — the same fresh-client trap the treasure finder already carries.
+    """
+    if not _needs_lua("a client that counts nothing"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=())
+    _dug(lua)
+    _step(lua)
+
+    assert int(_day_state(lua)["full"]) == 0, _day_state(lua)
+    assert len(_claims(lua)) >= 1, "nothing stands in the way of an ordinary claim"
+
+
 def _run() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

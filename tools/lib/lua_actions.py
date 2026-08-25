@@ -3758,8 +3758,8 @@ TREASURE_HOME_STATUS = 4
 #: only armed for a deadline that is actually near, so a chest an hour out costs nothing.
 TREASURE_DUE_ARM_MS = 5000
 
-#: The server's own answers to a claim, and FOUR of them are VERDICTS rather than noise
-#: (#1318, #1898). `801348 claim repeat` means this account has already had this chest —
+#: The server's own answers to a claim, and FIVE of them are VERDICTS rather than noise
+#: (#1318, #1898, #1965). `801348 claim repeat` means this account has already had this chest —
 #: which is a paid chest seen from the other side, and the one honest end to a retry loop
 #: when the reward window was missed. `801354 player not in same alliance` means the chest
 #: was never ours to take. `E100123 treasure is null` is the server saying the chest does
@@ -3772,10 +3772,36 @@ TREASURE_DUE_ARM_MS = 5000
 #: `nil` and was dropped in silence, and one live client sent 25 claims over 287 s at a
 #: chest the server had already said was not there, every single reply saying so. A code
 #: is compared as text from here on, whatever shape it has.
+#:
+#: THE FIFTH IS A DAY, NOT A CHEST (#1965). `activity_sports_uitips_015 day times limit N`
+#: is the day's allowance of REWARDS being used up, and it says nothing at all about the
+#: tile it was sent for: the chest is still there, still diggable, and nothing this errand
+#: sends will be paid for it until the day resets. It is therefore neither a `gone` nor a
+#: retry — the chest is HELD, and the hold ends at the game's own reset stamp.
 TREASURE_ERR_CLAIM_REPEAT = "801348"
 TREASURE_ERR_NOT_IN_ALLIANCE = "801354"
 TREASURE_ERR_TREASURE_NULL = "E100123"
 TREASURE_ERR_NOT_COMPLETE = "detect_dig_err_01"
+TREASURE_ERR_DAY_LIMIT = "activity_sports_uitips_015"
+
+#: THE ALLOWANCE IS PER TREASURE GROUP, AND THAT IS A MEASUREMENT (#1965, read live off
+#: `ActDetectTreasureDataManager` on 2026-08-25 while the refusals were arriving):
+#: `dailyGot` held two counters, `602 = 10` and `39 = 9`, and the client's own gate
+#: answered `CheckTreasureReachDailyLimit(602) = true` with `(39) = false` in the same
+#: read. So it is not one purse for the account and it is not a property of a tile —
+#: stopping the whole errand on the first refusal would write off a group that still had
+#: room, and writing the chest off for good would lose it after the reset.
+#:
+#: The two halves that follow from that are both in `_TREASURE_TICK`: the chest that was
+#: refused is held until the reset (its group is full, whichever one it is), and the whole
+#: errand stands down only when EVERY counter the client keeps says full.
+#:
+#: The reset is the game's own and is never computed here: the same manager carries
+#: `activity_detect_dig_times_expire`, read live as `1787709600000` = 2026-08-26 02:00 UTC,
+#: the ordinary daily boundary. A client that cannot be asked (no manager yet) falls back
+#: to a short hold rather than to a guess about somebody's midnight.
+TREASURE_DAY_LIMIT_ASK_MS = 5000
+TREASURE_DAY_LIMIT_BLIND_MS = 3600 * 1000
 
 #: How often the in-game watch looks while a chest is live, and while none is, in seconds.
 #: The busy period is what the acceptance criterion rests on — «ВСЕ сокровища всегда забраны
@@ -3956,6 +3982,61 @@ D.__lw_treasure_auto.tick = function()
   if now <= 0 then A.tick_why = "no-clock" return end
   A.tick_at = now
   A.ticks = (tonumber(A.ticks) or 0) + 1
+  -- THE DAY'S ALLOWANCE, ASKED OF THE CLIENT RATHER THAN INFERRED FROM A REFUSAL (#1965).
+  -- `activity_sports_uitips_015 day times limit N` is the server saying the day's REWARDS
+  -- are used up, and the client keeps the same books: `dailyGot` is one counter per
+  -- treasure group and `CheckTreasureReachDailyLimit` is the game's own verdict on each.
+  -- Read live while the refusals were arriving, the two counters disagreed — `602` full
+  -- and `39` not — which is why this is not one flag for the account.
+  --
+  -- It is a LOCAL read: no message leaves, nothing on screen moves, and it is repeated at
+  -- most every few seconds however often the watch beats.
+  if (tonumber(A.day_at) or 0) <= 0
+     or now - (tonumber(A.day_at) or 0) >= %(day_ask)d
+     or (tonumber(A.day_ask_now) or 0) == 1 then
+    A.day_at, A.day_ask_now = now, 0
+    local dm = DataCenter.ActDetectTreasureDataManager
+    if dm == nil then
+      A.day_full, A.day_groups, A.day_reset = false, "", 0
+    else
+      pcall(function() A.day_reset = tonumber(dm.activity_detect_dig_times_expire) or 0 end)
+      local full, seen, words = true, 0, {}
+      pcall(function()
+        for g, got in pairs(dm.dailyGot or {}) do
+          seen = seen + 1
+          local reached = false
+          pcall(function()
+            reached = dm:CheckTreasureReachDailyLimit(g) and true or false end)
+          words[#words+1] = tostring(g) .. "=" .. tostring(got)
+            .. (reached and "/full" or "")
+          if not reached then full = false end
+        end
+      end)
+      -- A CLIENT THAT COUNTS NOTHING IS NOT A CLIENT THAT IS FULL. `dailyGot` is filled by
+      -- a reply, so a freshly started one tracks no group at all — reading that as «the
+      -- day is spent» would stand the errand down on a client that had not been asked.
+      if seen == 0 then full = false end
+      A.day_full, A.day_groups = full, table.concat(words, ",")
+    end
+    -- …and the reset the hold ends at. The game's own stamp where there is one; a short
+    -- blind hold where there is not, so a client that cannot be asked retries in an hour
+    -- instead of guessing at somebody's midnight.
+    if (tonumber(A.day_reset) or 0) <= 0 then
+      A.day_blind = now + %(day_blind)d
+    else
+      A.day_blind = nil
+    end
+  end
+  local day_until = (tonumber(A.day_reset) or 0)
+  if day_until <= 0 then day_until = tonumber(A.day_blind) or 0 end
+  if day_until > 0 and now >= day_until then
+    -- THE RESET HAPPENED AND NOTHING HAD TO BE PRESSED (#1965). Every hold is measured
+    -- against the game's own stamp, so the day turning over lifts all of them at once —
+    -- no restart, no hand on the panel, and the next beat works the queue it was holding.
+    day_until = 0
+    A.day_full = false
+  end
+  A.day_until = day_until
   local wm = DataCenter.WorldMarchDataManager
   local home_srv = tonumber(P.serverId) or 0
   local ttl = (tonumber(A.ttl) or %(ttl)d) * 1000
@@ -3967,6 +4048,10 @@ D.__lw_treasure_auto.tick = function()
   pcall(function() reward = UIManager.Instance:IsWindowOpen(
     UIWindowNames.UIGiftPackageRewardGet) and true or false end)
   local live, claimed, paid, expired, waiting, resent, gone = 0, 0, 0, 0, 0, 0, 0
+  -- Chests standing still because the day's reward allowance is spent, counted apart from
+  -- the ones merely waiting on a squad: the two look identical in a queue and one of them
+  -- will not move however long anybody waits (#1965).
+  local held = 0
   -- THE THIRD WATCHER OF THE DIG, and the only one that needs nobody to say anything
   -- (#1886). The wire has exactly one hearable dig signal — `push.detect.treasure.claim`,
   -- one per member who finishes — and the map stream that would be the other one is
@@ -4015,6 +4100,21 @@ D.__lw_treasure_auto.tick = function()
       -- not matter: nothing this errand can send will ever be paid for it, so it leaves
       -- the work here rather than on the far end of a thirty-minute ttl.
       t.done, t.why, t.done_at = true, "gone", now
+    elseif code == "%(err_daylimit)s" then
+      -- THE DAY, NOT THE CHEST (#1965). The reward allowance for this chest's group is
+      -- spent, and the chest itself is untouched by that: it is still on the map, still
+      -- diggable, and worth exactly nothing to this account until the day resets. So it
+      -- is neither struck off nor retried — it is HELD, and the hold ends at the game's
+      -- own reset stamp, which means it comes back by itself.
+      t.hold_until = day_until
+      t.hold_why = "day-limit"
+      t.claimed, t.tries = nil, 0
+      A.limit_at, A.limit_last = now, tostring(code)
+      A.limit_all = (tonumber(A.limit_all) or 0) + 1
+      -- …and ask the client again on the next beat rather than in five seconds: its own
+      -- counters are what decide whether the WHOLE errand stands down, and the refusal
+      -- that just arrived is the moment they changed.
+      A.day_ask_now = 1
     elseif code == "%(err_undug)s" then
       -- THE OPPOSITE VERDICT: the chest is there and the dig is NOT over, so whatever
       -- stamped it «dug» was wrong. Take the stamp off and put it back on the march path
@@ -4134,7 +4234,26 @@ D.__lw_treasure_auto.tick = function()
        -- claim is measured against the moment the chest became takeable, not against the
        -- tick that noticed.
        local ready, anchor = false, nil
-       if lost then
+       -- A HOLD THE GAME'S OWN CLOCK LETS GO OF (#1965). Every hold is measured against
+       -- the reset stamp the manager carries, so the day turning over takes the hold off
+       -- without anybody pressing anything — and a client that stopped being able to
+       -- answer at all (`day_until == 0`) is given the chest back rather than kept from it
+       -- for ever by a stamp nobody can check.
+       if (tonumber(t.hold_until) or 0) > 0
+          and (day_until <= 0 or now >= (tonumber(t.hold_until) or 0)) then
+         t.hold_until, t.hold_why = nil, nil
+       end
+       -- …and the stand-down that is NOT about one chest. The allowance is counted per
+       -- treasure group, so one refusal proves one group is full and nothing more; when
+       -- every counter the client keeps says full there is no chest anywhere on the map
+       -- this account can be paid for, and the honest thing is to send nothing until the
+       -- day resets.
+       local day_stop = (A.day_full and day_until > 0) and true or false
+       if (tonumber(t.hold_until) or 0) > 0 or day_stop then
+         t.state = "day-limit"
+         held = held + 1
+         waiting = waiting + 1
+       elseif lost then
          t.state = "march-lost:resend" .. tostring(t.resends)
          waiting = waiting + 1
        else
@@ -4247,7 +4366,7 @@ D.__lw_treasure_auto.tick = function()
   end
   A.t_live, A.t_claimed, A.t_paid = live, claimed, paid
   A.t_expired, A.t_waiting, A.t_resent = expired, waiting, resent
-  A.t_gone = gone
+  A.t_gone, A.t_held = gone, held
   -- …AND THE SAME NUMBERS ADDED UP FOR WHOEVER IS HOLDING A PRESS. A step asks this
   -- function twice — once to resolve the queue before it spends a squad on it, once to
   -- claim what became takeable — and the second pass would otherwise report zero of what
@@ -4267,6 +4386,9 @@ end
        "err_foreign": TREASURE_ERR_NOT_IN_ALLIANCE,
        "err_null": TREASURE_ERR_TREASURE_NULL,
        "err_undug": TREASURE_ERR_NOT_COMPLETE,
+       "err_daylimit": TREASURE_ERR_DAY_LIMIT,
+       "day_ask": int(TREASURE_DAY_LIMIT_ASK_MS),
+       "day_blind": int(TREASURE_DAY_LIMIT_BLIND_MS),
        "dig_status": int(TREASURE_DIG_STATUS), "home_status": int(TREASURE_HOME_STATUS),
        "settle": int(TREASURE_MARCH_SETTLE_SEC) * 1000,
        "resends": int(TREASURE_RESEND_TRIES), "arm_ms": int(TREASURE_DUE_ARM_MS),
@@ -4659,6 +4781,13 @@ def treasure_auto_step() -> str:
         # …and so is a chest the watch is claiming BEFORE it marches (#1886): a dug chest
         # gets the ramp first, and a squad only if the server refuses it.
         "if t.sent ~= nil or t.claim_only or t.plan == 'claim' then "
+        # …AND A CHEST THE DAY'S ALLOWANCE HAS REFUSED GETS NO SQUAD EITHER (#1965). The
+        # reward is the whole errand: marching at a chest that cannot be paid for spends a
+        # squad, a walk and a dig for nothing. `hold_until` is this chest's own group being
+        # full; `day_full` is every counter the client keeps saying so, which stands the
+        # send half down altogether until the day resets.
+        "elseif (tonumber(t.hold_until) or 0) > 0 or A.day_full then "
+        "mine[#mine+1] = {t, 'day-limit'} "
         "else "
         # New: the nearest free squad goes out. `fi` walks the free list so two chests
         # in the same minute never get the same squad.
@@ -4743,6 +4872,18 @@ def treasure_auto_step() -> str:
         # only trace was one floating `server-said=` that named no chest.
         ".. ((tonumber(A.s_gone) or 0) > 0 "
         "and (' gone=' .. tostring(A.s_gone)) or '') "
+        # THE DAY'S ALLOWANCE, SAID OUT LOUD (#1965). A refusal used to leave nothing but a
+        # floating `server-said=` and a queue that went on retrying — the same silence
+        # #1898 was about, one code later. `held=` is how many chests are standing still
+        # for it, `day=` is the client's own counters, and the words are there so a person
+        # reading the log is told rather than left to work it out from a stalled queue.
+        ".. ((tonumber(A.t_held) or 0) > 0 "
+        "and (' held=' .. tostring(A.t_held)) or '') "
+        ".. ((A.day_full and (tonumber(A.day_until) or 0) > 0) "
+        "and ' day-limit=[дневной лимит наград исчерпан — до сброса суток за кладами не "
+        "хожу]' or '') "
+        ".. (((A.day_groups or '') ~= '' and (tonumber(A.t_held) or 0) > 0) "
+        "and (' day=[' .. tostring(A.day_groups) .. ']') or '') "
         ".. ((A.gone_last and now > 0 and (tonumber(A.gone_last_at) or 0) > 0 "
         "and now - A.gone_last_at < 60000) "
         "and (' dropped=[' .. tostring(A.gone_last) "
