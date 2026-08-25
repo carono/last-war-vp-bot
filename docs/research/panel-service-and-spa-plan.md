@@ -45,6 +45,34 @@ What the service is: the port, TLS, the token, the SPA, the register of panels t
 connected, and the routing to them. What it is not: a watchdog, a retry loop, a thing
 that owns a lifecycle.
 
+## What is done, and what it cost
+
+| step | state | evidence |
+|---|---|---|
+| acceptance criterion measured and said by the panel | **done** | `log.game.link_ready`; live 18–19 s on a panel restart, 37 s measured before the change on a client start |
+| link caught at one fixed short rate | **done** | two rates, `CATCH_SEC` / `WATCH_SEC`, no backoff (#1976) |
+| a probe nobody sent stops earning green | **done** | `Recovery.probe_unstarted` |
+| P1 — React SPA at parity with the old page | **done** | `/app/`, five views, thirteen screens, live on WebKit 390×844 |
+| «/» is the SPA; the old page frozen at «/old/» | **done** | the redirect, and the tests read the React source now |
+| P2 — «Настройки» on the phone | **done** | fields, and the four which-client values kept as readings |
+| P2 — an errand's schedule from the phone | **done** | `/api/timers/edit`, period and weekdays |
+| P2 — the panel's language | **done** | screen, every open profile switches at once |
+| P2 — which profiles are open | **done** | `panel/runtime/profile_control.py`, shell-registered |
+| P2 — what is still window-only | see below | |
+| P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
+| P3 — Tk removed | not started | after P2 |
+| P4 — the rules and the parity tests | partly | the `settings` divergence is already rewritten |
+
+**Still window-only, and why.** Creating, renaming and deleting an ERRAND (and editing
+its steps) — the schedule travels, the scenario does not, because a phone that rewrites a
+recipe by a mistyped character is not a remote control. Renaming and deleting a PROFILE,
+for the same reason plus «destructive». Sending a CHAT message: the window spawns a tool
+to do it, so by the rule in `CLAUDE.md` the phone gets the reading and no button until
+that ability is a scenario. «Разработка»: decided to become an SPA screen behind the
+development switch, not built yet. The remote control's own port, token and certificate:
+the standing divergence, and the one thing that will need an answer before the window
+goes — see the note in the risks below.
+
 ## 1. Target architecture
 
 Two processes, and the split is forced by Windows, not chosen for taste.
