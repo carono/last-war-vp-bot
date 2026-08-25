@@ -304,6 +304,75 @@ def _press(tab, action: str) -> dict:
         return {"ok": True}
 
 
+def _page():
+    """A real window with a real page in it, or ``None`` where there is no display.
+
+    Borrowed from `tests/test_panel_page_build.py` rather than grown a second time —
+    the same harness `tests/test_panel_web.py` uses for the two facts it has about the
+    window. Only a Tk failure is a skip: anything the page build itself raises belongs
+    to that file and would be hidden here.
+    """
+    sys.path.insert(0, str(_REPO / "tests"))
+    try:
+        import tkinter as tk
+
+        import test_panel_page_build as pagebuild
+
+        tk.Tk().destroy()
+    except Exception:                               # noqa: BLE001 — no display
+        return None
+    try:
+        return pagebuild._Harness(staged=False)
+    except Exception:                               # noqa: BLE001
+        return None
+
+
+def test_every_screen_builds_on_a_real_page_and_says_only_keys():
+    """THE ONE THE SNAPSHOT TESTS ABOVE CANNOT ASK (#1976).
+
+    Everything above is built off a stand-in reading with no Tk, which only a `DataTab`
+    can be given — so twelve tabs offer a screen and six of them were never asked to
+    produce one at all. «Дуэль» read `item.label_key` and `amount.label_key` for months;
+    no item has either (the attribute is `label`), so the screen raised on any day with
+    anything ticked, and every test in this file passed because none of them ever called
+    that `web_view`.
+
+    So: a real page, every tab that offers a screen DRAWN exactly as the API draws it
+    (`rt.tabs.get`, which realises it — #1215), and its own view asked for. Two things
+    are asserted, and they are the two that have actually gone wrong: it must not raise,
+    and every word in it must be a key that exists.
+    """
+    harness = _page()
+    if harness is None:
+        return
+    english = _english()
+    broke, bad = [], []
+    try:
+        app, session = harness.app, harness.session
+        with app._on(session):
+            for tab_id, _cls in _tabs_with_screens():
+                tab = session.rt.tabs.get(tab_id)
+                if tab is None:
+                    continue                    # not in this profile — nothing to draw
+                try:
+                    view = tab.web_view()
+                except Exception as exc:        # noqa: BLE001 — that IS the finding
+                    broke.append(f"{tab_id}: web_view raised "
+                                 f"{type(exc).__name__}: {exc}")
+                    continue
+                if not isinstance(view, dict):
+                    continue                    # a tab may answer «nothing to show»
+                for key in _keys_in(view):
+                    if not _KEYISH.match(key):
+                        bad.append(f"{tab_id}: «{key}» is a sentence, not a locale key")
+                    elif key not in english:
+                        bad.append(f"{tab_id}: key «{key}» is in no locale")
+    finally:
+        harness.close()
+    assert not broke, "\n  ".join([""] + broke)
+    assert not bad, "\n  ".join([""] + bad)
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
