@@ -58,6 +58,10 @@ that owns a lifecycle.
 | P2 — an errand's schedule from the phone | **done** | `/api/timers/edit`, period and weekdays |
 | P2 — the panel's language | **done** | screen, every open profile switches at once |
 | P2 — which profiles are open | **done** | `panel/runtime/profile_control.py`, shell-registered |
+| the web is the MAIN front-end | **decided** | «Веб теперь главный инструмент, ему и полный функционал» — `CLAUDE.md` and `docs/panel-tabs.md` rewritten; new goes to the web only |
+| P2 — the ghost standing order from the phone | **done** | switch + level as fields; «Ограбить» still absent until #1188's tool goes |
+| P2 — the Windows-session block | **done** | diagnosis is state now, «Проверить» and «Поднять сессию» are presses |
+| P2 — switching character | **done** | typed confirmation replaces the window's dialog; the row's own fields fixed |
 | P2 — the errand's rule from the phone | **done** | five fields on «Свои задания»; live-checked, and a bad number is refused |
 | P2 — the rally switches from the phone | **done** | fields on «Ралли»; the capture re-points, the auto-join is the standing order |
 | P2 — what is still window-only | see below | |
@@ -68,14 +72,16 @@ that owns a lifecycle.
 **Still window-only, and why.** JOINING a rally — the three switches of the automatic
 side travel, the join itself does not, because it is a send with SQUADS chosen for it and
 a wrong squad sent from away is a squad that is not home when the next rally lands. The
-ghost robbery's own standing order (its switch and its minimum level) for the reason in
-`CLAUDE.md`: that robbery still parks its targets with a tool before the recipe presses
-(#1188), and whether the ORDER may travel while the PRESS may not was asked of the person
-and not answered — so the rule as written stands and the card keeps its readings. Creating,
-renaming and deleting an ERRAND (and editing
-its steps) — the schedule travels, the scenario does not, because a phone that rewrites a
-recipe by a mistyped character is not a remote control. Renaming and deleting a PROFILE,
-for the same reason plus «destructive». Sending a CHAT message: the window spawns a tool
+robberies whose ability is not yet ONE scenario — the ghost one still parks its targets
+with a spawned tool (#1188) — keep their readings and their standing orders and lose only
+the press, which is the order of work `CLAUDE.md` states rather than a divergence.
+Creating, renaming and deleting an ERRAND (and editing
+its steps) — the schedule travels, the editor does not — YET. That was a
+divergence («a phone that rewrites a recipe by a mistyped character is not a remote
+control») and it stopped being one the moment the person said the web gets the whole
+function; it is now simply the largest piece of P2 that is not built. The same goes for
+renaming and deleting a PROFILE: destructive, so it wants a typed confirmation like the
+character switch has, not an exemption. Sending a CHAT message: the window spawns a tool
 to do it, so by the rule in `CLAUDE.md` the phone gets the reading and no button until
 that ability is a scenario. «Разработка»: decided to become an SPA screen behind the
 development switch, not built yet. The remote control's own port, token and certificate:
@@ -180,18 +186,17 @@ after the new one has been used to drive it.**
   every `label` a tab's own `web_view` declares — what the phone genuinely does not have
   is a short list, and most of it is deliberate:
 
-  | tab | window-only | deliberate? |
+  | tab | window-only | what it needs |
   |---|---|---|
-  | «Разработка», «Занятость» | all of it | yes — `WEB_SCREEN = False` |
-  | «Чат» | send, send coordinates, clear, monitor | yes — the send spawns a tool |
-  | «Таймеры» | add / edit / copy / delete an errand, edit its steps | yes — a recipe rewritten by a thumb |
-  | «Дуэль» | new / rename / delete a set, the week's grid | yes — a day's speedups aimed by a thumb |
-  | «Командный пункт» | ghost: switch, level, «Ограбить», jump, scan | asked; unanswered — see «still window-only» above |
-  | «Ралли» | join now, launch / stop a run, the kind filter's «все / никакие» | the join and the run: yes — squads aimed by a thumb. The two filter buttons: not decided, and they only set boxes the phone can already read |
-  | «Настройки» | bring the RDP session up, check it, refresh the graphics reading | not decided — a press worth having on a phone |
+  | «Таймеры» | add / edit / copy / delete an errand, edit its steps | THE BIG ONE, and no longer a divergence: the person has said the web gets the whole function. Needs API routes and an editor screen |
+  | «Разработка», «Занятость» | all of it | an SPA screen behind the development switch — decided in §3, not built |
+  | «Дуэль» | new / rename / delete a set, the week's grid | a screen of its own: the week is a grid of switches and amounts |
+  | «Чат» | send, send coordinates, clear, monitor | the send spawns a tool — the ability becomes a scenario first (`CLAUDE.md`) |
+  | «Командный пункт» | «Ограбить» / «Ограбить всех», jump, scan | the ghost robbery parks its targets with a tool first (#1188) — same order of work |
+  | «Ралли» | join now, launch / stop a run, the kind filter's «все / никакие» | the join needs squads chosen for it — a screen, not a button. The filter's two buttons are small |
+  | «Настройки» | the graphics reading's «Обновить» | small |
   | «Сокровища (отладка)» | copy, keep-messages switch | debug surface; low value |
-  | «Секретки» | nothing of substance — every box travels as its own toggle action | — |
-  | «Профиль», «Инвентарь», «Аккаунты», «Игроки» | one press each (`profile.warzone.mine`, `inventory.use`, `accounts.switch`) | not decided |
+  | «Секретки», «Профиль», «Инвентарь», «Аккаунты», «Игроки» | nothing of substance | — |
 
   So the remaining P2 work is **tens of controls, not two hundred**, and half of what is
   left is a decision rather than code.
