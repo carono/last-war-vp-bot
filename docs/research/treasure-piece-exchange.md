@@ -182,9 +182,25 @@ That is enough, and it is exactly the shape the listener was built for. The trig
 from the game — it never needed a field out of the push, which is why it was written that
 way before the push had been seen.
 
-**It arrives for our own actions too** (posting and announcing both produced one), and
-that cannot loop: a run woken by the push finds the offer already standing, sends nothing
-and announces nothing, so no further push follows.
+**And it is not fired by our own posting** — that was the first reading of it and the
+wire says otherwise. Two offers were stood and two pushes arrived, and in BOTH cases the
+order in the ring is the same:
+
+```
+hero.dispatch.call.fragment.exchange  {… uuid = <ours>}     the offer goes up
+hero.dispatch.get.exchange.info       {… uuid = <ours>}     …and is there when asked
+push.treasure.fragment.exchange       {DIG_GAME_TREASURE_FRAGMENT = 1}
+hero.dispatch.get.exchange.info       {type = 4}            …and is GONE when asked
+```
+
+The reply carrying no record at all is the game saying our offer is no longer on the
+board — it was taken — and the push sits immediately before that, never between the post
+and the first reply. So this is the announcement the listener wanted: **somebody accepted
+our offer.** Both times the piece we had asked for was one higher in the bag afterwards
+and the piece we paid with one lower, and the digs left went 12 → 13.
+
+It cannot loop either. A run woken by it finds no offer of ours standing, posts a fresh
+one and announces that — and the next push comes only when THAT one is taken.
 
 How it was got, and it is worth repeating for the next unobserved push: the offer had been
 standing for half an hour with nobody looking at it. The chat announcement (§6) put it in

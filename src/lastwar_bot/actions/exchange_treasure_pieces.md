@@ -92,10 +92,13 @@
 # once the server has answered the post. Hence the `WAIT` between them: an announcement
 # built from the record we had before the post would name the offer we just withdrew.
 #
-# It is also what makes the LISTENER answerable. The one thing about this ability that
-# could not be measured is what arrives when somebody takes OUR offer — an offer nobody
-# has seen is an offer nobody takes, so the wait for that answer is the wait for a mate
-# to happen to open the board. A card in the chat shortens it to a card in the chat.
+# It is also what ANSWERED THE LISTENER. The one thing about this ability that could not
+# be measured was what arrives when somebody takes OUR offer — an offer nobody has seen is
+# an offer nobody takes, so waiting for that answer meant waiting for a mate to happen to
+# open the board. The chat card replaced that with minutes: two offers, two acceptances,
+# and both times `push.treasure.fragment.exchange {DIG_GAME_TREASURE_FRAGMENT = 1}`
+# immediately before the reply that said our record was gone. The trigger `piece_exchange`
+# rides on that command name — see `docs/research/treasure-piece-exchange.md` §7.
 #
 # NO DAILY CAP IS KNOWN. Nothing in the client's own books counts exchanges the way
 # `hero.dispatch.list` counts the day's steals and assists, and none was found. `limit`

@@ -639,12 +639,14 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
     ),
     Trigger(
         name="piece_exchange",
-        # SOMEBODY TOOK OUR OFFER. `push.treasure.fragment.exchange` is the game's own
-        # announcement that a piece swap has gone through, and it is the answer to the
-        # question this ability could not otherwise ask: an offer of ours stands on the
-        # board indefinitely, costs nothing while it stands, and the only moment worth
-        # acting on is the moment it is consumed — a piece has arrived, the seven counts
-        # have moved, and the offer that was up is gone.
+        # SOMEBODY TOOK OUR OFFER — measured, not assumed (#1975). Twice over, the wire
+        # shows `push.treasure.fragment.exchange {DIG_GAME_TREASURE_FRAGMENT = 1}`
+        # immediately before the reply that says our own record is no longer on the
+        # board, and never between the post and the first reply that still holds it. So
+        # this is the moment worth acting on: a piece has arrived, the seven counts have
+        # moved, and the offer that was up is gone. The push itself carries one flag
+        # named after the SET and nothing else — no uuid, no piece, nobody's name — so
+        # the errand re-reads the board rather than believing a field.
         #
         # So this fires the whole errand rather than a re-post: the run re-reads the
         # board, takes anything the rule now approves of and stands a fresh offer,
