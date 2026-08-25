@@ -624,13 +624,22 @@ dedicated table, the way `players` earned its own columns and indexes because a 
 the map sorts and searches it by name, alliance, level, power — or, when the store is
 read and written WHOLE and never queried by a `WHERE` clause, a named row in the shared
 `blobs` table (`store.blob_get`/`store.blob_set`), the way the ★ tile list
-(`secret_tasks_state`), the ghost map's own list (`ghost_map_state`), a world page's own
-list (`world_state_monsters`), the daily rally counts (`rally_counts`) and the daily
-resource tally (`resource_stats`) do since #1465. **Only ONE of the four world pages
-ever had a list of its own** — the mine, train and truck pages are re-read from
-`world_map.json` (the capture checkpoint named below) and were never a separate store to
-move; `world_state_monsters` is not an example missing three siblings, it is the whole
-set. Either way the schema is a HISTORY — append a migration, never edit one that has
+(`secret_tasks_state`), the ghost map's own list (`ghost_map_state`), the daily rally
+counts (`rally_counts`) and the daily resource tally (`resource_stats`) do since #1465.
+**Only ONE of the four world pages ever had a list of its own** — the mine, train and
+truck pages are re-read from `world_map.json` (the capture checkpoint named below) and
+were never a separate store to move.
+
+**And that one page is the worked example of a blob OUTGROWING itself (#1963).** The
+monster list was `world_state_monsters` in `blobs` from #1465, and «read and written
+WHOLE» stopped being true of it: 31 828 rows, 9.8 MB of JSON, re-serialised and written
+**from the Tk thread** on every poll of its follow clock — 0.20–0.32 s, five times a
+minute, per profile, which is what «панель тормозит» was. It has a table of its own now
+(`monsters`), written a ROW at a time through `store.submit`. The question to ask before
+choosing is not «is this a list» but **«what is the unit of a WRITE, and who is on the
+thread doing it»**: a store whose every change rewrites the whole of it, off the Tk
+thread, is a blob; one that grows without bound, is touched a few rows at a time, or is
+narrowed by a `WHERE`, is a table. Either way the schema is a HISTORY — append a migration, never edit one that has
 shipped — and an OLD file a profile still has is brought across exactly once
 (`panel.runtime.store.blob_import_once` / `import_once`) and kept beside the database as
 `<name>.imported`, never deleted: an import that turns out to have misread a field is

@@ -4360,7 +4360,13 @@ class SecretTasksTab(PanelTab):
                                    # on this screen.
                                    + ([{"label": "world.monsters.plain_hidden_row",
                                         "value": str(self.monsters.plain_hidden())}]
-                                      if self.monsters.plain_hidden() else []),
+                                      if self.monsters.plain_hidden() else [])
+                                   # …and the same for «только текущая зона» (#1963):
+                                   # a row that says how many OTHER warzones are being
+                                   # held back, drawn only when something is.
+                                   + ([{"label": "world.monsters.own_hidden_row",
+                                        "value": str(self.monsters.own_hidden())}]
+                                      if self.monsters.own_hidden() else []),
                            "empty": "world.monsters.empty",
                            # The one card whose feed is a game read rather than the
                            # sniffer, so it says so and offers the read itself — and the
@@ -4390,6 +4396,14 @@ class SecretTasksTab(PanelTab):
                                         "label": ("world.monsters.plain.show"
                                                   if self.monsters.hide_plain_var.get()
                                                   else "world.monsters.plain.hide")},
+                                       # …and the window's «Только текущая зона»
+                                       # (#1963), worded the same way: by what pressing
+                                       # it will do. It HIDES — the rows stay in the
+                                       # model and in `monsters`.
+                                       {"id": "own_only_monsters",
+                                        "label": ("world.monsters.own.show"
+                                                  if self.monsters.own_only_var.get()
+                                                  else "world.monsters.own.hide")},
                                        self._clear_action("monsters")]},
                           {"title": "world.trains",
                            "items": self.trains.web_items(),
@@ -4648,6 +4662,12 @@ class SecretTasksTab(PanelTab):
             self.monsters.hide_plain_var.set(not self.monsters.hide_plain_var.get())
             self.post(self.monsters.refilter)
             return {"ok": True, "on": bool(self.monsters.hide_plain_var.get())}
+        if action == "own_only_monsters":
+            # The other display rule (#1963), flipped from the phone. Nothing is read,
+            # nothing leaves the list and nothing leaves the `monsters` table.
+            self.monsters.own_only_var.set(not self.monsters.own_only_var.get())
+            self.post(self.monsters.refilter)
+            return {"ok": True, "on": bool(self.monsters.own_only_var.get())}
         if action == "follow_monsters":
             # The window's own checkbox, flipped from the phone (#1549). It changes a
             # SETTING and starts nothing: the poll's chain re-reads the box on its next

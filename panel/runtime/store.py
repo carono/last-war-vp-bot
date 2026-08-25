@@ -311,6 +311,54 @@ MIGRATIONS: tuple = (
            )""",
         "CREATE INDEX ix_secret_days_day ON secret_days(day)",
     ),
+    # -- v6: the monsters the client has drawn, a ROW at a time (#1963) ---------------
+    #
+    # THE LIST THAT OUTGREW `blobs`, and the measurement is the whole argument. The
+    # monster page kept its list under the name `world_state_monsters`, which is the
+    # right home for a store that is read and written WHOLE — and this one stopped being
+    # that. Live, on an ordinary profile:
+    #
+    #     31 828 rows · 9 805 183 bytes of JSON · rewritten on EVERY poll (every 5 s)
+    #     one rewrite = 0.20–0.32 s, and it ran on the Tk thread of the whole window
+    #
+    # That is a fifth of a second of frozen panel, five times a minute, per profile with
+    # the follow clock on — the «панель тормозит» of #1963. `blob_set`'s own docstring
+    # promised «a few rows to a few hundred, never the megabytes»; this was a hundred
+    # times over it.
+    #
+    # So it earns its own table, on the same rule `players` and `secret_days` earned
+    # theirs (`docs/panel-storage.md`): a poll touches the fifty to fifteen hundred rows
+    # it just saw and writes THOSE, the ageing is a `DELETE … WHERE seen_at < ?` instead
+    # of a rewrite of everything that survived it, and «только текущая зона» is a `WHERE
+    # server = ?` rather than a filter in Python over thirty thousand dicts.
+    #
+    # `uuid` is TEXT here and not typeless like `players.uuid`: this page's key is the
+    # page's OWN composite («<server>:<point id>»), made by the reader, never a number
+    # off the wire. The game's own uuid — the one a march can be aimed at, and the one
+    # only the world register answers with — is `game_uuid` beside it.
+    (
+        """CREATE TABLE monsters (
+               uuid         TEXT PRIMARY KEY,
+               server       INTEGER,
+               x            INTEGER,
+               y            INTEGER,
+               level        INTEGER,
+               seen_at      INTEGER,
+               expires_at   INTEGER,
+               completed_at INTEGER,
+               until_key    TEXT,
+               monster_type INTEGER,
+               kind_name    TEXT,
+               cfg_id       INTEGER,
+               source       TEXT,
+               point_id     INTEGER,
+               game_uuid    TEXT
+           )""",
+        # `seen_at` first: the ageing pass walks it every poll and the page ranks on it.
+        "CREATE INDEX ix_monsters_seen_at ON monsters(seen_at)",
+        "CREATE INDEX ix_monsters_server  ON monsters(server)",
+        "CREATE INDEX ix_monsters_level   ON monsters(level)",
+    ),
 )
 
 #: What the code in this checkout expects. A database above it was written by a NEWER
@@ -608,6 +656,93 @@ class Store:
                 "updated_at = excluded.updated_at",
                 (str(name), payload, stamp))
 
+    # -- the monsters the client has drawn (#1963) -------------------------------------
+    #
+    # A ROW at a time, and that is the whole difference from the blob this replaced: a
+    # poll writes what it just saw, not the thirty thousand rows that were already there.
+    # Every write here goes through :meth:`submit`, so the Tk thread hands the rows over
+    # and returns — nothing on this page is worth a frozen window.
+    MONSTER_COLUMNS = ("uuid", "server", "x", "y", "level", "seen_at",
+                       "expires_at", "completed_at", "until_key", "monster_type",
+                       "kind_name", "cfg_id", "source", "point_id", "game_uuid")
+
+    def _monster_values(self, rows) -> list:
+        """The rows as tuples in :data:`MONSTER_COLUMNS` order, skipping the keyless."""
+        out = []
+        for row in rows or ():
+            uuid = str(row.get("uuid") or "")
+            if not uuid:
+                continue
+            values = [uuid]
+            for name in self.MONSTER_COLUMNS[1:]:
+                value = row.get(name)
+                out_value = value
+                if name in ("kind_name", "source", "until_key", "game_uuid"):
+                    out_value = None if value is None else str(value)
+                elif value is not None:
+                    try:
+                        out_value = int(value)
+                    except (TypeError, ValueError):
+                        out_value = None
+                values.append(out_value)
+            out.append(tuple(values))
+        return out
+
+    def monsters_upsert(self, rows) -> None:
+        """Write these sightings, leaving every other row alone.
+
+        `game_uuid` is COALESCEd rather than overwritten, for the same reason the page
+        never clears it in the model (#1523): a lap of the drawn clones re-sees a tile
+        the world register had already named and knows no uuid of its own, and letting
+        that read blank the column would take the march away from a row that had one.
+        """
+        values = self._monster_values(rows)
+        if not values:
+            return
+        columns = ", ".join(self.MONSTER_COLUMNS)
+        marks = ", ".join("?" * len(self.MONSTER_COLUMNS))
+        sets = ", ".join(f"{c} = excluded.{c}" for c in self.MONSTER_COLUMNS[1:]
+                         if c != "game_uuid")
+        sql = (f"INSERT INTO monsters({columns}) VALUES({marks}) "
+               f"ON CONFLICT(uuid) DO UPDATE SET {sets}, "
+               f"game_uuid = COALESCE(excluded.game_uuid, monsters.game_uuid)")
+        self.submit(lambda conn: conn.executemany(sql, values))
+
+    def monsters_replace(self, rows) -> None:
+        """The whole list, replaced — what «Очистить список» needs and nothing else."""
+        values = self._monster_values(rows)
+        columns = ", ".join(self.MONSTER_COLUMNS)
+        marks = ", ".join("?" * len(self.MONSTER_COLUMNS))
+        sql = f"INSERT OR REPLACE INTO monsters({columns}) VALUES({marks})"
+
+        def job(conn) -> None:
+            conn.execute("DELETE FROM monsters")
+            if values:
+                conn.executemany(sql, values)
+
+        self.submit(job)
+
+    def monsters_prune(self, cutoff: float) -> None:
+        """Drop every sighting older than `cutoff` — the ageing, as one statement."""
+        self.submit(lambda conn: conn.execute(
+            "DELETE FROM monsters WHERE seen_at IS NULL OR seen_at < ?",
+            (int(cutoff),)))
+
+    def monsters_all(self, *, cutoff: float | None = None) -> list:
+        """Every sighting still worth drawing, freshest first, as plain dicts."""
+        sql = f"SELECT {', '.join(self.MONSTER_COLUMNS)} FROM monsters"
+        args: tuple = ()
+        if cutoff is not None:
+            sql += " WHERE seen_at >= ?"
+            args = (int(cutoff),)
+        sql += " ORDER BY seen_at DESC"
+        return [dict(zip(self.MONSTER_COLUMNS, row))
+                for row in self.read().execute(sql, args).fetchall()]
+
+    def monsters_count(self) -> int:
+        row = self.read().execute("SELECT COUNT(*) FROM monsters").fetchone()
+        return int(row[0]) if row else 0
+
     # -- closing ----------------------------------------------------------------------
     def close(self) -> None:
         """Stop the writer and close every connection this store opened."""
@@ -684,11 +819,15 @@ def blob_import_once(store: Store, name: str, path: str) -> bool:
     """Move one whole-list checkpoint file into `blobs`, exactly once, keeping the file.
 
     The shared way every ★-style list adopts the database: `panel/tabs/secret_tasks/
-    tab.py` (name `secret_tasks_state`), `.../ghost.py` (`ghost_map_state`), `.../
-    world.py` (`world_state_monsters`) and `panel/rally_limits.py` (`rally_counts`) all
-    call this once, at restore, before reading `store.blob_get(name)` — so a profile
-    opened by a NEWER panel for the first time carries its file across instead of
-    starting blank, and every later start finds the mark and does nothing.
+    tab.py` (name `secret_tasks_state`), `.../ghost.py` (`ghost_map_state`) and
+    `panel/rally_limits.py` (`rally_counts`) all call this once, at restore, before
+    reading `store.blob_get(name)` — so a profile opened by a NEWER panel for the first
+    time carries its file across instead of starting blank, and every later start finds
+    the mark and does nothing.
+
+    The monster page used to be on this list under `world_state_monsters`; it has a
+    table of its own since #1963 and comes across through
+    :func:`monsters_import_blob_once` instead.
     """
     def load(p):
         try:
@@ -706,3 +845,55 @@ def blob_import_once(store: Store, name: str, path: str) -> bool:
         return 1
 
     return bool(import_once(store, f"blob:{name}", path, load, insert))
+
+
+def monsters_import_blob_once(store: Store, name: str = "world_state_monsters",
+                              path: str = "") -> int:
+    """Carry the monster page's OLD whole-list checkpoint into its own table, once.
+
+    Two homes to come from, in the order a profile could be in (#1963):
+
+    1. the `blobs` row the page kept between #1465 and #1963 — the 9.8 MB of JSON this
+       change exists to stop rewriting;
+    2. failing that, the JSON FILE that predates #1465, for a profile that has been shut
+       since before the blob existed.
+
+    The blob row is dropped in the same transaction as the mark, so the megabytes do not
+    sit in the database for ever pretending to be a checkpoint somebody still reads. The
+    FILE is kept, renamed, exactly like every other import here — a person can open it.
+
+    Returns how many rows were carried across; 0 when there was nothing to do, which is
+    also what a second call returns.
+    """
+    if store.meta_get("import:monsters"):
+        return 0
+    rows = store.blob_get(name)
+    from_blob = isinstance(rows, list)
+    if not from_blob and path:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                rows = json.load(fh)
+        except (OSError, ValueError):
+            rows = None
+    if not isinstance(rows, list):
+        # Nothing anywhere. NOT marked done: a profile whose page has simply never been
+        # filled must still import if an old checkpoint turns up on the next start.
+        return 0
+    values = store._monster_values(r for r in rows if isinstance(r, dict))
+    columns = ", ".join(store.MONSTER_COLUMNS)
+    marks = ", ".join("?" * len(store.MONSTER_COLUMNS))
+    with store.write() as conn:
+        if values:
+            conn.executemany(
+                f"INSERT OR REPLACE INTO monsters({columns}) VALUES({marks})", values)
+        conn.execute("DELETE FROM blobs WHERE name = ?", (str(name),))
+        conn.execute("INSERT INTO meta(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                     ("import:monsters", str(int(time.time()))))
+    if not from_blob and path:
+        try:
+            if os.path.exists(path):
+                os.replace(path, path + IMPORTED_SUFFIX)
+        except OSError:
+            pass
+    return len(values)

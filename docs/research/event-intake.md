@@ -240,7 +240,7 @@ So the two sources are complementary and both are kept:
 
 ### For the attack chain (#1519)
 
-What this hands over, in `panel.db`'s `world_state_monsters` blob and in the scenario's
+What this hands over, in `panel.db`'s `monsters` table (the `world_state_monsters` blob until #1963) and in the scenario's
 own answer: `game_uuid` (the march target), `cfg_id`, `level`, `monster_type`,
 `kind_name` (the prefab, so `world_monster_general_invasion` IS the golden zombie) and the
 tile. `actions/list_world_monsters.md` returns the same records directly for a recipe that

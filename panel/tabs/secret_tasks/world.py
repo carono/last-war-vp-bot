@@ -233,6 +233,7 @@ class WorldGrid(grid.TaskGrid):
         read shows what the client had drawn — replacing the table with the last answer
         would make it blink out and back on every tick.
         """
+        touched = []
         for record in records or ():
             key = str(record.get("uuid") or "")
             if not key:
@@ -244,8 +245,17 @@ class WorldGrid(grid.TaskGrid):
                 self.update_row(row, record)
             self.decorate(row, record)
             self._rows[key] = row
+            touched.append(row)
+        # …AND THE AGEING, HERE, because nowhere else was doing it (#1963). `tick` is
+        # where `_drop_stale` lives and the tab's per-second chain never calls it for a
+        # world page — so a fifteen-minute sighting rule quietly kept every monster ever
+        # seen: 31 828 rows on a live profile, 10 850 of them already past their
+        # deadline. A merge is exactly the moment to sweep: it is the only thing that
+        # ever adds to a clockless page, and it costs one pass over rows we just walked.
+        if not self.HAS_CLOCK:
+            self._drop_stale()
         self.render()
-        self.persist()
+        self.persist(touched)
 
     def update_row(self, row, record) -> None:
         """A record we already had, said again: everything about it may have moved."""
@@ -309,8 +319,13 @@ class WorldGrid(grid.TaskGrid):
     #: checkpoint of their own at all (see :meth:`state_path`).
     STATE_BLOB = ""
 
-    def persist(self) -> None:
-        """Checkpoint this page's own list, whole — into the database, not a file."""
+    def persist(self, records=None) -> None:
+        """Checkpoint this page's own list, whole — into the database, not a file.
+
+        `records` is what the merge just touched, for a page that can write a ROW at a
+        time (the monster one, #1963). A page still on a whole-list blob ignores it: the
+        blob has no smaller unit than itself.
+        """
         if not self.STATE_BLOB:
             return
         try:
@@ -520,7 +535,16 @@ class MonsterGrid(WorldGrid):
     #: it, so without this the page would be empty every time the panel started and
     #: would stay empty until somebody pressed «Обновить» beside a map with monsters
     #: on it.
-    STATE_BLOB = "world_state_monsters"
+    #:
+    #: **AND IT IS A TABLE, NOT A BLOB, SINCE #1963** — `panel.db`'s `monsters`, written
+    #: a row at a time through the store's writer thread. It used to be the whole list
+    #: under this name in `blobs`, re-serialised on every poll: 31 828 rows, 9.8 MB of
+    #: JSON, 0.2–0.3 s, five times a minute, ON THE TK THREAD OF THE WHOLE WINDOW. The
+    #: name stays here only so the old row can be carried across, once
+    #: (`store.monsters_import_blob_once`), and `STATE_BLOB` is empty because nothing
+    #: about this page goes through the blob path any more.
+    STATE_BLOB = ""
+    OLD_STATE_BLOB = "world_state_monsters"
 
     #: HOW LONG THE CAMERA STANDS AT EACH STOP OF A MONSTER LAP, in seconds, and it is a
     #: SETTING because the measurement says it is the whole quantity (#1523). One lap of
@@ -572,12 +596,20 @@ class MonsterGrid(WorldGrid):
         self.pace_var.set(self.DEFAULT_PACE)
         self.stages_var = tk_stringvar(tab.rt.root)
         self.stages_var.set(self.DEFAULT_STAGES)
-        #: «Следить за картой» — ON for a profile that has never been asked (#1549).
-        #: The page had three buttons and no clock, so walking the map by hand filled the
-        #: client's register (176, 177, 321 monsters at three moments of one session) and
-        #: left the page showing 1 row. The default is on because a page that only fills
-        #: when pressed is the bug this switch answers.
-        self.follow_var = tk.BooleanVar(master=tab.rt.root, value=True)
+        #: «Следить за картой» — OFF for a profile that has never been asked (#1963).
+        #:
+        #: IT SHIPPED ON, and that was the other half of #1963. #1549 turned it on by
+        #: default because a page that only fills when pressed showed 1 row beside a
+        #: register holding 321 — true, and still true. What it did not weigh is that the
+        #: chain is armed at BOOT, from `ensure_loaded`, whether or not anybody ever opens
+        #: this tab: so every profile in the window polled the game every few seconds for
+        #: a page nobody was looking at, and the person who reported it had never switched
+        #: anything on. A poll that runs by itself is a poll the person chooses; the box
+        #: is one tick away, on the page it fills, and it says what it does.
+        #:
+        #: A profile that already has it saved keeps its own answer — a default is what
+        #: a NEW profile starts from, never a decision made again on somebody's behalf.
+        self.follow_var = tk.BooleanVar(master=tab.rt.root, value=False)
         self.follow_secs_var = tk_stringvar(tab.rt.root)
         self.follow_secs_var.set(self.DEFAULT_FOLLOW)
         #: «Скрывать простых» — ON for a profile that has never been asked. The ordinary
@@ -593,6 +625,14 @@ class MonsterGrid(WorldGrid):
         #: «показано / скрыто» pair: a number at the far end of the header answers «is
         #: something hidden», and the question here is «is THIS filter hiding it».
         self.plain_count_var = tk_stringvar(tab.rt.root)
+        #: «Только текущая зона» — ON for a profile that has never been asked (#1963).
+        #: The register answers with whatever the client has drawn, and a lap that
+        #: crossed a warzone boundary leaves the page holding monsters nobody on this
+        #: account can march on. Like «Скрывать простых» it HIDES and does not drop: the
+        #: rows stay in the model and in the table, and unticking brings them all back.
+        self.own_only_var = tk.BooleanVar(master=tab.rt.root, value=True)
+        #: …and its own count beside it, same reasoning as the one above.
+        self.own_count_var = tk_stringvar(tab.rt.root)
 
     def extra_filters(self, bar) -> None:
         """The lap's own controls, on the page the lap fills.
@@ -636,6 +676,14 @@ class MonsterGrid(WorldGrid):
                     "world.monsters.hide_plain").pack(side="left")
         ttk.Label(row, textvariable=self.plain_count_var,
                   foreground="#888").pack(side="left", padx=(6, 0))
+        # …and «только текущая зона» beside it (#1963), the other display rule this page
+        # has. Same line, because the two answer the same question — «why is this row
+        # not on my table» — and a person who unticks one usually wants to try the other.
+        self.tab.tr(ttk.Checkbutton(row, variable=self.own_only_var,
+                                    command=self.refilter),
+                    "world.monsters.own_only").pack(side="left", padx=(16, 0))
+        ttk.Label(row, textvariable=self.own_count_var,
+                  foreground="#888").pack(side="left", padx=(6, 0))
 
     # -- what is SHOWN, which is never what is kept -------------------------
     def narrow(self, rows) -> list:
@@ -646,9 +694,24 @@ class MonsterGrid(WorldGrid):
         checkpoint and come straight back when the box is unticked. Only `visible_rows`
         goes through here.
         """
+        if self.own_only_var.get():
+            own = self.own_server()
+            if own:
+                rows = [r for r in rows if int(r.get("server") or 0) == own]
         if not self.hide_plain_var.get():
             return rows
         return [r for r in rows if not is_plain(r)]
+
+    def own_server(self) -> int:
+        """The account's home warzone, or 0 for «the client has not said».
+
+        Read off what the tab has already cached and NEVER asked for here: a filter that
+        made a game read to decide whether to draw a row would be a read per repaint. A
+        zero disables the filter rather than emptying the table — a page that hid
+        everything because the client is still logging in would look broken (`CLAUDE.md`,
+        «Незалогиненный клиент врёт правдоподобно»).
+        """
+        return int(getattr(self.tab, "_own_server", 0) or 0)
 
     def plain_hidden(self) -> int:
         """How many rows THIS box is holding back — the number beside it."""
@@ -657,18 +720,30 @@ class MonsterGrid(WorldGrid):
         return sum(1 for r in self._rows.values()
                    if is_plain(r) and self.in_level_range(r))
 
+    def own_hidden(self) -> int:
+        """How many rows the ZONE box is holding back — the number beside that one."""
+        own = self.own_server()
+        if not self.own_only_var.get() or not own:
+            return 0
+        return sum(1 for r in self._rows.values()
+                   if int(r.get("server") or 0) != own and self.in_level_range(r))
+
     def _update_count(self) -> None:
         super()._update_count()
         hidden = self.plain_hidden()
         self.plain_count_var.set(
             self.tab.t("world.monsters.plain_hidden", n=hidden) if hidden else "")
+        elsewhere = self.own_hidden()
+        self.own_count_var.set(
+            self.tab.t("world.monsters.own_hidden", n=elsewhere) if elsewhere else "")
 
     def config(self) -> dict:
         return dict(super().config(), pace=self.pace_var.get(),
                     stages=self.stages_var.get(),
                     follow=bool(self.follow_var.get()),
                     follow_secs=self.follow_secs_var.get(),
-                    hide_plain=bool(self.hide_plain_var.get()))
+                    hide_plain=bool(self.hide_plain_var.get()),
+                    own_only=bool(self.own_only_var.get()))
 
     def apply_config(self, raw) -> None:
         super().apply_config(raw)
@@ -677,11 +752,72 @@ class MonsterGrid(WorldGrid):
         grid.take(raw, "follow", self.follow_var)
         grid.take(raw, "follow_secs", self.follow_secs_var, str)
         grid.take(raw, "hide_plain", self.hide_plain_var)
+        grid.take(raw, "own_only", self.own_only_var)
 
     def persist_vars(self) -> list:
         return super().persist_vars() + [self.pace_var, self.stages_var,
                                          self.follow_var, self.follow_secs_var,
-                                         self.hide_plain_var]
+                                         self.hide_plain_var, self.own_only_var]
+
+    # -- the list, a ROW at a time (#1963) ----------------------------------
+    def persist(self, records=None) -> None:
+        """Write what the merge just touched — never the whole list.
+
+        THE FIX #1963 IS ABOUT. The blob this replaced was re-serialised in full on every
+        poll and written synchronously from the Tk thread; this hands the store's writer
+        thread the fifty-odd rows the poll actually saw and returns. `records is None`
+        means a whole-list write, which happens on exactly one press — «Очистить список»,
+        whose whole point is that the table on disk empties too.
+        """
+        store = self.tab.rt.store
+        try:
+            if records is None:
+                store.monsters_replace(list(self._rows.values()))
+            else:
+                store.monsters_upsert(records)
+        except Exception:                    # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def _drop_stale(self) -> None:
+        """Age the model out, and the table with it — one DELETE, not a rewrite."""
+        super()._drop_stale()
+        try:
+            self.tab.rt.store.monsters_prune(time.time() - SIGHTING_TTL_SEC)
+        except Exception:                    # noqa: BLE001 — the ageing, never the tab
+            pass
+
+    def restore(self) -> None:
+        """Read the page's own list back out of `monsters`, freshest first.
+
+        The one-time import comes first and covers both older homes — the `blobs` row
+        this page kept between #1465 and #1963, and the JSON file that predates the
+        blob — so a profile opened by a newer panel keeps everything it had gathered.
+        """
+        from ...runtime.store import monsters_import_blob_once
+
+        store = self.tab.rt.store
+        cutoff = time.time() - SIGHTING_TTL_SEC
+        try:
+            monsters_import_blob_once(store, self.OLD_STATE_BLOB, self.state_path())
+            # …and sweep, once, before anything reads: the blob that comes across is
+            # every monster the page ever saw, because the ageing had never run at all
+            # (#1963 — 10 850 of 31 828 rows were already past the deadline). A start
+            # that carried them in and left them there would inherit the growth too.
+            store.monsters_prune(cutoff)
+            records = store.monsters_all(cutoff=cutoff)
+        except Exception:                    # noqa: BLE001 — a restore, never the tab
+            return
+        if records:
+            # Straight into the model: `apply` would write every restored row back out
+            # again, which is the whole-list write this change exists to remove.
+            for record in records:
+                key = str(record.get("uuid") or "")
+                if not key:
+                    continue
+                row = grid.new_row(record, self.new_timer())
+                self.decorate(row, record)
+                self._rows[key] = row
+            self.render()
 
     def follow_seconds(self) -> int:
         """How often the register is asked, never so often that it is all the panel does.
