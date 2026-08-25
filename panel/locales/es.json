@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "este perfil no tiene tareas",
   "web.ui.on": "en marcha",
   "web.ui.off": "parado",
+  "web.ui.yes": "sí",
+  "web.ui.no": "no",
   "web.ui.recovery.deaf": "no se oye: {n} de {of} comprobaciones",
   "web.ui.recovery.done": "{n} reinicios desde que se abrió el panel",
   "web.ui.recovery.hold": "{n} reinicios · el siguiente en {mins} min",

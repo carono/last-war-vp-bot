@@ -916,6 +916,15 @@ errand row that is a scenario. All three reach the same `web_press`, so an id ha
 answered wherever it was offered — and an item's action carries `args`, which is how a
 row says WHICH errand it is.
 
+**A card may SET rather than show** (#1976). `fields` is a list of knobs — `key` (the
+knob's own id, data), `label` and an optional `hint` (locale keys), `kind` (`switch`,
+`number` or `text`, decided by the type the knob was DECLARED with, never guessed from
+its name — `panel/runtime/opt_value.py`), `value` in that same type, and `min`/`max` for
+a number. The renderer draws the control the kind names and moves it by pressing `set`
+with `{"key": …, "value": …}`, so the tab that owns a knob answers for it in `web_press`
+and nothing about the knob's MEANING leaves the tab. A card may also carry `note` — a
+locale key, drawn under the heading, for the sentence a page needs before its controls.
+
 **Which fields are words and which are data is fixed.** `title`, `label`, `empty`,
 `pill` are **locale keys** and are said by the browser out of the panel's own table;
 `text`, `value`, `detail`, `note`, `head` and a fact's `value` are **data** — a player's
@@ -989,11 +998,20 @@ Three things bound it:
   down it does not exist, and the rule stands. What is forbidden is the silent version:
   shipping one side, deciding alone that the other does not need it, leaving no trace —
   after which nobody can tell an exception from an omission.
-* **Two tabs have no screen, and they are what a legal exception looks like:**
-  `settings` and `develop` were proposed, argued and agreed, and the reasons are written
-  in `CLAUDE.md`. `tests/test_panel_web_screens.py` fails if one of them grows a screen
-  quietly — and a third exception is added the same way: ask, agree, write it in both
-  files, pin it in the test.
+* **ONE tab has no screen, and it is what a legal exception looks like:** `develop`
+  was proposed, argued and agreed, and the reason is written in `CLAUDE.md`.
+  `tests/test_panel_web_screens.py` fails if it grows a screen quietly — and another
+  exception is added the same way: ask, agree, write it in both files, pin it in the
+  test.
+* **`settings` used to be the second, and #1976 ended it.** That exception — «breaking a
+  profile with one thumb is easier than fixing it from a bus» — held while there were
+  two front-ends and the window was the safe one. The panel is going to have ONE (the
+  window is being retired, `docs/research/panel-service-and-spa-plan.md`), and a knob
+  with no screen is then a knob nobody can reach, which is worse than one somebody can
+  get wrong. **What survives of the reasoning lives inside the screen:** the four values
+  that decide WHICH CLIENT a profile drives — the two machine paths, the daemon port and
+  the Windows session — are readings there and never fields, and a `set` press naming one
+  is answered «unknown». The test pins that too.
 * **There were THREE, and «Веб» is now a section of «Параметры» rather than a tab
   (#1313, #1509).** The divergence did not change — the door the person came in
   through is still not opened from the far side of it — but its subject did: one

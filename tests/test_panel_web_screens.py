@@ -87,19 +87,48 @@ def _keys_in(view: dict) -> list:
 
 # ---------------------------------------------------------------------------
 def test_the_tabs_that_offer_a_screen_are_the_ones_that_should():
-    """Two tabs say no on purpose, and it is a decision rather than an oversight.
+    """One tab says no on purpose, and it is a decision rather than an oversight.
 
-    «Настройки» is paths, interpreters and ports — breaking a profile with one thumb is
-    easier than fixing it from a bus. «Develop» is two sniffers for working on the bot
-    itself. There were THREE until #1313: «Веб» was the third, and it is now a menu
-    entry rather than a tab — see the test below, which is where its half of this
-    decision went.
+    «Develop» is two sniffers for working on the bot itself, and it is hidden even in
+    the window unless the profile is in development mode.
+
+    THERE WERE THREE, AND THERE IS ONE (#1976). «Веб» stopped being a tab at all in
+    #1313 — its knobs belong to the window, see the test below. «Настройки» kept its
+    divergence for as long as there were two front-ends and the window was the safe one;
+    with the window going away, a knob with no screen is a knob nobody can reach, which
+    is worse than one somebody can get wrong. What survives of that decision lives
+    INSIDE the screen: the four values that decide which client a profile drives — the
+    two machine paths, the port and the Windows session — are readings there and not
+    fields.
     """
     offered = {tab_id for tab_id, _cls in _tabs_with_screens()}
-    for never in ("settings", "develop"):
-        assert never not in offered, (
-            f"«{never}» offers a phone screen — that was decided against "
-            f"(docs/research/panel-web.md §4)")
+    assert "develop" not in offered, (
+        "«develop» offers a phone screen — that was decided against "
+        "(docs/research/panel-web.md §4)")
+    assert "settings" in offered, (
+        "«Настройки» has no phone screen — with one front-end left that is a page "
+        "nobody can reach (#1976)")
+
+
+def test_the_settings_screen_refuses_what_decides_which_client_is_driven():
+    """What decides WHICH CLIENT a profile drives is a reading, never a field (#1976).
+
+    A thumb-slip on the daemon port or the Windows session points a profile at somebody
+    else's account or at nothing at all — and the panel's three statuses go on saying
+    everything is fine, because from the panel's side it IS. The machine paths are not
+    even a person's answer to give (`tools/lib/game_paths.py`).
+
+    Asked of the PRESS rather than of the view, because the press is the half that
+    matters: a field that is not drawn cannot be tapped, but a request can still be
+    made by hand, and «unknown» is the answer that keeps the reasoning true either way.
+    """
+    tab = BY_ID["settings"].load().__new__(BY_ID["settings"].load())
+    for never in ("win_python", "launcher", "game_exe", "daemon_port", "rdp_session",
+                  "rdp_user"):
+        answer = tab.web_press("set", {"key": never, "value": 1})
+        assert answer == {"error": "unknown"}, (
+            f"«{never}» can be set from the phone — that is the one part of the old "
+            f"«Настройки» divergence that still holds (#1976): {answer}")
 
 
 def test_the_remote_controls_own_settings_are_reachable_from_the_window_only():
@@ -141,7 +170,11 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     # shape as the screen-wide ones, drawn under the card they belong to. «Кодовое имя»
     # is the first block to need one: the press belongs to that event and not to the
     # whole board (#1257).
-    allowed_card = {"title", "head", "rows", "items", "empty", "search", "actions"}
+    # `fields` and `note` are the settings shape (#1976): a card that SETS rather than
+    # shows. A field is a knob — its own id, a label key, a kind and a value — and the
+    # renderer draws the control the kind names.
+    allowed_card = {"title", "head", "rows", "items", "empty", "search", "actions",
+                    "fields", "note", "flow"}
     # `avatar` is a LINK to the panel's own picture route, not bytes and not a word: the
     # «Ралли» screen draws the face of everybody standing in a banner, out of the game
     # client's own cache (#1324). The renderer draws it as an <img> and drops it if it

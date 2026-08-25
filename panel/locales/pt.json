@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "este perfil não tem tarefas",
   "web.ui.on": "a correr",
   "web.ui.off": "parado",
+  "web.ui.yes": "sim",
+  "web.ui.no": "não",
   "web.ui.recovery.deaf": "não é ouvido: {n} de {of} verificações",
   "web.ui.recovery.done": "{n} reinícios desde que o painel abriu",
   "web.ui.recovery.hold": "{n} reinícios · o próximo em {mins} min",

@@ -25,6 +25,7 @@ from tkinter import messagebox, ttk
 from .. import i18n as i18nmod
 from .. import runtime
 from ..runtime import diag
+from ..runtime import opt_value
 from ..widgets import numeric_spinbox
 from .base import PanelTab
 
@@ -59,6 +60,9 @@ class SettingsTab(PanelTab):
     # …and this is the tab that collects the others' pages, so it is filled after every
     # one of them however early it sits in the tab bar (`panel.tabs.build_order`, #1237).
     AGGREGATES_TABS = True
+
+    #: The phone gets this page too, since #1976 — see the long note above `web_view`.
+    WEB_SCREEN = True
 
     # -- «Вкладки»: which of them this profile shows --------------------------
     def _build_tabs_settings(self, parent: ttk.Frame) -> None:
@@ -129,21 +133,148 @@ class SettingsTab(PanelTab):
         """
         from .. import tabs as tabsreg
 
-        enabled = [spec.id for spec in sorted(tabsreg.TABS, key=lambda s: s.order)
-                   if (self._tab_vars[spec.id].get() if spec.id in self._tab_vars
-                       else self._tab_hidden.get(spec.id, False))]
-        values = self.rt.settings.values
-        block = dict(values.get("tabs") or {})
-        block["enabled"] = enabled
-        was_known = set(block.get("known") or ())
-        block["known"] = [spec.id for spec in tabsreg.TABS
-                          if spec.id in self._tab_vars or spec.id in was_known]
-        values["tabs"] = block
-        self.rt.settings.save()
+        asked = {spec.id: (self._tab_vars[spec.id].get() if spec.id in self._tab_vars
+                           else self._tab_hidden.get(spec.id, False))
+                 for spec in tabsreg.TABS}
+        self._write_tab_choice(asked, offered=set(self._tab_vars))
         try:
             self._tabs_note.configure(text=self.t("settings.tabs.restart"))
         except tk.TclError:
             pass
+
+    def _write_tab_choice(self, asked: dict, offered: set) -> None:
+        """Write the ticked list into the profile. ONE writer for both front-ends.
+
+        `asked` is every tab in the registry and whether the profile wants it; `offered`
+        is the ones the page in front of the person actually listed. The distinction is
+        the whole subtlety: a tab this page did not list keeps the answer it already had
+        and does not join `known` on the strength of a page it was never on — «offered
+        and switched off» and «never offered» are what tell a tab that must come back by
+        itself from one somebody unticked, and a hidden row can honestly claim neither.
+        """
+        from .. import tabs as tabsreg
+
+        values = self.rt.settings.values
+        block = dict(values.get("tabs") or {})
+        block["enabled"] = [spec.id for spec in sorted(tabsreg.TABS, key=lambda s: s.order)
+                            if asked.get(spec.id, False)]
+        was_known = set(block.get("known") or ())
+        block["known"] = [spec.id for spec in tabsreg.TABS
+                          if spec.id in offered or spec.id in was_known]
+        values["tabs"] = block
+        self.rt.settings.save()
+
+    # -- the phone's copy of this page (#1976) --------------------------------
+    #
+    # THE DIVERGENCE THAT USED TO BE HERE IS OVER. «Настройки» had no phone screen by an
+    # explicit decision — «breaking a profile with one thumb is easier than fixing it
+    # from a bus» — and that decision made sense while there were two front-ends and the
+    # window was the safe one. There is going to be ONE (#1976), so a knob with no screen
+    # is a knob nobody can reach at all, which is worse than a knob somebody can get
+    # wrong.
+    #
+    # WHAT IS STILL NOT A FIELD, and it is the same reasoning kept where it applies: the
+    # things a wrong value makes UNREACHABLE. Where the game is installed and which
+    # Python drives the children are the machine's answer and were never typed here
+    # (`runtime.settings.MACHINE_KEYS`); the daemon port and the Windows session decide
+    # WHICH CLIENT this profile drives, and a thumb-slip there points a profile at
+    # somebody else's account or at nothing. Those four are READINGS on the phone, with
+    # the window's own sentence under them, until the window is gone and they are given
+    # a screen that cannot be pressed by accident.
+
+    def web_view(self) -> "dict | None":
+        """The page as data: what the machine answered, and the knobs that are knobs."""
+        settings = self.rt.settings
+        general_rows = [self._web_machine_row("win_python"),
+                        {"label": "opt.daemon_port", "value": self._port_text()}]
+        game_rows = [self._web_machine_row("launcher"), self._web_machine_row("game_exe")]
+        # WHICH CLIENT, as two readings rather than two boxes — see the note above.
+        game_rows.append({"label": "opt.rdp_session",
+                          "value": self.t("web.ui.yes" if settings.opt("rdp_session")
+                                          else "web.ui.no")})
+        if settings.opt("rdp_session"):
+            game_rows.append({"label": "opt.rdp_user",
+                              "value": str(settings.opt("rdp_user") or "")})
+        cards = [
+            {"title": "settings.tab.general", "rows": general_rows,
+             "fields": [self._web_field(key, bounds) for key, bounds in self.GENERAL_KNOBS]},
+            {"title": "debug.frame",
+             "fields": [self._web_field("debug_send_url", None)],
+             "actions": [{"id": "debug_send", "label": "debug.send"}]},
+            {"title": "settings.tab.game", "rows": game_rows,
+             "fields": [self._web_field("watchdog", None),
+                        self._web_field("kick_hold_min", (0, 1440))]},
+            self._web_tabs_card(),
+        ]
+        return {"title": "tab.settings", "cards": cards}
+
+    def _web_machine_row(self, key: str) -> dict:
+        """A path the MACHINE answered, worded exactly as the window words it."""
+        value, found = runtime.settings.machine_value(key)
+        text = value or self.t("opt.value.unknown")
+        return {"label": f"opt.{key}",
+                "value": text if found else self.t("opt.value.missing", value=text)}
+
+    def _web_field(self, key: str, bounds) -> dict:
+        """One knob as a field: its kind, its value, and the words that explain it."""
+        field = {"key": key, "label": f"opt.{key}", "hint": f"opt.{key}.hint",
+                 "kind": opt_value.kind(self.rt, key),
+                 "value": opt_value.get(self.rt, key)}
+        if bounds:
+            field["min"], field["max"] = bounds[0], bounds[1]
+        return field
+
+    def _web_tabs_card(self) -> dict:
+        """«Вкладки»: one switch per tab this profile could show, and what applies it."""
+        from .. import tabs as tabsreg
+
+        saved = self.rt.settings.tab_list("enabled")
+        known = self.rt.settings.tab_list("known")
+        asked = set(tabsreg.chosen_ids(enabled=saved, known=known))
+        return {"title": "settings.tab.tabs",
+                "note": "settings.tabs.hint",
+                "fields": [{"key": f"tab:{spec.id}", "label": spec.title_key,
+                            "kind": opt_value.SWITCH, "value": spec.id in asked}
+                           for spec in tabsreg.listed(enabled=saved, known=known)]}
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """Move one knob, or one tab's tick. Runs on the Tk thread, like every press."""
+        if action == "debug_send":
+            self._send_debug_archive()
+            return {"ok": True}
+        if action != "set":
+            return {"error": "unknown"}
+        key = str((args or {}).get("key") or "")
+        if not key:
+            return {"ok": False, "reason": "web.ui.refused"}
+        value = (args or {}).get("value")
+        if key.startswith("tab:"):
+            return self._web_press_tab(key[4:], bool(value))
+        if key in runtime.settings.MACHINE_KEYS or key in ("daemon_port", "rdp_session",
+                                                           "rdp_user"):
+            # Not a field on this screen, so a press naming one did not come from it.
+            return {"error": "unknown"}
+        if key not in self.rt.settings.defaults:
+            return {"error": "unknown"}
+        opt_value.set(self.rt, key, value)
+        return {"ok": True}
+
+    def _web_press_tab(self, tab_id: str, on: bool) -> dict:
+        """Tick a tab for the next start — the same write the page's own box makes."""
+        from .. import tabs as tabsreg
+
+        saved = self.rt.settings.tab_list("enabled")
+        known = self.rt.settings.tab_list("known")
+        offered = {spec.id for spec in tabsreg.listed(enabled=saved, known=known)}
+        if tab_id not in offered:
+            return {"error": "unknown"}
+        asked = {spec.id: spec.id in set(tabsreg.chosen_ids(enabled=saved, known=known))
+                 for spec in tabsreg.TABS}
+        asked[tab_id] = on
+        self._write_tab_choice(asked, offered=offered)
+        # The window's own box says this in a line under the list; the phone has no room
+        # for one, so the press says it.
+        return {"ok": True, "reason": "settings.tabs.restart"}
 
     def build(self) -> None:
         """The Settings page: an aggregator, not a page.
@@ -259,6 +390,30 @@ class SettingsTab(PanelTab):
         return (self.t("session.client.session", user=user, port=port) if user
                 else self.t("session.client.console", port=port))
 
+    #: The knobs of «Общие», with the bounds the window's spin boxes carry. ONE LIST
+    #: for both front-ends (#1976): the page below builds its boxes out of it and
+    #: :meth:`web_view` builds the phone's fields out of the same entries, so a knob
+    #: added here appears on both and cannot appear on one.
+    GENERAL_KNOBS: tuple = (
+        ("log_max_lines", (200, 200000)),
+        ("autoloot_limit", (1, 50)),
+        ("autoloot_poll", (1, 600)),
+        ("autoloot_pause_min", (1, 1440)),
+        # …and the OTHER standing order's pace (#1272). Its own pair rather than a share
+        # of the auto-loot's: helping is a different budget over a different list.
+        ("autoassist_poll", (30, 3600)),
+        ("autoassist_pause_min", (1, 1440)),
+        # …and how long the same order holds a help back for a ripening star (#1292).
+        # 0 is «as long as the day allows», which is why the range starts there.
+        ("autoassist_star_wait_min", (0, 1440)),
+        # …and the two numbers that decide whether the star it waited for is actually
+        # collected (#1294): how early the pressing starts, and how long it may last.
+        ("autoassist_sprint_lead_sec", (0, 120)),
+        ("autoassist_sprint_window_sec", (1, 300)),
+        ("trace_filter", None),
+        ("sniff_ready_timeout", (1, 600)),
+    )
+
     def _build_general_settings(self, parent: ttk.Frame) -> None:
         """«Общие»: the Python that runs the children, the daemon, the log, auto-loot."""
         grid = ttk.Frame(parent)
@@ -277,30 +432,8 @@ class SettingsTab(PanelTab):
         self.tr(ttk.Label(grid, foreground="#888", wraplength=420, justify="left"),
                 "opt.daemon_port.hint").grid(row=row + 1, column=1, columnspan=2,
                                              sticky="w", pady=(0, 6))
-        for offset, (key, kwargs) in enumerate((
-                ("log_max_lines", {"spin": (200, 200000), "width": 10}),
-                ("autoloot_limit", {"spin": (1, 50), "width": 10}),
-                ("autoloot_poll", {"spin": (1, 600), "width": 10}),
-                ("autoloot_pause_min", {"spin": (1, 1440), "width": 10}),
-                # …and the OTHER standing order's pace (#1272). Its own pair rather than
-                # a share of the auto-loot's: helping is a different budget over a
-                # different list, and a look every two seconds — which is what the robbery
-                # wants — would be four hundred game reads a day for five presses.
-                ("autoassist_poll", {"spin": (30, 3600), "width": 10}),
-                ("autoassist_pause_min", {"spin": (1, 1440), "width": 10}),
-                # …and how long the same order holds a help back for a ripening star
-                # (#1292). 0 is «as long as the day allows», which is why the spin box
-                # starts there and not at one.
-                ("autoassist_star_wait_min", {"spin": (0, 1440), "width": 10}),
-                # …and the two numbers that decide whether the star it waited for is
-                # actually collected (#1294): how early the pressing starts, and how
-                # long it may last. 0 for the lead switches the sprint off, so the box
-                # starts there.
-                ("autoassist_sprint_lead_sec", {"spin": (0, 120), "width": 10}),
-                ("autoassist_sprint_window_sec", {"spin": (1, 300), "width": 10}),
-                ("trace_filter", {"width": 20}),
-                ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
-        )):
+        for offset, (key, bounds) in enumerate(self.GENERAL_KNOBS):
+            kwargs = {"width": 10, "spin": bounds} if bounds else {"width": 20}
             self._opt_row(grid, row + 2 + offset, key, **kwargs)
         self._build_debug_log_settings(parent)
 

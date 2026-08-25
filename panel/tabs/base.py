@@ -289,6 +289,24 @@ class PanelTab:
                  "empty": "alliance.empty"}],           # a KEY, shown for no items
              "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
 
+        …and one more kind of card, for a screen that SETS rather than shows (#1976)::
+
+            {"cards": [
+                {"title": "settings.tab.general",
+                 "note":  "settings.tabs.hint",         # a KEY, under the heading
+                 "fields": [{"key":  "log_max_lines",   # the knob's own id — DATA
+                             "label": "opt.log_max_lines",       # a KEY
+                             "hint":  "opt.log_max_lines.hint",  # a KEY, or absent
+                             "kind":  "switch" | "number" | "text",
+                             "value": 4000,             # DATA, in the knob's own type
+                             "min": 200, "max": 200000}]}]}   # numbers only
+
+        A field is drawn as the control its `kind` names and moved by pressing `set`
+        with ``{"key": …, "value": …}`` — so a tab that owns a knob answers for it in
+        `web_press` and nothing about the knob's meaning leaves the tab. The kind comes
+        from the type the knob was DECLARED with (`panel/runtime/opt_value.py`), never
+        from a guess about its name.
+
         WHICH FIELDS ARE WORDS AND WHICH ARE DATA is fixed and not negotiable, because
         it is what keeps the eleven languages honest: `title`, `label`, `empty` and
         `pill` are **locale keys** and are said by the browser out of the panel's own

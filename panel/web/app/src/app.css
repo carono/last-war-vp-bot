@@ -420,3 +420,9 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   color: var(--ink);
   font-weight: 650;
 }
+
+/* A knob and the words that explain it. The label sits ABOVE the box rather than beside
+   it: at 360 px a label-and-box row leaves the box four characters wide, and a port is
+   five digits. */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field + .field { margin-top: 6px; }

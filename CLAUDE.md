@@ -235,13 +235,25 @@ They are the model for the paragraph above: each was **proposed, argued and agre
 the person**, and then written down here — not decided in passing by whoever was in the
 file at the time.
 
-`settings` — paths, interpreters and ports: breaking a profile with one thumb is easier
-than fixing it from a bus. `develop` — two sniffers for working on the bot itself,
-switched off even in the window. Both declare `WEB_SCREEN = False`,
-`tests/test_panel_web_screens.py` fails if one of them quietly grows a screen, and what
-those two genuinely need on the move goes on «Состояние» as a switch rather than as a
-page. A third exception is added the same way: ask, agree, write it in both files, pin
-it in the test.
+`develop` — two sniffers for working on the bot itself, switched off even in the window.
+It declares `WEB_SCREEN = False`, `tests/test_panel_web_screens.py` fails if it quietly
+grows a screen, and what it genuinely needs on the move goes on «Состояние» as a switch
+rather than as a page. Another exception is added the same way: ask, agree, write it in
+both files, pin it in the test.
+
+**`settings` WAS the second one, and #1976 ended it — which is what a divergence looks
+like when its reason expires.** «Paths, interpreters and ports: breaking a profile with
+one thumb is easier than fixing it from a bus» was true while there were two front-ends
+and the window was the safe one. The person has decided there will be ONE (the window is
+being retired, `docs/research/panel-service-and-spa-plan.md`), and from that decision a
+knob with no screen is a knob NOBODY can reach — worse than one somebody can get wrong.
+So «Настройки» has a screen, and the part of the old reasoning that still holds lives
+inside it: the four values that decide WHICH CLIENT a profile drives — the two machine
+paths, the daemon port and the Windows session — are READINGS there and never fields, and
+a press naming one is answered «unknown». The test pins that in place of what it used to
+pin. Note the shape of this: the exception was not quietly dropped by whoever was in the
+file, it was ended by the same conversation that created it, and the replacement rule was
+written down in the same commit.
 
 **THERE WERE THREE, and the third teaches the OTHER lesson (#1313).** «Веб» — the door
 the person came in through; managing it from the far side is how somebody locks

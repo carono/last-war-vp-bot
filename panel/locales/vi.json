@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "hồ sơ này chưa có việc nào",
   "web.ui.on": "đang chạy",
   "web.ui.off": "không chạy",
+  "web.ui.yes": "có",
+  "web.ui.no": "không",
   "web.ui.recovery.deaf": "không nghe thấy: {n}/{of} lần kiểm tra",
   "web.ui.recovery.done": "đã khởi động lại {n} lần từ khi mở bảng",
   "web.ui.recovery.hold": "đã khởi động lại {n} lần · lần sau sau {mins} phút",

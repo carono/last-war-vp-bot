@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "bu profilde görev yok",
   "web.ui.on": "çalışıyor",
   "web.ui.off": "çalışmıyor",
+  "web.ui.yes": "evet",
+  "web.ui.no": "hayır",
   "web.ui.recovery.deaf": "duyulmuyor: {of} kontrolden {n} tanesi",
   "web.ui.recovery.done": "panel açıldığından beri {n} yeniden başlatma",
   "web.ui.recovery.hold": "{n} yeniden başlatma · sonraki {mins} dk sonra",

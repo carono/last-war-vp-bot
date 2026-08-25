@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "questo profilo non ha incarichi",
   "web.ui.on": "in funzione",
   "web.ui.off": "fermo",
+  "web.ui.yes": "sì",
+  "web.ui.no": "no",
   "web.ui.recovery.deaf": "non si sente: {n} controlli su {of}",
   "web.ui.recovery.done": "{n} riavvii da quando il pannello è aperto",
   "web.ui.recovery.hold": "{n} riavvii · il prossimo tra {mins} min",

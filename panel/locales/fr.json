@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "ce profil n'a aucune tâche",
   "web.ui.on": "en marche",
   "web.ui.off": "arrêté",
+  "web.ui.yes": "oui",
+  "web.ui.no": "non",
   "web.ui.recovery.deaf": "non entendu : {n} vérifications sur {of}",
   "web.ui.recovery.done": "{n} redémarrages depuis l'ouverture du panneau",
   "web.ui.recovery.hold": "{n} redémarrages · le suivant dans {mins} min",

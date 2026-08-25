@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "ten profil nie ma zadań",
   "web.ui.on": "działa",
   "web.ui.off": "nie działa",
+  "web.ui.yes": "tak",
+  "web.ui.no": "nie",
   "web.ui.recovery.deaf": "niesłyszalny: {n} z {of} sprawdzeń",
   "web.ui.recovery.done": "restartów od uruchomienia panelu: {n}",
   "web.ui.recovery.hold": "restartów: {n} · następny za {mins} min",

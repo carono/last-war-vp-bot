@@ -19,6 +19,8 @@ file IS the switch and the same call does the right thing.
 """
 from __future__ import annotations
 
+from . import opt_value
+
 
 def _binder(rt):
     return getattr(rt, "settings", None)
@@ -26,62 +28,19 @@ def _binder(rt):
 
 def get(rt, key: str, default: bool = False) -> bool:
     """This profile's knob as a bool. The default when it has never been touched."""
-    settings = _binder(rt)
-    if settings is None:
+    if _binder(rt) is None:
         return bool(default)
-    try:
-        value = settings.opt(key)
-    except Exception:                        # noqa: BLE001 — a reading, never the panel
-        return bool(default)
-    if value is None:
-        return bool(default)
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "on")
-    return bool(value)
+    value = opt_value.get(rt, key, default)
+    return bool(value) if not isinstance(value, str) else \
+        value.strip().lower() in ("1", "true", "yes", "on")
 
 
 def set(rt, key: str, on: bool) -> bool:     # noqa: A001 — the verb the callers want
     """Move it. ``False`` when it was already where the press asked for.
 
-    The widget when there is one, the file when there is not — the distinction that
-    makes this worth a module rather than a line at each caller.
+    ONE DOOR NOW (#1976): the write itself is `panel/runtime/opt_value.py`, which does
+    exactly what this module used to do and does it for numbers and strings as well.
+    What stays here is the boolean READING — «1», «yes» and «on» are all true — because
+    a knob that has been through an old profile's file can be any of them.
     """
-    on = bool(on)
-    settings = _binder(rt)
-    if settings is None:
-        return False
-    # NOTHING TO DO WHEN IT ALREADY READS THAT WAY — and «reads» means the EFFECTIVE
-    # value, which is not always a line in this profile's own file. A profile other than
-    # `default` stores only what DIFFERS from the default profile's config
-    # (`panel/profile.py::save`), so a knob equal to the default's is absent from its
-    # `config.json` on purpose and follows the default from then on. Two drafts of this
-    # module read that absence as a knob that had been lost and wrote to «repair» it,
-    # which was writing a diff that says exactly what the inheritance already said.
-    moved = get(rt, key) != on
-    if not moved:
-        return False
-    var = None
-    try:
-        var = settings.var(key)
-    except Exception:                        # noqa: BLE001 — no binder is not a crash
-        var = None
-    if var is not None:
-        try:
-            var.set(on)
-        except Exception:                    # noqa: BLE001 — the file below still stands
-            var = None
-    # AND THE FILE, ALWAYS — never `settings.changed()` alone, which is what the first
-    # draft did and what cost a press (#1882). `changed()` asks the SHELL to write a
-    # profile out, and the shell writes the ACTIVE one: pressed from the phone against a
-    # profile that is open but not in front, it moved the widget and saved somebody
-    # else's file, so the knob was in Tk and nowhere on disk until that profile closed.
-    # This binder belongs to THIS profile, so writing through it lands in the right
-    # `config.json` whichever profile the window happens to be showing.
-    try:
-        raw = dict(settings.values)
-        raw[key] = on
-        settings.values = raw
-        settings.save(raw)
-    except Exception:                        # noqa: BLE001 — one knob, never the panel
-        pass
-    return moved
+    return opt_value.set(rt, key, bool(on))

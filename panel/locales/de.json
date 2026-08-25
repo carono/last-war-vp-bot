@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "dieses Profil hat keine Aufträge",
   "web.ui.on": "läuft",
   "web.ui.off": "läuft nicht",
+  "web.ui.yes": "ja",
+  "web.ui.no": "nein",
   "web.ui.recovery.deaf": "nicht erreichbar: {n} von {of} Prüfungen",
   "web.ui.recovery.done": "{n}× neu gestartet, seit das Panel läuft",
   "web.ui.recovery.hold": "{n}× neu gestartet · nächster in {mins} Min möglich",

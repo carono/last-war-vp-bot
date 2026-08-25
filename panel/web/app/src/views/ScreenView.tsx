@@ -3,7 +3,8 @@ import { get, post } from '../api'
 import { t, when } from '../i18n'
 import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
-import type { PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
+import { SwitchRow } from '../ui/SwitchRow'
+import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
 
 /* ONE RENDERER FOR EVERY TAB'S SCREEN.
  *
@@ -63,6 +64,89 @@ function PressButton({
   )
 }
 
+/* A KNOB, drawn as the control its kind names (#1976). The kind comes from the type the
+ * knob was declared with, so nothing here guesses from a name — and the value is sent
+ * back as the same `set` press whatever the control, so a tab answers for its own knobs
+ * in one handler.
+ *
+ * A TYPED FIELD IS COMMITTED ON LEAVING IT, never on every keystroke: a panel that saved
+ * «4», «40», «400» on the way to «4000» would spend three of those readings acting on a
+ * number nobody meant. A switch is committed at once, because there is nothing half-typed
+ * about it. */
+function FieldRow({
+  field,
+  screen,
+  after,
+}: {
+  field: Field
+  screen: string
+  after: () => void
+}) {
+  const toast = useToast()
+  const [draft, setDraft] = useState(String(field.value ?? ''))
+  const sent = useRef(String(field.value ?? ''))
+
+  useEffect(() => {
+    // The screen re-reads on the poll; a box nobody is typing in follows the panel.
+    if (document.activeElement?.getAttribute('data-field') !== field.key) {
+      setDraft(String(field.value ?? ''))
+      sent.current = String(field.value ?? '')
+    }
+  }, [field.value, field.key])
+
+  const send = async (value: string | number | boolean) => {
+    const answer = await post<PressAnswer>('/api/screen/press', {
+      id: screen,
+      action: 'set',
+      args: { key: field.key, value },
+    })
+    if (answer.ok === false || answer.error) toast(pressWord(answer))
+    else if (answer.reason) toast(t(answer.reason))
+    window.setTimeout(after, 400)
+  }
+
+  if (field.kind === 'switch') {
+    return (
+      <>
+        <SwitchRow
+          title={t(field.label)}
+          on={!!field.value}
+          onChange={async (want) => {
+            await send(want)
+          }}
+        />
+        {field.hint ? <p className="muted small">{t(field.hint)}</p> : null}
+      </>
+    )
+  }
+  return (
+    <div className="field">
+      <label className="muted small" htmlFor={'f-' + field.key}>
+        {t(field.label)}
+      </label>
+      <input
+        id={'f-' + field.key}
+        data-field={field.key}
+        type={field.kind === 'number' ? 'number' : 'text'}
+        inputMode={field.kind === 'number' ? 'decimal' : undefined}
+        min={field.min}
+        max={field.max}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          if (draft === sent.current) return
+          sent.current = draft
+          void send(draft)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        }}
+      />
+      {field.hint ? <p className="muted small">{t(field.hint)}</p> : null}
+    </div>
+  )
+}
+
 function Item({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
   const facts = item.facts || []
   const bits = facts.map((f) => t(f.label) + ' ' + (f.translate && f.value ? t(f.value) : f.value))
@@ -116,6 +200,7 @@ function Card({
     <div className="card">
       {card.title ? <div className="head">{t(card.title)}</div> : null}
       {card.head ? <div className="head">{card.head}</div> : null}
+      {card.note ? <p className="muted small">{t(card.note)}</p> : null}
       {/* IS THE DATA ARRIVING, AND ARE WE TAKING IT (#1549) — the same strip the window
           draws above each table. The colour comes from `panel/runtime/flow.py` so the
           six states read the same in both front-ends. */}
@@ -130,10 +215,13 @@ function Card({
           <span className="v">{row.value}</span>
         </div>
       ))}
+      {(card.fields || []).map((field) => (
+        <FieldRow key={field.key} field={field} screen={screen} after={after} />
+      ))}
       {items.map((item, i) => (
         <Item key={i} item={item} now={now} screen={screen} after={after} />
       ))}
-      {!items.length && !rows.length && card.empty ? <p className="muted">{t(card.empty)}</p> : null}
+      {!items.length && !rows.length && !(card.fields || []).length && card.empty ? <p className="muted">{t(card.empty)}</p> : null}
       {/* A card may carry buttons of its own (#1251): a tab whose pages each have their
           own switches cannot put them all in one strip at the bottom, because then
           nobody can tell which list a press belongs to. */}

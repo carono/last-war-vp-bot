@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "profil ini tidak punya tugas",
   "web.ui.on": "berjalan",
   "web.ui.off": "tidak berjalan",
+  "web.ui.yes": "ya",
+  "web.ui.no": "tidak",
   "web.ui.recovery.deaf": "tidak terdengar: {n} dari {of} pemeriksaan",
   "web.ui.recovery.done": "{n}× dimulai ulang sejak panel dibuka",
   "web.ui.recovery.hold": "{n}× dimulai ulang · berikutnya {mins} mnt lagi",

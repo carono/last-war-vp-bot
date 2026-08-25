@@ -133,6 +133,16 @@ export interface ViewItem {
   actions?: ViewAction[]
 }
 
+export interface Field {
+  key: string
+  label: string
+  hint?: string
+  kind: 'switch' | 'number' | 'text'
+  value: string | number | boolean
+  min?: number
+  max?: number
+}
+
 export interface ViewCard {
   title?: string | null
   head?: string
@@ -142,6 +152,8 @@ export interface ViewCard {
   rows?: { label: string; value: string }[]
   items?: ViewItem[]
   actions?: ViewAction[]
+  fields?: Field[]
+  note?: string
 }
 
 export interface Screen {

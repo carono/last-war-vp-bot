@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "this profile has no errands",
   "web.ui.on": "running",
   "web.ui.off": "not running",
+  "web.ui.yes": "yes",
+  "web.ui.no": "no",
   "web.ui.recovery.deaf": "unheard for {n} of {of} checks",
   "web.ui.recovery.done": "restarted {n}× since the panel opened",
   "web.ui.recovery.hold": "restarted {n}× · another allowed in {mins} min",

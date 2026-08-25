@@ -1408,6 +1408,8 @@
   "web.ui.timers.empty": "в этом профиле нет заданий",
   "web.ui.on": "работает",
   "web.ui.off": "не работает",
+  "web.ui.yes": "да",
+  "web.ui.no": "нет",
   "web.ui.recovery.deaf": "не слышен: {n} проверки из {of}",
   "web.ui.recovery.done": "перезапусков с момента запуска панели: {n}",
   "web.ui.recovery.hold": "перезапусков: {n} · следующий можно через {mins} мин",
