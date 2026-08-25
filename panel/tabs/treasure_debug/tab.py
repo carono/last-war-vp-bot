@@ -48,6 +48,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from ...runtime import opt_value
 from ...runtime.paths import repo_rel
 from ...widgets import font as ui_font, tk_stringvar
 from ..base import PanelTab
@@ -467,8 +468,18 @@ class TreasureDebugTab(PanelTab):
                   "value": str(last.seq if last is not None else 0)}]
         if last is not None and last.error:
             state.append({"label": "treasure_debug.web.error", "value": last.error})
+        # THE FILTER, as knobs rather than as four numbers (#1976). The counts say what
+        # the ring holds; the boxes decide what the feed below shows — and on a phone
+        # that is the difference between reading one kind and scrolling past three.
+        # Ticked reads off `_kinds()` above, which has already folded in the widgets
+        # where there are any.
+        shown = set(kinds)
         cards = [{"title": "treasure_debug.web.state", "rows": state},
-                 {"title": "treasure_debug.web.counts", "rows": counted},
+                 {"title": "treasure_debug.web.counts", "rows": counted,
+                  "fields": [{"key": "kind." + key,
+                              "label": "treasure_debug.kind." + key,
+                              "kind": opt_value.SWITCH, "value": key in shown}
+                             for key in modelmod.KINDS]},
                  {"title": "treasure_debug.web.feed",
                   "rows": [{"label": "", "value": one} for one in tail]
                           or [{"label": "", "value": self.t("treasure_debug.web.empty")}]}]
@@ -498,6 +509,19 @@ class TreasureDebugTab(PanelTab):
             if self._want:
                 self._arm()
             return {"ok": True, "wide": self._wide}
+        if action == "set":
+            key = str((args or {}).get("key") or "")
+            if not key.startswith("kind."):
+                return {"error": "unknown"}
+            name = key[len("kind."):]
+            if name not in modelmod.KINDS:
+                return {"error": "unknown"}
+            self._show[name] = bool((args or {}).get("value"))
+            var = self._show_vars.get(name)
+            if var is not None:
+                var.set(self._show[name])
+            self._render()
+            return {"ok": True}
         if action == "save":
             path = self.save_feed()
             return {"ok": bool(path), "path": path}

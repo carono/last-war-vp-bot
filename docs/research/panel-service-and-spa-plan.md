@@ -68,6 +68,7 @@ that owns a lifecycle.
 | P2 — the errand EDITOR from the phone | **done** | `/api/timers/save` · `/copy` · `/delete`; add, rename, copy, delete, steps, args, title — the dialog's four refusals, off its own keys |
 | P2 — «Дуэль»: the whole week and the sets | **done** | six day cards of switches, ceilings, details and picks; the sets card creates, renames and deletes; a screen action may `confirm` now |
 | P2 — the rally kind filter's «все / никакие» | **done** | two screen actions; `set_all_kinds` moves the STATE and the boxes after it, so it works with no drawn tab |
+| P2 — the treasure feed's own filter | **done** | four switches on «Сокровища (отладка)»; the clipboard press stays at the machine |
 | P2 — what is still window-only | see below | |
 | P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
 | P3 — Tk removed | not started | after P2 |
@@ -199,7 +200,7 @@ after the new one has been used to drive it.**
   | «Чат» | send, send coordinates, clear, monitor | the send spawns a tool — the ability becomes a scenario first (`CLAUDE.md`) |
   | «Командный пункт» | «Ограбить» / «Ограбить всех», jump, scan | the ghost robbery parks its targets with a tool first (#1188) — same order of work |
   | «Ралли» | join now, launch / stop a run | the join needs squads chosen for it — a screen, not a button. The kind filter's «все / никакие» travel now |
-  | «Сокровища (отладка)» | copy, keep-messages switch | debug surface; low value |
+  | «Сокровища (отладка)» | «Копировать» | **the filter travels** as four switches; the clipboard is the MACHINE's and means nothing on a phone — «Сохранить» is the same fragment kept as a file |
   | «Секретки», «Профиль», «Инвентарь», «Аккаунты», «Игроки» | nothing of substance | — |
 
   So the remaining P2 work is **tens of controls, not two hundred**, and half of what is
