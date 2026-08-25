@@ -60,6 +60,7 @@ import itertools
 import tkinter as tk
 from tkinter import ttk
 
+from ..runtime import opt_value
 from ..widgets import NumericEntry, ScrollableFrame, font as ui_font, tk_stringvar
 from .base import PanelTab
 
@@ -1243,7 +1244,20 @@ class VsDuelTab(PanelTab):
     WEB_SCREEN = True
 
     def web_view(self) -> "dict | None":
-        """Today's plan: what is ticked, and how much each is allowed to spend."""
+        """Today's plan, the sets, and THE WHOLE WEEK as knobs (#1976).
+
+        It used to be today's plan and one press. The week — six days of switches,
+        ceilings and picks, and the sets each day is played from — lived only in the
+        window, and the person deciding on Tuesday evening what Wednesday is going to
+        spend is exactly the one who is not at the machine. The window is being retired
+        (`docs/research/panel-service-and-spa-plan.md`), so a knob with no screen is a
+        knob nobody can reach.
+
+        Every variable of the week is made in `__init__` and not in `build()`, which is
+        what lets this answer for a tab nobody has ever opened — the same reason the
+        saved block and the duel scenarios can read the plan of a tab that was never
+        drawn (docs/panel-tabs.md).
+        """
         import time as _time
 
         day = DAYS[min(_time.localtime().tm_wday, len(DAYS) - 1)][0]
@@ -1263,12 +1277,12 @@ class VsDuelTab(PanelTab):
             amount = getattr(item, "amount", None)
             if amount is not None and self._amounts.get(f"{day}.{amount.key}") is not None:
                 try:
-                    facts.append({"label": amount.label_key,
+                    facts.append({"label": amount.label,
                                   "value": str(self._amounts[f"{day}.{amount.key}"].get())})
                 except Exception:          # noqa: BLE001
                     pass
             # The line is one of the panel's own words, so it travels as a KEY.
-            items.append({"label": item.label_key, "facts": facts})
+            items.append({"label": item.label, "facts": facts})
         enabled = self._flags.get(f"{day}.{DAY_ENABLED}")
         # A phone can reach a tab whose window half was never drawn, so the line is
         # composed here rather than read out of whatever `build()` happened to leave.
@@ -1277,19 +1291,206 @@ class VsDuelTab(PanelTab):
         # nothing is spent and nothing is marked — so it is exactly the kind of thing
         # worth having on a phone: the duel is written down from wherever you are, and
         # the line says what the game answered, not what anybody ticked.
-        return {"cards": [{"title": f"vsduel.day.{day}", "items": items,
-                           "empty": "vsduel.day.off"
-                           if enabled is not None and not enabled.get()
-                           else "vsduel.empty"},
-                          {"title": "vsduel.collect",
-                           "rows": [{"label": "vsduel.collect.last",
-                                     "value": self._collected.get()}]}],
+        cards = [{"title": f"vsduel.day.{day}", "items": items,
+                  "empty": "vsduel.day.off"
+                  if enabled is not None and not enabled.get()
+                  else "vsduel.empty"},
+                 {"title": "vsduel.collect",
+                  "rows": [{"label": "vsduel.collect.last",
+                            "value": self._collected.get()}]},
+                 self._web_sets_card()]
+        cards += [self._web_day_card(name) for name, _items in DAYS]
+        return {"cards": cards,
                 "actions": [{"id": "collect", "label": "vsduel.collect"}]}
 
+    def _web_set_options(self) -> list:
+        """Every set, as the renderer wants a choice: the id, and what it calls itself.
+
+        The name is DATA — the operator typed it, or it is one of the two shipped ones
+        translated — so it travels as text and never as a key (docs/panel-tabs.md).
+        """
+        names = self._store.names(self.t)
+        return [{"value": pid, "text": names[n]}
+                for n, pid in enumerate(self._store.ids())]
+
+    def _web_sets_card(self) -> dict:
+        """The sets themselves: which one each day plays, and the three presses.
+
+        «Создать» and «Переименовать» ask for a word, which the renderer does with the
+        phone's own prompt (#1335); «Удалить» asks first, in the sentence the window's
+        message box asks in.
+        """
+        options = self._web_set_options()
+        fields = [{"key": "managed", "label": "vsduel.sets",
+                   "kind": opt_value.CHOICE, "value": self._managed,
+                   "options": options}]
+        fields += [{"key": "dayset." + day, "label": f"vsduel.day.{day}",
+                    "kind": opt_value.CHOICE, "value": self._day_set[day].get(),
+                    "options": options}
+                   for day, _items in DAYS]
+        return {
+            # `note` is DATA and never a key (docs/panel-tabs.md), so the hint is said
+            # here in this profile's language rather than handed over to be looked up.
+            "title": "vsduel.sets", "fields": fields,
+            "note": self.t("vsduel.sets.hint"),
+            "actions": [
+                {"id": "set_new", "label": "vsduel.sets.new",
+                 "prompt": "vsduel.sets.new.prompt"},
+                {"id": "set_rename", "label": "vsduel.sets.rename",
+                 "prompt": "vsduel.sets.rename.prompt",
+                 "value": self._store.name(self._managed, self.t)},
+                {"id": "set_delete", "label": "vsduel.sets.delete",
+                 "confirm": "vsduel.sets.delete.confirm",
+                 "confirm_fmt": {"name": self._store.name(self._managed, self.t)}},
+            ],
+        }
+
+    def _web_day_card(self, day: str) -> dict:
+        """One day, as knobs — the switch, the ceilings, the details and the picks.
+
+        In the order the window draws them, groups opened out: a group is a frame and a
+        line of explanation, and a phone has neither, so what survives the crossing is
+        the actions themselves in the same sequence.
+        """
+        fields = [{"key": f"plan.{day}.{DAY_ENABLED}", "label": f"vsduel.day.{day}",
+                   "kind": opt_value.SWITCH,
+                   "value": bool(self._flags[f"{day}.{DAY_ENABLED}"].get())}]
+        for item in walk_items(dict(DAYS)[day]):
+            if isinstance(item, _Choice):               # the day's own pick
+                fields.append(self._web_choice_field(f"{day}.{item.key}", item))
+                continue
+            name = f"{day}.{item.key}"
+            fields.append({"key": "plan." + name, "label": item.label,
+                           "kind": opt_value.SWITCH,
+                           "value": bool(self._flags[name].get())})
+            if item.amount is not None:
+                cap = f"{day}.{item.amount.key}"
+                fields.append({"key": "plan." + cap, "label": item.amount.label,
+                               "kind": opt_value.NUMBER,
+                               "value": self._amounts[cap].get()})
+            for sub in item.subs:
+                detail = f"{day}.{item.key}.{sub.key}"
+                fields.append({"key": "plan." + detail, "label": sub.label,
+                               "kind": opt_value.SWITCH,
+                               "value": bool(self._flags[detail].get())})
+            if item.choice is not None:
+                fields.append(self._web_choice_field(
+                    f"{day}.{item.key}.{item.choice.key}", item.choice))
+        return {"title": f"vsduel.day.{day}", "fields": fields}
+
+    def _web_choice_field(self, name: str, choice) -> dict:
+        """A pick, with its options TRANSLATED — the value is what the profile keeps."""
+        return {"key": "plan." + name, "label": choice.label,
+                "kind": opt_value.CHOICE, "value": self._choices[name].get(),
+                "options": [{"value": value, "text": self.t(label)}
+                            for value, label in choice.options]}
+
     def web_press(self, action, args) -> dict:
-        if action != "collect":
+        """The read, the three set presses, and one knob of the week per `set`."""
+        args = args or {}
+        if action == "collect":
+            return {"ok": self.collect()}
+        if action == "set":
+            return self._web_set_knob(str(args.get("key") or ""), args.get("value"))
+        if action == "set_new":
+            return self._web_new_set(str(args.get("text") or "").strip())
+        if action == "set_rename":
+            return self._web_rename_set(str(args.get("text") or "").strip())
+        if action == "set_delete":
+            return self._web_delete_set()
+        return {"error": "unknown"}
+
+    def _web_set_knob(self, key: str, value) -> dict:
+        """Move one knob — a day's switch, a ceiling, a detail, a pick, or a set.
+
+        The write goes through the same variables the window's own boxes hold, and then
+        through `_store_day`, because a day's widgets are a VIEW of the set it is played
+        from: a value written into the variable and not folded back into the set is a
+        value the next `_load_day` throws away.
+        """
+        if key == "managed":
+            if not self._store.has(str(value)):
+                return {"error": "unknown"}
+            self._managed = str(value)
+            self._refresh_set_lists()
+            return {"ok": True}
+        if key.startswith("dayset."):
+            day = key[len("dayset."):]
+            if day not in self._day_set or not self._store.has(str(value)):
+                return {"error": "unknown"}
+            if self._day_set[day].get() == str(value):
+                return {"ok": True}
+            self._store_day(day)          # what is on screen belongs to the OLD set
+            self._day_set[day].set(str(value))
+            self._load_day(day)
+            self._sync_dependents()
+            self.rt.settings.changed()
+            return {"ok": True}
+        if not key.startswith("plan."):
             return {"error": "unknown"}
-        return {"ok": self.collect()}
+        name = key[len("plan."):]
+        day = name.split(".", 1)[0]
+        if day not in self._keys_by_day:
+            return {"error": "unknown"}
+        if name in self._flags:
+            self._flags[name].set(bool(value))
+        elif name in self._amounts:
+            text = str(value).strip()
+            # A ceiling is a number and an empty box is «whatever the default was»; a
+            # word in it would be saved and then read back as a spend of zero.
+            if text and not text.isdigit():
+                return {"ok": False, "reason": "web.ui.not_a_number"}
+            self._amounts[name].set(text)
+        elif name in self._choices:
+            self._choices[name].set(str(value))
+        else:
+            return {"error": "unknown"}
+        self._store_day(day)
+        self._sync_dependents()
+        self.rt.settings.changed()
+        return {"ok": True}
+
+    def _web_new_set(self, name: str) -> dict:
+        """A new set holding what is on screen now — the window's «Создать», no dialog."""
+        if not name:
+            return {"ok": False, "reason": "vsduel.sets.new.prompt"}
+        if self._name_taken(name):
+            return {"ok": False, "reason": "vsduel.sets.taken"}
+        self._store_all_days()
+        self._managed = self._store.add(name, self._current_values())
+        self._refresh_set_lists()
+        self.rt.settings.changed()
+        return {"ok": True}
+
+    def _web_rename_set(self, name: str) -> dict:
+        old = self._store.name(self._managed, self.t)
+        if not name or name == old:
+            return {"ok": True}
+        if self._name_taken(name):
+            return {"ok": False, "reason": "vsduel.sets.taken"}
+        self._store.rename(self._managed, name)
+        self._refresh_set_lists()
+        self.rt.settings.changed()
+        return {"ok": True}
+
+    def _web_delete_set(self) -> dict:
+        """Drop the managed set. The asking is the phone's; the last one is refused."""
+        if len(self._store.ids()) < 2:
+            return {"ok": False, "reason": "vsduel.sets.last_one"}
+        self._store_all_days()
+        gone = self._managed
+        self._store.remove(gone)
+        # A day left pointing at nothing is played from the first set instead — and it
+        # is RELOADED, or it would keep showing numbers that no longer belong anywhere.
+        for _day, var in self._day_set.items():
+            if var.get() == gone:
+                var.set(self._store.first())
+        self._managed = self._store.first()
+        self._refresh_set_lists()
+        self._load_all_days()
+        self._sync_dependents()
+        self.rt.settings.changed()
+        return {"ok": True}
 
     def config(self) -> dict:
         """The sets, and which one each day is played from.

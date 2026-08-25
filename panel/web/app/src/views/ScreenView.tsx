@@ -34,6 +34,11 @@ function PressButton({
       disabled={busy}
       onClick={async () => {
         let args = action.args || {}
+        /* A press that DELETES asks first, in the panel's own sentence — the same one
+         * the window's message box asks in (#1976). Only where the tab said so: an
+         * ordinary press wearing a confirmation is a press that is always a second
+         * late. */
+        if (action.confirm && !window.confirm(t(action.confirm, action.confirm_fmt))) return
         /* A press that needs a WORD from the person (#1335). Without it the phone could
          * read a note and never write one, and the window would have a control the phone
          * has not. `prompt` is a locale KEY; `value` is the text the box opens with

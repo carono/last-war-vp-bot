@@ -960,6 +960,13 @@ free-text field and never write one, which would have made every such field a
 window-only control — an omission dressed as a divergence. The register's own mark on a
 player is the first of them.
 
+**A press that DELETES asks first** (#1976). An action with `confirm` — a locale key,
+with `confirm_fmt` filling its placeholders — opens the phone's own «are you sure?» in
+the panel's language before it fires, and a cancel presses nothing. It is for the
+destructive ones only: «Удалить набор» on «Дуэль» asks in the same sentence the window's
+message box asks in. An ordinary press wearing a confirmation is a press that arrives a
+second late every single time, which is why «Стоп» deliberately has none.
+
 **A picture is a LINK, never bytes.** An item may carry `avatar` — a URL into the
 panel's own picture route, `"/api/avatar?face=<file name>"` — and the browser draws it
 before the title and drops it silently if it will not load (#1324, «Ралли» draws the

@@ -124,6 +124,11 @@ export interface ViewAction {
   args?: Record<string, unknown>
   prompt?: string
   value?: string
+  /* A press that ASKS FIRST — a locale key, with `confirm_fmt` filling its placeholders.
+     Destructive presses only: an ordinary one asked «are you sure?» is a press that
+     arrives a second late every time (#1976). */
+  confirm?: string
+  confirm_fmt?: Record<string, unknown>
 }
 
 export interface ViewItem {

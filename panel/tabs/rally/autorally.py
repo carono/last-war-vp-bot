@@ -319,13 +319,16 @@ class AutoRallyPage:
            "rally_kind.hint").pack(anchor="w", pady=(6, 0))
 
     def set_all_kinds(self, wanted: bool) -> None:
-        """«Все» / «Никакие» — sixty-eight boxes is too many to click one at a time."""
-        for kind, var in self._kind_vars.items():
+        """«Все» / «Никакие» — sixty-eight boxes is too many to click one at a time.
+
+        THE STATE FIRST AND THE BOXES AFTER IT (#1976). It used to walk the widgets, so
+        the same press from the phone — where there may be no drawn tab at all, and where
+        there are no widgets even when there is one — moved nothing. The kinds are
+        `rally_kinds.KIND_ORDER`, whether or not anybody has drawn a box for one.
+        """
+        self._kinds_off = (set() if wanted else set(rally_kinds.KIND_ORDER))
+        for var in self._kind_vars.values():
             var.set(bool(wanted))
-            if wanted:
-                self._kinds_off.discard(kind)
-            else:
-                self._kinds_off.add(kind)
         self.rt.settings.changed()
 
     # -- the caps file (its own per-profile file, not the settings blob) -----

@@ -66,6 +66,8 @@ that owns a lifecycle.
 | P2 — the errand's rule from the phone | **done** | five fields on «Свои задания»; live-checked, and a bad number is refused |
 | P2 — the rally switches from the phone | **done** | fields on «Ралли»; the capture re-points, the auto-join is the standing order |
 | P2 — the errand EDITOR from the phone | **done** | `/api/timers/save` · `/copy` · `/delete`; add, rename, copy, delete, steps, args, title — the dialog's four refusals, off its own keys |
+| P2 — «Дуэль»: the whole week and the sets | **done** | six day cards of switches, ceilings, details and picks; the sets card creates, renames and deletes; a screen action may `confirm` now |
+| P2 — the rally kind filter's «все / никакие» | **done** | two screen actions; `set_all_kinds` moves the STATE and the boxes after it, so it works with no drawn tab |
 | P2 — what is still window-only | see below | |
 | P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
 | P3 — Tk removed | not started | after P2 |
@@ -193,10 +195,10 @@ after the new one has been used to drive it.**
   |---|---|---|
   | «Таймеры» | — | **done**: add / edit / copy / delete and the steps, the args and the title, through `/api/timers/save` · `/copy` · `/delete` and an editor that opens under the row it edits |
   | «Разработка», «Занятость» | all of it | an SPA screen behind the development switch — decided in §3, not built |
-  | «Дуэль» | new / rename / delete a set, the week's grid | a screen of its own: the week is a grid of switches and amounts |
+  | «Дуэль» | — | **done**: a card per day of switches, ceilings, details and picks, plus a sets card that creates, renames and deletes |
   | «Чат» | send, send coordinates, clear, monitor | the send spawns a tool — the ability becomes a scenario first (`CLAUDE.md`) |
   | «Командный пункт» | «Ограбить» / «Ограбить всех», jump, scan | the ghost robbery parks its targets with a tool first (#1188) — same order of work |
-  | «Ралли» | join now, launch / stop a run, the kind filter's «все / никакие» | the join needs squads chosen for it — a screen, not a button. The filter's two buttons are small |
+  | «Ралли» | join now, launch / stop a run | the join needs squads chosen for it — a screen, not a button. The kind filter's «все / никакие» travel now |
   | «Сокровища (отладка)» | copy, keep-messages switch | debug surface; low value |
   | «Секретки», «Профиль», «Инвентарь», «Аккаунты», «Игроки» | nothing of substance | — |
 

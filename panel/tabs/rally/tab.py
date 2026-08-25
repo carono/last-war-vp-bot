@@ -746,7 +746,14 @@ class RallyTab(PanelTab):
                             # reading zero is what stops a join, and the person holding
                             # the phone is exactly the one who cannot walk to the machine
                             # to press it (#1285).
-                            {"id": "fill", "label": "rally_tab.fill_squads"}]}
+                            {"id": "fill", "label": "rally_tab.fill_squads"},
+                            # THE KIND FILTER'S TWO BUTTONS (#1976). Sixty-eight kinds
+                            # is not a screen — the row above says which are off — but
+                            # «все» and «никакие» are the two moves anybody actually
+                            # makes, and «I unticked everything last week and cannot
+                            # remember why nothing is joined» is one of them undone.
+                            {"id": "kinds_all", "label": "rally_kind.all"},
+                            {"id": "kinds_none", "label": "rally_kind.none"}]}
 
     def _web_roster_cards(self) -> list:
         """The live block, as the phone draws it: a card per banner (#1324).
@@ -956,6 +963,12 @@ class RallyTab(PanelTab):
         if action == "set":
             return self._web_press_switch(str((args or {}).get("key") or ""),
                                           bool((args or {}).get("value")))
+        if action in ("kinds_all", "kinds_none"):
+            # The window's own two buttons under the table of kinds. They move THIS
+            # profile's filter and nothing else: no capture to re-point, no child to
+            # start — the joiner reads the set when a banner arrives.
+            self.autorally.set_all_kinds(action == "kinds_all")
+            return {"ok": True}
         if action == "roster":
             # The window's «Обновить» beside the block, mirrored: it starts a READING
             # and marks nothing (#1324). The screen catches up on the next poll.
