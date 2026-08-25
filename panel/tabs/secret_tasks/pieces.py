@@ -13,12 +13,13 @@ draws, `actions/withdraw_piece_offer.md` is the one press a person wants by hand
 is assembled here, no gate is held here, and the verdict column is the SCENARIO's verdict
 read back — not a second copy of the rule written in Tk.
 
-THE RULE IS THE OPERATOR'S, not this module's (#1975): «только добор минимума» — take an
-offer only when what it PAYS is the scarcest piece we hold and what it ASKS FOR is at
-least `gap` above that floor. The two knobs the page carries are `gap` (how much spare a
-piece needs before it may be traded away) and how many trades one run may make; both
-travel to the scenario as ARGS, and to the four-hourly errand through
-`Schedule.register_args`, so the button and the timer can never disagree about the rule.
+THE RULE IS THE OPERATOR'S, not this module's (#1975), and in their own words: «выгодный,
+если у нас меньше или столько же тех, что нам предлагают» — take an offer when we hold NO
+MORE of the piece it gives us than of the piece it asks us for. The two knobs the page
+carries are «строгое сравнение» (turn that «≤» into a «<», so an even swap is refused) and
+how many trades one run may make; both travel to the scenario as ARGS, and to the
+half-hourly errand through `Schedule.register_args`, so the button and the timer can never
+disagree about the rule.
 
 THE ROWS ARE THE GAME'S, ALWAYS. Nothing here is marked done by a press: the table is
 replaced whole by every read, so an offer that has gone is an offer somebody took. A
@@ -98,8 +99,10 @@ class PiecesPage:
         self.tab = tab
         self.rt = tab.rt
         root = tab.rt.root
-        #: How much spare a piece must have over the floor before it may be traded away.
-        self.gap_var = tk.StringVar(master=root, value="1")
+        #: «≤» or «<». Off — the operator's own default — takes an even swap too: it
+        #: costs nothing and it moves a piece. On refuses one, so only trades that
+        #: genuinely narrow a gap are taken.
+        self.strict_var = tk.BooleanVar(master=root, value=False)
         #: How many trades ONE run may make. Ours, not the game's: no daily cap on
         #: exchanges was found anywhere in the client (#1975), so the ceiling that stops
         #: a board filled overnight from emptying our spare pieces has to be here.
@@ -125,7 +128,7 @@ class PiecesPage:
         """Let the four-hourly errand read the page's knobs LIVE. Idempotent.
 
         Without this the timer would carry whatever `args` block its row was written
-        with, and the two would drift apart the first time somebody moved `gap` — the
+        with, and the two would drift apart the first time somebody moved the rule — the
         button trading on one rule and the errand on another, with nothing on screen to
         say which had just run.
         """
@@ -142,7 +145,7 @@ class PiecesPage:
         return {"kind": self.board.get("set") or DEFAULT_SET,
                 "accept": 1,
                 "offer": 1 if self.offer_var.get() else 0,
-                "gap": max(0, _int(self.gap_var.get(), 1)),
+                "strict": 1 if self.strict_var.get() else 0,
                 "limit": max(0, _int(self.limit_var.get(), 3))}
 
     # -- the window --------------------------------------------------------------
@@ -160,9 +163,8 @@ class PiecesPage:
 
         bar = ttk.Frame(frame)
         bar.pack(fill="x")
-        tab.tr(ttk.Label(bar), "pieces.gap").pack(side="left")
-        NumericEntry(bar, textvariable=self.gap_var, width=4).pack(side="left",
-                                                                  padx=(2, 12))
+        tab.tr(ttk.Checkbutton(bar, variable=self.strict_var), "pieces.strict").pack(
+            side="left", padx=(0, 12))
         tab.tr(ttk.Label(bar), "pieces.limit").pack(side="left")
         NumericEntry(bar, textvariable=self.limit_var, width=4).pack(side="left",
                                                                     padx=(2, 12))
@@ -227,8 +229,9 @@ class PiecesPage:
     # -- the three presses --------------------------------------------------------
     def refresh(self) -> None:
         """Ask the game for the board — a read, and the only thing this page does alone."""
-        self._play("read_piece_exchange", {"kind": self.board.get("set") or DEFAULT_SET,
-                                           "gap": max(0, _int(self.gap_var.get(), 1))},
+        self._play("read_piece_exchange",
+                   {"kind": self.board.get("set") or DEFAULT_SET,
+                    "strict": 1 if self.strict_var.get() else 0},
                    "pieces.log.read", read_back=False)
 
     def trade(self) -> None:
@@ -275,17 +278,17 @@ class PiecesPage:
 
     # -- settings ------------------------------------------------------------------
     def config(self) -> dict:
-        return {"gap": self.gap_var.get(), "limit": self.limit_var.get(),
+        return {"strict": bool(self.strict_var.get()), "limit": self.limit_var.get(),
                 "offer": bool(self.offer_var.get())}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
-        self.gap_var.set(str(raw.get("gap") or "1"))
+        self.strict_var.set(bool(raw.get("strict", False)))
         self.limit_var.set(str(raw.get("limit") or "3"))
         self.offer_var.set(bool(raw.get("offer", True)))
 
     def persist_vars(self) -> list:
-        return [self.gap_var, self.limit_var, self.offer_var]
+        return [self.strict_var, self.limit_var, self.offer_var]
 
     # -- the phone -------------------------------------------------------------------
     def web_card(self) -> dict:
@@ -301,7 +304,9 @@ class PiecesPage:
                  "value": ("—" if digs is None or digs < 0 else str(digs))},
                 {"label": "pieces.mine.label",
                  "value": board.get("mine") or self.tab.t("pieces.mine.none")},
-                {"label": "pieces.gap", "value": self.gap_var.get()},
+                {"label": "pieces.strict",
+                 "value": self.tab.t("pieces.strict.yes" if self.strict_var.get()
+                                     else "pieces.strict.no")},
                 {"label": "pieces.limit", "value": self.limit_var.get()}]
         rows += [{"label": "pieces.piece", "value": "%s: %d" % (piece, count)}
                  for piece, count in board["have"]]
@@ -318,14 +323,17 @@ class PiecesPage:
                             {"id": "pieces_withdraw", "label": "pieces.withdraw"},
                             {"id": "pieces_offer",
                              "label": ("pieces.offer.off" if self.offer_var.get()
-                                       else "pieces.offer.on")}]}
+                                       else "pieces.offer.on")},
+                            {"id": "pieces_strict",
+                             "label": ("pieces.strict.off" if self.strict_var.get()
+                                       else "pieces.strict.on")}]}
 
     def web_press(self, action: str) -> "dict | None":
         """One of the card's four buttons, or `None` when it is not ours."""
         if action == "pieces_refresh":
             return {"ok": self._play("read_piece_exchange",
                                      {"kind": self.board.get("set") or DEFAULT_SET,
-                                      "gap": max(0, _int(self.gap_var.get(), 1))},
+                                      "strict": 1 if self.strict_var.get() else 0},
                                      "pieces.log.read", read_back=False)}
         if action == "pieces_trade":
             return {"ok": self._play(ERRAND, self.args(), "pieces.log.trade")}
@@ -337,5 +345,11 @@ class PiecesPage:
             # The box, not a press on the game: the phone gets the same switch the
             # window has, and the errand reads it live through `register_args`.
             self.offer_var.set(not self.offer_var.get())
+            return {"ok": True}
+        if action == "pieces_strict":
+            # …and the rule's own knob, for the same reason: it decides what the next run
+            # trades, so a phone that could read the rule and not answer it would be
+            # showing a decision nobody away from the machine can make.
+            self.strict_var.set(not self.strict_var.get())
             return {"ok": True}
         return None

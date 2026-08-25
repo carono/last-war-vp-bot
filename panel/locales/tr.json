@@ -2115,14 +2115,13 @@
   "top.link": "bağlantı:",
   "web.ui.link": "Bağlantı",
   "secrettasks.page.pieces": "Harita parçası takası",
-  "pieces.hint": "Bir kazı her türden birer parça harcar; bu yüzden kalan kazı sayısı en az sahip olunan parça kadardır. Başkasının teklifi yalnızca en kıt parçamızla ödeme yapıyorsa ve aşağıdaki kadar fazlası olan bir parçayı istiyorsa kabul edilir. Kendi teklifimiz panoda durduğu sürece ödediği parça bloke edilir — teklifi geri çekince anında geri gelir.",
+  "pieces.hint": "Bir kazı her türden birer parça harcar; bu yüzden kalan kazı sayısı en az sahip olunan parça kadardır. Bir teklif, verdiği parçadan elimizde istediği parçadan fazlası yoksa kabul edilir — kıt olan parça, zaten daha çoğu bulunan bir parça için asla verilmez. Kendi teklifimiz panoda durduğu sürece ödediği parça bloke edilir; teklifi geri çekince anında geri gelir.",
   "pieces.summary": "Kalan kazı: {digs} · parçalar — {have}",
   "pieces.digs": "Kalan kazı",
   "pieces.piece": "Parça",
   "pieces.mine": "Bizim teklifimiz: {offer} (istediğimiz > ödediğimiz)",
   "pieces.mine.none": "Panoda teklifimiz yok",
   "pieces.mine.label": "Bizim teklifimiz",
-  "pieces.gap": "Gereken fazlalık",
   "pieces.limit": "Tur başına takas",
   "pieces.offer": "Kendi teklifimizi panoda tut",
   "pieces.offer.on": "Kendi teklifimizi yayınla",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "harita parçası takası: teklifimiz geri çekiliyor",
   "pieces.log.busy": "harita parçası takası: istemciyi şu anda başka bir şey sürüyor",
   "timers.item.exchange_treasure_pieces": "Hazine haritası parçalarını ittifakla takas et",
-  "triggers.item.piece_exchange": "Bir takasımız gerçekleştiğinde tepki ver"
+  "triggers.item.piece_exchange": "Bir takasımız gerçekleştiğinde tepki ver",
+  "pieces.strict": "Katı karşılaştırma (eşit takası reddet)",
+  "pieces.strict.yes": "katı «<»",
+  "pieces.strict.no": "«≤», eşit takas alınır",
+  "pieces.strict.on": "Eşit takasları reddet",
+  "pieces.strict.off": "Eşit takasları kabul et"
 }

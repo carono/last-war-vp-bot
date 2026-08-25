@@ -2115,14 +2115,13 @@
   "top.link": "Verbindung:",
   "web.ui.link": "Verbindung",
   "secrettasks.page.pieces": "Kartenteil-Tausch",
-  "pieces.hint": "Eine Grabung verbraucht je ein Teil jeder Sorte, also bleiben so viele Grabungen wie vom seltensten Teil vorhanden sind. Ein fremdes Angebot wird nur angenommen, wenn es mit unserem seltensten Teil bezahlt und ein Teil verlangt, von dem wir mindestens den unten eingestellten Vorrat haben. Solange ein eigenes Angebot steht, ist das Teil, mit dem es bezahlt, zurückgehalten — beim Zurückziehen kommt es sofort zurück.",
+  "pieces.hint": "Eine Grabung verbraucht je ein Teil jeder Sorte, also bleiben so viele Grabungen wie vom seltensten Teil vorhanden sind. Ein Angebot wird angenommen, wenn wir von dem Teil, das es gibt, nicht mehr haben als von dem, das es verlangt — ein knappes Teil wird nie für eines hergegeben, von dem wir ohnehin mehr haben. Solange ein eigenes Angebot steht, ist das Teil, mit dem es bezahlt, zurückgehalten; beim Zurückziehen kommt es sofort zurück.",
   "pieces.summary": "Verbleibende Grabungen: {digs} · Teile — {have}",
   "pieces.digs": "Verbleibende Grabungen",
   "pieces.piece": "Teil",
   "pieces.mine": "Unser Angebot: {offer} (wir brauchen > wir zahlen)",
   "pieces.mine.none": "Wir haben kein Angebot auf der Tafel",
   "pieces.mine.label": "Unser Angebot",
-  "pieces.gap": "Nötiger Vorrat",
   "pieces.limit": "Tauschvorgänge pro Lauf",
   "pieces.offer": "Eigenes Angebot stehen lassen",
   "pieces.offer.on": "Eigenes Angebot einstellen",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "Kartenteil-Tausch: unser Angebot wird zurückgezogen",
   "pieces.log.busy": "Kartenteil-Tausch: der Client wird gerade anderweitig gesteuert",
   "timers.item.exchange_treasure_pieces": "Schatzkartenteile mit der Allianz tauschen",
-  "triggers.item.piece_exchange": "Reagieren, wenn ein Kartenteil-Tausch von uns zustande kommt"
+  "triggers.item.piece_exchange": "Reagieren, wenn ein Kartenteil-Tausch von uns zustande kommt",
+  "pieces.strict": "Strenger Vergleich (Tausch zum selben Stand ablehnen)",
+  "pieces.strict.yes": "streng «<»",
+  "pieces.strict.no": "«≤», gleicher Tausch wird genommen",
+  "pieces.strict.on": "Gleiche Tausche ablehnen",
+  "pieces.strict.off": "Gleiche Tausche zulassen"
 }

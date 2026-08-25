@@ -2115,14 +2115,13 @@
   "top.link": "kết nối:",
   "web.ui.link": "Kết nối",
   "secrettasks.page.pieces": "Trao đổi mảnh bản đồ",
-  "pieces.hint": "Một lượt đào tiêu tốn mỗi loại một mảnh, nên số lượt đào còn lại bằng số mảnh ít nhất. Chỉ nhận lời đề nghị của người khác khi nó trả bằng mảnh khan hiếm nhất của ta và xin mảnh mà ta còn dư ít nhất bằng mức bên dưới. Khi đề nghị của ta còn treo, mảnh dùng để trả sẽ bị giữ lại — rút đề nghị là nó trở về ngay.",
+  "pieces.hint": "Một lượt đào tiêu tốn mỗi loại một mảnh, nên số lượt đào còn lại bằng số mảnh ít nhất. Một đề nghị được nhận khi mảnh nó đưa cho ta không nhiều hơn mảnh nó xin — không bao giờ đưa mảnh đang thiếu để lấy mảnh vốn đã nhiều hơn. Khi đề nghị của ta còn treo, mảnh dùng để trả sẽ bị giữ lại; rút đề nghị là nó trở về ngay.",
   "pieces.summary": "Lượt đào còn lại: {digs} · các mảnh — {have}",
   "pieces.digs": "Lượt đào còn lại",
   "pieces.piece": "Mảnh",
   "pieces.mine": "Đề nghị của ta: {offer} (ta xin > ta trả)",
   "pieces.mine.none": "Ta không có đề nghị nào trên bảng",
   "pieces.mine.label": "Đề nghị của ta",
-  "pieces.gap": "Mức dư cần có",
   "pieces.limit": "Số lần đổi mỗi lượt chạy",
   "pieces.offer": "Giữ đề nghị của ta trên bảng",
   "pieces.offer.on": "Đăng đề nghị của ta",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "trao đổi mảnh: rút đề nghị của ta",
   "pieces.log.busy": "trao đổi mảnh: máy khách đang do việc khác điều khiển",
   "timers.item.exchange_treasure_pieces": "Trao đổi mảnh bản đồ kho báu với liên minh",
-  "triggers.item.piece_exchange": "Phản ứng khi một lần trao đổi mảnh của ta thành công"
+  "triggers.item.piece_exchange": "Phản ứng khi một lần trao đổi mảnh của ta thành công",
+  "pieces.strict": "So sánh nghiêm ngặt (từ chối đổi ngang)",
+  "pieces.strict.yes": "nghiêm ngặt «<»",
+  "pieces.strict.no": "«≤», đổi ngang vẫn nhận",
+  "pieces.strict.on": "Từ chối đổi ngang",
+  "pieces.strict.off": "Chấp nhận đổi ngang"
 }

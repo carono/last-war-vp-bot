@@ -2115,14 +2115,13 @@
   "top.link": "połączenie:",
   "web.ui.link": "Połączenie",
   "secrettasks.page.pieces": "Wymiana fragmentów",
-  "pieces.hint": "Wykop zużywa po jednym fragmencie każdego rodzaju, więc wykopów zostaje tyle, ile jest najrzadszego fragmentu. Cudzą ofertę bierzemy tylko wtedy, gdy płaci naszym najrzadszym fragmentem i prosi o taki, którego mamy co najmniej zapas ustawiony niżej. Dopóki nasza oferta wisi, fragment, którym płaci, jest zablokowany — wraca w chwili jej wycofania.",
+  "pieces.hint": "Wykop zużywa po jednym fragmencie każdego rodzaju, więc wykopów zostaje tyle, ile jest najrzadszego fragmentu. Ofertę bierzemy, jeśli fragmentu, który daje, nie mamy więcej niż tego, o który prosi — rzadkiego fragmentu nigdy nie oddajemy za taki, którego i tak mamy więcej. Dopóki nasza oferta wisi, fragment, którym płaci, jest zablokowany; wraca w chwili jej wycofania.",
   "pieces.summary": "Pozostałe wykopy: {digs} · fragmenty — {have}",
   "pieces.digs": "Pozostałe wykopy",
   "pieces.piece": "Fragment",
   "pieces.mine": "Nasza oferta: {offer} (prosimy > płacimy)",
   "pieces.mine.none": "Nie mamy oferty na tablicy",
   "pieces.mine.label": "Nasza oferta",
-  "pieces.gap": "Wymagany zapas",
   "pieces.limit": "Wymian na przebieg",
   "pieces.offer": "Trzymać własną ofertę na tablicy",
   "pieces.offer.on": "Wystawić naszą ofertę",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "wymiana fragmentów: wycofuję naszą ofertę",
   "pieces.log.busy": "wymiana fragmentów: klientem steruje teraz coś innego",
   "timers.item.exchange_treasure_pieces": "Wymieniać fragmenty mapy skarbów z sojuszem",
-  "triggers.item.piece_exchange": "Reagować, gdy nasza wymiana fragmentów dojdzie do skutku"
+  "triggers.item.piece_exchange": "Reagować, gdy nasza wymiana fragmentów dojdzie do skutku",
+  "pieces.strict": "Ścisłe porównanie (odrzucać wymianę po równo)",
+  "pieces.strict.yes": "ściśle «<»",
+  "pieces.strict.no": "«≤», wymianę po równo bierzemy",
+  "pieces.strict.on": "Odrzucać wymiany po równo",
+  "pieces.strict.off": "Przyjmować wymiany po równo"
 }

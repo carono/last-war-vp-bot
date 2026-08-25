@@ -2115,14 +2115,13 @@
   "top.link": "ligação:",
   "web.ui.link": "Ligação",
   "secrettasks.page.pieces": "Troca de fragmentos",
-  "pieces.hint": "Uma escavação gasta um fragmento de cada tipo, portanto restam tantas escavações quanto o fragmento mais escasso. Uma oferta alheia só é aceita se pagar com o nosso fragmento mais escasso e pedir um do qual tenhamos ao menos a reserva indicada abaixo. Enquanto a nossa oferta estiver no mural, o fragmento com que ela paga fica retido — volta assim que ela é retirada.",
+  "pieces.hint": "Uma escavação gasta um fragmento de cada tipo, portanto restam tantas escavações quanto o fragmento mais escasso. Uma oferta é aceita se do fragmento que ela dá não tivermos mais do que do que ela pede: nunca se entrega um fragmento escasso por outro de que já se tem mais. Enquanto a nossa oferta estiver no mural, o fragmento com que ela paga fica retido; volta assim que ela é retirada.",
   "pieces.summary": "Escavações restantes: {digs} · fragmentos — {have}",
   "pieces.digs": "Escavações restantes",
   "pieces.piece": "Fragmento",
   "pieces.mine": "Nossa oferta: {offer} (pedimos > pagamos)",
   "pieces.mine.none": "Não temos oferta no mural",
   "pieces.mine.label": "Nossa oferta",
-  "pieces.gap": "Reserva necessária",
   "pieces.limit": "Trocas por rodada",
   "pieces.offer": "Manter uma oferta nossa no mural",
   "pieces.offer.on": "Publicar nossa oferta",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "troca de fragmentos: retirando nossa oferta",
   "pieces.log.busy": "troca de fragmentos: o cliente já está sendo conduzido por outra coisa",
   "timers.item.exchange_treasure_pieces": "Trocar fragmentos do mapa do tesouro com a aliança",
-  "triggers.item.piece_exchange": "Reagir quando uma troca nossa de fragmentos se concretiza"
+  "triggers.item.piece_exchange": "Reagir quando uma troca nossa de fragmentos se concretiza",
+  "pieces.strict": "Comparação estrita (recusar troca em pé de igualdade)",
+  "pieces.strict.yes": "estrito «<»",
+  "pieces.strict.no": "«≤», a troca igual é aceita",
+  "pieces.strict.on": "Recusar trocas iguais",
+  "pieces.strict.off": "Aceitar trocas iguais"
 }

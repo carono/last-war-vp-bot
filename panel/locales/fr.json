@@ -2115,14 +2115,13 @@
   "top.link": "lien :",
   "web.ui.link": "Lien",
   "secrettasks.page.pieces": "Échange de fragments",
-  "pieces.hint": "Une fouille consomme un fragment de chaque sorte : il reste donc autant de fouilles que du fragment le plus rare. Une offre n'est prise que si elle paie avec notre fragment le plus rare et demande un fragment dont nous avons au moins la réserve indiquée ci-dessous. Tant que notre offre reste affichée, le fragment qu'elle paie est retenu — il revient dès qu'on la retire.",
+  "pieces.hint": "Une fouille consomme un fragment de chaque sorte : il reste donc autant de fouilles que du fragment le plus rare. Une offre est prise si nous n'avons pas plus du fragment qu'elle donne que de celui qu'elle demande — on ne cède jamais un fragment rare pour un dont on a déjà davantage. Tant que notre offre reste affichée, le fragment qu'elle paie est retenu ; il revient dès qu'on la retire.",
   "pieces.summary": "Fouilles restantes : {digs} · fragments — {have}",
   "pieces.digs": "Fouilles restantes",
   "pieces.piece": "Fragment",
   "pieces.mine": "Notre offre : {offer} (nous demandons > nous payons)",
   "pieces.mine.none": "Nous n'avons aucune offre sur le tableau",
   "pieces.mine.label": "Notre offre",
-  "pieces.gap": "Réserve requise",
   "pieces.limit": "Échanges par passage",
   "pieces.offer": "Laisser notre offre sur le tableau",
   "pieces.offer.on": "Déposer notre offre",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "échange de fragments : retrait de notre offre",
   "pieces.log.busy": "échange de fragments : le client est déjà piloté par autre chose",
   "timers.item.exchange_treasure_pieces": "Échanger des fragments de carte au trésor avec l'alliance",
-  "triggers.item.piece_exchange": "Réagir quand l'un de nos échanges de fragments aboutit"
+  "triggers.item.piece_exchange": "Réagir quand l'un de nos échanges de fragments aboutit",
+  "pieces.strict": "Comparaison stricte (refuser un échange à égalité)",
+  "pieces.strict.yes": "strict « < »",
+  "pieces.strict.no": "« ≤ », l'échange à égalité est pris",
+  "pieces.strict.on": "Refuser les échanges à égalité",
+  "pieces.strict.off": "Accepter les échanges à égalité"
 }

@@ -2115,14 +2115,13 @@
   "top.link": "enlace:",
   "web.ui.link": "Enlace",
   "secrettasks.page.pieces": "Intercambio de fragmentos",
-  "pieces.hint": "Una excavación gasta un fragmento de cada clase, así que quedan tantas excavaciones como del fragmento más escaso. Una oferta ajena se acepta solo si paga con nuestro fragmento más escaso y pide uno del que tengamos al menos la reserva indicada abajo. Mientras nuestra oferta esté en el tablón, el fragmento con que paga queda retenido — vuelve en cuanto se retira.",
+  "pieces.hint": "Una excavación gasta un fragmento de cada clase, así que quedan tantas excavaciones como del fragmento más escaso. Una oferta se acepta si no tenemos más del fragmento que da que del que pide: nunca se entrega un fragmento escaso por otro del que ya hay más. Mientras nuestra oferta esté en el tablón, el fragmento con que paga queda retenido; vuelve en cuanto se retira.",
   "pieces.summary": "Excavaciones restantes: {digs} · fragmentos — {have}",
   "pieces.digs": "Excavaciones restantes",
   "pieces.piece": "Fragmento",
   "pieces.mine": "Nuestra oferta: {offer} (pedimos > pagamos)",
   "pieces.mine.none": "No tenemos ninguna oferta en el tablón",
   "pieces.mine.label": "Nuestra oferta",
-  "pieces.gap": "Reserva necesaria",
   "pieces.limit": "Intercambios por pasada",
   "pieces.offer": "Mantener una oferta propia en el tablón",
   "pieces.offer.on": "Publicar nuestra oferta",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "intercambio de fragmentos: retirando nuestra oferta",
   "pieces.log.busy": "intercambio de fragmentos: otra cosa está manejando el cliente",
   "timers.item.exchange_treasure_pieces": "Intercambiar fragmentos de mapa del tesoro con la alianza",
-  "triggers.item.piece_exchange": "Reaccionar cuando se concreta un intercambio nuestro"
+  "triggers.item.piece_exchange": "Reaccionar cuando se concreta un intercambio nuestro",
+  "pieces.strict": "Comparación estricta (rechazar el intercambio a la par)",
+  "pieces.strict.yes": "estricto «<»",
+  "pieces.strict.no": "«≤», el intercambio a la par se acepta",
+  "pieces.strict.on": "Rechazar intercambios a la par",
+  "pieces.strict.off": "Aceptar intercambios a la par"
 }

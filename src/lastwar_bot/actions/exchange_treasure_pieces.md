@@ -8,15 +8,30 @@
 # becomes a copy of the scarcest one. That is the whole reason this ability exists, and
 # the whole reason its rule is the shape it is.
 #
-# THE RULE, agreed with the operator on 2026-08-25 and deliberately the strictest of the
-# three that were offered — «только добор минимума»:
+# THE RULE IS THE OPERATOR'S OWN, in their own words (2026-08-25): «выгодный, если у нас
+# меньше или столько же тех, что нам предлагают». It compares the two COUNTS in our bag
+# and nothing else:
 #
-#     take an offer only when the piece it PAYS is the scarcest we hold,
-#     and the piece it ASKS FOR is at least `gap` above that minimum.
+#     take an offer when we hold NO MORE of the piece it gives us
+#     than of the piece it asks us for.
 #
-# So every accepted trade raises the floor by one and can never lower it. `gap` is an
-# argument rather than a constant because the operator's own answer may change with the
-# event: 1 is «anything spare», 2 keeps a cushion.
+# In one sentence: never hand over a piece we are short of to get one we already have
+# more of. Equality is fine — it costs nothing and it moves a piece.
+#
+# `strict` is the only knob on it. 0 (the default, and what the operator asked for)
+# compares with «≤»; 1 makes it «<», which refuses an even swap and only takes trades
+# that genuinely narrow a gap.
+#
+# It fits the game exactly, which is worth saying because a rule can fail to: the board
+# trades ONE piece for ONE piece, and every piece is an ordinary stackable item with a
+# count in the bag. So «how many of it do we hold» is a real number for both sides of
+# every offer and the comparison is always answerable.
+#
+# WHY THE COUNTS MATTER AT ALL. A dig spends ONE OF EACH of the set's seven pieces, so
+# the digs left are the SMALLEST of the seven counts and an eighth copy of one piece is
+# worth nothing until it becomes a copy of a scarcer one. The rule above is a local, easy
+# to check statement of that: taking a piece we hold less of, for one we hold more of,
+# can only move us towards the flat holding that maximises digs.
 #
 # WHICH SIDE OF A RECORD IS WHICH — measured, not guessed (#1975). A record carries
 # `needFragment` and `costFragment`, and both readings were plausible until our own
@@ -75,13 +90,13 @@
 ARGS kind = 4
 ARGS accept = 1
 ARGS offer = 1
-ARGS gap = 1
+ARGS strict = 0
 ARGS limit = 3
 
 LUA pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureGetALInfo, {type = {kind}}) end) pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureGetSelfInfo, {type = {kind}}) end)
 WAIT 2
 
-READ_LUA (function() local kind = {kind} local gap = {gap} local budget = {limit} local doit = {accept} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 'no such exchange set: ' .. tostring(kind) end local ids = info.fragGoodsIdList or {} local have = {} local order = {} for _, id in ipairs(ids) do have[id + 0] = 0 order[#order+1] = id + 0 end if #order == 0 then return 'the set is empty on this account' end pcall(function() for _, it in pairs(DataCenter.ItemData.ItemInfos or {}) do local id = it.itemId if id ~= nil and have[id + 0] ~= nil then have[id + 0] = have[id + 0] + ((it.count or 0) + 0) end end end) local function num(n) return string.format('%d', n) end local function floor() local m = nil for _, id in ipairs(order) do local n = have[id] if m == nil or n < m then m = n end end return m or 0 end local was = floor() local mine = '' pcall(function() local s = M:GetSelfExchangeData(kind) if s then mine = tostring(s.ownerId or '') end end) local list = {} pcall(function() list = M:GetAlExchangeDataList(kind) or {} end) local took, seen, why = 0, 0, {} for _, r in pairs(list) do seen = seen + 1 local give = (r.needFragment or 0) + 0 local get = (r.costFragment or 0) + 0 local owner = tostring(r.ownerId or '') local m = floor() if mine ~= '' and owner == mine then why[#why+1] = 'ours' elseif have[give] == nil or have[get] == nil then why[#why+1] = 'another-set' elseif have[get] ~= m then why[#why+1] = num(get) .. ':not-the-scarcest(' .. have[get] .. '>' .. m .. ')' elseif have[give] < m + gap then why[#why+1] = num(give) .. ':nothing-spare(' .. have[give] .. '<' .. (m + gap) .. ')' elseif budget <= 0 then why[#why+1] = 'over-this-run-s-ceiling' elseif doit == 0 then why[#why+1] = 'reading-only' else local ok = pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureALExchange, {uuid = r.uuid}) end) if ok then took = took + 1 budget = budget - 1 have[give] = have[give] - 1 have[get] = have[get] + 1 else why[#why+1] = 'the-send-was-refused' end end end local p = {} for _, id in ipairs(order) do p[#p+1] = num(id) .. ':' .. have[id] end return 'took=' .. took .. ' offers=' .. seen .. ' digs=' .. was .. '->' .. floor() .. ' have=[' .. table.concat(p, ' ') .. '] passed=[' .. table.concat(why, ' ') .. ']' end)() INTO report
+READ_LUA (function() local kind = {kind} local strict = {strict} local budget = {limit} local doit = {accept} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 'no such exchange set: ' .. tostring(kind) end local ids = info.fragGoodsIdList or {} local have = {} local order = {} for _, id in ipairs(ids) do have[id + 0] = 0 order[#order+1] = id + 0 end if #order == 0 then return 'the set is empty on this account' end pcall(function() for _, it in pairs(DataCenter.ItemData.ItemInfos or {}) do local id = it.itemId if id ~= nil and have[id + 0] ~= nil then have[id + 0] = have[id + 0] + ((it.count or 0) + 0) end end end) local function num(n) return string.format('%d', n) end local function floor() local m = nil for _, id in ipairs(order) do local n = have[id] if m == nil or n < m then m = n end end return m or 0 end local was = floor() local mine = '' pcall(function() local s = M:GetSelfExchangeData(kind) if s then mine = tostring(s.ownerId or '') end end) local list = {} pcall(function() list = M:GetAlExchangeDataList(kind) or {} end) local took, seen, why = 0, 0, {} for _, r in pairs(list) do seen = seen + 1 local give = (r.needFragment or 0) + 0 local get = (r.costFragment or 0) + 0 local owner = tostring(r.ownerId or '') if mine ~= '' and owner == mine then why[#why+1] = 'ours' elseif have[give] == nil or have[get] == nil then why[#why+1] = 'another-set' elseif have[give] < 1 then why[#why+1] = num(give) .. ':none-to-give' elseif have[get] > have[give] or (strict == 1 and have[get] == have[give]) then why[#why+1] = num(get) .. ':we-hold-more-of-it(' .. have[get] .. (have[get] == have[give] and '=' or '>') .. have[give] .. ')' elseif budget <= 0 then why[#why+1] = 'over-this-run-s-ceiling' elseif doit == 0 then why[#why+1] = 'reading-only' else local ok = pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchTreasureALExchange, {uuid = r.uuid}) end) if ok then took = took + 1 budget = budget - 1 have[give] = have[give] - 1 have[get] = have[get] + 1 else why[#why+1] = 'the-send-was-refused' end end end local p = {} for _, id in ipairs(order) do p[#p+1] = num(id) .. ':' .. have[id] end return 'took=' .. took .. ' offers=' .. seen .. ' digs=' .. was .. '->' .. floor() .. ' have=[' .. table.concat(p, ' ') .. '] passed=[' .. table.concat(why, ' ') .. ']' end)() INTO report
 LOG "the board, and what the rule made of it: {report}"
 
 READ_LUA (function() local kind = {kind} local M = DataCenter.SplinterExchangeManager local info = M and M.exchangeInfoList and M.exchangeInfoList[kind] if info == nil then return 0 end local list = {} pcall(function() list = M:GetAlExchangeDataList(kind) or {} end) local n = 0 for _ in pairs(list) do n = n + 1 end return n end)() INTO offers

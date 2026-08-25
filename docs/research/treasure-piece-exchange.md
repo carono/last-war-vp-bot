@@ -110,21 +110,35 @@ to buy the most plentiful one.
   panel has one slot; posting a second is not something this ability tries.
 * `isOpened` on `ActDispatchTreasureManager` says whether the activity is running at all.
 
-## 5. Why the rule is about the MINIMUM
+## 5. The rule
 
 A dig spends **one of each** piece in the set. The client says so itself:
 `ActDispatchTreasureManager:GetCanDigCount()` equals the smallest of the seven counts,
 exactly, on every reading. So an eighth copy of one piece buys nothing until it becomes a
-copy of the scarcest one, and the only measure of a trade is what it does to that floor.
+copy of a scarcer one — which is why a trade is judged by the two COUNTS in the bag and by
+nothing else.
 
-The rule the operator chose (#1975) is the strictest of the three that were offered —
-**«только добор минимума»**:
+The rule is the operator's, in their own words (#1975):
 
-> take an offer only when the piece it PAYS is the scarcest we hold,
-> and the piece it ASKS FOR is at least `gap` above that floor.
+> **«Выгодный, если у нас меньше или столько же тех, что нам предлагают.»**
+>
+> take an offer when we hold NO MORE of the piece it GIVES US
+> than of the piece it ASKS US FOR.
 
-Every accepted trade then raises the floor by one and can never lower it. Our own offer is
-the mirror image: **ask for the scarcest piece, pay with the most plentiful one.**
+Put the other way round: never hand over a piece we are short of to get one we already
+have more of. Equality is taken — it costs nothing and it moves a piece.
+
+`strict` is the one knob. `0` (the default, and what was asked for) compares with «≤»;
+`1` makes it «<» and refuses an even swap.
+
+**The rule fits the board, which is worth checking rather than assuming.** The swap is one
+piece for one piece — `needFragment` and `costFragment` are single ids, never lists, never
+quantities — and every piece is an ordinary stackable bag item with a count. So «how many
+of it do we hold» is a real number for both sides of every offer, and the comparison is
+always answerable. Nothing about the board makes the rule inapplicable.
+
+Our own offer is the same idea at the extremes: **ask for the scarcest piece, pay with the
+most plentiful one** — which is always a trade our own rule would take.
 
 ## 6. The push, and what it is worth
 
@@ -152,9 +166,12 @@ the push only makes the reaction prompt.
 | timer `exchange_treasure_pieces` | half-hourly, off by default |
 | trigger `piece_exchange` | on `push.treasure.fragment.exchange`, off by default |
 
-The page's two knobs (`gap`, trades per run) and its «keep an offer standing» box reach the
-timer through `Schedule.register_args`, so a button press and a scheduled run can never
-trade on different rules.
+The page's two knobs (`strict`, trades per run) and its «keep an offer standing» box reach
+the timer through `Schedule.register_args`, so a button press and a scheduled run can
+never trade on different rules. The rule itself is pinned by
+`tests/test_piece_exchange_rule.py`, which lifts the verdict step out of the recipe and
+runs it under `lupa` against an invented bag and board — no game, no client, no pieces
+spent, and a rule edited in the recipe and nowhere else still fails the test.
 
 ## 8. Dead ends worth not repeating
 

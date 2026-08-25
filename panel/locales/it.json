@@ -2115,14 +2115,13 @@
   "top.link": "collegamento:",
   "web.ui.link": "Collegamento",
   "secrettasks.page.pieces": "Scambio di frammenti",
-  "pieces.hint": "Uno scavo consuma un frammento di ogni tipo, quindi restano tanti scavi quanti sono i frammenti del tipo più scarso. Un'offerta altrui si accetta solo se paga con il nostro frammento più scarso e chiede un tipo di cui abbiamo almeno la scorta indicata sotto. Finché la nostra offerta resta in bacheca, il frammento con cui paga è trattenuto — torna appena la si ritira.",
+  "pieces.hint": "Uno scavo consuma un frammento di ogni tipo, quindi restano tanti scavi quanti sono i frammenti del tipo più scarso. Un'offerta si accetta se del frammento che dà non ne abbiamo più di quello che chiede: un frammento scarso non si cede mai per uno di cui ne abbiamo già di più. Finché la nostra offerta resta in bacheca, il frammento con cui paga è trattenuto; torna appena la si ritira.",
   "pieces.summary": "Scavi rimasti: {digs} · frammenti — {have}",
   "pieces.digs": "Scavi rimasti",
   "pieces.piece": "Frammento",
   "pieces.mine": "La nostra offerta: {offer} (chiediamo > paghiamo)",
   "pieces.mine.none": "Non abbiamo offerte in bacheca",
   "pieces.mine.label": "La nostra offerta",
-  "pieces.gap": "Scorta necessaria",
   "pieces.limit": "Scambi per passaggio",
   "pieces.offer": "Tenere una nostra offerta in bacheca",
   "pieces.offer.on": "Pubblicare la nostra offerta",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "scambio di frammenti: ritiro la nostra offerta",
   "pieces.log.busy": "scambio di frammenti: il client è già guidato da altro",
   "timers.item.exchange_treasure_pieces": "Scambiare frammenti della mappa del tesoro con l'alleanza",
-  "triggers.item.piece_exchange": "Reagire quando un nostro scambio di frammenti va a buon fine"
+  "triggers.item.piece_exchange": "Reagire quando un nostro scambio di frammenti va a buon fine",
+  "pieces.strict": "Confronto stretto (rifiutare lo scambio alla pari)",
+  "pieces.strict.yes": "stretto «<»",
+  "pieces.strict.no": "«≤», lo scambio alla pari si prende",
+  "pieces.strict.on": "Rifiutare gli scambi alla pari",
+  "pieces.strict.off": "Accettare gli scambi alla pari"
 }

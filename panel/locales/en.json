@@ -2115,14 +2115,13 @@
   "top.link": "link:",
   "web.ui.link": "Link",
   "secrettasks.page.pieces": "Map-piece swaps",
-  "pieces.hint": "A dig spends one of each piece, so the digs you have left are the SMALLEST of the seven counts. An offer is taken only when what it pays is your scarcest piece and what it asks for has at least the spare below. While an offer of yours stands, the piece it pays with is held back — you get it straight back when you withdraw it.",
+  "pieces.hint": "A dig spends one of each piece, so the digs you have left are the SMALLEST of the seven counts. An offer is taken when you hold no more of the piece it gives you than of the piece it asks for — never hand over what you are short of to get what you already have more of. While an offer of yours stands, the piece it pays with is held back; you get it straight back when you withdraw it.",
   "pieces.summary": "Digs left: {digs} · pieces — {have}",
   "pieces.digs": "Digs left",
   "pieces.piece": "Piece",
   "pieces.mine": "Our offer: {offer} (we need > we pay)",
   "pieces.mine.none": "We have no offer on the board",
   "pieces.mine.label": "Our offer",
-  "pieces.gap": "Spare needed",
   "pieces.limit": "Trades per run",
   "pieces.offer": "Keep an offer of our own standing",
   "pieces.offer.on": "Stand an offer of our own",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "map-piece swaps: withdrawing our offer",
   "pieces.log.busy": "map-piece swaps: something else is driving the client",
   "timers.item.exchange_treasure_pieces": "Swap treasure-map pieces with the alliance",
-  "triggers.item.piece_exchange": "React when a map-piece swap of ours goes through"
+  "triggers.item.piece_exchange": "React when a map-piece swap of ours goes through",
+  "pieces.strict": "Strict comparison (refuse an even swap)",
+  "pieces.strict.yes": "strict «<»",
+  "pieces.strict.no": "«≤», an even swap is taken",
+  "pieces.strict.on": "Refuse even swaps",
+  "pieces.strict.off": "Allow even swaps"
 }

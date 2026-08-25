@@ -2115,14 +2115,13 @@
   "top.link": "koneksi:",
   "web.ui.link": "Koneksi",
   "secrettasks.page.pieces": "Tukar kepingan peta",
-  "pieces.hint": "Satu penggalian menghabiskan satu kepingan dari tiap jenis, jadi sisa penggalian sama dengan jumlah kepingan yang paling sedikit. Tawaran orang lain diambil hanya bila ia membayar dengan kepingan kita yang paling langka dan meminta kepingan yang kita punya setidaknya sebanyak cadangan di bawah. Selama tawaran kita terpasang, kepingan yang dipakainya untuk membayar ditahan — langsung kembali begitu tawaran ditarik.",
+  "pieces.hint": "Satu penggalian menghabiskan satu kepingan dari tiap jenis, jadi sisa penggalian sama dengan jumlah kepingan yang paling sedikit. Tawaran diambil bila kepingan yang diberikannya tidak lebih banyak di tangan kita daripada kepingan yang dimintanya — kepingan yang langka tidak pernah diserahkan demi yang sudah lebih banyak. Selama tawaran kita terpasang, kepingan yang dipakainya untuk membayar ditahan; langsung kembali begitu tawaran ditarik.",
   "pieces.summary": "Sisa penggalian: {digs} · kepingan — {have}",
   "pieces.digs": "Sisa penggalian",
   "pieces.piece": "Kepingan",
   "pieces.mine": "Tawaran kita: {offer} (kita minta > kita bayar)",
   "pieces.mine.none": "Kita tidak punya tawaran di papan",
   "pieces.mine.label": "Tawaran kita",
-  "pieces.gap": "Cadangan yang diperlukan",
   "pieces.limit": "Pertukaran per jalan",
   "pieces.offer": "Pasang tawaran sendiri di papan",
   "pieces.offer.on": "Pasang tawaran kita",
@@ -2142,5 +2141,10 @@
   "pieces.log.withdraw": "tukar kepingan: menarik tawaran kita",
   "pieces.log.busy": "tukar kepingan: klien sedang dikendalikan hal lain",
   "timers.item.exchange_treasure_pieces": "Menukar kepingan peta harta dengan aliansi",
-  "triggers.item.piece_exchange": "Bereaksi saat pertukaran kepingan kita berhasil"
+  "triggers.item.piece_exchange": "Bereaksi saat pertukaran kepingan kita berhasil",
+  "pieces.strict": "Perbandingan ketat (tolak tukar seimbang)",
+  "pieces.strict.yes": "ketat «<»",
+  "pieces.strict.no": "«≤», tukar seimbang diambil",
+  "pieces.strict.on": "Tolak tukar seimbang",
+  "pieces.strict.off": "Terima tukar seimbang"
 }
