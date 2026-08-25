@@ -2028,6 +2028,33 @@ def test_a_client_that_counts_nothing_is_not_a_client_that_is_full():
     assert len(_claims(lua)) >= 1, "nothing stands in the way of an ordinary claim"
 
 
+def test_a_chest_the_day_is_holding_is_not_a_reason_to_wake_the_errand():
+    """«Исключать такие сокровища из обхода» — the poll's half of it (#1965).
+
+    A held chest is unfinished and stays unfinished until the reset, so counting it as work
+    would turn the trigger into a clock that runs the recipe every few seconds to do
+    nothing. The world clause is untouched: looking at the box the camera is in costs a
+    hundredth of a second and finds chests for tomorrow.
+    """
+    if not _needs_lua("a held chest is not work"):
+        return
+    lua = _vm()
+    _day_manager(lua, groups=((602, 10, True), (39, 10, True)), reset_in_ms=600000)
+    _dug(lua)
+    _refused(lua, lua_actions.TREASURE_ERR_DAY_LIMIT, "day times limit 2")
+    _step(lua)
+
+    assert _queued(lua) == 1, "the chest is still on the list — it is held, not spent"
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is False, \
+        "nothing to do until the day resets"
+
+    #: …and the same chest is work again the moment the game says the day turned over
+    lua.execute("NOW = NOW + 700000")
+    _day_manager(lua, groups=((602, 0, False), (39, 0, False)))
+    lua.execute("DataCenter.__lw_treasure_auto.tick()")
+    assert bool(lua.eval(lua_actions.treasure_auto_check())) is True, "after the reset"
+
+
 def _run() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

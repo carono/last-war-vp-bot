@@ -3937,7 +3937,17 @@ def treasure_auto_check() -> str:
         "local A = D.__lw_treasure_auto "
         "if A == nil or not A.on then return true end "
         "if W == nil or not W.hooked then return true end "
-        "for _, t in ipairs(A.targets or {}) do if not t.done then return true end end "
+        # …AND A CHEST THE DAY'S ALLOWANCE IS HOLDING IS NOT WORK (#1965). It is unfinished
+        # and will stay unfinished until the reset, so counting it as a reason to run turns
+        # the poll into a clock that wakes the errand every few seconds to do nothing. The
+        # hold is measured against the game's own stamp, so the day turning over makes the
+        # same chest work again with nothing pressed.
+        "local until_ms = tonumber(A.day_until) or 0 "
+        "local stop = (A.day_full and until_ms > 0) and true or false "
+        "for _, t in ipairs(A.targets or {}) do if not t.done then "
+        "local held = stop or ((tonumber(t.hold_until) or 0) > 0 "
+        "and until_ms > 0 and (tonumber(A.tick_at) or 0) < tonumber(t.hold_until)) "
+        "if not held then return true end end end "
         # ON THE MAP IS REASON ENOUGH. There is no period to compare against any more:
         # the look reads one box of the point manager and moves nothing, so the only
         # question left is whether there is anything to look AT — and in the city the
