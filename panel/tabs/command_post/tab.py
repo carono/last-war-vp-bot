@@ -1628,6 +1628,15 @@ class CommandPostTab(PanelTab):
         button runs — the recipe, with the squad the treasure page is set to. Nothing here
         assembles a step of it.
         """
+        if action == "set":
+            # «Свои задания» answers for its own five knobs and says so by returning
+            # something; nothing else on this screen has a field yet, so an unclaimed
+            # key is a press that did not come from here (#1976).
+            page = self._by_key.get("tasks")
+            args = args if isinstance(args, dict) else {}
+            answer = (page.web_set(str(args.get("key") or ""), args.get("value"))
+                      if page is not None else None)
+            return answer if answer is not None else {"error": "unknown"}
         if action == "refresh":
             page = self._by_key.get("tasks")
             if page is not None:

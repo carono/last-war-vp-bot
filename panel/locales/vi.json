@@ -1439,6 +1439,7 @@
   "web.ui.actions.none": "không tìm thấy gì",
   "web.ui.started": "đã chạy: {name}",
   "web.ui.refused": "đang bận — thứ khác đang điều khiển trò chơi",
+  "web.ui.not_a_number": "đó không phải là số nguyên",
   "web.ui.notify": "Báo cho tôi khi có lỗi",
   "web.ui.log.empty": "chưa có gì được nói",
   "web.ui.offline": "mất liên lạc với bảng điều khiển",

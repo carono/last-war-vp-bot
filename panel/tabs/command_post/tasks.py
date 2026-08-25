@@ -27,6 +27,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from ...runtime import opt_value
 from ...widgets import NumericEntry, font as ui_font, tk_stringvar
 
 #: The grey the rest of this tab draws its secondary lines in (`tab.py`'s `DIM`), spelled
@@ -258,13 +259,58 @@ class TasksPane:
         rows = [{"label": "cmdpost.tasks." + name, "value": self._vars[name].get()}
                 for name in ("nonur", "ur", "running", "finished", "tickets",
                              "diamonds", "marches", "next_free")]
-        rows.append({"label": "cmdpost.tasks.rule",
-                     "value": self.rt.t("cmdpost.tasks.rule_text",
-                                        keep=_int(self.keep_var.get(), DEFAULT_KEEP),
-                                        budget=(_int(self.budget_var.get(),
-                                                     DEFAULT_CAP)
-                                                if self.gold_var.get() else 0))})
-        return {"title": "cmdpost.tasks.title", "rows": rows}
+        return {"title": "cmdpost.tasks.title", "rows": rows,
+                "fields": self.web_fields()}
+
+    #: The rule as five knobs, and the one place their names are written. The order is
+    #: the window's: how many to keep, whether diamonds may be spent and up to how much,
+    #: then what the run does with what it has left.
+    WEB_FIELDS = (("keep", "cmdpost.tasks.keep", opt_value.NUMBER),
+                  ("use_diamonds", "cmdpost.tasks.use_diamonds", opt_value.SWITCH),
+                  ("diamond_cap", "cmdpost.tasks.budget", opt_value.NUMBER),
+                  ("mega", "cmdpost.tasks.mega", opt_value.SWITCH),
+                  ("dispatch", "cmdpost.tasks.send", opt_value.SWITCH))
+
+    def web_fields(self) -> list:
+        """The five knobs the run is aimed with — FIELDS on the phone since #1976.
+
+        They used to be one sentence («оставить N, до M алмазов») and nothing else,
+        while «Отработать сейчас» has travelled since #1296. A press whose rule can only
+        be read is a press somebody makes from a bus not knowing whether it may spend
+        diamonds, and the window they would walk to is being retired
+        (`docs/research/panel-service-and-spa-plan.md`). The press is unchanged: it plays
+        ONE recipe with these very values as its `ARGS` (:meth:`args`), so what moves
+        here is what the scenario is told and nothing else.
+        """
+        values = self.config()
+        return [{"key": "tasks_" + key, "label": label, "kind": kind,
+                 "value": values[key]}
+                for key, label, kind in self.WEB_FIELDS]
+
+    def web_set(self, key: str, value) -> "dict | None":
+        """One knob moved from the phone; ``None`` when the key is not one of ours.
+
+        A number that will not parse keeps the knob where it was rather than becoming
+        zero — `keep = 0` refreshes until every idle task is UR and `diamond_cap = 0`
+        silently switches the diamonds off, which is the pair :meth:`args` already
+        guards the window's own boxes against.
+        """
+        wanted = {name: (name, kind) for name, _label, kind in self.WEB_FIELDS}
+        if key.startswith("tasks_"):
+            key = key[len("tasks_"):]
+        if key not in wanted:
+            return None
+        _name, kind = wanted[key]
+        if kind is opt_value.SWITCH:
+            {"use_diamonds": self.gold_var, "mega": self.mega_var,
+             "dispatch": self.send_var}[key].set(bool(value))
+        else:
+            raw = str(value).strip()
+            if not raw.isdigit():
+                return {"ok": False, "reason": "web.ui.not_a_number"}
+            (self.keep_var if key == "keep" else self.budget_var).set(raw)
+        self._on_rule_change()
+        return {"ok": True}
 
     # -- what is remembered between sessions ---------------------------------
     def config(self) -> dict:

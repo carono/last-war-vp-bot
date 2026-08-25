@@ -1439,6 +1439,7 @@
   "web.ui.actions.none": "non trovato nulla",
   "web.ui.started": "avviato: {name}",
   "web.ui.refused": "occupato — qualcos'altro sta guidando il gioco",
+  "web.ui.not_a_number": "non è un numero intero",
   "web.ui.notify": "Avvisami degli errori",
   "web.ui.log.empty": "non è stato ancora detto nulla",
   "web.ui.offline": "nessun collegamento con il pannello",

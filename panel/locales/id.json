@@ -1439,6 +1439,7 @@
   "web.ui.actions.none": "tidak ada yang ditemukan",
   "web.ui.started": "dijalankan: {name}",
   "web.ui.refused": "sibuk — sesuatu yang lain sedang mengendalikan permainan",
+  "web.ui.not_a_number": "itu bukan bilangan bulat",
   "web.ui.notify": "Beri tahu kalau ada kesalahan",
   "web.ui.log.empty": "belum ada yang dikatakan",
   "web.ui.offline": "tidak ada sambungan ke panel",

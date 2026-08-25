@@ -1439,6 +1439,7 @@
   "web.ui.actions.none": "ничего не найдено",
   "web.ui.started": "запущено: {name}",
   "web.ui.refused": "занято — игрой сейчас управляет что-то другое",
+  "web.ui.not_a_number": "это не целое число",
   "web.ui.notify": "Оповещать об ошибках",
   "web.ui.log.empty": "пока ничего не сказано",
   "web.ui.offline": "нет связи с панелью",

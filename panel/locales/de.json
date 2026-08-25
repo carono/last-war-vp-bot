@@ -1439,6 +1439,7 @@
   "web.ui.actions.none": "nichts gefunden",
   "web.ui.started": "gestartet: {name}",
   "web.ui.refused": "beschäftigt — etwas anderes steuert gerade das Spiel",
+  "web.ui.not_a_number": "das ist keine ganze Zahl",
   "web.ui.notify": "Bei Fehlern benachrichtigen",
   "web.ui.log.empty": "noch nichts gesagt",
   "web.ui.offline": "keine Verbindung zum Panel",

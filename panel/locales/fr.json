@@ -1439,6 +1439,7 @@
   "web.ui.actions.none": "rien trouvé",
   "web.ui.started": "lancé : {name}",
   "web.ui.refused": "occupé — autre chose pilote le jeu en ce moment",
+  "web.ui.not_a_number": "ce n'est pas un nombre entier",
   "web.ui.notify": "M'avertir des erreurs",
   "web.ui.log.empty": "rien n'a encore été dit",
   "web.ui.offline": "pas de liaison avec le panneau",

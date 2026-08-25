@@ -1439,6 +1439,7 @@
   "web.ui.actions.none": "bir şey bulunamadı",
   "web.ui.started": "başlatıldı: {name}",
   "web.ui.refused": "meşgul — oyunu şu anda başka bir şey sürüyor",
+  "web.ui.not_a_number": "bu bir tam sayı değil",
   "web.ui.notify": "Hataları bildir",
   "web.ui.log.empty": "henüz bir şey söylenmedi",
   "web.ui.offline": "panelle bağlantı yok",
