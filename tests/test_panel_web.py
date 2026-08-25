@@ -539,10 +539,16 @@ def test_signing_in_sets_the_cookie_and_a_wrong_token_does_not():
 
 def test_the_page_is_served_and_nothing_above_it_is():
     with tempfile.TemporaryDirectory() as home, _Served(home) as served:
+        # «/» IS THE REACT FRONT-END (#1976) — by a redirect, which `urlopen` follows,
+        # so what this sees is the app's own page. A phone with this panel bookmarked
+        # lands on «/», so «/» is what has to change when the front-end does.
         status, body, _h = served.ask("/")
-        assert status == 200 and b"<html" in body.lower()
-        status, _body, _h = served.ask("/app.js")
-        assert status == 200
+        assert status == 200 and b'id="root"' in body, body[:200]
+        status, body, _h = served.ask("/app/")
+        assert status == 200 and b'id="root"' in body
+        # …and the page it replaced is still there, untouched, while this settles.
+        status, body, _h = served.ask("/old/")
+        assert status == 200 and b"data-i18n" in body
         for escape in ("/../api.py", "/..%2fapi.py", "/static/../server.py"):
             status, _body, _h = served.ask(escape)
             assert status == 404, f"{escape} was served ({status})"
@@ -575,18 +581,26 @@ def test_a_server_without_a_token_refuses_to_start():
 # ---------------------------------------------------------------------------
 # the words of the page
 # ---------------------------------------------------------------------------
-_KEY_IN_JS = re.compile(r"""\bT\(\s*['"]([a-z0-9_.]+)['"]""")
-_KEY_IN_HTML = re.compile(r"""data-i18n(?:-placeholder)?=["']([a-z0-9_.]+)["']""")
+# The front-end is React since #1976 and says a word one way: `t('key')`. Its source is
+# a tree rather than a pair of files, and the BUILT bundle is not read at all — a
+# minified `t("x")` would still be found, but a key that only exists in a stale build is
+# not a key the front-end asks for.
+_KEY_IN_JS = re.compile(r"""\bt\(\s*['"]([a-z0-9_.]+)['"]""")
+
+#: Where that source lives. `static/` holds what is SERVED (the built bundle, and the
+#: page it replaced at `old/`), which is deliberately not what these read.
+_APP_SRC = _REPO / "panel" / "web" / "app" / "src"
+
+
+def _front_end_source() -> str:
+    """Every line of the front-end, as one string — for «does it say X» questions."""
+    return "\n".join(path.read_text(encoding="utf-8")
+                     for path in sorted(_APP_SRC.rglob("*"))
+                     if path.suffix in (".ts", ".tsx"))
 
 
 def _keys_the_page_asks_for() -> set:
-    static = Path(apimod.static_dir())
-    found: set = set()
-    for path in sorted(static.glob("*.js")):
-        found |= set(_KEY_IN_JS.findall(path.read_text(encoding="utf-8")))
-    for path in sorted(static.glob("*.html")):
-        found |= set(_KEY_IN_HTML.findall(path.read_text(encoding="utf-8")))
-    return found
+    return set(_KEY_IN_JS.findall(_front_end_source()))
 
 
 def test_the_page_asks_for_keys_and_never_writes_a_word_itself():
@@ -970,13 +984,14 @@ def test_the_window_and_the_phone_draw_the_same_three():
         finally:
             harness.close()
 
-    script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    script = _front_end_source()
     # The browser is handed `enabled` and obeys it; a page computing it from the link
     # itself would be the second opinion this table exists to prevent.
     assert "control.enabled" in script
     for name in ("launch_game", "quit_game", "restart_game"):
-        assert name not in script, \
-            f"app.js names the scenario {name} — a press travels as an id, not a recipe"
+        assert name not in script, (
+            f"the front-end names the scenario {name} — a press travels as an id, "
+            f"not a recipe")
 
 
 # ---------------------------------------------------------------------------
@@ -1146,15 +1161,14 @@ def test_the_restart_is_the_windows_and_the_phones_one_press():
     shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
     assert "panelctl.set_handler" in shell, \
         "nothing registers the shell — a press from the phone reaches nobody"
-    script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    script = _front_end_source()
     assert "'/api/panel'" in script
     assert "control.confirm" in script and "window.confirm" in script, \
         "the phone would restart the panel on one stray tap"
-    html = (_REPO / "panel" / "web" / "static" / "index.html").read_text(encoding="utf-8")
     # ON «Состояние», not on a screen of its own: the remote control's own settings have
     # none by decision, and this is where what they need on the move goes (CLAUDE.md).
-    state_page = html.split('id="view-state"', 1)[1].split("</section>", 1)[0]
-    assert 'id="panel-controls"' in state_page, \
+    state = (_APP_SRC / "views" / "StateView.tsx").read_text(encoding="utf-8")
+    assert "'/api/panel'" in state, \
         "the restart left the state screen — the remote control still has no page"
 
 
@@ -1266,12 +1280,11 @@ def test_the_interrupt_is_the_windows_and_the_phones_one_press():
     shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
     assert "interruptmod.set_handler" in shell, \
         "nothing registers the shell — a press from the phone reaches one profile only"
-    script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
-    assert "'/api/interrupt'" in script
-    html = (_REPO / "panel" / "web" / "static" / "index.html").read_text(encoding="utf-8")
-    state_page = html.split('id="view-state"', 1)[1].split("</section>", 1)[0]
-    assert 'id="interrupt-controls"' in state_page, \
+    state = (_APP_SRC / "views" / "StateView.tsx").read_text(encoding="utf-8")
+    assert "'/api/interrupt'" in state, \
         "the press left «Состояние» — it is the phone's copy of the window's footer"
+    assert "interrupt.button" in state and "interrupt.stopping" in state, \
+        "the button has no word for either of its two states"
 
 
 # ---------------------------------------------------------------------------
@@ -1741,15 +1754,15 @@ def test_the_thread_that_pressed_never_waits_for_the_daemons_lease():
 
 def test_the_page_has_a_word_for_each_of_the_three():
     """The phone must be able to SAY them — one toast per answer, all of them keys."""
-    js = (Path(apimod.static_dir()) / "app.js").read_text(encoding="utf-8")
+    js = _front_end_source()
     assert "function pressWord(" in js, "the page has no way to name a press's outcome"
     english = i18nmod.load_locale("en")
     for key in ("web.ui.accepted", "web.ui.unknown", "web.ui.refused.why",
                 "web.ui.done", "web.ui.refused"):
-        assert f"T('{key}'" in js, f"{key} is in the locales and nothing says it"
+        assert f"t('{key}'" in js, f"{key} is in the locales and nothing says it"
         assert key in english, key
     # …and no press site left drawing an answer by hand, which is how the three merged.
-    assert "answer.ok ? T('web.ui.done')" not in js, (
+    assert "answer.ok ? t('web.ui.done')" not in js, (
         "a press is still drawn as done-or-refused — «принято, идёт» has nowhere to go")
 
 
@@ -1787,12 +1800,12 @@ def _css(with_comments: bool = False) -> str:
     rules it is held to in prose. A comment saying «no `:hover` anywhere» is not a
     `:hover`, and the first version of this test failed on its own documentation.
     """
-    css = (Path(apimod.static_dir()) / "style.css").read_text(encoding="utf-8")
+    css = (_APP_SRC / "app.css").read_text(encoding="utf-8")
     return css if with_comments else re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
 
 def test_the_page_is_told_it_is_on_a_phone():
-    html = (Path(apimod.static_dir()) / "index.html").read_text(encoding="utf-8")
+    html = (_REPO / "panel" / "web" / "app" / "index.html").read_text(encoding="utf-8")
     meta = re.search(r'<meta name="viewport" content="([^"]+)"', html)
     assert meta, "no viewport meta — the phone renders it at 980 px and shrinks it"
     content = meta.group(1)
@@ -1838,21 +1851,28 @@ def test_the_page_carries_a_switcher_when_there_is_more_than_one_account():
     thumb-sized and already in the right language, which no custom dropdown here would
     be.
     """
-    html = (Path(apimod.static_dir()) / "index.html").read_text(encoding="utf-8")
-    assert '<select id="profile-pick"' in html, "there is no account selector"
-    js = (Path(apimod.static_dir()) / "app.js").read_text(encoding="utf-8")
+    app = (_APP_SRC / "App.tsx").read_text(encoding="utf-8")
+    assert "<select" in app and 'className="profile picker"' in app, \
+        "there is no account selector"
+    js = _front_end_source()
     assert "/api/profiles" in js, "the page never asks which accounts are open"
     # …and every request carries the account, or the page would be showing one profile
     # while implying the other — the failure this whole feature exists to prevent.
     assert "function withProfile(" in js and "profile=" in js
-    assert "{ profile: PROFILE }" in js, "a POST does not say which account it is for"
+    assert "JSON.stringify({ profile," in js, \
+        "a POST does not say which account it is for"
 
 
 def test_the_layout_is_mobile_first_and_not_a_squeezed_desktop():
-    """Every media query WIDENS. A `max-width` one means the phone is the exception."""
-    queries = re.findall(r"@media\s*\(([^)]+)\)", _css())
-    assert queries, "there is no media query at all — that is fine, but say so here"
-    for query in queries:
+    """Every media query WIDENS. A `max-width` one means the phone is the exception.
+
+    NONE AT ALL IS THE STRONGEST FORM OF THAT, and it is what the React front-end does
+    (#1976): the grids grow by `auto-fill` and the type by `clamp()`, so the layout has
+    no thresholds for anybody to keep in step with the window's. The test still fails on
+    a `max-width` query, because the moment one appears the phone has become the
+    exception rather than the subject.
+    """
+    for query in re.findall(r"@media\s*\(([^)]+)\)", _css()):
         assert "min-width" in query, f"@media ({query}) narrows instead of widening"
 
 

@@ -271,7 +271,7 @@ class PanelTab:
         """This tab as DATA, for the web front-end to draw. ``None`` = no screen.
 
         THE SHAPE, and it is deliberately small — the phone has one renderer and every
-        screen is made of the same four things (`panel/web/static/app.js`)::
+        screen is made of the same four things (`panel/web/app/src`)::
 
             {"cards": [
                 {"title": "profile.balance",            # a LOCALE KEY

@@ -329,12 +329,16 @@ def test_the_phone_has_a_word_for_every_state_the_panel_can_report():
     import profile_health as ph
 
     root = Path(__file__).resolve().parents[1] / "panel"
-    app = (root / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    # The front-end is the React one since #1976; its source is a tree rather than one
+    # file, so the vocabulary is looked for across the whole of it.
+    app = "\n".join(p.read_text(encoding="utf-8")
+                    for p in sorted((root / "web" / "app" / "src").rglob("*"))
+                    if p.suffix in (".ts", ".tsx", ".css"))
     for reason in (ph.TRAFFIC, ph.NO_CLIENT, ph.CLIENT_HUNG, ph.NO_CONNECTION,
                    ph.NO_TRAFFIC):
-        assert f"{reason}:" in app, f"the phone has no word for {reason}"
+        assert reason in app, f"the phone has no word for {reason}"
     for colour in (ph.OK, ph.WARN, ph.BAD):
-        assert f"{colour}:" in app, f"the phone paints no pill for {colour}"
+        assert colour in app, f"the phone paints no pill for {colour}"
     words = ["health.traffic", "health.no_client", "health.client_hung",
              "health.no_connection", "health.no_traffic"]
     for path in sorted((root / "locales").glob("*.json")):

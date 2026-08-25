@@ -878,12 +878,19 @@ def test_every_field_and_every_source_has_a_word_in_every_shipped_locale():
 
 
 def test_the_renderer_draws_an_items_buttons_with_the_one_press_helper():
-    """Read off `app.js`: the copy that did not know about `prompt` is gone for good."""
-    source = (ROOT / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
-    body = source.split("function renderItem")[1].split("\nfunction ")[0]
-    assert "pressButton(action)" in body
+    """Read off the renderer: the copy that did not know about `prompt` is gone for good.
+
+    There were two press buttons once, and the copy on an ITEM had no `prompt`: every
+    «Метка» on a player arrived with no text, the panel read that as an empty note and
+    cleared the mark. One component draws both now (#1976 moved it to React and kept
+    the rule).
+    """
+    source = (ROOT / "panel" / "web" / "app" / "src" / "views" / "ScreenView.tsx").read_text(
+        encoding="utf-8")
+    body = source.split("function Item(")[1].split("\nfunction ")[0]
+    assert "<PressButton" in body, "an item draws its buttons some other way again"
     assert "/api/screen/press" not in body, (
-        "renderItem posts a press of its own again — that is how the mark was lost")
+        "the item posts a press of its own again — that is how the mark was lost")
 
 
 def _main() -> int:

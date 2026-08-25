@@ -544,7 +544,16 @@ def _make_handler(server: WebServer):
                     ("Location", path or "/"),
                     ("Set-Cookie", self._cookie_for(token))])
                 return
-            name = "index.html" if path in ("", "/") else path.lstrip("/")
+            # THE FRONT DOOR IS THE REACT FRONT-END (#1976). A phone that has this
+            # panel bookmarked lands on «/», so «/» is what has to change when the
+            # front-end does — a new page nobody can reach by the address they already
+            # have is a new page nobody uses. The one it replaced is not deleted while
+            # this settles: it is at «/old/», exactly as it was, so there is a fallback
+            # that is known to work rather than half-updated.
+            if path in ("", "/"):
+                self._send(303, b"", "text/plain", headers=[("Location", "/app/")])
+                return
+            name = path.lstrip("/")
             root = static_dir()
             full = os.path.normpath(os.path.join(root, name))
             # A FOLDER IS ITS OWN INDEX. The React front-end is a folder of its own

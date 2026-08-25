@@ -1,7 +1,7 @@
 r"""A tab's own screen on the phone: the contract, and the thing it exists to stop.
 
 `PanelTab.web_view()` returns a tab as DATA and the browser draws it with one renderer
-(`panel/web/static/app.js`). The whole arrangement rests on one distinction, and this
+(`panel/web/app/src`). The whole arrangement rests on one distinction, and this
 file is what keeps it true:
 
 * `title`, `label`, `empty`, `pill` are **locale keys** — the browser says them out of

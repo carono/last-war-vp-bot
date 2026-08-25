@@ -21,10 +21,20 @@ that window has open — serving a single page:
 ```
 panel/web/api.py        the JSON surface — state, timers, scenarios, log, words
 panel/web/server.py     the socket, the token, the static files
-panel/web/static/       index.html · app.js · style.css — the page itself
+panel/web/app/          the front-end's SOURCE (React + TypeScript, built with Vite)
+panel/web/static/app/   …and the built bundle, committed — the machine running the
+                        game has Python and no Node, so nothing is built on arrival
+panel/web/static/old/   the hand-written page this replaced, frozen, still reachable
+                        at «/old/» until the window goes (#1976)
 panel/runtime/web_control.py  the switch, the port and the token — the WINDOW's
 panel/runtime/web_dialog.py   …and the modal that draws them, off the menu bar
 ```
+
+**«/» IS THE REACT FRONT-END** since #1976: a phone that has this panel bookmarked lands
+on «/», so «/» is what changes when the front-end does. The page below is described as it
+was written; what replaced it draws the same five views out of the same routes, and the
+rules about words, keys and presses are unchanged — see `docs/panel-tabs.md` for the
+screen shape and `docs/research/panel-service-and-spa-plan.md` for where this is going.
 
 The page has four screens of its own: **state** (is the client on the line, is the daemon
 up, what is the panel doing, what is due next — the client's own lifecycle, §3.10: start

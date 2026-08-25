@@ -1,5 +1,10 @@
 <!doctype html>
 <!--
+  THE PAGE THIS REPLACED, kept at «/old/» while the React front-end settles (#1976).
+  It is not maintained: a change goes to `panel/web/app/`, and this stays exactly as it
+  was on the day the new one took over, so there is something to fall back to that is
+  known to work rather than half-updated. It goes when the window does.
+
   The page the phone opens. NOT ONE WORD OF IT IS WRITTEN HERE: every readable string is
   a `data-i18n` key, filled in from /api/i18n — the panel's own locale table — so the
   remote control speaks whatever language the panel is set to and a new key reaches both
@@ -13,7 +18,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#12161d">
 <title></title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="./style.css">
 </head>
 <body>
 
@@ -160,6 +165,6 @@
   </nav>
 </div>
 
-<script src="/app.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

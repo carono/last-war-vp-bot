@@ -1021,7 +1021,7 @@ class TimersTab(PanelTab):
 
         One locale key holds all seven short names as a comma-separated list, because a
         key per day would be seven keys in eleven files saying what one line already
-        says — and the phone reads the very same key (panel/web/static/app.js).
+        says — and the phone reads the very same key (panel/web/app/src).
         """
         names = [w.strip() for w in self.t("timers.weekday.names").split(",")]
         picked = [names[d - 1] for d in days if 1 <= d <= len(names)]

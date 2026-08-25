@@ -2830,7 +2830,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._status_lbl = ttk.Label(top, textvariable=self._status_var, foreground="#888")
         self._status_lbl.pack(side="left", padx=6)
         # The self-restart, beside the state that causes it. The phone draws the same
-        # three numbers on its «Состояние» card (`panel/web/static/app.js`), out of the
+        # three numbers on its «Состояние» card (`panel/web/app/src`), out of the
         # same object — a client that is being restarted round and round must not look
         # like one that is simply working.
         self._recovery_var = tk.StringVar(value="")

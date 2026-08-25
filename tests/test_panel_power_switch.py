@@ -224,11 +224,11 @@ def test_both_front_ends_read_one_object_and_offer_the_same_switch():
     assert "/api/power" in api, "the phone has no route to move it"
     assert "powermod.set_on(rt" in api, "the phone's press carries nothing out"
 
-    page = (ROOT / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    page = (ROOT / "panel" / "web" / "app" / "src" / "views" / "StateView.tsx").read_text(
+        encoding="utf-8")
     assert "state.power" in page and "'/api/power'" in page, "the page ignores it"
     assert "power.on" in page, "the phone draws no box"
-    html = (ROOT / "panel" / "web" / "static" / "index.html").read_text(encoding="utf-8")
-    assert 'id="power-controls"' in html and 'id="power-mark"' in html, "no place to draw it"
+    assert "power.mark" in page, "the phone draws no mark for a stopped profile"
 
 
 def test_the_phone_flips_the_same_switch_on_the_tk_thread():

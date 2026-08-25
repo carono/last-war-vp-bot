@@ -594,7 +594,8 @@ def test_the_wait_is_drawn_on_both_front_ends():
     """
     paint = _shell_method("_paint_recovery")
     assert '"status.recovery.kick"' in paint, "the window draws no countdown"
-    page = (ROOT / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    page = (ROOT / "panel" / "web" / "app" / "src" / "views" / "StateView.tsx").read_text(
+        encoding="utf-8")
     assert "web.ui.recovery.kick" in page and "kick_hold_left" in page, \
         "the phone shows the old panel"
 
@@ -906,7 +907,8 @@ def test_it_travels_to_BOTH_front_ends_out_of_ONE_object():
     # Neither side may keep its own copy of the bookkeeping.
     assert "Recovery()" not in shell, "the window built a second Recovery"
 
-    page = (ROOT / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    page = (ROOT / "panel" / "web" / "app" / "src" / "views" / "StateView.tsx").read_text(
+        encoding="utf-8")
     assert "state.game.recovery" in page, "the page ignores what the api sends"
 
 

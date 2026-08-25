@@ -914,7 +914,7 @@ class PlayersTab(PanelTab):
             # arguments, so every «Метка» from a phone arrived with no `text` key, was
             # read as an empty note, cleared the mark and answered «готово». Live that
             # was 4 259 rows and not one mark on any of them. The renderer is fixed
-            # (`panel/web/static/app.js`); this refuses the shape outright, because the
+            # (`panel/web/app/src`); this refuses the shape outright, because the
             # next renderer will be written by somebody who has not read that fix.
             if "text" not in args:
                 return {"ok": False, "reason": "players.web.no_text"}

@@ -248,7 +248,7 @@ class ProfileTab(DataTab):
 
     def web_view(self) -> "dict | None":
         """The tab's cards, plus the one press the window's box is — asking about
-        another warzone. The phone types it into a prompt (`panel/web/static/app.js`)."""
+        another warzone. The phone types it into a prompt (`panel/web/app/src`)."""
         view = super().web_view()
         if view is not None:
             view.setdefault("actions", []).append(

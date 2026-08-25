@@ -181,7 +181,7 @@ number in the bench (§6.2) rather than a fix.
 ## 2.3 The phone defeats the laziness it polls — WIN/RISK: medium
 
 **Fact.** `panel/web/api.py::screen` calls `rt.tabs.realize(tab)` and then
-`tab.web_view()` **on the Tk thread**, and `panel/web/static/app.js` polls it every
+`tab.web_view()` **on the Tk thread**, and `panel/web/app/src` polls it every
 `POLL_MS = 2500` while the page is visible. So a phone left on a screen forces that tab
 to be BUILT (undoing #1215 for it) and then hops the Tk thread twice every 2.5 s, per
 open screen, per profile — which is the shape #1226 spent a task removing.
