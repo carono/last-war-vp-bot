@@ -187,7 +187,7 @@ after the new one has been used to drive it.**
   | «Таймеры» | add / edit / copy / delete an errand, edit its steps | yes — a recipe rewritten by a thumb |
   | «Дуэль» | new / rename / delete a set, the week's grid | yes — a day's speedups aimed by a thumb |
   | «Командный пункт» | ghost: switch, level, «Ограбить», jump, scan | asked; unanswered — see «still window-only» above |
-  | «Ралли» | join now, launch / stop a run, the two drill switches, the kind filter's «все / никакие» | the join and the run: yes. The drill switches and the filter buttons: NOT decided, the next thing to take |
+  | «Ралли» | join now, launch / stop a run, the kind filter's «все / никакие» | the join and the run: yes — squads aimed by a thumb. The two filter buttons: not decided, and they only set boxes the phone can already read |
   | «Настройки» | bring the RDP session up, check it, refresh the graphics reading | not decided — a press worth having on a phone |
   | «Сокровища (отладка)» | copy, keep-messages switch | debug surface; low value |
   | «Секретки» | nothing of substance — every box travels as its own toggle action | — |
