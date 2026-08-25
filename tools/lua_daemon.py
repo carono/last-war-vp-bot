@@ -417,8 +417,8 @@ class Daemon:
             # is gone» would be the same kind of lie in the other direction.
             return exc
         return ClientUnreachable(
-            f"the client this daemon drives is gone (pid {pin or '?'}); the link is "
-            f"dead, not the chunk — restart the client, then this daemon "
+            f"the client on the other end of this link is gone (pid {pin or '?'}); "
+            f"the link is dead, not the chunk — restart the client "
             f"[{type(exc).__name__}: {exc}]")
 
     def close(self):

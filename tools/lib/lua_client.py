@@ -169,10 +169,10 @@ class DaemonClient:
                 raise LeaseLost(r.get("error", "lease lost"))
             if _client_gone(r):
                 raise ClientGone(
-                    f"the client this daemon drives is not there any more — nothing "
-                    f"sent from here reaches the game, and the link is what is broken "
-                    f"rather than the chunk. Restart the client, then the daemon "
-                    f"[{r.get('error', 'daemon error')}]")
+                    f"the client on the other end of this link is not there any "
+                    f"more — nothing sent from here reaches the game, and the link "
+                    f"is what is broken rather than the chunk. Restart the client "
+                    f"[{r.get('error', 'link error')}]")
             raise RuntimeError(r.get("error", "daemon error"))
         return r.get("lines", [])
 
