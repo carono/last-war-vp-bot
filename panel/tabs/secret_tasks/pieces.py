@@ -104,9 +104,11 @@ class PiecesPage:
         #: exchanges was found anywhere in the client (#1975), so the ceiling that stops
         #: a board filled overnight from emptying our spare pieces has to be here.
         self.limit_var = tk.StringVar(master=root, value="3")
-        #: Whether the errand keeps an offer of ours standing. Posting one costs nothing
-        #: — measured live, the bag is identical on both sides of a post-and-cancel — so
-        #: it is on by default and this box is for the person who would rather not.
+        #: Whether the errand keeps an offer of ours standing. A standing offer holds
+        #: back one copy of the piece it pays with (measured live: the count drops while
+        #: it is up and returns on withdrawal), but the recipe always pays with the piece
+        #: we hold MOST of, so the held copy is never the one deciding how many digs are
+        #: left. On by default; this box is for the person who would rather not.
         self.offer_var = tk.BooleanVar(master=root, value=True)
         #: The last reading, as `parse_board` returns it. Drawn by the window, handed to
         #: the phone, and never edited by either.

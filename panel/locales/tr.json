@@ -2115,7 +2115,7 @@
   "top.link": "bağlantı:",
   "web.ui.link": "Bağlantı",
   "secrettasks.page.pieces": "Harita parçası takası",
-  "pieces.hint": "Bir kazı her türden birer parça harcar; bu yüzden kalan kazı sayısı en az sahip olunan parça kadardır. Başkasının teklifi yalnızca en kıt parçamızla ödeme yapıyorsa ve aşağıdaki kadar fazlası olan bir parçayı istiyorsa kabul edilir. Kendi teklifini panoda tutmanın maliyeti yoktur.",
+  "pieces.hint": "Bir kazı her türden birer parça harcar; bu yüzden kalan kazı sayısı en az sahip olunan parça kadardır. Başkasının teklifi yalnızca en kıt parçamızla ödeme yapıyorsa ve aşağıdaki kadar fazlası olan bir parçayı istiyorsa kabul edilir. Kendi teklifimiz panoda durduğu sürece ödediği parça bloke edilir — teklifi geri çekince anında geri gelir.",
   "pieces.summary": "Kalan kazı: {digs} · parçalar — {have}",
   "pieces.digs": "Kalan kazı",
   "pieces.piece": "Parça",

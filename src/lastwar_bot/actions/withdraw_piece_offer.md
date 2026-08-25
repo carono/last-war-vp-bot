@@ -5,8 +5,10 @@
 # a person wants to do BY HAND: the errand keeps an offer standing at all times, and
 # «not right now» has to be sayable without switching the errand off.
 #
-# Costs nothing either way — an offer escrows no piece (measured live, #1975) — so this
-# is only ever about what the alliance sees on the board.
+# It is also what GIVES A PIECE BACK: a standing offer holds one copy of the piece it
+# pays with (measured live, #1975 — the count drops while the offer is up and returns the
+# moment it is withdrawn), so this is both «take it off the board» and «have that piece
+# back in the bag».
 #
 # `hero.dispatch.cancel.fragment.exchange` {uuid}, and the uuid is our own record's,
 # read out of the client rather than passed in: an offer we do not have is a no-op that

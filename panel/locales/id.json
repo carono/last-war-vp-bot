@@ -2115,7 +2115,7 @@
   "top.link": "koneksi:",
   "web.ui.link": "Koneksi",
   "secrettasks.page.pieces": "Tukar kepingan peta",
-  "pieces.hint": "Satu penggalian menghabiskan satu kepingan dari tiap jenis, jadi sisa penggalian sama dengan jumlah kepingan yang paling sedikit. Tawaran orang lain diambil hanya bila ia membayar dengan kepingan kita yang paling langka dan meminta kepingan yang kita punya setidaknya sebanyak cadangan di bawah. Memasang tawaran sendiri tidak memakan biaya apa pun.",
+  "pieces.hint": "Satu penggalian menghabiskan satu kepingan dari tiap jenis, jadi sisa penggalian sama dengan jumlah kepingan yang paling sedikit. Tawaran orang lain diambil hanya bila ia membayar dengan kepingan kita yang paling langka dan meminta kepingan yang kita punya setidaknya sebanyak cadangan di bawah. Selama tawaran kita terpasang, kepingan yang dipakainya untuk membayar ditahan — langsung kembali begitu tawaran ditarik.",
   "pieces.summary": "Sisa penggalian: {digs} · kepingan — {have}",
   "pieces.digs": "Sisa penggalian",
   "pieces.piece": "Kepingan",

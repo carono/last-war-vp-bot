@@ -2115,7 +2115,7 @@
   "top.link": "Verbindung:",
   "web.ui.link": "Verbindung",
   "secrettasks.page.pieces": "Kartenteil-Tausch",
-  "pieces.hint": "Eine Grabung verbraucht je ein Teil jeder Sorte, also bleiben so viele Grabungen wie vom seltensten Teil vorhanden sind. Ein fremdes Angebot wird nur angenommen, wenn es mit unserem seltensten Teil bezahlt und ein Teil verlangt, von dem wir mindestens den unten eingestellten Vorrat haben. Ein eigenes Angebot kostet nichts.",
+  "pieces.hint": "Eine Grabung verbraucht je ein Teil jeder Sorte, also bleiben so viele Grabungen wie vom seltensten Teil vorhanden sind. Ein fremdes Angebot wird nur angenommen, wenn es mit unserem seltensten Teil bezahlt und ein Teil verlangt, von dem wir mindestens den unten eingestellten Vorrat haben. Solange ein eigenes Angebot steht, ist das Teil, mit dem es bezahlt, zurückgehalten — beim Zurückziehen kommt es sofort zurück.",
   "pieces.summary": "Verbleibende Grabungen: {digs} · Teile — {have}",
   "pieces.digs": "Verbleibende Grabungen",
   "pieces.piece": "Teil",

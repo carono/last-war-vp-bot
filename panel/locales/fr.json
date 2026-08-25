@@ -2115,7 +2115,7 @@
   "top.link": "lien :",
   "web.ui.link": "Lien",
   "secrettasks.page.pieces": "Échange de fragments",
-  "pieces.hint": "Une fouille consomme un fragment de chaque sorte : il reste donc autant de fouilles que du fragment le plus rare. Une offre n'est prise que si elle paie avec notre fragment le plus rare et demande un fragment dont nous avons au moins la réserve indiquée ci-dessous. Laisser sa propre offre ne coûte rien.",
+  "pieces.hint": "Une fouille consomme un fragment de chaque sorte : il reste donc autant de fouilles que du fragment le plus rare. Une offre n'est prise que si elle paie avec notre fragment le plus rare et demande un fragment dont nous avons au moins la réserve indiquée ci-dessous. Tant que notre offre reste affichée, le fragment qu'elle paie est retenu — il revient dès qu'on la retire.",
   "pieces.summary": "Fouilles restantes : {digs} · fragments — {have}",
   "pieces.digs": "Fouilles restantes",
   "pieces.piece": "Fragment",

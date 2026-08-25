@@ -2115,7 +2115,7 @@
   "top.link": "collegamento:",
   "web.ui.link": "Collegamento",
   "secrettasks.page.pieces": "Scambio di frammenti",
-  "pieces.hint": "Uno scavo consuma un frammento di ogni tipo, quindi restano tanti scavi quanti sono i frammenti del tipo più scarso. Un'offerta altrui si accetta solo se paga con il nostro frammento più scarso e chiede un tipo di cui abbiamo almeno la scorta indicata sotto. Tenere una propria offerta non costa nulla.",
+  "pieces.hint": "Uno scavo consuma un frammento di ogni tipo, quindi restano tanti scavi quanti sono i frammenti del tipo più scarso. Un'offerta altrui si accetta solo se paga con il nostro frammento più scarso e chiede un tipo di cui abbiamo almeno la scorta indicata sotto. Finché la nostra offerta resta in bacheca, il frammento con cui paga è trattenuto — torna appena la si ritira.",
   "pieces.summary": "Scavi rimasti: {digs} · frammenti — {have}",
   "pieces.digs": "Scavi rimasti",
   "pieces.piece": "Frammento",

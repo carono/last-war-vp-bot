@@ -2115,7 +2115,7 @@
   "top.link": "link:",
   "web.ui.link": "Link",
   "secrettasks.page.pieces": "Map-piece swaps",
-  "pieces.hint": "A dig spends one of each piece, so the digs you have left are the SMALLEST of the seven counts. An offer is taken only when what it pays is your scarcest piece and what it asks for has at least the spare below. Standing an offer of your own costs nothing.",
+  "pieces.hint": "A dig spends one of each piece, so the digs you have left are the SMALLEST of the seven counts. An offer is taken only when what it pays is your scarcest piece and what it asks for has at least the spare below. While an offer of yours stands, the piece it pays with is held back — you get it straight back when you withdraw it.",
   "pieces.summary": "Digs left: {digs} · pieces — {have}",
   "pieces.digs": "Digs left",
   "pieces.piece": "Piece",

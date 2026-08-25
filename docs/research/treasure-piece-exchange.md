@@ -96,9 +96,16 @@ to buy the most plentiful one.
   on the manager, the info object or the record. The ceiling in
   `actions/exchange_treasure_pieces.md` (`limit`) is therefore OURS — a guard against a
   board that filled up overnight, not a rule of the game's.
-* **A standing offer escrows nothing.** Measured: the seven counts were identical before a
-  post and after the cancel that followed it. An offer left up all day costs nothing, which
-  is what makes «always keep one standing» the right default.
+* **A standing offer HOLDS BACK one copy of the piece it pays with**, and hands it straight
+  back when it is withdrawn. This was got wrong first and the mistake is worth recording:
+  posting an offer and cancelling it in the same run showed the seven counts identical on
+  both sides, which reads as «nothing is escrowed» and is really «the cancel gave it back».
+  Counting while the offer was still standing showed the paid piece one lower (20 → 19), and
+  the withdrawal put it back (19 → 20). **Measure a hold while it is HELD, never across the
+  release.** It does not change the default: we always pay with the piece we hold most of and
+  the floor is the piece we hold least of, so the held copy can never be the one that decides
+  how many digs are left — which is also why the offer step refuses to post when the seven
+  are level.
 * **One offer at a time.** `GetSelfExchangeData` holds a single record, and the client's own
   panel has one slot; posting a second is not something this ability tries.
 * `isOpened` on `ActDispatchTreasureManager` says whether the activity is running at all.

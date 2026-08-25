@@ -2115,7 +2115,7 @@
   "top.link": "ligação:",
   "web.ui.link": "Ligação",
   "secrettasks.page.pieces": "Troca de fragmentos",
-  "pieces.hint": "Uma escavação gasta um fragmento de cada tipo, portanto restam tantas escavações quanto o fragmento mais escasso. Uma oferta alheia só é aceita se pagar com o nosso fragmento mais escasso e pedir um do qual tenhamos ao menos a reserva indicada abaixo. Manter uma oferta própria não custa nada.",
+  "pieces.hint": "Uma escavação gasta um fragmento de cada tipo, portanto restam tantas escavações quanto o fragmento mais escasso. Uma oferta alheia só é aceita se pagar com o nosso fragmento mais escasso e pedir um do qual tenhamos ao menos a reserva indicada abaixo. Enquanto a nossa oferta estiver no mural, o fragmento com que ela paga fica retido — volta assim que ela é retirada.",
   "pieces.summary": "Escavações restantes: {digs} · fragmentos — {have}",
   "pieces.digs": "Escavações restantes",
   "pieces.piece": "Fragmento",

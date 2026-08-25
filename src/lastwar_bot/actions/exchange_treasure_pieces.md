@@ -41,10 +41,17 @@
 #     hero.dispatch.call.fragment.exchange        {type, needFragment, costFragment}
 #     hero.dispatch.cancel.fragment.exchange      {uuid}      -- withdraw our own
 #
-# WHAT A POSTED OFFER COSTS: nothing. Posting one and cancelling it was measured live
-# with the bag counted on both sides of the pair — 12/20/15/14/12/13/18 before and after
-# — so the piece we advertise is NOT escrowed and an offer left standing all day is free.
-# That is what makes «always keep one up» the right default.
+# WHAT A POSTED OFFER COSTS: one copy of the piece it PAYS with, held back for as long
+# as it stands, and handed straight back when it is withdrawn. Measured live twice, and
+# the first measurement was wrong in a way worth recording: posting an offer and
+# cancelling it in one run showed the seven counts identical on both sides — which reads
+# as «nothing is escrowed» and is really «the cancel gave it back». Counting while the
+# offer was still up showed the paid piece one lower, and withdrawing it put it back.
+#
+# It does not change the default. We always pay with the piece we hold MOST of, and the
+# floor is the piece we hold LEAST of, so the held-back copy can never be the one that
+# decides how many digs are left. It is why the offer step refuses to post at all when
+# the seven are level: with nothing spare, a standing offer really would cost a dig.
 #
 # NO DAILY CAP IS KNOWN. Nothing in the client's own books counts exchanges the way
 # `hero.dispatch.list` counts the day's steals and assists, and none was found. `limit`

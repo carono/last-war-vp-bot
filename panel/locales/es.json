@@ -2115,7 +2115,7 @@
   "top.link": "enlace:",
   "web.ui.link": "Enlace",
   "secrettasks.page.pieces": "Intercambio de fragmentos",
-  "pieces.hint": "Una excavación gasta un fragmento de cada clase, así que quedan tantas excavaciones como del fragmento más escaso. Una oferta ajena se acepta solo si paga con nuestro fragmento más escaso y pide uno del que tengamos al menos la reserva indicada abajo. Mantener una oferta propia no cuesta nada.",
+  "pieces.hint": "Una excavación gasta un fragmento de cada clase, así que quedan tantas excavaciones como del fragmento más escaso. Una oferta ajena se acepta solo si paga con nuestro fragmento más escaso y pide uno del que tengamos al menos la reserva indicada abajo. Mientras nuestra oferta esté en el tablón, el fragmento con que paga queda retenido — vuelve en cuanto se retira.",
   "pieces.summary": "Excavaciones restantes: {digs} · fragmentos — {have}",
   "pieces.digs": "Excavaciones restantes",
   "pieces.piece": "Fragmento",

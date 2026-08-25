@@ -2115,7 +2115,7 @@
   "top.link": "połączenie:",
   "web.ui.link": "Połączenie",
   "secrettasks.page.pieces": "Wymiana fragmentów",
-  "pieces.hint": "Wykop zużywa po jednym fragmencie każdego rodzaju, więc wykopów zostaje tyle, ile jest najrzadszego fragmentu. Cudzą ofertę bierzemy tylko wtedy, gdy płaci naszym najrzadszym fragmentem i prosi o taki, którego mamy co najmniej zapas ustawiony niżej. Trzymanie własnej oferty nic nie kosztuje.",
+  "pieces.hint": "Wykop zużywa po jednym fragmencie każdego rodzaju, więc wykopów zostaje tyle, ile jest najrzadszego fragmentu. Cudzą ofertę bierzemy tylko wtedy, gdy płaci naszym najrzadszym fragmentem i prosi o taki, którego mamy co najmniej zapas ustawiony niżej. Dopóki nasza oferta wisi, fragment, którym płaci, jest zablokowany — wraca w chwili jej wycofania.",
   "pieces.summary": "Pozostałe wykopy: {digs} · fragmenty — {have}",
   "pieces.digs": "Pozostałe wykopy",
   "pieces.piece": "Fragment",
