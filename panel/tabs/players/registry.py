@@ -26,6 +26,12 @@ store now.
 Keeping them apart is what stops the panel keeping a second version of a truth the game
 already owns: nothing here ever writes into a field a source fills.
 
+**They are two notes to WRITE and one column to READ, and the filter follows the
+column** (#1968). «Метка» in the table is `tab.note_of` — the person's mark, the game's
+note, or both — so «Только с меткой» keeps a row that has EITHER. It read the person's
+own mark alone until #1968, and on a live register with eight hundred game notes and no
+mark of its own that filter emptied a grid whose every visible row plainly had a Метка.
+
 ## Nothing here ever asks the game anything
 
 **The register takes what the panel is already told and never goes back for more.** Not
@@ -155,7 +161,14 @@ def matches(row: dict, f: dict, now: float) -> bool:
         if window is not None and now - last > window:
             return False
 
-    if f.get("noted") and not (row.get("note") or "").strip():
+    # «ТОЛЬКО С МЕТКОЙ» MEANS THE COLUMN CALLED «Метка», not one of the two notes
+    # behind it (#1968). The table draws `tab.note_of`, which is the person's own mark
+    # AND the game's own note on that player — so a register with eight hundred game
+    # notes and no mark of its own answered the filter with an empty grid while every
+    # visible row plainly had a Метка. A filter narrows what is DRAWN; it cannot mean
+    # something the column does not say.
+    if f.get("noted") and not ((row.get("note") or "").strip()
+                               or (row.get("remark") or "").strip()):
         return False
     return True
 

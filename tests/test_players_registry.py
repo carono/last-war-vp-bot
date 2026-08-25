@@ -259,9 +259,25 @@ def test_seen_recently_and_not_for_a_week():
     assert _found({"seen": "any"}) == {"1", "2", "3"}
 
 
-def test_only_marked_and_the_and_between_clauses():
-    assert _found({"noted": True}) == {"2"}
-    assert _found({"noted": True, "level_min": 30}) == set()
+#: A player the GAME holds a note on and this profile has never marked. Kept out of
+#: :func:`_rows` on purpose — it would change the answer of every other filter here —
+#: and added by the two tests that are about what «метка» means (#1968).
+REMARKED = {"uid": "9", "name": "Player9", "level": 25, "server_id": 300,
+            "x": 10, "y": 20, "last_seen": NOW - 3600, "remark": "sniped me"}
+
+
+def test_only_marked_keeps_both_notes_and_ands_with_the_rest():
+    """«Только с меткой» = the column «Метка», which is both notes (#1968).
+
+    It used to read the person's own mark alone, and on the live register — eight
+    hundred game notes, not one mark of its own — the filter emptied a grid whose every
+    visible row showed a Метка.
+    """
+    rows = _rows() + [REMARKED]
+    found = lambda f: {r["uid"] for r in reg.apply_filter(rows, f, now=NOW)}  # noqa: E731
+    assert found({"noted": True}) == {"2", "9"}
+    assert found({"noted": True, "level_min": 30}) == set()
+    assert found({"noted": True, "level_min": 25}) == {"9"}
 
 
 def test_sorting_is_stable_and_every_column_has_an_order():
@@ -292,10 +308,12 @@ def test_the_sql_filter_and_the_readable_one_never_disagree():
         {"circle": (500, 600, 10)}, {"circle": (500, 600, 2)},
         {"seen": "hour"}, {"seen": "day"}, {"seen": "week"}, {"seen": "stale"},
         {"noted": True}, {"noted": True, "level_min": 30},
+        {"noted": True, "level_min": 25},
         {"text": "player", "server": "100", "level_min": 30},
     ]
     rows = _rows() + [{"uid": "4", "name": "Игрок", "level": 40, "server_id": 100,
-                       "alliance_abbr": "АЛ1", "x": 10, "y": 20, "last_seen": NOW}]
+                       "alliance_abbr": "АЛ1", "x": 10, "y": 20, "last_seen": NOW},
+                      REMARKED]
     with _tmpdir() as tmp:
         book = _store(tmp)
         book.sighted([dict(r, seen_at=r["last_seen"]) for r in rows],

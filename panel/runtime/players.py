@@ -343,7 +343,10 @@ def where_of(f: dict, now: float) -> tuple:
             params.append(now - window)
 
     if f.get("noted"):
-        clauses.append("TRIM(COALESCE(note, '')) <> ''")
+        # Both notes, because the column the filter narrows shows both (#1968) — see
+        # `panel/tabs/players/registry.py::matches`.
+        clauses.append("(TRIM(COALESCE(note, '')) <> '' "
+                       "OR TRIM(COALESCE(remark, '')) <> '')")
 
     return (" AND ".join(clauses) if clauses else "1", params)
 

@@ -54,6 +54,9 @@ the command that sets one has never been captured, so a panel that «kept it in 
 would be keeping a second version of a truth it cannot see. `note` is this profile's
 own mark, written here by the person and by nothing else; no lap may touch it.
 
+The COLUMN shows whichever of them there is (`note_of`), and «Только с меткой» narrows
+by that same column rather than by one of the two notes behind it (#1968).
+
 ## Both front-ends
 
 The window has the table, the filters, the two writes, a coordinate that jumps the
