@@ -49,6 +49,8 @@ CLOSED_TH = ("เซิร์ฟเวอร์\u200bอยู่\u200bระห
 CODED_EN = "({0}) The server is under maintenance."
 SOON_MIN = "The server will shut down for maintenance in {0}-min"
 SOON_SEC = "The server will shut down for maintenance in {0}s"
+SEASON_EN = ("The season has ended, and the server is currently under maintenance.\n"
+             "(Estimated time: 10-30 minutes)")
 
 
 def _with(**keys) -> None:
@@ -64,16 +66,30 @@ def teardown() -> None:
 
 
 class _Ev:
-    """A fake VM: answers one line, or raises, exactly as the client's would."""
+    """A fake VM: answers one line, or raises, exactly as the client's would.
 
-    def __init__(self, text=None, boom=False):
+    The line is what `lua_actions.maintenance_look` builds — the four window flags and
+    the message dialog's text, the text last because it is the only field that can
+    contain spaces.
+    """
+
+    def __init__(self, text="", boom=False, window=False, login=False,
+                 disconnect=False, cross=False, raw=None):
         self.text, self.boom, self.calls = text, boom, 0
+        self.window, self.login, self.disconnect, self.cross = (
+            window, login, disconnect, cross)
+        self.raw = raw
 
     def run(self, chunk, marker="", settle=0.0, **_kw):
         self.calls += 1
         if self.boom:
             raise RuntimeError("nothing is attached")
-        return [f"{gm.MARKER} tip={self.text}"]
+        if self.raw is not None:
+            return [f"{gm.MARKER} look={self.raw}"]
+        said = ("maint=%s login=%s disc=%s cross=%s tip=%s"
+                % (int(self.window), int(self.login), int(self.disconnect),
+                   int(self.cross), self.text))
+        return [f"{gm.MARKER} look={said}"]
 
 
 # --- the closed door --------------------------------------------------------
@@ -145,12 +161,62 @@ def test_a_client_that_will_not_answer_is_cannot_tell():
     assert gm.read(_Ev(boom=True)) == (None, None)
 
 
+# --- the game's own name for the state --------------------------------------
+def test_the_games_own_window_decides_with_no_tables_at_all():
+    """`UIServerMaintenanceTip` is the same in every language and needs no sentence.
+
+    Confirmed to EXIST on a live client (2026-08-26); not yet seen open, which is why
+    the sentences below are still read as a second rung.
+    """
+    _with()                                   # no locale tables on this machine at all
+    assert gm.read(_Ev(window=True)) == (gm.CLOSED, None)
+
+
+def test_the_window_outranks_a_dialog_that_says_something_else():
+    _with(login_err_tips_maintenance_new=CLOSED_EN)
+    assert gm.read(_Ev(text="Not enough diamonds", window=True)) == (gm.CLOSED, None)
+
+
+def test_the_context_flags_come_back_for_the_recording():
+    """Where the client is SITTING is what a sample is worth reading for."""
+    seen = gm.look(_Ev(text=CLOSED_EN, window=True, login=True))
+    assert seen["window"] is True and seen["login"] is True
+    assert seen["disconnect"] is False and seen["cross"] is False
+    assert seen["tip"] == CLOSED_EN
+    assert seen["raw"].startswith("maint=1 login=1")
+
+
+def test_a_tip_with_spaces_survives_the_one_line_it_travels_in():
+    seen = gm.look(_Ev(text="The server is under maintenance. Please wait."))
+    assert seen["tip"] == "The server is under maintenance. Please wait."
+
+
+def test_a_client_that_answers_nothing_at_all_is_cannot_tell():
+    assert gm.look(_Ev(raw="")) is None
+
+
+# --- the one length the game names ------------------------------------------
+def test_the_season_close_is_maintenance_and_it_says_how_long():
+    """The only sentence in the game that estimates the LENGTH of the outage."""
+    _with(season_close_tips01=SEASON_EN)
+    assert gm.judge(SEASON_EN) == (gm.CLOSED, None)
+    assert gm.estimate(SEASON_EN) == (10 * 60.0, 30 * 60.0)
+
+
+def test_no_length_is_read_out_of_any_other_sentence():
+    """Two numbers in an ordinary message are a level or a reward, never a deadline."""
+    _with(login_err_tips_maintenance_new=CLOSED_EN, season_close_tips01=SEASON_EN)
+    assert gm.estimate(CLOSED_EN) is None
+    assert gm.estimate("Base 10-30 upgraded") is None
+
+
 def test_no_dialog_on_screen_is_a_real_answer_and_not_a_shrug():
     _with(login_err_tips_maintenance_new=CLOSED_EN)
     assert gm.read(_Ev("")) == ("", None)
 
 
 def test_the_reading_is_one_round_trip():
+    """Both questions — the kick and the closed door — come out of this one line."""
     _with(login_err_tips_maintenance_new=CLOSED_EN)
     ev = _Ev(CLOSED_EN)
     assert gm.read(ev) == (gm.CLOSED, None)

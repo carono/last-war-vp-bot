@@ -272,3 +272,111 @@ than rediscovering.
    on the phone's pill and on the profile picker, out of one verdict. What it cannot do
    is say it when the client will not answer at all — that is rung 1's heuristic, still
    unwritten.
+
+---
+
+## 7. The second window, MISSED — and what was learned without it (#1982, 2026-08-26)
+
+A maintenance window happened this afternoon and was gone before anybody could read the
+client: «проворонил, игра вышла из режима ТО». The account was back on the world map,
+chat scrolling, rally banners arriving. So this section is the OTHER way of learning the
+state — out of what was already written down, and out of the client's own code and
+tables — and it says plainly which parts are confirmed and which are inference.
+
+### 7.1 What the recordings had (and did not)
+
+* **`panel.log` — nothing at all.** The profile's own log had been frozen since 10:54,
+  which is a bug of ours and now fixed (#1984): the machine's service runs the windowless
+  panel and nothing drained the log queue. **The person's log was empty for exactly the
+  minutes that mattered.**
+* **`debug.log` — the whole shape of it**, and it is what §4's port claim was struck out
+  on: the VM stopped answering at 12:34:35, «нет связи с игрой» at 12:37:07, «клиент не
+  залогинен — он показывает пустой список альянса» at 12:38:44, and by 12:41 the client
+  was in the city again. No error code, no message text: the panel had no way to read one.
+* **The GAME's own log — silent.** `%LOCALAPPDATA%Low\<publisher>\<product>\Player.log`
+  (and `Player-prev.log`, which is the client that lived through the outage) carries the
+  Unity boot, shader warnings and scene unloads, and **not one line about the server, the
+  connection or a dialog**. Worth knowing for next time: the client does not journal this.
+* **`service.log`** has only the panel's own comings and goings — no game state.
+
+### 7.2 The game's own name for the state — **`UIServerMaintenanceTip`**
+
+The client's window table (`docs/research/ui-open-data/ui_window_names.json`, 2 221
+names) has exactly one entry for this, and the live client confirms it exists:
+
+```
+READ_LUA … UIWindowNames.UIServerMaintenanceTip …
+→ name=UIServerMaintenanceTip open=false cfg=false
+```
+
+`cfg=false` is not a contradiction: `windowsConfig` is filled when a window is first
+built, so a window that has never been shown in this session has no entry — the same
+behaviour every other UI class here has.
+
+**That is the strongest rung the detector has**: a window name is the same in every
+language and costs a flag rather than a comparison against nineteen locale tables. What
+it is NOT is a sighting — nobody has yet seen it open, which is why the sentences below
+are kept beside it and why the panel now records a sample the first time either fires.
+
+The neighbours worth knowing, from the same table: `UIDisconnect`, `UICrossDisconnect`,
+`UILogin`, `UILoginConfirm`. The panel reads all four as CONTEXT — where the client is
+sitting while it shows what it shows — and none of them as evidence.
+
+### 7.3 The key inventory, read out of the tables rather than guessed
+
+The whole English table (52 970 keys) was scanned for the word. Everything that says it
+**about the server**:
+
+| key | what it is |
+|---|---|
+| `login_err_tips_maintenance_new` | the login screen's own, no code, no time |
+| `login_err_tips_maintenance` | the older wording, carries a code: `({0}) …` |
+| `E100069` | «Server under maintenance, login later!» — server error code |
+| `129012` | «Server maintenance in progress. Please log in later.» |
+| `2700002` / `2700003` | «Under Maintenance» / the update-notice title |
+| `brickweb_desc_error5` | the in-client web view's wording |
+| `120036` / `120037` | **the shutdown COUNTDOWN**, in minutes and in seconds |
+| `season_close_tips01` | the season close — **the only sentence that estimates a LENGTH** |
+
+…and what the same scan found and the detector deliberately leaves out: `132021`,
+`132023`, `132024` (Radar / Rocket / Aircraft Maintenance — buildings), `zombieRush_tips_26`
+(one subsystem down inside a playable game), `335002` / `335310` / `801010` (dialogue),
+the whole `season_sN_update_notice_*` family (an announcement about a future patch, read
+while the game is up), and `server_open_tips001` / `server_maintenance_001`, which say
+somebody ELSE'S warzone is closed while this one plays.
+
+The login-error family is small and worth having whole, because it is what the login
+screen can say at all: `login_error_accountErr`, `login_error_client_ver_must`,
+`login_error_connectFail`, `login_error_fileErr`, `login_error_serverErr`,
+`login_error_updateFail`, and the two maintenance ones.
+
+### 7.4 Is there an end time? Still no — with ONE exception, and it is the game's own
+
+§4b stands: the message on the closed door carries no deadline. The two things that DO
+carry a time are the countdown BEFORE it (`120036`/`120037`, «через N мин»), and the
+season close, which writes its estimate into the sentence itself:
+
+```
+season_close_tips01  The season has ended, and the server is currently under maintenance.
+                     (Estimated time: 10-30 minutes)
+```
+
+The panel now says that range when it sees that sentence — the game's own estimate,
+never one of ours (`log.game.maintenance_estimate`).
+
+### 7.5 What is CONFIRMED and what is INFERENCE
+
+**Confirmed:** the key inventory (read off this machine's tables in 17 languages); the
+wording in every language the panel ships; that `UIServerMaintenanceTip` exists on the
+live client; that the countdown templates parse and yield minutes; that the game's own
+log says nothing about any of it; that port `10935` is ordinary.
+
+**Inference, and it is what the next outage settles:** that the server opens
+`UIServerMaintenanceTip` (rather than the generic message tip, or a third window nobody
+has named); that the login-time sentence reaches `UICommonMessageTip.View.tipText` at
+all; and whether the countdown arrives as a push or is only drawn client-side.
+
+**So the panel now writes the reading down when it fires** — `profiles/<name>/maintenance/
+<stamp>-<state>.json`, git-ignored, holding the raw line the client answered, which rung
+decided, which windows were open and what the light said. One real file ends the
+guessing, and until there is one the ability stays 🟡 in `docs/farming.md`.

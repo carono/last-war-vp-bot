@@ -303,6 +303,7 @@
   "log.game.link_back": "sunucu bağlantısı geri geldi",
   "log.game.maintenance": "sunucu bakımda — bunu oyunun kendisi söylüyor; bozulan bir şey yok, kapı kapalı",
   "log.game.maintenance_soon": "oyun bildiriyor: sunucu {mins} dk içinde bakıma giriyor",
+  "log.game.maintenance_estimate": "oyunun kendi bakım tahmini: {low}–{high} dk",
   "log.game.maintenance_over": "bakım mesajı kayboldu — sunucu istemciyi yeniden içeri alıyor",
   "log.game.link_ready": "istemci göründükten {secs} sn sonra oyun bağlantısı hazırdı",
   "log.game.deaf_restart": "istemciyi yeniden başlatıyorum: {secs}s boyunca {looks} bakışta soketler kayıp · {fails} sunucu yoklaması yanıtsız (sonuncusu {probe_secs}s önce) · {idle}s makinenin başında kimse yok",

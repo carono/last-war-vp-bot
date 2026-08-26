@@ -303,6 +303,7 @@
   "log.game.link_back": "kết nối tới máy chủ đã trở lại",
   "log.game.maintenance": "máy chủ đang bảo trì — chính trò chơi nói vậy; không có gì hỏng, chỉ là cửa đã đóng",
   "log.game.maintenance_soon": "trò chơi báo: máy chủ sẽ bảo trì sau {mins} phút",
+  "log.game.maintenance_estimate": "ước tính của chính trò chơi cho lần bảo trì: {low}–{high} phút",
   "log.game.maintenance_over": "thông báo bảo trì đã biến mất — máy chủ lại cho client vào",
   "log.game.link_ready": "kết nối tới game sẵn sàng sau {secs} giây kể từ khi client xuất hiện",
   "log.game.deaf_restart": "khởi động lại client: socket mất qua {looks} lần nhìn trong {secs}s · {fails} lần dò máy chủ không hồi đáp (lần cuối {probe_secs}s trước) · không có ai ở máy suốt {idle}s",

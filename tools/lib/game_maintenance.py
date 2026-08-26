@@ -47,14 +47,38 @@ CLOSED = "closed"
 CLOSING = "closing"
 
 #: Keys whose sentence means «this server is under maintenance», with no time in it.
+#: NOT a guess and not a sample: the whole English table was scanned for the word on
+#: 2026-08-26 (52 970 keys) and this is every key that says it about THE SERVER.
 #: `E100069` and `129012` are the error-code namespace — the same family the session
-#: kick lives in — and the two `login_err_tips_maintenance*` are what the login screen
-#: draws. `2700002` is the update notice's own title.
+#: kick lives in — the two `login_err_tips_maintenance*` are what the login screen
+#: draws, `2700002`/`2700003` are the notice's own titles and `brickweb_desc_error5` is
+#: the in-client web view's wording.
+#:
+#: What the same scan found and this list deliberately LEAVES OUT: `132021`/`132023`/
+#: `132024` (Radar / Rocket / Aircraft Maintenance — buildings, not the server),
+#: `zombieRush_tips_26` (one subsystem down inside a playable game), `335002`/`335310`/
+#: `801010` (dialogue), the `season_sN_update_notice_*` family (an announcement about a
+#: future patch, read while the game is up) and `server_open_tips001` /
+#: `server_maintenance_001`, which say somebody ELSE'S warzone is closed.
 CLOSED_KEYS = ("login_err_tips_maintenance_new", "login_err_tips_maintenance",
-               "E100069", "129012", "2700002")
+               "E100069", "129012", "2700002", "2700003", "brickweb_desc_error5")
+
+#: …and the ONE key that says how long it will last: «The season has ended, and the
+#: server is currently under maintenance. (Estimated time: 10-30 minutes)». The estimate
+#: is written into the sentence rather than filled in by the server, so it is read out
+#: of the template itself (:func:`estimate`) — an estimate the GAME gives, never one the
+#: panel invents.
+SEASON_KEY = "season_close_tips01"
 
 #: …and the two that COUNT DOWN to it, with the unit each of them speaks.
 CLOSING_KEYS = {"120036": 60.0, "120037": 1.0}
+
+#: THE GAME'S OWN NAME FOR THE STATE — a window, not a sentence
+#: (`tools/lib/lua_actions.maintenance_look`). Confirmed to exist on a live client on
+#: 2026-08-26; NOT yet seen open, because the state is rare and the one window that has
+#: been watched (#1549) was watched from outside the client. So it is read as the
+#: STRONGEST evidence and the sentences are kept as the second rung.
+WINDOW = "UIServerMaintenanceTip"
 
 #: The marker the read tags its line with, as every other Lua read.
 MARKER = "MAINTQ"
@@ -102,7 +126,7 @@ def _read_tables() -> dict:
     be read sequentially anyway (`docs/research/game-locale-tables.md`), so seven keys
     cost what one costs.
     """
-    want = set(CLOSED_KEYS) | set(CLOSING_KEYS)
+    want = set(CLOSED_KEYS) | set(CLOSING_KEYS) | {SEASON_KEY}
     out: dict = {}
     for _lang, path in sorted(game_paths.locale_tables().items()):
         try:
@@ -237,11 +261,95 @@ def judge(text) -> tuple:
             if _matches(template, said):
                 num = _number(template, said)
                 return CLOSING, (None if num is None else num * unit)
-    for key in CLOSED_KEYS:
+    for key in CLOSED_KEYS + (SEASON_KEY,):
         for template in known.get(key, ()):
             if _matches(template, said):
                 return CLOSED, None
     return "", None
+
+
+#: «(Estimated time: 10-30 minutes)» — two numbers with a dash between them. Matched on
+#: the NORMALISED text, so the spacing and the kind of dash do not matter.
+_RANGE = re.compile(r"(\d{1,3})[-–—~](\d{1,3})")
+
+
+def estimate(text) -> "tuple | None":
+    """How long the game says it will last, in seconds: ``(low, high)`` or ``None``.
+
+    THE ONE PLACE THE GAME NAMES A LENGTH. The message on the closed door carries no
+    deadline in any language (`docs/research/server-maintenance.md` §4b) — except the
+    season one, which says «Estimated time: 10-30 minutes» in the sentence itself. So
+    this is read only when the text IS that sentence: two numbers found anywhere else
+    would be a level, a warzone or a reward.
+
+    The numbers come out of the RENDERED text rather than out of the template, because
+    a build may change them; the template is what decides the sentence is the right one.
+    """
+    known = phrases()
+    if not known:
+        return None
+    said = normalise(text)
+    if not said:
+        return None
+    for template in known.get(SEASON_KEY, ()):
+        if not _matches(template, said):
+            continue
+        found = _RANGE.search(said)
+        if not found:
+            return None
+        try:
+            low, high = int(found.group(1)), int(found.group(2))
+        except (TypeError, ValueError):
+            return None
+        if low <= 0 or high < low:
+            return None
+        return low * 60.0, high * 60.0
+    return None
+
+
+def look(ev) -> "dict | None":
+    """Everything the client can say about the closed door, in ONE round trip.
+
+    ``{"window": bool, "login": bool, "disconnect": bool, "cross": bool, "tip": str,
+    "raw": str}`` — or ``None`` when the client would not answer at all.
+
+    Both questions the panel asks of a client it can drive come out of this one reading:
+    the maintenance WINDOW by its own name (:data:`WINDOW`) and the text of the generic
+    message dialog, which is what tells a kick from every other message
+    (`tools/lib/game_kick.py` judges the same string). `login` / `disconnect` / `cross`
+    are context rather than evidence — they say WHERE the client is sitting while it
+    shows what it shows, and they are what a recorded sample is worth reading for.
+    """
+    import lua_actions                        # lazy: keeps a plain import cheap
+
+    try:
+        lines = ev.run(
+            'CS.UnityEngine.Debug.LogError("%s look=" .. tostring(%s))'
+            % (MARKER, lua_actions.maintenance_look()), marker=MARKER, settle=0.4,
+            early=True)
+    except Exception:                         # noqa: BLE001 — a reading, never the fault
+        return None
+    for line in lines or ():
+        if "look=" in line:
+            return _parse(line.split("look=", 1)[1].strip())
+    return None
+
+
+def _parse(raw: str) -> "dict | None":
+    """The one line the client answers with, as fields. ``None`` when it says nothing."""
+    if not raw:
+        return None
+    out = {"window": False, "login": False, "disconnect": False, "cross": False,
+           "tip": "", "raw": raw}
+    head, _, tail = raw.partition("tip=")
+    out["tip"] = tail
+    for part in head.split():
+        name, _, value = part.partition("=")
+        key = {"maint": "window", "login": "login", "disc": "disconnect",
+               "cross": "cross"}.get(name)
+        if key is not None:
+            out[key] = value.strip() == "1"
+    return out
 
 
 def read(ev) -> tuple:
@@ -251,18 +359,21 @@ def read(ev) -> tuple:
     are not on this machine — and it is never `False` dressed up: a caller that cannot
     tell must keep whatever it last knew rather than declaring the door open.
 
-    The dialog is read the way the kick's is (`tools/lib/lua_actions.kick_tip`): the
-    client's own generic message window, whose TEXT is the only thing that says which
-    message it is. A maintenance notice drawn by some other window therefore reads as
-    «no dialog», which is «cannot tell» rather than «all is well» — the panel's other
-    readings still have the client outside the game and knock on it regardless (#1549).
+    TWO RUNGS, strongest first. The game's own window (:data:`WINDOW`) is the same in
+    every language and needs no tables at all; below it, the text of the generic message
+    dialog compared with the game's own wording. A notice drawn by some THIRD window
+    therefore reads as «no dialog», which is «cannot tell» rather than «all is well» —
+    the panel's other readings still have the client outside the game and knock on it
+    regardless (#1549).
     """
-    text = tip(ev)
-    if text is None:
+    seen = look(ev)
+    if seen is None:
         return None, None                    # the client would not answer
-    if not text.strip():
+    if seen["window"]:
+        return CLOSED, None                  # the game's own name for the state
+    if not seen["tip"].strip():
         return "", None                      # no dialog on screen
-    return judge(text)
+    return judge(seen["tip"])
 
 
 def tip(ev) -> "str | None":

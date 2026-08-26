@@ -8265,6 +8265,51 @@ def codename_sent() -> str:
 # `E100083` out of the client's own language tables. One reading, and the strength of
 # the evidence is judged where the sentences are.
 
+#: The client's OWN window for «this server is closed» — the game's name for the state,
+#: found in its window table (`docs/research/ui-open-data/ui_window_names.json`) and
+#: confirmed on a live client on 2026-08-26: `UIWindowNames.UIServerMaintenanceTip`
+#: resolves, and `windowsConfig` has no entry for it while it has never been shown —
+#: the class is built with the window, exactly as every other UI class here is.
+#:
+#: WHY IT IS BETTER THAN THE SENTENCE. A window name is the same in every language and
+#: costs a flag rather than a comparison against nineteen locale tables. The text is
+#: kept beside it because nobody has yet SEEN this window open: the state is rare, the
+#: one recorded window (#1549) was watched from outside the client, and «the name exists»
+#: is not «this is what the server opens». So both are read, in one round trip, and
+#: whichever answers decides — with the reading written down when it fires
+#: (`panel/runtime/status.py`), so the first real maintenance turns the guess into a
+#: recording.
+MAINTENANCE_WINDOW = "UIServerMaintenanceTip"
+
+
+def maintenance_look() -> str:
+    """Lua *expression* -> one line about the closed-door windows and the message tip.
+
+    ``maint=0|1 login=0|1 disc=0|1 cross=0|1 tip=<the dialog's text>`` — the tip LAST,
+    because it is the only field that can contain spaces.
+
+    Four windows and one text in a single round trip (~90 ms), because the two
+    questions the panel asks of a client it can drive — «has the account been taken»
+    and «is the server shut» — are answered out of the same window table, and asking
+    twice is a second trip for nothing.
+
+    Answers `''` for anything it cannot read, so it can only ever ADD a reason.
+    """
+    return ("(function() local ok, v = pcall(function() "
+            "local m = UIManager.Instance "
+            "local function open(n) local o = false "
+            "pcall(function() o = m:IsWindowOpen(n) end) return o and '1' or '0' end "
+            "local t = '' "
+            "if m:IsWindowOpen('UICommonMessageTip') then "
+            "local w = m:GetWindow('UICommonMessageTip') "
+            "local x = w and w.View and w.View.tipText "
+            "t = x == nil and '' or tostring(x) end "
+            "return 'maint=' .. open('%s') .. ' login=' .. open('UILogin') "
+            ".. ' disc=' .. open('UIDisconnect') .. ' cross=' .. open('UICrossDisconnect') "
+            ".. ' tip=' .. t end) "
+            "if not ok then return '' end return v end)()" % MAINTENANCE_WINDOW)
+
+
 def kick_tip() -> str:
     """Lua *expression* -> the text of the open message dialog, or '' if none is open.
 

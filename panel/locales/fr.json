@@ -303,6 +303,7 @@
   "log.game.link_back": "la connexion au serveur est revenue",
   "log.game.maintenance": "le serveur est en maintenance — le jeu le dit lui-même ; rien n'est cassé, la porte est fermée",
   "log.game.maintenance_soon": "le jeu annonce : le serveur part en maintenance dans {mins} min",
+  "log.game.maintenance_estimate": "l'estimation du jeu lui-même pour la maintenance : {low}–{high} min",
   "log.game.maintenance_over": "le message de maintenance a disparu — le serveur laisse de nouveau entrer le client",
   "log.game.link_ready": "la liaison avec le jeu était prête {secs} s après l'apparition du client",
   "log.game.deaf_restart": "je redémarre le client : sockets perdus sur {looks} regards en {secs}s · {fails} sondes serveur sans réponse (la dernière il y a {probe_secs}s) · personne à la machine depuis {idle}s",

@@ -171,11 +171,12 @@ class StatusPoll:
             responding = True
             if lands == profile_health.NOT_LANDING:
                 responding = rt.game.responding()
-            # ONE READING OF THE DIALOG, TWO QUESTIONS (#1982): the kick and the
-            # maintenance notice are text in the client's one generic message window.
-            tip = self._read_dialog(found, lands)
-            kicked = self._read_kicked(tip)
-            maint, maint_secs = self._read_maintenance(tip)
+            # ONE READING, THREE QUESTIONS (#1982): the game's own maintenance window,
+            # the kick modal's text and the message dialog's text all come out of a
+            # single round trip (`tools/lib/game_maintenance.look`).
+            seen = self._look(found, lands)
+            kicked = self._read_kicked(seen)
+            maint, maint_secs = self._read_maintenance(seen)
             session = self._read_session(found, lands)
         except Exception as exc:              # noqa: BLE001 — a reading, never the panel
             # A reading that never came is «no client» with the fault in the tooltip:
@@ -195,7 +196,7 @@ class StatusPoll:
                 and rt.power.on:
             self.take_link()
         self._announce_link(health)
-        self._announce_maintenance(maint, maint_secs)
+        self._announce_maintenance(maint, maint_secs, seen)
         self._recovery_check(found, health, kicked, session, now)
         # …AND THE OTHER HALF OF A CRASH: the PROCESS going away, which the recovery
         # above deliberately never treats as a fault of the link (#1984 moved this out
@@ -205,13 +206,14 @@ class StatusPoll:
         return Reading(probe=found, health=health, kicked=kicked, session=session,
                        maintenance=maint, maintenance_secs=maint_secs)
 
-    def _read_dialog(self, found, lands: str) -> "str | None":
-        """The client's own message window, read ONCE for both questions asked of it.
+    def _look(self, found, lands: str) -> "dict | None":
+        """What the client says about its own windows, read ONCE for every question.
 
-        `''` is «no dialog is open», a string is what it says, and ``None`` is «not this
-        time» — either the reading was not due, or it failed. Both callers treat ``None``
-        the same way: keep the last verdict, so a reading that fails can only ever ADD a
-        reason and never take one away.
+        A dict is an answer (`tools/lib/game_maintenance.look`): the game's own
+        maintenance window by name, the message dialog's text, and where the client is
+        sitting. ``None`` is «not this time» — either the reading was not due, or it
+        failed — and every caller treats that the same way: keep the last verdict, so a
+        reading that fails can only ever ADD a reason and never take one away.
         """
         if lands != profile_health.LANDING or not getattr(found, "running", False):
             self._tip_at = 0.0
@@ -224,21 +226,22 @@ class StatusPoll:
             return None
         self._tip_at = now
         try:
-            import game_kick
+            import game_maintenance
 
-            return game_kick.tip(self.rt.game.evaluator())
+            return game_maintenance.look(self.rt.game.evaluator())
         except Exception:                     # noqa: BLE001 — a reading, never the fault
             return None
 
-    def _read_kicked(self, tip: "str | None") -> bool:
+    def _read_kicked(self, seen: "dict | None") -> bool:
         """Is the client showing the game's own «вход с другого устройства» modal?
 
         The TEXT decides, compared with the game's own wording in every language it
         ships (`tools/lib/game_kick.py`) — «a dialog is open» is not evidence, because
         the window is generic and the cure for a kick is a restart.
         """
-        if tip is None:
+        if seen is None:
             return self._kick_was
+        tip = seen.get("tip") or ""
         if not tip.strip():
             self._kick_was = False
             return False
@@ -253,14 +256,24 @@ class StatusPoll:
         self._kick_was = bool(said)
         return self._kick_was
 
-    def _read_maintenance(self, tip: "str | None") -> tuple:
-        """Is the client sitting on a closed server?  ``(state, seconds)`` (#1982)."""
-        if tip is None:
+    def _read_maintenance(self, seen: "dict | None") -> tuple:
+        """Is the client sitting on a closed server?  ``(state, seconds)`` (#1982).
+
+        TWO RUNGS, strongest first: the game's OWN window for the state, which is the
+        same in every language and needs no tables at all, and below it the message
+        dialog's text against the game's own wording.
+        """
+        if seen is None:
             return self._maint_was, self._maint_secs
+        tip = seen.get("tip") or ""
         try:
             import game_maintenance
 
-            state, secs = (game_maintenance.judge(tip) if tip.strip() else ("", None))
+            if seen.get("window"):
+                state, secs = game_maintenance.CLOSED, None
+            else:
+                state, secs = (game_maintenance.judge(tip) if tip.strip()
+                               else ("", None))
         except Exception:                     # noqa: BLE001 — a reading, never the fault
             state, secs = None, None
         if state is not None:                 # `None` is «cannot judge» — keep the last
@@ -308,18 +321,69 @@ class StatusPoll:
         if self._link_gone == WATCHDOG_STRIKES:
             rt.say("game", "log.game.link_lost")
 
-    def _announce_maintenance(self, state: str, secs) -> None:
-        """Say the closed door in the log, on its EDGES and nowhere else (#1982)."""
+    def _announce_maintenance(self, state: str, secs, seen=None) -> None:
+        """Say the closed door in the log, on its EDGES and nowhere else (#1982).
+
+        …and WRITE THE READING DOWN the first time it fires. The detector was built with
+        no live sample — the one window that has been watched was watched from outside
+        the client (#1549) and the next was missed by twenty minutes — so the first real
+        maintenance has to leave something behind that settles it: which rung answered,
+        what the dialog said, which windows were open. It goes to the profile's own
+        directory, which is git-ignored, and never into the repository.
+        """
         if state == self._maint_said:
             return
         self._maint_said = state
         if state == "closed":
             self.rt.say("game", "log.game.maintenance")
+            # …AND THE ONE LENGTH THE GAME EVER NAMES: «(Estimated time: 10-30 minutes)»
+            # on the season close. Said as the game says it — a range, and its own.
+            try:
+                import game_maintenance
+
+                span = game_maintenance.estimate((seen or {}).get("tip") or "")
+            except Exception:                 # noqa: BLE001 — a reading, never a line
+                span = None
+            if span:
+                self.rt.say("game", "log.game.maintenance_estimate",
+                            low=int(span[0] // 60), high=int(span[1] // 60))
         elif state == "closing":
             self.rt.say("game", "log.game.maintenance_soon",
                         mins=max(1, -(-int(secs or 0) // 60)))
         elif state == "":
             self.rt.say("game", "log.game.maintenance_over")
+        if state in ("closed", "closing"):
+            self._record(state, secs, seen)
+
+    def _record(self, state: str, secs, seen) -> None:
+        """Keep the raw reading of a real maintenance, for whoever reads it next.
+
+        A GIT-IGNORED sample in this profile's own directory: everything the client
+        answered, verbatim, plus what the light said at the time. It exists because
+        every word of this detector was inferred from the game's own tables rather than
+        from a recording — one real file ends the guessing.
+        """
+        rt = self.rt
+        try:
+            import json
+            import os
+
+            folder = os.path.join(rt.profiles.dir(), "maintenance")
+            os.makedirs(folder, exist_ok=True)
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            body = {"at": stamp, "state": state, "seconds": secs,
+                    "reading": seen or {},
+                    "light": {"colour": rt.health.colour,
+                              "reason": rt.health.current.reason,
+                              "plumbing": rt.health.current.plumbing,
+                              "server": rt.health.current.server},
+                    "session": self._session_was}
+            path = os.path.join(folder, f"{stamp}-{state}.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(body, handle, ensure_ascii=False, indent=2)
+            rt.dbg("status").info("maintenance sample written: %s", path)
+        except Exception:                     # noqa: BLE001 — a record, never the panel
+            rt.dbg("status").error("maintenance sample failed", exc_info=True)
 
     def _recovery_check(self, found, health, kicked: bool, session: str,
                         now: float) -> None:

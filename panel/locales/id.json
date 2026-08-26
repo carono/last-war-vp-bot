@@ -303,6 +303,7 @@
   "log.game.link_back": "koneksi ke server kembali",
   "log.game.maintenance": "server sedang dalam pemeliharaan — gim sendiri yang mengatakannya; tidak ada yang rusak, pintunya tertutup",
   "log.game.maintenance_soon": "gim memberi tahu: server masuk pemeliharaan dalam {mins} menit",
+  "log.game.maintenance_estimate": "perkiraan dari gim sendiri untuk pemeliharaan: {low}–{high} menit",
   "log.game.maintenance_over": "pesan pemeliharaan hilang — server kembali mengizinkan klien masuk",
   "log.game.link_ready": "koneksi ke game siap {secs} d setelah klien muncul",
   "log.game.deaf_restart": "memulai ulang klien: soket hilang pada {looks} pengamatan selama {secs}s · {fails} uji server tanpa jawaban (terakhir {probe_secs}s lalu) · tidak ada orang di mesin selama {idle}s",

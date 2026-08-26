@@ -303,6 +303,7 @@
   "log.game.link_back": "połączenie z serwerem wróciło",
   "log.game.maintenance": "serwer jest na przerwie technicznej — mówi to sama gra; nic nie jest zepsute, drzwi są zamknięte",
   "log.game.maintenance_soon": "gra ogłasza: serwer wchodzi na przerwę techniczną za {mins} min",
+  "log.game.maintenance_estimate": "własna ocena gry, ile potrwa przerwa techniczna: {low}–{high} min",
   "log.game.maintenance_over": "komunikat o przerwie technicznej zniknął — serwer znów wpuszcza klienta",
   "log.game.link_ready": "połączenie z grą było gotowe {secs} s po pojawieniu się klienta",
   "log.game.deaf_restart": "restartuję klienta: gniazda utracone przy {looks} spojrzeniach w ciągu {secs}s · {fails} sond serwera bez odpowiedzi (ostatnia {probe_secs}s temu) · nikogo przy maszynie od {idle}s",
