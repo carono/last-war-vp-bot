@@ -32,6 +32,23 @@ Three consequences that are part of the criterion and not decoration:
 * a link that cannot be made is a loud failure with its reason, said ONCE — not silence,
   and not the same sentence every eight seconds.
 
+## What the person decided, 2026-08-26
+
+Four questions had been accumulating across three relays, each blocking a piece of P2.
+They were asked together and answered together, and the answers are written here so that
+nobody has to ask them again:
+
+| question | answer |
+|---|---|
+| the emoji picker and the sticker grid on a phone — serve the sprites over the panel's own port? | **yes, serve the pictures.** The phone gets the same two grids the window has, out of the same extracted sprites (`tools/chat_assets.py`), by a route shaped like `/api/avatar` and `/api/itemicon` |
+| «Разработка» / «Занятость» — the written-down divergence, or a screen? | **a screen** — done, see the row above. The sniffers stay in the window because their start and stop are message boxes, and that is written inside the screen rather than kept as a divergence |
+| renaming and deleting a PROFILE from the phone — destructive | **allowed, behind a typed name** — done, see the row above |
+| joining a rally from the phone — real troops leave the base | **build it, WITH the squads chosen** — a screen listing the squads and what is in them, not a bare «join» that sends whatever was last used |
+
+The two that are still to build are the first and the last, and each needs one thing this
+repository already has a shape for: a picture route for the sprites, and a screen (rather
+than a button) for the squads.
+
 ## The door, not the supervisor
 
 The service **does not start the panel and does not supervise it**. The panel comes up
