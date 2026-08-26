@@ -63,6 +63,7 @@ from ..runtime import profile_control as profilectl
 from ..runtime import power as powermod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
+from . import coordlinks
 
 #: How long one answer of the process probe is reused. The scan walks every process on
 #: the machine, which is tens of milliseconds of cold psutil and has already cost this
@@ -320,8 +321,10 @@ class WebApi:
 
     @staticmethod
     def _line(number: int, text: str) -> dict:
-        return {"n": number, "text": text, "tag": tag_of(text),
-                "sev": severity_of(text)}
+        # …AND THE LOG'S COORDINATES TOO, which is where the window has had links since
+        # it had a log (`panel/runtime/log_view.py`). Same marking, same parser (#1982).
+        return coordlinks.mark_line({"n": number, "text": text, "tag": tag_of(text),
+                                     "sev": severity_of(text)})
 
     # -- what the profile is doing ------------------------------------------
     def state(self, profile: str | None = None) -> dict:
@@ -1083,7 +1086,10 @@ class WebApi:
             return {"error": "empty", "detail": box.get("error", "")}
         view["id"] = screen_id
         view["title"] = view.get("title") or type(tab).TITLE_KEY
-        return view
+        # EVERY COORDINATE ON IT IS A PLACE TO GO (#1982). Marked here, off the one
+        # parser this repository has (`tools/lib/coords.py`), so the browser draws links
+        # rather than deciding what a coordinate is — see `panel/web/coordlinks.py`.
+        return coordlinks.mark_screen(view)
 
     # -- «Серверы»: the screen with no tab behind it -------------------------
     def _servers_view(self, profile: str | None = None) -> dict:

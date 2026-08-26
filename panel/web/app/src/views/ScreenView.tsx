@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, post } from '../api'
 import { t, when } from '../i18n'
 import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
 import { SwitchRow } from '../ui/SwitchRow'
+import { Marked } from '../ui/Coord'
 import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
 
 /* ONE RENDERER FOR EVERY TAB'S SCREEN.
@@ -175,8 +177,23 @@ function FieldRow({
 
 function Item({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
   const facts = item.facts || []
-  const bits = facts.map((f) => t(f.label) + ' ' + (f.translate && f.value ? t(f.value) : f.value))
-  if (item.until) bits.push(when(item.until, now || item.until))
+  /* EVERY PIECE OF PROSE ON A ROW CAN HOLD A PLACE (#1982): the name of the tile, the
+   * detail beside it, the note under it and each fact. They are drawn through `Marked`,
+   * which turns what the panel marked into buttons and leaves everything else alone. */
+  const bits: ReactNode[] = facts.map((f, i) => (
+    <span key={i}>
+      {i ? ' · ' : ''}
+      {t(f.label)}{' '}
+      {f.value_parts ? (
+        <Marked text={f.value} parts={f.value_parts} />
+      ) : f.translate && f.value ? (
+        t(f.value)
+      ) : (
+        f.value
+      )}
+    </span>
+  ))
+  if (item.until) bits.push(<span key="until">{(bits.length ? ' · ' : '') + when(item.until, now || item.until)}</span>)
   return (
     <div className="item">
       <div className="row">
@@ -186,11 +203,21 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
             leaves the name alone. */}
         {item.avatar ? <img className="face" src={item.avatar} alt="" /> : null}
         {item.icon ? <img className="icon" src={item.icon} alt="" /> : null}
-        <span className="title">{item.label ? t(item.label) : item.text || ''}</span>
-        {item.detail ? <span className="muted small">{item.detail}</span> : null}
+        <span className="title">
+          {item.label ? t(item.label) : <Marked text={item.text} parts={item.text_parts} />}
+        </span>
+        {item.detail ? (
+          <span className="muted small">
+            <Marked text={item.detail} parts={item.detail_parts} />
+          </span>
+        ) : null}
       </div>
-      {item.note ? <p className="muted small">{item.note}</p> : null}
-      {bits.length ? <p className="muted small">{bits.join(' · ')}</p> : null}
+      {item.note ? (
+        <p className="muted small">
+          <Marked text={item.note} parts={item.note_parts} />
+        </p>
+      ) : null}
+      {bits.length ? <p className="muted small">{bits}</p> : null}
       {item.pill || (item.actions || []).length ? (
         <div className="foot">
           <span className="pill">{item.pill ? t(item.pill) : ''}</span>
@@ -251,7 +278,11 @@ function Card({
           {items.length ? <span className="count">{items.length}</span> : null}
         </div>
       ) : null}
-      {card.head ? <div className="head">{card.head}</div> : null}
+      {card.head ? (
+        <div className="head">
+          <Marked text={card.head} parts={card.head_parts} />
+        </div>
+      ) : null}
       {card.note ? <p className="muted small">{t(card.note)}</p> : null}
       {/* IS THE DATA ARRIVING, AND ARE WE TAKING IT (#1549) — the same strip the window
           draws above each table. The colour comes from `panel/runtime/flow.py` so the
@@ -271,7 +302,9 @@ function Card({
       {rows.map((row, i) => (
         <div className="kv" key={i}>
           <span className="k">{t(row.label)}</span>
-          <span className="v">{row.value}</span>
+          <span className="v">
+            <Marked text={row.value} parts={row.value_parts} />
+          </span>
         </div>
       ))}
       {items.slice(0, shown).map((item, i) => (
@@ -411,7 +444,9 @@ export function ScreenPage({
               {(card.rows || []).slice(0, 2).map((row, k) => (
                 <div className="kv" key={k}>
                   <span className="k">{t(row.label)}</span>
-                  <span className="v">{row.value}</span>
+                  <span className="v">
+                    <Marked text={row.value} parts={row.value_parts} />
+                  </span>
                 </div>
               ))}
               {card.flow ? (

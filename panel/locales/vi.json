@@ -1470,6 +1470,7 @@
   "web.ui.queued": "trong hàng đợi",
   "web.ui.search": "Tìm",
   "web.ui.overview": "Tóm tắt",
+  "web.ui.coord.jumping": "đang nhảy tới {where}",
   "web.ui.show_more": "Hiện thêm {n}",
   "web.ui.actions.none": "không tìm thấy gì",
   "web.ui.started": "đã chạy: {name}",

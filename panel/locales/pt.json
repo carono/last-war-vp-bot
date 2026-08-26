@@ -1470,6 +1470,7 @@
   "web.ui.queued": "na fila",
   "web.ui.search": "Procurar",
   "web.ui.overview": "Resumo",
+  "web.ui.coord.jumping": "a saltar para {where}",
   "web.ui.show_more": "Mostrar mais {n}",
   "web.ui.actions.none": "nada encontrado",
   "web.ui.started": "iniciado: {name}",

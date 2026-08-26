@@ -110,12 +110,26 @@ export interface ActionRow {
 export interface LogLine {
   text: string
   sev?: string
+  text_parts?: MarkedText
 }
+
+/* A COORDINATE THE PANEL HAS MARKED (#1982). The parsing is the panel's — one parser,
+ * `tools/lib/coords.py` — and what arrives here is the string already cut into plain
+ * pieces and places. See `panel/web/coordlinks.py`. */
+export interface CoordPart {
+  x: number
+  y: number
+  server: number
+  text: string
+}
+
+export type MarkedText = ({ t: string } | { c: CoordPart })[]
 
 export interface Fact {
   label: string
   value: string
   translate?: boolean
+  value_parts?: MarkedText
 }
 
 export interface ViewAction {
@@ -136,6 +150,9 @@ export interface ViewItem {
   text?: string
   detail?: string
   note?: string
+  text_parts?: MarkedText
+  detail_parts?: MarkedText
+  note_parts?: MarkedText
   avatar?: string
   icon?: string
   pill?: string
@@ -160,10 +177,11 @@ export interface Field {
 export interface ViewCard {
   title?: string | null
   head?: string
+  head_parts?: MarkedText
   empty?: string
   search?: boolean
   flow?: { state?: string; colour?: string; key: string; fmt?: Record<string, unknown> }
-  rows?: { label: string; value: string }[]
+  rows?: { label: string; value: string; value_parts?: MarkedText }[]
   items?: ViewItem[]
   actions?: ViewAction[]
   fields?: Field[]

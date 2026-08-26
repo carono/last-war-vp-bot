@@ -1470,6 +1470,7 @@
   "web.ui.queued": "in der Warteschlange",
   "web.ui.search": "Suchen",
   "web.ui.overview": "Übersicht",
+  "web.ui.coord.jumping": "springe zu {where}",
   "web.ui.show_more": "{n} weitere zeigen",
   "web.ui.actions.none": "nichts gefunden",
   "web.ui.started": "gestartet: {name}",

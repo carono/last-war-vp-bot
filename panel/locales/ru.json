@@ -1470,6 +1470,7 @@
   "web.ui.queued": "в очереди",
   "web.ui.search": "Поиск",
   "web.ui.overview": "Сводка",
+  "web.ui.coord.jumping": "перехожу на {where}",
   "web.ui.show_more": "Показать ещё {n}",
   "web.ui.actions.none": "ничего не найдено",
   "web.ui.started": "запущено: {name}",

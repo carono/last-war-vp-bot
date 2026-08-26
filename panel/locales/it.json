@@ -1470,6 +1470,7 @@
   "web.ui.queued": "in coda",
   "web.ui.search": "Cerca",
   "web.ui.overview": "Riepilogo",
+  "web.ui.coord.jumping": "salto a {where}",
   "web.ui.show_more": "Mostra altri {n}",
   "web.ui.actions.none": "non trovato nulla",
   "web.ui.started": "avviato: {name}",

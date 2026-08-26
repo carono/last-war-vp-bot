@@ -1470,6 +1470,7 @@
   "web.ui.queued": "dalam antrean",
   "web.ui.search": "Cari",
   "web.ui.overview": "Ringkasan",
+  "web.ui.coord.jumping": "melompat ke {where}",
   "web.ui.show_more": "Tampilkan {n} lagi",
   "web.ui.actions.none": "tidak ada yang ditemukan",
   "web.ui.started": "dijalankan: {name}",

@@ -1470,6 +1470,7 @@
   "web.ui.queued": "queued",
   "web.ui.search": "Search",
   "web.ui.overview": "Summary",
+  "web.ui.coord.jumping": "jumping to {where}",
   "web.ui.show_more": "Show {n} more",
   "web.ui.actions.none": "nothing found",
   "web.ui.started": "started: {name}",

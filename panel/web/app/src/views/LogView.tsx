@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { t } from '../i18n'
+import { Marked } from '../ui/Coord'
 import type { LogLine } from '../types'
 
 /* What has been said, this profile's own. The tail is held in the app and trimmed there;
@@ -24,9 +25,11 @@ export function LogView({
         <input type="checkbox" checked={notify} onChange={(e) => onNotify(e.target.checked)} />
       </label>
       <div className="log">
+        {/* A COORDINATE IN A LINE IS A PLACE TO GO (#1982) — the window's log has had
+            this since it had a log, and the phone's now has it off the same marking. */}
         {lines.map((line, i) => (
           <div key={i} className={line.sev || ''}>
-            {line.text}
+            <Marked text={line.text} parts={line.text_parts} />
           </div>
         ))}
         <div ref={end} />

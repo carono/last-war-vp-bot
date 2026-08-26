@@ -1470,6 +1470,7 @@
   "web.ui.queued": "sırada",
   "web.ui.search": "Ara",
   "web.ui.overview": "Özet",
+  "web.ui.coord.jumping": "{where} konumuna atlanıyor",
   "web.ui.show_more": "{n} tane daha göster",
   "web.ui.actions.none": "bir şey bulunamadı",
   "web.ui.started": "başlatıldı: {name}",

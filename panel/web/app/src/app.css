@@ -390,6 +390,23 @@ input[type='search'], input[type='password'], input[type='text'], input[type='nu
   text-overflow: ellipsis;
 }
 
+/* A COORDINATE IS A LINK (#1982): it reads as part of the sentence it sits in and it is
+   pressed like a button — underlined rather than boxed, so a line of facts does not turn
+   into a row of chips. Tall enough to hit with a thumb without pushing the line apart. */
+.coord {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.coord:active { opacity: 0.6; }
+
 /* «Показать ещё» under a windowed list. */
 .more {
   align-self: flex-start;
