@@ -29,15 +29,23 @@ import sys
 import threading
 import time
 
-from .. import profile as profilemod
-from ..web import server as webmod
+from ..runtime import paths
+# THE REPO'S OWN DIRECTORIES FIRST. `panel/web/api.py` imports the bare-name modules that
+# live in `tools/lib` (`profile_health` and its neighbours), and the panel puts them on
+# `sys.path` while it boots — a service that never opens a window has to do it itself.
+paths.ensure()
+
+from ..web import server as webmod   # noqa: E402 — after the paths above
 from .api import ServiceApi
 from .door import DEFAULT_DOOR_PORT, DOOR_HOST, Door
 from .registry import Registry
 
-#: Where the machine's own service settings live. Beside `profiles/settings.json` (the
-#: panel-wide file) rather than inside it: that one is read and written by every panel
-#: process, and this one is written by nobody once it exists.
+#: Where the machine's own service settings live: `service.json` in the repository root.
+#:
+#: NOT UNDER `profiles/`, which is the panel's working area — a directory several panel
+#: processes list, write and tidy, and one this file has no business leaving something in.
+#: The service belongs to the MACHINE, not to an account, so it sits beside the code it
+#: runs, exactly as `.env` does for the tools.
 CONFIG_NAME = "service.json"
 
 #: The environment's say in it, for a machine that is not ordinary.
@@ -47,7 +55,9 @@ ENV = {"port": "LW_SERVICE_WEB_PORT", "door": "LW_SERVICE_PORT",
 
 
 def config_path() -> str:
-    return os.path.join(profilemod.PROFILES_DIR, CONFIG_NAME)
+    """The settings file — `LW_SERVICE_CONFIG` first, then the repository's own root."""
+    said = (os.environ.get("LW_SERVICE_CONFIG") or "").strip()
+    return said or os.path.join(paths.REPO, CONFIG_NAME)
 
 
 def load_config() -> dict:
