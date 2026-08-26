@@ -41,6 +41,12 @@ WARZONE_VARIABLE = "server_info"
 CARD_ACTION = "read_player_profile"
 CARD_VARIABLE = "player_card"
 
+#: The fields of the scenario's line, in the order it writes them. The tab's own three
+#: rows are the first three; the rest are drawn on the phone's card (`CLAUDE.md`: while
+#: the window is being retired, new goes only into the web).
+CARD_FIELDS = ("nick", "level", "power", "alliance",
+               "stamina", "stamina_full_ms", "reg_ms")
+
 #: The rows of the warzone card, in the order they are drawn: the locale key of the
 #: label, and the field of the scenario's line it shows.
 WARZONE_ROWS = (("profile.warzone.id", "server"),
@@ -219,11 +225,9 @@ class ProfileTab(DataTab):
         ctx = getattr(outcome, "ctx", None)
         line = (getattr(ctx, "vars", {}) or {}).get(CARD_VARIABLE) or ""
         parts = str(line).split(";;")
-        if len(parts) < 3 or not any(part.strip() for part in parts):
+        if len(parts) < len(CARD_FIELDS) or not any(part.strip() for part in parts):
             return {}
-        return {"nick": parts[0].strip(),
-                "level": parts[1].strip(),
-                "power": parts[2].strip()}
+        return {name: parts[i].strip() for i, name in enumerate(CARD_FIELDS)}
 
     def fetch(self):
         data = {"resources": reads.resource_balance(self.rt)}
@@ -241,11 +245,42 @@ class ProfileTab(DataTab):
             return "—"
         return str(raw)
 
+    def _energy(self, data) -> str:
+        """The energy purse, and when it fills — one row, because they are one fact.
+
+        The purse refills with TIME, so this is the one reading on the card that is stale
+        the moment it is drawn; the moment it is full comes from the game beside it, which
+        is what makes the number worth anything. A purse that is already full says so
+        rather than showing an epoch of 0.
+        """
+        purse = str(data.get("stamina") or "").strip()
+        if not purse:
+            return "—"
+        try:
+            full = int(data.get("stamina_full_ms") or 0)
+        except (TypeError, ValueError):
+            full = 0
+        if full <= 0:
+            return self.t("profile.stamina.full_now", n=purse)
+        return self.t("profile.stamina.filling", n=purse, when=_stamp(full))
+
     def web_cards(self, data) -> list:
-        """Who this character is, what is in the bank, and which warzone all of it is in."""
+        """Who this character is, what is in the bank, and which warzone all of it is in.
+
+        THE PHONE'S CARD CARRIES MORE THAN THE WINDOW'S, and that is the migration rather
+        than a divergence (`CLAUDE.md`: while Tk is being retired, new goes only into the
+        web). Everything added here is a thing the GAME states — the alliance's tag and
+        name as the game itself composes them, the energy purse with the moment it fills,
+        the day the character was registered. Nothing is worked out here: the fractional
+        «days played» the client also offers would have to be rounded to be shown, and a
+        rounded number is the panel's arithmetic wearing the game's authority.
+        """
         who = [("profile.nick", data.get("nick")),
                ("profile.level", data.get("level")),
-               ("profile.power", _group(data.get("power")))]
+               ("profile.power", _group(data.get("power"))),
+               ("profile.alliance", data.get("alliance")),
+               ("profile.stamina", self._energy(data) if data else None),
+               ("profile.registered", _stamp(data.get("reg_ms")) if data else None)]
         zone = data.get("warzone") or {}
         # …and no card of the five tracker resources: the LIVE stock card
         # (:meth:`_stock_card`) says the same numbers and eight more, with the game's own

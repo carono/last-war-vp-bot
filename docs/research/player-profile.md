@@ -38,31 +38,56 @@ so this reading costs nothing new.
 | name | `LuaEntry.Player:GetName()` — the plain name; `GetFullName()` prefixes the alliance tag |
 | HQ level | the field `level` — **there is no `GetLevel()`** on this client |
 | power | the field `power`; `GetValue('power')` answers the same number |
+| alliance | `GetFullAllianceName()` — tag and name, already composed by the game; `GetAllianceAbbr()` / `GetAllianceName()` are the halves |
+| in an alliance at all | `IsInAlliance()` — stated, rather than inferred from an empty name |
+| energy | `GetCurStamina()`, and `GetStaminaFullTime()` for the moment it fills (epoch ms, 0 when full) |
+| registered | the field `regTime`, epoch ms. `GetUserRegDay()` answers the same thing as a FRACTIONAL day count (`692.11…`) |
 
-Live, on a logged-in account (values invented, of the shape observed):
+Live, on a logged-in account (values invented throughout, of the shape observed):
 
 ```
-GetName=Player1 | GetFullName=[AL1] Player1 | level=35 | power=231590771
+GetName=Player1 | GetFullName=[AL1] Player1 | level=35 | power=100000000
+GetFullAllianceName=[AL1] Alliance One | IsInAlliance=true
+GetCurStamina=67 | GetStaminaFullTime=1700000000000 | regTime=1600000000000
 ```
+
+**The alliance's tag and name are never glued together here.** The game composes the
+string itself, with its own punctuation and in its own language; the two halves exist
+separately and joining them would be the panel re-deciding something the game already
+decided. Same reasoning as the resource names in `base-resources.md`.
+
+**`GetUserRegDay()` is deliberately not used.** It is a fraction, so anything readable
+comes from rounding it — and a rounded figure is the panel's arithmetic wearing the
+game's authority. `regTime` is a moment, and rendering a moment as a date is drawing,
+not deciding.
 
 ## 3. Three neighbouring fields that look like power and are not
 
 Measured on a live account, all four read in the same round trip:
 
-| field | live value | what it is |
+| field | live value (shape only) | what it is |
 |---|---|---|
-| `power` | 231 590 771 | the figure the client hands out for this character |
-| `playerMaxPower` | 290 163 525 | a different, larger figure — not the current one |
+| `power` | ~2.3 × 10⁸ | the figure the client hands out for this character |
+| `playerMaxPower` | ~2.9 × 10⁸ | a different, larger figure — not the current one |
 | `playerPower` | 0 | empty on a live account |
 | `lastPower` | 0 | empty on a live account |
 
 So the choice is not «pick the field whose name reads best». Two of the four are zero,
 and a reader that had reached for `playerPower` — the most player-ish of the names —
-would have drawn a confident `0` for a 231-million account. This is the same lesson the
+would have drawn a confident `0` for an account with hundreds of millions of it. This is the same lesson the
 resource reading learned the hard way (`base-resources.md`: the field spelled `wood` is
 drawn as «Золотые монеты»): **the client's field names are not what the game shows.**
 
-## 4. The breakdown, for when somebody wants it
+## 4. What is read and NOT shown, and why
+
+`playerMaxPower` is a real number the client keeps, and **nothing in the client says what
+it means** — a peak, a season high, a cap. A row on a card is a claim, so drawing it under
+a caption of the panel's own choosing would be inventing the game's word. It stays out
+until the game names it. The same goes for `armyKill` / `armyDead` / `armyCure`, which
+read 0 on a live account that has certainly fought: they are not the counters the game
+draws.
+
+## 5. The breakdown, for when somebody wants it
 
 `DataCenter.PlayerPowerDataManager` holds the components — hero, army, building, science,
 decoration, squad equipment, tactical card, dominator, and finer splits inside each
@@ -71,7 +96,7 @@ decoration, squad equipment, tactical card, dominator, and finer splits inside e
 components do not sum to `power` exactly, and showing them needs the game's own names for
 each, which is a separate ability rather than a row the panel could label for itself.
 
-## 5. The login gate
+## 6. The login gate
 
 A client sitting at the login screen answers everything cheerfully and wrongly
 (`tools/lib/game_clock.py`). The scenario therefore asks the game what time it is first —
@@ -79,14 +104,34 @@ an implausible clock ends the reading with an empty string and the panel keeps t
 had. The check is the same round trip, so it is free. It is the identical gate
 `read_base_resources.md` uses, for the identical reason.
 
-## 6. The answer's shape
+## 7. The answer's shape
 
-One variable, `player_card`, three fields separated by `;;` — a name may contain spaces,
+One variable, `player_card`, seven fields separated by `;;` — a name may contain spaces,
 so the separator is not one:
 
 ```
-Player1;;35;;231590771
+Player1;;35;;100000000;;[AL1] Alliance One;;67;;1700000000000;;1600000000000
 ```
 
-The tab splits it and fills its three rows; the phone's screen draws the same three from
-the same `fetch()`, so the two front-ends cannot disagree.
+`nick ;; level ;; power ;; alliance ;; stamina ;; stamina_full_ms ;; reg_ms`. The window's
+card draws the first three (it is being retired, so nothing new goes into it); the phone's
+card draws all six readings from the same `fetch()`.
+
+## 8. Read on a look, not on an event — and why
+
+The resource balance next to this card lives on a push
+(`push.resource.item.update`, `base-resources.md`) and re-reads itself. **This card
+deliberately does not**, and the reason is what the values are:
+
+* **name, HQ level, power** change when the PLAYER does something — a rename, an upgrade,
+  a research — which means the player is in the game, not reading the panel. There is no
+  «the character changed» push in the client's vocabulary either: the pushes the panel
+  knows are about resources, marches, help, chat, tiles, heroes — none about the role.
+* **energy is the one thing that moves on its own, and no event could carry it**: it
+  refills with TIME. That is exactly why the reading is not a lone number — the moment the
+  purse fills comes back beside it, so an hour-old reading still answers «when will I have
+  a full purse» correctly.
+
+So the card is read when the tab is opened and when «Обновить» is pressed, at one VM round
+trip a time. An ear would cost a subscription, and would fire on events that cannot change
+any of these six values.
