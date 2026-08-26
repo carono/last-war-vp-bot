@@ -95,7 +95,8 @@ that owns a lifecycle.
 | P2 — answering in CHAT from the phone | **written, not yet live** | the ability became one recipe first: `CHAT_SEND` in the DSL, `actions/send_chat_message.md` over it, the tool kept as the command line. The panel was down and Windows interop from WSL with it, so nothing here has been sent in a real game — the window's three sends and the phone's two are the first thing to try when it is up |
 | P2 — the treasure feed's own filter | **done** | four switches on «Сокровища (отладка)»; the clipboard press stays at the machine |
 | P2 — what is still window-only | see below | |
-| P0 — the service | **blocked** | Windows interop from WSL is down; not written blind |
+| P0 — the service, and the panel dialling out to it | **live** | `panel/service/` + `panel/runtime/service_link.py`; measured on this machine: the door on 9762, the web on 9763, one panel dialled in with four profiles, and `/api/profiles` through the SERVICE answered by that panel |
+| P0 — installed as a Windows service | **not done** | the two `sc create` / `sc start` lines are in `service.bat`'s own comments and need an elevated prompt — the person's press, not an agent's |
 | P3 — Tk removed | not started | after P2 |
 | P4 — the rules and the parity tests | partly | the `settings` divergence is already rewritten |
 
@@ -139,6 +140,22 @@ the standing divergence, and the one thing that will need an answer before the w
 goes — see the note in the risks below.
 
 ## 1. Target architecture
+
+**Built and measured, 2026-08-26.** What follows was the design; this is what it is now,
+and the shape is unchanged bar one simplification worth writing down. The routing is the
+PANEL'S OWN API: `panel/web/api.py::WebApi.dispatch` already answers
+`(method, path, query, body)` for the whole surface and `panel/web/server.py::WebServer`
+already takes an `api=` object, so the service is a register of connected panels and an
+`api` that forwards to one of them (`panel/service/api.py`). Not one route is written
+twice, and a route added to the panel tomorrow is served by the service the same day.
+
+The transport is line-delimited JSON on a loopback socket the PANEL dials
+(`panel/service/wire.py`): session 0 may not reach into an interactive session, and a
+program in a session may always dial a loopback port — so the direction is forced by
+Windows rather than chosen, and it needs no ACL, no per-session token and no firewall
+hole. The door refuses to listen anywhere but the loopback; the world's half is the HTTP
+port, behind the same token the panel's own server uses.
+
 
 Two processes, and the split is forced by Windows, not chosen for taste.
 
