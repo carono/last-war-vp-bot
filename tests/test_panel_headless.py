@@ -199,6 +199,31 @@ def test_a_tab_that_will_not_build_is_skipped_and_said() -> None:
         scratch.close()
 
 
+def test_the_runtime_and_the_headless_panel_import_with_no_tkinter_at_all() -> None:
+    """P3's acceptance test, as far as it reaches today (#1976).
+
+    `panel.runtime` used to need Tk to be imported at all, because the package imported
+    the log PANE — so a panel with no display, or a machine with no `tkinter` installed,
+    could not so much as read its own settings. The spool is `panel/runtime/log_spool.py`
+    now and the pane is imported by whoever draws one.
+
+    WHAT IS STILL TRUE: a tab CLASS imports Tk when it is loaded, because it still draws.
+    That is what the rest of P3 removes, one tab at a time; this test is what will notice
+    when the last one goes.
+    """
+    import subprocess
+
+    code = (
+        "import sys\n"
+        "sys.path[:0] = ['.', 'tools', 'tools/lib']\n"
+        "sys.modules['tkinter'] = None\n"      # any import of it now raises
+        "import panel.runtime, panel.headless\n"
+        "print('ok')\n")
+    done = subprocess.run([sys.executable, "-c", code], cwd=str(_REPO),
+                          capture_output=True, text=True)
+    assert done.returncode == 0 and "ok" in done.stdout, (done.stdout, done.stderr[-800:])
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

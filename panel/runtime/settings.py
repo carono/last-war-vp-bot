@@ -27,7 +27,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-import tkinter as tk
 
 import game_paths
 import lua_client
@@ -216,8 +215,13 @@ def machine_value(key: str) -> tuple:
 
 def _settings_var(master, default):
     """One Tk variable per Settings knob — a checkbox for a bool, a box for the rest."""
-    return (tk.BooleanVar(master=master, value=bool(default)) if isinstance(default, bool)
-            else tk.StringVar(master=master, value=str(default)))
+    # THROUGH `statevar` (#1976, P3): with a window these are the same two Tk variables
+    # they always were, and with none they are the same surface with no Tk under it — so
+    # a knob is a knob in a panel that draws nothing.
+    from . import statevar
+
+    return (statevar.boolean(master, bool(default)) if isinstance(default, bool)
+            else statevar.string(master, str(default)))
 
 
 class SettingsBinder:

@@ -33,7 +33,9 @@ from .i18n import Translator
 from .intake import Intake as IntakeLedger
 from .interrupt import Interrupts
 from .log import LogBus
-from .log_view import LogSpool
+# The SPOOL, not the pane: this module is imported by a panel that may have no Tk
+# at all (`panel/headless.py`), and `log_view.py` draws (#1976, P3).
+from .log_spool import LogSpool
 from .paths import REPO
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker, ThreadTicker

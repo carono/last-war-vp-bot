@@ -47,7 +47,10 @@ from . import game_process
 from .host import PanelRuntime, standalone
 from .i18n import Translator
 from .log import LogBus
-from .log_view import LogPane, LogSpool
+# The SPOOL only: `log_view.LogPane` DRAWS, and importing it here would mean a
+# panel with no Tk installed could not import its own runtime (#1976, P3).
+# Whoever draws one says `from ..runtime.log_view import LogPane`.
+from .log_spool import LogSpool
 from . import provision
 from . import panic
 from . import power

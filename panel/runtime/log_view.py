@@ -39,6 +39,10 @@ from tkinter.scrolledtext import ScrolledText
 
 from .. import widgets
 from .log import FILTER_ALL, severity_of, strip_ansi, tag_of
+# THE SPOOL MOVED (#1976, P3): this file imports Tk on its first line and the panel has to
+# run where there is none, so the half with no widget in it is `log_spool.py`. Re-exported
+# here because «the log pane and its spool» is one subject and every caller says this name.
+from .log_spool import MAX_LINES, TRIM_BLOCK, LogSpool  # noqa: F401
 
 #: Every producer that writes a `[tag]` into the log, in the order the filter offers
 #: them. Adding a producer without adding it here costs nothing — its lines are always
@@ -48,104 +52,9 @@ TAGS: tuple = ("panel", "action", "timer", "trigger", "secret", "autoloot", "gho
                "daemon", "profile", "traffic", "trace", "sniff", "dash", "cmd",
                "debug")
 
-#: How many lines the widget keeps. An overnight session with a tracer running writes
-#: tens of thousands of them, and a Text widget that large makes every subsequent insert
-#: visibly slow — the panel froze once for exactly this reason. The on-disk mirror
-#: (panel.log) is NOT trimmed: the widget is a window onto the session, the file is the
-#: record.
-MAX_LINES = 4000
-#: Trimming a line at a time would run on every insert; drop a block instead, so the
-#: cost is paid once every this many lines.
-TRIM_BLOCK = 500
 #: Severity colours, on the log's dark background.
 COLOURS = {"sev_error": "#ff6b6b", "sev_warn": "#e8c069", "sev_ok": "#7bd88f",
            "stamp": "#6a6a6a"}
-
-
-class LogSpool:
-    """One profile's stamped history, and the pump that fills it. NO WIDGET.
-
-    Made per runtime beside the :class:`~panel.runtime.log.LogBus` it drains, and
-    pumped by whoever owns the clock — the shell, once per profile, every 120 ms.
-    """
-
-    def __init__(self, bus, cap: int = MAX_LINES) -> None:
-        self.bus = bus
-        #: How many lines to keep for a redraw. Twice this is held, so narrowing the
-        #: filter and widening it again still has more history than the widget showed.
-        self.cap = max(int(cap), 1)
-        self._kept: list = []
-        self._lock = threading.RLock()
-        self._pane = None
-
-    # -- the pump ------------------------------------------------------------
-    def pump(self, cap: "int | None" = None) -> int:
-        """Drain the bus: stamp, remember, mirror to panel.log, draw. Tk thread.
-
-        Returns how many lines the pane drew, which is 0 whenever there is no pane —
-        everything else it does happens either way, and that is the point of it.
-        """
-        if cap:
-            self.cap = max(int(cap), 1)
-        pane = self._pane
-        drawn = 0
-        while True:
-            line = self.bus.take()
-            if line is None:
-                break
-            stamp = time.strftime("%H:%M:%S")
-            with self._lock:
-                self._kept.append((stamp, line))
-            if pane is not None:
-                try:
-                    # One scroll for the whole drain, below: a tracer streaming a
-                    # thousand lines a second must not make Tk chase the tail a
-                    # thousand times in the same tick.
-                    drawn += 1 if pane.append(stamp, line, scroll=False) else 0
-                except Exception:            # noqa: BLE001 — a widget, never the record
-                    pane = None
-            self.bus.append_file(line)
-        self._trim()
-        if drawn and pane is not None:
-            try:
-                pane.settle()
-            except Exception:                # noqa: BLE001
-                pass
-        return drawn
-
-    def _trim(self) -> None:
-        with self._lock:
-            if len(self._kept) > self.cap * 2:
-                del self._kept[:len(self._kept) - self.cap]
-
-    # -- reading -------------------------------------------------------------
-    def lines(self) -> list:
-        """The history, oldest first, as ``(stamp, line)``. A copy."""
-        with self._lock:
-            return list(self._kept)
-
-    def clear(self) -> None:
-        """Forget the history. `panel.log` is untouched — it is the record."""
-        with self._lock:
-            self._kept.clear()
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._kept)
-
-    # -- the one pane --------------------------------------------------------
-    def attach(self, pane) -> None:
-        """This pane draws from now on, and seeds itself from the history."""
-        self._pane = pane
-
-    def detach(self, pane=None) -> None:
-        """Stop drawing — the tab was closed, or the profile went away."""
-        if pane is None or self._pane is pane:
-            self._pane = None
-
-    @property
-    def pane(self):
-        return self._pane
 
 
 class LogPane:
