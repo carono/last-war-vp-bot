@@ -84,6 +84,13 @@ def coerce(rt, key: str, value):
     auto-loot, and a stray letter in a port would aim the panel at nothing.
     """
     fallback = declared(rt, key)
+    if fallback is None and isinstance(value, bool):
+        # A KNOB NOBODY DECLARED keeps the type it was GIVEN, when that type is a
+        # boolean. Without this the fall-through below stored `True` as the string
+        # "True", and the module's own docstring says what that costs: `opt_bool`
+        # reads "False" as true for ever after. A default is the better answer and
+        # every shipped knob has one — this is for the one that is added tomorrow.
+        return bool(value)
     if isinstance(fallback, bool):
         if isinstance(value, str):
             return value.strip().lower() in ("1", "true", "yes", "on")

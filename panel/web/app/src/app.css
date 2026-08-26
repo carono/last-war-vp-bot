@@ -108,7 +108,9 @@ select.picker {
   align-items: center;
   gap: 7px;
   flex: 0 0 auto;
-  min-height: 36px;
+  /* A chip is PRESSED — it is how an account is switched to — so it is as wide as a
+     finger, exactly like every other control here (44 px, `--tap`). It was 36. */
+  min-height: var(--tap);
   padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--card-edge);

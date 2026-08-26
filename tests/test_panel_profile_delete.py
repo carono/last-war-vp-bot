@@ -93,7 +93,11 @@ class _Shell:
         self._profile_var = types.SimpleNamespace(get=lambda: self._selected)
         self._selected = ""
         self._activity = types.SimpleNamespace(step=lambda *a, **k: _nothing())
-        for name in ("_delete_profile", "_make_room_to_delete", "_let_link_go_of"):
+        # `_profile_refused` is the fourth since #1976: a refusal is a message box for a
+        # person at the machine and a log line for a press that came from a phone, and
+        # both halves of the delete go through it.
+        for name in ("_delete_profile", "_make_room_to_delete", "_let_link_go_of",
+                     "_profile_refused"):
             setattr(self, name, types.MethodType(getattr(_PANEL, name), self))
 
     # -- the stubs the real window fills in ---------------------------------

@@ -218,7 +218,10 @@ def test_tab_builds_and_drives_its_controls():
         rt = fake_runtime.cold_runtime(app)
         tab = cp.CommandPostTab(rt, ttk.Frame(app))
         tab.build()
-        assert len(tab._pages) == 3
+        # FOUR pages since #1903: the player's own tasks joined the three that read
+        # somebody else's — the only one of them that spends a currency.
+        assert len(tab._pages) == 4, sorted(tab._by_key)
+        assert set(tab._by_key) == {"ghost", "shared", "treasure", "tasks"}
         assert rt.game.asked == [], rt.game.asked
 
         pages = list(tab._pages.values())
@@ -346,12 +349,23 @@ def test_panel_keeps_the_saved_block_until_the_tab_exists():
     from panel import tabs as tabsreg
     assert set(fresh["known"]) == {spec.id for spec in tabsreg.listed()}, fresh
     assert not [i for i in fresh["known"] if tabsreg.BY_ID[i].in_development], fresh
-    # …and a hand-written `tabs.enabled` survives a save that has nothing to say about it.
+    # …and a tab somebody UNTICKED stays unticked, which is what `enabled` is for.
+    #
+    # It used to say «a hand-written `tabs.enabled` survives untouched», and #1327 ended
+    # that: a tab the profile has never heard of is appended and BUILT, so a save that
+    # left `enabled` alone wrote it into `known` and nowhere else — and «in known, not in
+    # enabled» is exactly how this file spells «declined». The tab then appeared once and
+    # was gone for ever. So `enabled` is rewritten from what the window actually built,
+    # and the guarantee to pin is the one that survived: known-and-not-enabled stays off.
     class _Chosen:
-        _settings = {"tabs": {"enabled": ["stats"], "config": {}}}
+        _settings = {"tabs": {"enabled": ["rally"], "known": ["rally", "chat"],
+                              "config": {}}}
         _tabs_block = pm.Panel._tabs_block
 
-    assert _Chosen()._tabs_block()["enabled"] == ["stats"]
+    chosen = _Chosen()._tabs_block()
+    assert "rally" in chosen["enabled"], chosen
+    assert "chat" not in chosen["enabled"], "an unticked tab came back on"
+    assert "chat" in chosen["known"], chosen
 
 
 def test_a_scanned_row_is_never_labelled_with_a_verdict_the_game_did_not_give():
@@ -649,14 +663,20 @@ class _Children:
 
 
 class _Actions:
-    """`rt.actions`, remembering which scenarios were played."""
+    """`rt.actions`, remembering which scenarios were played AND with what.
+
+    The arguments matter now (#1976): the queue used to be parked by a spawned tool and
+    is a `variables` entry of the recipe, so a robbery that presses the right scenario
+    over an empty queue is exactly the failure this file has to be able to see.
+    """
 
     def __init__(self, ok: bool = True, reason: str = "") -> None:
-        self.played, self._ok, self._reason = [], ok, reason
+        self.played, self.args, self._ok, self._reason = [], [], ok, reason
 
     def play(self, name, args=None, **kw):
         from panel.runtime.actions import Outcome
         self.played.append(name)
+        self.args.append(dict(args or kw.get("variables") or {}))
         return Outcome(self._ok, self._reason)
 
 
@@ -688,55 +708,60 @@ def _drain(order) -> None:
     raise AssertionError("the robbery never finished")
 
 
-def test_the_ghost_robbery_parks_with_the_tool_and_presses_with_the_recipe():
-    """#1188: the tool selects and parks, `actions/steal_ghost_recon.md` robs.
+def test_the_ghost_robbery_travels_as_a_queue_and_spawns_nothing():
+    """#1188, then #1976: ONE step — the recipe takes the squads as an argument.
 
-    The event runs one day a week, so a swap that quietly robbed nothing would not be
-    noticed for six days. The tool keeps what is genuinely the game's answer — the event
-    day and the daily budget — and the pressing is the scenario's.
+    It used to be two: spawn `tools/ghost_recon_steal.py --queue-only` to park the chosen
+    squads in the game VM, then play the recipe to press them. The parking child cost five
+    seconds before the first press, in a race that is decided in fractions of one, and all
+    it parked was a list this page had already chosen. So the queue is `ARGS queue` now,
+    and what this pins is the pair of facts that make the swap correct: NOTHING is spawned,
+    and the squads reach the recipe BY NAME rather than being re-derived from a second
+    reading of `taskList` (#1256).
     """
-    order, rt, _said = _order(["ghost recon: open   robberies left today: 5   queued: 0",
-                               "  target uuid=1 srv=100",
-                               "queued 1 target(s) — run actions/…"])
+    order, rt, _said = _order([])
     if order is None:
         return
-    order.rob([{"uuid": "1", "srv": 100}])
+    order.rob([{"uuid": "1", "srv": 100}, {"uuid": "2", "srv": 101}])
     _drain(order)
 
-    assert "--queue-only" in rt.children.cmd, rt.children.cmd
-    assert "ghost_recon_steal.py" in " ".join(rt.children.cmd)
-    # …and the chosen squad still travels by name, never «--all» (#1256).
-    assert "--targets" in rt.children.cmd and "1:100" in rt.children.cmd
-    assert "--all" not in rt.children.cmd, rt.children.cmd
+    assert rt.children.cmd is None, f"a child was spawned: {rt.children.cmd}"
     assert rt.actions.played == ["steal_ghost_recon"], rt.actions.played
+    queue = rt.actions.args[0].get("queue", "")
+    assert queue == "{uuid=1,server=100},{uuid=2,server=101}", queue
 
 
-def test_a_shut_event_parks_nothing_and_presses_nothing():
-    """Six days out of seven the tool says so and never reaches the queue — and a recipe
-    played over a stale one is the only way this order could rob the wrong squad."""
-    order, rt, _said = _order(["ghost recon: CLOSED (not an event day)   robberies left "
-                               "today: 5   queued: 0",
-                               "the event is not running today — nothing to rob"])
-    if order is None:
-        return
-    order.rob([{"uuid": "1", "srv": 100}])
-    _drain(order)
-    assert rt.actions.played == [], rt.actions.played
+def test_a_robbery_with_nothing_chosen_presses_nothing() -> None:
+    """An empty pick is the one case that must NOT reach the recipe.
 
-
-def test_a_ghost_run_that_queued_nothing_presses_nothing():
-    """«queued 0 target(s)» — the tool reached the queue and left it empty.
-
-    It happens on a spent budget: the tool slices the named squads to what is left, and
-    «ограбить всё» does not gate on the budget the way the standing order does. The count
-    is what the reader steers by, not the word.
+    The recipe's own `xall` re-reads min(queued, robberies left) before every press and
+    reads 0 once the event shuts — but a press over a queue somebody else parked is the
+    way this order could rob a squad the page never chose, so the empty pick stops here.
     """
-    order, rt, _said = _order(["queued 0 target(s) — run actions/…"])
+    order, rt, _said = _order([])
     if order is None:
         return
-    order.rob([{"uuid": "1", "srv": 100}])
-    _drain(order)
+    order.rob([])
     assert rt.actions.played == [], rt.actions.played
+    assert order._proc is None, "the in-flight flag was left set on an empty pick"
+
+
+def test_the_queue_is_cut_to_what_the_day_has_left() -> None:
+    """Five a day is the game's number, and the order slices its own pick by it.
+
+    The recipe re-reads the budget too — this is the cheaper half of the same gate, and
+    the half that keeps the log honest: «граблю N» must not name more squads than the
+    day can pay for.
+    """
+    order, rt, said = _order([])
+    if order is None:
+        return
+    rt.settings.opt_int = lambda key, low=0, high=0: 2
+    order.rob([{"uuid": str(n), "srv": 100} for n in range(1, 6)])
+    _drain(order)
+    queue = rt.actions.args[0].get("queue", "")
+    assert queue.count("uuid=") == 2, queue
+    assert "ghost.robbing" in said, said
 
 
 def test_a_ghost_recipe_that_failed_says_so_in_the_scenarios_own_words():

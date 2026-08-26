@@ -114,8 +114,11 @@ class _Activity:
 class _Settings:
     def __init__(self, values: dict | None = None) -> None:
         self.values = dict(values or {})
+        # Declared like the real ones (`panel/runtime/settings.py::DEFAULTS`) — a knob's
+        # TYPE comes from its default, so a stand-in that declares none stored `True` as
+        # the string "True" and the reading never came back (#1976).
         self.defaults = {"game_exe": "nothing.exe", "rdp_session": False,
-                         "rdp_user": ""}
+                         "rdp_user": "", "watchdog": False}
 
     def opt(self, key: str):
         return self.values.get(key, self.defaults.get(key))
@@ -1621,13 +1624,24 @@ class _Screen:
 
 
 def test_only_the_tabs_this_profile_built_offer_a_screen():
+    """…and the screens that are NOT tabs are always there, which is not the same thing.
+
+    «Серверы», «Автозапуск» and «Язык» belong to the WINDOW rather than to an account
+    (`panel/web/api.py`), so they are appended whatever tabs a profile has — «Профили»
+    only when a shell registered the press. What this test is about is the other list:
+    a tab that was never built must not offer a screen.
+    """
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
-        assert api.screens()["screens"] == [], "a profile with no tabs offered one"
+        fixed = [s["id"] for s in api.screens()["screens"]]
+        assert "demo" not in fixed, "a profile with no tabs offered one"
+        assert apimod.SERVERS_SCREEN in fixed and apimod.LANGUAGE_SCREEN in fixed, fixed
         screen = _Screen()
         rt.tabs.live = [screen]
         rt.tabs.get = lambda tab_id: screen if tab_id == "demo" else None
-        assert api.screens()["screens"] == [{"id": "demo", "title": "tab.demo"}]
+        after = api.screens()["screens"]
+        assert after[0] == {"id": "demo", "title": "tab.demo"}, after
+        assert [s["id"] for s in after[1:]] == fixed, after
 
 
 def _stand_ins(specs) -> list:
@@ -1864,7 +1878,11 @@ def test_the_thread_that_pressed_never_waits_for_the_daemons_lease():
         rt.actions.run = lambda name, args=None, **kw: played.append(name) or True
 
         at = time.monotonic()
-        assert rt.play_async("collect_base_resources", tag="web") is True
+        # `human=True`, because this is a PRESS and that is what the web's own presses
+        # pass (`panel/web/api.py`). Without it the gate holds the run before the claim
+        # is ever reached (#1910) — on a cold runtime there is no client — and the test
+        # would be measuring the wrong refusal.
+        assert rt.play_async("collect_base_resources", tag="web", human=True) is True
         took = time.monotonic() - at
         assert took < 0.3, f"the press waited {took:.2f}s for the lease"
         assert asked.wait(3.0), "nothing ever took the lease — the run was dropped"
@@ -1952,8 +1970,13 @@ def test_every_control_is_at_least_a_finger_wide():
     heights = [int(n) for n in re.findall(r"min-height:\s*(\d+)px", css)]
     assert heights, "nothing declares a minimum height any more"
     assert min(heights) >= 44, f"a control is {min(heights)} px tall"
-    assert re.search(r"button\s*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d)px", css), (
-        "the buttons no longer declare a thumb-sized minimum")
+    # THE SIZE IS A VARIABLE, and the buttons name it rather than spelling it — so the
+    # rule to check is the variable's own value plus the fact that a button uses it.
+    # Reading a literal out of the button rule only worked while nobody had tidied it.
+    tap = re.search(r"--tap:\s*(\d+)px", css)
+    assert tap and int(tap.group(1)) >= 44, f"--tap is {tap and tap.group(1)}"
+    assert re.search(r"button\s*\{[^}]*min-height:\s*(var\(--tap\)|(4[4-9]|[5-9]\d)px)",
+                     css), "the buttons no longer declare a thumb-sized minimum"
 
 
 def test_no_field_is_small_enough_to_make_ios_zoom():
