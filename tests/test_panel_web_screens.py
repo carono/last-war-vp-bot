@@ -48,6 +48,12 @@ def _english() -> dict:
     return json.loads((Path(i18nmod.LOCALES_DIR) / "en.json").read_text(encoding="utf-8"))
 
 
+#: The registry by id — for a test that asks ONE tab a question and does not want the
+#: other nineteen imported to find it. (It was used before it existed: two tests reached
+#: for `BY_ID` and the file has no display in WSL, so nobody ran into the `NameError`.)
+BY_ID = {spec.id: spec for spec in tabsreg.TABS}
+
+
 def _tabs_with_screens() -> list:
     out = []
     for spec in tabsreg.TABS:
@@ -98,28 +104,49 @@ def _keys_in(view: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
-def test_the_tabs_that_offer_a_screen_are_the_ones_that_should():
-    """One tab says no on purpose, and it is a decision rather than an oversight.
+def test_every_tab_offers_a_screen_and_the_last_two_exceptions_are_gone():
+    """THERE WERE THREE, AND THERE ARE NONE (#1976), each ended by the person who made it.
 
-    «Develop» is two sniffers for working on the bot itself, and it is hidden even in
-    the window unless the profile is in development mode.
+    «Веб» stopped being a tab at all in #1313 — its knobs belong to the window, see the
+    test below. «Настройки» kept its divergence for as long as there were two front-ends
+    and the window was the safe one; with the window going away, a knob with no screen is
+    a knob nobody can reach, which is worse than one somebody can get wrong. What survives
+    of that decision lives INSIDE the screen: the four values that decide which client a
+    profile drives — the two machine paths, the port and the Windows session — are
+    readings there and not fields.
 
-    THERE WERE THREE, AND THERE IS ONE (#1976). «Веб» stopped being a tab at all in
-    #1313 — its knobs belong to the window, see the test below. «Настройки» kept its
-    divergence for as long as there were two front-ends and the window was the safe one;
-    with the window going away, a knob with no screen is a knob nobody can reach, which
-    is worse than one somebody can get wrong. What survives of that decision lives
-    INSIDE the screen: the four values that decide which client a profile drives — the
-    two machine paths, the port and the Windows session — are readings there and not
-    fields.
+    «Разработка» was the last one, and it was ended the same way: it says «two sniffers
+    for working on the bot itself», which was never true of «Занятость» — «почему панель
+    ничего не делает» is exactly the question somebody away from the machine cannot ask
+    any other way. The tab is still `DEFAULT_ENABLED = False` and still hidden unless the
+    profile is in development mode, so a panel that has not asked for it is handed
+    nothing; what the screen does NOT carry is pinned below.
     """
     offered = {tab_id for tab_id, _cls in _tabs_with_screens()}
-    assert "develop" not in offered, (
-        "«develop» offers a phone screen — that was decided against "
-        "(docs/research/panel-web.md §4)")
+    assert "develop" in offered, (
+        "«Разработка» has no phone screen — the divergence was ended in #1976")
     assert "settings" in offered, (
         "«Настройки» has no phone screen — with one front-end left that is a page "
         "nobody can reach (#1976)")
+
+
+def test_the_recording_pair_is_a_reading_on_the_phone_and_not_a_press():
+    """The sniffers travel as WORDS, and the reason is not squeamishness (#1976).
+
+    Starting a recording asks for a label in a message box; stopping it opens the
+    keep-or-throw-away prompt with a description to type. Both are modals raised on a
+    machine nobody is standing at, so the screen says what is being recorded and offers
+    no switch — and a press that names one anyway is answered «unknown» rather than
+    quietly doing half of it. The one knob it does carry is the update channel.
+    """
+    cls = BY_ID["develop"].load()
+    tab = cls.__new__(cls)
+    for never in ("sniff", "trace", "scenario", "loop"):
+        answer = tab.web_press("set", {"key": never, "value": True})
+        assert answer == {"error": "unknown"}, (
+            f"«{never}» can be pressed from the phone — it opens a box at the "
+            f"machine (#1976): {answer}")
+    assert tab.web_press("start", {}) == {"error": "unknown"}
 
 
 def test_the_settings_screen_refuses_what_decides_which_client_is_driven():

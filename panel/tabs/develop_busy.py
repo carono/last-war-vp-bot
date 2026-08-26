@@ -47,10 +47,13 @@ THREE THINGS IT DELIBERATELY DOES NOT DO:
   reader;
 * **it does not ask the game anything.** The whole point is to explain a panel that is
   not answering — a read would join the very queue being measured;
-* **it does not go to the phone.** «Разработка» declares `WEB_SCREEN = False`, and that
-  is the tab's standing exception rather than a new one (`CLAUDE.md`,
-  `docs/panel-tabs.md`). What a jam looks like from a phone is a different question and
-  is asked of the person before anything is drawn.
+* **it drew nothing on the phone until it was ASKED** (#1976). «Разработка» declared
+  `WEB_SCREEN = False`, and «what a jam looks like from a phone» was the question left
+  open here. It has been answered — the person decided the tab gets a screen — and this
+  block is the half that needed no argument: «почему панель ничего не делает» is exactly
+  the question somebody away from the machine cannot otherwise ask. :meth:`web_cards`
+  renders the same :data:`GROUPS` the window stacks, off the same :meth:`rows`, so a grid
+  added here reaches both.
 
 The claim registry and the thread list are process-wide on purpose — that is what they
 ARE (`panel/runtime/claims.py`) — so every row of them says whose it is and the rows of
@@ -215,6 +218,47 @@ class BusyView:
         self._sort: dict = {}                 # group key -> (column, descending)
         self._steps = busymod.StepWatch()
         self._visible = False
+
+    # -- the phone's copy of it (#1976) ---------------------------------------
+    def web_cards(self, snap: dict) -> list:
+        """The same grids, as cards. One per :data:`GROUPS`, in the same order.
+
+        THE ROWS ARE :meth:`rows`, not a second reading of the snapshot — a section
+        added to the window is a card on the phone with nothing to write here, which is
+        the whole reason the drawing was split from the data in the first place.
+
+        What a column carries is what an item carries: `what` and `detail` are DATA and
+        travel as they are, `status` is a locale KEY and travels as the item's pill, and
+        the seconds and the level become facts under it. A grid that would be empty still
+        shows — with `empty`, exactly as the window shows its «— nothing» row — because a
+        card that vanished reads as «таких нет», and an empty listener list does not mean
+        that.
+        """
+        by_section: dict = {}
+        for row in self.rows(snap):
+            by_section.setdefault(row["section"], []).append(row)
+        cards = []
+        for key, title, sections, _columns in GROUPS:
+            items = []
+            for row in [r for s in sections for r in by_section.get(s, ())]:
+                facts = []
+                if row["secs"] is not None:
+                    facts.append({"label": "busy.col.secs", "value": str(row["secs"])})
+                # `level` is a locale key everywhere but on a listener row, where the
+                # grid's own column reads it as a count — so it is said the same way
+                # here: a key through `t`, a number as it stands.
+                if row["level"]:
+                    facts.append({"label": "busy.col.level",
+                                  "value": (self.tab.t(row["level"])
+                                            if key != "listeners" else str(row["level"]))})
+                item = {"text": row["what"] or row["detail"] or "—",
+                        "detail": row["detail"] if row["what"] else "",
+                        "note": row["who"], "facts": facts}
+                if row["status"]:
+                    item["pill"] = row["status"]
+                items.append(item)
+            cards.append({"title": title, "items": items, "empty": "busy.none"})
+        return cards
 
     # -- drawing --------------------------------------------------------------
     def build(self, parent, framed: bool = True) -> None:

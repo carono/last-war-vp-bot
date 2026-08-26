@@ -113,6 +113,7 @@ from tkinter.scrolledtext import ScrolledText
 # the three bare-name modules below live there.
 from .. import profile as profilemod
 from ..runtime import ActionRunner, list_actions
+from ..runtime import busy as busymod
 from ..runtime.log_view import LogPane
 from ..runtime.paths import TOOLS, TOOLS_LIB, repo_rel
 from ..widgets import font as ui_font, numeric_spinbox
@@ -175,6 +176,14 @@ class DevelopTab(PanelTab):
     #: unmodified set of actions does not need this page open either — the timers and
     #: the other tabs already do that without it.
     DEFAULT_ENABLED = False
+    #: IT HAS A SCREEN NOW, and it is the one divergence that was ended by the person
+    #: who made it (#1976). «Разработка» said no on the grounds that two sniffers for
+    #: working on the bot are not a phone's business — true of the SNIFFERS and never of
+    #: «Занятость», which answers «почему панель ничего не делает», the one question
+    #: somebody away from the machine cannot ask any other way. With the window being
+    #: retired, a page with no screen is a page nobody can reach; the tab is still
+    #: `DEFAULT_ENABLED = False`, so a panel that has not asked for it is handed nothing.
+    WEB_SCREEN = True
     PREFERRED_SIZE = "860x900"
     LOCALE_NS = ("develop", "trace", "sniff", "scenarios", "cmd", "busy", "log")
     NEEDS = frozenset({"daemon", "children", "actions"})
@@ -421,11 +430,13 @@ class DevelopTab(PanelTab):
         drawn, so a second window that changed it is reflected the moment this page is
         looked at.
 
-        NO SCREEN ON THE PHONE, and that is the tab's standing exception rather than a
-        new one: «Разработка» declares `WEB_SCREEN = False` (CLAUDE.md, «The three
-        divergences there are»). What the phone DOES get is the consequence — the
-        version line on «Состояние» carries the `+N-dev` mark, so a checkout following
-        the branch says so wherever it is read.
+        ON THE PHONE TOO, since #1976: the tab has a screen and this tick is a `switch`
+        field on it, written through the same `set_dev_updates` and publishing the same
+        re-ask. It is a knob of the CHECKOUT rather than of a profile either way — a
+        phone that moves it moves it for every profile in the window, exactly as the
+        window's own tick does. The other half is still the consequence: the version line
+        on «Состояние» carries the `+N-dev` mark, so a checkout following the branch says
+        so wherever it is read.
         """
         box = self.tr(ttk.LabelFrame(self._frames["sniff"], padding=8),
                       "develop.updates.frame")
@@ -619,6 +630,65 @@ class DevelopTab(PanelTab):
         self._retranslate_pages()
         self._refresh_actions()
         self._busy.on_language_change()
+
+    # -- the phone's copy of it (#1976) ---------------------------------------
+    def web_view(self) -> dict:
+        """«Занятость» whole, the recording as a READING, and the update channel.
+
+        WHAT TRAVELS AND WHAT DOES NOT, and why the split is where it is:
+
+        * **the busy debugger travels whole.** It is a read of dicts under locks
+          (`panel/runtime/busy.py`), it asks the game nothing, and it answers the one
+          question a person away from the machine has no other way to ask — «панель
+          стоит: кто кого ждёт». The cards are the window's own grids
+          (`develop_busy.BusyView.web_cards`);
+        * **the update channel travels as a switch**, because it is one boolean of the
+          checkout with nothing to confirm;
+        * **the sniffer pair is a READING and carries no press.** Starting it asks for a
+          label in a message box and stopping it opens the keep-or-throw-away prompt with
+          a description to type — two modals raised on a machine nobody is standing at.
+          The recipe for making them travel is the one this repository already uses: the
+          typed word becomes an argument of the press (`profile_control`, «Аккаунты»),
+          and until that is written the phone SAYS what is being recorded rather than
+          pretending it can start it;
+        * **the scenario editor stays in the window** for now, for the same reason and
+          one more: it is a text editor, and half of what it is for is reading a recipe
+          beside its neighbours. Running a scenario needs none of it — the phone has had
+          «Сценарии» since the SPA's first day.
+        """
+        cards = [{"title": "develop.sniff.frame",
+                  "items": [{"text": self._status_var.get() or "—",
+                             "label": "develop.sniff.toggle",
+                             "pill": ("busy.status.running" if self._sniffing()
+                                      else "develop.sniff.idle")}],
+                  "note": "develop.web.reading_only"},
+                 {"title": "develop.updates.frame",
+                  "fields": [{"key": "dev_updates", "label": "develop.updates.dev",
+                              "kind": "switch", "value": profilemod.dev_updates()}],
+                  "note": "develop.updates.hint"}]
+        cards.extend(self._busy.web_cards(busymod.snapshot(self.rt)))
+        return {"title": "tab.develop", "cards": cards}
+
+    def _sniffing(self) -> bool:
+        """Is a recording session live? Either half counts — `_sync_sniff_var`'s rule."""
+        return self._sniff_proc is not None or self._trace_proc is not None
+
+    def web_press(self, action: str, args) -> dict:
+        """The one knob the screen offers: which releases this checkout follows."""
+        if action != "set" or str((args or {}).get("key") or "") != "dev_updates":
+            return {"error": "unknown"}
+        flag = bool((args or {}).get("value"))
+        profilemod.set_dev_updates(flag)
+        # The window's own tick, if this tab has been drawn — the two must not disagree
+        # while both are on screen. `_dev_updates_var` is made when the sniffer page is
+        # built, so a tab nobody has opened simply has none.
+        var = getattr(self, "_dev_updates_var", None)
+        if var is not None:
+            self.post(lambda: var.set(flag))
+        self.say("panel", "log.update.channel.dev" if flag
+                 else "log.update.channel.release")
+        self.rt.bus.publish("update.channel", flag)
+        return {"ok": True}
 
     # -- persistence ----------------------------------------------------------
     def config(self) -> dict:

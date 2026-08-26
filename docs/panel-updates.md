@@ -115,11 +115,14 @@ Ticking it re-asks straight away: the tab publishes `update.channel` on the bus 
 block on «Главная» runs a fresh check, so the answer changes under the cursor rather than
 at the next six-hourly poll.
 
-**The phone has the reading, not the tick.** «Разработка» declares `WEB_SCREEN = False`
-and always has (`CLAUDE.md`, «The three divergences there are») — this is that standing
-exception, not a new one. What the phone DOES get is the consequence: the version on
-«Состояние» is the same string the window draws, `+N-dev` mark included, so a checkout
-following the branch says so wherever it is read.
+**The phone has the tick too, since #1976.** It used to have only the reading, because
+«Разработка» declared `WEB_SCREEN = False` — that divergence is over (`CLAUDE.md`), so the
+tick is a `switch` field on the tab's screen, written through the same `set_dev_updates`
+and publishing the same re-ask. It is a knob of the CHECKOUT either way: a phone that
+moves it moves it for every profile in the window, exactly as the window's own tick does.
+What the phone already had is still there beside it — the version on «Состояние» is the
+same string the window draws, `+N-dev` mark included, so a checkout following the branch
+says so wherever it is read.
 
 ## 5. What a person sees
 
@@ -128,6 +131,7 @@ following the branch says so wherever it is read.
 | «Главная» → «Обновление» | `Версия v1.4.0 · master @ a1b2c3d`, the status line, «Проверить», «⭳ Обновить» when there is a release to take, «⟳ Перезапустить панель» always (#1258) |
 | «Справка → О программе» | the same version string |
 | the phone, «Состояние» | the same version string, and the restart press |
+| the phone, «Разработка» | the same tick, as a switch — the tab has a screen since #1976 |
 | `debug.log`, first line | `panel starting — profile 'default', version v1.4.0+3-dev (channel release)` |
 
 All four come out of one cached reading (`updates.version_text`, 60 s), so they cannot

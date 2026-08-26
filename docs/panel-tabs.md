@@ -80,7 +80,7 @@ All of these are class attributes with defaults, so declare only what is true.
 | `TIMERS` / `TRIGGERS` | Errands the tab brings with it (§3.2). | If it has any; see below. |
 | `EAGER` | Load at boot instead of on first show — and be DRAWN at boot with it. | Only if `ensure_loaded` brings up something that must be RUNNING. |
 | `LAZY` | Is `build()` allowed to wait until somebody looks at the tab? **True by default**; see the section below for what it asks of you. | Never, unless your tab must exist before it is looked at — and then say why beside it. |
-| `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always — and `True` unless it is one of the two that must not (below). |
+| `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always, and `True`: since #1976 there is no tab that must not (below). |
 
 `DEFAULT_ENABLED` is what a profile that has NEVER opened «Настройки → Вкладки»
 behaves by — the code's own constant. A profile that HAS opened that page keeps
@@ -139,9 +139,9 @@ definition, the same one `CLAUDE.md` uses for calling any ability done. Take bot
 declarations off in one commit; `DEFAULT_ENABLED` then decides what happens next, and
 every profile that never unticked the tab has it on the following start.
 
-Nothing about this reaches the phone as a control: the mark is set in code and the page
-that lists tabs lives on «Настройки», which is one of the two tabs with no web screen
-at all, so there is nothing to mirror.
+Nothing about this reaches the phone as a control: the mark is set in code, and the page
+that lists tabs is a settings page rather than a screen action, so there is nothing to
+mirror.
 
 ---
 
@@ -1023,11 +1023,18 @@ Three things bound it:
   down it does not exist, and the rule stands. What is forbidden is the silent version:
   shipping one side, deciding alone that the other does not need it, leaving no trace —
   after which nobody can tell an exception from an omission.
-* **ONE tab has no screen, and it is what a legal exception looks like:** `develop`
-  was proposed, argued and agreed, and the reason is written in `CLAUDE.md`.
-  `tests/test_panel_web_screens.py` fails if it grows a screen quietly — and another
-  exception is added the same way: ask, agree, write it in both files, pin it in the
-  test.
+* **NO tab is without a screen any more, and `develop` was the last one (#1976).** It
+  was a legal exception — proposed, argued, agreed — and it was ended by the same
+  conversation that made it, which is the only way one may end. «Two sniffers for working
+  on the bot» was true of the SNIFFERS and never of «Занятость» on the same tab: the
+  threads, the queue, the claims and who waits for whom answer «почему панель ничего не
+  делает», the one question somebody away from the machine cannot ask any other way. So
+  the tab has a screen, and what does NOT travel is written inside it: starting a
+  recording asks for a label in a message box, stopping it asks whether to keep the run,
+  and a phone cannot answer either — the screen shows what is being recorded and a press
+  naming a sniffer is answered «unknown». `tests/test_panel_develop_screen.py` pins both
+  halves. **A new exception is still added the same way: ask, agree, write it in both
+  files, pin it in the test.**
 * **`settings` used to be the second, and #1976 ended it.** That exception — «breaking a
   profile with one thumb is easier than fixing it from a bus» — held while there were
   two front-ends and the window was the safe one. The panel is going to have ONE (the
@@ -1050,12 +1057,13 @@ Three things bound it:
   `panel/web/api.py` that can reach the setting. Anything else a screenless corner of
   the panel needs on the move goes the way «⟳ Перезапустить панель» did — onto
   «Состояние» as a press.
-* **A control added to one of those two is covered by its standing exception, not by
-  a new one** — but say so where you add it, or the next reader cannot tell. «Обновлять
-  до dev-версии» on «Разработка» (#1274) is the worked example: the tick exists only in
-  the window, and what the phone gets instead is the CONSEQUENCE of it — the version on
-  «Состояние» carries the same `+N-dev` mark, out of the same reading, so a checkout
-  following the branch says so wherever it is read. See `docs/panel-updates.md` §4.
+* **A control added to the one standing divergence («Веб») is covered by it, not by a
+  new one** — but say so where you add it, or the next reader cannot tell. «Обновлять
+  до dev-версии» on «Разработка» (#1274) used to be the worked example of that, and is
+  now the worked example of a divergence ENDING: the tick is a `switch` field on the
+  tab's screen since #1976, written through the same `set_dev_updates`, and what the
+  phone already had — the version line on «Состояние» carrying the `+N-dev` mark — is
+  still there beside it. See `docs/panel-updates.md` §4.
 
 ## Reaching another tab
 

@@ -61,6 +61,7 @@ that owns a lifecycle.
 | the web is the MAIN front-end | **decided** | «Веб теперь главный инструмент, ему и полный функционал» — `CLAUDE.md` and `docs/panel-tabs.md` rewritten; new goes to the web only |
 | P2 — the ghost standing order from the phone | **done** | switch + level as fields |
 | P2 — renaming and DELETING a profile from the phone | **written, not yet live** | the two presses the shell held back: `profile_control` grew `rename` / `delete`, and each carries the guard the message box used to be — the new name typed for a rename, the profile's OWN name typed back for a delete |
+| P2 — «Разработка»: the jam board on the phone | **written, not yet live** | the third divergence ended: `WEB_SCREEN = True`, «Занятость» whole as one card per grid, the update channel as a switch, the sniffers a READING (their start and stop are two message boxes) |
 | P2 — the ghost ROBBERY from the phone | **written, not yet live** | the ability became one recipe first: `ARGS queue` on `actions/steal_ghost_recon.md`, the panel hands the squads over and spawns nothing. «Ограбить всех» is a screen action; nothing here has been pressed in a real game |
 | P2 — the Windows-session block | **done** | diagnosis is state now, «Проверить» and «Поднять сессию» are presses |
 | P2 — the picture quality | **done** | a `choice` field plus the client's own reading; the read verified live |
@@ -107,8 +108,9 @@ yet, and that is a GAP AWAITING AN ANSWER rather than a divergence anybody decid
 are grids of sprites the client extracted onto THIS machine's disk, so putting them on a
 phone means serving those images over the remote-control port. Ask before building it —
 and until it is asked, a phone can still send an emoji, because `{e:<id>}` tokens are
-resolved inside the recipe and the ids are printable with the tool. «Разработка»: decided to become an SPA screen behind the
-development switch, not built yet. The remote control's own port, token and certificate:
+resolved inside the recipe and the ids are printable with the tool. «Разработка» HAS its screen now (#1976): «Занятость» whole
+and the update channel as a switch, with the sniffers a reading and the recipe editor
+still in the window. The remote control's own port, token and certificate:
 the standing divergence, and the one thing that will need an answer before the window
 goes — see the note in the risks below.
 
@@ -213,7 +215,7 @@ after the new one has been used to drive it.**
   | tab | window-only | what it needs |
   |---|---|---|
   | «Таймеры» | — | **done**: add / edit / copy / delete and the steps, the args and the title, through `/api/timers/save` · `/copy` · `/delete` and an editor that opens under the row it edits |
-  | «Разработка», «Занятость» | all of it | an SPA screen behind the development switch — decided in §3, not built |
+  | «Разработка», «Занятость» | the sniffer pair, the recipe editor | **«Занятость» travels whole** and so does the update channel (#1976). The sniffers stay: start asks for a label and stop asks whether to keep the run, two message boxes — they travel when the typed word becomes an argument, the way «Аккаунты» and the profile presses did. The editor is a text editor, and running a recipe never needed it |
   | «Дуэль» | — | **done**: a card per day of switches, ceilings, details and picks, plus a sets card that creates, renames and deletes |
   | «Чат» | clear, monitor, the emoji picker, the sticker grid | **the send travels**: `CHAT_SEND` made it one recipe. The picker and the grid are sprites on THIS machine's disk — a gap awaiting an answer, not a divergence |
   | «Командный пункт» | «Ограбить» on ONE row, jump, scan | **«Ограбить всех» travels**: the queue became an `ARGS` of the recipe (#1976). A per-row press would have to re-derive the gates the page applies, so it waits for a row that carries its own uuid |

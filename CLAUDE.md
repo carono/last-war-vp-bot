@@ -272,11 +272,23 @@ They are the model for the paragraph above: each was **proposed, argued and agre
 the person**, and then written down here — not decided in passing by whoever was in the
 file at the time.
 
-`develop` — two sniffers for working on the bot itself, switched off even in the window.
-It declares `WEB_SCREEN = False`, `tests/test_panel_web_screens.py` fails if it quietly
-grows a screen, and what it genuinely needs on the move goes on «Состояние» as a switch
-rather than as a page. Another exception is added the same way: ask, agree, write it in
-both files, pin it in the test.
+**`develop` WAS the first one, and #1976 ended it too — by asking the question the
+divergence had left open.** «Two sniffers for working on the bot itself» was true of the
+SNIFFERS and never of «Занятость», the block on the same tab that answers «почему панель
+ничего не делает»: the threads, the queue, the claims and who is waiting for whom. That
+is the one question somebody away from the machine cannot ask any other way, and it was
+behind a `WEB_SCREEN = False` written for its neighbours. So the tab has a screen — the
+busy grids whole, the update channel as a switch — and the reason the SNIFFERS still do
+not travel is written INSIDE it: starting a recording asks for a label in a message box
+and stopping it asks whether to keep the run, two modals raised on a machine nobody is
+standing at. The phone gets the reading and no switch, and a press naming one is answered
+«unknown» — the same order of work the robberies went through, not an exception. The tab
+is still `DEFAULT_ENABLED = False`, so a panel that never asked for it is handed nothing.
+
+**So there are NO divergences left**, and the next one is added exactly the way the three
+were: ask, agree, write it in both files, pin it in the test. What is written down now is
+the opposite shape — what a screen deliberately does NOT carry, and why — and it is pinned
+the same way (`tests/test_panel_web_screens.py`, `tests/test_panel_develop_screen.py`).
 
 **`settings` WAS the second one, and #1976 ended it — which is what a divergence looks
 like when its reason expires.** «Paths, interpreters and ports: breaking a profile with
@@ -292,7 +304,8 @@ pin. Note the shape of this: the exception was not quietly dropped by whoever wa
 file, it was ended by the same conversation that created it, and the replacement rule was
 written down in the same commit.
 
-**THERE WERE THREE, and the third teaches the OTHER lesson (#1313).** «Веб» — the door
+**THERE WERE THREE, and the third teaches the OTHER lesson (#1313).** (It is the one of
+the three whose reasoning has NOT expired — see below.) «Веб» — the door
 the person came in through; managing it from the far side is how somebody locks
 themselves out — is no longer a tab at all. It never should have been one: there is one
 server per WINDOW and it answers for every profile that window has open, so the port,
