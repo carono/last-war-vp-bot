@@ -29,12 +29,17 @@ from tkinter import ttk
 
 from ..runtime import reads
 from ..widgets import ScrollableFrame, font as ui_font
-from ._data import RESOURCE_GLYPHS, RESOURCE_ORDER, DataTab, _card, _group, _marker_payloads, _run_lua, _stringvar
+from ._data import RESOURCE_GLYPHS, RESOURCE_ORDER, DataTab, _card, _group, _stringvar
 
 #: The scenario that answers «what does the game say about this warzone», and the
 #: variable its answer lands in. One ability, one file (`CLAUDE.md`).
 WARZONE_ACTION = "read_server_info"
 WARZONE_VARIABLE = "server_info"
+
+#: The scenario that answers «who is this character» — name, HQ level and power — and the
+#: variable its answer lands in. One ability, one file (`CLAUDE.md`).
+CARD_ACTION = "read_player_profile"
+CARD_VARIABLE = "player_card"
 
 #: The rows of the warzone card, in the order they are drawn: the locale key of the
 #: label, and the field of the scenario's line it shows.
@@ -73,8 +78,8 @@ def _stamp(ms) -> str:
 
 class ProfileTab(DataTab):
     """The player card: nick, level, power and the five resource balances (with a
-    glyph icon each). Resources reuse the panel's confirmed reader; nick/level/power
-    are best-effort."""
+    glyph icon each). Both readings are a scenario's answer — `read_player_profile.md`
+    for the character, `read_base_resources.md` behind the runtime's balance."""
 
     ID = "profile"
     TITLE_KEY = "tab.profile"
@@ -198,28 +203,31 @@ class ProfileTab(DataTab):
         ctx = getattr(outcome, "ctx", None)
         return _warzone_fields((getattr(ctx, "vars", {}) or {}).get(WARZONE_VARIABLE))
 
+    def _read_card(self) -> dict:
+        """Play the character-card scenario and hand back its three fields.
+
+        Off the Tk thread, like every other read here. What used to be in its place was a
+        hand-written chunk from before «everything is a scenario»: it asked
+        `DataCenter.RoleDataManager` (and `PlayerDataManager`) for `GetName` / `GetLevel`
+        / `GetPower`, each in its own `pcall`, and neither manager exists in this client —
+        so every branch fell through and the card drew three dashes for as long as it had
+        existed (#1991, the same lesson `panel/runtime/reads.py` records for the balance).
+        """
+        outcome = self.rt.actions.play(CARD_ACTION, human=True, tag="profile")
+        if outcome is None or not getattr(outcome, "ok", False):
+            return {}
+        ctx = getattr(outcome, "ctx", None)
+        line = (getattr(ctx, "vars", {}) or {}).get(CARD_VARIABLE) or ""
+        parts = str(line).split(";;")
+        if len(parts) < 3 or not any(part.strip() for part in parts):
+            return {}
+        return {"nick": parts[0].strip(),
+                "level": parts[1].strip(),
+                "power": parts[2].strip()}
+
     def fetch(self):
         data = {"resources": reads.resource_balance(self.rt)}
-        # BEST-EFFORT: nick / level / power off a role manager, each in its own pcall.
-        chunk = (
-            "local function S(m) local ok, v = pcall(m) "
-            "if ok and v ~= nil then return tostring(v) end return '' end "
-            "local R = DataCenter.RoleDataManager or DataCenter.PlayerDataManager "
-            "local nick = S(function() return R:GetName() end) "
-            "if nick == '' then nick = S(function() return R.name end) end "
-            "local lv = S(function() return R:GetLevel() end) "
-            "if lv == '' then lv = S(function() return R.level end) end "
-            "local pw = S(function() return R:GetPower() end) "
-            "if pw == '' then pw = S(function() return R.power end) end "
-            "CS.UnityEngine.Debug.LogError('PROF '..nick..'\\t'..lv..'\\t'..pw)"
-        )
-        for payload in _marker_payloads(_run_lua(self.rt, chunk, "PROF"), "PROF"):
-            parts = payload.split("\t")
-            if parts:
-                data["nick"] = parts[0]
-                data["level"] = parts[1] if len(parts) > 1 else ""
-                data["power"] = parts[2] if len(parts) > 2 else ""
-            break
+        data.update(self._read_card())
         data["warzone"] = self._read_warzone()
         return data
 
