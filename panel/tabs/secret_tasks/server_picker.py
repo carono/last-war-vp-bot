@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from ...runtime import statevar
 
 #: How many cells go on one row of the grid. Sixteen keeps a hundred-odd warzones inside
 #: a window a person can read without scrolling, at the width the numbers need.
@@ -89,7 +90,7 @@ class _Grid:
         # WHICH SLICE THIS IS, in words (#1471). The grid is no longer «the numbers next
         # to ours» but «the warzones the game opens to us today», and a person cannot tell
         # one from the other by looking at the cells — so the rule is written above them.
-        self.slice = tk.StringVar()
+        self.slice = statevar.string(None)
         band = ttk.Frame(win, padding=(10, 0, 10, 4))
         band.pack(fill="x")
         ttk.Label(band, textvariable=self.slice).pack(side="left")
@@ -108,7 +109,7 @@ class _Grid:
 
         foot = ttk.Frame(win, padding=(10, 0, 10, 10))
         foot.pack(fill="x")
-        self.status = tk.StringVar()
+        self.status = statevar.string(None)
         ttk.Label(foot, textvariable=self.status, foreground="#888").pack(side="left")
         self.repaint()
 

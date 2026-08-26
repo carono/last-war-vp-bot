@@ -110,6 +110,7 @@ from .shared import SharedMarks
 from .star_round import StarRound
 from . import world
 from .world import MineGrid, MonsterGrid, TrainGrid, TruckGrid
+from ...runtime import statevar
 
 # The table itself — its columns, its colours, its sort keys and its countdown — is
 # `grid.py` now (#1244), because the tab draws it TWICE: once for the starred raid
@@ -577,16 +578,16 @@ class SecretTasksTab(PanelTab):
         self._world_said = None
 
         # -- the controls the three orders read ------------------------------
-        self.monitor_var = tk.BooleanVar(master=master, value=False)
+        self.monitor_var = statevar.boolean(master, False)
         # HOW OFTEN THE SNIFFER FLUSHES, AND IT IS NOT ON SCREEN ANY MORE (#1272). One
         # second is what the capture is for — a tile is worth knowing about the moment it
         # lands, and every slower number was a way of finding out late. A machine that
         # genuinely needs it slower still says so, in the profile's `monitor_interval`;
         # what went away is the box, not the setting.
-        self.interval_var = tk.StringVar(master=master, value=DEFAULT_INTERVAL)
-        self.filter_from_var = tk.StringVar(master=master)
-        self.filter_to_var = tk.StringVar(master=master)
-        self.autoloot_var = tk.BooleanVar(master=master, value=False)
+        self.interval_var = statevar.string(master, DEFAULT_INTERVAL)
+        self.filter_from_var = statevar.string(master)
+        self.filter_to_var = statevar.string(master)
+        self.autoloot_var = statevar.boolean(master, False)
         # ONE box, and it is a MINIMUM (#1256): «грабим этот уровень и всё, что выше».
         # It was a range whose top was the level actually robbed, which meant «от 1 до 7»
         # left a raidable 6 alone for ever — two boxes where only one of them decided
@@ -603,7 +604,7 @@ class SecretTasksTab(PanelTab):
         # anybody and a list is read with the eyes (#1227). It is a box rather than a
         # silent rule so that a tile vanishing has somewhere to be looked for — the
         # question «did it fill up, or did the bot lose it?» is otherwise unanswerable.
-        self.show_spent_var = tk.BooleanVar(master=master, value=False)
+        self.show_spent_var = statevar.boolean(master, False)
         # «Скрывать со своего сервера»: ON by default (#1251), and a DISPLAY rule only.
         # A neighbour's tile at home is not what this list is read for — the raids worth
         # a march are the ones abroad — so it starts out of the way and the box is what
@@ -611,11 +612,11 @@ class SecretTasksTab(PanelTab):
         # сервере» above, which gates the ROBBERIES and hides nothing: mixing the two is
         # how a rule about spending five raids a day silently became a rule about what
         # is on screen.
-        self.hide_own_var = tk.BooleanVar(master=master, value=True)
+        self.hide_own_var = statevar.boolean(master, True)
         # «Автопомощь» and its own minimum level (#1272). A SECOND budget and a second
         # standing order, on the alliance page because that is the list it spends itself
         # over — the same reasoning that moved «Автолут ★» onto the ★ page (#1271).
-        self.autoassist_var = tk.BooleanVar(master=master, value=False)
+        self.autoassist_var = statevar.boolean(master, False)
         self.assist_level_var = tk_stringvar(master)
         # THE RULES, MIRRORED OFF TK (#1416). Both standing orders run on workers of
         # their own and both read their level bound out of a Tk variable at the moment
@@ -648,9 +649,9 @@ class SecretTasksTab(PanelTab):
         # The server box may be left empty on purpose: a blank one jumps on whatever
         # server the client is looking at, which is what the removed block did through
         # `_jump`'s own fallback. «↻ сервер» fills it in when the number is wanted.
-        self.coord_x_var = tk.StringVar(master=master)
-        self.coord_y_var = tk.StringVar(master=master)
-        self.coord_srv_var = tk.StringVar(master=master)
+        self.coord_x_var = statevar.string(master)
+        self.coord_y_var = statevar.string(master)
+        self.coord_srv_var = statevar.string(master)
         self._jump_hist: list = []
         self._jump_hist_var = tk_stringvar(master)
         self._jump_hist_combo = None

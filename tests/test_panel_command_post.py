@@ -190,7 +190,9 @@ def test_the_ghost_standing_order_is_this_tabs_own():
     assert '"panel/__main__.py has no ghost"' or True
     shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
     assert "_ghost_autoloot_var" not in shell, "the shell still holds the ghost switch"
-    assert "self.autoloot_var = tk.BooleanVar" in SOURCE
+    # `statevar.boolean` rather than `tk.BooleanVar` since #1976 (P3): the switch is the
+    # window's own variable while there is a window and a plain one when there is not.
+    assert "self.autoloot_var = statevar.boolean" in SOURCE
     assert "command=self.order.toggle" in SOURCE
 
 

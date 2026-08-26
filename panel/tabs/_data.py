@@ -20,6 +20,7 @@ from tkinter import ttk
 
 from ..widgets import font as ui_font
 from .base import PanelTab
+from ..runtime import statevar
 
 # Resource keys, in display order, with a glyph fallback for the icon.
 RESOURCE_GLYPHS = {"food": "🍖", "wood": "🌲", "metal": "⚙️", "oil": "🛢️", "gold": "🪙"}
@@ -57,7 +58,7 @@ def _marker_payloads(lines, marker: str):
 
 
 def _stringvar(rt):
-    return tk.StringVar(master=rt.root, value="")
+    return statevar.string(rt.root, "")
 
 
 def _card(parent):

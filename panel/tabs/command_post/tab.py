@@ -45,6 +45,7 @@ from ...widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
 from ..base import PanelTab
 from .ghost import GhostOrder
 from .tasks import TasksPane
+from ...runtime import statevar
 
 #: Marker every chunk in tools/lib/lua_actions.py logs under.
 MARKER = "ACT"
@@ -370,7 +371,7 @@ class GhostReconPane(_Pane):
     def __init__(self, rt, tab, parent) -> None:
         # Created before `build`, which draws the box bound to it — and read by the
         # profile load, which happens whether or not the page has ever been shown.
-        self.autoloot_var = tk.BooleanVar(master=rt.root, value=False)
+        self.autoloot_var = statevar.boolean(rt.root, False)
         # «Минимальный уровень» — this page's own, exactly like the secret tasks' own
         # (#1256), and NOT the same number: a ghost squad runs levels 3-5 where a secret
         # task runs 1-7, so one field for both would be wrong for one of them whichever
@@ -772,7 +773,7 @@ class SharedMissionsPane(_Pane):
         box.pack(fill="x")
         row1 = ttk.Frame(box)
         row1.pack(fill="x")
-        self._listen_var = tk.BooleanVar(master=self.rt.root, value=False)
+        self._listen_var = statevar.boolean(self.rt.root, False)
         self.rt.tr(ttk.Checkbutton(row1, variable=self._listen_var,
                                 command=self._toggle_listen),
                 "cmdpost.shared.listen").pack(side="left")
@@ -1052,7 +1053,7 @@ class TreasuresPane(_Pane):
         box = self.rt.tr(ttk.LabelFrame(body, padding=8), "cmdpost.treasure.frame")
         box.pack(fill="x")
         self.rt.tr(ttk.Label(box), "cmdpost.treasure.squad").pack(side="left")
-        self._squad_var = tk.IntVar(master=self.rt.root, value=TREASURE_SQUADS[0])
+        self._squad_var = statevar.integer(self.rt.root, TREASURE_SQUADS[0])
         for squad in TREASURE_SQUADS:
             ttk.Radiobutton(box, text=str(squad), value=squad,
                             variable=self._squad_var).pack(side="left", padx=4)

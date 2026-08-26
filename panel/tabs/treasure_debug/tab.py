@@ -55,6 +55,7 @@ from ..base import PanelTab
 from . import model as modelmod
 
 import run_output       # noqa: E402  (results/<subdir>/<stamp>_… — the saved fragment)
+from ...runtime import statevar
 
 #: How a kind is drawn. A glyph and a colour: the glyph needs no translating, the colour
 #: is what makes the three moments findable in a feed that scrolls.
@@ -134,11 +135,11 @@ class TreasureDebugTab(PanelTab):
         switches = self.tr(ttk.LabelFrame(self.parent, padding=8),
                            "treasure_debug.watch.frame")
         switches.pack(fill="x", padx=10, pady=(0, 6))
-        self._watch_var = tk.BooleanVar(master=self.rt.root, value=self._want)
+        self._watch_var = statevar.boolean(self.rt.root, self._want)
         self.tr(ttk.Checkbutton(switches, variable=self._watch_var,
                                 command=self._toggle_watch),
                 "treasure_debug.watch.on").pack(anchor="w")
-        self._wide_var = tk.BooleanVar(master=self.rt.root, value=self._wide)
+        self._wide_var = statevar.boolean(self.rt.root, self._wide)
         self.tr(ttk.Checkbutton(switches, variable=self._wide_var,
                                 command=self._toggle_wide),
                 "treasure_debug.watch.wide").pack(anchor="w", pady=(4, 0))
@@ -149,7 +150,7 @@ class TreasureDebugTab(PanelTab):
         bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(0, 4))
         for key in modelmod.KINDS:
-            var = tk.BooleanVar(master=self.rt.root, value=self._show[key])
+            var = statevar.boolean(self.rt.root, self._show[key])
             self._show_vars[key] = var
             glyph, colour = _LOOK[key]
             box = ttk.Frame(bar)

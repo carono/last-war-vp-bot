@@ -29,6 +29,7 @@ from tkinter import ttk
 
 from ...runtime import opt_value
 from ...widgets import NumericEntry, font as ui_font, tk_stringvar
+from ...runtime import statevar
 
 #: The grey the rest of this tab draws its secondary lines in (`tab.py`'s `DIM`), spelled
 #: here rather than imported: `tab.py` imports THIS module, so the arrow only goes one way.
@@ -95,9 +96,9 @@ class TasksPane:
         self.keep_var.set(str(DEFAULT_KEEP))
         self.budget_var = tk_stringvar(self.rt.root)
         self.budget_var.set(str(DEFAULT_CAP))
-        self.gold_var = tk.BooleanVar(master=self.rt.root, value=True)
-        self.mega_var = tk.BooleanVar(master=self.rt.root, value=True)
-        self.send_var = tk.BooleanVar(master=self.rt.root, value=True)
+        self.gold_var = statevar.boolean(self.rt.root, True)
+        self.mega_var = statevar.boolean(self.rt.root, True)
+        self.send_var = statevar.boolean(self.rt.root, True)
         self.build()
 
     # -- the window ----------------------------------------------------------

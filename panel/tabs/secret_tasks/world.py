@@ -48,6 +48,7 @@ from tkinter import ttk
 
 from ...widgets import tk_stringvar
 from . import grid
+from ...runtime import statevar
 
 #: How long a sighting is drawn for once nothing re-confirms it. The capture's own
 #: freshness window (`lastwar_proto.TASK_FRESH_SECONDS`), so the panel and the child
@@ -439,7 +440,7 @@ class MineGrid(WorldGrid):
         #: somebody is already gathering cannot be marched on, and nine tiles in ten are
         #: free anyway, so the box is what brings the taken ones back rather than what
         #: hides them.
-        self.free_var = tk.BooleanVar(master=tab.rt.root, value=True)
+        self.free_var = statevar.boolean(tab.rt.root, True)
 
     def extra_filters(self, bar) -> None:
         self.tab.tr(ttk.Checkbutton(bar, variable=self.free_var,
@@ -609,7 +610,7 @@ class MonsterGrid(WorldGrid):
         #:
         #: A profile that already has it saved keeps its own answer — a default is what
         #: a NEW profile starts from, never a decision made again on somebody's behalf.
-        self.follow_var = tk.BooleanVar(master=tab.rt.root, value=False)
+        self.follow_var = statevar.boolean(tab.rt.root, False)
         self.follow_secs_var = tk_stringvar(tab.rt.root)
         self.follow_secs_var.set(self.DEFAULT_FOLLOW)
         #: «Скрывать простых» — ON for a profile that has never been asked. The ordinary
@@ -620,7 +621,7 @@ class MonsterGrid(WorldGrid):
         #: IT HIDES, IT DOES NOT DROP. Nothing leaves `self._rows`, nothing leaves the
         #: checkpoint: `narrow` is a display rule, so the count beside the box says how
         #: many are being held back and one tick puts them all on the table again.
-        self.hide_plain_var = tk.BooleanVar(master=tab.rt.root, value=True)
+        self.hide_plain_var = statevar.boolean(tab.rt.root, True)
         #: …and that count, drawn next to the box rather than only in the page's own
         #: «показано / скрыто» pair: a number at the far end of the header answers «is
         #: something hidden», and the question here is «is THIS filter hiding it».
@@ -630,7 +631,7 @@ class MonsterGrid(WorldGrid):
         #: crossed a warzone boundary leaves the page holding monsters nobody on this
         #: account can march on. Like «Скрывать простых» it HIDES and does not drop: the
         #: rows stay in the model and in the table, and unticking brings them all back.
-        self.own_only_var = tk.BooleanVar(master=tab.rt.root, value=True)
+        self.own_only_var = statevar.boolean(tab.rt.root, True)
         #: …and its own count beside it, same reasoning as the one above.
         self.own_count_var = tk_stringvar(tab.rt.root)
 

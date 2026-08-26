@@ -18,9 +18,13 @@ from __future__ import annotations
 
 
 class EventBus:
-    def __init__(self, widget=None) -> None:
+    def __init__(self, widget=None, post=None) -> None:
         self._subs: dict = {}
         self._w = widget
+        #: How a fact gets onto the ONE thread when there is no widget to hand it to —
+        #: the windowless clock's own queue (#1976, P3). Without either, a fact is
+        #: delivered where it was published, which is what a bare harness and a test get.
+        self._post = post
 
     def subscribe(self, topic: str, func):
         """Listen to ``topic``. Returns the callable that stops listening."""
@@ -39,6 +43,9 @@ class EventBus:
         if not listeners:
             return
         if self._w is None:
+            if self._post is not None:
+                self._post(lambda: self._deliver(listeners, payload))
+                return
             self._deliver(listeners, payload)
             return
         # Through the window's hand-over queue (panel/runtime/tick.py), because a fact

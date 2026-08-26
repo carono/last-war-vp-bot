@@ -36,7 +36,7 @@ from .log import LogBus
 from .log_view import LogSpool
 from .paths import REPO
 from .settings import DEFAULTS, SettingsBinder
-from .tick import Ticker
+from .tick import Ticker, ThreadTicker
 
 
 #: EVERY scenario that puts the client back. A relaunch may be in flight exactly once,
@@ -121,8 +121,16 @@ class PanelRuntime:
             self.log.say("panel", "log.lang.unknown",
                          lang=unknown_lang, used=self.i18n.lang)
 
-        self.tick = Ticker(root)
-        self.bus = EventBus(root)
+        # THE CLOCK, and which of the two it is (#1976, P3). With a window every
+        # repeating callback rides Tk's `after` queue, because everything they touch is a
+        # widget; with none, `ThreadTicker` runs the same chains on one thread of its own
+        # and keeps the two guarantees the panel leans on — one thread, FIFO hand-overs.
+        # A runtime with no root used to get a `Ticker` that armed NOTHING, which is a
+        # schedule, a capture sweep and a status poll that never fire.
+        self.tick = Ticker(root) if root is not None else ThreadTicker()
+        # …and the bus hands its facts over the same way, so a listener runs where a
+        # listener has always run: on the one thread, whoever published.
+        self.bus = EventBus(root, post=(None if root is not None else self.tick.post))
         # WHAT THIS PROFILE IS DOING RIGHT NOW (panel/runtime/activity.py). Handed to
         # the two things that block for whole seconds — bringing the daemon up and
         # playing a scenario — so the strip along the bottom of the window says which

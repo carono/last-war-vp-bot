@@ -34,6 +34,7 @@ from .. import triggers as triggersmod
 from ..runtime import list_actions
 from ..widgets import NumericEntry, numeric_spinbox
 from .base import PanelTab
+from ..runtime import statevar
 
 
 #: How wide one listener's block wants to be, and the gutter between two of them.
@@ -205,7 +206,7 @@ class TimersTab(PanelTab):
         # The schedule's own master switch. «Стоп всё» stops the scheduler thread,
         # and without something that says so — and puts it back — the schedule would
         # be silently dead for the rest of the session.
-        self._sched_var = tk.BooleanVar(value=True)
+        self._sched_var = statevar.boolean(None, True)
         self.tr(ttk.Checkbutton(tools, variable=self._sched_var,
                                  command=self._toggle_schedule),
                  "timers.scheduler").pack(side="right")
@@ -296,10 +297,10 @@ class TimersTab(PanelTab):
         config = self._timer_catalogue.default_config()
         for row, timer in enumerate(self._timer_catalogue, start=1):
             item = config[timer.name]
-            enabled = tk.BooleanVar(value=bool(item["enabled"]))
-            seconds = tk.StringVar(value=str(item["interval_sec"]))
+            enabled = statevar.boolean(None, bool(item["enabled"]))
+            seconds = statevar.string(None, str(item["interval_sec"]))
             # «Сразу, без очереди» (#1288) — see `panel/timers.py::Timer.immediate`.
-            at_once = tk.BooleanVar(value=bool(item["immediate"]))
+            at_once = statevar.boolean(None, bool(item["immediate"]))
             self._timer_vars[timer.name] = {"enabled": enabled, "interval": seconds,
                                             "immediate": at_once}
             box = ttk.Checkbutton(grid, variable=enabled)
@@ -403,11 +404,11 @@ class TimersTab(PanelTab):
         """One listener's block: the switch and its name, then the event, «сразу», status."""
         cell = ttk.Frame(parent)
         cell.columnconfigure(1, weight=1)
-        enabled = tk.BooleanVar(value=bool(trig.enabled))
+        enabled = statevar.boolean(None, bool(trig.enabled))
         self._trigger_vars[trig.name] = enabled
         # «Сразу, без очереди» (#1288): this fire skips the shared queue and runs on a
         # thread of its own. The alliance help ships with it on.
-        at_once = tk.BooleanVar(value=bool(trig.immediate))
+        at_once = statevar.boolean(None, bool(trig.immediate))
         self._trigger_now[trig.name] = at_once
 
         box = ttk.Checkbutton(cell, variable=enabled)
@@ -764,20 +765,20 @@ class TimersTab(PanelTab):
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)
 
-        name_var = tk.StringVar(value=timer.name)
-        title_var = tk.StringVar(value=timer.title or "")
-        interval_var = tk.StringVar(value=str(timer.interval_sec))
+        name_var = statevar.string(None, timer.name)
+        title_var = statevar.string(None, timer.title or "")
+        interval_var = statevar.string(None, str(timer.interval_sec))
         # The wait after a FAILED run (#1127) — the period a scenario that ended in
         # `FAIL` is tried again after, which is a different question from how often it
         # runs when it works: «I am not on the base yet» wants minutes, the errand
         # itself wants hours. The file has carried it per entry all along; without a
         # field here the editor wrote the default over whatever was typed in the JSON.
-        retry_var = tk.StringVar(value=str(timer.retry_sec))
+        retry_var = statevar.string(None, str(timer.retry_sec))
         # WHICH WEEKDAYS the errand belongs to — 1 = Monday … 7 = Sunday, empty for
         # «any day, on the period above». The game's weekday, not this machine's
         # (`panel/timers.py::Timer.weekdays`).
-        days_var = tk.StringVar(value=", ".join(str(d) for d in timer.weekdays))
-        args_var = tk.StringVar(value=json.dumps(timer.args, ensure_ascii=False)
+        days_var = statevar.string(".join(str(d) for d in timer.weekdays), ")
+        args_var = statevar.string(None, json.dumps(timer.args, ensure_ascii=False)
                                 if timer.args else "")
         numeric = {"timers.editor.interval", "timers.editor.retry"}
         for row, (key, var, width) in enumerate((
@@ -809,7 +810,7 @@ class TimersTab(PanelTab):
         # language tag, and without saying which one we want every row here fell back to
         # the untagged (English) title while «Сценарии» next door showed Russian.
         actions = list_actions(lang=self.rt.i18n.lang)
-        pick_var = tk.StringVar()
+        pick_var = statevar.string(None)
         pick_combo = ttk.Combobox(pick, textvariable=pick_var, state="readonly",
                                   width=34,
                                   values=[f"{a['name']} — {a['title']}" for a in actions])

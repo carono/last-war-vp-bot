@@ -63,6 +63,7 @@ from tkinter import ttk
 from ..runtime import opt_value
 from ..widgets import NumericEntry, ScrollableFrame, font as ui_font, tk_stringvar
 from .base import PanelTab
+from ..runtime import statevar
 
 #: The scenario that writes the duel down — both sides, every day, into the profile's
 #: own ranking history. The tab does not know what it does; it plays it and reports what
@@ -555,8 +556,7 @@ class VsDuelTab(PanelTab):
         self._keys_by_day: dict = {day: [] for day, _items in DAYS}
         #: The sets themselves, and which one each day is played from.
         self._store = PresetStore()
-        self._day_set: dict = {day: tk.StringVar(master=master,
-                                                 value=self._store.first())
+        self._day_set: dict = {day: statevar.string(master, self._store.first())
                                for day, _items in DAYS}
         #: What the last «Записать дуэль» came back with, and whether one is running.
         #: In `__init__` rather than `build()` because a saved block, a phone's screen
@@ -572,7 +572,7 @@ class VsDuelTab(PanelTab):
         self._day_combos: dict = {}
         for day, items in DAYS:
             name = f"{day}.{DAY_ENABLED}"
-            self._flags[name] = tk.BooleanVar(master=master, value=True)
+            self._flags[name] = statevar.boolean(master, True)
             # A set written before a day could be sat out has no such key, and the
             # absence has to read as ON: those weeks were played in full.
             self._defaults[name] = True
@@ -580,29 +580,26 @@ class VsDuelTab(PanelTab):
             for item in walk_items(items):
                 if isinstance(item, _Choice):           # the day's own pick
                     name = f"{day}.{item.key}"
-                    self._choices[name] = tk.StringVar(master=master,
-                                                       value=item.default)
+                    self._choices[name] = statevar.string(master, item.default)
                     self._defaults[name] = item.default
                     self._keys_by_day[day].append(name)
                     continue
                 action = item
                 name = f"{day}.{action.key}"
-                self._flags[name] = tk.BooleanVar(master=master, value=False)
+                self._flags[name] = statevar.boolean(master, False)
                 self._keys_by_day[day].append(name)
                 if action.amount is not None:
                     name = f"{day}.{action.amount.key}"
-                    self._amounts[name] = tk.StringVar(master=master,
-                                                       value=action.amount.default)
+                    self._amounts[name] = statevar.string(master, action.amount.default)
                     self._defaults[name] = action.amount.default
                     self._keys_by_day[day].append(name)
                 for sub in action.subs:
                     name = f"{day}.{action.key}.{sub.key}"
-                    self._flags[name] = tk.BooleanVar(master=master, value=False)
+                    self._flags[name] = statevar.boolean(master, False)
                     self._keys_by_day[day].append(name)
                 if action.choice is not None:
                     name = f"{day}.{action.key}.{action.choice.key}"
-                    self._choices[name] = tk.StringVar(master=master,
-                                                       value=action.choice.default)
+                    self._choices[name] = statevar.string(master, action.choice.default)
                     self._defaults[name] = action.choice.default
                     self._keys_by_day[day].append(name)
 

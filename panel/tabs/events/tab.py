@@ -66,6 +66,7 @@ from ...runtime import claims
 from ...widgets import ScrollableFrame, font as ui_font, tk_stringvar
 from ..base import PanelTab
 from . import model as modelmod
+from ...runtime import statevar
 
 #: How a state looks in the window. A glyph is not a word — it needs no translating and
 #: is the same in every language, which is why these three are literals and the sentence
@@ -774,7 +775,7 @@ class EventsTab(PanelTab):
         # about how the chain travels, so it sits beside the squad rather than in the
         # scenario's defaults.
         if self._approach_var is None:
-            self._approach_var = tk.BooleanVar(self.rt.root)
+            self._approach_var = statevar.boolean(self.rt.root)
         self._approach = self.approach()
         self._approach_var.set(self._approach)
         self.tr(ttk.Checkbutton(pick, variable=self._approach_var),

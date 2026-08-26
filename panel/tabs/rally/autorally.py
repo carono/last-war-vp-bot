@@ -61,6 +61,7 @@ from . import limits as rallygate
 # The vocabulary of kinds, read out of the live game config rather than written here
 # (#1317). `tools/lib` is on the path by the time the panel imports this.
 import rally_kinds                                                    # noqa: E402
+from ...runtime import statevar
 
 # The squads the page offers. The game's own squad slots are read live where they
 # matter (the formation whose `index` is the slot, tools/lib/lua_actions.py); this is
@@ -99,25 +100,24 @@ class AutoRallyPage:
     def __init__(self, rt) -> None:
         self.rt = rt
         master = rt.root
-        self._squad_vars: dict = {s: tk.BooleanVar(master=master, value=False)
+        self._squad_vars: dict = {s: statevar.boolean(master, False)
                                   for s in RALLY_SQUADS}
-        self._drill_on_var = tk.BooleanVar(master=master, value=False)
-        self._drill_banner_var = tk.BooleanVar(master=master, value=False)
+        self._drill_on_var = statevar.boolean(master, False)
+        self._drill_banner_var = statevar.boolean(master, False)
         self._drill_state: dict = {s: DRILL_OFF for s in RALLY_SQUADS}
         self._drill_buttons: dict = {}
         self._create_flagship = None
         self._create_buttons: dict = {}
-        self._create_elite_var = tk.StringVar(master=master, value=str(RALLY_ELITE_MIN))
+        self._create_elite_var = statevar.string(master, str(RALLY_ELITE_MIN))
         # The day's ceiling and the game's count of it. Both live here rather than in
         # `build()`, for the reason the whole page does: the auto-join runs at boot in a
         # profile nobody has opened this tab in, and the ceiling has to travel with it.
-        self._daily_var = tk.StringVar(master=master, value=str(DAILY_MAX_DEFAULT))
-        self._today_var = tk.StringVar(master=master, value=DAILY_UNREAD)
+        self._daily_var = statevar.string(master, str(DAILY_MAX_DEFAULT))
+        self._today_var = statevar.string(master, DAILY_UNREAD)
         # The soldier floor and what the base holds right now — the same pair, and here
         # for the same reason: the door is read at boot in a profile whose tab nobody has
         # opened, and the reading beside it is what makes the number choosable (#1317).
-        self._min_soldiers_var = tk.StringVar(master=master,
-                                              value=str(MIN_SOLDIERS_DEFAULT))
+        self._min_soldiers_var = statevar.string(master, str(MIN_SOLDIERS_DEFAULT))
         # THE THREE THE SCHEDULE READS OFF A WORKER THREAD (#1416). `Schedule.args`
         # builds `join_rally`'s arguments on the scheduler's own thread, and every one of
         # these is a Tk variable: read from there while the event loop is not running it
@@ -132,8 +132,7 @@ class AutoRallyPage:
         self._read_min_soldiers = widgets.var_mirror(self._min_soldiers_var)
         self._read_elite = widgets.var_mirror(self._create_elite_var)
         self._pool = None                      # soldiers in the base; None = never asked
-        self._pool_var = tk.StringVar(master=master,
-                                      value="%s / %s" % (DAILY_UNREAD, DAILY_UNREAD))
+        self._pool_var = statevar.string(master, "%s / %s" % (DAILY_UNREAD, DAILY_UNREAD))
         self._limits = None            # loaded when the page is drawn
         self._limit_vars: dict = {}
         self._count_vars: dict = {}    # what the panel has counted today, per kind
@@ -146,10 +145,10 @@ class AutoRallyPage:
         # only thing a working door can produce — the press passes a kind over the moment
         # it has nothing left — so anything here is the gate having failed, which is
         # precisely what nobody could see when «Элитные инструкторы» reached 30 of 20.
-        self._over_var = tk.StringVar(master=master, value="")
+        self._over_var = statevar.string(master, "")
         # «наша сумма / игра» for today, drawn under the table so the drift of a
         # panel-kept tally is visible rather than quiet (#1317).
-        self._tally_var = tk.StringVar(master=master, value=DAILY_UNREAD)
+        self._tally_var = statevar.string(master, DAILY_UNREAD)
 
     # -- the page -----------------------------------------------------------
     def build(self, parent: ttk.Frame) -> None:
@@ -277,21 +276,20 @@ class AutoRallyPage:
         per = (len(rally_kinds.KIND_ORDER) + columns - 1) // columns
         for n, kind in enumerate(rally_kinds.KIND_ORDER):
             block, line = n // per, n % per + 1
-            var = tk.BooleanVar(master=self.rt.root, value=kind not in self._kinds_off)
+            var = statevar.boolean(self.rt.root, kind not in self._kinds_off)
             self._kind_vars[kind] = var
             box = ttk.Checkbutton(
                 grid, variable=var,
                 command=lambda k=kind, v=var: self.set_kind(k, bool(v.get())))
             tr(box, f"rally_limit.type.{kind}")
             box.grid(row=line, column=block * 4, sticky="w", padx=(0, 6))
-            cap = tk.StringVar(master=self.rt.root,
-                               value=str(self._limits.limit_for(kind)))
+            cap = statevar.string(self.rt.root, str(self._limits.limit_for(kind)))
             self._limit_vars[kind] = cap
             numeric_spinbox(grid, from_=0, to=999, width=5,
                             textvariable=cap).grid(row=line, column=block * 4 + 1,
                                                    sticky="w")
             cap.trace_add("write", lambda *a: self.save_limits())
-            spent = tk.StringVar(master=self.rt.root, value="0")
+            spent = statevar.string(self.rt.root, "0")
             self._count_vars[kind] = spent
             ttk.Label(grid, textvariable=spent).grid(row=line, column=block * 4 + 2,
                                                      sticky="w", padx=(6, 18))

@@ -88,6 +88,7 @@ from tkinter import messagebox, simpledialog, ttk
 from ...widgets import tk_stringvar
 from ..base import PanelTab
 from . import registry as reg
+from ...runtime import statevar
 
 #: How often the page merges the capture's checkpoint into the register while somebody
 #: is looking at it. A lap of the map takes about three seconds and the capture flushes
@@ -293,7 +294,7 @@ class PlayersTab(PanelTab):
                                                        self._seen_box.current()))
         self._seen_box.pack(side="left", padx=(4, 10))
 
-        self._noted = tk.BooleanVar(master=self.rt.root, value=False)
+        self._noted = statevar.boolean(self.rt.root, False)
         self._noted.trace_add("write", lambda *_a: self._on_filter_changed())
         self.tr(ttk.Checkbutton(line2, variable=self._noted),
                 "players.filter.noted").pack(side="left")

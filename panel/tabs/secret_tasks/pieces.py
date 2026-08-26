@@ -36,6 +36,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ...widgets import NumericEntry
+from ...runtime import statevar
 
 #: The errand this page's button plays, and the timer's name — one word for both.
 ERRAND = "exchange_treasure_pieces"
@@ -107,11 +108,11 @@ class PiecesPage:
         #: «≤» or «<». Off — the operator's own default — takes an even swap too: it
         #: costs nothing and it moves a piece. On refuses one, so only trades that
         #: genuinely narrow a gap are taken.
-        self.strict_var = tk.BooleanVar(master=root, value=False)
+        self.strict_var = statevar.boolean(root, False)
         #: How many trades ONE run may make. Ours, not the game's: no daily cap on
         #: exchanges was found anywhere in the client (#1975), so the ceiling that stops
         #: a board filled overnight from emptying our spare pieces has to be here.
-        self.limit_var = tk.StringVar(master=root, value="3")
+        self.limit_var = statevar.string(root, "3")
         #: How far apart the most plentiful and the scarcest piece must be before an
         #: offer of OURS is worth standing. 2, because a swap only raises the floor when
         #: the piece we pay with is at least two above the one we ask for — at 1 the
@@ -119,32 +120,32 @@ class PiecesPage:
         #: eighteen swaps in four minutes and the digs never moved off fourteen). It does
         #: NOT govern what we accept; that is the operator's «≤» and is deliberately
         #: laxer, because an even swap somebody else pays for costs us nothing.
-        self.offer_gap_var = tk.StringVar(master=root, value="2")
+        self.offer_gap_var = statevar.string(root, "2")
         #: The floor under how often the alliance chat may be written to, in MINUTES.
         #: «One message per offer» was the only guard at first and it was not one: with
         #: the listener on and an active alliance, eighteen offers became thirty-four
         #: messages in four minutes.
-        self.share_every_var = tk.StringVar(master=root, value="30")
+        self.share_every_var = statevar.string(root, "30")
         #: Whether a newly posted offer is announced in the alliance chat — the game's
         #: own «опубликовать в чат альянса» button, one call, the server posts the card
         #: from our name. On by default and NOT spam, because it only happens in the run
         #: that actually posted a new offer: one message per offer, never one per tick.
         #: Living people read that chat, so the box is here as well as in the recipe.
-        self.share_var = tk.BooleanVar(master=root, value=True)
+        self.share_var = statevar.boolean(root, True)
         #: Whether the errand keeps an offer of ours standing. A standing offer holds
         #: back one copy of the piece it pays with (measured live: the count drops while
         #: it is up and returns on withdrawal), but the recipe always pays with the piece
         #: we hold MOST of, so the held copy is never the one deciding how many digs are
         #: left. On by default; this box is for the person who would rather not.
-        self.offer_var = tk.BooleanVar(master=root, value=True)
+        self.offer_var = statevar.boolean(root, True)
         #: The last reading, as `parse_board` returns it. Drawn by the window, handed to
         #: the phone, and never edited by either.
         self.board = {"set": DEFAULT_SET, "digs": None, "have": [], "mine": None,
                       "offers": []}
         self.busy = False
         self._tree = None
-        self._summary = tk.StringVar(master=root, value="")
-        self._mine = tk.StringVar(master=root, value="")
+        self._summary = statevar.string(root, "")
+        self._mine = statevar.string(root, "")
         self._registered = False
 
     # -- wiring -----------------------------------------------------------------

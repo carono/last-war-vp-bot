@@ -67,6 +67,7 @@ from tkinter import ttk
 
 from ..runtime import busy as busymod
 from ..widgets import ScrollableFrame
+from ..runtime import statevar
 
 #: How often the block re-reads while it is being watched. A second is the resolution of
 #: everything it shows (a step, a wait, a queue) and one snapshot is dict reads.
@@ -275,7 +276,7 @@ class BusyView:
 
         bar = ttk.Frame(box)
         bar.pack(fill="x")
-        self._watch = tk.BooleanVar(master=self.rt.root, value=True)
+        self._watch = statevar.boolean(self.rt.root, True)
         self.tab.tr(ttk.Checkbutton(bar, variable=self._watch,
                                     command=self._on_watch), "busy.watch").pack(
             side="left")

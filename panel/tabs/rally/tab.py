@@ -69,6 +69,7 @@ from .autorally import AutoRallyPage
 # The kind vocabulary, read off the live game config (tools/lib/rally_kinds.py, #1317).
 import coords                                                         # noqa: E402
 import rally_kinds                                                    # noqa: E402
+from ...runtime import statevar
 
 # ---------------------------------------------------------------------------
 # The two things a rally can be raised on: a «Роковая Элита» (searched under the
@@ -205,14 +206,14 @@ class RallyTab(PanelTab):
         # apart from `_seen` because they answer different questions — one banner is one
         # bell, but one banner may well be worth a second attempt at joining (#1281).
         self._join_at: dict = {}
-        self._kind_var = tk.StringVar(master=master, value=RALLY_KIND_ELITE)
+        self._kind_var = statevar.string(master, RALLY_KIND_ELITE)
         # The box and the quick-pick buttons share this one variable: each button is a
         # radio whose value is its level, so pressing it writes the number into the box,
         # and a level typed by hand lights the matching button back up. `_level()` is the
         # one place that turns whatever it holds into a level.
-        self._level_var = tk.StringVar(master=master, value=str(RALLY_LEVEL_MIN))
-        self._repeats_var = tk.StringVar(master=master, value="1")
-        self._squad_vars: dict = {s: tk.BooleanVar(master=master, value=False)
+        self._level_var = statevar.string(master, str(RALLY_LEVEL_MIN))
+        self._repeats_var = statevar.string(master, "1")
+        self._squad_vars: dict = {s: statevar.boolean(master, False)
                                   for s in RALLY_SQUADS}
         self._status_var = tk_stringvar(master)
         # WHERE THE SQUADS ARE, and the stamina left (panel/runtime/squads.py). Read by
@@ -227,15 +228,15 @@ class RallyTab(PanelTab):
         #: says so unless this does. Empty whenever there is nothing to say.
         self._short_var = tk_stringvar(master)
         self._squads_off = None     # the unsubscribe, while this tab is on screen
-        self._monitor_var = tk.BooleanVar(master=master, value=True)
-        self._alert_var = tk.BooleanVar(master=master, value=True)
+        self._monitor_var = statevar.boolean(master, True)
+        self._alert_var = statevar.boolean(master, True)
         # «Присоединяться сам» IS the «rally_auto_join» standing order, shown here as
         # well as on the Timers tab — not a second switch beside it (#1281). There used
         # to be two, stored in two files, driving two different halves, with no rule
         # saying which won: the same shape as the two sets of autoloot rules (#1272) and
         # the two rally counters. This variable is a VIEW of the trigger's state and a
         # setter for it; nothing about it is stored in this tab's own block any more.
-        self._autojoin_var = tk.BooleanVar(master=master, value=False)
+        self._autojoin_var = statevar.boolean(master, False)
         self._hint = None
         self._quick_buttons: dict = {}
         # «Автосбор» — built here, drawn by `build()` onto this tab. Constructed in the

@@ -42,6 +42,7 @@ from .base import PanelTab                                      # noqa: E402
 import chat_assets                                              # noqa: E402
 import chat_share       # self_profile -> the player's uid, read live  # noqa: E402
 import coords                                                   # noqa: E402
+from ..runtime import statevar
 
 try:
     from PIL import (Image as _PILImage, ImageTk as _PILImageTk,
@@ -93,7 +94,7 @@ class ChatTab(PanelTab):
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
-        self._chat_var = tk.BooleanVar(master=rt.root, value=False)
+        self._chat_var = statevar.boolean(rt.root, False)
         self._chat_q: "queue.Queue[dict]" = queue.Queue()
         self._chat_proc = None
         # In-memory chat messages keyed by chat_type. `system` has a tab of its own
@@ -447,7 +448,7 @@ class ChatTab(PanelTab):
         # a message sent to the wrong room cannot be unsent.
         send = ttk.Frame(self.parent, padding=(6, 2, 6, 2))
         send.pack(fill="x")
-        self._chat_room_var = tk.StringVar(value="—")
+        self._chat_room_var = statevar.string(None, "—")
         self.tr(ttk.Label(send), "chat.to").pack(side="left")
         ttk.Label(send, textvariable=self._chat_room_var, foreground="#888",
                   width=26).pack(side="left", padx=(4, 6))
@@ -456,7 +457,7 @@ class ChatTab(PanelTab):
         # message (the game does not let a sticker ride alongside text).
         ttk.Button(send, text="😊", width=32, command=self._open_emoji_picker).pack(
             side="left", padx=(0, 4))
-        self._chat_msg_var = tk.StringVar()
+        self._chat_msg_var = statevar.string(None)
         entry = ttk.Entry(send, textvariable=self._chat_msg_var)
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<Return>", lambda _e: self._chat_send_text())
@@ -472,14 +473,14 @@ class ChatTab(PanelTab):
         bot.pack(fill="x")
         self.tr(ttk.Button(bot, command=self._clear_chat),
                  "chat.clear").pack(side="left")
-        self._chat_count_var = tk.StringVar(value=self.t("chat.count", n=0))
+        self._chat_count_var = statevar.string(None, self.t("chat.count", n=0))
         ttk.Label(bot, textvariable=self._chat_count_var, foreground="#888").pack(
             side="right", padx=8)
         # IS THE READER STILL TALKING TO US (#1549). The chat window has looked exactly
         # the same when the reader had exited as when the alliance simply had nothing to
         # say, and «чат молчит» is the most common way a dead child shows itself. The
         # same strip every fed grid in the panel has, out of the same module.
-        self._flow_var = tk.StringVar(value="")
+        self._flow_var = statevar.string(None, "")
         self._flow_label = ttk.Label(bot, textvariable=self._flow_var)
         self._flow_label.pack(side="left", padx=(12, 0))
         self._refresh_flow()
@@ -744,7 +745,7 @@ class ChatTab(PanelTab):
 
         right = ttk.Frame(parent)
         right.pack(side="left", fill="both", expand=True)
-        self._dm_header_var = tk.StringVar(value=self.t("chat.dm.pick"))
+        self._dm_header_var = statevar.string(None, self.t("chat.dm.pick"))
         ttk.Label(right, textvariable=self._dm_header_var, anchor="w",
                  foreground="#c8c8c8").pack(fill="x", padx=6, pady=(4, 0))
         return self._make_chat_tree(right)

@@ -83,13 +83,19 @@ def insert_coord_link(widget, text: str) -> None:
 
 
 def tk_stringvar(master):
-    """An empty ``StringVar`` owned by ``master`` — a status line's variable.
+    """An empty string variable owned by ``master`` — a status line's variable.
 
     Owned explicitly: a variable created with no master belongs to whichever root Tk
     happened to be made first, which in a panel that opens a dialog is not the window
     the label is in.
+
+    THROUGH `panel/runtime/statevar.py` since #1976 (P3): with a window this is exactly
+    the `StringVar` it always was, and with none it is the same surface with no Tk under
+    it — so a tab that keeps a status line keeps it in a panel that draws nothing.
     """
-    return tk.StringVar(master=master, value="")
+    from .runtime import statevar
+
+    return statevar.string(master, "")
 
 
 def var_mirror(var):

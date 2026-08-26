@@ -37,6 +37,7 @@ from tkinter import ttk
 
 from ...widgets import numeric_spinbox, tk_stringvar
 from . import grid
+from ...runtime import statevar
 
 # `GhostreconPointStealType` -> the locale key that spells it out. The same four values
 # `lua_actions.GHOST_STEAL_NAMES` logs, said in the person's own language instead.
@@ -68,7 +69,7 @@ class _GhostGrid(grid.TaskGrid):
         # table of what is out there. A ghost squad's star is the event config's own
         # answer (`ghost_recon_steal`), never arithmetic over the cfgId — the same
         # rule the module docstring states.
-        self.star_var = tk.BooleanVar(master=tab.rt.root, value=False)
+        self.star_var = statevar.boolean(tab.rt.root, False)
         # WHO MOVED IT — the box was reported ticking itself off «через какое-то время»
         # and nothing in this tab could be shown to do it, so the variable says so
         # itself. One debug line per change, with the six frames above it: a person
@@ -396,7 +397,7 @@ class GhostMapGrid(_GhostGrid):
     def __init__(self, tab) -> None:
         super().__init__(tab)
         # The ghost sniffer's own switch and its own interval, both this page's (#1251).
-        self.monitor_var = tk.BooleanVar(master=tab.rt.root, value=False)
+        self.monitor_var = statevar.boolean(tab.rt.root, False)
         self.interval_var = tk_stringvar(tab.rt.root)
         self.interval_var.set("15")
 

@@ -28,6 +28,7 @@ from ..runtime import diag
 from ..runtime import opt_value
 from ..widgets import numeric_spinbox
 from .base import PanelTab
+from ..runtime import statevar
 
 #: The shell's own sub-pages, in the order they appear. `builder` is the method that
 #: fills one; `None` shows the placeholder, so the page is complete from the first day
@@ -101,7 +102,7 @@ class SettingsTab(PanelTab):
         listed = tabsreg.listed(enabled=saved, known=known)
         self._tab_vars = {}
         for row, spec in enumerate(listed):
-            var = tk.BooleanVar(master=self.rt.root, value=spec.id in asked)
+            var = statevar.boolean(self.rt.root, spec.id in asked)
             self._tab_vars[spec.id] = var
             box = ttk.Checkbutton(grid, variable=var, command=self._save_tab_choice)
             self.tr(box, spec.title_key).grid(row=row, column=0, sticky="w", pady=1)

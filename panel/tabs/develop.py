@@ -123,6 +123,7 @@ from .develop_busy import BusyView
 import lua_client       # noqa: E402  (the warm daemon, to unwrap the tracer's hooks)
 import lua_trace        # noqa: E402  (RESTORE_CHUNK)
 import run_notes        # noqa: E402  (keep/discard a sniffer run + its description)
+from ..runtime import statevar
 
 #: The two halves of a recording: the wire, and the client's own Lua.
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
@@ -203,8 +204,8 @@ class DevelopTab(PanelTab):
         self._sniff_files: dict = {}  # kind -> run file each child reported opening;
                                       # emptied by the save/delete prompt that closes a
                                       # session, which is what makes it fire once
-        self._sniff_var = tk.BooleanVar(master=rt.root, value=False)
-        self._status_var = tk.StringVar(master=rt.root, value="")
+        self._sniff_var = statevar.boolean(rt.root, False)
+        self._status_var = statevar.string(rt.root, "")
         # -- the scenario runner --
         # Its STATE lives here rather than in `_build_scenarios`, because the page it is
         # drawn on is built when somebody looks at it and the profile's block arrives
@@ -221,10 +222,10 @@ class DevelopTab(PanelTab):
         #: Which script the profile was last using — kept for the page that is not drawn
         #: yet, so a profile saved before anybody opened «Сценарии» keeps its choice.
         self._scn_saved_name = ""
-        self._scn_args_var = tk.StringVar(master=rt.root)
-        self._scn_interval_var = tk.StringVar(master=rt.root, value="60")
-        self._scn_loop_var = tk.BooleanVar(master=rt.root, value=False)
-        self._scn_dev_var = tk.BooleanVar(master=rt.root, value=False)
+        self._scn_args_var = statevar.string(rt.root)
+        self._scn_interval_var = statevar.string(rt.root, "60")
+        self._scn_loop_var = statevar.boolean(rt.root, False)
+        self._scn_dev_var = statevar.boolean(rt.root, False)
         # -- the busy debugger (#1392), drawn by its own module --
         self._busy = BusyView(self)
         # -- the log pane (#1391), drawn with its page --
@@ -241,7 +242,7 @@ class DevelopTab(PanelTab):
         self._shown = False            # is the tab itself on screen?
         #: Which page to open on. A variable, so switching page is written to the
         #: profile by the same trace every other control on the panel uses.
-        self._page_var = tk.StringVar(master=rt.root, value=DEFAULT_PAGE)
+        self._page_var = statevar.string(rt.root, DEFAULT_PAGE)
 
     # -- UI -------------------------------------------------------------------
     def build(self) -> None:
@@ -441,8 +442,7 @@ class DevelopTab(PanelTab):
         box = self.tr(ttk.LabelFrame(self._frames["sniff"], padding=8),
                       "develop.updates.frame")
         box.pack(fill="x", padx=10, pady=(0, 8))
-        self._dev_updates_var = tk.BooleanVar(master=self.rt.root,
-                                              value=profilemod.dev_updates())
+        self._dev_updates_var = statevar.boolean(self.rt.root, profilemod.dev_updates())
         self.tr(ttk.Checkbutton(box, variable=self._dev_updates_var,
                                 command=self._toggle_dev_updates),
                 "develop.updates.dev").pack(anchor="w")

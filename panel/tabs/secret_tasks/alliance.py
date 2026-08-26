@@ -56,6 +56,7 @@ from tkinter import ttk
 
 from ...widgets import NumericEntry
 from . import grid
+from ...runtime import statevar
 
 
 class AllianceGrid(grid.TaskGrid):
@@ -71,8 +72,8 @@ class AllianceGrid(grid.TaskGrid):
         super().__init__(tab)
         # The two display rules over this table (#1251). Off by default: a mirror that
         # hides most of what it mirrors before anybody asks it to is not a mirror.
-        self.ur_var = tk.BooleanVar(master=tab.rt.root, value=False)
-        self.star_var = tk.BooleanVar(master=tab.rt.root, value=False)
+        self.ur_var = statevar.boolean(tab.rt.root, False)
+        self.star_var = statevar.boolean(tab.rt.root, False)
 
     # -- the standing order over this list ------------------------------------------
     def build_filters(self, parent) -> None:
