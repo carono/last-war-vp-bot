@@ -37,7 +37,9 @@ import time
 from . import profile as profilemod
 from . import runtime as runtimemod
 from . import tabs as tabsreg
+from .runtime import panel_control as panelctl
 from .runtime import service_control as servicectl
+from .runtime import updates as updatesmod
 from .runtime import web_control as webctl
 from .runtime.workspace import Workspace
 
@@ -61,6 +63,7 @@ class HeadlessPanel:
         #: a second process failing to bind it would switch that setting off for both.
         self._web = bool(web)
         self._stop = threading.Event()
+        self._down = False
 
     # -- lifecycle ----------------------------------------------------------
     def open(self) -> list:
@@ -92,6 +95,14 @@ class HeadlessPanel:
         if self._web:
             webctl.apply(rt)
         servicectl.start(rt, self.workspace)
+        # THE TWO PRESSES ON THE PANEL ITSELF. The shell registers these while it builds
+        # the window (`panel/runtime/panel_control.py`), so a panel with no window used to
+        # answer «unavailable» to both — and «⟳ Перезапустить панель» is not a convenience
+        # here, it is the rule: a fix nobody restarted into is a fix that is not there
+        # (`CLAUDE.md`). With no window there is also nobody at the machine to end the
+        # process by hand, so «Заглушить» is the only orderly way down.
+        panelctl.set_handler(self._restart_now, panelctl.RESTART)
+        panelctl.set_handler(self._quit_now, panelctl.QUIT)
 
     def run(self) -> int:
         opened = self.open()
@@ -113,7 +124,43 @@ class HeadlessPanel:
         self.shutdown()
         return 0
 
+    # -- the panel's own two presses ----------------------------------------
+    def _quit_now(self) -> None:
+        """Put this panel down — the same orderly shutdown a closing window runs.
+
+        Only the flag: `run` is waiting on it, and the shutdown then happens on the MAIN
+        thread rather than on the clock that called this. Every profile is written out,
+        every tab's children stopped, the service link and the port let go.
+        """
+        self._stop.set()
+
+    def _restart_now(self) -> None:
+        """Put this panel back on the code that is on disk. The question was already put.
+
+        The order is the window's and it matters: shut down FIRST — that is what writes
+        the profiles out — and only then start the replacement, which reads them on the
+        way up. `module="panel.headless"` because a panel that had no window must not come
+        back with one: this process may be running in a session with no desktop at all.
+        """
+        try:
+            self.shutdown()
+        except Exception:                     # noqa: BLE001 — a tab that fails to stop
+            print("panel: restart shutdown failed", file=sys.stderr)  # must not strand it
+        try:
+            updatesmod.relaunch(module="panel.headless")
+        except Exception as exc:              # noqa: BLE001
+            print(f"panel: relaunch failed: {exc}", file=sys.stderr)
+        self._stop.set()
+
     def shutdown(self) -> None:
+        # ONCE. A restart shuts down and then `run` shuts down again on its way out of the
+        # wait; a workspace closed twice is a profile written by something that has already
+        # let go of it.
+        if self._down:
+            return
+        self._down = True
+        panelctl.set_handler(None, panelctl.RESTART)
+        panelctl.set_handler(None, panelctl.QUIT)
         if self._web:
             webctl.stop(quiet=True)
         servicectl.stop()

@@ -25,6 +25,7 @@ TIER = "offline"   # no window and no display — if this needs Tk, P3 is not do
 import json
 import os
 import sys
+import threading
 import tempfile
 import types
 from pathlib import Path
@@ -222,6 +223,62 @@ def test_the_runtime_and_the_headless_panel_import_with_no_tkinter_at_all() -> N
     done = subprocess.run([sys.executable, "-c", code], cwd=str(_REPO),
                           capture_output=True, text=True)
     assert done.returncode == 0 and "ok" in done.stdout, (done.stdout, done.stderr[-800:])
+
+
+def test_the_two_presses_on_the_panel_ITSELF_exist_without_a_window() -> None:
+    """«⟳ Перезапустить панель» and «Заглушить» were the SHELL's, and a panel with no
+    window answered «unavailable» to both (#1976, measured live through the service).
+
+    That is not a missing convenience: `CLAUDE.md` makes the restart MANDATORY after every
+    fix, because a running panel plays the code it was imported with — and with no window
+    there is nobody at the machine to end the process by hand either. So the windowless
+    panel registers both, and a restart comes back as `panel.headless` rather than as a
+    window this session may have no desktop for.
+    """
+    from panel.runtime import panel_control as panelctl
+
+    source = (_REPO / "panel" / "headless.py").read_text(encoding="utf-8")
+    for action in ("panelctl.RESTART", "panelctl.QUIT"):
+        assert f"set_handler(self._restart_now, {action})" in source \
+            or f"set_handler(self._quit_now, {action})" in source, \
+            f"a windowless panel cannot be asked to {action}"
+    assert 'relaunch(module="panel.headless")' in source, (
+        "a windowless restart would come back with a window")
+    assert panelctl.RESTART in panelctl.BY_ID and panelctl.QUIT in panelctl.BY_ID
+
+
+def test_a_press_with_no_window_waits_for_its_own_answer_to_be_written() -> None:
+    """The delay is not decoration: the press arrives on the socket the phone is holding,
+    and pulling the interpreter out before the answer is flushed leaves it unable to tell
+    «перезапускается» from «упало». With a window that wait is Tk's `after`; with none it
+    is the panel's own clock — and a Tk `Ticker` without a widget arms NOTHING, which is
+    why the two are told apart by name rather than trusted."""
+    from panel.runtime import panel_control as panelctl
+    from panel.runtime import tick as tickmod
+
+    assert tickmod.ThreadTicker.THREADED is True
+    assert tickmod.Ticker.THREADED is False
+
+    clock = tickmod.ThreadTicker()
+    clock.start()
+    ran = threading.Event()
+
+    class _Rt:
+        root = None
+        tick = clock
+
+        def say(self, *a, **k):
+            pass
+
+    try:
+        panelctl.set_handler(ran.set, panelctl.QUIT)
+        said = panelctl.request(_Rt(), panelctl.QUIT)
+        assert said.get("ok") is True, said
+        assert not ran.is_set(), "the panel went down before its answer was written"
+        assert ran.wait(5), "the press was armed on a clock that never fired"
+    finally:
+        panelctl.set_handler(None, panelctl.QUIT)
+        clock.stop()
 
 
 def _main() -> int:

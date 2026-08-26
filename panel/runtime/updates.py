@@ -608,7 +608,7 @@ def pull(repo: str = REPO, timeout: float = FETCH_TIMEOUT,
 # already imported keeps the old code, and the next one imported comes from the new
 # checkout. That mix is worse than either half — so the panel does not try to reload
 # anything, it starts itself again from scratch.
-def relaunch_command(argv: list | None = None) -> list:
+def relaunch_command(argv: list | None = None, module: str = "panel") -> list:
     """The command line that starts this panel again, with the same arguments.
 
     `python -m panel` rather than the `sys.argv[0]` path: with `-m`, argv[0] is
@@ -617,10 +617,10 @@ def relaunch_command(argv: list | None = None) -> list:
     """
     import sys
     args = list(sys.argv[1:] if argv is None else argv)
-    return [sys.executable, "-m", "panel", *args]
+    return [sys.executable, "-m", str(module or "panel"), *args]
 
 
-def relaunch(argv: list | None = None, repo: str = REPO):
+def relaunch(argv: list | None = None, repo: str = REPO, module: str = "panel"):
     """Start a fresh panel and return the new process.
 
     The caller closes the old window FIRST — the new panel reads the profile on the way
@@ -629,5 +629,5 @@ def relaunch(argv: list | None = None, repo: str = REPO):
     """
     flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-    return subprocess.Popen(relaunch_command(argv), cwd=repo, close_fds=True,
+    return subprocess.Popen(relaunch_command(argv, module), cwd=repo, close_fds=True,
                             creationflags=flags)

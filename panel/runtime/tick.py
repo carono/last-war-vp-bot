@@ -195,6 +195,11 @@ def poster(widget) -> "TkPost | None":
 class Ticker:
     """Repeating callbacks keyed by name, on one Tk widget's `after` queue."""
 
+    #: Tk's `after` queue: it needs a widget, and it is pumped by the window's mainloop.
+#: What asks (`panel/runtime/panel_control.py`) uses this to tell the two apart —
+#: a `Ticker` with no widget silently arms nothing, which is the trap #1976 hit.
+    THREADED = False
+
     def __init__(self, widget) -> None:
         self._w = widget
         #: ``name -> job id``. What Tk needs to cancel a chain, and nothing else.
@@ -339,6 +344,9 @@ class ThreadTicker:
     A callback that raises is swallowed, exactly as Tk swallows one — the clock is not a
     place a fault may stop everything else that is armed.
     """
+
+    #: This one is its own thread and works with no window at all.
+    THREADED = True
 
     def __init__(self) -> None:
         import heapq

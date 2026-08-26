@@ -175,6 +175,16 @@ def _arm(rt, func) -> None:
     has neither, and nothing is drawing an answer there either, so it simply happens.
     """
     if getattr(rt, "root", None) is None:
-        func()
+        # NO WINDOW. Which used to mean «a test, a bare harness — nothing is drawing an
+        # answer there either», and stopped being true the day the panel could run with
+        # no window at all (#1976): the phone IS the front-end then, and it is waiting on
+        # the very socket this press arrived on. So the delay is kept, on the clock this
+        # process actually has — `ThreadTicker`, which is its own thread. A `Ticker`
+        # without a widget arms NOTHING, so it is told apart by name rather than trusted.
+        tick = getattr(rt, "tick", None)
+        if tick is not None and getattr(tick, "THREADED", False):
+            tick.arm(TICK, DELAY_MS, func)
+        else:
+            func()
         return
     rt.post(lambda: rt.tick.arm(TICK, DELAY_MS, func))
