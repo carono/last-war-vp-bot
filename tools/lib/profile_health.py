@@ -42,6 +42,14 @@ Which gives the ladder in :func:`verdict`, and the three amber reasons it can na
                            ours.** Say so, fix it, and never restart a client over it.
 * :data:`NO_TRAFFIC`     — chunks land and the server does not answer. The client is
                            deaf: restart it.
+* :data:`MAINTENANCE`    — chunks land, the server does not answer, and the client is
+                           showing the game's OWN «server under maintenance» message
+                           (`tools/lib/game_maintenance.py`). Nothing is broken and
+                           there is nothing to fix: the door is shut, wait. It is a
+                           NARROWING of `NO_TRAFFIC` and never of green — a server that
+                           has just answered is playing, whatever dialog is on screen —
+                           because the expensive mistake here is telling somebody their
+                           working account is closed (#1982).
 
 WHAT IS DELIBERATELY NOT HERE ANY MORE (#1911). The socket table decides nothing: it
 cannot say which conversation is the game, and for a whole night it called a healthy
@@ -70,6 +78,7 @@ NO_CLIENT = "no_client"          # red:   there is no client process
 CLIENT_HUNG = "client_hung"      # amber: it is there and it is wedged
 NO_CONNECTION = "no_connection"  # amber: OUR side cannot drive it
 NO_TRAFFIC = "no_traffic"        # amber: we drive it and the server says nothing
+MAINTENANCE = "maintenance"      # amber: the server is SHUT — wait, do not fix (#1982)
 TRAFFIC = "traffic"              # green
 
 #: Does a chunk reach the client's Lua VM? Our own plumbing, no server involved.
@@ -108,7 +117,7 @@ class Health:
 
 def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
             server: str = SERVER_UNASKED, responding: bool = True,
-            error: str = "") -> Health:
+            error: str = "", maintenance: bool = False) -> Health:
     """The one light for one profile, from readings somebody else has already taken.
 
     A pure function of ids: no socket, no round trip, no clock. Everything it judges is
@@ -120,7 +129,9 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
     2. **a chunk does not land, and the window is hung** → amber, the client is wedged.
     3. **a chunk does not land** → amber, and it is OUR fault until proven otherwise.
     4. **the server answered** → green. The only thing that earns it.
-    5. otherwise → amber. Chunks land, the server has not answered — or has not been
+    5. **the client is showing the game's own maintenance message** → amber, and it is
+       named: the server is shut. Below green on purpose (#1982), see above.
+    6. otherwise → amber. Chunks land, the server has not answered — or has not been
        asked yet, which is the same amber: an unasked question is not a green light.
     """
     def made(colour: str, reason: str) -> Health:
@@ -133,6 +144,8 @@ def verdict(*, running: bool, plumbing: str = PLUMBING_UNASKED,
         return made(WARN, CLIENT_HUNG if not responding else NO_CONNECTION)
     if server == ANSWERING:
         return made(OK, TRAFFIC)
+    if maintenance:
+        return made(WARN, MAINTENANCE)
     return made(WARN, NO_TRAFFIC)
 
 

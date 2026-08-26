@@ -208,15 +208,43 @@ waits up to 300 s for the city scene), a person at the machine still wins, and a
 own wait is not interrupted to knock. Both front-ends draw «не в игре N мин — перезапуск
 через M» rather than silence.
 
+**And a second one is done (#1982): THE STATE HAS A NAME.** The key family in §4a is
+what recognises it — `tools/lib/game_maintenance.py` reads the client's own message
+window (the same round trip the kick already made, now made once and judged twice) and
+compares the text with the game's own wording for every maintenance key, in every
+language the client ships. What that buys:
+
+* a fifth reason on the profile's light, `maintenance` (`tools/lib/profile_health.py`),
+  drawn by BOTH front-ends out of the one verdict — «сервер на техобслуживании — игра
+  закрыта, нужно ждать, а не чинить» in place of «клиент есть, трафика нет»;
+* it NARROWS the amber it would have been and never touches green: a server that has
+  just answered is playing, whatever dialog is on screen. Telling somebody their working
+  account is closed is the expensive direction to be wrong in;
+* the door CLOSING is its own state, and it is the one time the game names a number —
+  `120036`/`120037` are read for their `{0}` and said in the log as «сервер уходит на
+  техобслуживание через N мин». §4b's warning is therefore heard when it is drawn on the
+  client; whether it also arrives on the wire is still unread;
+* one log line per edge — shut, closing, open again — because a window lasts an
+  afternoon and the strip is only true while somebody is looking at it;
+* and `server_open_tips001` / `server_maintenance_001` are deliberately NOT read: they
+  say somebody else's warzone is closed while this account's is playable.
+
+What it does not do, said plainly: if the notice is drawn by some window other than the
+client's generic message tip, the reading is «cannot tell» rather than «all is well» —
+the knock above still runs, and the light stays the amber it was before. And it can only
+be read while chunks land, which §3 says may not be true in the middle of a window; the
+knock's restart is what gets the reading back.
+
 The rest is still a proposal, written down so the next window is spent confirming rather
 than rediscovering.
 
-1. **Name the state.** A fifth verdict beside `online` / `offline` / `lost` /
-   `session_unknown`, recognised by the game's own keys — §4a has them now, and
-   `docs/research/session-kick.md` is the worked example of reading exactly this kind of
-   sign off a live client. The heuristic stays useful as a second rung for a client whose
-   VM will not answer: link `ONLINE`, VM answering `None` to everything, warzone reading
-   `0`, and no traffic on the game port for N minutes.
+1. ~~**Name the state.**~~ **Done (#1982)** — the verdict is recognised by the game's
+   own keys, exactly as this item asked and the way `docs/research/session-kick.md` does
+   it. **What is left of the item is its SECOND rung**, still unwritten: a client whose
+   VM will not answer at all shows nothing to read, and the heuristic for it was written
+   down here — link up, the VM answering `None` to everything, the warzone reading `0`,
+   and no traffic on the game port for N minutes. Until that exists, a window that eats
+   the VM reads as «cannot tell» and the knock is what recovers the reading.
 2. **Park, do not spend.** Every errand currently FAILS once per fire, which burns retry
    budgets and fills the log with the same sentence twenty times. A recognised maintenance
    state should hold the queue the way a refused gate already does (#1416) and say so once.
@@ -229,6 +257,8 @@ than rediscovering.
    then seconds. If they are readable, the honest behaviour is to stop starting new
    errands a minute before the server goes rather than to have twenty of them fail after
    it has.
-5. **Say it in one place.** The profile light should read «сервер на обслуживании», not
-   «не удалось спросить клиент» — the person then knows to wait rather than to restart the
-   client, which is what «не удалось спросить» invites and what makes it worse.
+5. ~~**Say it in one place.**~~ **Done (#1982):** the profile light reads «сервер на
+   техобслуживании» when the game's own message is on the client's screen, in the window,
+   on the phone's pill and on the profile picker, out of one verdict. What it cannot do
+   is say it when the client will not answer at all — that is rung 1's heuristic, still
+   unwritten.

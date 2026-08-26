@@ -17,6 +17,11 @@ const LINK_WORDS: Record<string, string> = {
   client_hung: 'health.client_hung',
   no_connection: 'health.no_connection',
   no_traffic: 'health.no_traffic',
+  /* …and the closed door (#1982): amber, but «wait» rather than «find the fault».
+   * Recognised from the game's OWN maintenance message, so it says what is actually
+   * happening instead of «трафика нет», which invites somebody to restart things that
+   * are not broken. */
+  maintenance: 'health.maintenance',
 }
 
 /* WHY THE CLIENT IS BEING RESTARTED, or why it is not — the window has a log scrolling

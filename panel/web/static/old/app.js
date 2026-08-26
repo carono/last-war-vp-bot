@@ -116,6 +116,7 @@ const LINK_WORDS = {
   client_hung: 'health.client_hung',
   no_connection: 'health.no_connection',
   no_traffic: 'health.no_traffic',
+  maintenance: 'health.maintenance',
 };
 const LINK_PILLS = { ok: 'ok', warn: 'warn', bad: 'off' };
 

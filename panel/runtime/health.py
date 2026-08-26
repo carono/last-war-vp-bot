@@ -45,6 +45,7 @@ _WORDS = {
     profile_health.CLIENT_HUNG: "health.client_hung",
     profile_health.NO_CONNECTION: "health.no_connection",
     profile_health.NO_TRAFFIC: "health.no_traffic",
+    profile_health.MAINTENANCE: "health.maintenance",
 }
 
 #: Does a chunk land in the client's Lua VM — our own plumbing, worded.
@@ -83,7 +84,7 @@ class ProfileHealth:
     # -- writing -------------------------------------------------------------
     def update(self, probe, *, plumbing: str = profile_health.PLUMBING_UNASKED,
                server: str = profile_health.SERVER_UNASKED, responding: bool = True,
-               error: str = ""):
+               error: str = "", maintenance: bool = False):
         """Take one poll's readings and keep the light they make.
 
         ``probe`` is `panel.runtime.game_process.Probe` — whether a client of this
@@ -91,11 +92,17 @@ class ProfileHealth:
         landed lately (`panel.runtime.link.GameLink.plumbing`), ``server`` whether the
         game server has answered an active probe lately. Both are readings somebody else
         already took: drawing may never be the thing that spends a round trip.
+
+        ``maintenance`` is «the client is showing the game's own «server under
+        maintenance» message» (`tools/lib/game_maintenance.py`, #1982). It only ever
+        NARROWS the amber the light was going to be anyway — nothing broken, nothing to
+        fix, wait — so a profile whose server answers stays green with it set.
         """
         self._client = getattr(probe, "message", None)
         self._health = profile_health.verdict(
             running=bool(getattr(probe, "running", False)), plumbing=plumbing,
-            server=server, responding=bool(responding), error=error)
+            server=server, responding=bool(responding), error=error,
+            maintenance=bool(maintenance))
         self._at = time.time()
         return self._health
 

@@ -145,6 +145,7 @@ for _tp in (TOOLS, TOOLS_LIB, SRC):
 import lua_actions      # noqa: E402
 import coords           # noqa: E402
 import game_paths       # noqa: E402  (where the game is — LW_LAUNCHER & co)
+import game_maintenance as game_maint  # noqa: E402  (the closed door, #1982)
 import game_buttons     # noqa: E402  (the named presses the reference pane lists)
 
 WIN_PYTHON = game_paths.win_python()
@@ -1354,6 +1355,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # poll over a perfectly healthy account.
         self._session_at = 0.0
         self._session_was = ""
+        # …and THE CLOSED DOOR (#1982). The client's message dialog is read ONCE per
+        # poll and judged twice — a kick and a maintenance notice are two sentences in
+        # the same window, and reading it twice would be a second round trip for
+        # nothing. `_maint_was` is the last verdict (`tools/lib/game_maintenance.py`),
+        # `_maint_secs` the countdown the game named when it announced the shutdown,
+        # and `_maint_said` what the log has already been told, so a window that lasts
+        # an hour costs one line and not one every eight seconds.
+        self._tip_at = 0.0
+        self._maint_was = ""
+        self._maint_secs = None
+        self._maint_said = ""
         # Account dashboard: the last readings and the poller's stop flag. The WIDGET is
         # made when «Аккаунты» is first drawn and not before (`_on_tab_realized`,
         # #1215), so the poller has to be able to run with nowhere to paint.
@@ -3746,7 +3758,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # can sit behind a link that looks perfect — one surviving conversation
                 # out of six — and it buys the other device a wait rather than a restart
                 # (#1270, #1291). On THIS thread: it is a round trip into the game VM.
-                kicked = self._read_kicked(found, lands)
+                # ONE READING OF THE DIALOG, TWO QUESTIONS (#1982). Both the kick and
+                # the maintenance notice are text in the client's own generic message
+                # window, so the round trip is made here and the sentences are judged
+                # by the modules that own them.
+                tip = self._read_dialog(found, lands)
+                kicked = self._read_kicked(tip)
+                maint, maint_secs = self._read_maintenance(tip)
                 # …AND IS IT IN A SESSION AT ALL (#1549)? The maintenance case: the
                 # client is up, we can drive it, and it is sitting on a closed door.
                 session = self._read_session(found, lands)
@@ -3767,7 +3785,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # touched until the hand-over below.
             health = self._rt.health.update(found, plumbing=lands, server=server,
                                             responding=responding,
-                                            error=self._rt.game.error())
+                                            error=self._rt.game.error(),
+                                            maintenance=maint == game_maint.CLOSED)
             shown = runtime.game_process.worded(
                 found, health.colour == profile_health.OK,
                 runtime.game_process.profile_user(self._binder))
@@ -3798,6 +3817,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._dbg_status(ok, health),
                 self._paint_game_buttons(ok),
                 self._announce_link(health),
+                self._announce_maintenance(maint, maint_secs),
                 self._recovery_check(found, health, kicked, session),
                 self._paint_power(),
                 self._paint_gate(),
@@ -4061,7 +4081,87 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._session_was = said
         return self._session_was or game_clock.CANNOT_TELL
 
-    def _read_kicked(self, found, lands: str) -> bool:
+    def _read_dialog(self, found, lands: str) -> "str | None":
+        """The client's own message window, read ONCE for both questions asked of it.
+
+        `''` is «no dialog is open», a string is what it says, and ``None`` is «not this
+        time» — either the reading was not due, or it failed. Both callers below treat
+        ``None`` the same way: keep the last verdict. A reading that fails can then only
+        ever ADD a reason and never take one away.
+
+        THE THROTTLE IS THE KICK'S, AND IT IS NOW SHARED (#1982). Two states are read
+        out of this one window — «вход с другого устройства» and «сервер на
+        техобслуживании» — and the round trip costs ~90 ms against a warm client, so it
+        is made once and judged twice. It is asked every poll while EITHER is standing,
+        because the recovery counts consecutive readings and a throttle that answered
+        «nothing on screen» in the gaps would keep resetting the run it feeds.
+
+        Only ever asked while chunks are landing, and only with a client to ask: an
+        attach costs seconds, and a status poll that ran one every eight seconds for
+        ever would be paying it all night over a game that is not running.
+        """
+        if lands != profile_health.LANDING or not getattr(found, "running", False):
+            self._tip_at = 0.0
+            self._kick_at, self._kick_was = 0.0, False
+            self._maint_was, self._maint_secs = "", None
+            return None
+        now = time.time()
+        if not (self._kick_was or self._maint_was
+                or (now - self._tip_at) >= KICK_POLL_SEC):
+            return None
+        self._tip_at = self._kick_at = now
+        try:
+            import game_kick
+
+            return game_kick.tip(self._rt.game.evaluator())
+        except Exception:                    # noqa: BLE001 — a reading, never the fault
+            return None
+
+    def _read_maintenance(self, tip: "str | None") -> tuple:
+        """Is the client sitting on a closed server?  ``(state, seconds)``.
+
+        THE STATE NOBODY HAD A WORD FOR (#1549 recorded it, #1982 named it). Maintenance
+        leaves every indicator the panel has looking well — the client is up, chunks
+        land, the daemon is warm — and the only thing that knows is the sentence on the
+        client's own screen. It is compared with the game's OWN wording, in every
+        language the client ships (`tools/lib/game_maintenance.py`), so it is recognised
+        whatever language the account is played in.
+
+        Forgiving in exactly one direction: anything that cannot be judged leaves the
+        last verdict standing, and only a sentence the game itself would draw ever puts
+        the light on «сервер на техобслуживании».
+        """
+        if tip is None:
+            return self._maint_was, self._maint_secs
+        try:
+            state, secs = (game_maint.judge(tip) if tip.strip() else ("", None))
+        except Exception:                    # noqa: BLE001 — a reading, never the fault
+            state, secs = None, None
+        if state is not None:                # `None` is «cannot judge» — keep the last
+            self._maint_was, self._maint_secs = state, secs
+        return self._maint_was, self._maint_secs
+
+    def _announce_maintenance(self, state: str, secs) -> None:
+        """Say the closed door in the log, on its EDGES and nowhere else.
+
+        A maintenance window lasts a quarter of an hour or an afternoon, and the strip is
+        only true while somebody is looking at it. One line when the door shuts, one when
+        it opens, one when the game announces a shutdown it is counting down to — which
+        is the only time the game names at all (`docs/research/server-maintenance.md`
+        §4b: the message on the closed door carries no deadline).
+        """
+        if state == self._maint_said:
+            return
+        self._maint_said = state
+        if state == game_maint.CLOSED:
+            self._say("game", "log.game.maintenance")
+        elif state == game_maint.CLOSING:
+            self._say("game", "log.game.maintenance_soon",
+                      mins=max(1, -(-int(secs or 0) // 60)))
+        elif state == "":
+            self._say("game", "log.game.maintenance_over")
+
+    def _read_kicked(self, tip: "str | None") -> bool:
         """Is the client showing the game's own «вход с другого устройства» modal?
 
         ASKED WHATEVER THE SOCKETS SAY (#1270). It used to be asked only while the link
@@ -4077,30 +4177,27 @@ class Panel(runtime.SessionScoped, tk.Tk):
         `tools/lib/game_kick.py` — the reading had to become conclusive on its own
         before it could be trusted against a healthy-looking link.
 
-        Only ever asked while chunks are landing, and only with a client to ask: an
-        attach costs seconds, and a status poll that ran one every eight seconds for
-        ever would be paying it all night over a game that is not running.
+        The reading itself is `_read_dialog`'s, shared with the maintenance notice
+        (#1982): both are text in the client's one generic message window. The previous
+        answer fills every gap — the recovery counts CONSECUTIVE readings, and a
+        throttle that reported «no kick» in between would keep resetting the run it
+        exists to feed.
         """
-        if lands != profile_health.LANDING or not getattr(found, "running", False):
-            self._kick_at, self._kick_was = 0.0, False
-            return False
-        now = time.time()
-        # Every poll while it matters — a lost link, or a kick already on screen — and
-        # otherwise on the throttle. The previous answer is what fills the gaps: the
-        # recovery counts CONSECUTIVE readings, and a throttle that reported «no kick»
-        # in between would keep resetting the run it exists to feed.
-        due = self._kick_was or (now - self._kick_at) >= KICK_POLL_SEC
-        if not due:
+        if tip is None:                      # not read this time — keep the last
             return self._kick_was
+        if not tip.strip():
+            self._kick_was = False           # no dialog on screen — not a kick
+            return False
         try:
             import game_kick
 
-            said = game_kick.read(self._rt.game.evaluator())
+            said = game_kick.judge(tip)
         except Exception:                    # noqa: BLE001 — a reading, never the fault
             said = None
-        self._kick_at = now
-        if said is not None:                 # `None` is «could not tell» — keep the last
-            self._kick_was = said
+        # `None` is «no language tables» — the sentence cannot be judged at all, and
+        # with nothing to compare it with a generic dialog is not evidence of a kick.
+        # That is exactly what `game_kick.read(ev)` did with no `link_lost` handed in.
+        self._kick_was = bool(said)
         return self._kick_was
 
     def _paint_recovery(self, st: dict) -> None:

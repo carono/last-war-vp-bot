@@ -146,6 +146,35 @@ def test_a_reading_that_blew_up_stops_claiming_anything() -> None:
     assert light.colour == ph.BAD and "raised" in light.current.error
 
 
+# --- the closed door (#1982) -----------------------------------------------
+def test_the_maintenance_message_narrows_the_amber_it_would_have_been() -> None:
+    """Amber either way — but «wait» rather than «find the fault»."""
+    plain = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.SILENT)
+    shut = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.SILENT,
+                      maintenance=True)
+    assert plain.colour == shut.colour == ph.WARN
+    assert plain.reason == ph.NO_TRAFFIC
+    assert shut.reason == ph.MAINTENANCE
+
+
+def test_a_server_that_answers_is_playing_whatever_dialog_is_on_screen() -> None:
+    """The expensive mistake is telling somebody their working account is closed."""
+    said = ph.verdict(running=True, plumbing=ph.LANDING, server=ph.ANSWERING,
+                      maintenance=True)
+    assert said.colour == ph.OK and said.reason == ph.TRAFFIC
+
+
+def test_no_client_at_all_outranks_the_dialog_it_cannot_be_showing() -> None:
+    said = ph.verdict(running=False, maintenance=True)
+    assert said.colour == ph.BAD and said.reason == ph.NO_CLIENT
+
+
+def test_the_maintenance_light_has_words_on_both_front_ends() -> None:
+    light = ProfileHealth()
+    light.update(_Probe(True), plumbing=ph.LANDING, server=ph.SILENT, maintenance=True)
+    assert light.state(lambda key, **fmt: key)["text"] == "health.maintenance"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
