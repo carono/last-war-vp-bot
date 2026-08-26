@@ -500,14 +500,22 @@ class WebApi:
         if now - when < STATUS_TTL_SEC:
             return running, colour, reason, label
         exe, user = self._client_args(rt)
+        # THE VERDICT IS NEVER MADE HERE, whatever happens below. It is the one the
+        # status poll wrote (`panel/runtime/status.py`), and this probe is only for the
+        # SENTENCE — the pid and the endpoint the poll's verdict does not carry.
+        health = rt.health.current
+        colour, reason = health.colour, health.reason
+        running = bool(getattr(health, "running", False))
         try:
             found = game_process.probe(exe, user=user)
-            health = rt.health.current
             running = found.running
-            colour, reason = health.colour, health.reason
             message = game_process.worded(found, colour == profile_health.OK, user)
         except Exception as exc:             # noqa: BLE001 — a reading, never the server
-            running, colour, reason = False, profile_health.BAD, profile_health.NO_CLIENT
+            # A SENTENCE THAT FAILED IS NOT A VERDICT (#1982 follow-up). This used to
+            # answer «клиент игры не запущен» — red, «no client» — and cache it for the
+            # TTL, over a light the panel had just painted green: two readings of one
+            # thing, and the phone drew the wrong one. Now the failure costs the words
+            # and nothing else.
             message = str(exc)
         label = i18nmod.translated(rt.t, message)
         self._status[name] = (now, bool(running), colour, reason, label)

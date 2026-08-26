@@ -828,6 +828,39 @@ def test_every_open_account_carries_its_own_light():
         assert all(light["text"] and light["tip"] for light in lights), lights
 
 
+def test_the_phone_never_makes_a_verdict_of_its_own_about_the_client():
+    """«Статус клиент игры не запущен, но игра работает» — and the phone said it.
+
+    The front page used to take a process probe of ITS own and, when that probe raised
+    for any reason, answer red / «no client» and cache it — over a light the panel had
+    just painted green. Two readings of one thing, and the phone drew the wrong one.
+
+    The verdict is the status poll's (`panel/runtime/status.py`), whatever this probe
+    does: a failure here costs the SENTENCE and nothing else.
+    """
+    import profile_health as ph
+
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        rt.health.update(
+            type("_P", (), {"running": True, "message": "running (pid 4242)"})(),
+            plumbing=ph.LANDING, server=ph.ANSWERING)
+
+        def _boom(*_a, **_k):
+            raise OSError("the process table would not answer")
+
+        real = apimod.game_process.probe
+        apimod.game_process.probe = _boom
+        try:
+            said = api.state()["game"]
+        finally:
+            apimod.game_process.probe = real
+        assert said["colour"] == ph.OK, said
+        assert said["reason"] == ph.TRAFFIC, said
+        assert said["running"] is True, said
+        assert "would not answer" in said["text"], said
+
+
 def test_every_route_answers_for_the_profile_it_was_asked_about():
     with tempfile.TemporaryDirectory() as home:
         first, second, _ws = _two_profiles(home)
