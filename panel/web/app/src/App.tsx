@@ -24,15 +24,24 @@ const POLL_MS = 2500 //  how often a visible page asks for state and log
 const SLOW_MS = 15000 // …and when it is in a pocket, hidden
 const LOG_KEEP = 400 //  lines held for a phone that has been open all evening
 
-type ViewName = 'state' | 'timers' | 'actions' | 'log' | 'more'
+type ViewName = 'state' | 'timers' | 'log' | 'more'
 
+/* THERE IS NO «СЦЕНАРИИ» ENTRY, and that is the point — the person's decision, in their
+ * words: «вкладки сценарии быть не должно, в панели она была в разделе с разработкой,
+ * так же перенеси». The window has never had a Scenarios tab either: it is one of the
+ * four pages INSIDE «Разработка» (`panel/tabs/develop.py`, `PAGES`), and the phone now
+ * groups it the same way — the list is drawn under the develop screen, whole, with the
+ * same search and the same one press per scenario. */
 const NAV: { id: ViewName; key: string }[] = [
   { id: 'state', key: 'web.ui.nav.state' },
   { id: 'timers', key: 'web.ui.nav.timers' },
-  { id: 'actions', key: 'web.ui.nav.actions' },
   { id: 'log', key: 'web.ui.nav.log' },
   { id: 'more', key: 'web.ui.nav.more' },
 ]
+
+/* Which screen the scenarios live under — the window's own tab id, so a rename there is
+ * a rename here rather than a list that quietly stops matching. */
+const DEVELOP_SCREEN = 'develop'
 
 /* One light per open account, drawn from the verdict the window's status poll already
  * made (`panel/runtime/health.py`). The words are said by the PANEL, in each account's
@@ -182,9 +191,14 @@ function Panel() {
 
   useEffect(() => {
     if (view === 'timers') void refreshTimers()
-    if (view === 'actions') void refreshActions()
     if (view === 'more') void refreshScreens()
-  }, [view, refreshTimers, refreshActions, refreshScreens])
+  }, [view, refreshTimers, refreshScreens])
+
+  // The scenario list is fetched when the develop screen is opened — it used to be
+  // fetched when its own tab was, and that tab is gone (see `NAV`).
+  useEffect(() => {
+    if (screen === DEVELOP_SCREEN) void refreshActions()
+  }, [screen, refreshActions])
 
   const switchProfile = useCallback(
     async (name: string) => {
@@ -229,7 +243,19 @@ function Panel() {
 
       <main>
         {screen ? (
-          <ScreenPage id={screen} pollKey={tickCount} onBack={() => setScreen(null)} />
+          <>
+            <ScreenPage id={screen} pollKey={tickCount} onBack={() => setScreen(null)} />
+            {screen === DEVELOP_SCREEN ? (
+              <>
+                <h3 className="screen-part">{t('develop.page.scenarios')}</h3>
+                <ActionsView
+                  actions={actions}
+                  running={state?.activity?.name || ''}
+                  refresh={() => void tick()}
+                />
+              </>
+            ) : null}
+          </>
         ) : view === 'state' ? (
           state ? (
             <StateView
@@ -244,12 +270,6 @@ function Panel() {
             triggers={triggers}
             now={state?.time || 0}
             refresh={refreshTimers}
-          />
-        ) : view === 'actions' ? (
-          <ActionsView
-            actions={actions}
-            running={state?.activity?.name || ''}
-            refresh={() => void tick()}
           />
         ) : view === 'log' ? (
           <LogView

@@ -313,6 +313,14 @@ input[type='search'], input[type='password'], input[type='text'], input[type='nu
 
 .screen-head { justify-content: flex-start; gap: var(--gap); }
 
+/* A part of a screen that is not a card — «Сценарии» under «Разработка», the way
+   the window's tab has pages inside it. Reads as a heading, not as a row. */
+.screen-part {
+  margin: calc(var(--gap) * 1.5) 0 var(--gap);
+  font-size: 15px;
+  color: var(--ink);
+}
+
 /* One column on a phone, more as the page grows — never a breakpoint. */
 .tiles {
   display: grid;
