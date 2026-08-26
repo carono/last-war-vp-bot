@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Điền quân vào đội",
   "rally_tab.repeats": "Số lần lặp:",
   "rally_tab.launch": "Bắt đầu",
+  "rally_tab.launch.confirm": "Dựng cờ tập hợp bằng mỗi đội đã chọn, ở cấp độ và số lần đã đặt? Quân thật sẽ rời căn cứ.",
   "rally_tab.stop": "Dừng",
   "rally_tab.hint": "Mỗi đội được đánh dấu sẽ mở tập kết riêng vào mục tiêu đã chọn ở cấp đã chọn, N lần liên tiếp. Cấp chạy từ 1 đến 200 cho cả hai mục tiêu — sự kiện theo mùa đặt quái cấp cao lên bản đồ — còn cấp nào trò chơi không có thì đơn giản là trả về rỗng. Giới hạn hằng ngày của «quái vật» (Cài đặt → Tập Kết Tự Động) vẫn được tôn trọng. Một lần lặp chỉ được tính khi trò chơi hiện ra tập kết mới. Các nút bên cạnh ô là những cấp hay được tập kết nhất — mỗi nút một lần nhấn. Cả bốn lựa chọn đều nằm trong hồ sơ và trở lại ở lần mở bảng sau.",
   "rally_tab.no_squads": "chưa đánh dấu đội nào",

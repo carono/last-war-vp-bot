@@ -78,6 +78,7 @@ that owns a lifecycle.
 | the web is the MAIN front-end | **decided** | «Веб теперь главный инструмент, ему и полный функционал» — `CLAUDE.md` and `docs/panel-tabs.md` rewritten; new goes to the web only |
 | P2 — the ghost standing order from the phone | **done** | switch + level as fields |
 | P2 — renaming and DELETING a profile from the phone | **written, not yet live** | the two presses the shell held back: `profile_control` grew `rename` / `delete`, and each carries the guard the message box used to be — the new name typed for a rename, the profile's OWN name typed back for a delete |
+| P2 — the rally MANUAL RUN from the phone | **written, not yet live** | target, level, repeats and squads as fields; «Запустить» asks first, «Стоп» sets the same event the window's button does |
 | P2 — the rally JOIN from the phone | **written, not yet live** | the four squad switches first, then the press: `join_rally` was always one recipe, and what was missing was the argument it spends |
 | P2 — the emoji picker and the sticker grid | **written, not yet live** | `/api/chatsprite` serves the extracted art; an emoji pre-fills the send box, a sticker goes as its own message |
 | P2 — «Ограбить» beside ONE ghost row | **written, not yet live** | the card is drawn from the page's own list, so a row carries a uuid and the game's own verdict |
@@ -242,7 +243,7 @@ after the new one has been used to drive it.**
   | «Дуэль» | — | **done**: a card per day of switches, ceilings, details and picks, plus a sets card that creates, renames and deletes |
   | «Чат» | clear, monitor | **the send and the PICKER travel**: `CHAT_SEND` made the send one recipe, and `/api/chatsprite` serves the extracted sprites so the phone chooses by looking (#1976) |
   | «Командный пункт» | jump, scan | **both robberies travel** (#1976): «Ограбить всех» takes its queue as an `ARGS` of the recipe, and the per-row press followed once the card was drawn from the page's own list — those rows carry a uuid and the game's own «may this be robbed» |
-  | «Ралли» | launch / stop a run | **the join travels** (#1976): the four squad boxes are switches on the card, so the phone chooses what it spends and then presses. The kind filter's «все / никакие» travel too |
+  | «Ралли» | — | **all of it travels** (#1976): the join, behind the four squad switches it spends; the MANUAL RUN as a card of its own — target, level, repeats, squads, «Запустить» and «Стоп»; and the kind filter's «все / никакие» |
   | «Сокровища (отладка)» | «Копировать» | **the filter travels** as four switches; the clipboard is the MACHINE's and means nothing on a phone — «Сохранить» is the same fragment kept as a file |
   | «Профили» (the shell's own list) | — | **done**: open, close, create, rename and delete, the last two behind a typed word (#1976). The folder button stays at the machine |
   | «Секретки», «Профиль», «Инвентарь», «Аккаунты», «Игроки» | nothing of substance | — |

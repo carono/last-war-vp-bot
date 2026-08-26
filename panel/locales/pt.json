@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Preencher esquadrões",
   "rally_tab.repeats": "Repetições:",
   "rally_tab.launch": "Lançar",
+  "rally_tab.launch.confirm": "Levantar uma concentração com cada esquadrão marcado, no nível e nas repetições definidas? Saem tropas reais da base.",
   "rally_tab.stop": "Parar",
   "rally_tab.hint": "Cada esquadrão marcado lança a própria mobilização no alvo escolhido do nível escolhido, N vezes seguidas. Os níveis vão de 1 a 200 para os dois alvos — eventos de temporada põem monstros de nível alto no mapa — e um nível para o qual o jogo não tem nada volta simplesmente vazio. O limite diário de «monstro» (Ajustes → Mobilização Automática) é respeitado. Uma repetição só conta quando o jogo mostra a mobilização nova. Os botões ao lado do campo são os níveis mais mobilizados — um toque cada. As quatro escolhas ficam no perfil e voltam na próxima vez que o painel abrir.",
   "rally_tab.no_squads": "nenhum esquadrão marcado",

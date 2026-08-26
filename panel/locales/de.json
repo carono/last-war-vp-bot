@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Formationen auffüllen",
   "rally_tab.repeats": "Wiederholungen:",
   "rally_tab.launch": "Starten",
+  "rally_tab.launch.confirm": "Mit jedem angehakten Trupp eine Sammlung starten, auf der eingestellten Stufe und so oft wie angegeben? Echte Truppen verlassen die Basis.",
   "rally_tab.stop": "Stopp",
   "rally_tab.hint": "Jede angehakte Truppe startet N-mal eine eigene Versammlung gegen das gewählte Ziel des gewählten Levels. Die Level gehen bei beiden Zielen von 1 bis 200 — Saison-Ereignisse setzen Monster hohen Levels auf die Karte — und ein Level, für das das Spiel nichts hat, kommt einfach leer zurück. Die Tagesgrenze für «Monster» (Einstellungen → Automatische Versammlung) wird eingehalten. Eine Wiederholung zählt erst, wenn das Spiel die neue Versammlung zeigt. Die Knöpfe neben dem Feld sind die am häufigsten gewählten Level — je ein Druck. Alle vier Angaben bleiben im Profil und sind beim nächsten Öffnen des Pults wieder da.",
   "rally_tab.no_squads": "keine Truppe angehakt",

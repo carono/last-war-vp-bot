@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Isi skuad",
   "rally_tab.repeats": "Pengulangan:",
   "rally_tab.launch": "Mulai",
+  "rally_tab.launch.confirm": "Kerahkan serangan bersama dengan setiap pasukan yang dicentang, pada level dan jumlah pengulangan yang disetel? Pasukan sungguhan meninggalkan markas.",
   "rally_tab.stop": "Berhenti",
   "rally_tab.hint": "Tiap skuad yang dicentang membuat relinya sendiri pada sasaran dan level yang dipilih, N kali berturut-turut. Levelnya 1–200 untuk kedua sasaran — acara musiman menaruh monster berlevel tinggi di peta — dan level yang tidak ada padanannya di permainan cukup kembali kosong. Batas harian «monster» (Setelan → Reli Otomatis) tetap dihormati. Satu pengulangan baru dihitung setelah permainan menampilkan reli yang baru. Tombol di samping kotak adalah level yang paling sering direli — satu tekanan masing-masing. Keempat pilihan disimpan di profil dan kembali saat panel dibuka lagi.",
   "rally_tab.no_squads": "tidak ada skuad yang dicentang",

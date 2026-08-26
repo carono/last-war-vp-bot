@@ -729,6 +729,7 @@ class RallyTab(PanelTab):
         # what it does by itself, with which squads, on what parameters, and how much of
         # the day is left — in that order. Two cards said the same things and let the
         # phone and the window disagree about what belonged to the automatic mode.
+        cards.append(self._web_run_card())
         switches, page = self._web_autojoin_card(), self._web_autorally_card()
         cards.append({"title": "autorally.group",
                       # …AND THE SQUADS THEMSELVES (#1976). They are what a join SPENDS,
@@ -762,6 +763,43 @@ class RallyTab(PanelTab):
                              "confirm": "rally.join.confirm"},
                             {"id": "kinds_all", "label": "rally_kind.all"},
                             {"id": "kinds_none", "label": "rally_kind.none"}]}
+
+    def _web_run_card(self) -> dict:
+        """«Ручной сбор» as the phone sees it — the four choices and the two presses.
+
+        THE LAST THING THIS TAB HAD AND THE PHONE HAD NOT (#1976). It raises rallies: a
+        target, a level, the squads to raise them with and how many times over — the
+        window's own boxes, so nothing here is a second copy of anything. The run itself
+        is the tab's loop over one recipe, exactly as at the machine; what travels is the
+        press that starts it and the press that ends it.
+
+        It ASKS FIRST, for the reason the join does: each repeat sends a squad out of the
+        base, and a thumb on a phone is closer to that button than a mouse ever was.
+        """
+        return {
+            "title": "rally_tab.frame",
+            "fields": [
+                {"key": "run_kind", "label": "rally_tab.kind", "kind": opt_value.CHOICE,
+                 "value": self._kind(),
+                 "options": [{"value": kind, "text": self.t(_kind_key("kind", kind))}
+                             for kind in RALLY_KINDS]},
+                {"key": "run_level", "label": "rally_tab.level",
+                 "kind": opt_value.NUMBER, "value": self._level(),
+                 "min": RALLY_LEVEL_MIN, "max": RALLY_LEVEL_MAX},
+                {"key": "run_repeats", "label": "rally_tab.repeats",
+                 "kind": opt_value.NUMBER, "value": self._repeats(), "min": 1},
+            ] + [{"key": f"run_squad_{squad}", "label": f"rally_tab.squad.{squad}",
+                  "kind": opt_value.SWITCH,
+                  "value": bool(self._squad_vars[squad].get())}
+                 for squad in RALLY_SQUADS],
+            # The status line the window draws under the buttons — data, and the only
+            # way a phone can tell a run that is walking the map from one that stopped.
+            "rows": [{"label": "rally_tab.frame", "value": self._status_var.get() or "—"}],
+            "actions": [{"id": "launch", "label": "rally_tab.launch",
+                         "confirm": "rally_tab.launch.confirm"},
+                        {"id": "stop", "label": "rally_tab.stop"}],
+            "note": "rally_tab.hint",
+        }
 
     def _web_squad_fields(self) -> list:
         """One switch per squad — the SAME boxes «Автосбор» draws in the window.
@@ -983,8 +1021,27 @@ class RallyTab(PanelTab):
         the base when it is answered.
         """
         if action == "set":
-            return self._web_press_switch(str((args or {}).get("key") or ""),
-                                          bool((args or {}).get("value")))
+            key = str((args or {}).get("key") or "")
+            raw = (args or {}).get("value")
+            # THE MANUAL FORM'S KNOBS ARE NOT ALL SWITCHES — a target, a level and a
+            # repeat count — so they are routed with the value they were SENT. Everything
+            # else on this screen is a box, and a box is a boolean.
+            if key.startswith("run_"):
+                return self._web_press_run(key[len("run_"):], raw)
+            return self._web_press_switch(key, bool(raw))
+        if action in ("launch", "stop"):
+            # The window's own two buttons under the manual form. `_launch` refuses an
+            # empty squad list and a second run itself — it is the same method — so the
+            # answer is «принято» and the status line says the rest.
+            if action == "stop":
+                self._stop_run()
+                return {"ok": True}
+            if self._run_stop is not None:
+                return {"ok": False, "reason": "rally_tab.busy"}
+            if not self._selected_squads():
+                return {"ok": False, "reason": "rally_tab.no_squads"}
+            self._launch()
+            return {"ok": True}
         if action == "join":
             # «ПРИСОЕДИНИТЬСЯ» TRAVELS NOW (#1976), and it travels because the thing that
             # was missing arrived with it: the squads. The ability was already ONE recipe
@@ -1067,6 +1124,43 @@ class RallyTab(PanelTab):
             (self._monitor_var if key == "monitor" else self._alert_var).set(on)
         self._sync_capture()
         return {"ok": True}
+
+    def _web_press_run(self, key: str, value) -> dict:
+        """One of the manual form's four choices, written into the window's own box.
+
+        A NUMBER OUT OF ITS RANGE IS REFUSED rather than clamped: «уровень 500» is a
+        typing slip, and a run started at whatever the panel decided that meant is a run
+        nobody asked for. The boxes are traced, so writing one saves the profile.
+        """
+        if key == "kind":
+            wanted = str(value or "")
+            if wanted not in RALLY_KINDS:
+                return {"error": "unknown"}
+            self._kind_var.set(wanted)
+            return {"ok": True}
+        if key == "level" or key == "repeats":
+            try:
+                number = int(str(value).strip())
+            except (TypeError, ValueError):
+                return {"ok": False, "reason": "web.ui.not_a_number"}
+            if key == "level" and not RALLY_LEVEL_MIN <= number <= RALLY_LEVEL_MAX:
+                return {"ok": False, "reason": "web.ui.not_a_number"}
+            if key == "repeats" and number < 1:
+                return {"ok": False, "reason": "web.ui.not_a_number"}
+            (self._level_var if key == "level" else self._repeats_var).set(str(number))
+            self.rt.settings.changed()
+            return {"ok": True}
+        if key.startswith("squad_"):
+            try:
+                squad = int(key.split("_", 1)[1])
+            except (TypeError, ValueError):
+                return {"error": "unknown"}
+            if squad not in RALLY_SQUADS:
+                return {"error": "unknown"}
+            self._squad_vars[squad].set(bool(value))
+            self.rt.settings.changed()
+            return {"ok": True}
+        return {"error": "unknown"}
 
     def refresh_squads(self) -> None:
         """The «squad_state» trigger fired: read the squads again, off the Tk thread.

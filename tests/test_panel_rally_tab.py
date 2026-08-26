@@ -1234,6 +1234,74 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         root.destroy()
 
 
+def test_the_manual_run_is_set_up_and_started_from_the_phone():
+    """«Ручной сбор» — the last thing this tab had and the phone had not (#1976).
+
+    A target, a level, the squads and how many times over: the window's own four boxes,
+    written through the same variables so a choice made from a bus is saved by the same
+    trace. A number out of its range is REFUSED rather than clamped — «уровень 500» is a
+    typing slip, and a run started at whatever the panel decided that meant is a run
+    nobody asked for.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.rally import tab as rl
+
+        card = tab._web_run_card()
+        knobs = {f["key"]: f for f in card["fields"]}
+        assert set(knobs) == {"run_kind", "run_level", "run_repeats"} | {
+            f"run_squad_{s}" for s in rl.RALLY_SQUADS}, sorted(knobs)
+        assert knobs["run_kind"]["kind"] == "choice"
+        assert {o["value"] for o in knobs["run_kind"]["options"]} == set(rl.RALLY_KINDS)
+        assert [a["id"] for a in card["actions"]] == ["launch", "stop"]
+        assert card["actions"][0]["confirm"] == "rally_tab.launch.confirm"
+
+        assert tab.web_press("set", {"key": "run_kind", "value": "monster"}) == {"ok": True}
+        assert tab._kind() == "monster"
+        assert tab.web_press("set", {"key": "run_level", "value": 42}) == {"ok": True}
+        assert tab._level() == 42
+        assert tab.web_press("set", {"key": "run_repeats", "value": 3}) == {"ok": True}
+        assert tab._repeats() == 3
+        assert tab.web_press("set", {"key": "run_squad_1", "value": True}) == {"ok": True}
+        assert tab._selected_squads() == [1], tab._selected_squads()
+
+        # …out of range, not a number, and a target the game has no word for.
+        for key, value in (("run_level", 500), ("run_level", "abc"), ("run_repeats", 0)):
+            answer = tab.web_press("set", {"key": key, "value": value})
+            assert answer == {"ok": False, "reason": "web.ui.not_a_number"}, (key, answer)
+        assert tab.web_press("set", {"key": "run_kind", "value": "dragon"}) == {
+            "error": "unknown"}
+        assert tab._level() == 42 and tab._repeats() == 3     # nothing moved
+
+        # THE PRESS starts the window's own run…
+        started = []
+        tab._launch = lambda: started.append(1)
+        assert tab.web_press("launch", {}) == {"ok": True}
+        assert started == [1], started
+        # …and with no squad ticked it is refused rather than raising nothing.
+        tab._squad_vars[1].set(False)
+        assert tab.web_press("launch", {}) == {"ok": False,
+                                               "reason": "rally_tab.no_squads"}
+        # …and «Стоп» is the same event the window's button sets.
+        import threading as _t
+        tab._run_stop = _t.Event()
+        assert tab.web_press("stop", {}) == {"ok": True}
+        assert tab._run_stop.is_set()
+        # …a second launch while one is in flight says «занято».
+        assert tab.web_press("launch", {}) == {"ok": False, "reason": "rally_tab.busy"}
+    finally:
+        root.destroy()
+
+
 def test_the_phone_picks_the_squads_and_then_may_press_the_join():
     """The last press this task held back, and WHY it could be let go (#1976).
 

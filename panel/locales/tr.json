@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Takımları doldur",
   "rally_tab.repeats": "Yineleme:",
   "rally_tab.launch": "Başlat",
+  "rally_tab.launch.confirm": "İşaretli her birlikle, belirlenen seviyede ve tekrar sayısında toplanma başlatılsın mı? Üsten gerçek birlikler çıkar.",
   "rally_tab.stop": "Durdur",
   "rally_tab.hint": "İşaretli her takım, seçilen seviyedeki seçilen hedefe kendi rallisini kurar, üst üste N kez. Seviyeler her iki hedef için de 1–200 arasıdır — mevsimlik etkinlikler haritaya yüksek seviyeli canavarlar koyar — ve oyunun karşılığı olmayan bir seviye yalnızca boş döner. «Canavar» günlük sınırı (Ayarlar → Otomatik Ralli) çiğnenmez. Bir yineleme, ancak oyun yeni ralliyi gösterince sayılır. Kutunun yanındaki düğmeler en sık ralli kurulan seviyelerdir — her biri tek basış. Dört seçim de profilde kalır ve panel bir dahaki açılışta onları geri getirir.",
   "rally_tab.no_squads": "hiçbir takım işaretli değil",

@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Fill squads",
   "rally_tab.repeats": "Repeats:",
   "rally_tab.launch": "Launch",
+  "rally_tab.launch.confirm": "Raise a rally with every ticked squad, at the level and repeats set here? Real troops leave the base.",
   "rally_tab.stop": "Stop",
   "rally_tab.hint": "Each ticked squad raises its own rally on the chosen target of the chosen level, N times over. Levels run 1–200 for both targets — seasonal events put high-level monsters on the map — and a level the game has nothing for simply comes back empty. The «monster» daily cap (Settings → Auto Rally) is honoured. A repeat only counts once the game shows the new rally. The buttons beside the box are the levels rallied at most often — one press each. All four choices are kept in the profile and are back the next time the panel opens.",
   "rally_tab.no_squads": "no squad ticked",

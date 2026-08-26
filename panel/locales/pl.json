@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Uzupełnij oddziały",
   "rally_tab.repeats": "Powtórzenia:",
   "rally_tab.launch": "Startuj",
+  "rally_tab.launch.confirm": "Zwołać zbiórkę każdym zaznaczonym oddziałem, na ustawionym poziomie i tyle razy, ile podano? Z bazy wyruszą prawdziwe wojska.",
   "rally_tab.stop": "Zatrzymaj",
   "rally_tab.hint": "Każdy zaznaczony oddział wystawia własny rajd na wybrany cel wybranego poziomu, N razy pod rząd. Poziomy sięgają od 1 do 200 dla obu celów — wydarzenia sezonowe stawiają na mapie potwory wysokich poziomów — a poziom, dla którego gra nic nie ma, po prostu wraca pusty. Dzienny limit «potwór» (Ustawienia → Automatyczny rajd) jest przestrzegany. Powtórzenie liczy się dopiero wtedy, gdy gra pokaże nowy rajd. Przyciski obok pola to poziomy, na które rajduje się najczęściej — po jednym naciśnięciu. Wszystkie cztery wybory zostają w profilu i wracają przy następnym otwarciu panelu.",
   "rally_tab.no_squads": "nie zaznaczono żadnego oddziału",

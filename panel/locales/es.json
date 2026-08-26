@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Llenar escuadrones",
   "rally_tab.repeats": "Repeticiones:",
   "rally_tab.launch": "Lanzar",
+  "rally_tab.launch.confirm": "¿Levantar una concentración con cada escuadrón marcado, al nivel y las repeticiones indicadas? Salen tropas reales de la base.",
   "rally_tab.stop": "Parar",
   "rally_tab.hint": "Cada escuadrón marcado lanza su propia reunión contra el objetivo elegido del nivel elegido, N veces seguidas. Los niveles van de 1 a 200 para ambos objetivos — los eventos de temporada ponen monstruos de nivel alto en el mapa — y un nivel para el que el juego no tiene nada vuelve simplemente vacío. El tope diario de «monstruo» (Ajustes → Reunión Automática) se respeta. Una repetición solo cuenta cuando el juego enseña la nueva reunión. Los botones junto al campo son los niveles que más se reúnen — una pulsación cada uno. Las cuatro elecciones se guardan en el perfil y vuelven la próxima vez que se abre el panel.",
   "rally_tab.no_squads": "ningún escuadrón marcado",

@@ -682,6 +682,7 @@
   "rally_tab.fill_squads": "Remplir les formations",
   "rally_tab.repeats": "Répétitions :",
   "rally_tab.launch": "Lancer",
+  "rally_tab.launch.confirm": "Lancer un ralliement avec chaque escouade cochée, au niveau et au nombre de répétitions indiqués ? De vraies troupes quittent la base.",
   "rally_tab.stop": "Arrêter",
   "rally_tab.hint": "Chaque équipe cochée lance son propre ralliement sur la cible choisie du niveau choisi, N fois de suite. Les niveaux vont de 1 à 200 pour les deux cibles — les événements saisonniers posent des monstres de haut niveau sur la carte — et un niveau pour lequel le jeu n'a rien revient simplement vide. La limite quotidienne « monstre » (Réglages → Ralliement Auto) est respectée. Une répétition ne compte qu'une fois le nouveau ralliement affiché par le jeu. Les boutons à côté du champ sont les niveaux les plus souvent ralliés — un appui chacun. Les quatre choix sont gardés dans le profil et reviennent à la prochaine ouverture du panneau.",
   "rally_tab.no_squads": "aucune équipe cochée",
