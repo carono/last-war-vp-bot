@@ -139,6 +139,12 @@ The two knobs — which carriage, and what fare — are read LIVE at fire time t
 
 ## Is the 1..3 fare the SERVER's cap or only the client's form? — NOT ANSWERED YET
 
+**Status: WAITING FOR THE NEXT TRAIN. `num = 5` has never been sent. Nothing is known
+about what the server does with it — not that it refuses, not that it clamps, not that it
+accepts.** If you are reading this to find out, the answer is not here yet; run the probe
+below on a train whose fare is still unpaid.
+
+
 The operator asked for this probe in these words: «В рамках эксперимента попробуй
 заплатить 5 билетов, не знаю, даст ли игра, интерфейс не позволяет».
 
@@ -183,15 +189,22 @@ What it does, and why each part is there:
 **Why it did not run on 2026-08-26**, both reasons recorded because either is enough to
 block it:
 
-1. **The fare on the standing train was already paid** — the free like had gone out
-   earlier the same session while the boarding was being proven, so `AlreadyThumbsUp()`
-   read `1`. A second offer is refused by the server, and that refusal says nothing about
-   the number five.
-2. **The Lua link died** — `enum: gated hijack returned None`, then
+1. **The one fare on the standing train had already been spent — by this work itself.**
+   Proving that `alliance.train.thumbs.up` is the fare at all meant sending one, and the
+   one sent was the free like (`num = 0`), which is what made `AlreadyThumbsUp()` go
+   `false → true` and proved the command. That same flip then closed the door on the
+   five: the server allows ONE offer per train and refuses the second, and a refusal
+   under that rule says nothing whatever about the number. **The ordering was the
+   mistake, and it is written down so the next person inverts it: on a train where both
+   questions are open, send the ODD number first — a refusal of five still leaves the
+   free like available to prove the command, while the reverse spends the only shot.**
+2. **The Lua link died, and stayed dead** — `enum: gated hijack returned None`, then
    `LeaseLost: lease lost — it expired or was taken by nobody`, with the client online but
    silent for ~3 400 s. Every read and every send stopped landing. Eight copies of
    `panel.headless --profile default` were alive at the time and contending for the same
-   client, which is the shape that error takes.
+   client, which is the shape that error takes. Three separate attempts to run the probe
+   all died on its FIRST read, before any gate was evaluated — so nothing was sent and no
+   contract moved on any of them. The bag stood at 92 throughout.
 
 So the answer is **unknown**, and the interface keeps the operator's 0..3 either way —
 that was his instruction: «Сам предел пока оставь 0..3, как он сказал». If the probe ever
