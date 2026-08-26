@@ -137,6 +137,68 @@ turns it into the purchase.
 The two knobs — which carriage, and what fare — are read LIVE at fire time through
 `Schedule.register_args`, so the card and the standing order can never disagree.
 
+## Is the 1..3 fare the SERVER's cap or only the client's form? — NOT ANSWERED YET
+
+The operator asked for this probe in these words: «В рамках эксперимента попробуй
+заплатить 5 билетов, не знаю, даст ли игра, интерфейс не позволяет».
+
+**It has not been run, and this section exists so that nobody re-derives it.** The probe
+lives as `actions/dev/_t1993_fare5.md`, which is a git-ignored tree — so the two lines
+that matter are written out here instead, and rebuilding it is a copy rather than a
+re-think:
+
+```lua
+-- the send, past the client's own 1..3 form. ONCE.
+local M = DataCenter.LWAllyStationDataManager
+local idx = 0; pcall(function() idx = (M:RandomThanksLangIndex()) + 0 end)
+SFSNetwork.SendMessage(MsgDefines.AllianceTrainThumbsUp, 1, 5, idx)
+
+-- the judge, read before and after: the bag, not the reply.
+local n = 0
+for _, s in pairs(DataCenter.ItemData.ItemInfos or {}) do
+  if type(s) == 'table' and tostring(s.itemId) == '1520001' then
+    local c = 0; pcall(function() c = s.count + 0 end); n = n + c
+  end
+end
+```
+
+What it does, and why each part is there:
+
+* **One send, never a loop.** `AllianceTrainThumbsUp(1, 5, idx)` once, past the client's
+  own 1..3 form. What is wanted is the server's answer, not pressure on it.
+* **The judge is the BAG, not the reply** — contracts counted before and after. A silent
+  clamp to three shows up as a bag three lighter, an acceptance as five, a refusal as
+  none at all. The same rule the robbery counters go by: only the reading moves.
+* **A wire watch on `SFSNetwork.HandleMessage`** keeps the server's own words for any
+  command carrying `train` or `error`, so a refusal is recorded verbatim rather than
+  paraphrased, and the hook is put back at the end.
+* **Three gates before anything is sent:** the fare on this train must be UNPAID
+  (`AlreadyThumbsUp()` is `0` — one offer per train, so on a paid train the probe would
+  only be measuring that rule), a conductor must be at the platform, and **the bag must
+  hold at least five**. The last one is not caution about the fare — it is about
+  DIAMONDS: five against a short bag is exactly the case where the game offers to make
+  the difference up in diamonds, and the operator's permission was explicit that it
+  covers their contracts and not their money.
+
+**Why it did not run on 2026-08-26**, both reasons recorded because either is enough to
+block it:
+
+1. **The fare on the standing train was already paid** — the free like had gone out
+   earlier the same session while the boarding was being proven, so `AlreadyThumbsUp()`
+   read `1`. A second offer is refused by the server, and that refusal says nothing about
+   the number five.
+2. **The Lua link died** — `enum: gated hijack returned None`, then
+   `LeaseLost: lease lost — it expired or was taken by nobody`, with the client online but
+   silent for ~3 400 s. Every read and every send stopped landing. Eight copies of
+   `panel.headless --profile default` were alive at the time and contending for the same
+   client, which is the shape that error takes.
+
+So the answer is **unknown**, and the interface keeps the operator's 0..3 either way —
+that was his instruction: «Сам предел пока оставь 0..3, как он сказал». If the probe ever
+comes back «five accepted», the ceiling in `panel/tabs/events/model.py`
+(`TRAIN_TICKETS`) and the field's `max` are the two places that would change, and it is
+his call whether they should.
+
 ## Open ends
 
 * **The diamond purchase, above** — the one thing between the «докупать» switch and its
