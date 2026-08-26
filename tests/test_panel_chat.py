@@ -473,9 +473,10 @@ def test_emoji_picker_inserts_token_and_sticker_sends():
     P._pick_emoji({"id": "106"})
     assert P._chat_entry.text == "{e:101}{e:106}", P._chat_entry.text
 
-    # A sticker is sent as its own message.
+    # A sticker is sent as its own message — as the recipe's ARGUMENTS since the send
+    # became one scenario (`CHAT_SEND`), not as a command line for a spawned tool.
     P._pick_sticker({"id": "35"})
-    assert sent == [(["--sticker", "35"], "sticker 35")], sent
+    assert sent == [({"sticker": "35"}, "sticker 35")], sent
 
     # The picker actually draws sprites into its grid (one image per catalogue item).
     box = _FakeText()
@@ -511,13 +512,13 @@ def test_coords_button_shares_what_is_written_in_the_box():
 
     # The canonical token the panel itself prints, server and all.
     P = stand_in("#2305 X:568 Y:371")
-    assert P.sent == [(["--coords", "568,371", "--coord-server", "2305"],
+    assert P.sent == [({"coords": "568,371", "server": "2305"},
                        "#2305 X:568 Y:371")], P.sent
     assert P._chat_msg_var.get() == "", P._chat_msg_var.get()
 
     # A bare tile, pasted in any of the forms the log links: no server on the wire.
     P = stand_in("глянь @[568,371] там шахта")
-    assert P.sent == [(["--coords", "568,371"], "X:568 Y:371")], P.sent
+    assert P.sent == [({"coords": "568,371"}, "X:568 Y:371")], P.sent
 
     # Nothing to share: one line in the log, nothing sent, and the text left alone.
     P = stand_in("всем привет")

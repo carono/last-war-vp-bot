@@ -1135,10 +1135,13 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         _hold_autojoin(tab, False)
         tab._monitor_var.set(True)
         tab._alert_var.set(False)
-        pills = {i["label"]: i.get("pill") for i in tab._web_autojoin_card()["items"]}
-        assert pills == {"rally.monitor": "rally.state.on",
-                         "rally.alert": "rally.state.off",
-                         "rally.autojoin": "rally.state.off"}, pills
+        # THE THREE ARE SWITCHES NOW, not pills (#1976): seeing the quiet one from a bus
+        # and being unable to move it is the same answer half-given, so the card SETS.
+        knobs = {f["key"]: f for f in tab._web_autojoin_card()["fields"]}
+        assert knobs["monitor"]["value"] is True, knobs
+        assert knobs["alert"]["value"] is False, knobs
+        assert knobs["autojoin"]["value"] is False, knobs
+        assert {f["kind"] for f in knobs.values()} == {"switch"}, knobs
 
         # Nothing ticked reads as a WORD, so it says the same in eleven languages.
         card = tab._web_autorally_card()
@@ -1153,8 +1156,8 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         # …and the squads themselves are DIGITS, which need no translating.
         assert squads.get("detail") == "2, 3", squads
         assert squads.get("pill") is None, squads
-        assert [i for i in tab._web_autojoin_card()["items"]
-                if i["label"] == "rally.autojoin"][0]["pill"] == "rally.state.on"
+        assert [f for f in tab._web_autojoin_card()["fields"]
+                if f["key"] == "autojoin"][0]["value"] is True
         # THE DAY'S CEILING IS ON THE PHONE, FIRST (#1317). It is the number that stops
         # the joining, so «сколько за день» and «сколько уже сегодня» are the two rows a
         # person on a bus is actually asking about — and the second is the GAME's count,
@@ -1219,10 +1222,13 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         assert "autorally.group" in titles, titles
         assert "rally.frame" not in titles, titles
         group = [c for c in view["cards"] if c.get("title") == "autorally.group"][0]
+        # The three switches are the card's FIELDS since #1976 — the phone moves them —
+        # and what the automatic side is set to stays a reading among the items.
+        keys = {f["key"] for f in group["fields"]}
+        for wanted in ("monitor", "alert", "autojoin"):
+            assert wanted in keys, (wanted, keys)
         labels = [i["label"] for i in group["items"]]
-        for wanted in ("rally.monitor", "rally.alert", "rally.autojoin",
-                       "autorally.squads"):
-            assert wanted in labels, (wanted, labels)
+        assert "autorally.squads" in labels, labels
         assert group["rows"], group
     finally:
         root.destroy()
@@ -1490,7 +1496,9 @@ def test_the_days_ceiling_travels_on_both_drivers_and_into_the_recipe():
     from panel.tabs.rally import tab as rl
     try:
         args = {}
-        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        # The recipe's arguments travel BY NAME (`play(..., args={...})`), so the stand-in
+        # takes them from either place rather than only from the positional one.
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or kw.get("args") or {}) or _Ok()
         rt.game.claim = lambda owner="panel", priority=0: True
         tab._refresh_day = lambda: None          # the reading is not what this pins
         tab.autorally._daily_var.set("7")
@@ -1562,7 +1570,9 @@ def test_the_soldier_floor_travels_on_both_drivers_and_into_the_recipe():
     from panel.tabs.rally import tab as rl
     try:
         args = {}
-        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        # The recipe's arguments travel BY NAME (`play(..., args={...})`), so the stand-in
+        # takes them from either place rather than only from the positional one.
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or kw.get("args") or {}) or _Ok()
         rt.game.claim = lambda owner="panel", priority=0: True
         tab._refresh_day = lambda: None
         tab.autorally._min_soldiers_var.set("9000")
@@ -1627,7 +1637,9 @@ def test_the_kind_filter_travels_and_an_untouched_profile_joins_everything():
     from panel.tabs.rally import tab as rl
     try:
         args = {}
-        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        # The recipe's arguments travel BY NAME (`play(..., args={...})`), so the stand-in
+        # takes them from either place rather than only from the positional one.
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or kw.get("args") or {}) or _Ok()
         rt.game.claim = lambda owner="panel", priority=0: True
         tab._refresh_day = lambda: None
 
@@ -1687,7 +1699,9 @@ def test_the_per_kind_budget_travels_and_shows_its_drift():
         from panel.tabs.rally import limits as gate
 
         args = {}
-        rt.actions.play = lambda name, a=None, **kw: args.update(a or {}) or _Ok()
+        # The recipe's arguments travel BY NAME (`play(..., args={...})`), so the stand-in
+        # takes them from either place rather than only from the positional one.
+        rt.actions.play = lambda name, a=None, **kw: args.update(a or kw.get("args") or {}) or _Ok()
         rt.game.claim = lambda owner="panel", priority=0: True
         tab._refresh_day = lambda: None
         gate.kind_left = lambda _rt: "doom_elite:19,oni_general:20"

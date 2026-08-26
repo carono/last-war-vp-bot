@@ -541,8 +541,16 @@ class AutoRallyPage:
         One string, because they are one fact: «в казарме: N / порог M». The phone shows
         exactly this, and `—` on the left is «nothing has asked a client yet» rather than
         an empty base.
+
+        COMPOSED FROM THE STATE, not read off the label the window draws. The two are the
+        same sentence, and this one is the half a screen can trust: the label is rewritten
+        by a trace that only exists once the block has been DRAWN (`PanelTab.LAZY`), so a
+        phone reading a page nobody has opened — or one whose floor was typed after the
+        last read — was shown a comparison against a number that had already moved.
         """
-        return str(self._pool_var.get() or DAILY_UNREAD)
+        floor = self.min_soldiers()
+        left = DAILY_UNREAD if self._pool is None else str(self._pool)
+        return "%s / %s" % (left, floor if floor else DAILY_UNREAD)
 
     def set_pool(self, soldiers) -> None:
         """Write the base's own soldier count onto the page (Tk thread, #1317).
@@ -557,11 +565,12 @@ class AutoRallyPage:
         self.paint_pool()
 
     def paint_pool(self) -> None:
-        """Redraw «in the base / the floor» — after a read, and after the box is typed in."""
-        floor = self.min_soldiers()
-        left = DAILY_UNREAD if self._pool is None else str(self._pool)
+        """Redraw «in the base / the floor» — after a read, and after the box is typed in.
+
+        The WINDOW's half of :meth:`pool_text`: the same sentence, put on the label.
+        """
         try:
-            self._pool_var.set("%s / %s" % (left, floor if floor else DAILY_UNREAD))
+            self._pool_var.set(self.pool_text())
         except tk.TclError:                    # the page is going away
             pass
 

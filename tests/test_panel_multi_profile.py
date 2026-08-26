@@ -250,8 +250,12 @@ def test_the_runner_hands_the_interpreter_its_own_client() -> None:
         runner.run("collect_base_resources")
     finally:
         script_engine.run_action = saved
-    assert seen.get("game_port") == 47655, seen
-    assert seen.get("game_token") == "tok9", seen
+    # THE ANSWERS TRAVEL ON THE CONTEXT now, not as loose keywords: one object carries
+    # the run's whole world to the interpreter, and which client it drives is part of it.
+    ctx = seen.get("ctx")
+    assert ctx is not None, seen
+    assert ctx.game_port == 47655, seen
+    assert ctx.game_token == "tok9", seen
 
 
 def test_the_runner_hands_the_interpreter_the_session_the_client_lives_in() -> None:
@@ -276,7 +280,8 @@ def test_the_runner_hands_the_interpreter_the_session_the_client_lives_in() -> N
         runner.run("launch_game")
     finally:
         script_engine.run_action = saved
-    assert seen.get("game_user") == "player2", seen
+    ctx = seen.get("ctx")
+    assert ctx is not None and ctx.game_user == "player2", seen
 
 
 class _Spawned:
@@ -342,7 +347,10 @@ def test_a_session_nobody_is_logged_on_to_is_a_refusal_not_a_crash() -> None:
     states: list = []
     link.on_state = lambda state, ok: states.append((state, ok))
     assert link.ensure() is False
-    assert ("error", False) in states, states
+    # THE VOCABULARY IS THREE COLOURS since #1911 — red, amber, green — and a session
+    # that cannot be reached is amber-not-ok: the panel knows what is wrong and says so.
+    # What this test is about is unchanged: a refusal, announced, rather than a traceback.
+    assert ("amber", False) in states, states
 
 
 def test_a_profile_on_this_desktop_names_no_session_at_all() -> None:
@@ -362,7 +370,8 @@ def test_a_profile_on_this_desktop_names_no_session_at_all() -> None:
         runner.run("launch_game")
     finally:
         script_engine.run_action = saved
-    assert "game_user" not in seen, seen
+    ctx = seen.get("ctx")
+    assert ctx is not None and ctx.game_user is None, seen
 
 
 def test_a_runner_without_a_target_says_nothing_and_the_environment_answers() -> None:
