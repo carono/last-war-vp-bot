@@ -232,13 +232,9 @@ HEALTH_COLOURS = {
 # colour rather than as a smudge on a 100 % display, and it fits the tab's own text row
 # without making the strip taller.
 HEALTH_DOT_PX = 8
-# How long the game must read as gone before the watchdog relaunches it. Two
-# polls, so a single scan that raced the process table (or a client restarting
-# itself after the first login — it does that once) is not a crash.
-WATCHDOG_STRIKES = 2
-# Least time between two watchdog relaunches. A client that dies on startup would
-# otherwise be relaunched every eight seconds forever.
-WATCHDOG_COOLDOWN_SEC = 300.0
+# The crash watchdog's own numbers — how many dead readings make a crash and how
+# long between two relaunches — went with the watchdog into
+# `panel/runtime/status.py` (#1984).
 # The throttles the readings run on — how often the client's message dialog is read
 # and how often «is this client in a session at all» is asked — moved to
 # `panel/runtime/status.py` with the readings themselves (#1984).
@@ -467,7 +463,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the map sweep
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
-        "_game_gone", "_game_gone_at", "_game_was_up", "_watchdog_last", "_wd_held",
         # the three lifecycle buttons, greyed off this profile's own client
         "_game_buttons",
         # the DSL command line
@@ -1305,13 +1300,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._sweep_pass = 0          # completed passes this session (for the log)
         # Liveness: how many consecutive polls have found the game gone, and when
         # the watchdog last relaunched it (see _refresh_status / _watchdog_check).
-        self._game_gone = 0
-        self._game_gone_at = 0.0
-        self._game_was_up = False
-        self._watchdog_last = 0.0
-        # Which hold the watchdog last said out loud, so a wait it re-asks every poll
-        # is not also announced every poll — the act and the sentence are separate.
-        self._wd_held = ""
+        # The crash watchdog's own state went with the watchdog itself
+        # (`panel/runtime/status.py`, #1984): a client that dies has to be put
+        # back whether or not anybody has a window open.
         self._status_busy = False     # one status reading in flight at a time
         # …and ONE start or restart of this profile's daemon at a time (#1410). Three
         # things reach for it — the «⭮» button, «Включить обратно» and the status poll's
@@ -3710,8 +3701,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # the strip is the window's; the decisions themselves were made off it.
                 self._paint_recovery(self._rt.recovery.state(time.time())),
                 self._paint_power(),
-                self._paint_gate(),
-                self._watchdog_check(ok)))
+                self._paint_gate()))
         threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _set_status_msg(self, msg) -> None:
@@ -3774,111 +3764,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         else:
             text = ""
         self._recovery_var.set(text)
-
-    def _watchdog_check(self, running: bool) -> None:
-        """Notice the client dying, and put it back if asked to.
-
-        Runs on the Tk thread off every status poll. Two things make it safe to
-        leave on overnight:
-
-          * WATCHDOG_STRIKES consecutive dead readings, not one. A single scan can
-            race the process table, and the client legitimately restarts itself once
-            after the first login — relaunching *that* would fight the game.
-          * a cooldown between relaunches. A client that dies during start-up would
-            otherwise be relaunched every eight seconds until morning.
-
-        A crash is announced whether or not the watchdog is on: knowing the client
-        went away is worth a log line even when putting it back is the person's job.
-        """
-        if running:
-            if self._game_gone >= WATCHDOG_STRIKES:
-                self._say("game", "log.game.back")
-            self._game_gone = 0
-            self._game_gone_at = 0.0
-            self._game_was_up = True
-            self._wd_held = ""
-            return
-        # A STRIKE IS A FRESH LOOK, NOT THE SAME WALK SEEN TWICE (#1702).
-        #
-        # `WATCHDOG_STRIKES` exists because «a single scan can race the process table».
-        # It did not deliver that: the process walk is shared and cached for two seconds
-        # (`game_link.MACHINE_TTL_SEC`), and the status poll can fire twice inside one
-        # window — live on 2026-08-21, two snapshots 109 ms apart, both `game=down`,
-        # with the daemon answering `warm` in the same breath. Both strikes came from
-        # ONE scan, and the panel relaunched a client that had never stopped running.
-        #
-        # So strikes are spaced: a second dead reading counts only once the poll has
-        # genuinely come round again. Three quarters of the interval, because the poll
-        # jitters and an exact comparison would drop the strike that is due.
-        now = time.monotonic()
-        if self._game_gone and (now - self._game_gone_at) < (STATUS_POLL_MS / 1000.0) * 0.75:
-            self._dbg.debug("watchdog: dead reading %.2fs after the last — not a strike",
-                            now - self._game_gone_at)
-            return
-        self._game_gone_at = now
-        self._game_gone += 1
-        if self._game_gone < WATCHDOG_STRIKES:
-            return                        # still counting
-        if self._game_gone == WATCHDOG_STRIKES and self._game_was_up:
-            self._say("game", "log.game.gone")
-        if not self._opt_bool("watchdog"):
-            return
-        # …AND NOT WHILE THE PANEL IS STOPPED (#1393). The client going away is exactly
-        # what «Стоп всё» has just arranged, and a watchdog that has never heard of the
-        # press is how the client used to be back eight seconds after it. The crash is
-        # still ANNOUNCED above — knowing the client went is worth a line whatever is
-        # allowed to act on it — and only the relaunch is held.
-        # THE SWITCH, NOT THE DAEMON (#1910) — see the same change beside the recovery's
-        # verdict. «Профиль выключен» still stops the watchdog dead, which is what #1393
-        # needed; «демон не отвечает» must not, because the client this is about to put
-        # back is what the daemon has been failing to attach to.
-        if self._rt.gate.relaunch_held():
-            self._dbg.info("watchdog held: this profile is switched off")
-            return
-        # SAID ONCE, ASKED EVERY POLL — and the two used to be the same `return`. This
-        # method acted on the EXACT strike (`!= WATCHDOG_STRIKES`), so a client that
-        # was still gone on the next poll was never looked at again: the watchdog had
-        # one attempt per death, and any hold below spent it. The cooldown branch could
-        # therefore never fire inside an episode, which is why «перезапуск был N мин
-        # назад — жду» promised a retry that did not exist.
-        #
-        # Live on 2026-08-08 that cost half an hour: the kick's wait was armed at
-        # 07:55:06, the process went away at 08:07:42 (the wait said «жду 3 мин» and
-        # returned, spending the attempt), the wait ran out at 08:10:06 — and nothing
-        # put the client back until a person pressed «Запустить» at 08:38:25. A hold
-        # must suppress the act while it lasts and NOTHING after it (#1291), exactly as
-        # `Recovery.note` was taught for the restart cooldown.
-        #
-        # A CLIENT THAT WAS KICKED IS NOT A CLIENT THAT CRASHED (#1291). The account is
-        # on another device; the process going away here is what happens when the person
-        # holding it closes this one, or when the kicked client finally gives up. Putting
-        # it back inside the wait undoes the wait completely — the whole point of which
-        # is that this machine stops taking the account off whoever is playing it.
-        left = self._rt.recovery.kick_hold_left(time.time())
-        if left > 0:
-            if self._wd_held != "kick":
-                self._wd_held = "kick"
-                self._say("game", "log.game.kick_hold", mins=-(-left // 60))
-            return
-        # A client of another session is put back too, and by the same recipe: it
-        # starts the launcher inside the session the profile names (#1218). It used to
-        # be refused here, because what the recipe did then was spawn a process on THIS
-        # desktop — a third client nobody asked for, while the account that had died
-        # stayed dead all night, which is the one case an overnight watchdog exists for.
-        since = time.time() - self._watchdog_last
-        if self._watchdog_last and since < WATCHDOG_COOLDOWN_SEC:
-            if self._wd_held != "cooldown":
-                self._wd_held = "cooldown"
-                self._say("game", "log.game.watchdog_hold", mins=int(since // 60))
-            return
-        # …and the latch is NOT cleared here. An attempt that fails puts the cooldown
-        # straight back, and re-announcing it after every retry says «жду» twice per
-        # five minutes for as long as the client stays down — a night of it for a
-        # profile whose Windows session is simply not up. The client coming back is
-        # what clears it, which is the only event that makes the sentence new again.
-        self._watchdog_last = time.time()
-        self._say("game", "log.game.watchdog_relaunch")
-        self._rt.play_async("launch_game")
 
     # -- «Обновление»: is this checkout still the current one? ---------------
     #

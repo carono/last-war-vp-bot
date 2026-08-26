@@ -420,10 +420,12 @@ def test_every_thing_that_can_put_a_client_back_asks_the_wait():
 
 
 class _Watchdog:
-    """The shell's `_watchdog_check`, run against a stub — no Tk, no game, no clock.
+    """The poll's `_watchdog_check`, run against a stub — no Tk, no game, no clock.
 
-    The method is compiled out of `panel/__main__.py` rather than copied, so a change
-    to the real one is what this exercises.
+    The method is compiled out of `panel/runtime/status.py` rather than copied, so a
+    change to the real one is what this exercises. It lived in `panel/__main__.py` until
+    #1984, when it went to the runtime with the readings it hangs off — a client that
+    crashes has to be put back whether or not anybody has a window open.
     """
 
     STRIKES = 2
@@ -446,7 +448,7 @@ class _Watchdog:
                "WATCHDOG_COOLDOWN_SEC": cooldown,
                # The strike spacing reads the poll interval (#1702) — the panel's own
                # number, so a change to it changes what this stub polls at too.
-               "STATUS_POLL_MS": 8000,
+               "POLL_SEC": 8.0,
                "time": self}
         exec(compile("class _S:\n    " + _shell_method("_watchdog_check"),
                      "<watchdog>", "exec"), env)
@@ -462,11 +464,18 @@ class _Watchdog:
         # as `time()` — this stub has one clock and the method uses it for two things.
         return self.now
 
-    def _say(self, _tag, key, **fmt) -> None:
+    def say(self, _tag, key, **fmt) -> None:        # `rt.say(...)`
         self.said.append((key, fmt))
 
-    def _opt_bool(self, _name) -> bool:
+    def opt_bool(self, _name) -> bool:             # `rt.settings.opt_bool("watchdog")`
         return True
+
+    @property
+    def settings(self):
+        return self
+
+    def dbg(self, _component="panel"):             # `rt.dbg("status")`, then `.info(...)`
+        return self
 
     def play_async(self, name) -> None:
         assert name == "launch_game", name
@@ -479,7 +488,7 @@ class _Watchdog:
         pass
 
     @property
-    def _rt(self):                                 # `self._rt.recovery` / `_rt.play_async`
+    def rt(self):                                  # `self.rt.recovery` / `rt.play_async`
         return self
 
     @property
@@ -487,7 +496,7 @@ class _Watchdog:
         return self
 
     @property
-    def gate(self):                                # `self._rt.gate.alive()`
+    def gate(self):                                # `self.rt.gate.alive()`
         return self
 
     def alive(self) -> bool:
@@ -503,11 +512,7 @@ class _Watchdog:
         """
         return not self._gate_open
 
-    @property
-    def _dbg(self):                                # the held branch says so in debug.log
-        return self
-
-    def info(self, *args, **kw) -> None:
+    def info(self, *args, **kw) -> None:           # the held branch says so in debug.log
         pass
 
     def debug(self, *args, **kw) -> None:          # the spacing branch says so in debug.log
@@ -594,7 +599,7 @@ def test_the_wait_is_drawn_on_both_front_ends():
     the account. «Жду 14 мин» is the answer to both «why did my client stop» and «when
     does the bot come back».
     """
-    paint = _shell_method("_paint_recovery")
+    paint = _shell_method("_paint_recovery", ("panel", "__main__.py"))
     assert '"status.recovery.kick"' in paint, "the window draws no countdown"
     page = (ROOT / "panel" / "web" / "app" / "src" / "views" / "StateView.tsx").read_text(
         encoding="utf-8")
@@ -918,11 +923,16 @@ def test_it_travels_to_BOTH_front_ends_out_of_ONE_object():
     assert "state.game.recovery" in page, "the page ignores what the api sends"
 
 
-def _shell_method(name: str) -> str:
-    """One method's source out of the shell, for the wiring assertions below."""
-    shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
-    at = shell.index("def %s" % name)
-    return shell[at:shell.index("\n    def ", at + 10)]
+def _shell_method(name: str, where=("panel", "runtime", "status.py")) -> str:
+    """One method's source, for the wiring assertions below.
+
+    Out of `panel/runtime/status.py` by default since #1984: the readings and the two
+    things that act on them — the recovery's verdict and the crash watchdog — left the
+    Tk shell when a panel with no window turned out to be taking no readings at all.
+    """
+    source = ROOT.joinpath(*where).read_text(encoding="utf-8")
+    at = source.index("def %s" % name)
+    return source[at:source.index("\n    def ", at + 10)]
 
 
 def _health(deaf: bool, running: bool = True):
