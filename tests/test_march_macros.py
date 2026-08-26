@@ -508,7 +508,9 @@ class _FakeRuntime:
     def say(self, tag, key, **fmt):
         self.said.append((tag, key, fmt))
 
-    def play_async(self, name, args=None, *, tag="action"):
+    def play_async(self, name, args=None, *, tag="action", human=False, **kw):
+        # `human` since #1910: every press names itself, so the gate can tell a person
+        # at a button from a poll that nobody asked for. A hotkey is a person.
         self.played.append((name, args, tag))
         return True
 

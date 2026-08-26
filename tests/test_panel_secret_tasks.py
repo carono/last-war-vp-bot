@@ -73,6 +73,10 @@ def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
         game=types.SimpleNamespace(
             claim=lambda _o, _p=0: True, release=lambda: None,
             on_settled=lambda: None,
+            # The claim registry is keyed by the CLIENT this profile drives (#1252), so
+            # the schedule asks the link which one that is — a dictionary lookup, not
+            # the daemon gate the assertion below is watching for.
+            endpoint=lambda: ("127.0.0.1", 47654),
             up=lambda: (_ for _ in ()).throw(
                 AssertionError("must not reach the daemon gate"))),
         # `post` is how the runtime hands work to the Tk thread now (#1226);
@@ -1685,12 +1689,16 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
         # The star sprint's session tally, which the card carries as a row of
         # its own once one has run (#1294). Empty here: no sprint, no row.
         tally_text=lambda: "")
-    tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
+    tab.alliance = types.SimpleNamespace(
+        web_flow=lambda: None,web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False),
                                          counts=lambda: (0, 0))
-    tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
-    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+    tab.ghost = types.SimpleNamespace(
+        web_flow=lambda: None,web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_allies = types.SimpleNamespace(
+        web_flow=lambda: None,web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
+    tab.ghost_map = types.SimpleNamespace(
+        web_flow=lambda: None,web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
                                           counts=lambda: (0, 0))
     _empty_world_pages(tab)
@@ -2791,18 +2799,42 @@ def _robbed_tab():
 
 
 def _empty_world_pages(tab) -> None:
-    """The four world pages (#1289), empty — what `web_view` asks of them and no more.
+    """Everything `web_view` asks for that a test about ONE card does not care about.
 
-    Every card on this screen is drawn from the pages, so a fixture that builds the
-    screen has to carry all of them. These four say nothing; the test that is ABOUT them
-    builds its own with rows in.
+    Every card on this screen is drawn from a page or a block, so a fixture that builds
+    the screen has to carry all of them: the four world pages (#1289), «Обмен кусочками»
+    (#1975), the standing order's own box (#1882) and the warzone picker at the top,
+    which asks the runtime for the book of secret-task days. They all say nothing here;
+    the test that is ABOUT one of them builds its own with rows in.
     """
     import types
     tab.mines = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0),
-                                      free_var=_Var(True))
-    tab.monsters = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0))
-    tab.trains = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0))
-    tab.trucks = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0))
+                                      web_flow=lambda: None, free_var=_Var(True))
+    tab.monsters = types.SimpleNamespace(
+        web_items=lambda: [], counts=lambda: (0, 0), web_flow=lambda: None,
+        pace=lambda: 3, stages=lambda: [(600, "wide")], follow_seconds=lambda: 12,
+        plain_hidden=lambda: 0, own_hidden=lambda: 0, follow_var=_Var(False),
+        hide_plain_var=_Var(False), own_only_var=_Var(False))
+    tab.trains = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0),
+                                       web_flow=lambda: None)
+    tab.trucks = types.SimpleNamespace(web_items=lambda: [], counts=lambda: (0, 0),
+                                       web_flow=lambda: None)
+    tab.pieces = types.SimpleNamespace(web_card=lambda: None)
+    if not hasattr(tab, "autoloot_var"):
+        tab.autoloot_var = _Var(False)
+    book = types.SimpleNamespace(decorate=lambda rows: rows)
+    if not hasattr(tab, "rt"):
+        tab.rt = types.SimpleNamespace(secret_days=book, t=lambda key, **fmt: key)
+    elif not hasattr(tab.rt, "secret_days"):
+        tab.rt.secret_days = book
+    tab._picker_anchor = lambda: None
+    # …and the flow badge every card with a feed behind it carries (#1549). Filled in
+    # here for whichever pages the fixture already built, so a test about one card does
+    # not have to know which of the nine have a stream.
+    for name in ("alliance", "ghost", "ghost_allies", "ghost_map"):
+        page = getattr(tab, name, None)
+        if page is not None and not hasattr(page, "web_flow"):
+            page.web_flow = lambda: None
 
 
 def test_the_phone_is_shown_every_page_the_window_has():
@@ -2814,6 +2846,18 @@ def test_the_phone_is_shown_every_page_the_window_has():
     """
     import types
     tab = object.__new__(st.SecretTasksTab)
+    # The screen opens with the WARZONE PICKER card, which asks the runtime for the book
+    # of secret-task days. Nothing about that is this test's subject — it is here so the
+    # card can be drawn at all — and with no anchor the picker has no rows to decorate.
+    tab.rt = types.SimpleNamespace(
+        secret_days=types.SimpleNamespace(decorate=lambda rows: rows),
+        t=lambda key, **fmt: key)
+    tab._picker_anchor = lambda: None
+    # Both standing orders draw their own box on their card now (#1882): the card said
+    # «автолут выключен» and offered nothing to do about it.
+    tab.autoloot_var = _Var(False)
+    # …and «Обмен кусочками», which draws a card of its own (#1975).
+    tab.pieces = types.SimpleNamespace(web_card=lambda: None)
     tab._rows = {}
     tab.show_spent_var = _Var(False)
     tab.hide_own_var = _Var(True)
@@ -2835,30 +2879,43 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.autoassist_var = _Var(False)
     tab.alliance = types.SimpleNamespace(
         ur_var=_Var(False), star_var=_Var(False), counts=lambda: (1, 0),
+        # Every card with a feed behind it carries the flow badge the window draws above
+        # its table (#1549); no feed, no strip.
+        web_flow=lambda: None,
         web_items=lambda: [{"text": "X:1 Y:2", "facts": [], "until": None, "pill": None}])
     # …each ghost page with its own «Только звезда» box, which the card draws.
     tab.ghost = types.SimpleNamespace(
-        counts=lambda: (1, 0), star_var=_Var(False),
+        counts=lambda: (1, 0), star_var=_Var(False), web_flow=lambda: None,
         web_rows=lambda: [{"label": "secrettasks.ghost.state_line", "value": "идёт"}],
         web_items=lambda: [{"text": "#3 X:4 Y:5", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_allies = types.SimpleNamespace(
-        counts=lambda: (1, 0), star_var=_Var(False),
+        counts=lambda: (1, 0), star_var=_Var(False), web_flow=lambda: None,
         web_items=lambda: [{"text": "#6 X:7 Y:8", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_map = types.SimpleNamespace(
         monitor_var=_Var(False), counts=lambda: (1, 0), star_var=_Var(False),
+        web_flow=lambda: None,
         web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
                             "pill": None}])
     # …and the four world pages (#1289), each a card of its own on the phone.
     def _world(text, **extra):
         return types.SimpleNamespace(
             counts=lambda: (1, 0),
+            # Every card with a feed behind it carries the same flow badge the window
+            # draws above its table (#1549); no feed, no strip.
+            web_flow=lambda: None,
             web_items=lambda: [{"text": text, "facts": [], "until": None}],
             **extra)
 
     tab.mines = _world("#1 X:2 Y:3", free_var=_Var(True))
-    tab.monsters = _world("#1 X:4 Y:5")
+    # The monsters page carries the numbers its LAP is walked by (#1523, #1549, #1963) —
+    # the pace, the camera heights, the follow clock and the two «held back» counters —
+    # so its card asks for each of them.
+    tab.monsters = _world(
+        "#1 X:4 Y:5", pace=lambda: 3, stages=lambda: [(600, "wide")],
+        follow_seconds=lambda: 12, plain_hidden=lambda: 0, own_hidden=lambda: 0,
+        follow_var=_Var(False), hide_plain_var=_Var(False), own_only_var=_Var(False))
     tab.trains = _world("#1 X:6 Y:7")
     tab.trucks = _world("#1 X:8 Y:9")
 
@@ -2891,8 +2948,12 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # the titles — it could not even mean that.
     assert [a["id"] for a in cards["world.mines"]["actions"]] == ["mines_free",
                                                                  "clear_mines"]
-    assert [a["id"] for a in cards["world.monsters"]["actions"]] == ["read_monsters",
-                                                                    "clear_monsters"]
+    # The monsters card grew the rest of the window's own strip along the way — the two
+    # reads (#1523), the follow clock (#1549) and the two «hide» boxes (#1549, #1963) —
+    # and its «Очистить список» is still the last of them.
+    assert [a["id"] for a in cards["world.monsters"]["actions"]] == [
+        "read_monsters", "sweep_monsters", "ask_monsters", "follow_monsters",
+        "hide_plain_monsters", "own_only_monsters", "clear_monsters"]
     assert [a["id"] for a in cards["world.trains"]["actions"]] == ["clear_trains"]
     assert [a["id"] for a in cards["world.trucks"]["actions"]] == ["clear_trucks"]
     # EVERY BOX IS A BUTTON ON ITS OWN CARD (#1251) — a press has to say which list it
@@ -3399,6 +3460,8 @@ def _config_stub():
     stub.monsters = _page("monsters")
     stub.trains = _page("trains")
     stub.trucks = _page("trucks")
+    # …and «Обмен кусочками», which is a block of the tab rather than a page (#1975).
+    stub.pieces = types.SimpleNamespace(config=lambda: {})
     return stub
 
 
@@ -5004,6 +5067,10 @@ def _order(lines=(), ok: bool = True, reason: str = ""):
     tab = types.SimpleNamespace(
         t=i18n.t, level_min_var=_Var("7"), skip_own_var=_Var(False),
         say=lambda tag, key, **fmt: said.append(key))
+    # The bound is read through the tab's own `rule` since #1416 — a mirror the variable's
+    # trace keeps, so a watcher on a worker thread never touches a widget. Here the
+    # variable IS the answer.
+    tab.rule = lambda name: str(getattr(tab, name).get() or "")
     order = AutoLoot(rt, tab)
     return order, rt, said, put
 

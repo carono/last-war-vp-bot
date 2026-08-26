@@ -374,15 +374,23 @@ def test_a_row_box_carries_the_flag_and_touches_nothing_else():
     assert moved.by_name(name).retry_sec == cat.by_name(name).retry_sec
 
 
-def test_the_alliance_help_trigger_ships_urgent():
-    """The one entry the person named, and the one shipped with the flag on."""
-    trig = triggersmod.default_catalogue().by_name("alliance_help")
-    assert trig.immediate is True, "the help press would queue behind the schedule again"
-    assert trig.as_dict()["immediate"] is True
-    # Everything else is ordinary until somebody says otherwise.
-    others = [t.name for t in triggersmod.default_catalogue()
-              if t.immediate and t.name != "alliance_help"]
-    assert others == [], others
+def test_only_the_races_ship_urgent():
+    """«Сразу, без очереди» is for a press that is worth nothing once it is late.
+
+    `alliance_help` was the first and is the one the person named (#1288): the request
+    pays only while it is open. Three joined it, each measured and each argued in
+    `panel/triggers.py` beside its own flag — a rally banner is decided in fractions of a
+    second, a treasure chest is being dug while the fire waits its turn, and a firework
+    burns for a couple of minutes. Everything else stands in the ordinary queue, and this
+    list is deliberately short: a flag on every trigger is a flag on none.
+    """
+    cat = triggersmod.default_catalogue()
+    assert cat.by_name("alliance_help").immediate is True, (
+        "the help press would queue behind the schedule again")
+    assert cat.by_name("alliance_help").as_dict()["immediate"] is True
+    urgent = sorted(t.name for t in cat if t.immediate)
+    assert urgent == ["alliance_help", "firework_collect", "rally_auto_join",
+                      "treasure_auto"], urgent
 
 
 def test_a_trigger_box_moves_only_the_two_it_is_given():
@@ -567,11 +575,16 @@ def _schedule_stub(errand, asked: list, made: list):
     sched = Schedule.__new__(Schedule)
     sched._handlers, sched._needs_game = {}, set()
     sched._gates, sched._args = {}, {}
+    # …and the hook an errand may register to REPORT what its run found (#1322).
+    sched._reports = {}
     sched.timer_catalogue = timersmod.Catalogue((errand,)
                                                 if hasattr(errand, "interval_sec")
                                                 else ())
     sched.rt = types.SimpleNamespace(
         game=types.SimpleNamespace(
+            # The claim registry is keyed by the CLIENT (#1252), so the schedule asks
+            # the link which one this profile drives before it reads a level off it.
+            endpoint=lambda: ("127.0.0.1", 47654),
             claim=lambda owner, priority: asked.append(("claim", priority)) or True,
             claim_soon=lambda owner, priority, timeout=None: asked.append(
                 ("claim_soon", priority)) or True,
@@ -581,7 +594,12 @@ def _schedule_stub(errand, asked: list, made: list):
             on_settled=lambda: None),
         actions=types.SimpleNamespace(context=context,
                                       resolve=lambda step: "somewhere",
-                                      run=lambda step, hwnd=0, ctx=None: True),
+                                      # #1702: the schedule asks whether the errand's
+                                      # recipe said `DETACH` before it picks a priority.
+                                      detached=lambda name: False,
+                                      # …and the runner is told WHOSE run it is, so a
+                                      # log line can name the errand's own tag.
+                                      run=lambda step, hwnd=0, ctx=None, **kw: True),
         recovery=types.SimpleNamespace(note_run=lambda tried, fired: None),
         put=lambda line: None,
         yield_hook=lambda tag: ("the hook for " + tag))

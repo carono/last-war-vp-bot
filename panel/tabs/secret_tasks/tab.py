@@ -4471,6 +4471,11 @@ class SecretTasksTab(PanelTab):
         # of the same module, so the two front-ends cannot disagree about whether a feed
         # is arriving. Attached here rather than typed into nine card literals: a tenth
         # page is then one line in the table below and not a tenth place to forget.
+        # A BLOCK MAY HAVE NOTHING TO SAY, and then it hands back no card at all — so
+        # the list is cleaned before anything walks it. Nine literals and a block's own
+        # answer end up in one list, and a `None` among them used to reach the loop below
+        # as «a card with no title».
+        screen["cards"] = [card for card in screen["cards"] if card]
         for card in screen["cards"]:
             page = self.FLOW_CARDS.get(card.get("title"))
             said = (self._star_web_flow() if page == "" else
@@ -4604,8 +4609,11 @@ class SecretTasksTab(PanelTab):
         the local list, so the phone gets the same two the window has.
         """
         # «Обмен кусочками» answers for its own four buttons and says so by returning
-        # something; anything else falls through to the tab's own presses (#1975).
-        pressed = self.pieces.web_press(action)
+        # something; anything else falls through to the tab's own presses (#1975). Asked
+        # through `getattr` because a tab that has not been drawn has no block yet
+        # (`PanelTab.LAZY`) — and neither has one a test built to exercise a single press.
+        pieces = getattr(self, "pieces", None)
+        pressed = pieces.web_press(action) if pieces is not None else None
         if pressed is not None:
             return pressed
         if action == "refresh":

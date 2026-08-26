@@ -86,6 +86,14 @@ class _Tab:
         self.say = say
         self.autoloot = None            # set by `_Watcher` below
 
+    def rule(self, name: str) -> str:
+        """The tab's own reader for a standing order's bound (#1416).
+
+        The real one answers off a mirror the variable's trace keeps, so a watcher on a
+        worker thread never touches a widget. Here the variable IS the answer.
+        """
+        return str(getattr(self, name).get() or "")
+
     def own_server(self) -> int:
         return self._own
 

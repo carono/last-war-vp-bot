@@ -80,6 +80,10 @@ class _Runner:
         self.played = []
         self.hold = None          # an Event the run waits on, when set
 
+    def detached(self, name) -> bool:
+        """No scenario here says `DETACH` — the flag `play_async` asks about (#1702)."""
+        return False
+
     def run(self, name, args=None, **kw):
         self.played.append(name)
         if self.hold is not None:
@@ -94,10 +98,39 @@ def _skip(reason) -> None:
     print(f"  skip: {reason}")
 
 
+class _OpenGate:
+    """The link gate with the answer this file is not about (#1910).
+
+    Since #1910 every run is asked of the gate BEFORE the claim, and on a cold runtime
+    the honest answer is «no client, nothing runs». This file is about the RELAUNCH LOCK
+    — what happens to two runs that both put the client back — so a warm link gets a
+    gate that says what a warm link means, and the lock is what is left to measure.
+    """
+
+    def blocks(self, name: str = "", *, human: bool = False) -> str:
+        return ""
+
+    def alive(self) -> bool:
+        return True
+
+    def held(self) -> bool:
+        return False
+
+    def relaunch_held(self) -> bool:
+        return False
+
+    def reason(self):
+        return None
+
+    def changed(self) -> None:
+        pass
+
+
 def _runtime(app, warm: bool = True):
     rt = fake_runtime.cold_runtime(app)
     if warm:
         rt.game = _WarmLink()
+        rt.gate = _OpenGate()
     rt.actions = _Runner()
     return rt
 

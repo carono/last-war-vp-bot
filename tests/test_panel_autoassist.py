@@ -89,6 +89,14 @@ class _Tab:
         self.t = t
         self.say = say
 
+    def rule(self, name: str) -> str:
+        """The tab's own reader for a standing order's bound (#1416).
+
+        The real one answers off a mirror the variable's trace keeps, so a watcher on a
+        worker thread never touches a widget. Here the variable IS the answer.
+        """
+        return str(getattr(self, name).get() or "")
+
 
 def _order(level_min="", star_wait_min=None, lines=()):
     """The «Автопомощь» standing order over a stub tab, playing a recorded run."""

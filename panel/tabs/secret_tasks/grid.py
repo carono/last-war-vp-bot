@@ -708,7 +708,10 @@ class TaskGrid:
 
     def refresh_flow(self) -> None:
         """Rewrite the strip from the ledger — called on the page's own second."""
-        if not self.INTAKE or self._flow_label is None:
+        # `getattr`, because the strip is a WIDGET: a grid whose page has not been drawn
+        # has none, and neither has one a test built to exercise the clock alone. Both
+        # mean the same thing here — there is nothing to rewrite.
+        if not self.INTAKE or getattr(self, "_flow_label", None) is None:
             return
         from ...runtime import flow
 

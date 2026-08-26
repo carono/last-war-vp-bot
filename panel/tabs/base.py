@@ -416,7 +416,11 @@ class PanelTab:
         """
         from ..runtime.intake import of
 
-        return of(self.rt).at(receiver)
+        # …and «a bare harness» includes a tab that has no `rt` AT ALL — a test building
+        # one with `object.__new__` to exercise one method. `of(None)` is the same
+        # counting-nothing stand-in, so the promise above holds for that case too rather
+        # than raising `AttributeError` from a counter nobody is reading.
+        return of(getattr(self, "rt", None)).at(receiver)
 
     def post(self, call) -> None:
         """Repaint from a background thread: hand ``call`` to the Tk thread.
