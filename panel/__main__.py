@@ -112,6 +112,7 @@ from .runtime import profile_control as profilectl
 from .runtime import power as powermod
 from .runtime import rally_wire as rallywire
 from .runtime import settings_dialog as settingsdlg
+from .runtime import service_control as servicectl
 from .runtime import web_control as webctl
 from .runtime import web_dialog as webdlg
 
@@ -640,6 +641,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # socket, one token, every open profile behind it — so it is started here and not
         # by whichever profile happens to be showing (#1313).
         webctl.apply(self._rt)
+        # …AND THE MACHINE'S SERVICE, if there is one (#1976, P0). The window dials OUT to
+        # it — a service lives in session 0 and may not reach into an interactive session,
+        # while a program in a session may always dial a loopback port — and answers what
+        # it is asked with the same `WebApi` its own port serves. Nothing is lost when no
+        # service is installed: the link retries quietly and the window is untouched.
+        servicectl.start(self._rt, self._workspace)
         # …and the five keys that send a squad (#1283). The listener itself is
         # `panel/runtime/hotkeys.py`; this is only where it is told which profile a
         # press belongs to — the one whose page is showing — because the window is the
@@ -4986,6 +4993,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # shutdown — and quietly, because the log it would be said in is about to close.
         settingsdlg.close_dialog()
         webctl.stop(quiet=True)
+        servicectl.stop()
         self._workspace.each(self._close_session)
         self._workspace.shutdown()
         self.destroy()
