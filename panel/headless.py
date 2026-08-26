@@ -48,6 +48,11 @@ from .runtime.workspace import Workspace
 #: between «стоп» and the process ending.
 IDLE_SEC = 0.5
 
+#: How often a profile's log queue is drained onto its disk. The window does it every
+#: 120 ms because it is also drawing; here nothing is drawn, so the only deadline is
+#: `panel.log` being current enough to read while something is going wrong.
+LOG_PUMP_MS = 500
+
 
 class HeadlessPanel:
     """One process, several profiles, no window."""
@@ -64,6 +69,8 @@ class HeadlessPanel:
         self._web = bool(web)
         self._stop = threading.Event()
         self._down = False
+        #: Profiles whose `panel.log` is open and being drained (see `_pump_log`).
+        self._logging: set = set()
 
     # -- lifecycle ----------------------------------------------------------
     def open(self) -> list:
@@ -100,6 +107,16 @@ class HeadlessPanel:
                 session.rt.status.start()
             except Exception as exc:          # noqa: BLE001 — one profile, not the lot
                 print(f"panel: {session.name}: status poll: {exc}", file=sys.stderr)
+            # …AND THE PROFILE'S OWN LOG, for the same reason (#1984). A line goes into
+            # the sink from any thread and waits in a queue somebody has to drain: the
+            # drain is what writes `panel.log` — the person's record of the session —
+            # and what keeps the queue from growing all night. The window pumped it
+            # every 120 ms and nothing did here, so `panel.log` simply stopped at the
+            # hour this panel last had a window.
+            try:
+                self._pump_log(session)
+            except Exception as exc:          # noqa: BLE001 — the log, never the panel
+                print(f"panel: {session.name}: log pump: {exc}", file=sys.stderr)
         rt = self.workspace.current.rt
         # The remote control and the service link are the WINDOW's in `panel/__main__.py`
         # — one per process, not per profile — and they are this process's here for the
@@ -135,6 +152,30 @@ class HeadlessPanel:
             pass
         self.shutdown()
         return 0
+
+    # -- the profile's own log ----------------------------------------------
+    def _pump_log(self, session) -> None:
+        """Drain this profile's log queue onto its disk, and keep doing it.
+
+        `LOG_PUMP_MS` rather than the window's 120 ms: nothing is being drawn, so the
+        only deadline is the record, and a pump ten times a second over several profiles
+        is a thread waking up for nothing.
+        """
+        rt = session.rt
+        if session.name not in self._logging:
+            self._logging.add(session.name)
+            rt.log.open_file(rt.profiles.panel_log(session.name))
+
+        def turn() -> None:
+            try:
+                rt.log_spool.pump(cap=rt.settings.opt_int("log_max_lines",
+                                                          low=200, high=200000))
+            except Exception:                 # noqa: BLE001 — the log, never the panel
+                pass
+            if not self._down:
+                rt.tick.arm("log", LOG_PUMP_MS, turn)
+
+        turn()
 
     # -- the panel's own two presses ----------------------------------------
     def _quit_now(self) -> None:
@@ -177,6 +218,12 @@ class HeadlessPanel:
             webctl.stop(quiet=True)
         servicectl.stop()
         for session in list(self.workspace.sessions):
+            try:
+                session.rt.tick.disarm("log")
+                session.rt.log_spool.pump()   # …and the tail, so nothing is lost
+                session.rt.log.close_file()
+            except Exception:                 # noqa: BLE001 — going down, never a fault
+                pass
             try:
                 session.rt.status.stop()
             except Exception:                 # noqa: BLE001 — going down, never a fault
