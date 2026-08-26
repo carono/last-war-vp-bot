@@ -32,7 +32,11 @@ if errorlevel 1 (
     set "RC=2" & goto :done
   )
   echo [service] прошу повышение прав…
-  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" >nul 2>&1
+  REM `cmd /k` and not the file itself: the elevated window has to STAY OPEN, or
+  REM everything this says — the state, the log path, a refusal — flashes past and
+  REM the person is left with «ничего не произошло».
+  set "SELF=%~f0"
+  powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', ([char]34 + $env:SELF + [char]34)) -Verb RunAs" >nul 2>&1
   if errorlevel 1 (
     echo [service] повышение не получено. Запусти этот файл от имени администратора.
     set "RC=2" & goto :done

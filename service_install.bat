@@ -56,10 +56,15 @@ if not exist "%REPO%\tools\run_service.py" (
   set "RC=1" & goto :done
 )
 
-set "BINPATH=\"!PYW!\" \"%REPO%\tools\run_service.py\""
+REM `--service` is not a flag about WHAT to run, it is the whole difference between
+REM a service and a program Windows happens to start: with it the process connects to
+REM the SCM and reports «running» in the first seconds. Without it Windows waits its
+REM timeout and calls the start failed — 1053, and in the System log 7009 + 7000.
+set "BINPATH=\"!PYW!\" \"%REPO%\tools\run_service.py\" --service"
 
 if defined DRYRUN (
-  echo sc create %NAME% binPath= "!BINPATH!" start= auto DisplayName= "Last War panel service"
+  echo sc create %NAME% binPath= "!BINPATH!" type= own start= auto obj= LocalSystem DisplayName= "Last War panel service"
+  echo sc failure %NAME% reset= 86400 actions= restart/5000/restart/15000/restart/60000
   echo sc start %NAME%
   set "RC=0" & goto :done
 )
@@ -73,7 +78,11 @@ if errorlevel 1 (
     set "RC=2" & goto :done
   )
   echo [service] прошу повышение прав…
-  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" >nul 2>&1
+  REM `cmd /k` and not the file itself: the elevated window has to STAY OPEN, or
+  REM everything this says — the state, the log path, a refusal — flashes past and
+  REM the person is left with «ничего не произошло».
+  set "SELF=%~f0"
+  powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList @('/k', ([char]34 + $env:SELF + [char]34)) -Verb RunAs" >nul 2>&1
   if errorlevel 1 (
     echo [service] повышение не получено. Запусти этот файл от имени администратора.
     set "RC=2" & goto :done
@@ -84,31 +93,49 @@ if errorlevel 1 (
 REM -- already there? ----------------------------------------------------------
 sc query %NAME% >nul 2>&1
 if not errorlevel 1 (
-  echo [service] служба %NAME% уже зарегистрирована.
-  echo [service] запустить:  sc start %NAME%
-  echo [service] удалить:    service_uninstall.bat
+  echo [service] служба %NAME% уже зарегистрирована — обновляю её команду запуска.
+  REM A registration made before `--service` existed starts a process that never
+  REM speaks to Windows and therefore hangs on start. Rewriting binPath is the whole
+  REM repair, and it costs the same click as being told to uninstall first.
+  sc config %NAME% binPath= "!BINPATH!" type= own start= auto obj= LocalSystem >nul
+  if errorlevel 1 (
+    echo [service] sc config не отработал. Сними её service_uninstall.bat и поставь заново.
+    set "RC=1" & goto :done
+  )
+  sc failure %NAME% reset= 86400 actions= restart/5000/restart/15000/restart/60000 >nul
+  sc start %NAME% >nul 2>&1
   sc query %NAME% | findstr /i "STATE"
-  set "RC=3" & goto :done
+  REM RUNNING here means it is up (1056 «уже запущена» lands here too and is fine).
+  REM Anything else and the old, hung attempt is probably still on the machine:
+  REM service_uninstall.bat, then this file again.
+  echo [service] лог службы: %REPO%\service.log
+  set "RC=0" & goto :done
 )
 
 REM -- register ----------------------------------------------------------------
-sc create %NAME% binPath= "!BINPATH!" start= auto DisplayName= "Last War panel service" >nul
+sc create %NAME% binPath= "!BINPATH!" type= own start= auto obj= LocalSystem DisplayName= "Last War panel service" >nul
 if errorlevel 1 (
   echo [service] sc create не отработал. Служба НЕ зарегистрирована.
   set "RC=1" & goto :done
 )
 sc description %NAME% "Дверь панели: веб-порт и маршрутизация к панелям. Игру не трогает и ничего не перезапускает." >nul
+REM A door that died at three in the morning and stayed dead is a door nobody can
+REM open. Windows can restart it by itself, and the counter forgets a day later.
+sc failure %NAME% reset= 86400 actions= restart/5000/restart/15000/restart/60000 >nul
 sc start %NAME% >nul
 if errorlevel 1 (
   echo [service] служба зарегистрирована, но не стартовала.
   echo [service] частая причина: репозиторий лежит на подключённом или подставленном
   echo [service] диске — служба идёт под LocalSystem и такого диска не видит.
   echo [service] путь сейчас: %REPO%
+  echo [service] что сказала сама служба: %REPO%\service.log
+  echo [service] что сказал Windows: журнал «Система», источник Service Control Manager.
   sc query %NAME% | findstr /i "STATE"
   set "RC=1" & goto :done
 )
 echo [service] %NAME% зарегистрирована и запущена. Автозапуск при загрузке — включён.
 echo [service] порт и токен: service.json в корне репозитория.
+echo [service] лог службы: %REPO%\service.log (у службы нет консоли).
 sc query %NAME% | findstr /i "STATE"
 set "RC=0" & goto :done
 

@@ -162,3 +162,8 @@ panel/web/app/tsconfig.tsbuildinfo
 # The machine's own service settings — its port, its token, its certificate
 # (`panel/service/host.py`). Per MACHINE and never per checkout, exactly like `.env`.
 service.json
+
+# What the SERVICE says while it runs. It has no console (LocalSystem, session 0),
+# so its log is a file beside its settings — this machine's, never a checkout's.
+service.log
+service.log.1

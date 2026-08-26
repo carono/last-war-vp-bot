@@ -101,7 +101,7 @@ that owns a lifecycle.
 | P2 — the treasure feed's own filter | **done** | four switches on «Сокровища (отладка)»; the clipboard press stays at the machine |
 | P2 — what is still window-only | see below | |
 | P0 — the service, and the panel dialling out to it | **live** | `panel/service/` + `panel/runtime/service_link.py`; measured on this machine: the door on 9762, the web on 9763, one panel dialled in with four profiles, and `/api/profiles` through the SERVICE answered by that panel |
-| P0 — installed as a Windows service | **written, needs one elevated press** | `service_install.bat` / `service_uninstall.bat`: they ask Windows for elevation, refuse in words when it is denied (exit 2), say so when the service is already there (exit 3), and take `--dry-run`. Verified as far as a session without administrator rights can: both refusals, both dry-runs, and the exact `sc create` line failing at `OpenSCManager` with error 5 — which is the privilege and not the syntax |
+| P0 — installed as a Windows service | **registered live; hung on start, then fixed — needs one elevated press to confirm** | see «A service is a protocol» below |
 | P3 — the panel runs with NO WINDOW | **live** | `panel/headless.py` + `headless.bat`; measured beside the running window: it opened a profile, attached the game's Lua VM, dialled the service and answered through it — `/api/state`, `/api/screens` and four tab screens drawn by a panel that has no window |
 | P3 — a tab's STATE survives Tk | **done** | `panel/runtime/statevar.py`; 97 tab variables and the settings binder go through it. With a window they ARE Tk variables, so nothing about the window changed |
 | P3 — the clock without Tk | **done** | `ThreadTicker`: one thread, FIFO hand-overs. A rootless runtime used to get a `Ticker` that armed nothing |
@@ -147,6 +147,66 @@ and the update channel as a switch, with the sniffers a reading and the recipe e
 still in the window. The remote control's own port, token and certificate:
 the standing divergence, and the one thing that will need an answer before the window
 goes — see the note in the risks below.
+
+## A service is a protocol, not a program Windows starts
+
+The first registration worked and the service hung: `sc query` said `STOPPED`, `sc start`
+never came back, and the System log said what it always says —
+
+    7009  Превышение времени ожидания (120000 мс) при ожидании подключения службы …
+    7000  Сбой при запуске службы … из-за ошибки
+
+which is error 1053. **Nothing was wrong with the service's own work.** What was missing
+was the dialogue: within seconds of being launched, a service must connect to the Service
+Control Manager (`StartServiceCtrlDispatcher`), register a control handler and report
+`SERVICE_RUNNING`. `tools/run_service.py` ran a loop and never said a word, so the SCM
+waited its whole timeout and declared the start failed. A program that is correct and
+silent is, to Windows, a program that is hung.
+
+**The fix is `--service`**, and it is what the registration points at now:
+
+    "<pythonw>" "<repo>\tools\run_service.py" --service
+
+With the flag the process speaks the protocol; without it — run by hand, from
+`service.bat` — it runs in the foreground exactly as before. `StartServiceCtrlDispatcherW`
+failing with 1063 IS «you were not started by Windows», so a hand-run with the flag says
+so and carries on in the foreground rather than exiting mute.
+
+**Written in `ctypes` against `advapi32`, not with `pywin32`.** The machine this was
+written on has `pywin32`; other people's do not, and a service that only starts where
+somebody already had a package is the hard-coded-path mistake in another costume
+(`CLAUDE.md`, «Nothing about one machine is written into the code»). The whole dialogue is
+about a hundred lines of standard library. The panel is imported INSIDE `ServiceMain`, for
+the reason the bug teaches: every second spent before the dispatcher connects is a second
+the SCM spends waiting.
+
+**Where it says things.** A service has no console and, under `pythonw.exe`, no useful
+stdout, so the log is a file whose path is COMPUTED — `LW_SERVICE_LOG`, or `service.log`
+beside `service.json` in the repository root (git-ignored, rolls once at 4 MB). It is
+deliberately not a panel's log: this process runs as LocalSystem in session 0, belongs to
+no account, and a line of its landing in somebody's `panel.log` would be a lie about who
+wrote it. A start that fails now leaves a traceback there instead of silence.
+
+**LocalSystem is the right account**, and the reason is what the service IS: it listens on
+`127.0.0.1:9762` for panels that dial OUT to it, serves the web port, reads and writes
+`service.json` beside its own code, and never touches the game, a window, a desktop or a
+user's profile. Session 0 costs it nothing. The one requirement is a path LocalSystem can
+see — a local disk, never a mapped network drive; a junction on a local volume is fine,
+which is what this machine has.
+
+**Running the installer again REPAIRS an old registration** (`sc config` with the new
+binPath) instead of saying «already there, uninstall first»: the hung version is already on
+a machine, and one click should be enough to fix it. Windows is also told to restart the
+service by itself if it ever dies (`sc failure`, 5 s / 15 s / 60 s, counter forgetting after
+a day), and the elevated window now STAYS OPEN (`cmd /k`), because everything it says —
+the state, the log path, a refusal — used to flash past and close.
+
+**What is verified and what is not.** Verified from a session without administrator rights:
+both dry-runs, the exact `sc create` line, the SCM dialogue's own failure path (running
+`--service` by hand logs «not started by Windows» and continues in the foreground), and the
+System-log evidence of the original 1053. **Not verifiable here: the real start.** That
+takes one elevated press — `service_install.bat`, «Да» in the UAC prompt — and then
+`sc query LastWarBot` saying `RUNNING`.
 
 ## 1. Target architecture
 
@@ -249,9 +309,17 @@ green after it:
    keeps opening the window until the person has driven a day's farming from the SPA.
    That is the plan's own rule — the old way goes only after the new one has been used —
    and it is the one step an agent must not take on its own;
-2. **the dialogs.** `servers_dialog`, `autostart_dialog`, `web_dialog`, `settings_dialog`
-   — each already has a screen (§«Настройки», «Серверы», «Автозапуск», «Параметры»), so
-   each is a delete plus the shell's call site;
+2. **the dialogs.** `servers_dialog`, `autostart_dialog`, `settings_dialog` — each
+   already has a screen (§«Настройки», «Серверы», «Автозапуск», «Параметры»), so each is
+   a delete plus the shell's call site. **`web_dialog` is the exception and the line above
+   used to be wrong about it**: the remote control's own knobs — the port, the host, the
+   token, the certificate — deliberately have NO screen (#1313: the door is not managed
+   from the far side of it), so deleting that dialog with nothing in its place is the one
+   deletion that would take the panel's front door with it. The way in that is neither
+   the window nor the door is a command on the machine itself,
+   `python -m panel.web_settings` (`panel/web_settings.py`, `--on` / `--off` / `--port` /
+   `--host` / `--token new` / `--cert` / `--key` / `--address`), and it exists now — so
+   step 2 is a plain delete again, and the divergence is unchanged and still pinned;
 3. **the splash** (`panel/splash.py`), which exists only because a window takes seconds
    to draw;
 4. **the tabs, one per commit**, in the order they are least used at the machine:
