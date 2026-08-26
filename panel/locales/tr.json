@@ -2241,5 +2241,7 @@
   "events.train.log.done": "İttifak Treni: biniş tamam — kart durumu yeniden okuyor",
   "events.train.log.failed": "İttifak Treni: binilemedi — {error}",
   "triggers.item.alliance_train_board": "Kondüktör atandığında İttifak Treni'ne binmek",
-  "events.train.tickets.hint": "0 bir beğenidir ve hiçbir şeye mal olmaz; 1–3 çantadaki Ticaret Sözleşmeleridir. Burada asla elmasla bir şey satın alınmaz — çantanın karşılamadığı ücret ücretsiz beğeni olarak gider."
+  "events.train.tickets.hint": "0 bir beğenidir ve hiçbir şeye mal olmaz; 1–3 çantadaki Ticaret Sözleşmeleridir. Burada asla elmasla bir şey satın alınmaz — çantanın karşılamadığı ücret ücretsiz beğeni olarak gider.",
+  "events.train.buy": "Eksikleri elmasla satın al",
+  "events.train.buy.hint": "Kapalı — yalnızca çantadaki sözleşmelerle öderiz ve tek bir elmas harcamayız. Açık — eksikler satın alınır, kesinlikle yukarıdaki sayıya kadar ve bir sözleşme fazlası değil, ve her satın alma bedeliyle birlikte günlükte adıyla yazılır. Çantada kaç tane olduğu üstteki satırdadır."
 }

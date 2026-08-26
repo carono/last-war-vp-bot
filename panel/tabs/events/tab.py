@@ -77,6 +77,21 @@ _GLYPH = {
     modelmod.UNKNOWN: ("?", "#888888"),
 }
 
+def _whole(raw):
+    """A whole number out of whatever the page sent, or ``None``.
+
+    A field's value arrives as data and the page is not the only thing that can send it,
+    so a value that is not a number — or is one the card never offered — is REFUSED with
+    a reason rather than clamped to something the person did not choose. Clamping is
+    right when a saved file is read back (`model.carriage_of`); it is wrong here, because
+    it would answer «сделано» to a fare nobody asked for.
+    """
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 #: What a greyed-out block is drawn in. The event is not on; the numbers beside it are
 #: the last that were true, and they should not read as live.
 _GREY = "#888888"
@@ -180,6 +195,10 @@ class EventsTab(PanelTab):
         #: (#1416, `panel/tabs/rally/autorally.py`).
         self._train_carriage = modelmod.TRAIN_CARRIAGE_DEFAULT
         self._train_tickets = modelmod.TRAIN_TICKETS_DEFAULT
+        #: …and whether the panel may make a short fare up out of the player's DIAMONDS.
+        #: A separate answer from the number beside it, and off: the number says what the
+        #: fare should be, this says whether money may be spent to reach it.
+        self._train_buy = modelmod.TRAIN_BUY_DEFAULT
         #: …and whether the trigger has been told where to read them. Idempotent.
         self._train_args_registered = False
         self._register_train_args()
@@ -223,7 +242,8 @@ class EventsTab(PanelTab):
 
     def train_args(self) -> dict:
         """The boarding recipe's ARGS as this card has them right now."""
-        return {"carriage": self.carriage(), "tickets": self.tickets()}
+        return {"carriage": self.carriage(), "tickets": self.tickets(),
+                "buy": 1 if self.buy_missing() else 0}
 
     def on_show(self) -> None:
         """Somebody is looking: re-read anything stale and pick the clock back up."""
@@ -491,6 +511,10 @@ class EventsTab(PanelTab):
     def tickets(self) -> int:
         """What the standing order offers the conductor — `0` is the free like."""
         return modelmod.tickets_of(self._train_tickets)
+
+    def buy_missing(self) -> bool:
+        """May a short fare be made up out of diamonds? Off unless somebody said so."""
+        return bool(self._train_buy)
 
     def board_train(self) -> bool:
         """Press «Сесть в вагон» — one scenario, and then the card re-reads itself.
@@ -1144,7 +1168,8 @@ class EventsTab(PanelTab):
         return {modelmod.GOLDEN_SQUAD_KEY: self.squad(),
                 modelmod.GOLDEN_APPROACH_KEY: self.approach(),
                 modelmod.TRAIN_CARRIAGE_KEY: self.carriage(),
-                modelmod.TRAIN_TICKETS_KEY: self.tickets()}
+                modelmod.TRAIN_TICKETS_KEY: self.tickets(),
+                modelmod.TRAIN_BUY_KEY: self.buy_missing()}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
@@ -1152,6 +1177,8 @@ class EventsTab(PanelTab):
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
         self._train_carriage = modelmod.carriage_of(raw.get(modelmod.TRAIN_CARRIAGE_KEY))
         self._train_tickets = modelmod.tickets_of(raw.get(modelmod.TRAIN_TICKETS_KEY))
+        self._train_buy = bool(raw.get(modelmod.TRAIN_BUY_KEY,
+                                       modelmod.TRAIN_BUY_DEFAULT))
         try:
             if self._squad_var is not None:
                 self._squad_var.set(str(self._squad))
@@ -1286,7 +1313,14 @@ class EventsTab(PanelTab):
                  "hint": "events.train.tickets.hint", "kind": "number",
                  "value": self.tickets(),
                  "min": modelmod.TRAIN_TICKETS[0],
-                 "max": modelmod.TRAIN_TICKETS[-1]}]}
+                 "max": modelmod.TRAIN_TICKETS[-1]},
+                # …AND WHETHER MONEY MAY BE SPENT TO REACH THAT NUMBER, which is a
+                # separate permission and starts off. The count of contracts the account
+                # actually holds is a row on this same card, right above — so the person
+                # ticking this can see what it is likely to cost them.
+                {"key": modelmod.TRAIN_BUY_KEY, "label": "events.train.buy",
+                 "hint": "events.train.buy.hint", "kind": "switch",
+                 "value": self.buy_missing()}]}
         if tr.can_board and not self._train_boarding:
             board = {"id": "board_train", "label": "events.train.board"}
             if self.tickets() > 0:
@@ -1374,11 +1408,20 @@ class EventsTab(PanelTab):
             key = str((args or {}).get("key") or "")
             raw = (args or {}).get("value")
             if key == modelmod.TRAIN_CARRIAGE_KEY:
-                self._train_carriage = modelmod.carriage_of(raw)
+                number = _whole(raw)
+                if number is None or number not in modelmod.TRAIN_CARRIAGES:
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                self._train_carriage = number
                 return {"ok": True, "carriage": self._train_carriage}
             if key == modelmod.TRAIN_TICKETS_KEY:
-                self._train_tickets = modelmod.tickets_of(raw)
+                number = _whole(raw)
+                if number is None or number not in modelmod.TRAIN_TICKETS:
+                    return {"ok": False, "reason": "web.ui.not_a_number"}
+                self._train_tickets = number
                 return {"ok": True, "tickets": self._train_tickets}
+            if key == modelmod.TRAIN_BUY_KEY:
+                self._train_buy = bool(raw)
+                return {"ok": True, "buy": self._train_buy}
             return {"error": "unknown"}
         if action == "hunt_golden":
             if not self.golden().can_attack:

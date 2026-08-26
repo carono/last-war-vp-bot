@@ -165,6 +165,19 @@ TRAIN_CARRIAGE_DEFAULT = 1
 TRAIN_TICKETS: tuple = (0, 1, 2, 3)
 TRAIN_TICKETS_DEFAULT = 0
 
+#: Whether the missing contracts may be BOUGHT for diamonds when the bag is short.
+#:
+#: **Off, and it is a separate answer from the number on purpose.** The number says what
+#: the fare should be; this says whether the panel may reach into the player's diamonds
+#: to make it up — two different permissions, and the operator asked for them apart:
+#: «даем выбор, сколько билетов давать от 0 до 3 и галку, докупать, если не хватает».
+#: With it off, a short bag simply pays less. With it on, the purchase is capped by the
+#: NUMBER and never goes a contract past it, and every purchase names itself in the log
+#: with what it cost — an allowed spend is still a spend, and a silent one is not allowed
+#: even when the box is ticked (`CLAUDE.md`).
+TRAIN_BUY_KEY = "train_buy"
+TRAIN_BUY_DEFAULT = False
+
 #: The platform states the game has. Boarding is possible from `WITH_DRIVER` upwards:
 #: below it there is nobody driving and the queue is not open.
 TRAIN_NO_TRAIN = 0

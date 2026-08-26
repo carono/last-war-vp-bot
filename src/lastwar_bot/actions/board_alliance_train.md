@@ -29,12 +29,25 @@
 ARGS carriage = 1
 
 # What to offer the conductor: 0 is a like and costs nothing, 1..3 are Trade Contracts
-# out of the bag. Never more than the bag holds.
+# out of the bag.
 ARGS tickets = 0
+
+# Whether a SHORT fare may be made up out of the player's diamonds. `0` — the default and
+# what the panel ships — pays only out of the bag. `1` is the person having ticked
+# «докупать, если не хватает» on the card, and even then the purchase is capped by
+# `tickets` and never goes one contract past it.
+#
+# **The purchase itself is not made yet, and this recipe will not guess it.** The command
+# behind the game's own «buy» is `alliance.train.buy`, and what it buys has NOT been
+# confirmed against a live train — `UITrainBuy` also serves the conductor's Mega Express,
+# which is a far larger spend. So with `buy = 1` and a short bag this says so and pays
+# what the bag holds; it does not send a message it cannot yet prove the price of. One
+# live confirmation turns this into the purchase (`docs/research/alliance-train.md`).
+ARGS buy = 0
 
 # 1. Park what the caller asked for. `{carriage}` and `{tickets}` are substituted before
 #    the script is parsed, so everything below reads them off the game's own table.
-LUA local M = DataCenter.LWAllyStationDataManager local c = ({carriage}) + 0 local t = ({tickets}) + 0 if c < 1 then c = 1 end if t < 0 then t = 0 end if t > 3 then t = 3 end M.__lw_train_car = c M.__lw_train_want = t M.__lw_train_pay = 0
+LUA local M = DataCenter.LWAllyStationDataManager local c = ({carriage}) + 0 local t = ({tickets}) + 0 local b = ({buy}) + 0 if c < 1 then c = 1 end if t < 0 then t = 0 end if t > 3 then t = 3 end M.__lw_train_car = c M.__lw_train_want = t M.__lw_train_buy = b M.__lw_train_pay = 0 M.__lw_train_short = 0
 
 # 2. Is there an alliance train to board at all?
 READ_LUA (function() local M = DataCenter.LWAllyStationDataManager if M == nil then return 0 end local function yes(f) local ok, v = pcall(f) return (ok and v) and 1 or 0 end if yes(function() return (M:IsTrainActivityOpen()) end) == 0 then return 0 end if yes(function() return (M:IsTrainClosed()) end) == 1 then return 0 end if yes(function() return (M:IsTrainFunctionLock()) end) == 1 then return 0 end return 1 end)() INTO open
@@ -58,7 +71,10 @@ IF queued == 0
 # 5. The fare. Once per train, and only if nobody has paid it yet — by this panel or by
 #    the person playing. What the fare WOULD be is worked out first — it only reads the
 #    bag and parks the number, so the line below can name it either way.
-READ_LUA (function() local M = DataCenter.LWAllyStationDataManager local want = M.__lw_train_want or 0 local have = 0 pcall(function() for _, s in pairs(DataCenter.ItemData.ItemInfos or {}) do if type(s) == 'table' and tostring(s.itemId) == '1520001' then local c = 0 pcall(function() c = s.count + 0 end) have = have + c end end end) local pay = want if pay > have then pay = have end if pay < 0 then pay = 0 end M.__lw_train_pay = pay M.__lw_train_have = have return pay end)() INTO pay
+READ_LUA (function() local M = DataCenter.LWAllyStationDataManager local want = M.__lw_train_want or 0 local have = 0 pcall(function() for _, s in pairs(DataCenter.ItemData.ItemInfos or {}) do if type(s) == 'table' and tostring(s.itemId) == '1520001' then local c = 0 pcall(function() c = s.count + 0 end) have = have + c end end end) local pay = want if pay > have then pay = have end if pay < 0 then pay = 0 end local short = want - pay if short < 0 then short = 0 end M.__lw_train_pay = pay M.__lw_train_have = have M.__lw_train_short = short return pay end)() INTO pay
+READ_LUA (function() return (DataCenter.LWAllyStationDataManager.__lw_train_short or 0) end)() INTO short
+IF short > 0
+    LOG "alliance train: the bag is {short} trade contract(s) short of the fare of {tickets} — paying what it holds. Buying them for diamonds is not done: «докупать» is on={buy}, and the purchase command is not confirmed live yet (docs/research/alliance-train.md)."
 READ_LUA (function() local M = DataCenter.LWAllyStationDataManager local ok, v = pcall(function() return (M:AlreadyThumbsUp()) end) if not ok then return -1 end return v and 1 or 0 end)() INTO thanked
 IF thanked == 0
     LUA local M = DataCenter.LWAllyStationDataManager local pay = M.__lw_train_pay or 0 local idx = 0 pcall(function() idx = (M:RandomThanksLangIndex()) + 0 end) pcall(function() SFSNetwork.SendMessage(MsgDefines.AllianceTrainThumbsUp, 1, pay, idx) end)

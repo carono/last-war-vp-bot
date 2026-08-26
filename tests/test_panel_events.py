@@ -408,6 +408,7 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN):
     tab._chain_train = False
     tab._train_carriage = modelmod.TRAIN_CARRIAGE_DEFAULT
     tab._train_tickets = modelmod.TRAIN_TICKETS_DEFAULT
+    tab._train_buy = modelmod.TRAIN_BUY_DEFAULT
     tab._train_args_registered = True
     return tab
 
@@ -430,27 +431,49 @@ def test_the_train_card_says_what_stands_at_the_platform():
             fields[modelmod.TRAIN_CARRIAGE_KEY]["max"]) == (1, 4)
     assert (fields[modelmod.TRAIN_TICKETS_KEY]["min"],
             fields[modelmod.TRAIN_TICKETS_KEY]["max"]) == (0, 3)
+    # …and spending DIAMONDS is a switch of its own, off, beside the count in the bag.
+    assert fields[modelmod.TRAIN_BUY_KEY]["kind"] == "switch"
+    assert fields[modelmod.TRAIN_BUY_KEY]["value"] is False
 
 
 def test_the_train_knobs_are_what_the_recipe_and_the_trigger_are_handed():
     """Walking the two knobs on the phone changes the ARGS both the press and the wire
     trigger run with — there is one rule, not a phone's and a schedule's."""
     tab = _tab()
-    assert tab.train_args() == {"carriage": 1, "tickets": 0}
+    assert tab.train_args() == {"carriage": 1, "tickets": 0, "buy": 0}
     tab.web_press("set", {"key": modelmod.TRAIN_CARRIAGE_KEY, "value": 2})
     tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY, "value": 1})
-    assert tab.train_args() == {"carriage": 2, "tickets": 1}
+    assert tab.train_args() == {"carriage": 2, "tickets": 1, "buy": 0}
     # A value the page should not have been able to send lands on the nearest one that
     # exists — never on the game.
-    tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY, "value": 99})
-    assert tab.tickets() == modelmod.TRAIN_TICKETS_DEFAULT
-    tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY, "value": 1})
+    assert tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY,
+                                 "value": 99}) == {"ok": False,
+                                                   "reason": "web.ui.not_a_number"}
+    assert tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY,
+                                 "value": "три"}) == {"ok": False,
+                                                      "reason": "web.ui.not_a_number"}
+    assert tab.tickets() == 1                # refused, not clamped to something else
     assert tab.config()[modelmod.TRAIN_CARRIAGE_KEY] == 2
     assert tab.config()[modelmod.TRAIN_TICKETS_KEY] == 1
     # …and the press plays the recipe WITH them, never a second copy of the rule.
     tab.board_train()
     assert tab.rt.played[-1] == modelmod.TRAIN_BOARD
-    assert tab.rt.args[-1] == {"carriage": 2, "tickets": 1}
+    assert tab.rt.args[-1] == {"carriage": 2, "tickets": 1, "buy": 0}
+
+
+def test_spending_diamonds_is_a_second_permission_and_starts_off():
+    """The number says what the fare should be; the box says whether money may reach it."""
+    tab = _tab()
+    assert tab.buy_missing() is False
+    assert tab.train_args()["buy"] == 0
+    assert tab.web_press("set", {"key": modelmod.TRAIN_BUY_KEY,
+                                 "value": True}) == {"ok": True, "buy": True}
+    assert tab.train_args()["buy"] == 1
+    assert tab.config()[modelmod.TRAIN_BUY_KEY] is True
+    # …and it survives a profile's saved block the way the other two do.
+    fresh = _tab()
+    fresh.apply_config(tab.config())
+    assert fresh.buy_missing() is True and fresh.tickets() == tab.tickets()
 
 
 def test_a_fare_that_costs_something_asks_before_it_is_paid():

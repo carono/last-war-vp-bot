@@ -2241,5 +2241,7 @@
   "events.train.log.done": "Treno dell'Alleanza: imbarco eseguito — la scheda si rilegge",
   "events.train.log.failed": "Treno dell'Alleanza: imbarco fallito — {error}",
   "triggers.item.alliance_train_board": "Salire sul Treno dell'Alleanza appena viene nominato un conduttore",
-  "events.train.tickets.hint": "0 è un mi piace e non costa nulla; 1–3 sono Contratti commerciali presi dalla borsa. Qui non si compra mai nulla con i diamanti: ciò che la borsa non copre parte come mi piace gratuito."
+  "events.train.tickets.hint": "0 è un mi piace e non costa nulla; 1–3 sono Contratti commerciali presi dalla borsa. Qui non si compra mai nulla con i diamanti: ciò che la borsa non copre parte come mi piace gratuito.",
+  "events.train.buy": "Comprare i mancanti con i diamanti",
+  "events.train.buy.hint": "Spento — paghiamo solo con i contratti nella borsa e non spendiamo un solo diamante. Acceso — i mancanti vengono comprati, rigorosamente entro il numero sopra e non un contratto di più, e ogni acquisto è nominato nel log con il suo costo. Quanti ce ne sono nella borsa è la riga sopra."
 }

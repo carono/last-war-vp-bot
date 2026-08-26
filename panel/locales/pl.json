@@ -2241,5 +2241,7 @@
   "events.train.log.done": "Pociąg Sojuszu: wsiadanie wykonane — karta odczytuje się na nowo",
   "events.train.log.failed": "Pociąg Sojuszu: nie udało się wsiąść — {error}",
   "triggers.item.alliance_train_board": "Wsiadać do Pociągu Sojuszu, gdy zostanie wyznaczony konduktor",
-  "events.train.tickets.hint": "0 to polubienie i nic nie kosztuje; 1–3 to umowy handlowe z torby. Nic tu nie jest kupowane za diamenty — czego torba nie pokryje, idzie jako darmowe polubienie."
+  "events.train.tickets.hint": "0 to polubienie i nic nie kosztuje; 1–3 to umowy handlowe z torby. Nic tu nie jest kupowane za diamenty — czego torba nie pokryje, idzie jako darmowe polubienie.",
+  "events.train.buy": "Dokupować brakujące za diamenty",
+  "events.train.buy.hint": "Odznaczone — płacimy tylko umowami z torby i nie wydajemy ani jednego diamentu. Zaznaczone — brakujące są dokupywane, ściśle do liczby powyżej i ani jednej umowy więcej, a każdy zakup jest nazwany w dzienniku wraz z ceną. Ile jest w torbie, mówi wiersz powyżej."
 }

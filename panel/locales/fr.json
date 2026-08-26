@@ -2241,5 +2241,7 @@
   "events.train.log.done": "Train de l'Alliance : embarquement effectué — la carte se relit",
   "events.train.log.failed": "Train de l'Alliance : embarquement impossible — {error}",
   "triggers.item.alliance_train_board": "Embarquer dans le Train de l'Alliance dès qu'un conducteur est désigné",
-  "events.train.tickets.hint": "0 est un like et ne coûte rien ; 1 à 3 sont des Contrats Commerciaux pris dans le sac. Rien n'est jamais acheté avec des diamants ici — ce que le sac ne couvre pas part en like gratuit."
+  "events.train.tickets.hint": "0 est un like et ne coûte rien ; 1 à 3 sont des Contrats Commerciaux pris dans le sac. Rien n'est jamais acheté avec des diamants ici — ce que le sac ne couvre pas part en like gratuit.",
+  "events.train.buy": "Acheter les manquants avec des diamants",
+  "events.train.buy.hint": "Décoché — nous payons uniquement avec les contrats du sac et ne dépensons aucun diamant. Coché — les manquants sont achetés, strictement dans la limite du nombre ci-dessus et pas un contrat de plus, et chaque achat est nommé dans le journal avec son prix. Le compte du sac est la ligne au-dessus."
 }

@@ -100,11 +100,22 @@ The fare is paid in **Trade Contracts**, item id **1520001** — the same item t
 refreshes a trade truck, which is why the player calls them «билеты на грузовики». The
 bag holds them in `DataCenter.ItemData.ItemInfos` (`inventory.md`), summed per stack.
 
-**When the bag is short the game offers to buy the missing ones for diamonds. The bot
-does not take that offer.** `board_alliance_train.md` clamps the fare to the contracts
-actually held and sends the free like instead when it cannot afford the rest, saying so
-in the log — a standing order may not spend a player's diamonds quietly (`CLAUDE.md`),
-so it does not spend them at all.
+**When the bag is short the game offers to buy the missing ones for diamonds.** The
+operator's answer to whether the bot may take that offer is a SWITCH beside the number —
+«докупать, если не хватает» — off by default, and capped by the number so a purchase can
+never go one contract past what was allowed. Every purchase names itself in the log with
+what it cost: an allowed spend is still a spend, and a silent one is not allowed even
+with the box ticked (`CLAUDE.md`).
+
+**The purchase itself is NOT confirmed yet, and the recipe does not guess it.** The
+candidate is `alliance.train.buy` — it carries `trainPlatformId` and nothing else, and
+the ally manager has `BuyCount()` and `OnAllianceTrainBuySuccess` beside it — but
+`UITrainBuy` also serves the conductor's **Mega Express contract**, which is a far larger
+spend, and the two cannot be told apart from the message shape alone. Sending it blind to
+find out would be spending the player's money to run the experiment. So with the switch on
+and a short bag the recipe says so and pays what the bag holds; one live confirmation
+(a train where the bag is genuinely short, or a conductor's screen to compare against)
+turns it into the purchase.
 
 ## What is NOT this
 
@@ -128,6 +139,9 @@ The two knobs — which carriage, and what fare — are read LIVE at fire time t
 
 ## Open ends
 
+* **The diamond purchase, above** — the one thing between the «докупать» switch and its
+  job. It needs a live train and a bag short of the fare; on the account this was read
+  from the bag held 92 contracts, so the case never arose.
 * Whether a carriage further down the train is worth more than the one nearest the
   locomotive is not known — the reward table (`carriages[].trainGoods`) is readable and
   has not been compared.

@@ -2241,5 +2241,7 @@
   "events.train.log.done": "Kereta Aliansi: naik kereta selesai — kartu membaca ulang",
   "events.train.log.failed": "Kereta Aliansi: gagal naik — {error}",
   "triggers.item.alliance_train_board": "Naik Kereta Aliansi begitu kondektur ditunjuk",
-  "events.train.tickets.hint": "0 adalah suka dan gratis; 1–3 adalah Kontrak Dagang dari tas. Di sini tidak pernah ada yang dibeli dengan berlian — yang tidak tertutup isi tas dikirim sebagai suka gratis."
+  "events.train.tickets.hint": "0 adalah suka dan gratis; 1–3 adalah Kontrak Dagang dari tas. Di sini tidak pernah ada yang dibeli dengan berlian — yang tidak tertutup isi tas dikirim sebagai suka gratis.",
+  "events.train.buy": "Beli yang kurang dengan berlian",
+  "events.train.buy.hint": "Mati — kita membayar hanya dengan kontrak di tas dan tidak menghabiskan satu berlian pun. Hidup — yang kurang dibeli, ketat sampai angka di atas dan tidak satu kontrak pun lebih, dan setiap pembelian disebut di log beserta harganya. Berapa yang ada di tas ada di baris atas."
 }
