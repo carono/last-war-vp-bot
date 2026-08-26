@@ -53,6 +53,39 @@ and its metatable carries the accessors that matter:
 | `GetResCurrentPercentByResType(type)` | how full it is |
 | `LWResourceLackUtil.GetResourceSpeedCountPerHour(type)` | the per-hour rate |
 
+## 2a. ONE READ AT LOGIN, THEN DELTAS — measured, not assumed
+
+The operator's hunch, and it is right: the client does not ask the server for the
+balance. It is handed the numbers once and then keeps them, applying every change as it
+is announced. The class carries exactly the three parts of that model —
+`InitFromNet` (the one read), `UpdateResource` / `UpdateResourceCurrentValue` /
+`ChangeNum` (the deltas), and `AddListener` / `__event_handlers` (the subscription).
+
+Proved by wrapping all six writers on the class and counting:
+
+| | `InitFromNet` | `UpdateResource` | `UpdateResourceCurrentValue` | balance |
+|---|---|---|---|---|
+| **45 s of an idle base** | 0 | 0 | 0 | byte-identical |
+| **one `collect_base_resources`** | 0 | **25** | **25** | metal +718 326, food +763 421 |
+
+Twenty-five is one per collect reply — the sweep sent 25 `building.production.collect`.
+`InitFromNet` stayed at zero throughout: it had already run, at login.
+
+**What follows for the panel.** A read never touches the server, so its cost is the
+panel↔VM round trip and nothing else; and a balance that no event has moved CANNOT have
+changed, so polling for one is either late or wasted. The panel therefore subscribes to
+`push.resource.item.update` — the wire half of the same event — on the profile's shared
+ear (`panel/runtime/wire.py`) and re-reads when it is told to. §7 has what that leaves.
+
+> **A wrapper was left in the live client by this experiment.** The six writers on
+> `LuaEntry.Resource`'s class still carry a counter that increments
+> `DataCenter.__lw_rw` and calls through. `debug.getupvalue` and `string.dump` have been
+> closed in this client since 2026-08, so the originals cannot be recovered to undo it;
+> it costs one table write per resource update, it cannot fail (nothing removes the table
+> it writes to), and it goes away with the next restart of the game client. **Do not
+> delete `DataCenter.__lw_rw`** — the wrapper would then index a nil inside the game's own
+> resource path.
+
 ## 3. **The field names do not say what the game shows.** Read by TYPE
 
 This is the whole reason the recipe is written the way it is. The flat fields are the
@@ -193,15 +226,39 @@ is the round trip and not the work — the same lesson as the alliance-tech dona
 This is why the panel does not read on demand. `/api/state` is its most frequent
 question — an open page asks every 2.5 s, per profile — so reading per poll would hold
 the exclusive game link some 8 % of the time for as long as a phone is open, at the
-expense of the schedule and the robberies. The reading is cached for 30 s
-(`panel/runtime/resources.py`), which is ~0.7 %, and it is played at
-`claims.DETACHED` — below every ordinary errand, because a stock figure is never worth
-making a rally join wait.
+expense of the schedule and the robberies.
+
+**So the wire is the update and the clock is only a net** (§2a). `panel/runtime/resources.py`
+subscribes to `push.resource.item.update` while somebody is looking, re-reads when it is
+told to, and otherwise re-reads at most every **300 s**. Underneath the pushes is a
+**3 s** floor, because a harvest is a burst of them — 25 collect replies — and the client
+is still digesting the cascade while they arrive
+(`docs/research/resource-collection.md`). The play goes in at `claims.DETACHED`, below
+every ordinary errand: a stock figure is never worth making a rally join wait.
+
+What that costs an idle evening: **nothing**. No push, no read. What it costs a harvest:
+one read, ~0.2 s, a few seconds after the last reply. Measured live on the headless panel
+— gold went 712 761 695 → 712 780 343 and the reading's age fell from 95 s to 4 s with
+nobody pressing anything.
+
+The ear is a capture process, shared with whatever else this profile subscribes to. It
+goes up the first time the card is asked for and comes down when nobody has asked for
+120 s, so a panel nobody is looking at pays for no capture either.
 
 The tally in `panel/resource_stats.py` reads the same cache, so there is exactly one trip
 to the game however many things are watching.
 
-## 8. How to ask again
+## 8. The login gate
+
+A client at the login screen answers every question plausibly and wrongly — no tasks,
+own server `-1`, all five robberies unspent (`tools/lib/game_clock.py`, #1227) — and
+`LuaEntry.Resource` is no exception. So the recipe asks the game what time it is BEFORE
+it reads anything, in the same chunk, and returns an empty string when the answer is not
+an epoch (a client that has not logged in hands out its own uptime). The panel then keeps
+the rows it had rather than drawing a base with nothing in it. It costs no extra round
+trip.
+
+## 9. How to ask again
 
 ```
 READ_LUA (function() local R = LuaEntry.Resource

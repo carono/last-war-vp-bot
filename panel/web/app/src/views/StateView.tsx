@@ -195,6 +195,12 @@ function ResourcesCard({ state }: { state: State }) {
         <span>{t('web.ui.res.head')}</span>
         <Pill tone={rows.length ? 'ok' : undefined}>{note}</Pill>
       </div>
+      {/* WHY AN OLD READING IS NOT A STALE ONE. The balance only moves when the game
+          says so, and while this line is here the panel is listening to it being said
+          (`push.resource.item.update`) — so «прочитано 4 минуты назад» means «nothing has
+          happened», not «nobody has looked». Without the ear the age is all there is,
+          and the line is absent, which is the honest difference. */}
+      {stock.watching ? <p className="muted small">{t('web.ui.res.live')}</p> : null}
       {rows.length ? (
         rows.map((row) => (
           <div className="row" key={row.type}>

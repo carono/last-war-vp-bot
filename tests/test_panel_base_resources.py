@@ -59,12 +59,45 @@ class _FakeLink:
     busy = False
 
 
+class _FakeWire:
+    """The profile's shared ear (`panel/runtime/wire.py`), counted rather than run."""
+
+    def __init__(self) -> None:
+        self.subs = 0
+        self.live = 0
+        self.fire = None
+
+    def subscribe(self, _pattern, on_fire):
+        self.subs += 1
+        self.live += 1
+        self.fire = on_fire
+
+        def off():
+            self.live -= 1
+        return off
+
+
+class _FakeTick:
+    THREADED = True
+
+    def __init__(self) -> None:
+        self.armed = {}
+
+    def arm(self, name, _delay_ms, func):
+        self.armed[name] = func
+
+    def disarm(self, name):
+        self.armed.pop(name, None)
+
+
 class _FakeRuntime:
     """Just enough of a PanelRuntime: a gate, a link, and a play that records."""
 
     def __init__(self, answer: str = LINE, started: bool = True) -> None:
         self.gate = _FakeGate()
         self.game = _FakeLink()
+        self.wire = _FakeWire()
+        self.tick = _FakeTick()
         self.answer = answer
         self.started = started
         self.plays = 0
@@ -127,16 +160,66 @@ def test_the_first_look_reads_and_the_next_one_does_not():
     first = stock.state()
     assert rt.plays == 1
     assert len(first["rows"]) == 4
-    clock.at += res.TTL_SEC - 1
+    clock.at += res.SAFETY_SEC - 1
     stock.state()
-    assert rt.plays == 1, "a poll inside the TTL must not touch the game link"
+    assert rt.plays == 1, "with no push, a balance has not moved — do not re-read it"
+
+
+# -- the wire is the update --------------------------------------------------
+def test_a_push_is_what_re_reads_it():
+    rt, clock = _FakeRuntime(), _Clock()
+    stock = res.BaseResources(rt, clock)
+    stock.state()
+    assert rt.plays == 1
+    clock.at += res.MIN_GAP_SEC + 1
+    stock.state()
+    assert rt.plays == 1, "nothing said the balance moved"
+    rt.wire.fire("push.resource.item.update")     # the game says it did
+    stock.state()
+    assert rt.plays == 2
+
+
+def test_a_burst_of_pushes_costs_one_read():
+    rt, clock = _FakeRuntime(), _Clock()
+    stock = res.BaseResources(rt, clock)
+    stock.state()
+    for _ in range(25):                           # one harvest = 25 collect replies
+        rt.wire.fire("push.resource.item.update")
+        stock.state()
+    assert rt.plays == 1, "the floor between reads is what makes a harvest affordable"
+    clock.at += res.MIN_GAP_SEC + 1
+    stock.state()
+    assert rt.plays == 2
+
+
+def test_the_ear_goes_up_once_and_comes_back_down():
+    rt, clock = _FakeRuntime(), _Clock()
+    stock = res.BaseResources(rt, clock)
+    stock.state()
+    stock.state()
+    assert rt.wire.subs == 1 and rt.wire.live == 1
+    assert res.WATCH_CHAIN in rt.tick.armed
+    clock.at += res.WATCH_IDLE_SEC + 1            # nobody has looked since
+    rt.tick.armed[res.WATCH_CHAIN]()
+    assert rt.wire.live == 0, "a page nobody is on must not hold a capture open"
+    assert res.WATCH_CHAIN not in rt.tick.armed
+
+
+def test_a_push_during_a_read_is_not_lost():
+    rt, clock = _FakeRuntime(), _Clock()
+    stock = res.BaseResources(rt, clock)
+    stock.state()                                  # read 1
+    rt.wire.fire("push.resource.item.update")      # …describing what read 1 may have missed
+    clock.at += res.MIN_GAP_SEC + 1
+    stock.state()
+    assert rt.plays == 2
 
 
 def test_a_stale_reading_is_refreshed():
     rt, clock = _FakeRuntime(), _Clock()
     stock = res.BaseResources(rt, clock)
     stock.state()
-    clock.at += res.TTL_SEC + 1
+    clock.at += res.SAFETY_SEC + 1
     stock.state()
     assert rt.plays == 2
 
@@ -176,10 +259,10 @@ def test_an_empty_answer_keeps_the_rows_that_were_there():
     stock = res.BaseResources(rt, clock)
     stock.state()
     rt.answer = ""                                   # the client answered nothing
-    clock.at += res.TTL_SEC + 1
+    clock.at += res.SAFETY_SEC + 1
     later = stock.state()
     assert len(later["rows"]) == 4, "a failed read is not an empty base"
-    assert later["age"] > res.TTL_SEC, "…and the age says the reading is old"
+    assert later["age"] > res.SAFETY_SEC, "…and the age says the reading is old"
 
 
 def _run_standalone() -> int:

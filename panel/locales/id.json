@@ -1449,6 +1449,7 @@
   "web.ui.res.cap": "dari {max}",
   "web.ui.res.rate": "{rate}/jam",
   "web.ui.res.pending": "+{n} siap diambil",
+  "web.ui.res.live": "memantau peristiwa gim",
   "web.ui.res.empty": "klien tidak melaporkan sumber daya apa pun",
   "web.ui.on": "berjalan",
   "web.ui.off": "tidak berjalan",

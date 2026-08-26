@@ -1449,6 +1449,7 @@
   "web.ui.res.cap": "de {max}",
   "web.ui.res.rate": "{rate}/h",
   "web.ui.res.pending": "+{n} por recoger",
+  "web.ui.res.live": "atento a los eventos del juego",
   "web.ui.res.empty": "el cliente no ha informado de ningún recurso",
   "web.ui.on": "en marcha",
   "web.ui.off": "parado",

@@ -1449,6 +1449,7 @@
   "web.ui.res.cap": "из {max}",
   "web.ui.res.rate": "{rate}/ч",
   "web.ui.res.pending": "+{n} ждёт сбора",
+  "web.ui.res.live": "слежу за событиями игры",
   "web.ui.res.empty": "клиент не сообщил ни одного ресурса",
   "web.ui.on": "работает",
   "web.ui.off": "не работает",

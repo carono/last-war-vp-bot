@@ -11,20 +11,38 @@ of Lua is assembled here: this class plays the scenario and reads what it left i
 panel plays scenarios, it does not write them). The scenario asks the game for the NAME
 of each resource too, so nothing in the panel ever labels a number.
 
-WHY IT IS CACHED, AND WHAT THE CACHE COSTS. `/api/state` is the panel's most frequent
-question — an open page asks it every 2.5 s, per profile — and one play of the read was
-measured on the live client at **168 / 219 / 260 ms** end to end (2026-08-26, three runs
-through the web API, timed off `debug.log`). Reading on every poll would therefore hold
-the game link some 8 % of the time for as long as a page is open, and the link is
-exclusive: that is time the schedule, the triggers and the robberies do not get. So the
-reading is taken at most once every :data:`TTL_SEC` and every poll in between is served
-from memory, which is ~0.7 % of the link.
+THE WIRE IS THE UPDATE, NOT A CLOCK (#1990, second pass). The balance is HELD BY THE
+CLIENT: it is read from the server once, at login (`InitFromNet`), and after that only an
+event moves it — every one of which the game announces as `push.resource.item.update`.
+That was measured, not assumed: over 45 s of an idle base the client's own writers fired
+**zero** times and the numbers came back byte-identical, and one harvest fired
+`UpdateResource` **25** times and moved metal by **+718 326**
+(`docs/research/base-resources.md` §2a). So this subscribes to that push on the profile's
+shared ear (`panel/runtime/wire.py`) and re-reads when it is told to, which is exact
+rather than approximate — a poll can only ever be late or wasted.
 
-DEMAND-DRIVEN, NOT A CLOCK. Nothing ticks here. :meth:`state` is what the web route
-calls, so a panel nobody is looking at takes no readings at all — and the first look
-after a long silence is served stale-then-fresh: the cached rows go out at once and the
-refresh lands on the next poll, because a route that waited for the game would block the
-page for a quarter of a second.
+WHAT A READ COSTS, AND WHY THERE IS STILL A NET. One play was measured on the live client
+at **168 / 219 / 260 ms** end to end, and after the pending-storage sweep was added,
+**175 / 193 / 195 / 209 ms** — the cost is the panel↔VM round trip, not the work in the
+chunk. The link is exclusive, so that is time the schedule and the robberies do not get.
+`/api/state` is asked every 2.5 s by an open page, per profile: reading per poll would
+hold the link some 8 % of the time. Hence :data:`MIN_GAP_SEC` under the pushes — a
+harvest is a BURST of them — and :data:`SAFETY_SEC`, a five-minute floor for what an ear
+cannot hear: no capture on this machine, traffic that could not be narrowed to this
+profile, a change no push covers.
+
+DEMAND-DRIVEN, NOT A CLOCK. Nothing ticks here except the chain that gives the capture
+back. :meth:`state` is what the web route calls, so a panel nobody is looking at
+subscribes to nothing and reads nothing — and the first look after a long silence is
+served stale-then-fresh: the cached rows go out at once and the refresh lands on the next
+poll, because a route that waited for the game would block the page for a quarter of a
+second.
+
+NOTHING IS TRUSTED FROM A CLIENT THAT HAS NOT LOGGED IN. That gate is in the SCENARIO,
+where it costs nothing: the same chunk reads the game's own clock first and answers an
+empty string when it is not an epoch. A client at the login screen answers every question
+plausibly and wrongly (`tools/lib/game_clock.py`), and a stock of zeros drawn confidently
+on the front page is exactly that failure again.
 
 NOTHING IS WRITTEN DOWN. A balance is worth nothing after a restart — it has moved — so
 this is memory and not a table in `panel.db`. The rule in `CLAUDE.md` («Game data lives
@@ -43,11 +61,30 @@ from . import claims
 #: The scenario that does the reading. One door, and the panel's only one.
 ACTION = "read_base_resources"
 
-#: How stale a reading may be before the next look pays for a fresh one, in seconds.
-#: Chosen against the measurement in the module docstring: at 30 s one read of ~0.2 s
-#: costs the game link under 1 % of its time, and a stock figure that is half a minute
-#: old is still the same number to a person reading it.
-TTL_SEC = 30.0
+#: THE SAFETY NET, in seconds — how stale a reading may get with no push to say it has
+#: moved. Not the update rate: the update is the wire (see :meth:`_on_push`).
+#:
+#: Five minutes rather than the half minute this started at, and the licence for that is
+#: a measurement, not optimism. The balance is HELD BY THE CLIENT and only ever moved by
+#: an event: over 45 s of an idle base the client's own writers fired zero times and the
+#: numbers came back byte-identical, and one harvest fired `UpdateResource` 25 times and
+#: moved metal by +718 326 (docs/research/base-resources.md §2a). A number that cannot
+#: drift on its own does not need watching — it needs telling.
+SAFETY_SEC = 300.0
+
+#: The floor between two reads, in seconds. A single harvest emits a burst of
+#: `push.resource.item.update` — 25 collect replies, several pushes — and the client is
+#: still digesting the cascade while they arrive (docs/research/resource-collection.md).
+#: One read after the burst is the whole point; twenty-five is the bug that file warns
+#: about.
+MIN_GAP_SEC = 3.0
+
+#: How long after the last look the ear is kept, in seconds. Checked on a chain of its
+#: own so a page somebody closed stops paying for a capture.
+WATCH_IDLE_SEC = 120.0
+
+#: The ticker chain that does that check.
+WATCH_CHAIN = "resources.watch"
 
 #: How long to wait after a refused play before asking again, in seconds. A refusal is
 #: ordinary — the link is exclusive and something else is on it — but `play_async` says
@@ -114,6 +151,11 @@ class BaseResources:
         self._reading = False            # a play is in flight
         self._failed = False             # the last play answered nothing
         self._hold_until = 0.0           # a refusal backs off until then
+        # THE EAR (`panel/runtime/wire.py`): the unsubscribe while it is up, and the flag
+        # its callback sets. `_dirty` starts True because nothing has been read yet.
+        self._off = None
+        self._dirty = True
+        self._looked_at = 0.0            # when somebody last asked for the card
 
     # -- what the route draws -----------------------------------------------
     def state(self, now: float | None = None) -> dict:
@@ -128,19 +170,88 @@ class BaseResources:
         never worth making a robbery or a rally join wait for it.
         """
         now = self._clock() if now is None else now
+        self._looked_at = now
+        self._listen()
         self._maybe_refresh(now)
         return {"rows": [dict(row) for row in self._rows],
+                # Whether the card is being kept up to date BY THE WIRE rather than by
+                # the safety net. A page that says «прочитано 4 минуты назад» beside a
+                # live ear is telling the truth twice: nothing has moved, and we would
+                # have heard it if it had.
+                "watching": self._off is not None,
                 # Seconds since the reading was taken, so the page can say «полминуты
                 # назад» in its own language. -1 = nothing has been read yet, which is
                 # what a page draws as «читаю» rather than as a stock of zero.
                 "age": round(now - self._at, 1) if self._at else -1,
                 "reading": self._reading}
 
+    # -- the ear -------------------------------------------------------------
+    def _listen(self) -> None:
+        """Subscribe to «your balance changed», once, on the profile's shared ear.
+
+        `push.resource.item.update` is the game's own announcement that a balance moved,
+        and it is the ONLY thing that can move one — so this is the update, and the
+        safety net above is only there for what an ear cannot hear (no capture on this
+        machine, a client whose traffic could not be narrowed, a change the push does not
+        cover).
+
+        LAZY, because the ear is a capture process: `WireHub` spawns the child on the
+        first subscription and stops it with the last, so a panel nobody looks at pays
+        nothing (`panel/runtime/wire.py`). It goes up when the card is first asked for
+        and comes down when nobody has asked for :data:`WATCH_IDLE_SEC`.
+        """
+        if self._off is not None:
+            return
+        try:
+            self._off = self._rt.wire.subscribe("push.resource.item.update",
+                                                self._on_push)
+        except Exception:                # noqa: BLE001 — no ear is not no card
+            self._off = None
+            return
+        # …and the chain that takes it down again. On the runtime's own ticker, which is
+        # the window's `after` queue or a thread of its own in a panel with no window —
+        # this must work headless, and #1976 is the task where assuming otherwise cost a
+        # whole feature.
+        try:
+            self._rt.tick.arm(WATCH_CHAIN, 30_000, self._watch_tick)
+        except Exception:                # noqa: BLE001 — an unarmed chain only means
+            pass                         #   the ear lives as long as the profile
+
+    def _watch_tick(self) -> None:
+        """Still being looked at? If not, give the capture back."""
+        if self._clock() - self._looked_at <= WATCH_IDLE_SEC:
+            return
+        off, self._off = self._off, None
+        try:
+            self._rt.tick.disarm(WATCH_CHAIN)
+        except Exception:                # noqa: BLE001
+            pass
+        if off is not None:
+            try:
+                off()
+            except Exception:            # noqa: BLE001 — a deaf ear is not a fault
+                pass
+
+    def _on_push(self, _command: str = "") -> None:
+        """The game says a balance moved. Runs on the CHILD'S READER THREAD.
+
+        A flag and nothing else — no read, no Tk, no lock held for longer than a store.
+        The read is taken by whichever poll comes next, which is at most 2.5 s away while
+        somebody is looking, and the burst behind a harvest collapses into one because of
+        :data:`MIN_GAP_SEC`.
+        """
+        self._dirty = True
+
     # -- the refresh ---------------------------------------------------------
     def _maybe_refresh(self, now: float) -> None:
         if self._reading or now < self._hold_until:
             return
-        if self._at and now - self._at < TTL_SEC:
+        if self._at and now - self._at < MIN_GAP_SEC:
+            return
+        # THE WIRE DECIDES, and the clock is only the fallback: a balance the game has
+        # not announced a change to has not changed (§2a of the research), so a card that
+        # re-read every half minute was paying for the same nine numbers all evening.
+        if self._at and not self._dirty and now - self._at < SAFETY_SEC:
             return
         # THE LINK IS EXCLUSIVE AND SOMETHING ELSE IS ON IT. Asked here rather than left
         # to the claim, for the same reason as the gate below: the refusal is a warning
@@ -161,6 +272,10 @@ class BaseResources:
         except Exception:                # noqa: BLE001 — a gate that cannot answer
             return                       #   is not a licence to press
         self._reading = True
+        # CLEARED BEFORE THE PLAY, never after: a push that lands while the read is in
+        # flight describes a change that read may have missed, and clearing on the way
+        # back would throw it away.
+        self._dirty = False
         started = self._rt.play_async(ACTION, tag="resources", human=False,
                                       priority=claims.DETACHED,
                                       on_result=self._from_run)
@@ -169,6 +284,7 @@ class BaseResources:
             # and not a failure to remember — but not something to retry two and a half
             # seconds later either, or the refusal itself becomes the log.
             self._reading = False
+            self._dirty = True
             self._hold_until = self._clock() + RETRY_SEC
 
     def _from_run(self, outcome) -> None:
@@ -181,7 +297,14 @@ class BaseResources:
             # rows stay on screen with their age climbing, which is the honest picture:
             # «this is what it was, and it has not been re-read since».
             self._failed = True
+            self._dirty = True           # nothing was read, so the change is still owed
             return
         self._failed = False
         self._rows = rows
         self._at = self._clock()
+
+    # -- going away ----------------------------------------------------------
+    def shutdown(self) -> None:
+        """Give the capture back when the profile closes."""
+        self._looked_at = 0.0
+        self._watch_tick()

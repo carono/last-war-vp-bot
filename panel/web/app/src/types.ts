@@ -83,7 +83,7 @@ export interface State {
   interrupt?: { running?: RunningRun[]; elsewhere?: number; stopping?: boolean }
   timers: { on: number; next?: number | null; next_name?: string }
   /* `age` is seconds since the stock was read, -1 when it never has been. */
-  resources?: { rows?: ResourceRow[]; age?: number; reading?: boolean }
+  resources?: { rows?: ResourceRow[]; age?: number; reading?: boolean; watching?: boolean }
   power?: { on?: boolean; off_for_sec?: number }
   watchdog?: boolean
   gate?: { held?: boolean; for_sec?: number; reason?: string }
