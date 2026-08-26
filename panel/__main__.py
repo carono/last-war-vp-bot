@@ -2093,13 +2093,21 @@ class Panel(runtime.SessionScoped, tk.Tk):
         threading.Thread(target=self._bound(self._startup, session),
                          daemon=True).start()
 
-    def _profile_press(self, action: str, name: str) -> bool:
+    def _profile_press(self, action: str, name: str, text: str = "") -> bool:
         """Carry out one profile press from either front-end (`profile_control`).
 
-        On the Tk thread, because both halves build or destroy widgets. `open` is the
-        combo's own behaviour said in one word: a profile that is open is gone to, one
-        that is not is opened beside it — and one that does not exist yet is created,
+        On the Tk thread, because every half of it builds or destroys widgets. `open` is
+        the combo's own behaviour said in one word: a profile that is open is gone to,
+        one that is not is opened beside it — and one that does not exist yet is created,
         which is what `Workspace.open` has always done with a name it has not seen.
+
+        `rename` and `delete` are the two that came off the window in #1976, and they
+        run here EXACTLY as the menu's own commands do — the same `ProfileManager`, the
+        same order of closing before the disk, the same log lines. What differs is only
+        who asked: a press from the phone has already been confirmed by a typed word
+        (`panel/web/api.py`), so nothing here opens a message box it would then be
+        waiting on with nobody at the machine to answer it. A refusal is said in the
+        profile's log instead, and answered `False`.
         """
         if action == profilectl.OPEN:
             self._switch_profile(name)
@@ -2109,6 +2117,26 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 return False
             self._close_profile(name)
             return self._workspace.get(name) is None
+        if action == profilectl.RENAME:
+            return self._rename_profile(name, text, ask=False)
+        if action == profilectl.DELETE:
+            return self._delete_profile(name, ask=False)
+        return False
+
+    def _profile_refused(self, title_key: str, key: str, ask: bool, **fmt) -> bool:
+        """Say no, to whoever is there to hear it. Always ``False``.
+
+        A person at the machine gets the message box the command has always shown; a
+        press that came from away gets a line in the profile's own log, because a modal
+        raised by a phone is a window nobody is standing in front of and the panel would
+        wait on it for as long as the machine is empty.
+        """
+        said = self._t(key, **fmt)
+        if ask:
+            messagebox.showerror(self._t(title_key), said,
+                                 parent=self._profile_dialog_parent())
+        else:
+            self._say("profile", key, **fmt)
         return False
 
     def _close_profile(self, name: str | None = None) -> None:
@@ -2375,20 +2403,41 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self.wait_window(win)
         return answer[0] if answer else None
 
-    def _rename_profile(self) -> None:
-        cur = self._profiles.active
-        name = simpledialog.askstring(self._t("profile.rename"),
-                                      self._t("profile.prompt_name"),
-                                      initialvalue=cur, parent=self._profile_dialog_parent())
+    def _rename_profile(self, cur: str | None = None, name: str | None = None,
+                        ask: bool = True) -> bool:
+        """Rename a profile. ``ask`` draws the box; a phone has typed the name already.
+
+        WHICH PROFILE may be renamed is the one thing the phone is stricter about, and
+        deliberately (#1976). The menu command has only ever renamed the profile the
+        window is SHOWING, so that is what the machinery underneath was written for —
+        the combo re-points, the schedule re-reads, the pinned manager is that session's.
+        A profile that is open on ANOTHER page has a session holding its log files and a
+        page carrying its old name, and moving the directory under it would leave both
+        pointing at nothing. So the phone may rename the showing profile or one that is
+        closed, and is told to go to the page otherwise.
+        """
+        cur = (cur or self._profiles.active).strip()
+        if ask:
+            name = simpledialog.askstring(
+                self._t("profile.rename"), self._t("profile.prompt_name"),
+                initialvalue=cur, parent=self._profile_dialog_parent())
         if not name:
-            return
+            return False
+        showing = self._profiles.active
+        if cur != showing and cur in self._workspace:
+            return self._profile_refused("profile.rename", "profile.rename.open",
+                                         ask, name=cur)
         try:
             newn = self._profiles.rename(cur, name)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.rename"), self._error_text(exc),
-                                 parent=self._profile_dialog_parent())
-            return
-        self._refresh_profile_combo(select=newn)
+            said = self._error_text(exc)
+            if ask:
+                messagebox.showerror(self._t("profile.rename"), said,
+                                     parent=self._profile_dialog_parent())
+            else:
+                self._say("profile", "log.profile.rename_failed", name=cur, error=said)
+            return False
+        self._refresh_profile_combo(select=newn if cur == showing else showing)
         # The directory moved under the schedule's feet: re-point both files, or
         # the next run would write into a re-created old directory.
         self._schedule.on_profile_switch()
@@ -2398,9 +2447,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # one (panel/runtime/autostart.py).
         autostartmod.rename(cur, newn)
         self._say("profile", "log.profile.renamed", old=cur, new=newn)
+        return True
 
-    def _delete_profile(self) -> None:
+    def _delete_profile(self, name: str | None = None, ask: bool = True) -> bool:
         """Delete a profile: its page, its session, and everything that session held.
+
+        ``name`` is the profile to delete; without one it is whichever the combo names,
+        which is what the menu command has always passed. ``ask`` draws the message box
+        that asks first — a press from the phone has already been confirmed by having
+        the profile's own name typed back (`panel/web/api.py`), and a modal raised for
+        a person who is not at the machine is a panel that stops.
 
         THE PAGE WAS THE PART THAT NEVER WENT (#1253). This method predates the window
         holding more than one profile (#1206): it deleted the directory and then
@@ -2431,27 +2487,27 @@ class Panel(runtime.SessionScoped, tk.Tk):
            is the one allowed to write which profiles are open and which is showing.
         """
         profiles = self._workspace.profiles          # the unpinned one — see step 5
-        name = profilemod.sanitize(self._profile_var.get() or "")
+        name = profilemod.sanitize(name or self._profile_var.get() or "")
         if not name or not profiles.exists(name):
+            if not ask:                      # a press names its row; it is not a combo
+                return self._profile_refused("profile.delete", "profile.error.missing",
+                                             ask, name=name)
             name = self._workspace.current.name
         if len(profiles.list()) <= 1:
-            messagebox.showerror(self._t("profile.delete"),
-                                 self._t("profile.error.last_one"),
-                                 parent=self._profile_dialog_parent())
-            return
+            return self._profile_refused("profile.delete", "profile.error.last_one", ask)
         # The confirmation names the whole directory, because the delete is an `rmtree`
         # of it — the chat history, the rally log, panel.log and the record of when
         # every timer last ran. Built by hand rather than through `profiles.dir()`,
         # which CREATES the directory it names: a question about deleting something
         # must not be the thing that brings it back.
         path = os.path.join(profilemod.PROFILES_DIR, name)
-        if not messagebox.askyesno(
+        if ask and not messagebox.askyesno(
                 self._t("profile.delete"),
                 self._t("profile.confirm_delete", name=name, path=_repo_rel(path)),
                 parent=self._profile_dialog_parent()):
-            return
-        if name in self._workspace and not self._make_room_to_delete(name):
-            return
+            return False
+        if name in self._workspace and not self._make_room_to_delete(name, ask):
+            return False
 
         note = None
         with self._activity.step("activity.profile.delete", name=name):
@@ -2467,11 +2523,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 now_active = profiles.delete(name)
             except ValueError as exc:
                 said = self._error_text(exc)
-                messagebox.showerror(self._t("profile.delete"), said,
-                                     parent=self._profile_dialog_parent())
+                if ask:
+                    messagebox.showerror(self._t("profile.delete"), said,
+                                         parent=self._profile_dialog_parent())
                 self._say("profile", "log.profile.delete_failed", name=name, error=said)
                 self._refresh_profile_combo()
-                return
+                return False
         # A per-profile task from #1203 goes with it — the one hourly task of #1207 stays,
         # because the panel it opens is still wanted; it simply has one page fewer now.
         left = autostartmod.drop_legacy(name)
@@ -2480,8 +2537,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
                       error=", ".join(left))
         self._refresh_profile_combo(select=self._workspace.current.name)
         self._say("profile", "log.profile.deleted", name=name, active=now_active)
+        return True
 
-    def _make_room_to_delete(self, name: str) -> bool:
+    def _make_room_to_delete(self, name: str, ask: bool = True) -> bool:
         """Make sure a page will be left once ``name``'s is gone. ``False`` = refuse.
 
         `Workspace.close` will not close the last open session and is right not to. So
@@ -2495,10 +2553,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         other = next((n for n in self._workspace.profiles.list()
                       if n != name and self._profile_is_free(n)), None)
         if other is None:
-            messagebox.showerror(self._t("profile.delete"),
-                                 self._t("profile.error.no_replacement", name=name),
-                                 parent=self._profile_dialog_parent())
-            return False
+            return self._profile_refused("profile.delete",
+                                         "profile.error.no_replacement", ask, name=name)
         self._open_profile(other)
         return len(self._workspace) > 1
 

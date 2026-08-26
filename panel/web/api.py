@@ -1313,6 +1313,21 @@ class WebApi:
             elif len(open_names) > 1:
                 actions.append({"id": profilectl.CLOSE, "label": "profile.close_one",
                                 "args": {"name": name}})
+            # …AND THE TWO THAT USED TO STAY AT THE MACHINE (#1976). Renaming is offered
+            # for the profile the window is showing and for every closed one — never for
+            # one open on another page, which is the shell's own rule and is refused
+            # there too; the row simply does not carry a press it would be told no for.
+            if name == showing or not is_open:
+                actions.append({"id": profilectl.RENAME, "label": "profile.rename",
+                                "prompt": "profile.prompt_name", "value": name,
+                                "args": {"name": name}})
+            # Deleting is an `rmtree` of the account's whole directory, so it is offered
+            # only where it could succeed — never on the last profile there is — and the
+            # press is guarded by the name being TYPED BACK, checked below.
+            if len(everything) > 1:
+                actions.append({"id": profilectl.DELETE, "label": "profile.delete",
+                                "prompt": "profile.delete.prompt", "value": "",
+                                "args": {"name": name}})
             items.append({
                 "text": name,
                 # WHICH CLIENT this profile drives — the one fact that decides whether it
@@ -1342,26 +1357,39 @@ class WebApi:
         return rt.t("session.client.console", port=port)
 
     def _profiles_press(self, action: str, args: dict, profile: str | None) -> dict:
-        """Open or close one profile — the SHELL's press, handed to the Tk thread.
+        """Open, close, rename or delete one profile — the SHELL's press, on its thread.
 
         A press with no name is «Создать»: the prompt's text arrives as `args.text`, and
         opening a name that has no directory yet is what creates it — the same thing the
         window's combo has always done and the command line before it.
+
+        THE TYPED WORD IS THE CONFIRMATION for the two destructive ones (#1976), and it
+        is checked HERE rather than in the shell because only this side knows what the
+        row said: a delete happens when the profile's own name is typed back and never
+        otherwise, and a rename needs a new name to be a rename at all. Both are the
+        same guard the character switch uses on «Аккаунты» — a mis-tap on a list is what
+        it is for, and «press it again» is no answer when the press removes an account's
+        whole history.
         """
         if action not in profilectl.BY_ID:
             return {"error": "unknown"}
         if not profilectl.available():
             return {"ok": False, "reason": "web.ui.refused"}
-        name = str(args.get("name") or args.get("text") or "").strip()
+        text = str(args.get("text") or "").strip()
+        name = str(args.get("name") or "").strip() or text
         if not name:
             return {"ok": False, "reason": "web.ui.refused"}
+        if action == profilectl.DELETE and text != name:
+            return {"ok": False, "reason": "profile.confirm.refused"}
+        if action == profilectl.RENAME and (not text or text == name):
+            return {"ok": False, "reason": "profile.confirm.refused"}
         rt = self._runtime(profile)
         box: dict = {}
         done = threading.Event()
 
         def go() -> None:
             try:
-                box["ok"] = profilectl.carry_out(action, name)
+                box["ok"] = profilectl.carry_out(action, name, text)
             finally:
                 done.set()
 

@@ -60,6 +60,7 @@ that owns a lifecycle.
 | P2 — which profiles are open | **done** | `panel/runtime/profile_control.py`, shell-registered |
 | the web is the MAIN front-end | **decided** | «Веб теперь главный инструмент, ему и полный функционал» — `CLAUDE.md` and `docs/panel-tabs.md` rewritten; new goes to the web only |
 | P2 — the ghost standing order from the phone | **done** | switch + level as fields |
+| P2 — renaming and DELETING a profile from the phone | **written, not yet live** | the two presses the shell held back: `profile_control` grew `rename` / `delete`, and each carries the guard the message box used to be — the new name typed for a rename, the profile's OWN name typed back for a delete |
 | P2 — the ghost ROBBERY from the phone | **written, not yet live** | the ability became one recipe first: `ARGS queue` on `actions/steal_ghost_recon.md`, the panel hands the squads over and spawns nothing. «Ограбить всех» is a screen action; nothing here has been pressed in a real game |
 | P2 — the Windows-session block | **done** | diagnosis is state now, «Проверить» and «Поднять сессию» are presses |
 | P2 — the picture quality | **done** | a `choice` field plus the client's own reading; the read verified live |
@@ -89,8 +90,14 @@ travel now (`/api/timers/save`, `/copy`, `/delete`), and the panel refuses the s
 things the window's dialog refuses, off the same locale keys. What made it the largest
 piece of P2 was that it had been a divergence («a phone that rewrites a recipe by a
 mistyped character is not a remote control») and stopped being one the moment the person
-said the web gets the whole function. Renaming and deleting a PROFILE is still window-only: destructive, so it wants a typed confirmation like the
-character switch has, not an exemption. Sending a CHAT message is no longer among them, and it is the
+said the web gets the whole function. Renaming and deleting a PROFILE are no longer among them either, and they went the way
+that sentence said they should: destructive, so they wanted a TYPED CONFIRMATION like the
+character switch has, and got one rather than an exemption. A delete happens only when the
+profile's own name is typed back, a rename only when a new name is; and a rename is not
+offered for a profile open on ANOTHER page — that session holds its log files and its page
+carries the old name, so moving the directory under it would leave both pointing at
+nothing. Opening the profile's FOLDER stays at the machine, because a directory listing is
+not a thing a phone can be handed. Sending a CHAT message is no longer among them, and it is the
 worked example of the ORDER OF WORK the rule states rather than an exception to it: the
 window spawned a tool, so the phone had the reading and no box; `CHAT_SEND` made the
 ability one recipe, `panel/tabs/chat.py` plays it from both sides, and the phone answers
@@ -212,6 +219,7 @@ after the new one has been used to drive it.**
   | «Командный пункт» | «Ограбить» on ONE row, jump, scan | **«Ограбить всех» travels**: the queue became an `ARGS` of the recipe (#1976). A per-row press would have to re-derive the gates the page applies, so it waits for a row that carries its own uuid |
   | «Ралли» | join now, launch / stop a run | the join needs squads chosen for it — a screen, not a button. The kind filter's «все / никакие» travel now |
   | «Сокровища (отладка)» | «Копировать» | **the filter travels** as four switches; the clipboard is the MACHINE's and means nothing on a phone — «Сохранить» is the same fragment kept as a file |
+  | «Профили» (the shell's own list) | — | **done**: open, close, create, rename and delete, the last two behind a typed word (#1976). The folder button stays at the machine |
   | «Секретки», «Профиль», «Инвентарь», «Аккаунты», «Игроки» | nothing of substance | — |
 
   So the remaining P2 work is **tens of controls, not two hundred**, and half of what is
