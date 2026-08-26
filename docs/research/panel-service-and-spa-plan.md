@@ -58,6 +58,11 @@ be the daemon all over again»: there is no process anybody has to bring up, so 
 nothing that can fail to come up. Starting a panel into a session stays as a rare manual
 button, if it is built at all.
 
+Installing it is `service_install.bat` and removing it `service_uninstall.bat` — what
+they register is `tools/run_service.py` under the repository they sit in, run by a
+windowless interpreter, because a service is started with the system directory as its
+working directory and `-m panel.service` would find nothing there.
+
 What the service is: the port, TLS, the token, the SPA, the register of panels that have
 connected, and the routing to them. What it is not: a watchdog, a retry loop, a thing
 that owns a lifecycle.
@@ -96,7 +101,7 @@ that owns a lifecycle.
 | P2 — the treasure feed's own filter | **done** | four switches on «Сокровища (отладка)»; the clipboard press stays at the machine |
 | P2 — what is still window-only | see below | |
 | P0 — the service, and the panel dialling out to it | **live** | `panel/service/` + `panel/runtime/service_link.py`; measured on this machine: the door on 9762, the web on 9763, one panel dialled in with four profiles, and `/api/profiles` through the SERVICE answered by that panel |
-| P0 — installed as a Windows service | **not done** | the two `sc create` / `sc start` lines are in `service.bat`'s own comments and need an elevated prompt — the person's press, not an agent's |
+| P0 — installed as a Windows service | **written, needs one elevated press** | `service_install.bat` / `service_uninstall.bat`: they ask Windows for elevation, refuse in words when it is denied (exit 2), say so when the service is already there (exit 3), and take `--dry-run`. Verified as far as a session without administrator rights can: both refusals, both dry-runs, and the exact `sc create` line failing at `OpenSCManager` with error 5 — which is the privilege and not the syntax |
 | P3 — the panel runs with NO WINDOW | **live** | `panel/headless.py` + `headless.bat`; measured beside the running window: it opened a profile, attached the game's Lua VM, dialled the service and answered through it — `/api/state`, `/api/screens` and four tab screens drawn by a panel that has no window |
 | P3 — a tab's STATE survives Tk | **done** | `panel/runtime/statevar.py`; 97 tab variables and the settings binder go through it. With a window they ARE Tk variables, so nothing about the window changed |
 | P3 — the clock without Tk | **done** | `ThreadTicker`: one thread, FIFO hand-overs. A rootless runtime used to get a `Ticker` that armed nothing |
