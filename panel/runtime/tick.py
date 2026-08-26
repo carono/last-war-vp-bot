@@ -210,7 +210,14 @@ class Ticker:
         poster(widget)
 
     def arm(self, name: str, delay_ms: int, func) -> None:
-        """(Re)arm the repeating callback ``name`` — cancelling any pending one."""
+        """(Re)arm the repeating callback ``name`` — cancelling any pending one.
+
+        WITH NO WIDGET THERE IS NO QUEUE, and this says so by doing nothing rather than
+        by importing Tk to find out: a panel with no window uses :class:`ThreadTicker`,
+        and one built on a bare harness has nothing to fire into.
+        """
+        if self._w is None:
+            return
         import tkinter as tk
 
         self.disarm(name)
@@ -223,6 +230,8 @@ class Ticker:
 
     def disarm(self, name: str) -> None:
         """Cancel the pending callback under ``name``, if there is one."""
+        if self._w is None:
+            return
         import tkinter as tk
 
         job = self._loops.pop(name, None)
@@ -306,3 +315,173 @@ class Ticker:
 
         self.post(call)
         done.wait(timeout)
+
+
+class ThreadTicker:
+    """The same clock, with no Tk under it — one thread, a heap and a queue (#1976, P3).
+
+    :class:`Ticker` is the window's: every repeating callback rides the Tk `after` queue,
+    which is the right place while there IS a window, because everything those callbacks
+    touch is a widget. A panel with no window has neither the queue nor the widgets, and
+    still has all the reasons the clock exists — a schedule to fire, a capture to sweep,
+    a status to re-read.
+
+    SO IT KEEPS TK'S TWO GUARANTEES, which is what makes it a drop-in rather than a
+    lookalike:
+
+    * **one thread runs everything.** A tab's state is written by whatever fires, and Tk's
+      single event loop is the reason nothing in this codebase locks around it. This
+      thread is that loop;
+    * **posting is FIFO and never raises.** Two repaints handed over in order arrive in
+      order, and a hand-over from a worker costs a queue insert (`panel/runtime/tick.py`,
+      #1226) rather than a trip into an interpreter that may not be pumping.
+
+    A callback that raises is swallowed, exactly as Tk swallows one — the clock is not a
+    place a fault may stop everything else that is armed.
+    """
+
+    def __init__(self) -> None:
+        import heapq
+        import queue as _queue
+
+        self._heap: list = []                    # (due, seq, name)
+        self._heapq = heapq
+        self._jobs: dict = {}                    # name -> (due, seq, delay_ms, func)
+        self._armed_at: dict = {}                # name -> (delay_ms, armed at)
+        self._posts = _queue.SimpleQueue()
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._seq = 0
+        self._stop = threading.Event()
+        self._thread = None
+
+    # -- lifecycle ----------------------------------------------------------
+    def start(self) -> None:
+        """Begin ticking. Idempotent, so a second profile does not start a second loop."""
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="panel-clock", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        self._thread = None
+
+    # -- Ticker's surface ---------------------------------------------------
+    def arm(self, name: str, delay_ms: int, func) -> None:
+        with self._lock:
+            self._seq += 1
+            due = time.monotonic() + max(0, int(delay_ms)) / 1000.0
+            self._jobs[name] = (due, self._seq, int(delay_ms), func)
+            self._armed_at[name] = (int(delay_ms), time.monotonic())
+            self._heapq.heappush(self._heap, (due, self._seq, name))
+        self.start()
+        self._wake.set()
+
+    def disarm(self, name: str) -> None:
+        with self._lock:
+            self._jobs.pop(name, None)
+            self._armed_at.pop(name, None)
+        self._wake.set()
+
+    def disarm_all(self) -> None:
+        with self._lock:
+            self._jobs.clear()
+            self._armed_at.clear()
+            self._heap.clear()
+        self._wake.set()
+
+    def armed(self) -> int:
+        with self._lock:
+            return len(self._jobs)
+
+    def pending(self) -> list:
+        """Every armed chain, soonest first — the same rows the busy debugger draws."""
+        now = time.monotonic()
+        rows = []
+        with self._lock:
+            armed = dict(self._armed_at)
+        for name, (delay_ms, at) in armed.items():
+            waited = max(0.0, now - at)
+            rows.append({"name": name, "delay_ms": int(delay_ms), "secs": waited,
+                         "due_in": delay_ms / 1000.0 - waited})
+        rows.sort(key=lambda row: row["due_in"])
+        return rows
+
+    def post(self, func) -> None:
+        """Hand ``func`` to the clock's thread. Any thread, FIFO, never raises."""
+        if func is None:
+            return
+        self._posts.put(func)
+        self.start()
+        self._wake.set()
+
+    def drain(self) -> int:
+        """Run everything posted, HERE and now. What the boot uses before the loop runs."""
+        done = 0
+        while True:
+            try:
+                func = self._posts.get_nowait()
+            except Exception:                    # noqa: BLE001 — empty
+                return done
+            _swallow(func)
+            done += 1
+
+    def on_tk(self, func, timeout: float = 20.0) -> None:
+        """Run ``func`` on the clock's thread and wait — :meth:`Ticker.on_tk`'s twin."""
+        if threading.current_thread() is self._thread:
+            func()
+            return
+        done = threading.Event()
+        box: dict = {}
+
+        def work() -> None:
+            try:
+                box["value"] = func()
+            finally:
+                done.set()
+
+        self.post(work)
+        done.wait(timeout)
+
+    # -- the loop -----------------------------------------------------------
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self.drain()
+            wait = self._fire_due()
+            self._wake.wait(wait)
+            self._wake.clear()
+
+    def _fire_due(self) -> float:
+        """Run whatever is due; answer how long to sleep before looking again."""
+        while True:
+            now = time.monotonic()
+            with self._lock:
+                if not self._heap:
+                    return 0.25
+                due, seq, name = self._heap[0]
+                job = self._jobs.get(name)
+                if job is None or (job[0], job[1]) != (due, seq):
+                    # Disarmed, or re-armed since: the heap entry is stale.
+                    self._heapq.heappop(self._heap)
+                    continue
+                if due > now:
+                    return min(0.25, due - now)
+                self._heapq.heappop(self._heap)
+                # A REPEATING callback re-arms ITSELF, exactly as it does under Tk: the
+                # chain is the callback's own doing, and a clock that re-armed it here
+                # would fire twice for every `arm` inside one.
+                self._jobs.pop(name, None)
+                self._armed_at.pop(name, None)
+                func = job[3]
+            _swallow(func)
+
+
+def _swallow(func) -> None:
+    """Run it, and let nothing out — the clock is not where a fault stops the rest."""
+    try:
+        func()
+    except Exception:                            # noqa: BLE001 — as Tk swallows one
+        pass
