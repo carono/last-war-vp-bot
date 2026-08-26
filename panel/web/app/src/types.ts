@@ -61,6 +61,9 @@ export interface ResourceRow {
   count: number
   max?: number
   per_hour?: number
+  /* How much of it is standing UNCOLLECTED in the base's buildings — the game's own
+     figure, and the half of the card somebody can act on. */
+  pending?: number
   base?: boolean
 }
 

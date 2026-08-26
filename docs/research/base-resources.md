@@ -121,10 +121,61 @@ Dead ends, so nobody re-walks them:
 * `ProductLineManager:GetResItemCurStorage` / `GetResItemMaxStorage` answered `0/0` for
   every type asked.
 * `BuildManager:GetOutResourceNum(type)` answered `0` for every type.
-* `ProductLineManager:GetResType(uuid)` did not answer for a build uuid while the client
-  was on the world map, so per-resource PENDING storage is not in the reading.
+* `ProductLineManager:GetResType(uuid)` does not answer for a build uuid while the
+  client is out on the world map. **`GetProductRes(uuid)` does** — see §5 — and using the
+  first one is why an early version of this reading reported no pending storage at all.
+* `LWResourceLackUtil.GetBuildingResourceCollectionAndProduceTime` answers `0, 0` for a
+  build uuid, a build id and a `:`-call alike. It belongs to the «not enough resources»
+  popup and needs state that a headless read does not have.
+* `LWResourceLackUtil.TryGetBuildingCanCollectResNum(type)` and
+  `TryGetHangUpRewardCanCollectResNum(type)` answer `0` for every type — they are not the
+  pending figure either.
+* `BuildingUtils.GetBuildingCurrentProduceCount` / `GetBuildingPredictedProduceCount` do
+  not resolve as globals from a headless read.
 
-## 5. What it costs
+## 5. What IS stated: how much is waiting to be collected
+
+Every production building answers two things that need no scene and no window:
+
+| call | answers |
+|---|---|
+| `ProductLineManager:GetProductRes(uuid)` | `{[resourceType] = per-tick amount}` |
+| `ProductLineManager:GetBuildingCurrStorage(uuid)` | how much is standing uncollected |
+
+Summing the second by the first gives the pending stock per resource — on a live base,
+44 buildings, `377 023` gold / `604 724` food / `569 647` metal / `7 735` oil waiting.
+That is exactly what one press of «Сбор ресурсов» would add, it is the game's own number
+per building, and the only arithmetic on it is a sum. It is the seventh field of the
+reading and the card shows it beside the amount.
+
+**Note it is `GetProductRes`, not `GetResType`.** The latter does not answer for a build
+uuid while the client is out on the world map, and it is why the first cut of this
+reading reported nothing.
+
+## 6. Why there is no «в час», in detail
+
+The client keeps a per-TICK figure per building, `GetBuildProduceNum(uuid)` — `196.35` on
+the building watched — and no tick length anywhere. The length was established by
+watching one building's storage across a `WAIT 20`:
+
+```
+t=0    stor = 70293.299
+t=20s  stor = 71078.699      ->  785.4 in 20 s  =  39.27/s
+785.4 / 196.35 = 4.0 exactly ->  GetBuildProduceNum is per FIVE SECONDS
+```
+
+which also squares with the config: `GetProductRes` says `{2 = 35}` — 35 a second of
+type 2 before bonuses — and `35 x 1.122 = 39.27`, the technology multiplier.
+
+So an hourly rate is reachable: `GetBuildProduceNum x 720`. **It is deliberately not
+shown.** The `720` is this document's measurement, not the game's statement, and a
+column headed «в час» carrying the panel's own constant is indistinguishable from one
+the client provided. `GetResourceSpeedCountPerHour`, which IS the client's per-hour
+accessor, answers `0` for gold, food, metal and oil alike — it exists for the season
+trickle resources (`metalAddSpeed`, `oilAddSpeed`, `waterAddSpeed`), which are all `0`
+on this account too.
+
+## 7. What it costs
 
 One play of `read_base_resources`, end to end through the panel's own runner, timed off
 `profiles/<name>/debug.log` on the live client:
@@ -134,6 +185,10 @@ One play of `read_base_resources`, end to end through the panel's own runner, ti
 | 1 | 168 ms |
 | 2 | 219 ms |
 | 3 | 260 ms |
+
+**The 44-building sweep for the pending figure is free**, measured after it was added:
+175 / 193 / 195 / 209 ms for the whole reading. It is inside the same chunk, so the cost
+is the round trip and not the work — the same lesson as the alliance-tech donate loop.
 
 This is why the panel does not read on demand. `/api/state` is its most frequent
 question — an open page asks every 2.5 s, per profile — so reading per poll would hold
@@ -146,7 +201,7 @@ making a rally join wait.
 The tally in `panel/resource_stats.py` reads the same cache, so there is exactly one trip
 to the game however many things are watching.
 
-## 6. How to ask again
+## 8. How to ask again
 
 ```
 READ_LUA (function() local R = LuaEntry.Resource

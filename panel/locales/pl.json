@@ -1448,6 +1448,7 @@
   "web.ui.res.never": "jeszcze nie odczytano",
   "web.ui.res.cap": "z {max}",
   "web.ui.res.rate": "{rate}/godz.",
+  "web.ui.res.pending": "+{n} do odbioru",
   "web.ui.res.empty": "klient nie zgłosił żadnych zasobów",
   "web.ui.on": "działa",
   "web.ui.off": "nie działa",

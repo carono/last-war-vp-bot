@@ -6,6 +6,8 @@ card could have lied:
 
 * the scenario's line parses into rows, and a malformed record is DROPPED rather than
   half-read (five fields under six headings is a wrong number, not a missing one);
+* the pending-to-collect figure survives the parse — it is the half of the card a
+  person can act on;
 * the biggest stock sorts first, so a card does not open with two season resources
   sitting at zero while gold is below the fold;
 * a poll inside the TTL costs no play of the scenario — this route is asked every 2.5 s
@@ -29,10 +31,10 @@ if str(_REPO_ROOT) not in sys.path:
 from panel.runtime import resources as res  # noqa: E402
 
 #: A reading of the shape the scenario really answers with, with invented amounts.
-LINE = ("1;;1000;;0;;0;;1;;Metal #|# "
-        "14;;2000;;0;;250;;1;;Food #|# "
-        "15;;30;;0;;0;;0;;Diamonds #|# "
-        "11;;5;;200;;0;;1;;Water")
+LINE = ("1;;1000;;0;;0;;1;;77;;Metal #|# "
+        "14;;2000;;0;;250;;1;;300;;Food #|# "
+        "15;;30;;0;;0;;0;;0;;Diamonds #|# "
+        "11;;5;;200;;0;;1;;0;;Water")
 
 
 class _FakeGate:
@@ -97,10 +99,11 @@ def test_a_record_becomes_a_row():
     assert by_type[14]["per_hour"] == 250
     assert by_type[11]["max"] == 200
     assert by_type[15]["base"] is False
+    assert by_type[1]["pending"] == 77       # standing uncollected in the buildings
 
 
 def test_a_malformed_record_is_dropped_not_half_read():
-    rows = res.parse("1;;1000;;0;;0;;1;;Metal #|# 14;;2000;;0 #|#  #|# x;;y;;z;;a;;b;;c")
+    rows = res.parse("1;;1000;;0;;0;;1;;77;;Metal #|# 14;;2000;;0 #|#  #|# x;;y;;z;;a;;b;;c;;d")
     assert [row["type"] for row in rows] == [1]
 
 

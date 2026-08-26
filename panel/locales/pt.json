@@ -1448,6 +1448,7 @@
   "web.ui.res.never": "ainda não lido",
   "web.ui.res.cap": "de {max}",
   "web.ui.res.rate": "{rate}/h",
+  "web.ui.res.pending": "+{n} por recolher",
   "web.ui.res.empty": "o cliente não comunicou nenhum recurso",
   "web.ui.on": "a correr",
   "web.ui.off": "parado",

@@ -63,9 +63,9 @@ FIELD_SEP = ";;"
 def parse(answer: str) -> list:
     """The scenario's one line turned into rows. A malformed record is skipped.
 
-    Skipped rather than guessed at: the reading is six fields wide and a record that is
-    not is a client answering something this panel does not understand — showing five of
-    its fields under the sixth one's heading would be a wrong number rather than a
+    Skipped rather than guessed at: the reading is seven fields wide and a record that is
+    not is a client answering something this panel does not understand — showing six of
+    its fields under the seventh one's heading would be a wrong number rather than a
     missing one.
     """
     rows = []
@@ -74,17 +74,17 @@ def parse(answer: str) -> list:
         if not record:
             continue
         parts = record.split(FIELD_SEP)
-        if len(parts) < 6:
+        if len(parts) < 7:
             continue
         try:
-            type_id, count, cap, per_hour, base = (int(parts[0]), int(parts[1]),
-                                                   int(parts[2]), int(parts[3]),
-                                                   int(parts[4]))
+            type_id, count, cap, per_hour, base, pending = (
+                int(parts[0]), int(parts[1]), int(parts[2]),
+                int(parts[3]), int(parts[4]), int(parts[5]))
         except (TypeError, ValueError):
             continue
         rows.append({"type": type_id, "count": count, "max": cap,
-                     "per_hour": per_hour, "base": bool(base),
-                     "name": FIELD_SEP.join(parts[5:]).strip()})
+                     "per_hour": per_hour, "base": bool(base), "pending": pending,
+                     "name": FIELD_SEP.join(parts[6:]).strip()})
     # BIGGEST FIRST, and it is a SORT rather than a filter: a resource the base does not
     # make is still a resource this account holds, and dropping it would be the panel
     # deciding what the game may report.

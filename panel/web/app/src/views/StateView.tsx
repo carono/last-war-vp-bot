@@ -198,7 +198,13 @@ function ResourcesCard({ state }: { state: State }) {
       {rows.length ? (
         rows.map((row) => (
           <div className="row" key={row.type}>
-            <span>{row.name}</span>
+            <span>
+              {row.name}
+              {/* What one press of «Сбор ресурсов» would add. The game's own figure per
+                  building, summed by what that building makes — so it is a reading and
+                  not the panel's arithmetic. Silent at zero. */}
+              {row.pending ? <span className="muted small"> {t('web.ui.res.pending', { n: num(row.pending) })}</span> : null}
+            </span>
             <span>
               {num(row.count)}
               {/* Only what the game actually reported: a cap and a rate come back as 0

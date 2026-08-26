@@ -1448,6 +1448,7 @@
   "web.ui.res.never": "pas encore lu",
   "web.ui.res.cap": "sur {max}",
   "web.ui.res.rate": "{rate}/h",
+  "web.ui.res.pending": "+{n} à récolter",
   "web.ui.res.empty": "le client n'a signalé aucune ressource",
   "web.ui.on": "en marche",
   "web.ui.off": "arrêté",

@@ -1448,6 +1448,7 @@
   "web.ui.res.never": "chưa đọc",
   "web.ui.res.cap": "trên {max}",
   "web.ui.res.rate": "{rate}/giờ",
+  "web.ui.res.pending": "+{n} chờ thu",
   "web.ui.res.empty": "máy khách không báo cáo tài nguyên nào",
   "web.ui.on": "đang chạy",
   "web.ui.off": "không chạy",

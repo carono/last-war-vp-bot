@@ -29,9 +29,9 @@
 # resources this account has never met and would be a column of zeros.
 #
 # THE ANSWER lands in one variable, `resources`, as records separated by « #|# », each
-# six fields separated by « ;; » with the NAME last:
+# seven fields separated by « ;; » with the NAME last:
 #
-#     14;;75443145;;0;;0;;1;;Еда
+#     14;;75443145;;0;;0;;1;;26400;;Еда
 #
 #   * type     — the game's resource type id.
 #   * count    — how much is held.
@@ -45,10 +45,28 @@
 #                which the accessor reaches for because the two share a type. «71 832 543
 #                из 200» is not a fact about anything, so the number is dropped rather
 #                than shown.
-#   * perhour  — the production rate per hour, or 0 where the game reports none.
+#   * perhour  — the production rate per hour, or 0 where the game reports none — which,
+#                on this build, is EVERY base resource. `GetResourceSpeedCountPerHour`
+#                answers 0 for gold, food, metal and oil alike; the only per-hour figures
+#                the client keeps are the season trickle resources'. The base's buildings
+#                do state a per-TICK amount (`GetBuildProduceNum`), but the tick length is
+#                nowhere in the client — it was established at 5 s only by watching the
+#                storage climb — so turning it into «в час» would be the panel's
+#                arithmetic wearing the game's authority. It is left at 0 and the card
+#                shows nothing. See `pending` below for the number that IS stated.
 #   * base     — 1 when the base has at least one building producing this resource
 #                (`ResourceManager:GetResourceOutBuildings`), 0 when it has not. The
 #                panel puts the produced ones first; it does not decide which they are.
+#   * pending  — how much of it is standing UNCOLLECTED in the base's production
+#                buildings right now: the game's own `GetBuildingCurrStorage` for every
+#                building, summed by the resource that building makes
+#                (`GetProductRes` answers `{[type] = per-tick}`). This is the number that
+#                makes «сколько сейчас» actionable — it is what one press of «Сбор
+#                ресурсов» would add — and it is STATED, not derived.
+#
+#                Note `GetProductRes`, not `GetResType`: the latter does not answer for a
+#                build uuid while the client is out on the world map, which is what made
+#                an earlier version of this reading report nothing at all.
 #   * name     — the resource's name in the player's language, from the game's table.
 #
 # TWO TYPES CAN CARRY THE SAME NAME, and one of them is dead. The client still has the
@@ -63,5 +81,5 @@
 # reading, and a client that has not finished logging in answers an empty string rather
 # than a page of zeros.
 
-READ_LUA (function() local R=LuaEntry and LuaEntry.Resource local RM=DataCenter.ResourceManager local RT=DataCenter.ResourceTemplateManager if R==nil or RM==nil or RT==nil then return '' end local ids={} for k,_ in pairs(RT.resourceTemplateDic or {}) do local n=tonumber(k) if n~=nil then ids[#ids+1]=n end end table.sort(ids) local out={} for _,t in ipairs(ids) do local cnt,mx,ph,base,nm=0,0,0,0,'' pcall(function() cnt=math.floor((R:GetCntByResType(t) or 0)+0) end) pcall(function() mx=math.floor((R:GetMaxStorageByResType(t) or 0)+0) end) if mx>0 and mx<cnt then mx=0 end pcall(function() ph=math.floor((LWResourceLackUtil.GetResourceSpeedCountPerHour(t) or 0)+0) end) pcall(function() local b=RM:GetResourceOutBuildings(t) if type(b)=='table' then for _ in pairs(b) do base=1 break end end end) pcall(function() nm=tostring(RM:GetResourceNameByType(t) or ''):gsub('%s+',' ') end) if cnt>0 or base==1 then out[#out+1]={t,cnt,mx,ph,base,nm} end end local held={} for _,r in ipairs(out) do if r[2]>0 then held[r[6]]=true end end local rows={} for _,r in ipairs(out) do if r[2]>0 or not held[r[6]] then rows[#rows+1]=r[1]..';;'..r[2]..';;'..r[3]..';;'..r[4]..';;'..r[5]..';;'..r[6] end end return table.concat(rows,' #|# ') end)() INTO resources
+READ_LUA (function() local R=LuaEntry and LuaEntry.Resource local RM=DataCenter.ResourceManager local RT=DataCenter.ResourceTemplateManager if R==nil or RM==nil or RT==nil then return '' end local pend={} local P=DataCenter.ProductLineManager if P~=nil then pcall(function() for _,u in pairs(P:GetAllBuildUuids() or {}) do local r=P:GetProductRes(u) if type(r)=='table' then local s=0 pcall(function() s=math.floor((P:GetBuildingCurrStorage(u) or 0)+0) end) for k,_ in pairs(r) do local n=tonumber(k) if n~=nil then pend[n]=(pend[n] or 0)+s end end end end end) end local ids={} for k,_ in pairs(RT.resourceTemplateDic or {}) do local n=tonumber(k) if n~=nil then ids[#ids+1]=n end end table.sort(ids) local out={} for _,t in ipairs(ids) do local cnt,mx,ph,base,nm,pd=0,0,0,0,'',(pend[t] or 0) pcall(function() cnt=math.floor((R:GetCntByResType(t) or 0)+0) end) pcall(function() mx=math.floor((R:GetMaxStorageByResType(t) or 0)+0) end) if mx>0 and mx<cnt then mx=0 end pcall(function() ph=math.floor((LWResourceLackUtil.GetResourceSpeedCountPerHour(t) or 0)+0) end) pcall(function() local b=RM:GetResourceOutBuildings(t) if type(b)=='table' then for _ in pairs(b) do base=1 break end end end) pcall(function() nm=tostring(RM:GetResourceNameByType(t) or ''):gsub('%s+',' ') end) if cnt>0 or base==1 or pd>0 then out[#out+1]={t,cnt,mx,ph,base,pd,nm} end end local held={} for _,r in ipairs(out) do if r[2]>0 then held[r[7]]=true end end local rows={} for _,r in ipairs(out) do if r[2]>0 or not held[r[7]] then rows[#rows+1]=r[1]..';;'..r[2]..';;'..r[3]..';;'..r[4]..';;'..r[5]..';;'..r[6]..';;'..r[7] end end return table.concat(rows,' #|# ') end)() INTO resources
 LOG "resources: {resources}"
