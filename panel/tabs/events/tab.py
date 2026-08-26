@@ -1268,11 +1268,25 @@ class EventsTab(PanelTab):
             {"label": "events.train.fare", "value": self._train_fare_words(tr)},
             {"label": "events.train.contracts",
              "value": ("—" if tr.contracts is None else str(tr.contracts))},
-            {"label": "events.train.carriage.set", "value": str(self.carriage())},
-            {"label": "events.train.tickets.set",
-             "value": (self.t("events.train.tickets.like") if self.tickets() == 0
-                       else str(self.tickets()))},
-        ]}
+        ],
+            # THE TWO KNOBS ARE FIELDS, NOT PRESSES (#1993). They are the standing order
+            # our own watcher obeys when the conductor's push lands, which is the one
+            # minute in the day nobody is at the machine — so they have to be SET from
+            # the phone rather than walked one step per tap. `kind` is the type they were
+            # declared with and the bounds are the game's own: four carriages, and a fare
+            # of nothing (a like) up to the three contracts the game itself allows.
+            "fields": [
+                {"key": modelmod.TRAIN_CARRIAGE_KEY,
+                 "label": "events.train.carriage.set", "kind": "number",
+                 "value": self.carriage(),
+                 "min": modelmod.TRAIN_CARRIAGES[0],
+                 "max": modelmod.TRAIN_CARRIAGES[-1]},
+                {"key": modelmod.TRAIN_TICKETS_KEY,
+                 "label": "events.train.tickets.set",
+                 "hint": "events.train.tickets.hint", "kind": "number",
+                 "value": self.tickets(),
+                 "min": modelmod.TRAIN_TICKETS[0],
+                 "max": modelmod.TRAIN_TICKETS[-1]}]}
         if tr.can_board and not self._train_boarding:
             board = {"id": "board_train", "label": "events.train.board"}
             if self.tickets() > 0:
@@ -1280,15 +1294,9 @@ class EventsTab(PanelTab):
                 # same rule the rally join goes by. Diamonds are never in it: the recipe
                 # clamps the fare to the contracts actually held (`CLAUDE.md`).
                 board["confirm"] = "events.train.board.confirm"
-            tcard["actions"] = [board,
-                                {"id": "carriage_next",
-                                 "label": "events.train.carriage.next"},
-                                {"id": "tickets_next",
-                                 "label": "events.train.tickets.next"}]
+            tcard["actions"] = [board]
         else:
             tcard["items"] = [{"label": "events.train.board",
-                               "pill": "events.codename.attack.off"},
-                              {"label": "events.train.carriage.next",
                                "pill": "events.codename.attack.off"}]
 
         return {"cards": [
@@ -1357,20 +1365,21 @@ class EventsTab(PanelTab):
             if not self.train().can_board:
                 return {"error": "closed"}
             return {"ok": self.board_train()}
-        if action == "carriage_next":
-            # A SETTING, not a press at the game: it changes which carriage the next
-            # boarding — by hand or on the conductor's push — queues in. One button that
-            # walks the carriages rather than four that look alike; the row above says
-            # which one is on.
-            cars = list(modelmod.TRAIN_CARRIAGES)
-            self._train_carriage = cars[(cars.index(self.carriage()) + 1) % len(cars)]
-            return {"ok": True, "carriage": self._train_carriage}
-        if action == "tickets_next":
-            # The same, for the fare: 0 (a like, free) → 1 → 2 → 3 → 0. It never buys
-            # anything for diamonds — the recipe clamps it to the bag.
-            fares = list(modelmod.TRAIN_TICKETS)
-            self._train_tickets = fares[(fares.index(self.tickets()) + 1) % len(fares)]
-            return {"ok": True, "tickets": self._train_tickets}
+        if action == "set":
+            # The two train knobs, moved by the renderer's own field control. A SETTING
+            # and not a press at the game: it changes what the next boarding — by hand or
+            # on the conductor's push — will do, and presses nothing now. Both are
+            # clamped by the model, so a value the page should not have been able to send
+            # lands on the nearest one that exists rather than on the game.
+            key = str((args or {}).get("key") or "")
+            raw = (args or {}).get("value")
+            if key == modelmod.TRAIN_CARRIAGE_KEY:
+                self._train_carriage = modelmod.carriage_of(raw)
+                return {"ok": True, "carriage": self._train_carriage}
+            if key == modelmod.TRAIN_TICKETS_KEY:
+                self._train_tickets = modelmod.tickets_of(raw)
+                return {"ok": True, "tickets": self._train_tickets}
+            return {"error": "unknown"}
         if action == "hunt_golden":
             if not self.golden().can_attack:
                 return {"error": "closed"}

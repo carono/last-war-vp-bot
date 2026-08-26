@@ -2234,14 +2234,12 @@
   "events.train.fare.open": "non pagato",
   "events.train.contracts": "Contratti commerciali nella borsa",
   "events.train.carriage.set": "Vagone da prendere",
-  "events.train.carriage.next": "Vagone successivo",
   "events.train.tickets.set": "Biglietto da offrire",
-  "events.train.tickets.next": "Biglietto successivo",
-  "events.train.tickets.like": "un mi piace (gratis)",
   "events.train.board": "Sali e paga",
   "events.train.board.confirm": "Dare al conduttore i Contratti commerciali e prendere posto?",
   "events.train.log.busy": "Treno dell'Alleanza: il gioco è occupato — nessun imbarco",
   "events.train.log.done": "Treno dell'Alleanza: imbarco eseguito — la scheda si rilegge",
   "events.train.log.failed": "Treno dell'Alleanza: imbarco fallito — {error}",
-  "triggers.item.alliance_train_board": "Salire sul Treno dell'Alleanza appena viene nominato un conduttore"
+  "triggers.item.alliance_train_board": "Salire sul Treno dell'Alleanza appena viene nominato un conduttore",
+  "events.train.tickets.hint": "0 è un mi piace e non costa nulla; 1–3 sono Contratti commerciali presi dalla borsa. Qui non si compra mai nulla con i diamanti: ciò che la borsa non copre parte come mi piace gratuito."
 }

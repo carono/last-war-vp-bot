@@ -2234,14 +2234,12 @@
   "events.train.fare.open": "not paid",
   "events.train.contracts": "Trade Contracts in the bag",
   "events.train.carriage.set": "Carriage to board",
-  "events.train.carriage.next": "Next carriage",
   "events.train.tickets.set": "Fare to offer",
-  "events.train.tickets.next": "Next fare",
-  "events.train.tickets.like": "a like (free)",
   "events.train.board": "Board and pay",
   "events.train.board.confirm": "Offer the conductor the Trade Contracts and take a seat?",
   "events.train.log.busy": "Alliance Train: the game is busy — nothing was boarded",
   "events.train.log.done": "Alliance Train: boarding done — the card is re-reading itself",
   "events.train.log.failed": "Alliance Train: could not board — {error}",
-  "triggers.item.alliance_train_board": "Board the Alliance Train when a conductor is appointed"
+  "triggers.item.alliance_train_board": "Board the Alliance Train when a conductor is appointed",
+  "events.train.tickets.hint": "0 is a like and costs nothing; 1–3 are Trade Contracts out of the bag. Nothing here is ever bought for diamonds — a fare the bag cannot cover is sent as the free like."
 }

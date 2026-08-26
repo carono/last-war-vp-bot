@@ -422,8 +422,14 @@ def test_the_train_card_says_what_stands_at_the_platform():
     assert rows["events.train.contracts"] == "92"
     assert rows["events.train.queue"] == "57 / 28"
     assert rows["events.train.seat"] == "—"          # not in a carriage yet
-    assert {a["id"] for a in card["actions"]} >= {"board_train", "carriage_next",
-                                                  "tickets_next"}
+    assert [a["id"] for a in card["actions"]] == ["board_train"]
+    # …and the two knobs are FIELDS the phone can set, not buttons it has to walk.
+    fields = {f["key"]: f for f in card["fields"]}
+    assert fields[modelmod.TRAIN_CARRIAGE_KEY]["kind"] == "number"
+    assert (fields[modelmod.TRAIN_CARRIAGE_KEY]["min"],
+            fields[modelmod.TRAIN_CARRIAGE_KEY]["max"]) == (1, 4)
+    assert (fields[modelmod.TRAIN_TICKETS_KEY]["min"],
+            fields[modelmod.TRAIN_TICKETS_KEY]["max"]) == (0, 3)
 
 
 def test_the_train_knobs_are_what_the_recipe_and_the_trigger_are_handed():
@@ -431,9 +437,14 @@ def test_the_train_knobs_are_what_the_recipe_and_the_trigger_are_handed():
     trigger run with — there is one rule, not a phone's and a schedule's."""
     tab = _tab()
     assert tab.train_args() == {"carriage": 1, "tickets": 0}
-    tab.web_press("carriage_next", {})
-    tab.web_press("tickets_next", {})
+    tab.web_press("set", {"key": modelmod.TRAIN_CARRIAGE_KEY, "value": 2})
+    tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY, "value": 1})
     assert tab.train_args() == {"carriage": 2, "tickets": 1}
+    # A value the page should not have been able to send lands on the nearest one that
+    # exists — never on the game.
+    tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY, "value": 99})
+    assert tab.tickets() == modelmod.TRAIN_TICKETS_DEFAULT
+    tab.web_press("set", {"key": modelmod.TRAIN_TICKETS_KEY, "value": 1})
     assert tab.config()[modelmod.TRAIN_CARRIAGE_KEY] == 2
     assert tab.config()[modelmod.TRAIN_TICKETS_KEY] == 1
     # …and the press plays the recipe WITH them, never a second copy of the rule.
@@ -487,9 +498,17 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
         keys += [a["label"] for a in view["actions"]]
         for card in view["cards"]:
             assert set(card) <= {"title", "head", "rows", "items", "empty", "search",
-                                 "actions"}
-            keys += [k for k in (card.get("title"), card.get("empty")) if k]
+                                 "actions", "fields", "note"}
+            keys += [k for k in (card.get("title"), card.get("empty"),
+                                 card.get("note")) if k]
             keys += [r["label"] for r in card.get("rows") or ()]
+            # A knob's label and hint are words; its key and value are data, and its
+            # kind is one the renderer knows (docs/panel-tabs.md).
+            for field in card.get("fields") or ():
+                assert field["kind"] in ("switch", "number", "text")
+                keys += [k for k in (field.get("label"), field.get("hint")) if k]
+                assert not keyish.match(str(field["key"])), \
+                    "a knob's key is data, not a locale key"
             for item in card.get("items") or ():
                 assert "text" not in item, \
                     "a title of the panel's own must be a key, not data"

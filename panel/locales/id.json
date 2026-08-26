@@ -2234,14 +2234,12 @@
   "events.train.fare.open": "belum dibayar",
   "events.train.contracts": "Kontrak Dagang di tas",
   "events.train.carriage.set": "Gerbong yang dinaiki",
-  "events.train.carriage.next": "Gerbong berikutnya",
   "events.train.tickets.set": "Ongkos yang diberikan",
-  "events.train.tickets.next": "Ongkos berikutnya",
-  "events.train.tickets.like": "suka (gratis)",
   "events.train.board": "Naik dan bayar",
   "events.train.board.confirm": "Berikan Kontrak Dagang ke kondektur dan ambil kursi?",
   "events.train.log.busy": "Kereta Aliansi: gim sedang sibuk — tidak jadi naik",
   "events.train.log.done": "Kereta Aliansi: naik kereta selesai — kartu membaca ulang",
   "events.train.log.failed": "Kereta Aliansi: gagal naik — {error}",
-  "triggers.item.alliance_train_board": "Naik Kereta Aliansi begitu kondektur ditunjuk"
+  "triggers.item.alliance_train_board": "Naik Kereta Aliansi begitu kondektur ditunjuk",
+  "events.train.tickets.hint": "0 adalah suka dan gratis; 1–3 adalah Kontrak Dagang dari tas. Di sini tidak pernah ada yang dibeli dengan berlian — yang tidak tertutup isi tas dikirim sebagai suka gratis."
 }

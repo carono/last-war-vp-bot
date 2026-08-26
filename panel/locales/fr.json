@@ -2234,14 +2234,12 @@
   "events.train.fare.open": "non payé",
   "events.train.contracts": "Contrats Commerciaux dans le sac",
   "events.train.carriage.set": "Wagon à prendre",
-  "events.train.carriage.next": "Wagon suivant",
   "events.train.tickets.set": "Prix à offrir",
-  "events.train.tickets.next": "Prix suivant",
-  "events.train.tickets.like": "un like (gratuit)",
   "events.train.board": "Embarquer et payer",
   "events.train.board.confirm": "Offrir les Contrats Commerciaux au conducteur et prendre place ?",
   "events.train.log.busy": "Train de l'Alliance : le jeu est occupé — aucun embarquement",
   "events.train.log.done": "Train de l'Alliance : embarquement effectué — la carte se relit",
   "events.train.log.failed": "Train de l'Alliance : embarquement impossible — {error}",
-  "triggers.item.alliance_train_board": "Embarquer dans le Train de l'Alliance dès qu'un conducteur est désigné"
+  "triggers.item.alliance_train_board": "Embarquer dans le Train de l'Alliance dès qu'un conducteur est désigné",
+  "events.train.tickets.hint": "0 est un like et ne coûte rien ; 1 à 3 sont des Contrats Commerciaux pris dans le sac. Rien n'est jamais acheté avec des diamants ici — ce que le sac ne couvre pas part en like gratuit."
 }

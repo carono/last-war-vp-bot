@@ -2234,14 +2234,12 @@
   "events.train.fare.open": "nieopłacona",
   "events.train.contracts": "Umów handlowych w torbie",
   "events.train.carriage.set": "Wagon do zajęcia",
-  "events.train.carriage.next": "Następny wagon",
   "events.train.tickets.set": "Opłata do zaoferowania",
-  "events.train.tickets.next": "Następna opłata",
-  "events.train.tickets.like": "polubienie (za darmo)",
   "events.train.board": "Wsiądź i zapłać",
   "events.train.board.confirm": "Dać konduktorowi umowy handlowe i zająć miejsce?",
   "events.train.log.busy": "Pociąg Sojuszu: gra jest zajęta — nikt nie wsiadł",
   "events.train.log.done": "Pociąg Sojuszu: wsiadanie wykonane — karta odczytuje się na nowo",
   "events.train.log.failed": "Pociąg Sojuszu: nie udało się wsiąść — {error}",
-  "triggers.item.alliance_train_board": "Wsiadać do Pociągu Sojuszu, gdy zostanie wyznaczony konduktor"
+  "triggers.item.alliance_train_board": "Wsiadać do Pociągu Sojuszu, gdy zostanie wyznaczony konduktor",
+  "events.train.tickets.hint": "0 to polubienie i nic nie kosztuje; 1–3 to umowy handlowe z torby. Nic tu nie jest kupowane za diamenty — czego torba nie pokryje, idzie jako darmowe polubienie."
 }
