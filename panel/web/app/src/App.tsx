@@ -24,18 +24,18 @@ const POLL_MS = 2500 //  how often a visible page asks for state and log
 const SLOW_MS = 15000 // …and when it is in a pocket, hidden
 const LOG_KEEP = 400 //  lines held for a phone that has been open all evening
 
-type ViewName = 'state' | 'timers' | 'log' | 'more'
+type ViewName = 'state' | 'timers' | 'more'
 
-/* THERE IS NO «СЦЕНАРИИ» ENTRY, and that is the point — the person's decision, in their
- * words: «вкладки сценарии быть не должно, в панели она была в разделе с разработкой,
- * так же перенеси». The window has never had a Scenarios tab either: it is one of the
- * four pages INSIDE «Разработка» (`panel/tabs/develop.py`, `PAGES`), and the phone now
- * groups it the same way — the list is drawn under the develop screen, whole, with the
- * same search and the same one press per scenario. */
+/* THERE IS NO «СЦЕНАРИИ» ENTRY AND NO «ЛОГ» ENTRY, and that is the point — the person's
+ * decision, in their words: «вкладки сценарии быть не должно, в панели она была в
+ * разделе с разработкой, так же перенеси», and then, for the log, «журнал и сценарии
+ * перенесём внутрь разработки». The window has never had either as a tab of its own:
+ * both are pages INSIDE «Разработка» (`panel/tabs/develop.py`, `PAGES` = log / busy /
+ * scenarios / sniff), and the phone now groups them the same way — under the develop
+ * screen, whole. */
 const NAV: { id: ViewName; key: string }[] = [
   { id: 'state', key: 'web.ui.nav.state' },
   { id: 'timers', key: 'web.ui.nav.timers' },
-  { id: 'log', key: 'web.ui.nav.log' },
   { id: 'more', key: 'web.ui.nav.more' },
 ]
 
@@ -247,6 +247,22 @@ function Panel() {
             <ScreenPage id={screen} pollKey={tickCount} onBack={() => setScreen(null)} />
             {screen === DEVELOP_SCREEN ? (
               <>
+                {/* The log's page comes first in the window's own order (`PAGES`,
+                    `DEFAULT_PAGE = "log"`) — it is what a profile without a saved
+                    choice lands on, so it is what the phone shows first too. */}
+                <h3 className="screen-part">{t('develop.page.log')}</h3>
+                <LogView
+                  lines={lines}
+                  notify={notify}
+                  onNotify={async (want) => {
+                    let on = want
+                    if (on && 'Notification' in window && Notification.permission !== 'granted') {
+                      on = (await Notification.requestPermission()) === 'granted'
+                    }
+                    notifyRef.current = on
+                    setNotify(on)
+                  }}
+                />
                 <h3 className="screen-part">{t('develop.page.scenarios')}</h3>
                 <ActionsView
                   actions={actions}
@@ -270,19 +286,6 @@ function Panel() {
             triggers={triggers}
             now={state?.time || 0}
             refresh={refreshTimers}
-          />
-        ) : view === 'log' ? (
-          <LogView
-            lines={lines}
-            notify={notify}
-            onNotify={async (want) => {
-              let on = want
-              if (on && 'Notification' in window && Notification.permission !== 'granted') {
-                on = (await Notification.requestPermission()) === 'granted'
-              }
-              notifyRef.current = on
-              setNotify(on)
-            }}
           />
         ) : (
           <MoreView screens={screens} onOpen={(id) => setScreen(id)} />
