@@ -1,0 +1,210 @@
+r"""The service OWNS the panels: what it starts, what it leaves alone, how it lets go.
+
+    «Не, не пойдет, центр правды — это служба, если я её поднял,
+      значит все уже должно работать»            — the person, 2026-08-26
+
+Before that the machine had two things to bring up and the one that survived a reboot did
+nothing on its own. `panel/service/keeper.py` is the other arrangement, and these are the
+four things it must not get wrong — each of which would be discovered live, at a cost:
+
+  * **a wanted profile with no panel is started**, and started ONCE — a supervisor that
+    starts a second panel for a profile the first one already holds is a profile opened
+    twice, which is a lock fight and two schedules on one account;
+  * **a panel restarting ITSELF is not overtaken.** «⟳ Перезапустить панель» is how a code
+    fix reaches a running panel (`CLAUDE.md`), and it shuts down before its replacement
+    dials in. Inside that gap the keeper must do nothing;
+  * **going down asks, never kills.** A killed panel leaves locks, children and a client
+    nobody let go of — and it asks only the panels IT started: somebody who opened
+    `panel.bat` to look at a window keeps their window;
+  * **«nobody is signed in» is a state, not a failure**: it is said once, it backs off,
+    and it never turns into a launch attempt per tick all night.
+
+Runs anywhere: no Windows, no service, no game — the launcher is a stub.
+
+    C:\Python312\python.exe tests\test_service_keeper.py
+    python3 tests/test_service_keeper.py
+"""
+from __future__ import annotations
+
+TIER = "offline"   # no SCM, no session, no display
+
+import sys
+from pathlib import Path
+
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
+from panel.service import keeper as keepermod      # noqa: E402
+from panel.service import session as sessionmod    # noqa: E402
+
+
+class _Panel:
+    """A connected panel, as much of one as the keeper ever touches."""
+
+    def __init__(self, pid: int, profiles, closed: bool = False) -> None:
+        self.pid = pid
+        self.profiles = list(profiles)
+        self.closed = closed
+        self.asked: list = []
+
+    def ask(self, method, path, query, body, timeout=None):
+        self.asked.append((method, path, dict(body or {})))
+        self.closed = True                    # a panel that took the press goes away
+        return 200, {"ok": True}
+
+
+class _Registry:
+    def __init__(self, panels=()) -> None:
+        self.panels = list(panels)
+
+    def all(self) -> list:
+        return list(self.panels)
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _keeper(registry, *, answers=None, profiles=("solo",), clock=None):
+    """A keeper whose launcher is a list of canned answers, and whose clock is ours."""
+    said = list(answers or [{"ok": True, "pid": 4242, "session": 1, "how": "popen"}])
+    calls: list = []
+
+    def launcher(cmd, *, cwd="", session_id=-1, log=None):
+        calls.append({"cmd": cmd, "cwd": cwd, "session": session_id})
+        return said.pop(0) if said else {"ok": False, "why": "failed", "detail": "no more"}
+
+    lines: list = []
+    keep = keepermod.Keeper(registry, {"keep": {"profiles": list(profiles)}},
+                            log=lines.append, launcher=launcher,
+                            clock=clock or _Clock())
+    return keep, calls, lines
+
+
+# ---------------------------------------------------------------------------
+def test_a_wanted_profile_with_no_panel_is_started_once():
+    registry = _Registry()
+    keep, calls, _ = _keeper(registry)
+    keep.tick()
+    assert len(calls) == 1, calls
+    assert calls[0]["cmd"][1:3] == ["-m", "panel.headless"], calls[0]["cmd"]
+    assert "--profile" in calls[0]["cmd"] and "solo" in calls[0]["cmd"]
+
+    # The panel is up now: nothing more is started, ever, for that profile.
+    registry.panels.append(_Panel(4242, ["solo"]))
+    for _ in range(5):
+        keep.tick()
+    assert len(calls) == 1, "a second panel was started for a profile already served"
+
+
+def test_a_panel_restarting_itself_is_not_overtaken():
+    clock = _Clock()
+    registry = _Registry([_Panel(1, ["solo"])])
+    keep, calls, _ = _keeper(registry, clock=clock)
+    keep.tick()
+    assert not calls, "started a panel for a profile that has one"
+
+    registry.panels.clear()                   # it went down to come back
+    clock.now += keepermod.GRACE_SEC - 5
+    keep.tick()
+    assert not calls, "overtook a panel's own restart"
+
+    clock.now += 10                           # …and it never came back
+    keep.tick()
+    assert len(calls) == 1, "a panel that really died was not replaced"
+
+
+def test_nobody_signed_in_is_said_once_and_backed_off():
+    registry = _Registry()
+    clock = _Clock()
+    keep, calls, lines = _keeper(
+        registry, answers=[{"ok": False, "why": "no_session"}] * 6, clock=clock)
+    for _ in range(3):
+        keep.tick()
+        clock.now += 1                        # ticks come every CHECK_SEC, not per hour
+    assert len(calls) == 1, f"tried again inside its own backoff: {len(calls)}"
+
+    clock.now += keepermod.BACKOFF_SEC[0] + 1
+    keep.tick()
+    assert len(calls) == 2, "never tried again"
+    said = [ln for ln in lines if "signed in" in ln]
+    assert len(said) == 1, f"said it {len(said)} times: {said}"
+
+
+def test_going_down_asks_its_own_panels_and_leaves_the_persons_alone():
+    mine, theirs = _Panel(4242, ["solo"]), _Panel(777, ["solo"])
+    registry = _Registry([mine, theirs])
+    keep, _, lines = _keeper(registry)
+    keep.own.add(4242)
+    keep.stop(wait=0.5)
+    assert mine.asked, "the panel the service started was not asked to quit"
+    assert mine.asked[0][1] == "/api/panel" and mine.asked[0][2]["action"] == "quit"
+    assert not theirs.asked, "a panel the PERSON started was shut down by the service"
+
+
+def test_a_panel_that_will_not_go_is_left_alone_and_said():
+    class _Stubborn(_Panel):
+        def ask(self, *a, **k):
+            return 200, {"ok": True}          # takes the press and stays up
+
+    stuck = _Stubborn(4242, ["solo"])
+    keep, _, lines = _keeper(_Registry([stuck]))
+    keep.own.add(4242)
+    keep.stop(wait=0.5)
+    assert any("left alone" in ln for ln in lines), lines
+    assert not stuck.closed, "the keeper killed a panel instead of leaving it"
+
+
+def test_which_profiles_is_a_SETTING_and_falls_back_to_this_machines_own_answer():
+    assert keepermod.settings({})["profiles"] == []
+    assert keepermod.settings({"keep": {"profiles": ["a", " b "]}})["profiles"] == ["a", "b"]
+    assert keepermod.settings({"keep": {"enabled": False}})["enabled"] is False
+    assert keepermod.settings({"keep": {"session": "3"}})["session"] == 3
+    assert keepermod.settings({"keep": {"session": "nonsense"}})["session"] == -1
+
+    # Nothing configured: whatever THIS machine's panel last had open — never a name
+    # written into the code (`CLAUDE.md`).
+    keep, calls, _ = _keeper(_Registry(), profiles=())
+    assert keep.wanted() == keepermod.machine_profiles()
+
+
+def test_switched_off_it_is_the_door_it_used_to_be():
+    keep, calls, lines = _keeper(_Registry())
+    keep.settings["enabled"] = False
+    keep.tick()
+    keep.start()
+    assert not calls, "supervised something with supervision switched off"
+    assert keep.wanted() == []
+
+
+def test_the_command_it_starts_is_the_one_place_a_panel_is_spelled():
+    cmd = sessionmod.panel_command(["one", "two"], python="py.exe")
+    assert cmd[:3] == ["py.exe", "-m", "panel.headless"], cmd
+    assert cmd.count("--profile") == 2 and cmd[-1] == "two", cmd
+    # A window, never: the service's panel has no session of its own to draw in.
+    assert "panel.__main__" not in " ".join(cmd)
+
+
+def main() -> int:
+    failed = 0
+    for name, fn in sorted(globals().items()):
+        if not name.startswith("test_") or not callable(fn):
+            continue
+        try:
+            fn()
+        except Exception as exc:              # noqa: BLE001 — a report, not a crash
+            failed += 1
+            print(f"FAIL {name}: {type(exc).__name__}: {exc}")
+        else:
+            print(f"ok   {name}")
+    print("FAILED" if failed else "OK")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

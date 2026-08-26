@@ -170,7 +170,9 @@ def _run_as_service() -> int:
     def handler(control, event_type, event_data, context):   # noqa: ARG001 — SCM's shape
         if control in (CONTROL_STOP, CONTROL_SHUTDOWN):
             log(f"service: control {control} — stopping")
-            report(SERVICE_STOP_PENDING, wait_ms=20000)
+            # Long enough for the keeper to ask every panel it started to quit
+            # and for them to write their profiles out (`panel/service/keeper.py`).
+            report(SERVICE_STOP_PENDING, wait_ms=45000)
             stopping.set()
         elif control == CONTROL_INTERROGATE:
             report(SERVICE_RUNNING)

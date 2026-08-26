@@ -42,8 +42,17 @@ class Door:
     """The panels' way in. One thread accepting, one per connected panel."""
 
     def __init__(self, registry: Registry, *, host: str = DOOR_HOST,
-                 port: int = DEFAULT_DOOR_PORT, log=None) -> None:
+                 port: int = DEFAULT_DOOR_PORT, log=None, on_shutdown=None) -> None:
         self.registry = registry
+        #: WHAT «put yourself down» RUNS. A service started by Windows is stopped by
+        #: Windows; one started by hand (`service.bat`) had no way down at all but a
+        #: Ctrl+C at the machine it is running on — and «at the machine» is exactly what
+        #: this whole piece of work is removing. So the door takes one frame that is not a
+        #: panel's, `{"shutdown": 1}`, and `service.bat --stop` sends it.
+        #:
+        #: SAFE FOR THE SAME REASON THE DOOR NEEDS NO PASSWORD: it is loopback-only, and
+        #: anything that can open this port can already read the token file.
+        self._on_shutdown = on_shutdown
         self.host = host or DOOR_HOST
         self.port = int(port)
         self._log = log or (lambda line: None)
@@ -118,6 +127,16 @@ class Door:
                         break
                 elif "id" in frame:
                     panel.answered(frame)
+                elif "shutdown" in frame:
+                    self._log("door: asked to put the service down")
+                    try:
+                        conn.sendall(wire.dumps({"stopping": 1}))
+                    except OSError:
+                        pass
+                    if self._on_shutdown is not None:
+                        threading.Thread(target=self._on_shutdown, name="service-stop",
+                                         daemon=True).start()
+                    break
                 elif "ping" in frame:
                     try:
                         conn.sendall(wire.dumps({"pong": 1}))

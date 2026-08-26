@@ -93,7 +93,7 @@ if errorlevel 1 (
 REM -- already there? ----------------------------------------------------------
 sc query %NAME% >nul 2>&1
 if not errorlevel 1 (
-  echo [service] служба %NAME% уже зарегистрирована — обновляю её команду запуска.
+  echo [service] служба %NAME% уже зарегистрирована — обновляю команду запуска и перезапускаю.
   REM A registration made before `--service` existed starts a process that never
   REM speaks to Windows and therefore hangs on start. Rewriting binPath is the whole
   REM repair, and it costs the same click as being told to uninstall first.
@@ -103,6 +103,14 @@ if not errorlevel 1 (
     set "RC=1" & goto :done
   )
   sc failure %NAME% reset= 86400 actions= restart/5000/restart/15000/restart/60000 >nul
+  REM RESTARTED, not merely started: a service that is already running is running
+  REM the code it was started with, so «поставь заново» after a fix has to put the
+  REM new code in — the same rule the panel's own restart obeys (CLAUDE.md).
+  REM Stopping asks every panel the service started to quit first, so this can take
+  REM a few seconds; an already-stopped service makes `sc stop` complain and that is
+  REM not an error here.
+  sc stop %NAME% >nul 2>&1
+  ping -n 4 127.0.0.1 >nul
   sc start %NAME% >nul 2>&1
   sc query %NAME% | findstr /i "STATE"
   REM RUNNING here means it is up (1056 «уже запущена» lands here too and is fine).

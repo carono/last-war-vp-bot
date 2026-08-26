@@ -44,28 +44,63 @@ nobody has to ask them again:
 | «Разработка» / «Занятость» — the written-down divergence, or a screen? | **a screen** — done, see the row above. The sniffers stay in the window because their start and stop are message boxes, and that is written inside the screen rather than kept as a divergence |
 | renaming and deleting a PROFILE from the phone — destructive | **allowed, behind a typed name** — done, see the row above |
 | joining a rally from the phone — real troops leave the base | **build it, WITH the squads chosen** — a screen listing the squads and what is in them, not a bare «join» that sends whatever was last used |
+| is the service a door the panels knock on, or the thing that BRINGS THEM UP? | **«Не, не пойдет, центр правды — это служба, если я её поднял, значит все уже должно работать»** — the fifth decision, 2026-08-26, and it reverses what §«The OWNER, not the door» used to say. One thing to start on this machine; the panels are the service's doing |
 
 The two that are still to build are the first and the last, and each needs one thing this
 repository already has a shape for: a picture route for the sprites, and a screen (rather
 than a button) for the squads.
 
-## The door, not the supervisor
+## The OWNER, not the door (reversed 2026-08-26)
 
-The service **does not start the panel and does not supervise it**. The panel comes up
-with the Windows session, exactly as the session itself does, and CONNECTS to the
-service; the service never reaches into a session. This is the whole answer to «will it
-be the daemon all over again»: there is no process anybody has to bring up, so there is
-nothing that can fail to come up. Starting a panel into a session stays as a rare manual
-button, if it is built at all.
+**This section used to say the opposite and the person overruled it, in these words:**
+
+> «Не, не пойдет, центр правды — это служба, если я её поднял, значит все уже должно
+> работать»
+
+What it said was that the service **does not start the panel and does not supervise it** —
+the panel comes up with its Windows session and CONNECTS, and «there is no process anybody
+has to bring up, so there is nothing that can fail to come up». The reasoning was sound
+about session 0 and wrong about the machine: it left TWO things to bring up, and the one
+that survives a reboot was the one that did nothing on its own. A person who has installed
+a service has already said what they want to happen.
+
+So the service OWNS the panels (`panel/service/keeper.py`):
+
+* **it starts them** — at boot, and whenever a wanted profile has no panel serving it;
+* **it outlives them** — a panel that dies is started again, and a panel restarting ITSELF
+  («⟳ Перезапустить панель», which is how a code fix reaches a running panel) is given a
+  grace window so nobody overtakes it;
+* **it puts them down properly** — stopping the service asks each panel it started to quit
+  through `panel/runtime/panel_control.py`, the same shutdown the window's ✕ runs, and
+  waits. Nothing is killed. A panel a PERSON started is not the service's to stop and is
+  left alone;
+* **which profiles is a setting** — `service.json` → `keep`, and an empty list means the
+  ones this machine's panel last had open. No name is written into the code.
+
+### The one honest limit, and it is not a shortcoming to fix
+
+A service lives in session 0: no desktop, no window station, no foreground, no screen. The
+panel needs all four the moment it touches the game. So the service starts the panel in a
+SIGNED-IN session (`panel/service/session.py`: `WTSQueryUserToken` → `DuplicateTokenEx` →
+`CreateProcessAsUserW` on `winsta0\default`, which needs `SeTcbPrivilege` — LocalSystem
+has it, an ordinary account does not).
+
+**With nobody signed in there is no session to start it in.** The service says so once and
+keeps looking. There is no flag that fixes this and no cleverness that gets around it: a
+game that draws needs a session that draws, and a panel in session 0 would come up, dial
+in, and fail at everything it exists for. Windows' own answer is «sign in», or «leave a
+session logged on and disconnected» — which is what a second client already does here
+(`docs/research/multi-instance-rdp.md`). Everything else about the machine — the port, the
+token, the routing, the page — is up before anybody signs in, exactly as it was.
 
 Installing it is `service_install.bat` and removing it `service_uninstall.bat` — what
-they register is `tools/run_service.py` under the repository they sit in, run by a
-windowless interpreter, because a service is started with the system directory as its
-working directory and `-m panel.service` would find nothing there.
+they register is `tools/run_service.py --service` under the repository they sit in, run by
+a windowless interpreter. Running the installer again on a machine that already has the
+service REWRITES its command line and RESTARTS it, which is how new code gets in.
 
-What the service is: the port, TLS, the token, the SPA, the register of panels that have
-connected, and the routing to them. What it is not: a watchdog, a retry loop, a thing
-that owns a lifecycle.
+What the service is: the port, TLS, the token, the SPA, the register of panels, the
+routing to them, and the panels themselves. What it is not: anything that touches the
+game.
 
 ## What is done, and what it cost
 
@@ -101,7 +136,8 @@ that owns a lifecycle.
 | P2 — the treasure feed's own filter | **done** | four switches on «Сокровища (отладка)»; the clipboard press stays at the machine |
 | P2 — what is still window-only | see below | |
 | P0 — the service, and the panel dialling out to it | **live** | `panel/service/` + `panel/runtime/service_link.py`; measured on this machine: the door on 9762, the web on 9763, one panel dialled in with four profiles, and `/api/profiles` through the SERVICE answered by that panel |
-| P0 — installed as a Windows service | **registered live; hung on start, then fixed — needs one elevated press to confirm** | see «A service is a protocol» below |
+| P0 — installed as a Windows service | **live** | RUNNING under LocalSystem, `--service`, auto-start; see «A service is a protocol» below |
+| P0 — the service OWNS the panels | **written; the session-0 launch needs one elevated press to confirm** | `panel/service/keeper.py` + `session.py`; the fifth decision above. Measured live in the foreground: the keeper started a panel by itself, the panel dialled in and `/api/panels` showed it. `CreateProcessAsUserW` from session 0 is the half only the installed service can run |
 | P3 — the panel runs with NO WINDOW | **live** | `panel/headless.py` + `headless.bat`; measured beside the running window: it opened a profile, attached the game's Lua VM, dialled the service and answered through it — `/api/state`, `/api/screens` and four tab screens drawn by a panel that has no window |
 | P3 — a tab's STATE survives Tk | **done** | `panel/runtime/statevar.py`; 97 tab variables and the settings binder go through it. With a window they ARE Tk variables, so nothing about the window changed |
 | P3 — the clock without Tk | **done** | `ThreadTicker`: one thread, FIFO hand-overs. A rootless runtime used to get a `Ticker` that armed nothing |
