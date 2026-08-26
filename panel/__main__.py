@@ -116,7 +116,6 @@ from .runtime import service_control as servicectl
 from .runtime import web_control as webctl
 from .runtime import web_dialog as webdlg
 
-import game_link
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -145,7 +144,6 @@ for _tp in (TOOLS, TOOLS_LIB, SRC):
 import lua_actions      # noqa: E402
 import coords           # noqa: E402
 import game_paths       # noqa: E402  (where the game is — LW_LAUNCHER & co)
-import game_maintenance as game_maint  # noqa: E402  (the closed door, #1982)
 import game_buttons     # noqa: E402  (the named presses the reference pane lists)
 
 WIN_PYTHON = game_paths.win_python()
@@ -241,26 +239,9 @@ WATCHDOG_STRIKES = 2
 # Least time between two watchdog relaunches. A client that dies on startup would
 # otherwise be relaunched every eight seconds forever.
 WATCHDOG_COOLDOWN_SEC = 300.0
-# How often «has the account been taken from us» is asked of a client that otherwise
-# looks fine. Unlike the socket walk this is a round trip into the game VM (~0.7 s), so
-# it is not free enough to make every eight seconds — but the kick modal does not
-# self-dismiss and was still up seven minutes later when it was watched
-# (docs/research/session-kick.md §4), so three polls is comfortably inside it.
-#
-# A lost link, and a kick already seen, are both asked EVERY poll: there the answer is
-# the thing being decided, and the recovery counts consecutive readings.
-KICK_POLL_SEC = 24.0
-# How often «is this client in a session at all» is asked (`_read_session`, #1299). One
-# round trip to the client's own clock, measured live against a warm daemon on
-# 2026-08-08: **31 / 81 / 54 ms** for three consecutive reads. That is a tenth of what
-# the kick read costs, and it is on the same clock as the kick for the same reason —
-# it takes the daemon's run lock, so it may not be made every eight seconds for ever.
-#
-# It is asked ONLY of a client that already looks fine: running, `online`, and a daemon
-# that is warm and not stale. Every other state is amber or red on readings that cost
-# nothing, so the round trip is spent exactly where it is the difference between amber
-# and green — a login screen answers all the cheap questions like a healthy account.
-SESSION_POLL_SEC = 24.0
+# The throttles the readings run on — how often the client's message dialog is read
+# and how often «is this client in a session at all» is asked — moved to
+# `panel/runtime/status.py` with the readings themselves (#1984).
 
 # How quiet the window size has to go before the window is painted again after a
 # drag (see Panel._install_resize_damper). Long enough that the pauses inside a
@@ -487,8 +468,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
         "_game_gone", "_game_gone_at", "_game_was_up", "_watchdog_last", "_wd_held",
-        "_link_gone",
-        "_kick_at", "_kick_was", "_session_at", "_session_was",
         # the three lifecycle buttons, greyed off this profile's own client
         "_game_buttons",
         # the DSL command line
@@ -1339,33 +1318,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # own cure for a port nothing answers — and a start racing a start is a second
         # process that cannot bind the port, prints a line nobody reads and exits.
         self._link_busy = threading.Lock()
-        # How many consecutive polls have found the server connection gone, so only
-        # the edges reach the log rather than every eight seconds of it
-        # (see `_announce_link`).
-        self._link_gone = 0
-        # When the kick modal was last asked about, and what it said. The answer is
-        # CARRIED between reads rather than re-read every poll (`_read_kicked`): the
-        # recovery counts consecutive readings, so a throttle that answered «no kick»
-        # in the gaps would reset the count it is meant to be feeding.
-        self._kick_at = 0.0
-        self._kick_was = False
-        # …and the same pair for «is this client in a session at all» (`_read_session`,
-        # #1299). Carried between reads for the same reason: it is asked on a throttle,
-        # and a gap that answered «не знаю» would turn the tab's light amber every other
-        # poll over a perfectly healthy account.
-        self._session_at = 0.0
-        self._session_was = ""
-        # …and THE CLOSED DOOR (#1982). The client's message dialog is read ONCE per
-        # poll and judged twice — a kick and a maintenance notice are two sentences in
-        # the same window, and reading it twice would be a second round trip for
-        # nothing. `_maint_was` is the last verdict (`tools/lib/game_maintenance.py`),
-        # `_maint_secs` the countdown the game named when it announced the shutdown,
-        # and `_maint_said` what the log has already been told, so a window that lasts
-        # an hour costs one line and not one every eight seconds.
-        self._tip_at = 0.0
-        self._maint_was = ""
-        self._maint_secs = None
-        self._maint_said = ""
+        # The readings' own carried state — the consecutive-loss count, the kick, the
+        # closed door, the session — lives with the readings now
+        # (`panel/runtime/status.py`, #1984), so this window keeps none of it.
         # Account dashboard: the last readings and the poller's stop flag. The WIDGET is
         # made when «Аккаунты» is first drawn and not before (`_on_tab_realized`,
         # #1215), so the poller has to be able to run with nowhere to paint.
@@ -1638,15 +1593,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _game_status(self) -> tuple:
         """`(running, label)` for THIS profile's client — its executable, its session."""
         return runtime.game_process.profile_status(self._binder)
-
-    def _game_probe(self):
-        """The same reading with the LINK in it — online, lost, unknown, offline.
-
-        What the strip and the phone show. `_game_status` is the half everything that
-        merely presses buttons still asks for: a client that lost the server is running,
-        and must not be relaunched from under the person.
-        """
-        return runtime.game_process.profile_probe(self._binder)
 
     def _launcher(self) -> str:
         return self._opt_str("launcher")
@@ -3672,18 +3618,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """The ⭮ beside the link indicator: let the client go and take hold of it again."""
         self._link_act(self._game.reattach)
 
-    def _take_link(self) -> bool:
-        """Take hold of the client when nothing is landing — the poll's own cure (#1911).
-
-        `ensure()`, which for this desktop's client is an attach in this process and for
-        a client in another Windows session is «is the connector over there answering,
-        and start it if it is not».
-
-        ``False`` when an attach is already in flight, so the caller can hold its tongue
-        instead of announcing one that is not happening.
-        """
-        return self._link_act(self._ensure_link)
-
     def _link_state(self, state: str, ok) -> None:
         """Paint the link indicator from the link, whichever thread reports it.
 
@@ -3738,72 +3672,28 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._status_busy = True
 
         def work() -> None:
-            kicked = False
+            # EVERY READING, AND EVERYTHING THEY MEAN, IS THE PROFILE'S (#1984). Is
+            # there a client, does a chunk land, does the server answer, has the account
+            # been taken, is the server shut, is this client in a session at all — and
+            # the verdict, the recovery's decisions and the attach that cures a link
+            # that lands nothing. All of it used to be written out here, which is why a
+            # panel with no window took no readings at all: `panel.headless` ran for
+            # hours with `ProfileHealth` never written once. This thread now takes the
+            # answers and DRAWS them, and nothing else.
             try:
-                # THE THREE READINGS THE THREE STATUSES ARE MADE OF (#1911), and not one
-                # of them is a socket. Is there a client process; does a chunk reach its
-                # Lua VM (our own wiring); does the game SERVER answer. The last is an
-                # active probe made below on its own throttle — here we only read what
-                # it last said.
-                found = self._game_probe()
-                lands = self._rt.game.plumbing()
-                now = time.time()
-                server = self._rt.recovery.server_state(now)
-                # …and the one reading that tells a WEDGED client from a bug of ours.
-                # Asked only when nothing is landing: it enumerates windows.
-                responding = True
-                if lands == profile_health.NOT_LANDING:
-                    responding = self._rt.game.responding()
-                # HAS THE ACCOUNT BEEN TAKEN? Asked whatever else is true, because a kick
-                # can sit behind a link that looks perfect — one surviving conversation
-                # out of six — and it buys the other device a wait rather than a restart
-                # (#1270, #1291). On THIS thread: it is a round trip into the game VM.
-                # ONE READING OF THE DIALOG, TWO QUESTIONS (#1982). Both the kick and
-                # the maintenance notice are text in the client's own generic message
-                # window, so the round trip is made here and the sentences are judged
-                # by the modules that own them.
-                tip = self._read_dialog(found, lands)
-                kicked = self._read_kicked(tip)
-                maint, maint_secs = self._read_maintenance(tip)
-                # …AND IS IT IN A SESSION AT ALL (#1549)? The maintenance case: the
-                # client is up, we can drive it, and it is sitting on a closed door.
-                session = self._read_session(found, lands)
-            except Exception as exc:          # noqa: BLE001 — a reading, never the panel
-                # A reading that never came is «no client» with the fault in the tooltip
-                # (#1911): three colours means three, and there is no colour for «could
-                # not look». The strip keeps whatever it last said.
-                self._rt.health.failed(exc)
-                self._dbg.error("status poll failed", exc_info=True)
-                self._later(0, self._paint_tab_light)
-                return
+                said = self._rt.status.read_and_act()
             finally:
                 self._status_busy = False
-            ok = found.running
-            # ONE LIGHT FOR THE TAB, out of readings that were all taken anyway
-            # (panel/runtime/health.py). Made here rather than on the Tk thread because
-            # everything it needs is in this frame, and it is plain data — no widget is
-            # touched until the hand-over below.
-            health = self._rt.health.update(found, plumbing=lands, server=server,
-                                            responding=responding,
-                                            error=self._rt.game.error(),
-                                            maintenance=maint == game_maint.CLOSED)
+            found, health = said.probe, said.health
+            if found is None:
+                # The reading blew up and said so itself (`rt.health.failed`): three
+                # colours means three, and there is no colour for «could not look».
+                self._later(0, self._paint_tab_light)
+                return
+            ok = bool(getattr(found, "running", False))
             shown = runtime.game_process.worded(
                 found, health.colour == profile_health.OK,
                 runtime.game_process.profile_user(self._binder))
-            # …and THE GATE, asked here on the worker rather than in the paint below.
-            # It reads the verdict written one line up, so it costs a dict lookup.
-            self._rt.gate.alive()
-            # THE LINK'S OWN SUPERVISOR, AND IT IS ONE LINE NOW (#1911). There is no
-            # process to start: if a chunk is not landing — including the first poll
-            # after a client appears, when nothing has ever landed — take hold of the
-            # client. Waiting for a NEGATIVE reading would wait for ever: the reading
-            # is «how long ago did a chunk land», and until something attaches there is
-            # no answer at all, which is how the first live run sat amber beside a
-            # perfectly good client. The attach is seconds and blocks, so it goes on its own thread —
-            # and it is not tried while the person has switched the profile off, which
-            # is what «Стоп всё» arranged.
-            if lands != profile_health.LANDING and ok and self._rt.power.on:
-                self._take_link()
             self._later(0, lambda: (
                 self._set_status_msg(shown),
                 self._status_lbl.configure(
@@ -3816,43 +3706,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._set_link(*self._link_word()),
                 self._dbg_status(ok, health),
                 self._paint_game_buttons(ok),
-                self._announce_link(health),
-                self._announce_maintenance(maint, maint_secs),
-                self._recovery_check(found, health, kicked, session),
+                # The restart bookkeeping the poll has just updated — drawn here because
+                # the strip is the window's; the decisions themselves were made off it.
+                self._paint_recovery(self._rt.recovery.state(time.time())),
                 self._paint_power(),
                 self._paint_gate(),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
-
-    def _announce_link(self, health) -> None:
-        """Say it in the log the moment the game stops answering, and when it returns.
-
-        The strip is only true while somebody is looking at it, and this is the state
-        nobody looks for: the client is up, every errand reports success, and the account
-        has been doing nothing since some hour of the night. A line in the log is what
-        puts a time on it afterwards.
-
-        Only the edges are said — an amber link would otherwise repeat every eight
-        seconds until morning — and the loss only after WATCHDOG_STRIKES consecutive
-        readings of it, the same patience the crash gets and for the same reason: a
-        client reconnecting looks briefly exactly like one that has given up.
-        """
-        # THE NUMBER THE PANEL IS JUDGED BY (#1976): a person starts the game and does
-        # nothing else, and this says how long they waited. Said on the first green after
-        # a client appeared — the link object hands the measurement over once, so this
-        # cannot turn into a line per poll.
-        if health.colour == profile_health.OK:
-            waited = self._rt.game.link_wait()
-            if waited is not None:
-                self._say("game", "log.game.link_ready", secs=f"{waited:.0f}")
-        if health.reason != profile_health.NO_TRAFFIC:
-            if self._link_gone >= WATCHDOG_STRIKES and health.colour == profile_health.OK:
-                self._say("game", "log.game.link_back")
-            self._link_gone = 0
-            return
-        self._link_gone += 1
-        if self._link_gone == WATCHDOG_STRIKES:
-            self._say("game", "log.game.link_lost")
 
     def _set_status_msg(self, msg) -> None:
         """Show the probe's answer, in the panel's language, and keep it for a re-say."""
@@ -3863,342 +3723,6 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if getattr(self, "_status_msg", None) is not None:
             self._status_var.set(i18nmod.translated(self._t, self._status_msg))
 
-    def _recovery_check(self, found, health, kicked: bool = False,
-                        session: str = "") -> None:
-        """Restart a client the server has stopped hearing — the other half of a crash.
-
-        The watchdog below notices the PROCESS going away. This notices the account
-        going away underneath a process that is still drawing: a server that hung up on
-        an idle client, or a session kicked because the account logged in on another
-        device. Both are amber with the reason `no_traffic` (#1911), and they have one
-        cure.
-
-        **THE OTHER AMBER IS NOT FED IN HERE, EVER.** `no_connection` means a chunk does
-        not reach the client's VM while the client itself is answering Windows — that is
-        OUR wiring, the cure is a fix, and restarting a client over it is #1268's six
-        pointless relaunches committed on purpose. `client_hung` is fed in: a wedged
-        process is exactly what a restart is for.
-
-        Everything that makes it safe to leave on overnight — a run of readings rather
-        than one, an unasked question never counting, a cooldown between restarts — is
-        in `panel/runtime/recovery.py` and pinned by `tests/test_panel_recovery.py`.
-        """
-        now = time.time()
-        # HOW LONG A KICK BUYS THE OTHER DEVICE, off the profile rather than out of the
-        # source (#1291). Read on every poll, so an edit on the Settings page applies to
-        # a wait already running instead of at the next start-up.
-        self._rt.recovery.kick_hold_sec = 60.0 * self._opt_int("kick_hold_min",
-                                                               low=0, high=1440)
-        self._paint_recovery(self._rt.recovery.state(now))
-        deaf = health.reason in (profile_health.NO_TRAFFIC, profile_health.CLIENT_HUNG)
-        # «Is somebody at the machine» — the gate that stops this closing a window
-        # a person is playing in, which it did once (#1259).
-        self._act_on(self._rt.recovery.note(deaf, now,
-                                            idle_sec=game_link.idle_sec(),
-                                            kicked=kicked, running=found.running,
-                                            talking=health.colour == profile_health.OK))
-        # …AND THE ACTIVE QUESTION THE WHOLE MODEL RESTS ON (#1911). Two reasons to ask:
-        # the decision wants confirmation before it restarts anything, or the light has
-        # simply not heard from the server lately and green has to be earned rather than
-        # assumed. Both are throttled inside the recovery, so this is at most one round
-        # trip every couple of minutes on a healthy profile.
-        if found.running and health.plumbing == profile_health.LANDING \
-                and (self._rt.recovery.probe_due(now)
-                     or self._rt.recovery.probe_idle_due(now)):
-            self._probe_server(now)
-        # …AND THE CLOSED DOOR (#1549). Last, because every branch above it is a fault
-        # and this one is not: the client is fine and the server is shut, which is the
-        # state recorded in docs/research/server-maintenance.md.
-        #
-        # `session` is `game_clock`'s three-valued answer and it is passed through as
-        # three: `in_session` is playing, `login` is demonstrably not, and «не смог
-        # спросить» is `None` — which maintenance also looks like from here.
-        import game_clock                     # lazy: tools/lib, and only on this path
-
-        playing = (True if session == game_clock.IN_SESSION
-                   else False if session == game_clock.LOGIN_SCREEN else None)
-        self._act_on(self._rt.recovery.note_session(
-            playing, health.colour == profile_health.OK, now,
-            idle_sec=game_link.idle_sec()))
-
-    def _act_on(self, said) -> None:
-        """Say what the recovery decided, and do it. One door for both decisions.
-
-        ASK THE SETS, never a constant. `ACT_KICK` was added beside `ACT` and the panel
-        went on testing `key == ACT`, so a kicked client was told it was being restarted
-        and never was (#1259). There is ONE cure left — the client (#1911) — and the sets
-        stay, because that is what keeps a fifth act from being announced and never done.
-        """
-        if said is None:
-            return
-        key, fmt = said
-        if key in runtime.recovery.SAYINGS:
-            # A reading, not a cure. It is said whatever the watchdog switch is set to:
-            # somebody who has turned the automatic restart OFF is exactly the person
-            # who has to be told that their errands are pressing nothing, since nothing
-            # is going to act on it for them.
-            self._say("game", key, **fmt)
-            return
-        if not self._opt_bool("watchdog"):
-            return
-        # A CURE THAT NEEDS THE PANEL RUNNING (#1393). Putting the client back is the one
-        # act that would undo «Стоп всё» on its own — its two acts end the client and the
-        # daemon, and this would have the client back on the next poll. So it asks the
-        # same gate the schedule asks, and says nothing: the gate has already said, once,
-        # that nothing may run, and a second sentence per poll is what this is here to
-        # stop. Restarting the DAEMON is deliberately below the gate rather than behind
-        # it — a stale daemon holds the gate, and a cure behind the gate it is the cure
-        # for is a state nothing can leave.
-        # …AND IT IS THE SWITCH THAT HOLDS IT, NOT THE DAEMON (#1910). This used to ask
-        # `gate.alive()`, which answers «no» for the very reason this is about to cure:
-        # a daemon with no client is not alive, and putting the client back is what gives
-        # it one. Live that was a closed loop — seventeen daemon restarts, zero client
-        # restarts, a watchdog held at every poll by the missing client itself.
-        if key in runtime.recovery.RESTARTS and self._rt.gate.relaunch_held():
-            self._dbg.info("recovery %s held: this profile is switched off", key)
-            return
-        self._say("game", key, **fmt)
-        if key in runtime.recovery.RESTARTS:
-            # A KICK RESTART STARTS THE STABILITY CLOCK (#1296). The escalating wait —
-            # 15 → 30 → 45 min while the account keeps being taken back — is measured
-            # from the moment the client was put back, because the question it answers is
-            # «did the session hold?». `Recovery` decides and says; it never restarts
-            # anything, so the moment has to be handed to it from here.
-            # `time.time()`, because that is the clock every other reading in this module
-            # hands `Recovery` (`now = time.time()` in the poll above). A monotonic stamp
-            # here would be compared against an epoch one and the difference would always
-            # look like hours — every kick a fresh incident, the escalation never
-            # escalating. Same shape as the two case-flipped comparisons this task already
-            # found: both ends of a comparison must be in the same units.
-            if key in runtime.recovery.KICK_ACTS:
-                self._rt.recovery.note_kick_restart(time.time())
-            self._rt.play_async("restart_game")
-
-    #: The scenario the server probe plays, and the one thing it needs: a warzone that
-    #: is NOT this account's. The client answers about its own out of its own memory, so
-    #: only a foreign one is a real question to the game server (#1910).
-    PROBE_ACTION = "read_server_info"
-
-    def _probe_target(self) -> int:
-        """A warzone id to ask the server about — the machine's list, never an account's.
-
-        `cache/servers.json` is the list of warzones the GAME has; it is machine-wide and
-        refreshed by a person's press (`CLAUDE.md`, «Game data lives only in the
-        database» — this one is deliberately still a file). The lowest id in it is a
-        stable, invented-by-nobody choice that is the same on every install.
-
-        If it happens to be this account's own warzone the probe is answered out of the
-        client's own memory and reads as «alive» — which delays a restart rather than
-        causing one, and delay is the side this whole criterion is built to err on.
-        """
-        try:
-            import server_list
-
-            known = (server_list.load() or {}).get("servers") or {}
-            ids = sorted(int(k) for k in known)
-            return ids[0] if ids else 0
-        except Exception:                     # noqa: BLE001 — a probe, never the panel
-            return 0
-
-    def _probe_server(self, now: float) -> None:
-        """Ask the game SERVER something only it can answer, and report the answer.
-
-        THE SECOND FAMILY OF EVIDENCE (#1910). The sockets are one reading and they are
-        the one the operator says fires on live clients; this one cannot be faked by a
-        client that is merely stranded, because the answer has to come back over the very
-        conversation being doubted.
-
-        A probe that cannot be STARTED is not a probe that failed — the game may be busy
-        with something else, or the daemon may be down, and counting either as evidence
-        of a deaf client is exactly the false positive being removed. It says so and the
-        decision waits; `Recovery.probe_due` will ask again on the next poll.
-        """
-        target = self._probe_target()
-        if not target:
-            self._say("game", "log.game.probe_impossible")
-            return
-        self._rt.recovery.probe_started(now)
-        started = self._rt.play_async(
-            self.PROBE_ACTION, {"server": target}, tag="game",
-            on_result=lambda outcome: self._probe_back(outcome))
-        if not started:
-            # Nothing was played, so nothing is in flight and no deadline is running —
-            # and, since #1976, nothing is CLAIMED either. This used to write the
-            # not-asked question down as an answered one, which is the reading green is
-            # made of: a panel too busy to ask painted itself «сервер отвечает» for the
-            # next five minutes.
-            self._rt.recovery.probe_unstarted(time.time())
-            self._say("game", "log.game.probe_busy")
-
-    def _probe_back(self, outcome) -> None:
-        """The probe answered — or the scenario said why it could not."""
-        ok = bool(outcome is not None and getattr(outcome, "ok", False))
-        # THE PAIR, WRITTEN DOWN (#1910): what the probe measured beside what the socket
-        # table said at the same moment. It is the only way to tell a link reading that
-        # is right from one that is merely repeated. To `debug.log` — a diagnosis, not
-        # news — and off the reading the poll already took, never a second walk.
-        self._dbg.info("link probe answered=%s; table said %s", ok,
-                       getattr(self, "_link_detail", "") or "—")
-        self._rt.recovery.note_probe(ok, time.time())
-        self._say("game", "log.game.probe_alive" if ok else "log.game.probe_deaf")
-
-    def _read_session(self, found, lands: str) -> str:
-        """Is this client in a session, or sitting at the login screen? (#1299)
-
-        THE READING THAT DECIDES GREEN. Everything above it is free and none of it can
-        tell a playing account from one at the login screen: the process is there, the
-        sockets are established, the daemon lands its chunks, and every question the
-        panel asks comes back with a plausible number — no alliance tasks, own server
-        `-1`, all five robberies unspent (#1227). The one thing such a client cannot do
-        is say what time it is, and `game_clock.session_state` is that question with its
-        two failure modes kept apart: «answered, and it is not a clock» is the login
-        screen and paints red; «could not ask» is amber and never anything else.
-
-        ASKED ONLY OF A CLIENT WE CAN ACTUALLY DRIVE, which is what makes it cheap: a
-        client that is not there, or one nothing lands in, is already red or amber on
-        readings that cost nothing, so there is nothing for a round trip to add.
-        Throttled at :data:`SESSION_POLL_SEC` and measured at 31–81 ms.
-
-        Forgiving in exactly the way `_read_kicked` is: a read that failed leaves the
-        last answer standing, because the alternative is a tab that flickers amber every
-        time the VM is busy. The state is reset the moment the client stops qualifying,
-        so a fresh client is asked afresh rather than inheriting the old one's answer.
-        """
-        import game_clock                     # lazy: tools/lib, and only on this path
-
-        if lands != profile_health.LANDING or not getattr(found, "running", False):
-            self._session_at, self._session_was = 0.0, ""
-            return game_clock.CANNOT_TELL
-        now = time.time()
-        if (now - self._session_at) < SESSION_POLL_SEC:
-            return self._session_was or game_clock.CANNOT_TELL
-        try:
-            said = game_clock.session_state(self._rt.game.evaluator())
-        except Exception:                     # noqa: BLE001 — a reading, never the fault
-            said = game_clock.CANNOT_TELL
-        self._session_at = now
-        if said != game_clock.CANNOT_TELL:    # «не смог спросить» keeps the last answer
-            self._session_was = said
-        return self._session_was or game_clock.CANNOT_TELL
-
-    def _read_dialog(self, found, lands: str) -> "str | None":
-        """The client's own message window, read ONCE for both questions asked of it.
-
-        `''` is «no dialog is open», a string is what it says, and ``None`` is «not this
-        time» — either the reading was not due, or it failed. Both callers below treat
-        ``None`` the same way: keep the last verdict. A reading that fails can then only
-        ever ADD a reason and never take one away.
-
-        THE THROTTLE IS THE KICK'S, AND IT IS NOW SHARED (#1982). Two states are read
-        out of this one window — «вход с другого устройства» and «сервер на
-        техобслуживании» — and the round trip costs ~90 ms against a warm client, so it
-        is made once and judged twice. It is asked every poll while EITHER is standing,
-        because the recovery counts consecutive readings and a throttle that answered
-        «nothing on screen» in the gaps would keep resetting the run it feeds.
-
-        Only ever asked while chunks are landing, and only with a client to ask: an
-        attach costs seconds, and a status poll that ran one every eight seconds for
-        ever would be paying it all night over a game that is not running.
-        """
-        if lands != profile_health.LANDING or not getattr(found, "running", False):
-            self._tip_at = 0.0
-            self._kick_at, self._kick_was = 0.0, False
-            self._maint_was, self._maint_secs = "", None
-            return None
-        now = time.time()
-        if not (self._kick_was or self._maint_was
-                or (now - self._tip_at) >= KICK_POLL_SEC):
-            return None
-        self._tip_at = self._kick_at = now
-        try:
-            import game_kick
-
-            return game_kick.tip(self._rt.game.evaluator())
-        except Exception:                    # noqa: BLE001 — a reading, never the fault
-            return None
-
-    def _read_maintenance(self, tip: "str | None") -> tuple:
-        """Is the client sitting on a closed server?  ``(state, seconds)``.
-
-        THE STATE NOBODY HAD A WORD FOR (#1549 recorded it, #1982 named it). Maintenance
-        leaves every indicator the panel has looking well — the client is up, chunks
-        land, the daemon is warm — and the only thing that knows is the sentence on the
-        client's own screen. It is compared with the game's OWN wording, in every
-        language the client ships (`tools/lib/game_maintenance.py`), so it is recognised
-        whatever language the account is played in.
-
-        Forgiving in exactly one direction: anything that cannot be judged leaves the
-        last verdict standing, and only a sentence the game itself would draw ever puts
-        the light on «сервер на техобслуживании».
-        """
-        if tip is None:
-            return self._maint_was, self._maint_secs
-        try:
-            state, secs = (game_maint.judge(tip) if tip.strip() else ("", None))
-        except Exception:                    # noqa: BLE001 — a reading, never the fault
-            state, secs = None, None
-        if state is not None:                # `None` is «cannot judge» — keep the last
-            self._maint_was, self._maint_secs = state, secs
-        return self._maint_was, self._maint_secs
-
-    def _announce_maintenance(self, state: str, secs) -> None:
-        """Say the closed door in the log, on its EDGES and nowhere else.
-
-        A maintenance window lasts a quarter of an hour or an afternoon, and the strip is
-        only true while somebody is looking at it. One line when the door shuts, one when
-        it opens, one when the game announces a shutdown it is counting down to — which
-        is the only time the game names at all (`docs/research/server-maintenance.md`
-        §4b: the message on the closed door carries no deadline).
-        """
-        if state == self._maint_said:
-            return
-        self._maint_said = state
-        if state == game_maint.CLOSED:
-            self._say("game", "log.game.maintenance")
-        elif state == game_maint.CLOSING:
-            self._say("game", "log.game.maintenance_soon",
-                      mins=max(1, -(-int(secs or 0) // 60)))
-        elif state == "":
-            self._say("game", "log.game.maintenance_over")
-
-    def _read_kicked(self, tip: "str | None") -> bool:
-        """Is the client showing the game's own «вход с другого устройства» modal?
-
-        ASKED WHATEVER THE SOCKETS SAY (#1270). It used to be asked only while the link
-        already read `lost`, on the reasoning that a healthy client would always answer
-        the same — and a kick that leaves one conversation standing reads `online`,
-        `dead=0`, which is precisely the answer that reasoning assumed could not happen.
-        The account was taken at ~04:38 on 2026-08-07 and the flag was never once
-        consulted until a person looked at 07:27.
-
-        A worker-thread read, and a forgiving one: any failure leaves the last answer
-        standing, so this can only ever ADD a reason and never take one away. What is
-        read, and why it is the modal's TEXT rather than «is a dialog open», is
-        `tools/lib/game_kick.py` — the reading had to become conclusive on its own
-        before it could be trusted against a healthy-looking link.
-
-        The reading itself is `_read_dialog`'s, shared with the maintenance notice
-        (#1982): both are text in the client's one generic message window. The previous
-        answer fills every gap — the recovery counts CONSECUTIVE readings, and a
-        throttle that reported «no kick» in between would keep resetting the run it
-        exists to feed.
-        """
-        if tip is None:                      # not read this time — keep the last
-            return self._kick_was
-        if not tip.strip():
-            self._kick_was = False           # no dialog on screen — not a kick
-            return False
-        try:
-            import game_kick
-
-            said = game_kick.judge(tip)
-        except Exception:                    # noqa: BLE001 — a reading, never the fault
-            said = None
-        # `None` is «no language tables» — the sentence cannot be judged at all, and
-        # with nothing to compare it with a generic dialog is not evidence of a kick.
-        # That is exactly what `game_kick.read(ev)` did with no `link_lost` handed in.
-        self._kick_was = bool(said)
-        return self._kick_was
 
     def _paint_recovery(self, st: dict) -> None:
         """Say the restart bookkeeping on the strip — and nothing at all while it is idle."""
@@ -4781,7 +4305,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # somebody chose, and «демон остановлен» underneath it reads as a second,
         # unrelated fault (#1882).
         held = st["held"] and self._rt.power.on
-        self._gate_var.set(self._t("gate.held", mins=st["for_sec"] // 60) if held else "")
+        # WHICH HOLD, in its own words (#1982): «нет связи» and «сервер закрыт» send a
+        # person in opposite directions, so the mark says which one it is.
+        key = {"maintenance": "gate.held.maintenance",
+               "off": "gate.held.off"}.get(st.get("reason") or "", "gate.held")
+        self._gate_var.set(self._t(key, mins=st["for_sec"] // 60) if held else "")
 
     def _paint_power(self) -> None:
         """The mark beside the switch: this profile is off, and for how long (#1882)."""

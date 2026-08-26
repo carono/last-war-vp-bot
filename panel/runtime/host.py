@@ -29,6 +29,7 @@ from .link import GameLink
 from .day_reset import DayReset
 from .gate import RELAUNCH_ACTIONS, LinkGate
 from .health import ProfileHealth
+from .status import StatusPoll
 from .i18n import Translator
 from .intake import Intake as IntakeLedger
 from .interrupt import Interrupts
@@ -168,6 +169,14 @@ class PanelRuntime:
         # and three detectors with three ideas of «may I» is how «Стоп всё» used to be
         # undone eight seconds after it was pressed.
         self.gate = LinkGate(self)
+        # …AND WHO TAKES THE READINGS THE TWO ABOVE ARE MADE OF
+        # (panel/runtime/status.py, #1984). It used to be the Tk shell's status poll, and
+        # a panel with no window therefore took no readings at all: `health` stayed at
+        # its born-amber `unread()` for as long as the process lived, the gate fell back
+        # to its own reading, and the recovery — the crash restart, the kick's wait, the
+        # maintenance knock — was never fed. It is the profile's now, so both panels run
+        # it and only one of them draws.
+        self.status = StatusPoll(self)
         # …AND WHEN THIS PROFILE'S WARZONE STARTS A NEW DAY (panel/runtime/day_reset.py).
         # Everything the game hands out once a day comes back at the server's own 00:00,
         # which is neither this machine's midnight nor the same on every warzone — so the

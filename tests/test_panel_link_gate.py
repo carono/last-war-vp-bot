@@ -109,12 +109,13 @@ class _Light:
     is how #1910 lost hours of banners to a socket reading that was simply wrong.
     """
 
-    def __init__(self, plumbing: str = profile_health.LANDING, at=None) -> None:
-        self.current = types.SimpleNamespace(plumbing=plumbing)
+    def __init__(self, plumbing: str = profile_health.LANDING, at=None,
+                 reason: str = profile_health.TRAFFIC) -> None:
+        self.current = types.SimpleNamespace(plumbing=plumbing, reason=reason)
         self.read_at = time.time() if at is None else at
 
-    def set(self, plumbing: str, at=None) -> None:
-        self.current = types.SimpleNamespace(plumbing=plumbing)
+    def set(self, plumbing: str, at=None, reason: str = profile_health.TRAFFIC) -> None:
+        self.current = types.SimpleNamespace(plumbing=plumbing, reason=reason)
         self.read_at = time.time() if at is None else at
 
 
@@ -528,6 +529,50 @@ def _settle(done, timeout: float = 5.0) -> None:
         if done():
             return
         time.sleep(0.02)
+
+
+# --- the closed door (#1982) ------------------------------------------------
+def test_the_server_being_shut_holds_the_gate_although_the_link_is_perfect():
+    """The operator's decision, in their words: «держать очередь и сказать один раз».
+
+    Maintenance is the one amber that holds this gate, and it is nothing like the deaf
+    client the module refuses to hold for: chunks land, the panel drives the client
+    perfectly, and every errand it starts is refused by a server that is not there —
+    twenty identical failures and a daily quota's attempts written off against a door.
+    """
+    rt = _RT()
+    rt.health.set(profile_health.LANDING, reason=profile_health.MAINTENANCE)
+    assert rt.gate.alive() is False
+    assert rt.gate.reason() == "timers.log.skip_maintenance"
+    assert "gate.log.maintenance" in rt.said, rt.said
+    assert rt.gate.state()["reason"] == "maintenance"
+
+
+def test_the_door_opening_lets_everything_go_again_by_itself():
+    """Nothing has to be pressed: the hold lifts with the message it was made of."""
+    rt = _RT()
+    rt.health.set(profile_health.LANDING, reason=profile_health.MAINTENANCE)
+    assert rt.gate.alive() is False
+    rt.health.set(profile_health.LANDING, reason=profile_health.TRAFFIC)
+    assert rt.gate.alive() is True
+    assert rt.gate.reason() is None
+    assert rt.gate.state()["reason"] == ""
+
+
+def test_the_closed_door_is_said_ONCE_however_many_errands_ask():
+    """A line per tick is the other failure, and the one the gate exists to remove."""
+    rt = _RT()
+    rt.health.set(profile_health.LANDING, reason=profile_health.MAINTENANCE)
+    for _ in range(20):
+        rt.gate.alive()
+    assert rt.said.count("gate.log.maintenance") == 1, rt.said
+
+
+def test_a_deaf_client_still_does_not_hold_the_gate():
+    """The narrowing has to stay narrow: `no_traffic` is a restart, not a wait (#1910)."""
+    rt = _RT()
+    rt.health.set(profile_health.LANDING, reason=profile_health.NO_TRAFFIC)
+    assert rt.gate.alive() is True
 
 
 def _run_standalone() -> int:

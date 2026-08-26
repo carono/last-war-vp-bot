@@ -102,6 +102,16 @@ client was using while the game was closed, and it was not in use before 13:03 i
 covering the whole day. Two readings would settle it, and neither was taken: whether
 `10935` is also used during an ordinary login, and what the frames on it actually carry.
 
+**ANSWERED, AND THE ANSWER KILLS THE HYPOTHESIS (#1982, live on 2026-08-26).** `10935` is
+an ORDINARY game port. Watched during a short outage the same afternoon: the captures
+found the stream on `10935` at 12:37, and they were still decoding it half an hour later,
+with the account back in the world — alliance pushes, rally banners going up and being
+joined, chat. So the port a capture is following says nothing about whether the server is
+open, and a panel that watched for `10935` would call an ordinary afternoon a maintenance
+window. What DID change with the port is the address behind it, and that is a reconnect,
+not a diagnosis. Read the client's own message instead (§4a) — which is what
+`tools/lib/game_maintenance.py` does.
+
 **And it came back on the game port before the game did.** At 13:13 the client was
 dialling `<gw5>:10012` again — the ordinary game port — with a third process id, and the
 VM was still answering nothing and every errand still failing on the same gate. So «the

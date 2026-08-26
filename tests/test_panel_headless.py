@@ -281,6 +281,29 @@ def test_a_press_with_no_window_waits_for_its_own_answer_to_be_written() -> None
         clock.stop()
 
 
+def test_a_panel_with_no_window_still_takes_the_readings() -> None:
+    """THE GAP THAT COST A LIVE AFTERNOON (#1984).
+
+    The status poll was the Tk shell's, so this panel took no readings at all: on
+    2026-08-26 it played for hours while every front-end drew the boot's `unread()`
+    verdict — «клиент игры не запущен» over a client that was on the world map — and the
+    recovery behind it (the crash restart, the kick's wait, the maintenance knock) was
+    never fed once, because all of it hangs off that poll.
+
+    Pinned at the source, because starting a real one needs a real client: the readings
+    live in `panel/runtime/status.py`, the runtime holds one, and the windowless panel
+    starts it and stops it with everything else it owns.
+    """
+    host = (_REPO / "panel" / "runtime" / "host.py").read_text(encoding="utf-8")
+    assert "StatusPoll(self)" in host, "the runtime does not hold the readings"
+    source = (_REPO / "panel" / "headless.py").read_text(encoding="utf-8")
+    assert "status.start()" in source, "a panel with no window takes no readings"
+    assert "status.stop()" in source, "…and never lets them go"
+    shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert "self._rt.status.read_and_act()" in shell, \
+        "the window took its own readings again — one rule, one place"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

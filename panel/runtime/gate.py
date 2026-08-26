@@ -117,7 +117,10 @@ class LinkGate:
         """
         if self.alive():
             return None
-        return "timers.log.skip_off" if self._switched_off() else "timers.log.skip_link"
+        if self._switched_off():
+            return "timers.log.skip_off"
+        return ("timers.log.skip_maintenance" if self._maintenance()
+                else "timers.log.skip_link")
 
     def blocks(self, name: str = "", *, human: bool = False) -> str:
         """May this SCENARIO be played right now? ``""`` when it may.
@@ -190,6 +193,18 @@ class LinkGate:
         # carry the same stamp — and «the same instant» has to fall on the side of
         # distrusting the reading.
         if read_at > self._changed_at and (time.time() - read_at) <= FRESH_SEC:
+            # THE CLOSED DOOR HOLDS IT, AND IT IS THE ONE AMBER THAT DOES (#1982). The
+            # server being SHUT is not the client being deaf: chunks land, the panel
+            # drives the client perfectly, and every errand it starts is refused by a
+            # server that is not there — twenty identical failures, retry holds spent,
+            # and a daily quota's attempts written off against a door. So while the
+            # client is showing the game's OWN maintenance message
+            # (`tools/lib/game_maintenance.py`) nothing automatic starts, the reason is
+            # said once, and it lifts by itself when the message goes. The operator's
+            # decision, asked for and given in those words: «держать очередь и сказать
+            # один раз».
+            if getattr(health.current, "reason", "") == profile_health.MAINTENANCE:
+                return False
             return getattr(health.current, "plumbing", "") == profile_health.LANDING
         # Nobody is polling this runtime (a tab launched on its own), the poll has died,
         # or something has just re-attached and the last verdict predates it. Ask the
@@ -197,6 +212,20 @@ class LinkGate:
         try:
             return bool(self.rt.game.ready())
         except Exception:                     # noqa: BLE001 — a reading, never the panel
+            return False
+
+    def _maintenance(self) -> bool:
+        """Is the last verdict «the server is under maintenance»? (#1982)
+
+        Read off the light rather than taken here: the reading is one round trip into
+        the client, made by the status poll that was making it anyway
+        (`panel/runtime/status.py`), and a gate asked in front of every errand may never
+        be the thing that spends one.
+        """
+        health = getattr(self.rt, "health", None)
+        try:
+            return getattr(health.current, "reason", "") == profile_health.MAINTENANCE
+        except Exception:                     # noqa: BLE001 — a reading, never the gate
             return False
 
     def _switched_off(self) -> bool:
@@ -249,7 +278,12 @@ class LinkGate:
         # this profile off, or its daemon went away on its own. A person reading «демон
         # не работает» after ticking a box would go looking for a fault that is not
         # there (#1882).
-        self._say("gate.log.off" if self._switched_off() else "gate.log.held")
+        if self._switched_off():
+            self._say("gate.log.off")
+        else:
+            # …AND THE THIRD WAY (#1982): the server is shut. «Нет связи с игрой» would
+            # send somebody looking for a fault in a panel that is working perfectly.
+            self._say("gate.log.maintenance" if self._maintenance() else "gate.log.held")
 
     def _say(self, key: str) -> None:
         try:
@@ -271,4 +305,11 @@ class LinkGate:
         with self._lock:
             held = self._open is False
             since = self._since
-        return {"held": held, "for_sec": int(now - since) if held and since else 0}
+        # …AND WHY, AS AN ID (#1982). The mark used to say one sentence — «нет связи с
+        # игрой» — for every way of being held, and during maintenance that sentence is
+        # simply false: the link is perfect and the SERVER is shut. Both front-ends word
+        # this for themselves, so the reason travels as an id and never as words.
+        why = ("off" if self._switched_off()
+               else "maintenance" if self._maintenance() else "link")
+        return {"held": held, "for_sec": int(now - since) if held and since else 0,
+                "reason": why if held else ""}

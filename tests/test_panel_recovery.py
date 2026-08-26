@@ -382,8 +382,10 @@ def test_how_long_to_wait_is_a_setting_and_zero_is_the_old_behaviour():
 
     defaults = (ROOT / "panel" / "runtime" / "settings.py").read_text(encoding="utf-8")
     assert '"kick_hold_min": 15' in defaults, "the wait is not a profile setting"
-    shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
-    assert "kick_hold_sec" in shell and "kick_hold_min" in shell, \
+    # THE POLL IS THE RUNTIME'S SINCE #1984 — a panel with no window has to feed the
+    # decision too, so the setting reaches it from `panel/runtime/status.py`.
+    poll = (ROOT / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
+    assert "kick_hold_sec" in poll and "kick_hold_min" in poll, \
         "the setting never reaches the decision"
     page = (ROOT / "panel" / "tabs" / "settings.py").read_text(encoding="utf-8")
     assert '"kick_hold_min"' in page, "there is no field to type it in"
@@ -901,11 +903,15 @@ def test_it_travels_to_BOTH_front_ends_out_of_ONE_object():
     api = (ROOT / "panel" / "web" / "api.py").read_text(encoding="utf-8")
     assert "rt.recovery.state(" in api, "the phone is not sent the recovery state"
 
+    # WHO FEEDS IT is the profile's own poll (#1984): the window used to, and a panel
+    # with no window then fed it nothing at all.
+    poll = (ROOT / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
+    assert "rt.recovery.note(" in poll, "nothing feeds the decision any more"
     shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
-    assert "self._rt.recovery.note(" in shell, "the window never feeds the decision"
     assert "_paint_recovery" in shell, "the window never draws it"
     # Neither side may keep its own copy of the bookkeeping.
     assert "Recovery()" not in shell, "the window built a second Recovery"
+    assert "Recovery()" not in poll, "the poll built a second Recovery"
 
     page = (ROOT / "panel" / "web" / "app" / "src" / "views" / "StateView.tsx").read_text(
         encoding="utf-8")
@@ -966,16 +972,23 @@ class _Press:
     def _paint_recovery(self, _state):    # noqa: D102 — drawing, not deciding
         pass
 
-    def _opt_bool(self, _key):            # noqa: D102 — the profile's «watchdog»
+    def opt_bool(self, _key):             # noqa: D102 — the profile's «watchdog»
         return self._watchdog
 
-    def _opt_int(self, _key, low=None, high=None):
+    def opt_int(self, _key, low=None, high=None):
         """…and «выдержка после кика», in minutes (#1291). Zero: these cases are about
         the decision, and the wait has its own tests above."""
         return 0
 
-    def _say(self, tag, key, **fmt):      # noqa: D102
+    @property
+    def settings(self):                   # `rt.settings.opt_bool` / `.opt_int` (#1984)
+        return self
+
+    def say(self, tag, key, **fmt):       # noqa: D102 — `rt.say`
         self.said.append(key)
+
+    def dbg(self, _component="panel"):    # noqa: D102 — `rt.dbg(...)`, then `.info(...)`
+        return self
 
     def _restart_daemon(self):            # noqa: D102 — the OTHER cure
         self.daemons += 1
@@ -1047,33 +1060,34 @@ def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None,
     never played» lived entirely between the two, in a method that greps clean, and the
     same gap is where a daemon restart would go missing.
     """
-    import panel.__main__ as pm            # by name: safe, and what the other tests do
+    # THE READINGS AND THEIR DECISIONS ARE THE RUNTIME'S SINCE #1984, not the shell's:
+    # a panel with no window has to take them too, so `_recovery_check` and `_act_on`
+    # moved out of `panel/__main__.py` into `panel/runtime/status.py`. The stub below
+    # stands in for the RUNTIME they are now given, which is the same surface it always
+    # stood in for — the shell used to be its own.
+    from panel.runtime import status as statusmod
 
     app = _Press(watchdog=watchdog, gate_open=gate_open)
     app.recovery = _Recovery()
     app.power = _Power(stopped)
-    app._act_on = lambda said: pm.Panel._act_on(app, said)
-    real_idle = pm.game_link.idle_sec
-    pm.game_link.idle_sec = lambda: idle   # nobody at the machine, deterministically
+    poll = statusmod.StatusPoll(app)
+    poll._probe_server = lambda _now: setattr(app, "probes", app.probes + 1)
+    real_idle = game_link.idle_sec
+    game_link.idle_sec = lambda: idle      # nobody at the machine, deterministically
     # …AND THE CLOCK MOVES BETWEEN ROUNDS (#1702). A round stands for a status poll, and
     # a strike only counts when the poll has genuinely come round again: two readings
     # inside one cache window are one reading counted twice, which is what relaunched a
     # live client. Three rounds in the same microsecond are not three polls, so the
     # helper advances the clock by the interval it is pretending to be.
-    real_time = pm.time.time
-    clock = [real_time()]
+    import time as timemod
 
-    def _tick() -> float:
-        return clock[0]
-
-    pm.time.time = _tick
+    clock = [timemod.time()]
     try:
         for _ in range(rounds if rounds is not None else DEAF_READINGS):
-            pm.Panel._recovery_check(app, _Found(), _health(bool(link)), kicked)
+            poll._recovery_check(_Found(), _health(bool(link)), kicked, "", clock[0])
             clock[0] += 8.0
     finally:
-        pm.game_link.idle_sec = real_idle
-        pm.time.time = real_time
+        game_link.idle_sec = real_idle
     return app
 
 
@@ -1262,12 +1276,12 @@ def test_the_panel_stamps_the_kick_restart_with_the_clock_recovery_uses():
     import re
 
     source = (Path(__file__).resolve().parent.parent
-              / "panel" / "__main__.py").read_text(encoding="utf-8")
+              / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
     stamp = re.search(r"note_kick_restart\((.*?)\)\s*$", source, re.M)
     assert stamp is not None, "the panel no longer stamps a kick restart"
     assert stamp.group(1).strip() == "time.time()", stamp.group(1)
     #: …and the act it hangs off is asked as a SET, never compared to one constant
-    assert "runtime.recovery.KICK_ACTS" in source, "the kick act is not asked as a set"
+    assert "recoverymod.KICK_ACTS" in source, "the kick act is not asked as a set"
 
 
 def _main() -> int:

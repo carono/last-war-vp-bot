@@ -68,7 +68,7 @@ export interface State {
   timers: { on: number; next?: number | null; next_name?: string }
   power?: { on?: boolean; off_for_sec?: number }
   watchdog?: boolean
-  gate?: { held?: boolean; for_sec?: number }
+  gate?: { held?: boolean; for_sec?: number; reason?: string }
   panel?: { version?: string; controls?: Control[] }
 }
 

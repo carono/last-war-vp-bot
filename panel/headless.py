@@ -88,6 +88,18 @@ class HeadlessPanel:
             except AttributeError:                # a Tk ticker: the window pumps it
                 pass
         self.workspace.start_all()
+        # THE READINGS (#1984). A window polls the client every eight seconds — is it
+        # there, does a chunk land, does the server answer — and writes the verdict every
+        # front-end draws, feeding the recovery on the way. With no window nothing took
+        # them at all: live on 2026-08-26 this panel played for hours while the phone
+        # said «клиент игры не запущен», because `ProfileHealth` had never been written
+        # once. It is the profile's own poll now (`panel/runtime/status.py`), so it runs
+        # here exactly as it does there.
+        for session in self.workspace.sessions:
+            try:
+                session.rt.status.start()
+            except Exception as exc:          # noqa: BLE001 — one profile, not the lot
+                print(f"panel: {session.name}: status poll: {exc}", file=sys.stderr)
         rt = self.workspace.current.rt
         # The remote control and the service link are the WINDOW's in `panel/__main__.py`
         # — one per process, not per profile — and they are this process's here for the
@@ -165,6 +177,10 @@ class HeadlessPanel:
             webctl.stop(quiet=True)
         servicectl.stop()
         for session in list(self.workspace.sessions):
+            try:
+                session.rt.status.stop()
+            except Exception:                 # noqa: BLE001 — going down, never a fault
+                pass
             try:
                 session.rt.tick.stop()
             except AttributeError:

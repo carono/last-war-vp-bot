@@ -24,6 +24,15 @@ const LINK_WORDS: Record<string, string> = {
   maintenance: 'health.maintenance',
 }
 
+/* …and WHY nothing is running, which is a different question from what the light says
+ * (`panel/runtime/gate.py`). «Нет связи с игрой» during maintenance is false — the link
+ * is perfect and the server is shut — and the two send a person in opposite directions. */
+const GATE_WORDS: Record<string, string> = {
+  off: 'gate.held.off',
+  maintenance: 'gate.held.maintenance',
+  link: 'gate.held',
+}
+
 /* WHY THE CLIENT IS BEING RESTARTED, or why it is not — the window has a log scrolling
  * past and the person holding a phone does not, so «why did my client just restart» has
  * to be answerable from the card (`panel/runtime/recovery.py`). One sentence, the first
@@ -197,7 +206,8 @@ export function StateView({
         ) : null}
         {gateHeld ? (
           <p className="small bad">
-            {t('gate.held', { mins: Math.floor((state.gate?.for_sec || 0) / 60) })}
+            {t(GATE_WORDS[state.gate?.reason || ''] || 'gate.held',
+               { mins: Math.floor((state.gate?.for_sec || 0) / 60) })}
           </p>
         ) : null}
         <div className="controls stack">
