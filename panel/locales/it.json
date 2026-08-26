@@ -1469,6 +1469,8 @@
   "web.ui.run": "Esegui",
   "web.ui.queued": "in coda",
   "web.ui.search": "Cerca",
+  "web.ui.overview": "Riepilogo",
+  "web.ui.show_more": "Mostra altri {n}",
   "web.ui.actions.none": "non trovato nulla",
   "web.ui.started": "avviato: {name}",
   "web.ui.refused": "occupato — qualcos'altro sta guidando il gioco",

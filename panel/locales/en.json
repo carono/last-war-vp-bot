@@ -1469,6 +1469,8 @@
   "web.ui.run": "Run",
   "web.ui.queued": "queued",
   "web.ui.search": "Search",
+  "web.ui.overview": "Summary",
+  "web.ui.show_more": "Show {n} more",
   "web.ui.actions.none": "nothing found",
   "web.ui.started": "started: {name}",
   "web.ui.refused": "busy — something else is driving the game",

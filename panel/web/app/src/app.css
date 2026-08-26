@@ -218,6 +218,16 @@ main {
   gap: 6px;
 }
 .card .item { margin-bottom: 0; background: var(--bg-soft); }
+/* Inside a card the rows are a LIST, so they are tighter than a card of their own:
+   less air, one line of facts under the name, and the countdown beside them. A phone
+   holding 20 of these has to show four or five without a scroll. */
+.card .item {
+  padding: 8px 10px;
+  gap: 2px;
+  border-radius: 10px;
+}
+.card .item .title { font-size: 14px; }
+.card .item .small { font-size: 12px; line-height: 1.35; }
 
 .item.act { text-align: left; color: var(--ink); font: inherit; width: 100%; }
 .item.running { border-color: var(--accent); }
@@ -326,6 +336,70 @@ input[type='search'], input[type='password'], input[type='text'], input[type='nu
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--gap);
+}
+
+/* -- a screen as a dashboard -------------------------------------------------
+   A screen with more than two cards draws a strip of chips and one card at a time,
+   with a summary of tiles in front of them. Same chip as the account picker's, so a
+   thumb learns one control. */
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  scrollbar-width: none;
+}
+.chips::-webkit-scrollbar { display: none; }
+
+/* How many rows a card holds, said on the chip and on the tile — the number is why
+   somebody opens one of them. */
+.count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--bg-soft);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 6px;
+}
+
+/* A summary tile: the card's name, what it holds, and its first readings. Pressed to
+   open that card, so it is a button and wears the card's own skin. */
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius);
+  padding: var(--pad);
+  color: inherit;
+  font: inherit;
+  min-height: var(--tap);
+}
+.tile .head { font-weight: 650; font-size: 15px; }
+/* A tile is a GLANCE: its readings are one line each, cut rather than wrapped, because
+   a summary that wraps is the page it was made to replace. */
+.tile .kv { padding: 2px 0; border: 0; gap: 10px; }
+.tile .kv .k,
+.tile .kv .v {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* «Показать ещё» under a windowed list. */
+.more {
+  align-self: flex-start;
+  min-height: var(--tap);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: var(--ink-soft);
+  font: inherit;
 }
 
 /* -- the log ----------------------------------------------------------------- */

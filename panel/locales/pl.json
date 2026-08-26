@@ -1469,6 +1469,8 @@
   "web.ui.run": "Uruchom",
   "web.ui.queued": "w kolejce",
   "web.ui.search": "Szukaj",
+  "web.ui.overview": "Podsumowanie",
+  "web.ui.show_more": "Pokaż jeszcze {n}",
   "web.ui.actions.none": "nic nie znaleziono",
   "web.ui.started": "uruchomiono: {name}",
   "web.ui.refused": "zajęte — grą steruje teraz coś innego",

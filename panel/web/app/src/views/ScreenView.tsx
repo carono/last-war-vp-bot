@@ -203,6 +203,22 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
   )
 }
 
+/* How many rows of a list a card draws before it stops and offers the rest. The map
+ * screen sends 288 warzones, 285 starred tiles and 61 monsters in one payload, and the
+ * phone drew every one of them under every other card — «огромная страница, сплошные
+ * списки». A screen is a dashboard: the first screenful has to answer, and the rest is
+ * one tap away. */
+const PAGE_ITEMS = 20
+
+/* What to call a card in the strip: its own title if it has one, its `head` (data, not a
+ * key) otherwise, and a dash when it has neither — a chip with no word on it is worse
+ * than a chip with a dash. */
+function cardName(card: ViewCard): string {
+  if (card.title) return t(card.title)
+  if (card.head) return card.head
+  return '—'
+}
+
 function Card({
   card,
   needle,
@@ -221,10 +237,20 @@ function Card({
     const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
     return hay.includes(needle)
   })
+  const [shown, setShown] = useState(PAGE_ITEMS)
+  // A narrowed search starts from the top again: «показать ещё» over a list that has
+  // just changed under the person is the wrong twenty.
+  useEffect(() => setShown(PAGE_ITEMS), [needle, card.title])
+  const rest = Math.max(0, items.length - shown)
   const rows = card.rows || []
   return (
     <div className="card">
-      {card.title ? <div className="head">{t(card.title)}</div> : null}
+      {card.title ? (
+        <div className="head">
+          {t(card.title)}
+          {items.length ? <span className="count">{items.length}</span> : null}
+        </div>
+      ) : null}
       {card.head ? <div className="head">{card.head}</div> : null}
       {card.note ? <p className="muted small">{t(card.note)}</p> : null}
       {/* IS THE DATA ARRIVING, AND ARE WE TAKING IT (#1549) — the same strip the window
@@ -248,9 +274,14 @@ function Card({
           <span className="v">{row.value}</span>
         </div>
       ))}
-      {items.map((item, i) => (
+      {items.slice(0, shown).map((item, i) => (
         <Item key={i} item={item} now={now} screen={screen} after={after} />
       ))}
+      {rest ? (
+        <button className="more" onClick={() => setShown((was) => was + PAGE_ITEMS)}>
+          {t('web.ui.show_more', { n: Math.min(rest, PAGE_ITEMS) })}
+        </button>
+      ) : null}
       {!items.length && !rows.length && !(card.fields || []).length && card.empty ? <p className="muted">{t(card.empty)}</p> : null}
       {/* A card may carry buttons of its own (#1251): a tab whose pages each have their
           own switches cannot put them all in one strip at the bottom, because then
@@ -277,6 +308,8 @@ export function ScreenPage({
 }) {
   const [view, setView] = useState<View | null>(null)
   const [needle, setNeedle] = useState('')
+  //: Which part of the screen is open: 0 is the summary, i+1 is card i.
+  const [part, setPart] = useState(0)
   const held = useRef(0)
 
   /* An open screen is re-read on the ordinary poll, not only when it is opened (#1272).
@@ -301,6 +334,8 @@ export function ScreenPage({
 
   useEffect(() => {
     void draw(false)
+    setPart(0)
+    setNeedle('')
   }, [draw])
 
   useEffect(() => {
@@ -313,10 +348,20 @@ export function ScreenPage({
   }, [view])
 
   const cards = view?.cards || []
-  const searchable = cards.some((c) => c.search)
   // A card titled the same as the screen it is on says it twice — «Альянс» over
   // «Альянс». One card, one heading, and the screen's own is the one that stays.
   const solo = cards.length === 1 && cards[0]?.title === view?.title
+  /* A SCREEN OF MANY CARDS IS A DASHBOARD, NOT A SCROLL (#1982 follow-up, the person's
+   * words: «огромная страница, без табов, сплошные списки… считай, что делаешь мобильное
+   * приложение с дашбордом»). «Карта» sends thirteen cards and six hundred rows between
+   * them, and they were drawn one under another. So: a summary first — one tile per
+   * card with its readings and how many rows it holds — and a chip strip that opens any
+   * one card on its own. Two cards or fewer are left exactly as they were: a strip over
+   * a screen that fits is furniture nobody asked for. */
+  const sectioned = cards.length > 2
+  const openCard = sectioned && part > 0 ? cards[part - 1] : null
+  const drawn = sectioned ? (openCard ? [openCard] : []) : cards
+  const searchable = drawn.some((c) => c.search || (c.items || []).length > PAGE_ITEMS)
   return (
     <>
       <div className="row screen-head">
@@ -325,6 +370,25 @@ export function ScreenPage({
         </button>
         <b>{t(view?.title || '')}</b>
       </div>
+      {sectioned ? (
+        <div className="chips">
+          <button className={'chip' + (part === 0 ? ' on' : '')} onClick={() => setPart(0)}>
+            {t('web.ui.overview')}
+          </button>
+          {cards.map((card, i) => (
+            <button
+              key={i}
+              className={'chip' + (part === i + 1 ? ' on' : '')}
+              onClick={() => setPart(i + 1)}
+            >
+              {cardName(card)}
+              {(card.items || []).length ? (
+                <span className="count">{(card.items || []).length}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {searchable ? (
         <input
           type="search"
@@ -334,16 +398,42 @@ export function ScreenPage({
           onChange={(e) => setNeedle(e.target.value)}
         />
       ) : null}
-      {cards.map((card, i) => (
-        <Card
-          key={i}
-          card={solo ? { ...card, title: null } : card}
-          needle={needle.toLowerCase()}
-          now={view?.now || 0}
-          screen={id}
-          after={() => void draw(true)}
-        />
-      ))}
+      {sectioned && part === 0 ? (
+        <div className="tiles">
+          {cards.map((card, i) => (
+            <button className="tile" key={i} onClick={() => setPart(i + 1)}>
+              <div className="head">
+                {cardName(card)}
+                {(card.items || []).length ? (
+                  <span className="count">{(card.items || []).length}</span>
+                ) : null}
+              </div>
+              {(card.rows || []).slice(0, 2).map((row, k) => (
+                <div className="kv" key={k}>
+                  <span className="k">{t(row.label)}</span>
+                  <span className="v">{row.value}</span>
+                </div>
+              ))}
+              {card.flow ? (
+                <div className="flow" style={{ color: card.flow.colour || undefined }}>
+                  {t(card.flow.key, card.flow.fmt)}
+                </div>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : (
+        drawn.map((card, i) => (
+          <Card
+            key={i}
+            card={solo ? { ...card, title: null } : card}
+            needle={needle.toLowerCase()}
+            now={view?.now || 0}
+            screen={id}
+            after={() => void draw(true)}
+          />
+        ))
+      )}
       {(view?.actions || []).map((action) => (
         <div className="controls" key={action.id}>
           <PressButton action={action} screen={id} after={() => void draw(true)} />

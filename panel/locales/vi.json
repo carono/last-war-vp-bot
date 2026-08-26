@@ -1469,6 +1469,8 @@
   "web.ui.run": "Chạy",
   "web.ui.queued": "trong hàng đợi",
   "web.ui.search": "Tìm",
+  "web.ui.overview": "Tóm tắt",
+  "web.ui.show_more": "Hiện thêm {n}",
   "web.ui.actions.none": "không tìm thấy gì",
   "web.ui.started": "đã chạy: {name}",
   "web.ui.refused": "đang bận — thứ khác đang điều khiển trò chơi",

@@ -1469,6 +1469,8 @@
   "web.ui.run": "Lancer",
   "web.ui.queued": "en file",
   "web.ui.search": "Rechercher",
+  "web.ui.overview": "Résumé",
+  "web.ui.show_more": "Afficher {n} de plus",
   "web.ui.actions.none": "rien trouvé",
   "web.ui.started": "lancé : {name}",
   "web.ui.refused": "occupé — autre chose pilote le jeu en ce moment",

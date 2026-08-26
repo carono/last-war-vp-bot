@@ -1469,6 +1469,8 @@
   "web.ui.run": "Ejecutar",
   "web.ui.queued": "en cola",
   "web.ui.search": "Buscar",
+  "web.ui.overview": "Resumen",
+  "web.ui.show_more": "Mostrar {n} más",
   "web.ui.actions.none": "no se encontró nada",
   "web.ui.started": "iniciado: {name}",
   "web.ui.refused": "ocupado — otra cosa está manejando el juego",

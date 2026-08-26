@@ -1469,6 +1469,8 @@
   "web.ui.run": "Starten",
   "web.ui.queued": "in der Warteschlange",
   "web.ui.search": "Suchen",
+  "web.ui.overview": "Übersicht",
+  "web.ui.show_more": "{n} weitere zeigen",
   "web.ui.actions.none": "nichts gefunden",
   "web.ui.started": "gestartet: {name}",
   "web.ui.refused": "beschäftigt — etwas anderes steuert gerade das Spiel",

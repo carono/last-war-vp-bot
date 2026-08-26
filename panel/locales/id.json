@@ -1469,6 +1469,8 @@
   "web.ui.run": "Jalankan",
   "web.ui.queued": "dalam antrean",
   "web.ui.search": "Cari",
+  "web.ui.overview": "Ringkasan",
+  "web.ui.show_more": "Tampilkan {n} lagi",
   "web.ui.actions.none": "tidak ada yang ditemukan",
   "web.ui.started": "dijalankan: {name}",
   "web.ui.refused": "sibuk — sesuatu yang lain sedang mengendalikan permainan",

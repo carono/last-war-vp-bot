@@ -1469,6 +1469,8 @@
   "web.ui.run": "Çalıştır",
   "web.ui.queued": "sırada",
   "web.ui.search": "Ara",
+  "web.ui.overview": "Özet",
+  "web.ui.show_more": "{n} tane daha göster",
   "web.ui.actions.none": "bir şey bulunamadı",
   "web.ui.started": "başlatıldı: {name}",
   "web.ui.refused": "meşgul — oyunu şu anda başka bir şey sürüyor",

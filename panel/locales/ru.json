@@ -1469,6 +1469,8 @@
   "web.ui.run": "Запустить",
   "web.ui.queued": "в очереди",
   "web.ui.search": "Поиск",
+  "web.ui.overview": "Сводка",
+  "web.ui.show_more": "Показать ещё {n}",
   "web.ui.actions.none": "ничего не найдено",
   "web.ui.started": "запущено: {name}",
   "web.ui.refused": "занято — игрой сейчас управляет что-то другое",
