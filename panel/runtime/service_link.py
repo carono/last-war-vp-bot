@@ -53,7 +53,7 @@ class ServiceLink:
     """One panel's connection to the service. Started by the shell, stopped with it."""
 
     def __init__(self, api, *, session: str = "", profiles=None, version: str = "",
-                 log=None, address=None) -> None:
+                 boot=None, log=None, address=None) -> None:
         self.api = api
         self.session = str(session or "")
         #: A CALLABLE, not a list: which profiles a window has open changes while it runs,
@@ -61,6 +61,13 @@ class ServiceLink:
         #: to nobody at all.
         self._profiles = profiles if callable(profiles) else (lambda: list(profiles or ()))
         self.version = str(version or "")
+        #: THE STAMP OF THE CODE THIS PROCESS IMPORTED (`panel/runtime/updates.py::boot`)
+        #: — pid, when it was imported, and the commit it came from. Announced beside the
+        #: version because the version is not proof of anything: it is computed off git
+        #: whenever it is asked, so it moves on a commit with no restart at all, and a
+        #: register of panels showing it says nothing about which of them is running what
+        #: (#1994).
+        self.boot = dict(boot or {})
         self._log = log or (lambda line: None)
         self._address = address or door_address
         self._stop = threading.Event()
@@ -127,7 +134,8 @@ class ServiceLink:
         try:
             sock.sendall(wire.dumps({"hello": {
                 "session": self.session, "pid": os.getpid(),
-                "version": self.version, "profiles": list(self._profiles() or ())}}))
+                "version": self.version, "boot": dict(self.boot),
+                "profiles": list(self._profiles() or ())}}))
             for frame in wire.reader(sock):
                 if "id" in frame:
                     self._answer(sock, frame)

@@ -37,6 +37,11 @@ class Panel:
         self.pid = 0
         self.profiles: list = []
         self.version = ""
+        #: What the panel said about the CODE it imported: `pid`, `at`, `head`. A version
+        #: is read off git when it is asked and therefore moves without a restart, so a
+        #: row that carries only a version cannot answer «which of these is running the
+        #: fix» — the question that took eight panels to notice (#1994).
+        self.boot: dict = {}
         self._lock = threading.Lock()
         self._waiting: dict = {}          # request id -> [Event, answer]
         self._ids = itertools.count(1)
@@ -47,11 +52,15 @@ class Panel:
         self.session = str(said.get("session") or "")
         self.pid = int(said.get("pid") or 0)
         self.version = str(said.get("version") or "")
+        boot = said.get("boot")
+        self.boot = dict(boot) if isinstance(boot, dict) else {}
         self.profiles = [str(p) for p in (said.get("profiles") or [])]
 
     def state(self) -> dict:
         """What `/api/panels` says about it — no secrets, nothing it did not announce."""
         return {"session": self.session, "pid": self.pid, "version": self.version,
+                "head": str(self.boot.get("head") or ""),
+                "boot_at": self.boot.get("at") or 0,
                 "profiles": list(self.profiles), "peer": str(self.peer),
                 "since": self.at, "waiting": len(self._waiting)}
 
@@ -160,6 +169,20 @@ class Registry:
                 if wanted in panel.profiles:
                     return panel
         return panels[0]
+
+    def by_pid(self, pid: int) -> "Panel | None":
+        """The panel running as ``pid``, or ``None`` — the only way to address ONE of them.
+
+        Routing is by PROFILE everywhere else, which is right for every request that is
+        about an account and useless for the two that are about a PROCESS: put this one
+        down, restart this one. With one panel per profile those are the same thing; with
+        two panels answering for one name — a state that should not happen and did (#1994)
+        — the profile route reaches whichever dialled in first, for ever.
+        """
+        for panel in self.all():
+            if not panel.closed and int(getattr(panel, "pid", 0) or 0) == int(pid):
+                return panel
+        return None
 
     def profiles(self) -> list:
         """Every profile every connected panel has open, in the order they dialled in."""

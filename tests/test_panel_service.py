@@ -105,7 +105,8 @@ def _service():
 
 def _link(service, api, session: str, profiles) -> ServiceLink:
     link = ServiceLink(api, session=session, profiles=list(profiles),
-                       version="test", log=lambda line: None,
+                       version="test", boot={"pid": 4242, "at": 1.0, "head": "abc1234"},
+                       log=lambda line: None,
                        address=lambda: ("127.0.0.1", service.door.port))
     link.start()
     return link
@@ -134,6 +135,23 @@ def _get(service, path: str, token: str = TOKEN) -> tuple:
             return exc.code, json.loads(body)
         except ValueError:
             return exc.code, {"raw": body}
+
+
+def _post(service, path: str, body: dict, token: str = TOKEN) -> tuple:
+    url = f"http://127.0.0.1:{service.web.bound_port()}{path}"
+    url += ("&" if "?" in url else "?") + f"token={token}"
+    request = urllib.request.Request(
+        url, data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as answer:
+            return answer.status, json.loads(answer.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8")
+        try:
+            return exc.code, json.loads(raw)
+        except ValueError:
+            return exc.code, {"raw": raw}
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +222,40 @@ def test_the_register_says_who_is_there() -> None:
         panel = said["panels"][0]
         assert panel["session"] == "console" and panel["profiles"] == ["default"]
         assert panel["pid"] and panel["version"] == "test", panel
+        # WHICH CODE, not which release (#1994). A version is read off git when it is
+        # asked and moves on a commit with no restart; the head is what the process
+        # imported, and it is the only field here that can answer «is the fix live».
+        assert panel["head"] == "abc1234" and panel["boot_at"] == 1.0, panel
         assert said["profiles"] == ["default"], said
+    finally:
+        link.stop()
+        service.stop()
+
+
+def test_one_named_panel_can_be_asked_to_go_without_anybody_killing_it() -> None:
+    """The press that was missing (#1994).
+
+    Every other route is routed by PROFILE, so with two panels answering for one name the
+    second is unreachable for as long as it lives — and the only way to remove it was to
+    kill it, which the person has forbidden. `POST /api/panels` names the PROCESS, and
+    what it sends is the panel's own `/api/panel` press.
+    """
+    service = _service()
+    api = _Api("first")
+    link = _link(service, api, "console", ["default"])
+    try:
+        assert _wait(lambda: _get(service, "/api/panels")[1]["panels"])
+        pid = _get(service, "/api/panels")[1]["panels"][0]["pid"]
+
+        status, said = _post(service, "/api/panels", {"action": "quit", "pid": pid})
+        assert status == 200, said
+        asked = [row for row in api.asked if row[1] == "/api/panel"]
+        assert asked and asked[-1][3] == {"action": "quit"}, api.asked
+
+        # …and it is a PRESS on one process, so everything about it is named or refused.
+        assert _post(service, "/api/panels", {"action": "quit"})[0] == 400
+        assert _post(service, "/api/panels", {"action": "sing", "pid": pid})[0] == 400
+        assert _post(service, "/api/panels", {"action": "quit", "pid": 999999})[0] == 404
     finally:
         link.stop()
         service.stop()

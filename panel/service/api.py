@@ -11,7 +11,9 @@ in step and no chance of the two disagreeing about what `/api/screen/press` mean
 service does not know what a screen IS.
 
 THE FOUR IT ANSWERS ITSELF are the ones no single panel can: which panels have dialled in
-(`/api/panels`), and the three the browser asks before it has chosen an account —
+(`/api/panels`, and a POST to it puts ONE of them down or back by pid — the standard way
+to clear a panel that should not be there, #1994), and the three the browser asks before
+it has chosen an account —
 `/api/profiles`, `/api/i18n` and `/api/words` — which have to work when no panel has
 connected at all, or the phone shows an empty page with no way to tell «nothing is
 running» from «the door is broken».
@@ -35,11 +37,49 @@ class ServiceApi:
     def detach(self) -> None:
         pass
 
+    # -- one named panel, put down or put back ------------------------------
+    def press(self, body: dict) -> tuple:
+        """`POST /api/panels {"action": "quit"|"restart", "pid": N}` — ONE process.
+
+        THE STANDARD WAY TO REMOVE A PANEL THAT SHOULD NOT BE THERE, and it exists
+        because there was none (#1994). Every other route is routed by PROFILE, which is
+        right for anything about an account and cannot address a process: with two panels
+        answering for one profile the request reaches whichever dialled in first, and the
+        other one is unreachable for as long as it lives. The only way left was to kill
+        it, which the person has forbidden — a killed panel leaves locks, children and a
+        client nobody let go of.
+
+        So it ASKS, through the panel's own `/api/panel`
+        (`panel/runtime/panel_control.py`): the same orderly shutdown the window's ✕ runs,
+        the same two presses both front-ends offer, and nothing here knows what either of
+        them does.
+        """
+        action = str(body.get("action") or "").strip()
+        if action not in ("quit", "restart"):
+            return 400, {"error": "unknown_action", "action": action}
+        try:
+            pid = int(body.get("pid") or 0)
+        except (TypeError, ValueError):
+            pid = 0
+        if pid <= 0:
+            # NAMING THE PANEL IS THE WHOLE POINT. Without a pid this would be the
+            # profile route again, and «put down the panel» would mean «put down whichever
+            # one answers» — the very thing that made eight of them impossible to clear.
+            return 400, {"error": "no_pid"}
+        panel = self.registry.by_pid(pid)
+        if panel is None:
+            return 404, {"error": "no_such_panel", "pid": pid}
+        self._log(f"asking panel {pid} to {action}")
+        return panel.ask("POST", "/api/panel", {}, {"action": action},
+                         timeout=wire.ANSWER_TIMEOUT_SEC)
+
     # -- the routing --------------------------------------------------------
     def dispatch(self, method: str, path: str, query: dict, body: dict) -> tuple:
         query = dict(query or {})
         body = dict(body or {})
         if path == "/api/panels":
+            if str(method or "").upper() == "POST":
+                return self.press(body)
             return 200, {"panels": [p.state() for p in self.registry.all()],
                          "profiles": self.registry.profiles()}
         who = str(body.get("profile") or query.get("profile") or "")

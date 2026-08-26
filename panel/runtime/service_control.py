@@ -40,6 +40,7 @@ def start(rt, workspace=None) -> "ServiceLink | None":
                 session=_login(),
                 profiles=lambda: _profiles(workspace, rt),
                 version=_version(),
+                boot=_boot(),
                 log=lambda line: _say(rt, line))
             link.start()
         except Exception as exc:              # noqa: BLE001 — a link, never the panel
@@ -95,6 +96,16 @@ def _version() -> str:
         return str(updates.version_text() or "")
     except Exception:                         # noqa: BLE001 — a reading
         return ""
+
+
+def _boot() -> dict:
+    """WHICH CODE this process is running — the one reading a version cannot give."""
+    try:
+        from . import updates
+
+        return dict(updates.boot())
+    except Exception:                         # noqa: BLE001 — a reading
+        return {}
 
 
 def _say(rt, line: str) -> None:
