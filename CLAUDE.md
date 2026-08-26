@@ -257,9 +257,17 @@ distinction #1976 had to make out loud, and it is what let the ghost card carry 
 and its minimum level on the phone as FIELDS through the months when «Ограбить» could not
 go. A switch is the rule OUR OWN watcher obeys, exactly like the rally auto-join the phone
 has been able to move through the schedule all along, and a knob nobody can reach once the
-window is deleted is worse than one somebody can get wrong. **Joining a rally is where
-that still bites**: the three switches of the automatic side travel and the join itself
-does not.
+window is deleted is worse than one somebody can get wrong. **Joining a rally used to be
+where that bit**, and #1976 finished it the way the robberies were finished: the join is
+one recipe and always was, so what was actually missing was its ARGUMENT — the squads it
+spends could be ticked only at the machine, and a press that sends whatever was last
+chosen is precisely the «wrong squad from a bus» it was held over. The four squad boxes
+travel as switches on the same card, and «Присоединиться» went with them, asking first
+because troops leave the base when it is answered.
+
+**Nothing is held back by the order-of-work rule any more.** The next thing that is will
+be held for the same reason and let go the same way: make the ability one recipe, give it
+whatever the press has to choose, then put the button on the phone.
 
 This is an ORDER OF WORK, not a way out of the rule: first the ability becomes a
 scenario, then the button appears in the web. A second copy of a hand-driven press,

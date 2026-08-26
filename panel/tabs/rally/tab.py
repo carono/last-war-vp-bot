@@ -731,7 +731,11 @@ class RallyTab(PanelTab):
         # phone and the window disagree about what belonged to the automatic mode.
         switches, page = self._web_autojoin_card(), self._web_autorally_card()
         cards.append({"title": "autorally.group",
-                      "fields": list(switches["fields"]),
+                      # …AND THE SQUADS THEMSELVES (#1976). They are what a join SPENDS,
+                      # so «Присоединиться» could not travel while they could only be
+                      # ticked at the machine: a press that sends whatever was last
+                      # chosen is the one thing a rally button must not be.
+                      "fields": list(switches["fields"]) + self._web_squad_fields(),
                       "items": list(page["items"]),
                       "rows": page["rows"]})
         # …AND THE BANNERS THEMSELVES, which is the whole reason a phone is being held
@@ -752,8 +756,24 @@ class RallyTab(PanelTab):
                             # «все» and «никакие» are the two moves anybody actually
                             # makes, and «I unticked everything last week and cannot
                             # remember why nothing is joined» is one of them undone.
+                            # …and the join itself, which is what the phone is being
+                            # held for during an event (#1976).
+                            {"id": "join", "label": "rally.join_now",
+                             "confirm": "rally.join.confirm"},
                             {"id": "kinds_all", "label": "rally_kind.all"},
                             {"id": "kinds_none", "label": "rally_kind.none"}]}
+
+    def _web_squad_fields(self) -> list:
+        """One switch per squad — the SAME boxes «Автосбор» draws in the window.
+
+        Not a second copy: each field writes the page's own variable, so a squad ticked
+        from a bus is ticked at the machine, is saved by the same trace, and is the list
+        `join_rally` is handed — `AutoRally.join_squads`.
+        """
+        return [{"key": f"squad_{squad}", "label": f"rally_tab.squad.{squad}",
+                 "kind": opt_value.SWITCH,
+                 "value": bool(self.autorally._squad_vars[squad].get())}
+                for squad in RALLY_SQUADS]
 
     def _web_roster_cards(self) -> list:
         """The live block, as the phone draws it: a card per banner (#1324).
@@ -955,14 +975,32 @@ class RallyTab(PanelTab):
         standing order, never a second copy of it — so a switch thrown from a bus and one
         thrown at the machine are the same write.
 
-        Joining a rally from the phone is deliberately NOT here: the join is a send with
-        squads chosen for it, and choosing them is «Автосбор» above — a reading here,
-        editable only at the machine. A wrong squad sent from a bus is a squad that is
-        not home when the next rally lands.
+        …AND THE JOIN, since #1976. It was held back for one reason — the join is a send
+        with SQUADS chosen for it, and choosing them was possible only at the machine — so
+        the squads travelled first, as switches on the same card, and the press followed.
+        The ability itself was never the obstacle: it has been one recipe
+        (`actions/join_rally.md`) since long before. It asks first, because troops leave
+        the base when it is answered.
         """
         if action == "set":
             return self._web_press_switch(str((args or {}).get("key") or ""),
                                           bool((args or {}).get("value")))
+        if action == "join":
+            # «ПРИСОЕДИНИТЬСЯ» TRAVELS NOW (#1976), and it travels because the thing that
+            # was missing arrived with it: the squads. The ability was already ONE recipe
+            # (`actions/join_rally.md`) — what kept the press at the machine was that its
+            # `squads` argument could only be chosen there, and a button that sends
+            # whatever was last ticked is precisely the «wrong squad sent from a bus» this
+            # was held back over. The switches above are those ticks, so the phone chooses
+            # and then presses, exactly as the window does.
+            squads = self.join_squads()
+            if not squads:
+                # The window says this in the log and does nothing; the phone is told, or
+                # a press that joined nothing would look like one that worked.
+                self.say("rally", "rally.no_squads")
+                return {"ok": False, "reason": "rally.no_squads"}
+            self.join_now(human=True)
+            return {"ok": True}
         if action in ("kinds_all", "kinds_none"):
             # The window's own two buttons under the table of kinds. They move THIS
             # profile's filter and nothing else: no capture to re-point, no child to
@@ -1000,6 +1038,19 @@ class RallyTab(PanelTab):
         that call and not the caller that decides whether the child comes up, goes down
         or is re-pointed.
         """
+        if key.startswith("squad_"):
+            try:
+                squad = int(key.split("_", 1)[1])
+            except (TypeError, ValueError):
+                return {"error": "unknown"}
+            if squad not in RALLY_SQUADS:
+                return {"error": "unknown"}
+            # The page's own variable, so the trace that saves the profile runs and the
+            # window's box moves with it. Nothing else: the joiner reads the list when a
+            # banner arrives.
+            self.autorally._squad_vars[squad].set(on)
+            self.rt.settings.changed()
+            return {"ok": True}
         if key not in self.WEB_SWITCHES:
             return {"error": "unknown"}
         if key == "autojoin":

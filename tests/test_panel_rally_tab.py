@@ -1234,6 +1234,68 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         root.destroy()
 
 
+def test_the_phone_picks_the_squads_and_then_may_press_the_join():
+    """The last press this task held back, and WHY it could be let go (#1976).
+
+    The ability was never the obstacle — joining is one recipe (`actions/join_rally.md`)
+    and has been since long before. What kept the press at the machine was its `squads`
+    argument: they could only be ticked there, and a button that sends whatever was last
+    chosen is exactly the «wrong squad sent from a bus» this was held over. So the squads
+    travel first, as switches on the same card, and the press follows — asking first,
+    because troops leave the base when it is answered.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.rally import tab as rl
+
+        _hold_autojoin(tab, False)
+        for squad in rl.RALLY_SQUADS:
+            tab.autorally._squad_vars[squad].set(False)
+
+        # THE SWITCHES ARE THE PAGE'S OWN BOXES, not a second copy.
+        knobs = {f["key"]: f for f in tab._web_squad_fields()}
+        assert set(knobs) == {f"squad_{s}" for s in rl.RALLY_SQUADS}, knobs
+        assert all(f["value"] is False for f in knobs.values()), knobs
+        assert tab.web_press("set", {"key": "squad_2", "value": True}) == {"ok": True}
+        assert tab.autorally._squad_vars[2].get() is True
+        assert tab.autorally.join_squads() == [2], tab.autorally.join_squads()
+        # …and they are on the screen the phone actually receives.
+        group = [c for c in tab.web_view()["cards"]
+                 if c.get("title") == "autorally.group"][0]
+        assert "squad_2" in {f["key"] for f in group["fields"]}, group["fields"]
+
+        # A squad that does not exist is not a switch.
+        assert tab.web_press("set", {"key": "squad_9", "value": True}) == {
+            "error": "unknown"}
+
+        # THE PRESS: it plays what the window's button plays, with those squads.
+        joined = []
+        tab.join_now = lambda human=False: joined.append(human)
+        assert tab.web_press("join", {}) == {"ok": True}
+        assert joined == [True], joined
+
+        # …and with nothing ticked it is refused rather than joining nothing quietly.
+        tab.autorally._squad_vars[2].set(False)
+        answer = tab.web_press("join", {})
+        assert answer == {"ok": False, "reason": "rally.no_squads"}, answer
+        assert joined == [True], joined
+
+        # …and the screen's own button asks before it sends.
+        press = [a for a in tab.web_view()["actions"] if a["id"] == "join"][0]
+        assert press["confirm"] == "rally.join.confirm", press
+    finally:
+        root.destroy()
+
+
 def test_the_join_names_every_squad_and_rally_it_passed_over():
     """No squad is left behind without a word for why (#1281).
 
