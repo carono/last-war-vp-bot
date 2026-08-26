@@ -193,7 +193,7 @@ class ProfileTab(DataTab):
         return _warzone_fields((getattr(ctx, "vars", {}) or {}).get(WARZONE_VARIABLE))
 
     def fetch(self):
-        data = {"resources": reads.resource_balance(self.rt.game)}
+        data = {"resources": reads.resource_balance(self.rt)}
         # BEST-EFFORT: nick / level / power off a role manager, each in its own pcall.
         chunk = (
             "local function S(m) local ok, v = pcall(m) "

@@ -102,7 +102,7 @@ class StatsTab(PanelTab):
         """
         take = self.take(INTAKE_GAINS)
         take.seen()
-        current = reads.resource_balance(self.rt.game)
+        current = reads.resource_balance(self.rt)
         if not current:
             # A PUSH THAT COULD NOT BE PRICED IS A LOSS, not an empty answer (#1523).
             # The push says a balance MOVED; the amount only exists in the reading taken

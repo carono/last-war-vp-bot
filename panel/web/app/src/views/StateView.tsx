@@ -4,7 +4,7 @@ import { t, when } from '../i18n'
 import { Pill } from '../ui/Pill'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
-import type { Control, PressAnswer, Recovery, State } from '../types'
+import type { Control, PressAnswer, Recovery, ResourceRow, State } from '../types'
 
 /* THE THREE STATUSES (#1911), in the phone's two vocabularies: the word on the pill and
  * the colour it is worn in. The reasons are `tools/lib/profile_health.py`'s own ids, so
@@ -167,6 +167,55 @@ function PanelCard({ state, onGone }: { state: State; onGone: () => void }) {
   )
 }
 
+/* WHAT THE BASE IS HOLDING, on the front page and moving by itself (#1990). Every row
+ * is `actions/read_base_resources.md`'s answer said back: the NAME is the game's own,
+ * already in the player's language, so nothing here maps a resource onto a word of the
+ * panel's — which is the only way «золото» and «хлеб» can be right, given that the
+ * client's own field names call them `wood` and `money`.
+ *
+ * There is no «Обновить». The reading refreshes on its own, at most every half minute
+ * (`panel/runtime/resources.py`), and the line under the list says how old it is —
+ * because a number with no age on it is indistinguishable from one that stopped
+ * updating an hour ago. */
+function ResourcesCard({ state }: { state: State }) {
+  const stock = state.resources || {}
+  const rows: ResourceRow[] = stock.rows || []
+  const age = stock.age ?? -1
+  // A count is grouped in the browser's own locale — the one formatting job that is not
+  // a translation: 712198273 is unreadable and «712 198 273» is the same number.
+  const num = (value: number) => value.toLocaleString()
+  const note = stock.reading
+    ? t('web.ui.res.reading')
+    : age < 0
+      ? t('web.ui.res.never')
+      : t('web.ui.res.age', { sec: Math.round(age) })
+  return (
+    <div className="card">
+      <div className="row">
+        <span>{t('web.ui.res.head')}</span>
+        <Pill tone={rows.length ? 'ok' : undefined}>{note}</Pill>
+      </div>
+      {rows.length ? (
+        rows.map((row) => (
+          <div className="row" key={row.type}>
+            <span>{row.name}</span>
+            <span>
+              {num(row.count)}
+              {/* Only what the game actually reported: a cap and a rate come back as 0
+                  for most of the base's resources, and «из 0» would be a fact the client
+                  never stated. */}
+              {row.max ? ' ' + t('web.ui.res.cap', { max: num(row.max) }) : ''}
+              {row.per_hour ? ' · ' + t('web.ui.res.rate', { rate: num(row.per_hour) }) : ''}
+            </span>
+          </div>
+        ))
+      ) : (
+        <p className="muted small">{t('web.ui.res.empty')}</p>
+      )}
+    </div>
+  )
+}
+
 export function StateView({
   state,
   refresh,
@@ -233,6 +282,8 @@ export function StateView({
         </div>
         <ControlRow controls={state.game.controls || []} route="/api/game" onDone={refresh} />
       </div>
+
+      <ResourcesCard state={state} />
 
       <div className="card">
         <div className="row">

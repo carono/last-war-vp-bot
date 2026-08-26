@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 53 of 154
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 53 of 155
 
-🟩 53 done · 🟨 66 partly · 🟥 35 not automated
+🟩 53 done · 🟨 67 partly · 🟥 35 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -170,6 +170,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - ✅ Collecting the basic resources — iron, food, gold
 - ✅ Collecting the extra resources — drone components, seasonal, ore and the rest. The base sweep covers every production line, not a fixed list
+- 🟡 Seeing what the base is holding, on the phone's front page — how much gold, food, metal and oil there is right now, and every other resource the account has any of, each with the name the game itself gives it in the language the game is set to. There is no «Обновить»: the numbers re-read themselves while the page is open, and a line above them says how long ago they were read, so a figure that has stopped moving cannot be mistaken for a fresh one. Where the game states a storage cap or a rate per hour, they are shown beside the amount, and where it states neither, nothing is invented. It costs the game about a fifth of a second and is taken at most once every half minute however many people are looking. Read live off a real base — every resource came back with its own name and its own number — but the page itself has not been looked at on a phone yet
 - 🟡 Collecting the resources from the truck parked at the base — one press takes the whole load at once, no window opens and there is no congratulation modal left to close; it does not need the base on screen. The daily checklist has a button for it; how much the truck is holding cannot be read, so the line beside the button stays «unknown». Run live from that button: the presses go out, the game turns none of them down and no window is left open behind it — but whether the truck had a load to give was not visible, so this stays short of proven until one run is watched with the balance before and after
 - 🟡 Sending squads out to gather on the map — the march goes out correctly, but the bot does not choose where to send it
 - 🟡 Seeing every mine on the map — a page of its own listing every resource node the map watch has seen: where it is, what it yields, its level, and whether somebody is already gathering it. The taken ones are kept out of the way unless you ask for them, and the level range narrows the rest. It is filled by the same three-second lap of the map that finds the raids, so it costs no extra pass and no second watcher; a click on a coordinate walks the camera to the tile. Marching a squad to one is still done by hand. The reading was rebuilt from a recorded lap of a real server — nine thousand mines, three kinds, free and taken told apart — but it has not been watched filling up live

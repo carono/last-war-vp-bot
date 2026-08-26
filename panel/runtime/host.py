@@ -23,6 +23,7 @@ from .actions import ActionRunner, Outcome
 from .activity import Activity
 from .power import Power
 from .recovery import Recovery as RecoveryState
+from .resources import BaseResources
 from .bus import EventBus
 from .children import ChildFactory
 from .link import GameLink
@@ -196,6 +197,13 @@ class PanelRuntime:
         # both front-ends draw the same flag, since when. It reads this profile's own
         # settings binder, so one account being off says nothing about the other.
         self.power = Power(self.settings)
+        # …and WHAT THE BASE IS HOLDING RIGHT NOW (panel/runtime/resources.py, #1990).
+        # The stock along the top of the game's own screen, drawn on the phone's front
+        # page and refreshed by itself while somebody is looking. Here rather than on a
+        # tab because the front page is not a tab, and because a reading that costs a
+        # fifth of a second of the game link must be taken once per profile and shared —
+        # never once per page that happens to be open.
+        self.resources = BaseResources(self)
         # WHICH SCENARIOS ARE RUNNING RIGHT NOW, and the press that ends them
         # (panel/runtime/interrupt.py). Here rather than on the window because the runner
         # below has to fill it and both front-ends have to read it: the footer's

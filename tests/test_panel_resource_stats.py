@@ -28,15 +28,15 @@ DAY2 = "2026-07-31"
 
 # -- the diff ---------------------------------------------------------------
 def test_only_increases_are_counted():
-    last = {"food": 100, "wood": 100, "gold": 100}
-    cur = {"food": 150, "wood": 80, "gold": 100}          # food up, wood down, gold flat
+    last = {"food": 100, "metal": 100, "gold": 100}
+    cur = {"food": 150, "metal": 80, "gold": 100}         # food up, metal down, gold flat
     assert rs.positive_deltas(cur, last) == {"food": 50}
 
 
 def test_no_baseline_means_no_gain():
     # A resource missing from `last` (first reading) is not counted as gained.
     assert rs.positive_deltas({"food": 999}, {}) == {}
-    assert rs.positive_deltas({"food": 999}, {"wood": 1}) == {}
+    assert rs.positive_deltas({"food": 999}, {"metal": 1}) == {}
 
 
 def test_junk_values_are_ignored():
@@ -48,7 +48,7 @@ def test_gains_accumulate_within_a_day():
     stats = rs.ResourceStats({})
     stats = stats.add({"food": 100}, today=DAY1)
     stats = stats.add({"food": 50, "gold": 5}, today=DAY1)
-    assert stats.on(DAY1) == {"food": 150, "wood": 0, "metal": 0, "oil": 0, "gold": 5}
+    assert stats.on(DAY1) == {"food": 150, "metal": 0, "oil": 0, "gold": 5}
 
 
 def test_a_new_day_is_a_new_row_history_kept():
@@ -64,7 +64,7 @@ def test_empty_gains_change_nothing():
     same = stats.add({}, today=DAY1)
     assert same is stats                          # a spend-only push is a no-op
     # a delta dict with only non-positive values is empty too
-    assert stats.add({"food": 0, "wood": -3}, today=DAY1) is stats
+    assert stats.add({"food": 0, "metal": -3}, today=DAY1) is stats
 
 
 def test_unknown_resource_keys_are_dropped():

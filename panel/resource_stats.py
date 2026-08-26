@@ -38,15 +38,16 @@ import os
 
 from .profile import _write_json
 
-# The resources the tally tracks, in display order. The keys are the tracker's own
-# vocabulary; the game's balance dict names two of them differently (gold = "money",
-# oil = "petroleum"), and the panel's read maps them over before they get here.
-RESOURCES: tuple[str, ...] = ("food", "wood", "metal", "oil", "gold")
-
-# Game balance field -> our key, for the two that differ. The panel's resource read
-# applies this so everything below speaks the tracker's vocabulary.
-BALANCE_FIELD = {"food": "food", "wood": "wood", "metal": "metal",
-                 "oil": "petroleum", "gold": "money"}
+# The resources the tally tracks, in display order — the four the base produces. The
+# keys are the tracker's own vocabulary; `panel/runtime/reads.py` maps the game's
+# resource TYPES onto them, because the client's own field names no longer say what the
+# game shows (the field spelled `wood` is drawn as «Золотые монеты»).
+#
+# «wood» WAS A FIFTH COLUMN HERE and it was never a resource (#1990). It came from the
+# wire's field names, where `wood` is the engine's original spelling of what the game
+# now calls gold — so the tally carried a column that could only ever be zero next to a
+# «gold» column meaning the same thing.
+RESOURCES: tuple[str, ...] = ("food", "metal", "oil", "gold")
 
 
 def _today() -> str:
