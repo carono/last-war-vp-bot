@@ -8,6 +8,15 @@ REM   headless.bat --profile main      one, by name (repeatable)
 REM   headless.bat --no-web            do not bind this machine's web port
 REM                                    (the service already answers for every panel)
 REM
+REM The remote control this panel serves - its port, host, token and certificate - is
+REM the MACHINE's setting and has no screen on purpose (#1313: the door is not managed
+REM from the far side of it). With no window to draw the dialog, the way in is a command
+REM on the machine itself:
+REM
+REM   python -m panel.web_settings                 what is set now, and the link
+REM   python -m panel.web_settings --on --port N   serve it, on this port
+REM   python -m panel.web_settings --token new     a new token (every phone signs in again)
+REM
 REM The window (panel.bat) still works and is what the panel opens by default; this
 REM is the way it will run once Tk is deleted (#1976, P3). Nothing else changes: the
 REM same profiles, the same settings, the same recipes, the same API.

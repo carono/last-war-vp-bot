@@ -326,6 +326,18 @@ into the one running server, and `panel/runtime/web_dialog.py` draws them. **The
 divergence itself did not change** and the same test pins it from the other side: no
 `web` tab in the registry, and nothing in `panel/web/api.py` that can reach the setting.
 
+**What DID change is the other side of it, and it is what a live divergence looks like
+when the code around it moves (#1976).** «Not from the web» was never «only from the
+window» — it only looked that way while the window was the sole thing on the machine that
+could write the block. The window is being deleted, and a knob nobody can reach once it is
+gone is worse than one somebody can get wrong (the same sentence that ended the «Настройки»
+divergence, arrived at from the opposite direction). So the knobs got a way in that is
+neither the window nor the door: `python -m panel.web_settings` on the machine itself —
+`--on` / `--off` / `--port` / `--host` / `--token new` / `--cert` / `--key` / `--address`
+— which is precisely the access the divergence was keeping them for. The rule is
+unchanged, the test is unchanged, and `panel/runtime/web_dialog.py` may now be deleted
+with the rest of the window instead of taking the front door with it.
+
 **«Веб» was its own menu entry for a while, and then «Профиль» and «Автозапуск» grew
 entries of their own beside it (#1506) — and a fourth command on the menu bar for a
 fourth switch of the exact same kind is where "one menu bar, one command per knob"
