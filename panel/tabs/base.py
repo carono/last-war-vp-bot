@@ -190,12 +190,19 @@ class PanelTab:
         if self._built:
             return False
         self._built = True
+        # NOTHING TO DRAW INTO IS NOT A FAILURE (#1976, P3). A panel with no window
+        # builds its tabs so that their state, their errands and their screens exist —
+        # it simply has no frame to put widgets in, and `build()` is the one method that
+        # needs one. The saved block is still applied below: a tab's settings are its
+        # state, and a headless panel keeps every one of them.
+        headless = self.parent is None
         settings = getattr(self.rt, "settings", None)
         was = getattr(settings, "loading", False)
         if settings is not None:
             settings.loading = True
         try:
-            self.build()
+            if not headless:
+                self.build()
             if self._saved_config is not None:
                 self.apply_config(self._saved_config)
         finally:
