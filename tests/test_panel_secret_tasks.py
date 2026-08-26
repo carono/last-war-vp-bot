@@ -3000,8 +3000,11 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # that spends it.
     # …and «Обновить состояние» beside them (#1272): it re-reads what is already on the
     # list and robs nothing, so it is a press the phone may make.
+    # …and the day's own errand at the end (#1976): claim what ripened, open the boxes,
+    # refresh and send. The schedule had been playing it for months, which is not a home
+    # — an errand runs without anybody asking (`tests/test_scenario_homes.py`).
     assert [a["id"] for a in view["actions"]] == ["refresh", "refresh_state", "zoom",
-                                                 "sweep_now"]
+                                                 "sweep_now", "work_day"]
     assert view["actions"][2]["label"] == "coord.zoom.tile"
 
 

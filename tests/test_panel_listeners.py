@@ -207,23 +207,30 @@ def test_the_tile_line_carries_no_owner():
 
 
 def test_a_tile_is_never_dropped_because_the_tab_is_not_open():
-    """The buffer is not a place an event may die (#1416).
+    """The buffer is not a place an event may die — and since #1476 nor is the MODEL.
 
-    A tab nobody has looked at has no model to merge into. The tiles have arrived all
-    the same — the capture is a standing order, not something a tab switches on — so the
-    landing pass keeps them and comes back, rather than emptying the buffer into
-    nothing. Read off the source, because building a tab needs Tk and this rule is one
-    branch.
+    It used to be «keep them and come back»: an unopened tab re-armed the pass rather
+    than emptying its buffer into nothing. That was not enough, and the operator's rule
+    admits no gate at all — «все секретки строго должны записываться» — because the model
+    itself was still built by the first LOOK, so a lap driven from «Состояние», from the
+    phone or by a schedule wrote its tiles into a dict and left them there.
+
+    So there is no waiting left to pin: the model is restored here (`_ensure_model`)
+    BEFORE the buffer is drained, the merge runs headless, and the only part that ever
+    needed a window — the drawing — is what `_render` skips when there is no table yet.
+    Read off the source, because building a tab needs Tk and this rule is one branch.
     """
     src = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(
         encoding="utf-8")
     body = src[src.index("def _tiles_land"):]
     body = body[:body.index("def _rank_of")]
-    guard = body[body.index("if not self.loaded"):]
-    guard = guard[:guard.index("return") + len("return")]
-    assert "arm(" in guard, "an unopened tab must re-arm the pass, not swallow the tiles"
-    assert body.index("if not self.loaded") < body.index("self._tiles, {}"), \
-        "the buffer must not be emptied before the tab is known to be there"
+    assert "self._ensure_model()" in body, (
+        "the landing pass does not restore the model — a tab nobody opened would merge "
+        "into nothing")
+    assert body.index("self._ensure_model()") < body.index("self._tiles, {}"), \
+        "the buffer is emptied before the model it merges into exists"
+    assert "if not self.loaded" not in body, (
+        "the landing pass waits for somebody to look again (#1476)")
 
 
 def _main() -> int:

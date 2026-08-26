@@ -568,6 +568,19 @@ class InventoryTab(DataTab):
                       "empty": "inventory.empty"}]
         return cards
 
+    def web_view(self) -> "dict | None":
+        """The bag as `DataTab` draws it, plus the one press that is the bag's own.
+
+        «Потратить выносливость» spends the bag's stamina items on march energy — one
+        recipe with its own default (`actions/use_stamina.md`). It is a screen action
+        rather than a row's, because it is about the bag as a whole rather than about one
+        cell in it.
+        """
+        view = super().web_view() or {}
+        view.setdefault("actions", []).append(
+            {"id": "use_stamina", "label": "inventory.use_stamina"})
+        return view
+
     def web_press(self, action: str, args) -> dict:
         """«Использовать» from the phone — the same scenario the window plays.
 
@@ -575,6 +588,14 @@ class InventoryTab(DataTab):
         the phone's own copy of a row can be minutes old, and a press that asks for a
         hundred of something there are three of should spend three rather than be refused.
         """
+        if action == "use_stamina":
+            # THE BAG'S STAMINA, SPENT ON MARCH ENERGY (#1976) — one recipe with a
+            # default of its own (`ARGS amount`), and the only ability of this bag that
+            # had no press anywhere. It belongs here rather than on an event's page: what
+            # it spends is the bag, and what it fills is every march the account makes.
+            return {"ok": self.rt.play_async(
+                "use_stamina", tag="inventory", human=True,
+                on_done=lambda *_: self.refresh())}
         if action != "use":
             # …and everything else is still the base tab's — «Обновить» above all, which
             # every data screen offers and which this override would otherwise swallow.

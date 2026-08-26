@@ -121,6 +121,14 @@ SOURCES = {
     "world.monsters": (),
     "rally.banners": ("rally_monitor.py",),
     "chat.messages": ("chat_reader.py",),
+    # A firework announces itself on the panel's own wire hub rather than through a
+    # listener child, so it has no source to name — like the three above it that are
+    # ASKED rather than told (`sources_of` answers empty and the badge says «спросили»).
+    "fireworks.push": (),
+    # …and the answers to our OWN presses, counted apart from what the sky announced:
+    # «the sky is busy and we took nothing» and «the ear has gone deaf» look identical
+    # on one counter (`panel/runtime/firework_wire.py`).
+    "fireworks.got": (),
     "stats.gains": (),
 }
 

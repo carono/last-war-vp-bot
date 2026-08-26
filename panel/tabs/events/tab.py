@@ -1098,7 +1098,14 @@ class EventsTab(PanelTab):
             gcard,
             fcard,
         ], "now": time.time(),
-            "actions": [{"id": "refresh", "label": "events.refresh"}]}
+            "actions": [{"id": "refresh", "label": "events.refresh"},
+                        # …AND «ПРОРЫВ ОБОРОНЫ» (#1976), the Sunday mini-game. One recipe
+                        # with its own defaults, played by the schedule for months — and a
+                        # schedule is not a home: it runs without anybody asking, and
+                        # «сыграй его сейчас» had nowhere to be pressed
+                        # (`tests/test_scenario_homes.py`). Here, among the events.
+                        {"id": "frontline", "label": "events.frontline.play",
+                         "confirm": "events.frontline.confirm"}]}
 
     def web_press(self, action: str, args: dict) -> dict:
         """The same three presses the window has, and nothing the window has not."""
@@ -1106,6 +1113,11 @@ class EventsTab(PanelTab):
             return {"ok": self.refresh_both(human=True)}
         if action == "collect_fireworks":
             return {"ok": self.collect_fireworks()}
+        if action == "frontline":
+            # The recipe's own defaults — how many rounds, how deep each lane goes — are
+            # `ARGS` of the file and the panel holds no second opinion (`CLAUDE.md`).
+            return {"ok": self.rt.play_async("play_frontline_breakthrough",
+                                             tag="events", human=True)}
         if action in ("attack_codename", "daily_codename"):
             if not self.codename().can_attack:
                 return {"error": "closed"}

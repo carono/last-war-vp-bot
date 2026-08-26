@@ -370,12 +370,24 @@ class RecruitTab(PanelTab):
                 card["items"] = dead
             cards.append(card)
         return {"cards": cards, "now": time.time(),
-                "actions": [{"id": "refresh", "label": "recruit.refresh"}]}
+                # …AND THE TAVERN'S TWO FREE PULLS (#1976). The ability is one recipe
+                # (`actions/tavern_free_pull.md`) and the schedule has been playing it for
+                # months — which is not a home: an errand runs without anybody asking, and
+                # «дай мне это сейчас» had nowhere to be pressed
+                # (`tests/test_scenario_homes.py`). Here, where the banners are.
+                "actions": [{"id": "refresh", "label": "recruit.refresh"},
+                            {"id": "free_pulls", "label": "recruit.free_pulls"}]}
 
     def web_press(self, action: str, args: dict) -> dict:
         """The same seven presses the window has, and nothing the window has not."""
         if action == "refresh":
             return {"ok": self.refresh()}
+        if action == "free_pulls":
+            # The recipe books its own next turn and refuses what is not free yet, so
+            # nothing here gates it — the panel plays it and re-reads (`CLAUDE.md`).
+            return {"ok": self.rt.play_async(
+                "tavern_free_pull", tag="recruit", human=True,
+                on_done=lambda *_: self.refresh())}
         if action.startswith("pull_"):
             _, _, rest = action.partition("_")
             kind, _, count = rest.rpartition("_")

@@ -194,7 +194,7 @@ def test_the_reading_comes_from_the_game_and_never_refuses(monkey=None):
     again since #1317, and it is enforced where the press is: inside `rally_join_all`,
     against this same game-side number.
     """
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 20}))
         rt.game.trophy = (8, 20, 12)
         assert gate.trophy_progress(rt) == {"done": 8, "max": 20, "left": 12}
@@ -205,14 +205,14 @@ def test_the_reading_comes_from_the_game_and_never_refuses(monkey=None):
 
 
 def test_a_client_that_cannot_answer_gives_no_reading_rather_than_a_wrong_one():
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), None)                       # no daemon
         assert gate.trophy_progress(rt) == {}
 
 
 def test_the_gate_answers_yes_to_everything():
     """It is kept only to keep the record wired — it may never refuse a banner (#1281)."""
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 1}))
         gate.record_joins(rt, ["monster"], 1)          # «spent», in the old meaning
         allowed = gate.join_gate(rt)
@@ -225,7 +225,7 @@ def test_the_gate_answers_yes_to_everything():
 
 def test_the_tally_is_kept_per_kind_and_reads_nothing_back():
     """What each join went to is the panel's own note; the game keeps no such thing."""
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"],
                  limits=rl.RallyLimits({"monster": 20, "zombie_invasion": 0}))
         gate.record_joins(rt, ["zombie_invasion", "monster", "zombie_invasion"], 3)
@@ -446,7 +446,7 @@ def test_the_day_rolls_on_the_servers_boundary_not_this_machines():
     eleven seconds out when `game_clock` was written, and the boundary is 02:00 UTC on
     the warzone this was measured on rather than local midnight.
     """
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         path = str(Path(td) / "counts.json")
         store = rl.RallyCounts("2026-08-11", {"doom_elite": 3}, path, day_end_ms=2_000)
         # before the boundary the tally stands, whatever the date string says
@@ -476,7 +476,7 @@ def test_the_day_rolls_on_the_servers_boundary_not_this_machines():
 
 def test_what_each_kind_has_left_is_what_the_recipe_is_handed():
     """`kind:left,…`, with «no cap» left out — the shape the press parses (#1317)."""
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"],
                  limits=rl.RallyLimits({"doom_elite": 3, "monster": 0}))
         gate.record_joins(rt, ["doom_elite", "doom_elite"], 2)
@@ -521,7 +521,7 @@ def test_the_budget_holds_at_its_edge_and_only_for_the_kind_it_belongs_to():
     — 1 left at nineteen, 0 at twenty, 0 (never negative) past it — and pinned again on
     `allowed`, which is the same decision said the other way round.
     """
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"],
                  limits=rl.RallyLimits({"general_trial_elite": 20, "doom_elite": 20,
                                         "desert_boss": 0}))
@@ -572,7 +572,7 @@ def test_the_budget_holds_at_its_edge_and_only_for_the_kind_it_belongs_to():
 
 def test_the_budget_travels_on_the_run_that_changes_kind():
     """A run that joins two kinds spends one from each — and the edge moves with it."""
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"],
                  limits=rl.RallyLimits({"general_trial_elite": 2, "doom_elite": 3}))
         gate.record_joins(rt, ["general_trial_elite", "doom_elite"], 2)
@@ -638,7 +638,7 @@ def test_the_tally_never_counts_more_than_the_run_sent():
     falls inside both differences and both used to record it. Over one live event the
     tally read 53 against 34 confirmed joins and 35 trophies.
     """
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"])
         # One banner sent to, three joins seen: only the one this run sent is counted.
         gate.record_joins(rt, ["doom_elite"], 3)
@@ -665,7 +665,7 @@ def test_the_join_does_not_start_when_every_squad_it_may_send_is_out():
     behind it. Measured at 0.06–0.10 s on the live client, which is what makes asking
     first cheaper than finding out.
     """
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"])
 
         class _Ev:
@@ -770,7 +770,7 @@ def test_the_kinds_are_the_games_own_species():
 
 
 def test_doom_elite_is_a_key_of_its_own_with_its_own_budget():
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"])
         limits = rl.load_limits(rt.profiles.rally_limits_json())
         assert "doom_elite" in limits.types(), limits.types()
@@ -795,7 +795,7 @@ def test_one_rule_counts_a_run_whichever_driver_played_it():
     tab's driver made went unrecorded — over one live window `rally_counts` read 11
     against 13 confirmed joins.
     """
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"])
         # …one entry per squad the run sent, in the order it sent them
         assert gate.record_run(rt, _Ctx(kinds="doom_elite,monster", joined=2)) == 2
@@ -840,7 +840,7 @@ def test_both_drivers_reach_the_same_writer():
 
 def test_a_profile_written_before_the_doom_key_grows_it():
     """The vocabulary grew; an old profile's file must not stay one bucket short."""
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 20}))
         limits = rl.load_limits(rt.profiles.rally_limits_json())
         assert limits.limit_for("monster") == 20

@@ -145,7 +145,11 @@ def test_the_press_drops_the_priority_and_hands_over_the_step_aside_hook():
         "the hook is built and never handed to the run"
     # …and `play` has to take it by name: it always builds the context itself, so a hook
     # left in **kw would reach `run`, which has a context already and drops it.
-    assert "yield_to=None, **kw" in ACTIONS.read_text(encoding="utf-8")
+    # Named, and NOT pinned to whatever happens to follow it in the signature: `human`
+    # was added after this line was written (#1910) and the literal stopped matching a
+    # method that had not changed in the way this test is about.
+    assert re.search(r"def play\([^)]*yield_to=None",
+                     ACTIONS.read_text(encoding="utf-8"), re.S)
 
 
 def test_a_detached_run_is_patient_about_getting_the_client_back():

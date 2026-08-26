@@ -4470,7 +4470,15 @@ class SecretTasksTab(PanelTab):
                             {"id": "refresh_state", "label": "coord.refresh_state"},
                             {"id": "zoom",
                              "label": f"coord.zoom.{self._zoom_level}"},
-                            {"id": "sweep_now", "label": "coord.sweep_now"}]}
+                            {"id": "sweep_now", "label": "coord.sweep_now"},
+                            # …AND THE DAY'S OWN ERRAND (#1976): claim what ripened, open
+                            # the boxes, refresh, send. It is one recipe with defaults of
+                            # its own and the schedule has been playing it for months —
+                            # which is not a home, because an errand runs without anybody
+                            # asking (`tests/test_scenario_homes.py`). Here, on the tab
+                            # whose tasks it works.
+                            {"id": "work_day", "label": "secrettasks.work_day",
+                             "confirm": "secrettasks.work_day.confirm"}]}
         # …AND THE FLOW STRIP ON EVERY CARD THAT HAS ONE (#1549). The window draws it
         # above each table; the phone carries the same badge in the card's own head, out
         # of the same module, so the two front-ends cannot disagree about whether a feed
@@ -4692,6 +4700,12 @@ class SecretTasksTab(PanelTab):
         if action == "sweep_now":
             self.post(self._sweep_once)
             return {"ok": True}
+        if action == "work_day":
+            # The recipe's own defaults, unchanged: what it keeps, whether it spends
+            # diamonds and up to how many are `ARGS` of the file, and the panel does not
+            # hold a second opinion about any of them (`CLAUDE.md`).
+            return {"ok": self.rt.play_async("work_secret_tasks", tag="secret",
+                                             human=True)}
         if action == "refresh_state":
             self.post(self.refresh_state)
             return {"ok": True}
