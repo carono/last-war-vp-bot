@@ -317,11 +317,23 @@ def test_the_page_names_are_keys_in_every_shipped_locale():
             assert table.get(full), f"{path.name} has no {full}"
 
 
-def test_the_tab_still_has_no_screen_on_the_phone():
-    """The standing divergence is untouched by the rearrangement (`CLAUDE.md`)."""
+def test_the_tab_has_a_screen_and_the_recording_is_not_on_it():
+    """The divergence ended in #1976, and what replaced it is the interesting half.
+
+    «Разработка» said `WEB_SCREEN = False` because it is «two sniffers for working on the
+    bot itself» — true of the SNIFFERS and never of «Занятость», which answers «почему
+    панель ничего не делает». So the tab has a screen; the sniffers are a reading on it,
+    because starting one asks for a label in a message box and stopping one asks whether
+    to keep the run, and a phone can answer neither. `tests/test_panel_develop_screen.py`
+    holds the cards themselves — what is pinned here is that the rearranged PAGES did not
+    quietly take the screen away again.
+    """
     from panel.tabs import BY_ID
 
-    assert BY_ID["develop"].load().WEB_SCREEN is False
+    cls = BY_ID["develop"].load()
+    assert cls.WEB_SCREEN is True, "«Разработка» lost its phone screen"
+    tab = cls.__new__(cls)
+    assert tab.web_press("set", {"key": "sniff", "value": True}) == {"error": "unknown"}
 
 
 def _main() -> int:

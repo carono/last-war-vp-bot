@@ -203,6 +203,24 @@ class GhostOrder:
             return
         self.rob(picks)
 
+    def rob_one(self, uuid, server) -> bool:
+        """ONE squad, named by the row that offered the press (#1976).
+
+        The phone's rows carry their own uuid since the card is drawn from the page's own
+        list, so «Ограбить» beside a row can mean that row and nothing else — which is
+        what the window's per-row button has always meant.
+
+        Refuses while a robbery is in flight, for the reason :meth:`run_once` does: the
+        five a day are not refundable, and two runs parking two sets of squads on one
+        queue is what the flag exists to stop. The gates the RULE applies were applied
+        where the row was drawn (the game's own «may be robbed», «not mine»); the event
+        day and the daily budget stay the game's and are re-read by the recipe's `xall`.
+        """
+        if self._proc is not None:
+            return False
+        self.rob([{"uuid": uuid, "srv": server}])
+        return True
+
     # -- the robbery ---------------------------------------------------------
     def rob(self, targets) -> None:
         """Play `actions/steal_ghost_recon.md` over the squads this look chose.

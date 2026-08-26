@@ -279,12 +279,20 @@ def test_the_phones_log_screen_did_not_move_with_it():
     assert "rt.log.tap" in src, "the phone's feed stopped riding the bus's tap"
 
 
-def test_the_develop_tab_still_has_no_screen_on_the_phone():
-    """The standing divergence is untouched by the move (`CLAUDE.md`)."""
+def test_the_develop_tab_has_a_screen_and_the_log_is_not_on_it():
+    """The tab's divergence ended in #1976; the LOG did not travel with it.
+
+    The pane moved off the shell and onto this tab (#1391), and the tab has a phone
+    screen now — but the screen is «Занятость», the recording pair as a reading and the
+    update channel. The log has its own route on the phone (`/api/log`), so a card
+    repeating it would be a second copy of the same spool with its own filter.
+    """
     from panel.tabs import BY_ID
 
     cls = BY_ID["develop"].load()
-    assert cls.WEB_SCREEN is False, "«Разработка» grew a phone screen"
+    assert cls.WEB_SCREEN is True, "«Разработка» lost its phone screen"
+    tab = cls.__new__(cls)
+    assert tab.web_press("set", {"key": "log_filter", "value": "x"}) == {"error": "unknown"}
 
 
 def _main() -> int:

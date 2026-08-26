@@ -776,6 +776,88 @@ def test_a_ghost_recipe_that_failed_says_so_in_the_scenarios_own_words():
     assert "log.ghost.spend_failed" in said, said
 
 
+def test_a_ghost_row_carries_its_own_press_where_the_game_allows_one():
+    """Per-row «Ограбить» on the phone — the last thing this card was missing (#1976).
+
+    It waited on the rows, not on the rule: the card used to be drawn from the map-scan
+    FILE, whose records carry no uuid and no verdict, so a row could be shown and never
+    pressed. The card is drawn from the PAGE'S OWN LIST when it has one — what a look
+    left behind, the client's `taskList` merged with the scan — and those rows carry
+    both. The file is still the fallback for a page nobody has looked at.
+
+    The press is offered exactly where the window offers it: the game says the tile may
+    be robbed, and it is not our own squad. Never on a row excluded only by «минимальный
+    уровень» — that is the standing order's rule for spending the day's five unattended,
+    not a ban on a squad somebody chose by hand.
+    """
+    cp = _module()
+    if cp is None:
+        return
+    import coords
+
+    class Rt:
+        @staticmethod
+        def t(key, **fmt):
+            return key
+
+    tab = cp.CommandPostTab.__new__(cp.CommandPostTab)
+    tab.rt = Rt()
+    pane = types.SimpleNamespace(
+        targets=[{"uuid": "11", "srv": 700, "x": 1, "y": 2, "level": 30, "can": True,
+                  "mine": False, "looted": 0, "scanned": True},
+                 {"uuid": "12", "srv": 700, "x": 3, "y": 4, "level": 5, "can": True,
+                  "mine": True, "looted": 1, "scanned": True},
+                 {"uuid": "13", "srv": 700, "x": 5, "y": 6, "level": 9, "can": False,
+                  "mine": False, "looted": 0, "scanned": True}],
+        level_min=lambda: 20,
+        autoloot_var=types.SimpleNamespace(get=lambda: False))
+    tab._by_key = {"ghost": pane}
+
+    card = tab._web_ghost(coords, 0.0)
+    items = card["items"]
+    assert len(items) == 3, items
+    pressable = [i for i in items if i.get("actions")]
+    assert len(pressable) == 1, pressable
+    action = pressable[0]["actions"][0]
+    assert action["id"] == "ghost_rob_one", action
+    # The window's own row label, not a second word for the same press.
+    assert action["label"] == "cmdpost.steal", action
+    assert action["args"] == {"uuid": "11", "srv": 700}, action
+    # …and the row that is ours says so instead of offering a press the game refuses.
+    assert items[1]["pill"] == "cmdpost.ghost.own", items[1]
+
+
+def test_a_row_press_robs_that_row_and_a_second_one_is_refused():
+    """One squad, the same recipe «Ограбить всех» plays — with a queue of one.
+
+    And the in-flight flag covers it exactly as it covers the whole-list press: five a
+    day are not refundable, so a second tap while the first is being pressed is answered
+    rather than parking another squad on the queue underneath it.
+    """
+    order, rt, _said = _order([])
+    if order is None:
+        return
+    cp = _module()
+    if cp is None:
+        return
+    tab = cp.CommandPostTab.__new__(cp.CommandPostTab)
+    tab.rt = rt
+    tab._by_key = {"ghost": types.SimpleNamespace(order=order)}
+
+    assert tab.web_press("ghost_rob_one", {"uuid": "11", "srv": 700}) == {"ok": True}
+    _drain(order)
+    assert rt.actions.played == ["steal_ghost_recon"], rt.actions.played
+    assert rt.actions.args[0]["queue"] == "{uuid=11,server=700}", rt.actions.args
+    assert rt.children.cmd is None, "a per-row robbery spawned something"
+
+    # …and a press with no row named is not a press.
+    assert tab.web_press("ghost_rob_one", {}) == {"error": "unknown"}
+
+    order._proc = object()                       # a robbery in flight
+    assert tab.web_press("ghost_rob_one", {"uuid": "12", "srv": 700}) == {
+        "ok": False, "reason": "cmdpost.ghost.busy"}
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

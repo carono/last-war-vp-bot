@@ -201,34 +201,6 @@ class _Pane:
         """This profile's warm-daemon evaluator (raises if there is no daemon)."""
         return self.rt.game.evaluator()
 
-    def _web_press_ghost(self, key: str, value) -> "dict | None":
-        """The ghost standing order's switch or its level; ``None`` for another key.
-
-        The SWITCH goes through `order.toggle`, which is what the window's checkbox is
-        bound to: the watcher is started and stopped there and nowhere else, so a switch
-        thrown from a phone brings the same thread up as one thrown at the machine.
-
-        The LEVEL is remembered the way every typed box on this page is — the variable is
-        traced, so setting it writes the profile, and the rule line is repainted for
-        whoever is standing at the window. Anything that is not a whole number is stored
-        as EMPTY, which is «any level»: a half-typed box must never quietly become level
-        0 and spend the day's five robberies on the first tile the watcher sees.
-        """
-        if key not in ("ghost_autoloot", "ghost_level_min"):
-            return None
-        page = self._by_key.get("ghost")
-        if page is None:
-            return {"error": "unknown"}
-        if key == "ghost_autoloot":
-            page.autoloot_var.set(bool(value))
-            page.order.toggle()
-            return {"ok": True}
-        raw = str(value or "").strip()
-        if raw and not raw.isdigit():
-            return {"ok": False, "reason": "web.ui.not_a_number"}
-        page.level_min_var.set(raw)
-        return {"ok": True}
-
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
         if not self._loaded:
@@ -1574,22 +1546,55 @@ class CommandPostTab(PanelTab):
                    "kind": opt_value.TEXT,
                    "value": (str(low) if low is not None else "")}]
         rows = []
-        items = []
-        try:
-            import lastwar_proto as proto
-            missions = proto.load_fresh_ghost_recon(self.rt.profiles.ghost_json())
-        except Exception:              # noqa: BLE001 — no file is an empty card
-            missions = []
-        for m in missions:
-            items.append({
-                "text": coords.fmt(m.x, m.y, m.target_server or m.owner_server),
-                "facts": [{"label": "cmdpost.col.level", "value": str(m.level or 0)},
-                          {"label": "cmdpost.col.robbed",
-                           "value": str(m.steal_count or 0)}],
-                "until": float(m.expire_time) / 1000.0 if m.expire_time else None,
-            })
+        # THE PAGE'S OWN LIST FIRST, and the scan file only when it has none (#1976).
+        # They are not two opinions: `targets` is what a LOOK left behind — the client's
+        # `taskList` merged with whatever the map scan wrote — and it is the only one of
+        # the two that carries a uuid and the game's own «may this be robbed». So a phone
+        # looking at a page that has looked gets rows it can PRESS, and a phone looking
+        # at one that has not still gets the tiles the scan found, exactly as before.
+        # Neither branch reads the game: `targets` is a list this pane already holds.
+        items = [self._ghost_item(coords, t) for t in getattr(pane, "targets", None) or ()]
+        if not items:
+            try:
+                import lastwar_proto as proto
+                missions = proto.load_fresh_ghost_recon(self.rt.profiles.ghost_json())
+            except Exception:          # noqa: BLE001 — no file is an empty card
+                missions = []
+            for m in missions:
+                items.append({
+                    "text": coords.fmt(m.x, m.y, m.target_server or m.owner_server),
+                    "facts": [{"label": "cmdpost.col.level", "value": str(m.level or 0)},
+                              {"label": "cmdpost.col.robbed",
+                               "value": str(m.steal_count or 0)}],
+                    "until": float(m.expire_time) / 1000.0 if m.expire_time else None,
+                })
         return {"title": "cmdpost.tab.ghost", "rows": rows, "fields": fields,
                 "items": items, "empty": "cmdpost.ghost.empty"}
+
+    def _ghost_item(self, coords, target) -> dict:
+        """One row of the page's own list, with the press it is allowed to offer.
+
+        «Ограбить» appears exactly where the window draws it: the game says this tile may
+        be robbed and it is not our own squad. Never on a row that only the level rule
+        excludes — a person tapping a row has chosen it, and «минимальный уровень» is the
+        STANDING ORDER's rule about what to spend the day's five on unattended, not a ban.
+        """
+        can = bool(target.get("can")) and not target.get("mine")
+        item = {
+            "text": coords.fmt(_int(target.get("x")), _int(target.get("y")),
+                               _int(target.get("srv"))),
+            "facts": [{"label": "cmdpost.col.level",
+                       "value": str(_int(target.get("level")))},
+                      {"label": "cmdpost.col.robbed",
+                       "value": str(_int(target.get("looted")))}],
+            "pill": (GhostReconPane._state_key(target) if not target.get("mine")
+                     else "cmdpost.ghost.own"),
+        }
+        if can and target.get("uuid"):
+            item["actions"] = [{"id": "ghost_rob_one", "label": "cmdpost.steal",
+                                "args": {"uuid": str(target.get("uuid")),
+                                         "srv": _int(target.get("srv"))}}]
+        return item
 
     def _web_shared(self, coords) -> dict:
         """«Общие миссии» — what the alliance has shared, as the pane has them."""
@@ -1693,6 +1698,18 @@ class CommandPostTab(PanelTab):
             if not page.order.run_once():
                 # Already robbing. Say so rather than parking a second set of squads on
                 # top of the one being pressed — the five a day are not refundable.
+                return {"ok": False, "reason": "cmdpost.ghost.busy"}
+            return {"ok": True}
+        if action == "ghost_rob_one":
+            # ONE squad, named by its row — the window's per-row «Ограбить», and the same
+            # recipe «Ограбить всех» plays with a queue of one. It waited for rows that
+            # carried a uuid; the card is drawn from the page's own list now, so they do.
+            page = self._by_key.get("ghost")
+            args = args if isinstance(args, dict) else {}
+            uuid = str(args.get("uuid") or "").strip()
+            if page is None or not uuid:
+                return {"error": "unknown"}
+            if not page.order.rob_one(uuid, _int(args.get("srv"))):
                 return {"ok": False, "reason": "cmdpost.ghost.busy"}
             return {"ok": True}
         if action == "refresh":
