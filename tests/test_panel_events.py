@@ -329,6 +329,13 @@ class _Skip(Exception):
 GOLDEN_OPEN = "energy=55 cost=10 attacks=5 seen=135 atk=765 col=1930 ratio=252"
 GOLDEN_SPENT = "energy=3 cost=10 attacks=0 seen=0"
 
+#: An alliance train with a conductor at the platform and a seat still to be taken, and
+#: the same station with no train standing at it.
+TRAIN_OPEN = ("open=1 state=2 queued=0 carriage=-1 waiting=57 cars=4 seats=7 "
+              "departs=8094 thanked=0 contracts=92")
+TRAIN_SHUT = ("open=0 state=0 queued=0 carriage=-1 waiting=0 cars=0 seats=0 "
+              "departs=- thanked=- contracts=0")
+
 
 def _tab_class():
     try:
@@ -365,7 +372,7 @@ class _Runtime:
         pass
 
 
-def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
+def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN, train=TRAIN_OPEN):
     cls = _tab_class()
     tab = cls.__new__(cls)
     tab.rt = _Runtime(plays)
@@ -394,7 +401,66 @@ def _tab(raw=SHUT, plays=True, golden=GOLDEN_OPEN):
     tab._chain_golden = False
     tab._approach = False
     tab._approach_var = None
+    # «Поезд Альянса» — its own reading and its two standing-order knobs.
+    tab._train = modelmod.parse(train, at=1.0) if train is not None else None
+    tab._train_busy = False
+    tab._train_boarding = False
+    tab._chain_train = False
+    tab._train_carriage = modelmod.TRAIN_CARRIAGE_DEFAULT
+    tab._train_tickets = modelmod.TRAIN_TICKETS_DEFAULT
+    tab._train_args_registered = True
     return tab
+
+
+def test_the_train_card_says_what_stands_at_the_platform():
+    """The phone's train card is the reading, and every word on it is a key."""
+    tab = _tab()
+    card = _card(tab, "events.group.train")
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert rows["events.train.platform"] == "events.train.platform.driver"
+    assert rows["events.train.fare"] == "events.train.fare.open"
+    assert rows["events.train.contracts"] == "92"
+    assert rows["events.train.queue"] == "57 / 28"
+    assert rows["events.train.seat"] == "—"          # not in a carriage yet
+    assert {a["id"] for a in card["actions"]} >= {"board_train", "carriage_next",
+                                                  "tickets_next"}
+
+
+def test_the_train_knobs_are_what_the_recipe_and_the_trigger_are_handed():
+    """Walking the two knobs on the phone changes the ARGS both the press and the wire
+    trigger run with — there is one rule, not a phone's and a schedule's."""
+    tab = _tab()
+    assert tab.train_args() == {"carriage": 1, "tickets": 0}
+    tab.web_press("carriage_next", {})
+    tab.web_press("tickets_next", {})
+    assert tab.train_args() == {"carriage": 2, "tickets": 1}
+    assert tab.config()[modelmod.TRAIN_CARRIAGE_KEY] == 2
+    assert tab.config()[modelmod.TRAIN_TICKETS_KEY] == 1
+    # …and the press plays the recipe WITH them, never a second copy of the rule.
+    tab.board_train()
+    assert tab.rt.played[-1] == modelmod.TRAIN_BOARD
+    assert tab.rt.args[-1] == {"carriage": 2, "tickets": 1}
+
+
+def test_a_fare_that_costs_something_asks_before_it_is_paid():
+    """A like is free and goes straight through; contracts leave the bag, so they ask."""
+    free = _card(_tab(), "events.group.train")
+    board = [a for a in free["actions"] if a["id"] == "board_train"][0]
+    assert "confirm" not in board
+    tab = _tab()
+    tab._train_tickets = 3
+    paid = [a for a in _card(tab, "events.group.train")["actions"]
+            if a["id"] == "board_train"][0]
+    assert paid["confirm"] == "events.train.board.confirm"
+
+
+def test_a_station_with_no_train_still_gets_its_card():
+    """Closed is drawn, not hidden — «нечего делать» must not look like «панель не знает»."""
+    card = _card(_tab(train=TRAIN_SHUT), "events.group.train")
+    rows = {r["label"]: r["value"] for r in card["rows"]}
+    assert rows["events.state"] == "events.train.state.closed"
+    assert rows["events.train.platform"] == "events.train.platform.none"
+    assert "actions" not in card
 
 
 def test_the_tab_is_registered_and_says_who_it_is():
@@ -437,6 +503,14 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
             assert _tab(raw).web_press(action, {}).get("error") != "unknown", \
                 f"«{action}» is a dead button"
         assert tab.web_press("no-such-action-ever", {}).get("error") == "unknown"
+
+
+def _card(tab, title):
+    """One card of the screen, by its title key."""
+    for card in tab.web_view()["cards"]:
+        if card.get("title") == title:
+            return card
+    raise AssertionError("no card titled %r" % title)
 
 
 def _card_actions(tab, title):

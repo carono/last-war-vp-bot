@@ -164,6 +164,26 @@ class EventsTab(PanelTab):
         #: Whether the golden reading should follow the codename one home.
         self._chain_golden = False
 
+        # -- «Поезд альянса» ------------------------------------------------
+        #: Its own reading, on its own clock, for the same reason the other two have
+        #: one: the station answers a question neither of them asks, and an unreadable
+        #: train must not blank the boss board.
+        self._train = None
+        self._train_busy = False
+        self._train_boarding = False
+        #: Whether the train reading should follow the golden one home.
+        self._chain_train = False
+        #: The two knobs. Plain ints and NOT Tk variables on purpose: the wire trigger
+        #: reads them off the scheduler's own thread through `register_args`, and a Tk
+        #: variable read from there raises «main thread is not in main loop» — which is
+        #: exactly what cost the rally auto-join its first fire after every start-up
+        #: (#1416, `panel/tabs/rally/autorally.py`).
+        self._train_carriage = modelmod.TRAIN_CARRIAGE_DEFAULT
+        self._train_tickets = modelmod.TRAIN_TICKETS_DEFAULT
+        #: …and whether the trigger has been told where to read them. Idempotent.
+        self._train_args_registered = False
+        self._register_train_args()
+
     # -- the tab ------------------------------------------------------------
     def build(self) -> None:
         bar = ttk.Frame(self.parent)
@@ -181,8 +201,29 @@ class EventsTab(PanelTab):
 
     def ensure_loaded(self) -> None:
         """Start the clock and take the first readings, the first time anybody looks."""
+        self._register_train_args()
         self._tick()
         self.refresh_both()
+
+    def _register_train_args(self) -> None:
+        """Let the «alliance_train_board» trigger read the two knobs LIVE. Idempotent.
+
+        Without it the trigger would fire with whatever `args` its catalogue row was
+        written with, and the card and the standing order would drift apart the first
+        time somebody moved the carriage — the phone showing one rule and the push
+        obeying another, with nothing on screen to say which had just run.
+        """
+        if self._train_args_registered:
+            return
+        schedule = getattr(self.rt, "schedule", None)
+        if schedule is None or not hasattr(schedule, "register_args"):
+            return                              # a tab opened on its own
+        schedule.register_args("alliance_train_board", self.train_args)
+        self._train_args_registered = True
+
+    def train_args(self) -> dict:
+        """The boarding recipe's ARGS as this card has them right now."""
+        return {"carriage": self.carriage(), "tickets": self.tickets()}
 
     def on_show(self) -> None:
         """Somebody is looking: re-read anything stale and pick the clock back up."""
@@ -192,6 +233,8 @@ class EventsTab(PanelTab):
             self._refresh_status()
             if self._age_of(self._golden) > self.STALE_SEC:
                 self.refresh_golden()
+            elif self._age_of(self._train) > self.STALE_SEC:
+                self.refresh_train()
         self.rt.tick.arm("events_poll", self.TICK_MS, self._tick)
 
     def on_language_change(self) -> None:
@@ -201,6 +244,7 @@ class EventsTab(PanelTab):
         """A different account is in a different place in the event: forget and re-read."""
         self._reading = None
         self._golden = None
+        self._train = None
         self._tally = None
         self._render()
         self.refresh_both()
@@ -210,11 +254,13 @@ class EventsTab(PanelTab):
         self.rt.tick.disarm("events_poll")
         self.rt.tick.disarm("events_after_attack")
         self.rt.tick.disarm("events_after_hunt")
+        self.rt.tick.disarm("events_after_board")
 
     def shutdown(self) -> None:
         self.rt.tick.disarm("events_poll")
         self.rt.tick.disarm("events_after_attack")
         self.rt.tick.disarm("events_after_hunt")
+        self.rt.tick.disarm("events_after_board")
 
     # -- the reading --------------------------------------------------------
     def _tick(self) -> None:
@@ -227,6 +273,9 @@ class EventsTab(PanelTab):
                 if (not self._golden_busy
                         and self._age_of(self._golden) >= self.REFRESH_SEC):
                     self.refresh_golden()
+                elif (not self._train_busy
+                        and self._age_of(self._train) >= self.REFRESH_SEC):
+                    self.refresh_train()
         finally:
             self.rt.tick.arm("events_poll", self.TICK_MS, self._tick)
 
@@ -272,6 +321,7 @@ class EventsTab(PanelTab):
         the codename one could not be started at all.
         """
         self._chain_golden = True
+        self._chain_train = True
         if self.refresh(human=human):
             return True
         self._chain_golden = False
@@ -391,6 +441,92 @@ class EventsTab(PanelTab):
     def _golden_done(self) -> None:
         self._golden_busy = False
         self._render()
+        #: …and the THIRD reading, for the reason the second one is chained here: only
+        #: one scenario may drive the client at a time, and a read fired beside another
+        #: is refused outright — which for a card that has never been read means
+        #: «неизвестно» for ever.
+        if self._chain_train:
+            self._chain_train = False
+            self.refresh_train()
+
+    # -- «Поезд альянса»: its reading, its two knobs, its one press ---------
+    def refresh_train(self, human: bool = False) -> bool:
+        """Ask the game what stands at the alliance station. `False` if it could not be asked.
+
+        `human` as everywhere on this tab: the button sets it, the poll does not, so a
+        card nobody is pressing stops asking a client that is not there (#1910).
+        """
+        if self._train_busy:
+            return False
+        self._train_busy = True
+        started = self.rt.play_async(
+            modelmod.TRAIN_ACTION, tag="events", human=human,
+            on_result=self._train_back, on_done=self._train_done)
+        if not started:
+            self._train_busy = False
+        return started
+
+    def _train_back(self, outcome) -> None:
+        at = time.time()
+        if outcome is None or not getattr(outcome, "ok", False):
+            reason = getattr(outcome, "reason", "") or ""
+            self._train = modelmod.Reading(error=reason or "failed", at=at)
+        else:
+            ctx = getattr(outcome, "ctx", None)
+            raw = (getattr(ctx, "vars", {}) or {}).get(modelmod.TRAIN_VARIABLE)
+            self._train = modelmod.parse(raw, at=at)
+
+    def _train_done(self) -> None:
+        self._train_busy = False
+        self._render()
+
+    def train(self):
+        """The train card against the last reading — what both front-ends draw."""
+        return modelmod.train_state(self._train)
+
+    def carriage(self) -> int:
+        """Which carriage the standing order queues in."""
+        return modelmod.carriage_of(self._train_carriage)
+
+    def tickets(self) -> int:
+        """What the standing order offers the conductor — `0` is the free like."""
+        return modelmod.tickets_of(self._train_tickets)
+
+    def board_train(self) -> bool:
+        """Press «Сесть в вагон» — one scenario, and then the card re-reads itself.
+
+        A press that STARTS something, which is the ordinary and wanted kind: the rows
+        above it move when the READING moves, and a run that boarded nothing leaves them
+        exactly where they were (`CLAUDE.md`). Everything the ability IS — whether there
+        is a conductor, whether we are aboard already, whether the fare has been paid and
+        how much of it the bag can afford — lives in the recipe, which is also what the
+        wire trigger plays.
+        """
+        if self._train_boarding:
+            self.say("events", "events.train.log.busy")
+            return False
+        self._train_boarding = True
+        started = self.rt.play_async(
+            modelmod.TRAIN_BOARD, self.train_args(), tag="events", human=True,
+            on_result=self._board_back, on_done=self._board_done)
+        if not started:
+            self._train_boarding = False
+            self.say("events", "events.train.log.busy")
+        return started
+
+    def _board_back(self, outcome) -> None:
+        """Say what came of it — the recipe's own reason, never a guess of ours."""
+        if outcome is not None and getattr(outcome, "ok", False):
+            self.say("events", "events.train.log.done")
+        else:
+            self.say("events", "events.train.log.failed",
+                     error=(getattr(outcome, "reason", "") or "?"))
+
+    def _board_done(self) -> None:
+        self._train_boarding = False
+        #: Re-read rather than counting the press: whether we are really in a carriage
+        #: and whether the fare really left is the game's answer, not this button's.
+        self.rt.tick.arm("events_after_board", self.AFTER_ATTACK_MS, self.refresh_train)
 
     def golden(self):
         """The golden group against the last reading — what both front-ends draw."""
@@ -926,6 +1062,28 @@ class EventsTab(PanelTab):
             return self.t("events.golden.state.closed")
         return self.t("events.state.unknown")
 
+    def _train_words(self, state) -> str:
+        if state.state == modelmod.OPEN:
+            return self.t("events.train.state.open")
+        if state.state == modelmod.CLOSED:
+            return self.t("events.train.state.closed")
+        return self.t("events.state.unknown")
+
+    def _train_platform_words(self, state) -> str:
+        """What stands at the platform, in words: the game's own four states."""
+        table = {modelmod.TRAIN_NO_TRAIN: "events.train.platform.none",
+                 modelmod.TRAIN_NO_DRIVER: "events.train.platform.nodriver",
+                 modelmod.TRAIN_WITH_DRIVER: "events.train.platform.driver",
+                 modelmod.TRAIN_WITH_PASSENGER: "events.train.platform.riding"}
+        key = table.get(state.platform)
+        return self.t(key) if key else self.t("events.state.unknown")
+
+    def _train_fare_words(self, state) -> str:
+        """Has the fare been paid for this train? The GAME's answer, never a tally here."""
+        if state.thanked is None:
+            return "—"
+        return self.t("events.train.fare." + ("paid" if state.thanked else "open"))
+
     def _row(self, parent, label_key: str, value: str, grey: str) -> None:
         frame = ttk.Frame(parent)
         frame.pack(fill="x", padx=22, pady=1)
@@ -984,12 +1142,16 @@ class EventsTab(PanelTab):
         back what it was given (`docs/panel-tabs.md`).
         """
         return {modelmod.GOLDEN_SQUAD_KEY: self.squad(),
-                modelmod.GOLDEN_APPROACH_KEY: self.approach()}
+                modelmod.GOLDEN_APPROACH_KEY: self.approach(),
+                modelmod.TRAIN_CARRIAGE_KEY: self.carriage(),
+                modelmod.TRAIN_TICKETS_KEY: self.tickets()}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
         self._squad = modelmod.squad_of(raw.get(modelmod.GOLDEN_SQUAD_KEY))
         self._approach = bool(raw.get(modelmod.GOLDEN_APPROACH_KEY, False))
+        self._train_carriage = modelmod.carriage_of(raw.get(modelmod.TRAIN_CARRIAGE_KEY))
+        self._train_tickets = modelmod.tickets_of(raw.get(modelmod.TRAIN_TICKETS_KEY))
         try:
             if self._squad_var is not None:
                 self._squad_var.set(str(self._squad))
@@ -1090,6 +1252,45 @@ class EventsTab(PanelTab):
             "actions": [{"id": "collect_fireworks",
                          "label": "events.fireworks.collect"}]}
 
+        # …and «Поезд альянса», whose two knobs are the only things on it a person sets.
+        # They are a STANDING ORDER and not a press: the wire trigger reads them at the
+        # moment the conductor is appointed (`Schedule.register_args`), which is the one
+        # second in the day when boarding actually matters and nobody is at the machine.
+        # The press beside them plays the same recipe by hand.
+        tr = self.train()
+        tcard = {"title": "events.group." + modelmod.TRAIN, "rows": [
+            {"label": "events.state", "value": self._train_words(tr)},
+            {"label": "events.train.platform", "value": self._train_platform_words(tr)},
+            {"label": "events.train.seat", "value": modelmod.train_seat(tr)},
+            {"label": "events.train.queue", "value": modelmod.train_queue(tr)},
+            {"label": "events.train.departs",
+             "value": modelmod.hhmm(tr.departs) if tr.departs is not None else "—"},
+            {"label": "events.train.fare", "value": self._train_fare_words(tr)},
+            {"label": "events.train.contracts",
+             "value": ("—" if tr.contracts is None else str(tr.contracts))},
+            {"label": "events.train.carriage.set", "value": str(self.carriage())},
+            {"label": "events.train.tickets.set",
+             "value": (self.t("events.train.tickets.like") if self.tickets() == 0
+                       else str(self.tickets()))},
+        ]}
+        if tr.can_board and not self._train_boarding:
+            board = {"id": "board_train", "label": "events.train.board"}
+            if self.tickets() > 0:
+                # The fare leaves the bag when this is answered, so it asks first — the
+                # same rule the rally join goes by. Diamonds are never in it: the recipe
+                # clamps the fare to the contracts actually held (`CLAUDE.md`).
+                board["confirm"] = "events.train.board.confirm"
+            tcard["actions"] = [board,
+                                {"id": "carriage_next",
+                                 "label": "events.train.carriage.next"},
+                                {"id": "tickets_next",
+                                 "label": "events.train.tickets.next"}]
+        else:
+            tcard["items"] = [{"label": "events.train.board",
+                               "pill": "events.codename.attack.off"},
+                              {"label": "events.train.carriage.next",
+                               "pill": "events.codename.attack.off"}]
+
         return {"cards": [
             {"title": None, "rows": [
                 {"label": "events.web.read",
@@ -1097,6 +1298,7 @@ class EventsTab(PanelTab):
                            and not self._reading.error else "—")}]},
             card,
             gcard,
+            tcard,
             fcard,
         ], "now": time.time(),
             "actions": [{"id": "refresh", "label": "events.refresh"},
@@ -1151,6 +1353,24 @@ class EventsTab(PanelTab):
             # A step is playable whenever the client is: it is one press at the game,
             # and the whole point of having them is to try them when the chain will not.
             return {"ok": self.step(action)}
+        if action == "board_train":
+            if not self.train().can_board:
+                return {"error": "closed"}
+            return {"ok": self.board_train()}
+        if action == "carriage_next":
+            # A SETTING, not a press at the game: it changes which carriage the next
+            # boarding — by hand or on the conductor's push — queues in. One button that
+            # walks the carriages rather than four that look alike; the row above says
+            # which one is on.
+            cars = list(modelmod.TRAIN_CARRIAGES)
+            self._train_carriage = cars[(cars.index(self.carriage()) + 1) % len(cars)]
+            return {"ok": True, "carriage": self._train_carriage}
+        if action == "tickets_next":
+            # The same, for the fare: 0 (a like, free) → 1 → 2 → 3 → 0. It never buys
+            # anything for diamonds — the recipe clamps it to the bag.
+            fares = list(modelmod.TRAIN_TICKETS)
+            self._train_tickets = fares[(fares.index(self.tickets()) + 1) % len(fares)]
+            return {"ok": True, "tickets": self._train_tickets}
         if action == "hunt_golden":
             if not self.golden().can_attack:
                 return {"error": "closed"}

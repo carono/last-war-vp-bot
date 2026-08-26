@@ -131,6 +131,47 @@ GOLDEN = "golden"
 #: saw happen, never a claim about what the account has.
 FIREWORKS = "fireworks"
 
+#: «Поезд альянса» — the trade train that stands at the alliance station.
+#:
+#: It arrives with nobody driving it, and an R4 or R5 appoints a CONDUCTOR; the queue
+#: opens at that moment and the train leaves on a clock. A passenger picks a carriage and
+#: offers the conductor a fare — a like, which costs nothing, or up to three Trade
+#: Contracts out of the bag. The reading is `actions/read_alliance_train.md` and the
+#: press is `actions/board_alliance_train.md`; **the two knobs are the only things on
+#: this card a person sets**, and both are a standing order for the wire trigger rather
+#: than a press of their own.
+TRAIN = "train"
+
+#: The scenario that answers the train, and the variable it lands in.
+TRAIN_ACTION = "read_alliance_train"
+TRAIN_VARIABLE = "train"
+
+#: …and the one press: board a carriage and pay the fare. Every gate is inside it.
+TRAIN_BOARD = "board_alliance_train"
+
+#: The two saved knobs — which carriage to queue in, and what to offer the conductor.
+#: Both are about THIS account, so they live in the tab's own block (`tabs.config.events`)
+#: and travel with the profile.
+TRAIN_CARRIAGE_KEY = "train_carriage"
+TRAIN_TICKETS_KEY = "train_tickets"
+
+#: The carriages a passenger may board. Four on every train seen so far; the recipe
+#: clamps to what the train in front of it actually has, so a fifth costs nothing here.
+TRAIN_CARRIAGES: tuple = (1, 2, 3, 4)
+TRAIN_CARRIAGE_DEFAULT = 1
+
+#: What may be offered: `0` is a like and free, `1..3` are Trade Contracts. The game's own
+#: floor and ceiling (`GetThanksItemMin` / `GetThanksItemMax`) are 1 and 3.
+TRAIN_TICKETS: tuple = (0, 1, 2, 3)
+TRAIN_TICKETS_DEFAULT = 0
+
+#: The platform states the game has. Boarding is possible from `WITH_DRIVER` upwards:
+#: below it there is nobody driving and the queue is not open.
+TRAIN_NO_TRAIN = 0
+TRAIN_NO_DRIVER = 1
+TRAIN_WITH_DRIVER = 2
+TRAIN_WITH_PASSENGER = 3
+
 #: The groups, in the order they are drawn. One so far, and the shape is what matters:
 #: a second event is one entry here, one `Group`, and its own reading.
 GROUPS: tuple = (Group(CODENAME), Group(GOLDEN), Group(FIREWORKS))
@@ -448,3 +489,112 @@ def squad_of(raw) -> int:
     except (TypeError, ValueError):
         return GOLDEN_SQUAD_DEFAULT
     return value if value in GOLDEN_SQUADS else GOLDEN_SQUAD_DEFAULT
+
+
+class TrainState:
+    """What the alliance train says right now — the whole card, in one object.
+
+    ``platform`` is the game's own platform state (:data:`TRAIN_NO_TRAIN` …
+    :data:`TRAIN_WITH_PASSENGER`); ``queued`` whether WE are in a carriage and
+    ``carriage`` which one, as the player sees them. ``thanked`` is whether the fare has
+    been paid for this train — by this panel or by the person playing, because it is read
+    off the game and never counted here. ``None`` anywhere means the game would not
+    answer, and the card draws that as words rather than as a number nobody can trust.
+    """
+
+    __slots__ = ("state", "platform", "queued", "carriage", "waiting", "cars", "seats",
+                 "departs", "thanked", "contracts")
+
+    def __init__(self, state: str, platform=None, queued=None, carriage=None,
+                 waiting=None, cars=None, seats=None, departs=None, thanked=None,
+                 contracts=None) -> None:
+        self.state = state
+        self.platform = platform
+        self.queued = queued
+        self.carriage = carriage
+        self.waiting = waiting
+        self.cars = cars
+        self.seats = seats
+        self.departs = departs
+        self.thanked = thanked
+        self.contracts = contracts
+
+    @property
+    def open(self) -> bool:
+        return self.state == OPEN
+
+    @property
+    def boardable(self) -> bool:
+        """Has a conductor been appointed? ``False`` while nobody knows — never a guess."""
+        return self.platform is not None and self.platform >= TRAIN_WITH_DRIVER
+
+    @property
+    def can_board(self) -> bool:
+        """May «Сесть в вагон» be pressed?
+
+        Only the game SAYING the station is shut kills it, the same rule the two boards
+        above draw their buttons by: the ability holds its own gates (`CLAUDE.md`), and a
+        panel refusing on its own behalf is a second, worse copy of them that the two
+        front-ends then disagree on. Being aboard already does not kill it either — the
+        press is a clean no-op then, and it is also how the fare gets paid on a train
+        somebody boarded by hand.
+        """
+        return self.state != CLOSED
+
+    def __repr__(self) -> str:
+        return f"<train {self.state} platform={self.platform} queued={self.queued}>"
+
+
+def train_state(reading) -> "TrainState":
+    """The train card against one reading. No answer is `unknown`, never `closed`."""
+    if reading is None or reading.error:
+        return TrainState(UNKNOWN)
+    is_open = reading.get("open")
+    if is_open is None:
+        return TrainState(UNKNOWN)
+    return TrainState(
+        OPEN if is_open else CLOSED,
+        platform=reading.get("state"),
+        queued=reading.get("queued"),
+        carriage=reading.get("carriage"),
+        waiting=reading.get("waiting"),
+        cars=reading.get("cars"),
+        seats=reading.get("seats"),
+        departs=reading.get("departs"),
+        thanked=reading.get("thanked"),
+        contracts=reading.get("contracts"),
+    )
+
+
+def carriage_of(raw) -> int:
+    """A saved carriage number, clamped to one that exists. Anything odd reads as the first."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return TRAIN_CARRIAGE_DEFAULT
+    return value if value in TRAIN_CARRIAGES else TRAIN_CARRIAGE_DEFAULT
+
+
+def tickets_of(raw) -> int:
+    """A saved fare, clamped to what the game accepts. Anything odd reads as the free like."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return TRAIN_TICKETS_DEFAULT
+    return value if value in TRAIN_TICKETS else TRAIN_TICKETS_DEFAULT
+
+
+def train_seat(state) -> str:
+    """`вагон 2` as a number, or `—` while we are in none."""
+    if state.carriage is None or state.carriage < 1:
+        return "—"
+    return str(state.carriage)
+
+
+def train_queue(state) -> str:
+    """`57 / 28` — how many are queued against how many seats the train has."""
+    if state.waiting is None:
+        return "—"
+    if not state.cars or not state.seats:
+        return str(state.waiting)
+    return "%d / %d" % (state.waiting, state.cars * state.seats)

@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 53 of 156
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **34%** — 53 of 157
 
-🟩 53 done · 🟨 68 partly · 🟥 35 not automated
+🟩 53 done · 🟨 69 partly · 🟥 35 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -224,6 +224,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Counting the dispatches — the checklist says how many trade trucks have gone out today, how many the day allows and how many are standing ready to go, and the number moves by itself as trucks leave. The press that spends it sits on the same line, in the window and on the phone alike
 - 🟡 Finding trucks worth robbing — the bot can list every truck on the map with its type, level, cargo and how many robberies it has left, and there is now a page for them in the panel: where each one is RIGHT NOW — the coordinate moves as you watch it, because a truck is walked along the leg it is on instead of being left on the tile it was first heard on — the next stop beside it, how big the load is, how many times it has been robbed and how long is left of its run, the fattest first. A point that is NOT live says so rather than passing for one. Proven live: going to a truck's coordinate lands on it while it is moving. Robbing one is not automated
 - 🟡 Watching the alliance train — a page of its own: whose train it is, how many carriages it has and how many people are aboard, how full it still is, where it is right now and where its next stop is, and when it arrives. It only runs during its event, so the page is empty most of the week and says so — and the log now says «trains 0» out loud beside the mines and trucks it did find, which is a different sentence from a page that failed to read anything. Rebuilt from a recording; not yet watched during a live train
+- 🟡 Riding the alliance train — a train stands at the alliance station with nobody driving it until an officer appoints a conductor, and from that moment there is a short window to take a seat before it leaves. The bot listens for that moment on its own and, the second the conductor is named, takes a place in the carriage you chose and offers the conductor the fare you chose: a like, which costs nothing, or up to three trade contracts. **It never buys contracts for diamonds** — if the bag is short it offers the free like instead and says so, because the game's offer to make the difference up in diamonds is not something a standing order takes on your behalf. «События» shows what stands at the platform, whether a conductor has been named, which carriage you are in, how many are queued for how many seats, how long is left before it leaves and whether the fare has been paid — all read from the game, so a seat you took by hand is counted too. Boarding and paying were both proven against a live train; the ear that does it by itself has not yet been watched through one
 
 ### Store
 

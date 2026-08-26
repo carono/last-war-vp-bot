@@ -672,6 +672,29 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         enabled=False,
         label_key="triggers.item.ghost_recon_alliance",
     ),
+    Trigger(
+        name="alliance_train_board",
+        # A train stands at the alliance station with nobody driving it until an R4 or R5
+        # appoints a CONDUCTOR; the queue opens at that moment and the train leaves on a
+        # clock. The platform announces every change of that state on the wire
+        # (push.al.train.platform.create / .update), so this is the ear that hears «the
+        # conductor is appointed» and boards a carriage in the same second.
+        #
+        # WHICH carriage and WHAT fare are the «События» tab's two knobs, read LIVE at
+        # fire time through `Schedule.register_args` — the same wiring the rally
+        # auto-join uses, so moving them takes effect on the next push without touching
+        # the catalogue. The fare is clamped to the Trade Contracts actually in the bag;
+        # a run that cannot afford it sends the free like and says so, and NOTHING here
+        # ever spends diamonds (`actions/board_alliance_train.md`).
+        #
+        # Every gate is in the recipe, so the extra pushes cost one round trip and say
+        # nothing: no train, no conductor yet, already aboard, fare already paid. Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="push.al.train.platform",
+        scenario=("board_alliance_train",),
+        enabled=False,
+        label_key="triggers.item.alliance_train_board",
+    ),
 )
 
 
