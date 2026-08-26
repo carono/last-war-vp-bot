@@ -244,6 +244,45 @@ System-log evidence of the original 1053. **Not verifiable here: the real start.
 takes one elevated press — `service_install.bat`, «Да» in the UAC prompt — and then
 `sc query LastWarBot` saying `RUNNING`.
 
+## The eight panels, and why nobody could see them (#1994, 2026-08-27)
+
+**One profile, eight `panel.headless` processes, for hours.** Found while #1993 was being
+delivered: the commit was in `master`, the tests were green, the panel had been restarted
+— and the live panel went on answering with the code from before the fix. The proof that
+it was not delivered was a probe, not a reading: `press set` answered `unknown` (new code)
+while `press carriage_next` answered `{"ok": true}` (old code), from the same port,
+seconds apart, because the two presses reached two different processes.
+
+**Every guard against «two panels on one account» was blind to the windowless one.** The
+window has taken the profile's instance lock and beaten its heartbeat since #1206
+(`panel/runtime/host.py::start_heartbeat`). `panel/headless.py` took neither — and
+`autostart._panel_profile`, the reading behind `panel_pids`, matched the module argument
+against `"panel"` exactly, so `-m panel.headless` was not a panel to it either. Three
+independent guards, all of them looking straight through the only kind of panel the
+machine's own service starts.
+
+**And the keeper's question was narrower than the answer it wanted.** `Keeper.serving()`
+asks the register — which panels are TALKING to the service — and the keeper read that as
+which panels exist. A panel that is up but not connected read as an empty account and got
+another one started on top of it, every time the grace ran out.
+
+What was done: the headless panel takes the lock per profile and refuses to open one that
+another panel holds (exit code `HELD_EXIT`, so «already running» can be told from
+«broken»); it beats per profile and leaves a farewell on the way out; `PANEL_MODULES`
+names both panels; `autostart.locked()` answers about a profile that does not exist
+without CREATING one — `ProfileManager.dir` creates what it is asked about, which is right
+for opening an account and wrong for a question the keeper now asks every five seconds;
+and the keeper asks the kernel (`held()`) before starting anything.
+
+**The version string is not proof of a restart, and this is the general lesson.**
+`/api/state`'s `panel.version` is computed off git every time it is asked, so it changes
+the moment somebody commits — from the same process, running the same imported code. Both
+the before and the after read `v1.0.0+612-dev`, and that was taken as evidence. The state
+now carries `panel.boot` beside it (`panel/runtime/updates.py::boot`, stamped once while
+the runtime is built): the pid that answered, when its code was imported, and the commit
+it was imported from. Two polls that name the same pid are the same code, whatever the
+version says.
+
 ## 1. Target architecture
 
 **Built and measured, 2026-08-26.** What follows was the design; this is what it is now,

@@ -37,6 +37,7 @@ import time
 from . import profile as profilemod
 from . import runtime as runtimemod
 from . import tabs as tabsreg
+from .runtime import autostart as autostartmod
 from .runtime import panel_control as panelctl
 from .runtime import service_control as servicectl
 from .runtime import updates as updatesmod
@@ -47,6 +48,11 @@ from .runtime.workspace import Workspace
 #: happens here — every clock is its own thread — so this is only the size of the pause
 #: between «стоп» and the process ending.
 IDLE_SEC = 0.5
+
+#: What this process exits with when every profile it was asked for is already held by
+#: another panel. Its own code, so whatever started it can tell «one is already running»
+#: — which is the ordinary answer and not a fault — from «it could not come up» (#1994).
+HELD_EXIT = 3
 
 #: How often a profile's log queue is drained onto its disk. The window does it every
 #: 120 ms because it is also drawing; here nothing is drawn, so the only deadline is
@@ -71,17 +77,49 @@ class HeadlessPanel:
         self._down = False
         #: Profiles whose `panel.log` is open and being drained (see `_pump_log`).
         self._logging: set = set()
+        #: THE INSTANCE LOCK, one handle per profile this process holds (#1994).
+        #:
+        #: The window has taken it since it had one (`panel/runtime/host.py`,
+        #: `start_heartbeat`) and a panel with no window took NOTHING — no lock, no beat,
+        #: and a command line (`-m panel.headless`) that `autostart._panel_profile` did
+        #: not recognise as a panel either. So every guard against «two panels on one
+        #: account» was blind to this process, and live on 2026-08-27 there were EIGHT of
+        #: them on one profile: one `panel.log`, one `config.json` and one game written
+        #: over by eight schedules, and a restart that reached whichever of the eight
+        #: happened to answer — which is how a committed fix went undelivered for hours
+        #: while every reading said it had been restarted.
+        self._locks: dict = {}
+        #: Profiles this process refused to open because another panel holds them.
+        self._held: list = []
 
     # -- lifecycle ----------------------------------------------------------
     def open(self) -> list:
-        """Open the profiles asked for — or the ones the panel last had open."""
+        """Open the profiles asked for — or the ones the panel last had open.
+
+        A profile ANOTHER panel process already holds is not opened here: the lock is
+        taken first and a refusal is the kernel saying «somebody is on this account».
+        Skipped rather than waited for, and said on stderr — the two panels would
+        otherwise share one log, one settings file and one client, and the profile that
+        loses that fight loses it silently (#1994).
+        """
         names = self._names or _last_open()
+        manager = profilemod.ProfileManager()
         opened = []
         for name in names:
+            handle = autostartmod.take_lock(manager, name)
+            if handle is None:
+                who = autostartmod.holder(manager, name)
+                whose = f" (pid {who})" if who else ""
+                print(f"panel: {name}: another panel already holds this profile{whose}"
+                      f" — not opening a second one here", file=sys.stderr, flush=True)
+                self._held.append(name)
+                continue
+            self._locks[name] = handle
             try:
                 session = self.workspace.open(name, make_current=not opened)
             except Exception as exc:              # noqa: BLE001 — one profile, not the lot
                 print(f"panel: {name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+                autostartmod.drop_lock(self._locks.pop(name, None))
                 continue
             self._build_tabs(session)
             opened.append(session)
@@ -117,6 +155,16 @@ class HeadlessPanel:
                 self._pump_log(session)
             except Exception as exc:          # noqa: BLE001 — the log, never the panel
                 print(f"panel: {session.name}: log pump: {exc}", file=sys.stderr)
+            # …AND THE BEAT (#1994). The lock says a panel process is on this profile;
+            # the beat says it is still ANSWERING, and the hourly check reads both to tell
+            # a working panel from a wedged one (`panel/runtime/autostart.py`). A window
+            # has beaten since #1206 and this had never beaten at all, so every hour the
+            # check saw an account with no panel on it and was one guard away from opening
+            # a second one on top of this process.
+            try:
+                self._beat(session)
+            except Exception as exc:          # noqa: BLE001 — a reading, never the panel
+                print(f"panel: {session.name}: heartbeat: {exc}", file=sys.stderr)
         rt = self.workspace.current.rt
         # The remote control and the service link are the WINDOW's in `panel/__main__.py`
         # — one per process, not per profile — and they are this process's here for the
@@ -136,8 +184,11 @@ class HeadlessPanel:
     def run(self) -> int:
         opened = self.open()
         if not opened:
+            # EVERY profile was held, or none could be opened. Either way this process has
+            # nothing to do and says so with a code of its own, so whatever started it can
+            # tell «already running» from «broken» (#1994).
             print("panel: no profile could be opened", file=sys.stderr)
-            return 1
+            return HELD_EXIT if self._held else 1
         self.start()
         for name in ("SIGINT", "SIGTERM"):
             sig = getattr(signal, name, None)
@@ -177,6 +228,22 @@ class HeadlessPanel:
 
         turn()
 
+    # -- «I am still here», per profile -------------------------------------
+    def _beat(self, session) -> None:
+        """Say once a minute that this profile's panel is still turning its clock."""
+        rt = session.rt
+        name = session.name
+
+        def turn() -> None:
+            try:
+                autostartmod.beat(rt.profiles, name)
+            except Exception:                 # noqa: BLE001 — a reading, never the panel
+                pass
+            if not self._down:
+                rt.tick.arm("heartbeat", int(autostartmod.BEAT_SEC * 1000), turn)
+
+        turn()
+
     # -- the panel's own two presses ----------------------------------------
     def _quit_now(self) -> None:
         """Put this panel down — the same orderly shutdown a closing window runs.
@@ -196,7 +263,7 @@ class HeadlessPanel:
         back with one: this process may be running in a session with no desktop at all.
         """
         try:
-            self.shutdown()
+            self.shutdown(why=autostartmod.RESTARTING)
         except Exception:                     # noqa: BLE001 — a tab that fails to stop
             print("panel: restart shutdown failed", file=sys.stderr)  # must not strand it
         try:
@@ -205,7 +272,15 @@ class HeadlessPanel:
             print(f"panel: relaunch failed: {exc}", file=sys.stderr)
         self._stop.set()
 
-    def shutdown(self) -> None:
+    def shutdown(self, why: str = autostartmod.CLOSED) -> None:
+        """Put this panel down. ``why`` is the farewell each profile's beat is left with.
+
+        :data:`autostartmod.RESTARTING` when the replacement is about to be started — the
+        guards must not race a relaunch — and :data:`autostartmod.CLOSED` when this is the
+        end of it. The locks go LAST of all, after the profiles are written out: a
+        replacement that took one before this process had finished writing would read a
+        settings file half-saved.
+        """
         # ONCE. A restart shuts down and then `run` shuts down again on its way out of the
         # wait; a workspace closed twice is a profile written by something that has already
         # let go of it.
@@ -232,7 +307,14 @@ class HeadlessPanel:
                 session.rt.tick.stop()
             except AttributeError:
                 pass
+            try:
+                session.rt.tick.disarm("heartbeat")
+                autostartmod.clear(session.rt.profiles, session.name, why=why)
+            except Exception:                 # noqa: BLE001 — going down, never a fault
+                pass
         self.workspace.shutdown()
+        for name in list(self._locks):
+            autostartmod.drop_lock(self._locks.pop(name, None))
 
     # -- the tabs -----------------------------------------------------------
     @staticmethod

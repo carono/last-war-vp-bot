@@ -125,6 +125,61 @@ def test_a_panel_with_no_window_opens_its_profile_and_builds_its_tabs() -> None:
         scratch.close()
 
 
+def test_a_second_panel_will_not_open_a_profile_the_first_one_holds() -> None:
+    """ONE panel per profile, answered by the kernel (#1994).
+
+    The window has taken the instance lock since it had one; this took nothing — no lock,
+    no beat, and a command line no guard recognised as a panel. Live on 2026-08-27 there
+    were EIGHT `panel.headless` processes on one account, sharing one `panel.log`, one
+    `config.json` and one client — and a restart reached whichever of the eight happened
+    to answer, which is how a committed fix went undelivered for hours while every reading
+    said the panel had been restarted.
+    """
+    from panel import headless as headlessmod
+
+    scratch, first = _panel()
+    try:
+        assert [s.name for s in first.open()] == ["solo"]
+        second = HeadlessPanel(["solo"], web=False)
+        assert second.open() == [], "a second panel opened a profile the first one holds"
+        assert second._held == ["solo"], second._held
+        assert second.run() == headlessmod.HELD_EXIT, "«already running» read as a failure"
+
+        # …and the lock follows the process: once the first lets go, one may open again.
+        first.shutdown()
+        third = HeadlessPanel(["solo"], web=False)
+        try:
+            assert [s.name for s in third.open()] == ["solo"], "the lock outlived its panel"
+        finally:
+            third.shutdown()
+    finally:
+        first.shutdown()
+        scratch.close()
+
+
+def test_a_windowless_panel_beats_so_the_hourly_check_can_see_it() -> None:
+    """The lock says a panel is there; the beat says it is still answering (#1994)."""
+    import json as _json
+
+    from panel.runtime import autostart as autostartmod
+
+    scratch, panel = _panel()
+    try:
+        panel.open()
+        session = panel.workspace.current.rt
+        panel._beat(panel.workspace.current)
+        beat = _json.loads(Path(session.profiles.heartbeat("solo")).read_text("utf-8"))
+        assert beat["pid"] == os.getpid(), beat
+        assert beat.get("ts"), f"no beat, only a farewell: {beat}"
+
+        panel.shutdown(why=autostartmod.RESTARTING)
+        left = _json.loads(Path(session.profiles.heartbeat("solo")).read_text("utf-8"))
+        assert left.get("left") == autostartmod.RESTARTING, left
+        assert not left.get("ts"), "a farewell that still reads as a beat"
+    finally:
+        scratch.close()
+
+
 def test_realizing_a_tab_applies_its_settings_and_draws_nothing() -> None:
     """A tab's saved block is its STATE, and state is what survives the window."""
     scratch, panel = _panel()
@@ -164,6 +219,29 @@ def test_the_windowless_panel_answers_the_whole_api() -> None:
         assert "checklist" in ids, ids
         status, screen = api.dispatch("GET", "/api/screen", {"id": "checklist"}, {})
         assert status == 200 and screen.get("cards") is not None, screen
+    finally:
+        panel.shutdown()
+        scratch.close()
+
+
+def test_the_state_says_WHICH_CODE_answered_and_not_only_which_is_checked_out() -> None:
+    """`version` is not proof of a restart; `boot` is (#1994).
+
+    The version string is computed off git each time it is asked, so it changes the moment
+    somebody commits — from the same process, running the same old code. #1993 was reported
+    delivered on exactly that reading. `boot` is a fact about the process that answered:
+    its pid, when its code was imported, and the commit it was imported from.
+    """
+    scratch, panel = _panel()
+    try:
+        panel.open()
+        api = WebApi(panel.workspace.current.rt)
+        _status, payload = api.dispatch("GET", "/api/state", {}, {})
+        boot = payload["panel"]["boot"]
+        assert boot["pid"] == os.getpid(), boot
+        assert boot["at"] > 0 and "head" in boot, boot
+        _status, again = api.dispatch("GET", "/api/state", {}, {})
+        assert again["panel"]["boot"] == boot, "the stamp moved under a running process"
     finally:
         panel.shutdown()
         scratch.close()

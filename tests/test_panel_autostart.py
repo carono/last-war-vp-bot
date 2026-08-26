@@ -343,17 +343,38 @@ def test_the_daemon_port_is_read_per_profile_and_is_not_the_liveness_test():
 def test_a_panel_process_is_told_from_a_tab_and_from_the_check_itself():
     """What counts as «a panel is already on this profile».
 
-    The module argument has to be exactly `panel`: `-m panel.runtime.autostart` is this
-    very check (it runs hourly and would find itself), and `-m panel.tabs.rally` is one
-    tab in a window of its own, which writes no `config.json` and is not a panel.
+    The module argument has to be `panel` or `panel.headless`: `-m panel.runtime.autostart`
+    is this very check (it runs hourly and would find itself), and `-m panel.tabs.rally` is
+    one tab in a window of its own, which writes no `config.json` and is not a panel.
+
+    THE WINDOWLESS PANEL IS A PANEL (#1994). It was not on this list, so every guard built
+    on this reading looked straight through the one kind of panel the machine's service
+    starts — and the machine ended up running eight of them on one profile.
     """
     at = autostartmod._panel_profile
     assert at(["pythonw.exe", "-m", "panel", "--profile", "main"]) == "main"
     assert at(["python.exe", "-m", "panel"]) == ""            # whatever is active
+    assert at(["python.exe", "-m", "panel.headless", "--profile", "main"]) == "main"
+    assert at(["pythonw.exe", "-m", "panel.headless"]) == ""
     assert at(["pythonw.exe", "-m", "panel.runtime.autostart", "--profile", "main"]) is None
     assert at(["python.exe", "-m", "panel.tabs.rally"]) is None
     assert at(["python.exe", "somescript.py"]) is None
     assert at([]) is None
+
+
+def test_asking_whether_a_profile_is_held_never_creates_one():
+    """A QUESTION must not leave an account behind (#1994).
+
+    `ProfileManager.dir` creates what it is asked about — right for a panel opening a
+    profile, wrong for `locked()`, which the service's keeper now asks on every tick about
+    every profile it wants. Asked about a name nothing answers to, it used to leave a
+    directory and a `config.json` behind, and the next panel to open showed a phantom
+    account nobody had made.
+    """
+    with _profiles_in_tmp() as profiles:
+        assert autostartmod.locked(profiles, "no_such_profile_at_all") is False
+        left = os.path.join(profilemod.PROFILES_DIR, "no_such_profile_at_all")
+        assert not os.path.exists(left), f"asking created {left}"
 
 
 def test_no_second_panel_on_a_profile_that_already_has_one():

@@ -244,7 +244,19 @@ def locked(profiles, name: str | None = None) -> bool:
 
     A lock this process could take was, by definition, held by nobody — and it is
     released again immediately, so asking never blocks the panel that is about to start.
+
+    A profile that does not exist is held by nobody, and is answered before anything
+    touches the disk: :func:`take_lock` — and `ProfileManager.dir` under it — CREATE what
+    they need, which is right for a panel opening an account and wrong for a QUESTION.
+    Asked about a name nothing answers to, it left a profile directory behind, and a
+    phantom account in somebody's panel is a worse answer than the one that was wanted
+    (#1994).
     """
+    try:
+        if not profiles.exists(name or profiles.active):
+            return False
+    except Exception:                         # noqa: BLE001 — a manager that cannot say
+        pass
     handle = take_lock(profiles, name)
     if handle is None:
         return True
@@ -416,20 +428,31 @@ def probe(profiles, name: str | None = None) -> Liveness:
     return Liveness("hung" if alive else "stopped", pid, age)
 
 
+#: The module arguments that mean «this process IS a panel»: the window, and the panel
+#: with no window the service starts (`panel/headless.py`).
+PANEL_MODULES = ("panel", "panel.headless")
+
+
 def _panel_profile(cmdline: list) -> "str | None":
     """The profile a command line opens the panel on — ``None`` if it is not a panel.
 
-    Matched on the module argument being exactly ``panel``, so this file's own hourly run
-    (``-m panel.runtime.autostart``) and a tab opened on its own (``-m panel.tabs.rally``)
-    are not mistaken for the panel itself. A panel started without ``--profile`` is on
-    whatever the saved pointer said, which is what the empty answer means.
+    Matched on the module argument being ``panel`` or ``panel.headless``, so this file's
+    own hourly run (``-m panel.runtime.autostart``) and a tab opened on its own
+    (``-m panel.tabs.rally``) are not mistaken for the panel itself. A panel started
+    without ``--profile`` is on whatever the saved pointer said, which is what the empty
+    answer means.
+
+    ``panel.headless`` IS THE PANEL (#1976, P3) and was not on this list, so every guard
+    built on this reading — chiefly :func:`panel_pids`, the one that does not depend on a
+    file — looked straight through a windowless panel and reported an account nobody was
+    on. That is half of how eight of them came to be running on one profile (#1994).
     """
     parts = [str(a) for a in (cmdline or [])]
     try:
         module = parts[parts.index("-m") + 1]
     except (ValueError, IndexError):
         return None
-    if module != "panel":
+    if module not in PANEL_MODULES:
         return None
     try:
         return profilemod.sanitize(parts[parts.index("--profile") + 1])
@@ -438,7 +461,7 @@ def _panel_profile(cmdline: list) -> "str | None":
 
 
 def panel_pids(profiles, name: str | None = None) -> list:
-    """Every OTHER live process holding a panel window on this profile.
+    """Every OTHER live process holding a panel on this profile, window or none.
 
     The second guard, and the one that does not depend on a file. Two panels on one
     profile write one `config.json` over each other, so the check must never open a

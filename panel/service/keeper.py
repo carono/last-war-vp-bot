@@ -129,6 +129,8 @@ class Keeper:
         self._fails = 0
         self._next_try = 0.0
         self._said_no_session = False
+        #: Profiles said to be held by a panel that is not talking to us — said once each.
+        self._said_held: set = set()
 
     # -- what is wanted, and what is there -----------------------------------
     def wanted(self) -> list:
@@ -141,6 +143,28 @@ class Keeper:
         return {name for panel in self.registry.all() if not panel.closed
                 for name in panel.profiles}
 
+    def held(self, name: str) -> bool:
+        """Is a live panel PROCESS on ``name``, whether or not it has dialled in?
+
+        The register answers a narrower question than the keeper was asking of it: it
+        knows which panels are TALKING to this service, and the keeper read that as which
+        panels exist. A panel that is up but not connected — its link dropped, it is still
+        coming up, somebody started it by hand — therefore read as an empty account, and
+        got another panel started on top of it every time the grace ran out. Eight of them
+        ended up on one profile that way (#1994).
+
+        The instance lock is the same question answered by the kernel: it is held for the
+        life of the process and released by the OS whatever ends it, so it cannot go stale
+        and there is nothing to time out (`panel/runtime/autostart.py`).
+        """
+        try:
+            from .. import profile as profilemod
+            from ..runtime import autostart as autostartmod
+
+            return bool(autostartmod.locked(profilemod.ProfileManager(), name))
+        except Exception:                    # noqa: BLE001 — a reading, never the service
+            return False
+
     def missing(self, now: float) -> list:
         """Wanted profiles with no panel — and none of them inside their grace."""
         serving = self.serving()
@@ -148,10 +172,21 @@ class Keeper:
         for name in self.wanted():
             if name in serving:
                 self._last_seen[name] = now
+                self._said_held.discard(name)
                 continue
             seen = self._last_seen.get(name)
             if seen is not None and (now - seen) < GRACE_SEC:
                 continue                     # its own restart is in flight
+            if self.held(name):
+                # A panel IS on it and is simply not talking to this service. Starting a
+                # second one would not fix that and would cost the account two schedules
+                # on one client — said once, and looked at again on the next tick.
+                if name not in self._said_held:
+                    self._said_held.add(name)
+                    self._log(f"keeper: a panel already holds «{name}» and has not "
+                              f"dialled in — not starting a second one")
+                continue
+            self._said_held.discard(name)
             out.append(name)
         return out
 

@@ -119,6 +119,30 @@ def test_a_panel_restarting_itself_is_not_overtaken():
     assert len(calls) == 1, "a panel that really died was not replaced"
 
 
+def test_a_panel_that_is_up_but_not_talking_is_not_started_over():
+    """The register knows who is TALKING; the lock knows who exists (#1994).
+
+    A panel whose link to the service has dropped — or which somebody started by hand, or
+    which is still coming up — serves no profile as far as the register is concerned. Read
+    as an empty account it got a second panel started on top of it every time the grace ran
+    out, and the machine reached EIGHT panels on one profile: one log, one `config.json`
+    and one client written over by eight schedules.
+    """
+    clock = _Clock()
+    keep, calls, lines = _keeper(_Registry(), clock=clock)
+    keep.held = lambda name: True             # the kernel says a panel process is on it
+    for _ in range(4):
+        keep.tick()
+        clock.now += keepermod.CHECK_SEC
+    assert not calls, f"started a panel on top of one that is already there: {calls}"
+    said = [ln for ln in lines if "already holds" in ln]
+    assert len(said) == 1, f"said it {len(said)} times: {said}"
+
+    keep.held = lambda name: False            # …and when it really is gone, one is started
+    keep.tick()
+    assert len(calls) == 1, calls
+
+
 def test_nobody_signed_in_is_said_once_and_backed_off():
     registry = _Registry()
     clock = _Clock()

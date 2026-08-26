@@ -419,7 +419,17 @@ class WebApi:
             # out of the same cached reading, because «какая у тебя версия» must not
             # have two answers depending on which front-end was asked. It falls back to
             # the packaged number where there is no git to ask.
+            #
+            # `boot` IS THE PROOF, and `version` is not (#1994). The version string is
+            # computed off git every time it is asked, so it changes the moment somebody
+            # commits — with no restart, from the same process, running the same old code.
+            # A fix was reported delivered on exactly that reading while eight panels went
+            # on playing what they had imported. `boot` is a fact about THIS process
+            # instead: which pid answered, when its code was imported, and the commit it
+            # was imported from. Two polls that name the same pid are the same code,
+            # whatever the version says.
             "panel": {"version": updates.version_text(),
+                      "boot": updates.boot(),
                       "controls": panel_control.state()},
             # «ПРОФИЛЬ РАБОТАЕТ» — the one switch this account has, drawn on the phone
             # exactly as in the window and writable from either (#1882,

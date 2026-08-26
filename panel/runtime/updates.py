@@ -333,6 +333,32 @@ def head(repo: str = REPO) -> str:
     return out if rc == 0 else ""
 
 
+#: WHICH CODE THIS PROCESS IS ACTUALLY RUNNING (#1994) — stamped once, never recomputed.
+#:
+#: `version_text()` is read live off git, so it says what is CHECKED OUT rather than what
+#: was imported: a panel started before a commit and a panel started after it answer the
+#: same string, and «перезапустил» then cannot be told from «не перезапускал» by any
+#: reading the panel offers. That is not a hypothesis — #1993 was reported delivered on
+#: exactly that evidence while eight panel processes went on playing the old code.
+#:
+#: So this is the honest half: the pid, the moment this process's code was imported, and
+#: the HEAD it was imported from. A process that has not restarted keeps saying the
+#: commit it started on, whatever git says now.
+_BOOT: dict = {}
+
+
+def boot(repo: str = REPO) -> dict:
+    """The stamp of the code this process is running — taken on the FIRST call.
+
+    Called while the panel comes up (`panel/runtime/host.py`), so «the first call» is the
+    boot and not some hours-later poll. Everything in it is a fact about THIS process:
+    ``pid``, ``at`` (when it was stamped), ``head`` (the commit the code came from).
+    """
+    if not _BOOT:
+        _BOOT.update({"pid": os.getpid(), "at": time.time(), "head": head(repo)})
+    return dict(_BOOT)
+
+
 def is_dirty(repo: str = REPO) -> bool:
     """Are there uncommitted changes to TRACKED files?
 

@@ -41,6 +41,7 @@ from .log_spool import LogSpool
 from .paths import REPO
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker, ThreadTicker
+from . import updates as updatesmod
 
 
 #: EVERY scenario that puts the client back. A relaunch may be in flight exactly once,
@@ -85,6 +86,13 @@ class PanelRuntime:
         # profile name: switching this runtime's profile re-points the same scope at
         # the new profile's file rather than starting a third one.
         self.scope = scope
+        # WHICH CODE THIS PROCESS IS RUNNING, stamped now and never again
+        # (`panel/runtime/updates.py::boot`). A runtime is made while the panel comes up,
+        # in every front-end and in a standalone tab alike, so this is the earliest moment
+        # every one of them shares — and early is the whole point: the stamp must name the
+        # commit the process STARTED on, not one that landed hours into its life. The
+        # version string cannot say that, and #1993 was reported delivered on it (#1994).
+        updatesmod.boot()
 
         # EVERY window starts from the panel's own knobs, whether or not its builder
         # named them: `win_python` is what the child factory below launches with, and a
