@@ -156,7 +156,6 @@ function TimerEditor({
 function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh: () => Promise<void> }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
-  const [open, setOpen] = useState(false)
   const days = row.weekdays || []
   // A row that names its weekdays has no period: it fires at the start of a matching
   // GAME day and at nothing else, so it says its days where the others say «каждые …».
@@ -186,67 +185,22 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
           await refresh()
         }}
       />
-      {/* «СРАЗУ, БЕЗ ОЧЕРЕДИ» (#1288) — the window's row has this box, so the phone has
-          it. A control the person can read but not move is the divergence CLAUDE.md
-          forbids. */}
-      <SwitchRow
-        muted
-        title={t('web.ui.at_once')}
-        on={!!row.immediate}
-        onChange={async (want) => {
-          await post('/api/timers/now', { name: row.name, immediate: want })
-          await refresh()
-        }}
-      />
+      {/* «СРАЗУ, БЕЗ ОЧЕРЕДИ» IS NOT DRAWN HERE ANY MORE — the person's decision, in
+          their words: «настройку сразу без очереди тоже скрывай». The setting itself is
+          untouched: what a row obeys is still whatever was last set, `/api/timers/now`
+          still answers, and the window's own box still moves it. Only the phone stops
+          offering it, because a screen full of knobs nobody moves is what this screen
+          was becoming. */}
       <p className="muted small">{bits.join(' · ')}</p>
-      {open ? (
-        <TimerEditor
-          row={row}
-          onCancel={() => setOpen(false)}
-          onDone={async () => {
-            setOpen(false)
-            await refresh()
-          }}
-        />
-      ) : null}
+      {/* ONE BUTTON PER ROW, AND IT IS «ЗАПУСТИТЬ» — the person's decision, in their
+          words: «в таймерах из кнопок оставляй только запустить». Изменить / Дублировать
+          / Удалить are gone from the phone; every one of them still exists — the routes
+          answer, the window's tab has all three, and the editor below is still what «+»
+          opens — so nothing has been taken away from the panel, only from this screen.
+          A row's own switch still turns it on and off, which is the one thing a person
+          away from the machine actually does to an errand. */}
       <div className="foot">
         {row.queued ? <span className="pill warn">{t('web.ui.queued')}</span> : <span />}
-        <button className="go" onClick={() => setOpen((was) => !was)}>
-          {t('timers.edit')}
-        </button>
-        <button
-          className="go"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true)
-            try {
-              await post('/api/timers/copy', { name: row.name })
-              await refresh()
-            } finally {
-              setBusy(false)
-            }
-          }}
-        >
-          {t('timers.duplicate')}
-        </button>
-        <button
-          className="go"
-          disabled={busy}
-          onClick={async () => {
-            // The window asks before it deletes, so the phone asks — and a thumb on a
-            // moving bus is the reason it asks, not a reason to skip asking.
-            if (!window.confirm(t('timers.confirm_delete', { name: row.title }))) return
-            setBusy(true)
-            try {
-              await post('/api/timers/delete', { name: row.name })
-              await refresh()
-            } finally {
-              setBusy(false)
-            }
-          }}
-        >
-          {t('timers.delete')}
-        </button>
         <button
           className="go"
           disabled={busy}
@@ -288,15 +242,9 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
           await refresh()
         }}
       />
-      <SwitchRow
-        muted
-        title={t('web.ui.at_once')}
-        on={!!row.immediate}
-        onChange={async (want) => {
-          await post('/api/triggers/now', { name: row.name, immediate: want })
-          await refresh()
-        }}
-      />
+      {/* …and the standing orders' own «сразу, без очереди» is hidden with the
+          errands' (see `TimerItem`): one setting, one decision, and half a screen of it
+          left drawn would be the confusing half. */}
       <p className="muted small">{signal + ' · ' + state}</p>
     </div>
   )
