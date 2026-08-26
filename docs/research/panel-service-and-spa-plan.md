@@ -283,6 +283,26 @@ the runtime is built): the pid that answered, when its code was imported, and th
 it was imported from. Two polls that name the same pid are the same code, whatever the
 version says.
 
+### …and the service had the same hole, one level up
+
+**Found delivering the fix above.** The panel-side half went live in one restart and one
+probe. The service-side half — the register saying which CODE each panel runs, and the
+press that names ONE panel — could not be delivered at all: the service had been started
+by Windows hours earlier, `sc stop` needs rights an ordinary session has not got, and
+there was no way in from the door the service was itself serving. A knob nobody can reach
+is worse than one somebody can get wrong, which is the sentence the panel's own press was
+written under (#1258).
+
+So the door has `GET/POST /api/service` (`panel/service/self_control.py`): the press asks
+the SCM to stop and start this service — `Restart-Service -Force` in a detached child,
+because `sc stop` returns the moment Windows ACCEPTS the stop and a `sc start` on the next
+line races it. Nothing is killed and nothing exits itself: `sc failure` restarts a service
+that DIED, and a clean stop is not a death. A service running in the foreground is
+answered `unavailable` rather than stopping one that is not running.
+
+**The first time still costs one elevated press** — the running service predates the route.
+After that a service fix is delivered like a panel fix: press, then probe `head`.
+
 ## 1. Target architecture
 
 **Built and measured, 2026-08-26.** What follows was the design; this is what it is now,

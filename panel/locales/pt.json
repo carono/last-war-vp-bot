@@ -2243,5 +2243,7 @@
   "triggers.item.alliance_train_board": "Embarcar no Trem da Aliança assim que um condutor for designado",
   "events.train.tickets.hint": "0 é uma curtida e não custa nada; 1–3 são Contratos Comerciais da bolsa. Aqui nada é comprado com diamantes — o que a bolsa não cobre sai como a curtida grátis.",
   "events.train.buy": "Comprar os que faltam com diamantes",
-  "events.train.buy.hint": "Desmarcado — pagamos apenas com os contratos da bolsa e não gastamos um único diamante. Marcado — os que faltam são comprados, estritamente até o número acima e nem um contrato além, e cada compra é nomeada no log com o que custou. Quantos há na bolsa é a linha acima."
+  "events.train.buy.hint": "Desmarcado — pagamos apenas com os contratos da bolsa e não gastamos um único diamante. Marcado — os que faltam são comprados, estritamente até o número acima e nem um contrato além, e cada compra é nomeada no log com o que custou. Quantos há na bolsa é a linha acima.",
+  "service.restart": "Reiniciar o serviço",
+  "service.restart.confirm": "Reiniciar o serviço da máquina? Todos os painéis que ele iniciou caem e voltam."
 }

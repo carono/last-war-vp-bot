@@ -10,7 +10,7 @@ to `panel/web/api.py` tomorrow is served through here the same day, with no tabl
 in step and no chance of the two disagreeing about what `/api/screen/press` means. The
 service does not know what a screen IS.
 
-THE FOUR IT ANSWERS ITSELF are the ones no single panel can: which panels have dialled in
+THE ROUTES IT ANSWERS ITSELF are the ones no single panel can: which panels have dialled in
 (`/api/panels`, and a POST to it puts ONE of them down or back by pid — the standard way
 to clear a panel that should not be there, #1994), and the three the browser asks before
 it has chosen an account —
@@ -20,6 +20,7 @@ running» from «the door is broken».
 """
 from __future__ import annotations
 
+from . import self_control
 from . import wire
 
 
@@ -77,6 +78,19 @@ class ServiceApi:
     def dispatch(self, method: str, path: str, query: dict, body: dict) -> tuple:
         query = dict(query or {})
         body = dict(body or {})
+        if path == "/api/service":
+            # THE SERVICE'S OWN LIFE, and the only route here that is about this process
+            # rather than about a panel (`panel/service/self_control.py`). It is the
+            # answer to the thing #1994 ran into last: the panel-side fix was delivered in
+            # one press and the service-side one could not be delivered at all, because a
+            # service started by Windows is restarted by Windows and nothing could ask.
+            if str(method or "").upper() == "POST":
+                if str(body.get("action") or "") != self_control.RESTART:
+                    return 400, {"error": "unknown_action",
+                                 "action": str(body.get("action") or "")}
+                said = self_control.restart(log=self._log)
+                return (200 if said.get("ok") else 503), said
+            return 200, self_control.state()
         if path == "/api/panels":
             if str(method or "").upper() == "POST":
                 return self.press(body)

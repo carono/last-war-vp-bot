@@ -2243,5 +2243,7 @@
   "triggers.item.alliance_train_board": "Lên Tàu Liên Minh ngay khi có tàu trưởng được chỉ định",
   "events.train.tickets.hint": "0 là một lượt thích và miễn phí; 1–3 là Hợp Đồng Giao Dịch lấy từ túi. Ở đây không bao giờ mua gì bằng kim cương — phần túi không đủ sẽ gửi đi dưới dạng lượt thích miễn phí.",
   "events.train.buy": "Mua bù bằng kim cương khi thiếu",
-  "events.train.buy.hint": "Tắt — chỉ trả bằng hợp đồng có trong túi và không tiêu một viên kim cương nào. Bật — phần thiếu sẽ được mua, nghiêm ngặt trong giới hạn con số ở trên và không quá một hợp đồng, và mỗi lần mua đều được ghi rõ trong nhật ký kèm giá. Số lượng trong túi ở dòng ngay trên."
+  "events.train.buy.hint": "Tắt — chỉ trả bằng hợp đồng có trong túi và không tiêu một viên kim cương nào. Bật — phần thiếu sẽ được mua, nghiêm ngặt trong giới hạn con số ở trên và không quá một hợp đồng, và mỗi lần mua đều được ghi rõ trong nhật ký kèm giá. Số lượng trong túi ở dòng ngay trên.",
+  "service.restart": "Khởi động lại dịch vụ",
+  "service.restart.confirm": "Khởi động lại dịch vụ của máy? Mọi bảng điều khiển do nó khởi chạy sẽ tắt rồi quay lại."
 }

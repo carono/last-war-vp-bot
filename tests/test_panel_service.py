@@ -75,6 +75,7 @@ def _stub_tk() -> None:
 _stub_tk()
 
 from panel.runtime.service_link import ServiceLink        # noqa: E402
+from panel.service import self_control as selfctl         # noqa: E402
 from panel.service.host import Service                    # noqa: E402
 
 TOKEN = "test-token"
@@ -258,6 +259,50 @@ def test_one_named_panel_can_be_asked_to_go_without_anybody_killing_it() -> None
         assert _post(service, "/api/panels", {"action": "quit", "pid": 999999})[0] == 404
     finally:
         link.stop()
+        service.stop()
+
+
+def test_the_service_can_be_asked_to_restart_ITSELF_and_refuses_when_it_is_not_one() -> None:
+    """The door's own press (#1994).
+
+    The panel-side half of #1994 was delivered in one restart; the service-side half could
+    not be delivered at all — a service started by Windows is restarted by Windows, `sc
+    stop` needs rights an ordinary session has not got, and there was no way in from the
+    door the service was itself serving. So the press asks the SCM, and a service running
+    in the FOREGROUND — which is every test, and anybody watching it — is answered
+    `unavailable` rather than stopping a service that is not running.
+    """
+    asked: list = []
+    said = selfctl.restart(spawn=asked.append, name="not_a_registered_service")
+    assert said == {"ok": False, "unavailable": True,
+                    "name": "not_a_registered_service"}, said
+    assert not asked, "asked Windows to restart something it does not know"
+
+    # …and when Windows DOES know it, what goes out is one detached restarter, and it
+    # waits for the stop rather than racing it (`sc stop` returns on ACCEPTED).
+    real = selfctl.registered
+    try:
+        selfctl.registered = lambda name="", run=None: True
+        said = selfctl.restart(spawn=asked.append, name="whatever")
+    finally:
+        selfctl.registered = real
+    assert said["ok"] is True and said["name"] == "whatever", said
+    assert len(asked) == 1, asked
+    line = " ".join(asked[0])
+    assert "Restart-Service" in line and "whatever" in line and "-Force" in line, line
+
+
+def test_the_service_route_answers_its_state_and_refuses_a_press_it_does_not_know() -> None:
+    service = _service()
+    try:
+        status, said = _get(service, "/api/service")
+        assert status == 200 and said["name"], said
+        # A test process is not a registered service, so there is nothing to press.
+        assert said["controls"] == [] and said["available"] is False, said
+        assert _post(service, "/api/service", {"action": "sing"})[0] == 400
+        status, said = _post(service, "/api/service", {"action": "restart"})
+        assert status == 503 and said.get("unavailable") is True, said
+    finally:
         service.stop()
 
 

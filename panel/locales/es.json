@@ -2243,5 +2243,7 @@
   "triggers.item.alliance_train_board": "Subir al Tren de Alianza en cuanto se designe un conductor",
   "events.train.tickets.hint": "0 es un me gusta y no cuesta nada; 1–3 son Contratos de Comercio de la bolsa. Aquí nunca se compra nada con diamantes: lo que la bolsa no cubre se envía como el me gusta gratuito.",
   "events.train.buy": "Comprar los que falten con diamantes",
-  "events.train.buy.hint": "Desmarcado: pagamos solo con los contratos de la bolsa y no gastamos ni un diamante. Marcado: los que falten se compran, estrictamente hasta el número de arriba y ni un contrato más, y cada compra se nombra en el registro con lo que costó. Lo que hay en la bolsa es la fila de arriba."
+  "events.train.buy.hint": "Desmarcado: pagamos solo con los contratos de la bolsa y no gastamos ni un diamante. Marcado: los que falten se compran, estrictamente hasta el número de arriba y ni un contrato más, y cada compra se nombra en el registro con lo que costó. Lo que hay en la bolsa es la fila de arriba.",
+  "service.restart": "Reiniciar el servicio",
+  "service.restart.confirm": "¿Reiniciar el servicio de la máquina? Todos los paneles que inició se apagan y vuelven."
 }

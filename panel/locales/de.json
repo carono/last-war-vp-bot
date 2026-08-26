@@ -2243,5 +2243,7 @@
   "triggers.item.alliance_train_board": "In den Allianzzug einsteigen, sobald ein Zugführer bestimmt ist",
   "events.train.tickets.hint": "0 ist ein Like und kostet nichts; 1–3 sind Handelsverträge aus dem Beutel. Hier wird nie etwas für Diamanten gekauft — was der Beutel nicht deckt, geht als gratis Like raus.",
   "events.train.buy": "Fehlende für Diamanten kaufen",
-  "events.train.buy.hint": "Aus — wir zahlen nur mit den Verträgen im Beutel und geben keinen einzigen Diamanten aus. An — die fehlenden werden gekauft, streng bis zur Zahl oben und keinen Vertrag weiter, und jeder Kauf wird im Log mit seinem Preis genannt. Wie viele im Beutel liegen, steht in der Zeile darüber."
+  "events.train.buy.hint": "Aus — wir zahlen nur mit den Verträgen im Beutel und geben keinen einzigen Diamanten aus. An — die fehlenden werden gekauft, streng bis zur Zahl oben und keinen Vertrag weiter, und jeder Kauf wird im Log mit seinem Preis genannt. Wie viele im Beutel liegen, steht in der Zeile darüber.",
+  "service.restart": "Dienst neu starten",
+  "service.restart.confirm": "Den Dienst des Rechners neu starten? Alle von ihm gestarteten Panels gehen aus und kommen zurück."
 }
