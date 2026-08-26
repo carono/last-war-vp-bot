@@ -300,6 +300,7 @@
   "log.frame": "Protokoll (Zeit links · Koordinaten sind anklickbar)",
   "log.game.back": "der Client ist zurück",
   "log.game.link_lost": "die Serververbindung ist weg — der Client läuft noch, aber alles, was er liest, ist von gestern",
+  "log.game.read_failed": "Der Client konnte gar nicht gelesen werden, darum sagt die Lampe «kein Client» — der Fehler: {error}",
   "log.game.link_back": "die Serververbindung ist wieder da",
   "log.game.maintenance": "Der Server ist in Wartung — das sagt das Spiel selbst; nichts ist kaputt, die Tür ist zu",
   "log.game.maintenance_soon": "Das Spiel meldet: Der Server geht in {mins} Min in die Wartung",

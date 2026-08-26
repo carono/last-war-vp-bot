@@ -300,6 +300,7 @@
   "log.frame": "Catatan (waktu di kiri · koordinat bisa diklik)",
   "log.game.back": "klien kembali",
   "log.game.link_lost": "koneksi ke server hilang — klien masih berjalan, tapi semua yang dibacanya sudah basi",
+  "log.game.read_failed": "klien sama sekali tidak bisa dibaca, jadi lampu berkata «tidak ada klien» — kesalahannya: {error}",
   "log.game.link_back": "koneksi ke server kembali",
   "log.game.maintenance": "server sedang dalam pemeliharaan — gim sendiri yang mengatakannya; tidak ada yang rusak, pintunya tertutup",
   "log.game.maintenance_soon": "gim memberi tahu: server masuk pemeliharaan dalam {mins} menit",

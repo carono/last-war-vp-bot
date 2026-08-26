@@ -300,6 +300,7 @@
   "log.frame": "Journal (l'heure à gauche · les coordonnées sont cliquables)",
   "log.game.back": "le client est revenu",
   "log.game.link_lost": "la connexion au serveur a disparu — le client tourne toujours, mais tout ce qu'il lit date d'hier",
+  "log.game.read_failed": "le client n'a pas pu être lu du tout, donc le voyant dit « pas de client » — la panne : {error}",
   "log.game.link_back": "la connexion au serveur est revenue",
   "log.game.maintenance": "le serveur est en maintenance — le jeu le dit lui-même ; rien n'est cassé, la porte est fermée",
   "log.game.maintenance_soon": "le jeu annonce : le serveur part en maintenance dans {mins} min",

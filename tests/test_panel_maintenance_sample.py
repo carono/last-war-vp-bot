@@ -209,6 +209,46 @@ def test_the_seasons_own_estimate_is_said_when_the_game_gives_one():
         gm.forget()
 
 
+# --- «no client» is never something a READING invented -----------------------
+def test_a_dialog_that_could_not_be_read_keeps_the_last_verdict():
+    """The question that came back: can the new reading turn «unknown» into «no client»?
+
+    It cannot. The dialog read answers ``None`` for every way of not knowing, and both
+    judges keep whatever they last knew — a reading that fails can only ever ADD a
+    reason and never take one away.
+    """
+    poll = _poll("/tmp")
+    poll._maint_was, poll._maint_secs = "closed", None
+    poll._kick_was = True
+    assert poll._read_maintenance(None) == ("closed", None)
+    assert poll._read_kicked(None) is True
+
+
+def test_the_maintenance_verdict_touches_the_LIGHT_and_never_the_client():
+    """It narrows amber. Whether a client exists is the process probe's answer alone."""
+    source = (Path(__file__).resolve().parents[1]
+              / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
+    at = source.index("health = rt.health.update(")
+    call = source[at:source.index(")", source.index("maintenance=", at))]
+    assert "running=" not in call, call
+    assert "maintenance=maint ==" in call, call
+
+
+def test_the_verdict_is_written_down_every_poll():
+    """A light nobody records cannot be dated afterwards — which is how this got asked.
+
+    The window has printed its `systems:` line for a year; the windowless panel printed
+    nothing, so «панель говорила, что клиента нет» could be neither confirmed nor denied.
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
+    assert "_note_verdict(health, found)" in source, "the verdict is not recorded"
+    at = source.index("def _note_verdict")
+    body = source[at:source.index("\n    def ", at + 10)]
+    for wanted in ("light=%s", "client=%s", "pid=%s", "session=%s"):
+        assert wanted in body, wanted
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

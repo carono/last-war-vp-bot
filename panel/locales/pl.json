@@ -300,6 +300,7 @@
   "log.frame": "Dziennik (czas po lewej · współrzędne są klikalne)",
   "log.game.back": "klient wrócił",
   "log.game.link_lost": "połączenie z serwerem zniknęło — klient nadal działa, ale wszystko, co czyta, jest wczorajsze",
+  "log.game.read_failed": "klienta w ogóle nie udało się odczytać, więc lampka mówi «brak klienta» — usterka: {error}",
   "log.game.link_back": "połączenie z serwerem wróciło",
   "log.game.maintenance": "serwer jest na przerwie technicznej — mówi to sama gra; nic nie jest zepsute, drzwi są zamknięte",
   "log.game.maintenance_soon": "gra ogłasza: serwer wchodzi na przerwę techniczną za {mins} min",

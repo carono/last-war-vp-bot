@@ -300,6 +300,7 @@
   "log.frame": "Registro (a hora à esquerda · as coordenadas são clicáveis)",
   "log.game.back": "o cliente voltou",
   "log.game.link_lost": "a ligação ao servidor caiu — o cliente continua rodando, mas tudo o que lê é de ontem",
+  "log.game.read_failed": "não foi possível ler o cliente de todo, por isso a luz diz «sem cliente» — a falha: {error}",
   "log.game.link_back": "a ligação ao servidor voltou",
   "log.game.maintenance": "o servidor está em manutenção — quem o diz é o próprio jogo; nada está quebrado, a porta está fechada",
   "log.game.maintenance_soon": "o jogo avisa: o servidor entra em manutenção daqui a {mins} min",

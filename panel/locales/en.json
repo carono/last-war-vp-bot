@@ -300,6 +300,7 @@
   "log.frame": "Log (time on the left · coordinates are clickable)",
   "log.game.back": "the client is back",
   "log.game.link_lost": "the server connection is gone — the client is still up, but nothing it reads is new",
+  "log.game.read_failed": "the client could not be read at all, so the light says «no client» — the fault: {error}",
   "log.game.link_back": "the server connection is back",
   "log.game.maintenance": "the server is under maintenance — the game itself says so; nothing is broken, the door is shut",
   "log.game.maintenance_soon": "the game says the server shuts down for maintenance in {mins} min",

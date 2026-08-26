@@ -300,6 +300,7 @@
   "log.frame": "Nhật ký (giờ ở bên trái · tọa độ bấm được)",
   "log.game.back": "client đã trở lại",
   "log.game.link_lost": "kết nối tới máy chủ đã mất — client vẫn chạy, nhưng mọi thứ nó đọc đều là của hôm qua",
+  "log.game.read_failed": "hoàn toàn không đọc được client, nên đèn báo «không có client» — lỗi: {error}",
   "log.game.link_back": "kết nối tới máy chủ đã trở lại",
   "log.game.maintenance": "máy chủ đang bảo trì — chính trò chơi nói vậy; không có gì hỏng, chỉ là cửa đã đóng",
   "log.game.maintenance_soon": "trò chơi báo: máy chủ sẽ bảo trì sau {mins} phút",

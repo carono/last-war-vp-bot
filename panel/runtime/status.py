@@ -96,6 +96,9 @@ class StatusPoll:
         self._session_at = 0.0
         self._session_was = ""
         self._link_gone = 0
+        #: The last verdict said out loud, so a light that has not moved is a heartbeat
+        #: in `debug.log` and a light that HAS is news (:meth:`_note_verdict`).
+        self._said_verdict = None
         #: The crash watchdog's own bookkeeping: consecutive dead readings, when the
         #: last one was taken (a strike is a fresh LOOK, not the same cached walk seen
         #: twice — #1702), whether the client was ever up, when it was last put back and
@@ -183,12 +186,27 @@ class StatusPoll:
             # three colours means three, and there is no colour for «could not look».
             health = rt.health.failed(exc)
             rt.dbg("status").error("status poll failed", exc_info=True)
+            # AND SAID ONCE, in the person's own log. «A reading that never came is no
+            # client with the fault in the tooltip» (#1911) is the rule — but a tooltip
+            # is only true while somebody is hovering over it, and this is the one way
+            # the light can say «клиент игры не запущен» over a client that is running.
+            if self._said_verdict != ("failed", str(exc)[:80]):
+                self._said_verdict = ("failed", str(exc)[:80])
+                rt.say("game", "log.game.read_failed", error=str(exc)[:200])
             return Reading(probe=None, health=health)
         health = rt.health.update(found, plumbing=lands, server=server,
                                   responding=responding, error=rt.game.error(),
                                   maintenance=maint == "closed")
         # THE GATE reads the verdict written one line up, so this costs a dict lookup.
         rt.gate.alive()
+        # …AND THE VERDICT IS WRITTEN DOWN (#1982 follow-up). The window has printed a
+        # `systems:` line off every poll for a year, and a panel with no window printed
+        # nothing at all — so «панель показывала, что клиента нет» could not be dated,
+        # confirmed or denied afterwards, which is exactly the question that came back.
+        # On CHANGE it is news, otherwise it is a debug heartbeat; both carry the pid,
+        # the probe's own sentence and which Windows session this panel is looking in,
+        # because «no client» has several different causes and they want opposite acts.
+        self._note_verdict(health, found)
         # THE LINK'S OWN SUPERVISOR (#1911): if a chunk is not landing — including the
         # first poll after a client appears, when nothing has ever landed — take hold of
         # the client. Not while the person has switched the profile off.
@@ -205,6 +223,36 @@ class StatusPoll:
         self._watchdog_check(bool(getattr(found, "running", False)))
         return Reading(probe=found, health=health, kicked=kicked, session=session,
                        maintenance=maint, maintenance_secs=maint_secs)
+
+    def _note_verdict(self, health, found) -> None:
+        """One line per verdict CHANGE, and a debug heartbeat the rest of the time.
+
+        WHAT IT HAS TO ANSWER, because this is the line somebody reads a day later: what
+        the light said, which reading decided it, whether a client process was found and
+        WHERE this panel was looking. The last one matters since the service started
+        launching the panel (#1976): a panel in the wrong Windows session sees no client
+        at all and says exactly what a closed game says.
+        """
+        rt = self.rt
+        try:
+            import game_link
+
+            here = game_link.own_session()
+        except Exception:                     # noqa: BLE001 — a reading, never a line
+            here = None
+        said = ("systems: light=%s (%s) client=%s pid=%s lands=%s server=%s session=%s"
+                % (health.colour, health.reason,
+                   bool(getattr(found, "running", False)), getattr(found, "pid", None),
+                   health.plumbing, health.server,
+                   "?" if here is None else here))
+        snap = (health.colour, health.reason, bool(getattr(found, "running", False)),
+                health.plumbing, health.server)
+        log = rt.dbg("status")
+        if snap != self._said_verdict:
+            self._said_verdict = snap
+            log.info(said)
+        else:
+            log.debug(said)
 
     def _look(self, found, lands: str) -> "dict | None":
         """What the client says about its own windows, read ONCE for every question.

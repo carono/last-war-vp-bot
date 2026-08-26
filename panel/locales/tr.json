@@ -300,6 +300,7 @@
   "log.frame": "Günlük (saat solda · koordinatlara tıklanabilir)",
   "log.game.back": "istemci geri geldi",
   "log.game.link_lost": "sunucu bağlantısı gitti — istemci hâlâ çalışıyor, ama okuduğu her şey dünden kalma",
+  "log.game.read_failed": "istemci hiç okunamadı, bu yüzden ışık «istemci yok» diyor — arıza: {error}",
   "log.game.link_back": "sunucu bağlantısı geri geldi",
   "log.game.maintenance": "sunucu bakımda — bunu oyunun kendisi söylüyor; bozulan bir şey yok, kapı kapalı",
   "log.game.maintenance_soon": "oyun bildiriyor: sunucu {mins} dk içinde bakıma giriyor",
