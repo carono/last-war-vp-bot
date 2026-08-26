@@ -1122,6 +1122,10 @@ class RallyTab(PanelTab):
         self._stop_run()
         self._stop_capture()
         self._unwatch_squads()
+        # …AND THE FLOW STRIP'S OWN SECOND. It re-arms itself in a `finally`, so nothing
+        # else could ever stop it: a window on its way out left one chain ticking per
+        # profile that had ever opened this tab (`tests/test_panel_tab_contract.py`).
+        self.rt.tick.disarm("rally_flow")
         # The block's reader is a worker that asks the game: a window on its way out
         # must not leave one queued behind it.
         self.roster.stop()

@@ -87,8 +87,8 @@ def _page(*, game_up=True, replies=None, settings=None):
 
     calls: list = []
 
-    def play_async(name, args=None, *, tag="action", cancel=None,
-                   on_start=None, on_done=None, on_result=None):
+    def play_async(name, args=None, *, tag="action", cancel=None, human=False,
+                   on_start=None, on_done=None, on_result=None, **kw):
         calls.append({"name": name, "args": dict(args or {}), "tag": tag})
         if on_result is not None:
             # Straight through, not via `root.after`: the real one hops to the Tk
@@ -357,10 +357,14 @@ def test_a_result_callback_can_start_the_next_scenario():
 
         def second(_outcome):
             # Exactly what the switch does: press again off what the read found.
-            seen.append(rt.play_async("set_graphics_load", {}, tag="t2"))
+            seen.append(rt.play_async("set_graphics_load", {}, tag="t2", human=True))
             root.quit()
 
-        assert rt.play_async("read_graphics_load", tag="t1", on_result=second)
+        # Both marked `human=True`: the switch's own press and the follow-up it starts
+        # off what the read found. Since #1910 the gate is asked before the claim, and a
+        # cold runtime holds anything that has not said it is a person at a button.
+        assert rt.play_async("read_graphics_load", tag="t1", human=True,
+                             on_result=second)
         root.after(8000, root.quit)         # never hang the suite
         root.mainloop()
 
@@ -471,7 +475,10 @@ def test_a_run_that_raised_reports_what_raised():
         rt.game.on_settled = lambda: None
 
         seen: list = []
-        assert rt.play_async("read_graphics_load", tag="t",
+        # `human=True` — this is a press, and since #1910 the gate is asked before the
+        # claim: on a cold runtime there is no client, so an unmarked run is held and the
+        # callback under test never happens.
+        assert rt.play_async("read_graphics_load", tag="t", human=True,
                              on_result=lambda out: (seen.append(out), root.quit()))
         root.after(8000, root.quit)
         root.mainloop()

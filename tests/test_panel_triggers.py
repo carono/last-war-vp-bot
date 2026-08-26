@@ -568,7 +568,10 @@ def test_an_observer_never_submits_its_scenario():
         log=lambda key, **fmt: said.append(key))
     w._fire(trigger)
     assert submitted == [], "an observer submitted its scenario"
-    assert "triggers.log.observed" in said, said
+    # A POLL SAYS IT IN ITS OWN WORDS (`_POLL_WORDS`): a poll's lines name the trigger and
+    # its period, where a listener's name what it heard — the same outcome, said so that
+    # «слушаю» and «смотрю раз в N секунд» cannot be mistaken for each other.
+    assert "triggers.log.observed_poll" in said, said
 
 
 def test_an_observer_gets_no_backoff_state_however_the_file_is_edited():

@@ -987,6 +987,11 @@ class SecretTasksTab(PanelTab):
         self.autoassist.stop()
         for name in ("secret_tick", "secret_live", "secret_poll", "secret_nudge",
                      "secret_clock", "secret_harvest", "secret_areas",
+                     # …and the two that were added after this list and not to it: the
+                     # tile walk and the monsters' own follow clock. Both re-arm
+                     # themselves, so nothing else could ever stop them, and a window on
+                     # its way out left them ticking (`test_panel_tab_contract`).
+                     "secret_tiles", "secret_monster_follow",
                      "autoloot_push_restart"):
             self.rt.tick.disarm(name)
         self._ticking = self._polling = self._living = False
