@@ -97,7 +97,11 @@ that owns a lifecycle.
 | P2 — what is still window-only | see below | |
 | P0 — the service, and the panel dialling out to it | **live** | `panel/service/` + `panel/runtime/service_link.py`; measured on this machine: the door on 9762, the web on 9763, one panel dialled in with four profiles, and `/api/profiles` through the SERVICE answered by that panel |
 | P0 — installed as a Windows service | **not done** | the two `sc create` / `sc start` lines are in `service.bat`'s own comments and need an elevated prompt — the person's press, not an agent's |
-| P3 — Tk removed | not started | after P2 |
+| P3 — the panel runs with NO WINDOW | **live** | `panel/headless.py` + `headless.bat`; measured beside the running window: it opened a profile, attached the game's Lua VM, dialled the service and answered through it — `/api/state`, `/api/screens` and four tab screens drawn by a panel that has no window |
+| P3 — a tab's STATE survives Tk | **done** | `panel/runtime/statevar.py`; 97 tab variables and the settings binder go through it. With a window they ARE Tk variables, so nothing about the window changed |
+| P3 — the clock without Tk | **done** | `ThreadTicker`: one thread, FIFO hand-overs. A rootless runtime used to get a `Ticker` that armed nothing |
+| P3 — the RUNTIME imports no tkinter | **done** | the log spool split from the pane (`panel/runtime/log_spool.py`); `import panel.runtime` and `import panel.headless` both work with `tkinter` unimportable |
+| P3 — the DRAWING deleted | not started | the order is written below |
 | P4 — the rules and the parity tests | partly | the `settings` divergence is already rewritten |
 
 **Nothing is window-only any more.** JOINING a rally was the last one, and it went the
@@ -228,6 +232,34 @@ after the new one has been used to drive it.**
   SPA does everything the current page does on a phone, on the `default` profile, live.
 * **P2 — the gap (section 4) is filled.** Every tab, screen and control that only the
   window has appears in the SPA. Done when: the inventory list below is empty.
+### The order the drawing comes out in
+
+Everything above is done and changed nothing about the window on purpose: state, clock,
+runtime and a windowless way to run. What is left is the DELETION, and it is destructive
+by nature — a tab that loses `build()` has a blank page in the window and a complete
+screen on the phone. So it goes in this order, each step its own commit with the tier
+green after it:
+
+1. **the shell stops being the only way in.** `headless.bat` exists (done); `panel.bat`
+   keeps opening the window until the person has driven a day's farming from the SPA.
+   That is the plan's own rule — the old way goes only after the new one has been used —
+   and it is the one step an agent must not take on its own;
+2. **the dialogs.** `servers_dialog`, `autostart_dialog`, `web_dialog`, `settings_dialog`
+   — each already has a screen (§«Настройки», «Серверы», «Автозапуск», «Параметры»), so
+   each is a delete plus the shell's call site;
+3. **the splash** (`panel/splash.py`), which exists only because a window takes seconds
+   to draw;
+4. **the tabs, one per commit**, in the order they are least used at the machine:
+   `alliance`, `profile`, `heroes`, `inventory`, `accounts`, `stats`, `players`,
+   `recruit`, `events`, `checklist`, `timers`, `treasure_debug`, `chat`, `command_post`,
+   `rally`, `secret_tasks`, `vs_duel`, `develop`. Each loses `build()`, `settings_page()`
+   and its `tkinter` import; each keeps `web_view` / `web_press` and its state;
+5. **the shell itself** — `panel/__main__.py`, `panel/widgets.py`, `panel/runtime/
+   log_view.py`, `panel/runtime/*_dialog.py` — and `panel.bat` becomes `headless.bat`;
+6. **P4**: the parity rule in `CLAUDE.md` and `docs/panel-tabs.md` is replaced by the
+   single front-end's contract, and `tests/test_panel_web_screens.py` and relatives stop
+   comparing two front-ends and start pinning one.
+
 * **P3 — Tk is deleted.** `panel/__main__.py` (the shell), `panel/widgets.py`, every
   `build()`, `settings_page()`, the dialogs, `log_view`, the splash. Tab state moves from
   Tk variables to plain runtime state; the clock moves from the Tk `after` queue to the
