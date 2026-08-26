@@ -183,8 +183,10 @@ TABS: tuple = (
             in_development=True),
     TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200,
             in_development=True),
-    TabSpec("profile",   "panel.tabs.profile",   "ProfileTab",   order=210,
-            in_development=True),
+    # …and no `in_development` on it since #1990: the live stock moved onto this tab
+    # from the front page, and a card the person asked to have there cannot sit behind
+    # «Разработка».
+    TabSpec("profile",   "panel.tabs.profile",   "ProfileTab",   order=210),
     TabSpec("inventory", "panel.tabs.inventory", "InventoryTab", order=220),
     TabSpec("heroes",    "panel.tabs.heroes",    "HeroesTab",    order=230,
             in_development=True),

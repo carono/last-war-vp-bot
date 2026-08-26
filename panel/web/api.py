@@ -7,8 +7,8 @@ this file is what keeps it honest. Every route below is one call onto a
 :class:`~panel.runtime.host.PanelRuntime`:
 
     /api/profiles   which accounts this window has open      rt.workspace
-    /api/state      what one profile is doing right now      rt.game, rt.activity,
-                                                             rt.resources
+    /api/state      what one profile is doing right now      rt.game, rt.activity
+    /api/screen     one tab's own page, and the base's stock  rt.tabs, rt.resources
     /api/game       start / close / restart the client       rt.play_async, via
                                                              runtime/game_control.py
     /api/panel      put the PANEL back on the code on disk   runtime/panel_control.py
@@ -395,16 +395,15 @@ class WebApi:
                           "name": str(step.fmt.get("name") or ""),
                           "text": rt.t(step.key, **step.fmt)}
                          if step is not None else None),
-            # WHAT THE BASE IS HOLDING RIGHT NOW (#1990,
-            # panel/runtime/resources.py). The stock the game draws along the top of its
-            # own screen — gold, food, metal, oil and every other resource the client
-            # counts — with each resource's NAME as the game itself says it, in the
-            # player's language. Nothing here reads the game: this is a cache one
-            # scenario fills at most every half minute, because a route an open page
-            # asks every 2.5 s must never spend a fifth of a second on the game link.
-            # `age` is how old the reading is, so the page can say so rather than
-            # pretending a number half a minute old is this instant's.
-            "resources": rt.resources.state(),
+            # …and NO `resources` here any more (#1990, second pass). The base's stock
+            # was on this page and is now the «Профиль» screen's own card
+            # (panel/tabs/profile.py). It had to move WHOLE: `BaseResources.state()` is
+            # both the reading and the subscription — it raises the ear on
+            # `push.resource.item.update` and marks the card as looked at — so a route
+            # every open page polls every 2.5 s kept the capture alive for a card nobody
+            # was necessarily reading. Asked from the tab's screen instead, the ear is up
+            # exactly while somebody is looking at the stock and is given back two
+            # minutes after the last look.
             "timers": self._due(rt),
             # THE PANEL ITSELF, which is the one thing on this page that is not about
             # an account: which version of the bot the window is running, and the press

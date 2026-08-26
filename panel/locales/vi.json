@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "kết nối trên cổng {port} vẫn giữ: {others} cũng điều khiển ứng dụng đó",
   "splash.link": "Đang kết nối với trò chơi…",
   "top.link": "kết nối:",
-  "web.ui.link": "Kết nối",
+  "web.ui.gamelink": "Trò chơi và kết nối",
   "secrettasks.page.pieces": "Trao đổi mảnh bản đồ",
   "pieces.hint": "Một lượt đào tiêu tốn mỗi loại một mảnh, nên số lượt đào còn lại bằng số mảnh ít nhất. Một đề nghị được nhận khi mảnh nó đưa cho ta không nhiều hơn mảnh nó xin — không bao giờ đưa mảnh đang thiếu để lấy mảnh vốn đã nhiều hơn. Khi đề nghị của ta còn treo, mảnh dùng để trả sẽ bị giữ lại; rút đề nghị là nó trở về ngay.",
   "pieces.summary": "Lượt đào còn lại: {digs} · các mảnh — {have}",

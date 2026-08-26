@@ -5,7 +5,16 @@ Task #1990. The panel had no reading of «сколько у меня сейча�
 was found on a live client on 2026-08-26, what the reading is now, and what it costs.
 
 Recipe: `actions/read_base_resources.md`. The cache the panel serves it out of:
-`panel/runtime/resources.py`. The card: the phone's «Состояние».
+`panel/runtime/resources.py`. The card: the phone's «Профиль» (`panel/tabs/profile.py`).
+
+It opened on «Состояние» and moved on the person's word — «ресурсы выведи на вкладке
+профиль». The move had to take the EAR with it, and that is the part worth remembering:
+`BaseResources.state()` is both the reading and the subscription — asking for it is what
+raises the listener on `push.resource.item.update` and what keeps it up — so the card and
+the caller cannot be separated. Left on `/api/state`, the call would have held a capture
+alive for every phone with the front page open, whether or not anybody was reading a
+balance; drawn on «Профиль» without the call, the card would have shown a number nothing
+ever updated. Both halves are pinned in `tests/test_panel_web.py`.
 
 ## 1. What was there before — a guess wrapped in `pcall`
 

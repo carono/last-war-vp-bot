@@ -251,6 +251,67 @@ def test_the_data_tabs_hand_over_what_they_already_read():
         assert view["cards"][0].get("empty") == "web.ui.not_read", view
 
 
+def test_the_base_stock_is_the_profile_screens_card_and_asking_for_it_is_the_ear():
+    """#1990, second pass: the live stock left «Состояние» for «Профиль».
+
+    Two things have to hold at once, and the second is the one that would have gone
+    unnoticed for months. The card is on THIS screen — and BUILDING it is what calls
+    `BaseResources.state()`, which is both the reading and the SUBSCRIPTION to
+    `push.resource.item.update` (`panel/runtime/resources.py`). A card copied across
+    without that call draws a balance nothing ever updates, and looks perfectly healthy
+    doing it.
+
+    It also pins the two halves of the renderer's contract on this card: the resource's
+    NAME is the game's own word and travels as data, while everything the panel says
+    about it — the heading, the age line, «слежу за событиями игры» — is a key.
+    """
+    from panel.tabs.profile import ProfileTab
+
+    asked = []
+
+    class _Stock:
+        def state(self):
+            asked.append(1)
+            return {"rows": [{"type": 2, "count": 1234567, "max": 0, "per_hour": 0,
+                              "base": False, "pending": 4200, "name": "Gold coins"}],
+                    "watching": True, "age": 7.4, "reading": False}
+
+    class _Rt:
+        def __init__(self) -> None:
+            self.resources = _Stock()
+
+        def t(self, key, **fmt):         # the runtime's own shape; the key IS the answer
+            return key
+
+    tab = ProfileTab.__new__(ProfileTab)
+    tab.rt = _Rt()
+    tab._last_data = None
+    tab._busy = False
+    view = ProfileTab.web_view(tab)
+    assert asked, "the card was drawn without asking BaseResources — the ear never rises"
+    card = (view.get("cards") or [None])[0]
+    assert card and card.get("title") == "web.ui.res.head", card
+    assert card["flow"]["key"] == "web.ui.res.age", card["flow"]
+    assert card["flow"]["fmt"]["sec"] == 7, card["flow"]
+    assert card["note"] == "web.ui.res.live", card
+    item = (card.get("items") or [None])[0]
+    assert item and item["text"] == "Gold coins", item      # the GAME's word, as data
+    assert "1,234,567" in item["detail"], item
+    assert item.get("note"), "the pending figure is the half of the card one can act on"
+
+
+def test_an_unreadable_stock_costs_the_profile_screen_nothing():
+    """A runtime with no resources object is a missing card, never a missing screen."""
+    from panel.tabs.profile import ProfileTab
+
+    tab = ProfileTab.__new__(ProfileTab)
+    tab._last_data = None
+    tab._busy = False                    # …and no `rt` at all
+    view = ProfileTab.web_view(tab)
+    assert view and view.get("cards"), view
+    assert all(c.get("title") != "web.ui.res.head" for c in view["cards"]), view
+
+
 def _sample_view(cls):
     """A view built off a stand-in reading, with no Tk and no game.
 

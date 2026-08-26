@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "el enlace en el puerto {port} se mantiene: {others} también lleva ese cliente",
   "splash.link": "Conectando con el juego…",
   "top.link": "enlace:",
-  "web.ui.link": "Enlace",
+  "web.ui.gamelink": "Juego y enlace",
   "secrettasks.page.pieces": "Intercambio de fragmentos",
   "pieces.hint": "Una excavación gasta un fragmento de cada clase, así que quedan tantas excavaciones como del fragmento más escaso. Una oferta se acepta si no tenemos más del fragmento que da que del que pide: nunca se entrega un fragmento escaso por otro del que ya hay más. Mientras nuestra oferta esté en el tablón, el fragmento con que paga queda retenido; vuelve en cuanto se retira.",
   "pieces.summary": "Excavaciones restantes: {digs} · fragmentos — {have}",

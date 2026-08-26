@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "le lien sur le port {port} reste : {others} pilote aussi ce client",
   "splash.link": "Connexion au jeu…",
   "top.link": "lien :",
-  "web.ui.link": "Lien",
+  "web.ui.gamelink": "Jeu et lien",
   "secrettasks.page.pieces": "Échange de fragments",
   "pieces.hint": "Une fouille consomme un fragment de chaque sorte : il reste donc autant de fouilles que du fragment le plus rare. Une offre est prise si nous n'avons pas plus du fragment qu'elle donne que de celui qu'elle demande — on ne cède jamais un fragment rare pour un dont on a déjà davantage. Tant que notre offre reste affichée, le fragment qu'elle paie est retenu ; il revient dès qu'on la retire.",
   "pieces.summary": "Fouilles restantes : {digs} · fragments — {have}",

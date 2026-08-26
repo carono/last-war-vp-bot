@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "koneksi di port {port} tetap: {others} juga mengendalikan klien itu",
   "splash.link": "Menghubungkan ke gim…",
   "top.link": "koneksi:",
-  "web.ui.link": "Koneksi",
+  "web.ui.gamelink": "Permainan dan koneksi",
   "secrettasks.page.pieces": "Tukar kepingan peta",
   "pieces.hint": "Satu penggalian menghabiskan satu kepingan dari tiap jenis, jadi sisa penggalian sama dengan jumlah kepingan yang paling sedikit. Tawaran diambil bila kepingan yang diberikannya tidak lebih banyak di tangan kita daripada kepingan yang dimintanya — kepingan yang langka tidak pernah diserahkan demi yang sudah lebih banyak. Selama tawaran kita terpasang, kepingan yang dipakainya untuk membayar ditahan; langsung kembali begitu tawaran ditarik.",
   "pieces.summary": "Sisa penggalian: {digs} · kepingan — {have}",

@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "{port} portundaki bağlantı kalıyor: aynı istemciyi {others} da sürüyor",
   "splash.link": "Oyuna bağlanılıyor…",
   "top.link": "bağlantı:",
-  "web.ui.link": "Bağlantı",
+  "web.ui.gamelink": "Oyun ve bağlantı",
   "secrettasks.page.pieces": "Harita parçası takası",
   "pieces.hint": "Bir kazı her türden birer parça harcar; bu yüzden kalan kazı sayısı en az sahip olunan parça kadardır. Bir teklif, verdiği parçadan elimizde istediği parçadan fazlası yoksa kabul edilir — kıt olan parça, zaten daha çoğu bulunan bir parça için asla verilmez. Kendi teklifimiz panoda durduğu sürece ödediği parça bloke edilir; teklifi geri çekince anında geri gelir.",
   "pieces.summary": "Kalan kazı: {digs} · parçalar — {have}",

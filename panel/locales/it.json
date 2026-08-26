@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "il collegamento sulla porta {port} resta: anche {others} guida quel client",
   "splash.link": "Connessione al gioco…",
   "top.link": "collegamento:",
-  "web.ui.link": "Collegamento",
+  "web.ui.gamelink": "Gioco e collegamento",
   "secrettasks.page.pieces": "Scambio di frammenti",
   "pieces.hint": "Uno scavo consuma un frammento di ogni tipo, quindi restano tanti scavi quanti sono i frammenti del tipo più scarso. Un'offerta si accetta se del frammento che dà non ne abbiamo più di quello che chiede: un frammento scarso non si cede mai per uno di cui ne abbiamo già di più. Finché la nostra offerta resta in bacheca, il frammento con cui paga è trattenuto; torna appena la si ritira.",
   "pieces.summary": "Scavi rimasti: {digs} · frammenti — {have}",

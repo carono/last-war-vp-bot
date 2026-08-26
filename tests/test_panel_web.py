@@ -2154,6 +2154,51 @@ def test_the_remote_control_belongs_to_the_window_and_not_to_a_profile():
         "without anybody opening its dialog")
 
 
+# ---------------------------------------------------------------------------
+# «Состояние» after #1990's second pass: one card for the client, none for the stock
+# ---------------------------------------------------------------------------
+def test_the_client_and_the_link_are_one_card_and_nothing_of_either_was_lost():
+    """Two cards asking one question are one card (the person's words: «объедини»).
+
+    They were drawn one under the other with the SAME pill, in the same colour, saying
+    the same word — both read off the one verdict (`tools/lib/profile_health.py`). What
+    this pins is the merge being a MERGE: every fact either card carried is still on the
+    page, because «объединить» that quietly drops the port or the Windows session is how
+    a person ends up unable to tell «клиент не запущен» from «профиль смотрит не в тот
+    клиент».
+    """
+    state = (_APP_SRC / "views" / "StateView.tsx").read_text(encoding="utf-8")
+    assert "'web.ui.gamelink'" in state, "the merged card has no heading of its own"
+    assert "'web.ui.link'" not in state,         "the old «Связь» heading is still drawn — the two cards were not merged"
+    # Four cards left on the page and in this file: the merged one, «Занят»,
+    # «Таймеры», and the panel's own version card (`PanelCard`, drawn last).
+    drawn = state.count('<div className="card">')
+    assert drawn == 4, (
+        "«Состояние» draws a different number of cards than the merge left it with "
+        f"({drawn}) — a card was added or the two were not merged after all")
+    for fact in ("state.game.text", "'web.ui.port'", "'web.ui.link.user'",
+                 "'web.ui.link.shared'", "/api/game", "'power.on'", "'opt.watchdog'"):
+        assert fact in state, f"the merge lost {fact} — a fact the two cards carried"
+
+
+def test_the_base_stock_left_the_front_page_and_took_its_ear_with_it():
+    """#1990, second pass: the stock is «Профиль»'s card now, and only its card.
+
+    The half that matters is not the drawing but the ASKING. `BaseResources.state()` is
+    the reading AND the subscription — it raises the ear on `push.resource.item.update`
+    and marks the card as looked at (`panel/runtime/resources.py`) — so a route every
+    open page polls every 2.5 s kept a capture alive for a card nobody was necessarily
+    reading. Two callers would be two ears' worth of reasons to keep it up; one caller,
+    on the screen that draws it, is the whole design.
+    """
+    state = (_APP_SRC / "views" / "StateView.tsx").read_text(encoding="utf-8")
+    assert "state.resources" not in state and "ResourcesCard" not in state,         "the stock is still drawn on «Состояние» — it belongs to «Профиль» now"
+    api_src = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
+    assert "rt.resources.state()" not in api_src,         "/api/state still asks for the stock — every open front page holds the ear up"
+    tab = (_REPO / "panel" / "tabs" / "profile.py").read_text(encoding="utf-8")
+    assert "self.rt.resources.state()" in tab,         "«Профиль» draws no stock — the card moved nowhere and the ear rises for nobody"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

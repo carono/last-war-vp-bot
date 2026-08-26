@@ -4,6 +4,16 @@ Name, level, power and the resource balance, read live through the warm daemon. 
 balance comes from the runtime rather than from here because the resource tracker tallies
 the very same reading (panel/runtime/reads.py).
 
+THE LIVE STOCK IS THIS TAB'S, and it used to be the front page's (#1990, second pass).
+It moved because «Состояние» answers one question — is the client alive and does the
+server answer — and a balance is not part of it, while «this character at a glance» is
+exactly where a balance belongs. What moved with it is the EAR: `BaseResources.state()`
+is what subscribes to `push.resource.item.update` and what marks the card as looked at,
+so the subscription now rises when somebody opens THIS screen and is given back two
+minutes after the last look (`panel/runtime/resources.py`). Had only the card moved, the
+front page would have gone on paying for a capture nobody was reading and this screen
+would have drawn a balance nothing was updating.
+
 THE WARZONE CARD IS A SCENARIO'S ANSWER and nothing this tab assembled: it plays
 `actions/read_server_info.md` and draws the line that comes back
 (docs/research/server-info.md). It is the character's own warzone by default — when it
@@ -69,10 +79,6 @@ class ProfileTab(DataTab):
     ID = "profile"
     TITLE_KEY = "tab.profile"
     ORDER = 210
-    #: Still being written: hidden unless «Разработка» is on (#1273). The mark
-    #: comes off when this tab's abilities are proven live and said so in
-    #: `docs/farming.md` (`PanelTab.IN_DEVELOPMENT`).
-    IN_DEVELOPMENT = True
     LOCALE_NS = ('profile', 'tabx')
     #: The warzone card is a scenario's answer, so this tab needs one to play.
     NEEDS = frozenset({"daemon", "actions"})
@@ -232,25 +238,88 @@ class ProfileTab(DataTab):
         who = [("profile.nick", data.get("nick")),
                ("profile.level", data.get("level")),
                ("profile.power", _group(data.get("power")))]
-        balance = data.get("resources") or {}
         zone = data.get("warzone") or {}
+        # …and no card of the five tracker resources: the LIVE stock card
+        # (:meth:`_stock_card`) says the same numbers and eight more, with the game's own
+        # name on each and an age under them. Two lists of the same balance on one screen
+        # is one list too many, and the first time they disagreed there would be nothing
+        # to settle it with.
         return [
             {"title": "tab.profile",
              "rows": [{"label": key, "value": str(value or "—")} for key, value in who]},
-            {"title": "profile.resources",
-             "rows": [{"label": f"profile.res.{name}",
-                       "value": _group(balance.get(name)) if name in balance else "—"}
-                      for name in RESOURCE_ORDER]},
             {"title": "profile.warzone",
              "rows": [{"label": key, "value": self._zone_value(zone, field)}
                       for key, field in WARZONE_ROWS]},
         ]
 
+    def _stock_card(self) -> "dict | None":
+        """WHAT THE BASE IS HOLDING, live — the card that used to open «Состояние».
+
+        Every row is `actions/read_base_resources.md`'s answer said back, and the NAME is
+        the game's own, already in the player's language: nothing here maps a resource
+        onto a word of the panel's, which is the only way «золото» and «хлеб» can be
+        right given that the client's own field names call them `wood` and `money`.
+
+        THERE IS NO «ОБНОВИТЬ» ON IT and it is not on a clock either. Asking for it is
+        what raises the ear on `push.resource.item.update` and what keeps it up
+        (`panel/runtime/resources.py`) — so this call IS the subscription, and the card
+        re-reads when the game says a balance moved. The line under the heading says how
+        old the reading is, because a number with no age on it cannot be told from one
+        that stopped moving an hour ago; the note above it says the ear is up, which is
+        the difference between «ничего не менялось» and «никто не смотрел».
+
+        Reads no game on this thread: `state()` answers out of memory and books the play
+        on a worker, which is the contract every screen is held to (`panel/tabs/base.py`).
+        """
+        try:
+            stock = self.rt.resources.state() or {}
+        except Exception:                # noqa: BLE001 — one card, never the screen
+            return None
+        rows = stock.get("rows") or []
+        age = stock.get("age", -1)
+        if stock.get("reading"):
+            flow = {"key": "web.ui.res.reading", "fmt": {}}
+        elif age is None or age < 0:
+            flow = {"key": "web.ui.res.never", "fmt": {}}
+        else:
+            flow = {"key": "web.ui.res.age", "fmt": {"sec": int(round(age))}}
+        items = []
+        for row in rows:
+            # DATA, not keys: the name is the game's, and the count is grouped here
+            # rather than in the browser because the same card is drawn in both.
+            detail = _group(row.get("count"))
+            if row.get("max"):
+                detail += " " + self.t("web.ui.res.cap", max=_group(row.get("max")))
+            if row.get("per_hour"):
+                detail += " · " + self.t("web.ui.res.rate",
+                                         rate=_group(row.get("per_hour")))
+            item = {"text": str(row.get("name") or ""), "detail": detail}
+            # What one press of «Сбор ресурсов» would add — the game's own figure per
+            # building, summed by what that building makes. Silent at zero.
+            if row.get("pending"):
+                item["note"] = self.t("web.ui.res.pending", n=_group(row.get("pending")))
+            items.append(item)
+        card = {"title": "web.ui.res.head", "items": items,
+                "empty": "web.ui.res.empty", "flow": flow}
+        if stock.get("watching"):
+            card["note"] = "web.ui.res.live"
+        return card
+
     def web_view(self) -> "dict | None":
         """The tab's cards, plus the one press the window's box is — asking about
-        another warzone. The phone types it into a prompt (`panel/web/app/src`)."""
+        another warzone. The phone types it into a prompt (`panel/web/app/src`).
+
+        The stock goes FIRST and outside :meth:`web_cards`, on purpose twice over: it is
+        what somebody opens this screen for, and it must be drawn even before the tab's
+        own first reading has come back — `web_cards` is not called at all until then,
+        and an ear that only rises after a background fetch is an ear that misses the
+        first minute of every look.
+        """
         view = super().web_view()
         if view is not None:
+            stock = self._stock_card()
+            if stock is not None:
+                view["cards"] = [stock] + list(view.get("cards") or [])
             view.setdefault("actions", []).append(
                 {"id": "warzone", "label": "profile.warzone.go",
                  "prompt": "profile.warzone.ask",

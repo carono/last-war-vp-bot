@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "a ligação na porta {port} fica: {others} também conduz esse cliente",
   "splash.link": "A ligar ao jogo…",
   "top.link": "ligação:",
-  "web.ui.link": "Ligação",
+  "web.ui.gamelink": "Jogo e ligação",
   "secrettasks.page.pieces": "Troca de fragmentos",
   "pieces.hint": "Uma escavação gasta um fragmento de cada tipo, portanto restam tantas escavações quanto o fragmento mais escasso. Uma oferta é aceita se do fragmento que ela dá não tivermos mais do que do que ela pede: nunca se entrega um fragmento escasso por outro de que já se tem mais. Enquanto a nossa oferta estiver no mural, o fragmento com que ela paga fica retido; volta assim que ela é retirada.",
   "pieces.summary": "Escavações restantes: {digs} · fragmentos — {have}",

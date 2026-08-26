@@ -4,7 +4,7 @@ import { t, when } from '../i18n'
 import { Pill } from '../ui/Pill'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
-import type { Control, PressAnswer, Recovery, ResourceRow, State } from '../types'
+import type { Control, PressAnswer, Recovery, State } from '../types'
 
 /* THE THREE STATUSES (#1911), in the phone's two vocabularies: the word on the pill and
  * the colour it is worn in. The reasons are `tools/lib/profile_health.py`'s own ids, so
@@ -167,66 +167,13 @@ function PanelCard({ state, onGone }: { state: State; onGone: () => void }) {
   )
 }
 
-/* WHAT THE BASE IS HOLDING, on the front page and moving by itself (#1990). Every row
- * is `actions/read_base_resources.md`'s answer said back: the NAME is the game's own,
- * already in the player's language, so nothing here maps a resource onto a word of the
- * panel's — which is the only way «золото» and «хлеб» can be right, given that the
- * client's own field names call them `wood` and `money`.
- *
- * There is no «Обновить». The reading refreshes on its own, at most every half minute
- * (`panel/runtime/resources.py`), and the line under the list says how old it is —
- * because a number with no age on it is indistinguishable from one that stopped
- * updating an hour ago. */
-function ResourcesCard({ state }: { state: State }) {
-  const stock = state.resources || {}
-  const rows: ResourceRow[] = stock.rows || []
-  const age = stock.age ?? -1
-  // A count is grouped in the browser's own locale — the one formatting job that is not
-  // a translation: 712198273 is unreadable and «712 198 273» is the same number.
-  const num = (value: number) => value.toLocaleString()
-  const note = stock.reading
-    ? t('web.ui.res.reading')
-    : age < 0
-      ? t('web.ui.res.never')
-      : t('web.ui.res.age', { sec: Math.round(age) })
-  return (
-    <div className="card">
-      <div className="row">
-        <span>{t('web.ui.res.head')}</span>
-        <Pill tone={rows.length ? 'ok' : undefined}>{note}</Pill>
-      </div>
-      {/* WHY AN OLD READING IS NOT A STALE ONE. The balance only moves when the game
-          says so, and while this line is here the panel is listening to it being said
-          (`push.resource.item.update`) — so «прочитано 4 минуты назад» means «nothing has
-          happened», not «nobody has looked». Without the ear the age is all there is,
-          and the line is absent, which is the honest difference. */}
-      {stock.watching ? <p className="muted small">{t('web.ui.res.live')}</p> : null}
-      {rows.length ? (
-        rows.map((row) => (
-          <div className="row" key={row.type}>
-            <span>
-              {row.name}
-              {/* What one press of «Сбор ресурсов» would add. The game's own figure per
-                  building, summed by what that building makes — so it is a reading and
-                  not the panel's arithmetic. Silent at zero. */}
-              {row.pending ? <span className="muted small"> {t('web.ui.res.pending', { n: num(row.pending) })}</span> : null}
-            </span>
-            <span>
-              {num(row.count)}
-              {/* Only what the game actually reported: a cap and a rate come back as 0
-                  for most of the base's resources, and «из 0» would be a fact the client
-                  never stated. */}
-              {row.max ? ' ' + t('web.ui.res.cap', { max: num(row.max) }) : ''}
-              {row.per_hour ? ' · ' + t('web.ui.res.rate', { rate: num(row.per_hour) }) : ''}
-            </span>
-          </div>
-        ))
-      ) : (
-        <p className="muted small">{t('web.ui.res.empty')}</p>
-      )}
-    </div>
-  )
-}
+/* …and no resources card here any more (#1990, second pass). What the base is holding
+ * is «Профиль»'s now: this page answers one question — is the client alive and does the
+ * server answer — and a balance was never part of it. The EAR moved with the card, which
+ * is the half that matters: asking for the stock is what subscribes to
+ * `push.resource.item.update`, so it now goes up when somebody opens that screen instead
+ * of for every phone that merely has the front page open (`panel/tabs/profile.py`).
+ */
 
 export function StateView({
   state,
@@ -253,12 +200,26 @@ export function StateView({
 
   return (
     <>
+      {/* ONE CARD FOR THE CLIENT AND THE LINK (#1990, the person's words: «объедини
+          блоки игру и связь»). They were two cards asking one question — is there a
+          client and does the server answer it — drawn one under the other with the SAME
+          pill, in the same colour, saying the same word, because both were read off the
+          one verdict (`tools/lib/profile_health.py`). Nothing was lost in the merge: the
+          pid and the server the client is talking to, the port the panel reaches it on,
+          which Windows session it lives in, the warning about a shared client, why it is
+          being restarted and the three presses of its life are all still here, in the
+          order somebody reads them — what it is, where it is, what is wrong, what to
+          press. */}
       <div className="card">
         <div className="row">
-          <span>{t('web.ui.game')}</span>
+          <span>{t('web.ui.gamelink')}</span>
           <Pill tone={colour}>{word}</Pill>
         </div>
         <p className="muted small">{state.game.text || ''}</p>
+        <p className="muted small">{t('web.ui.port', { port: state.link.port })}</p>
+        {state.link.user ? (
+          <p className="muted small">{t('web.ui.link.user', { user: state.link.user })}</p>
+        ) : null}
         {rec ? <p className="muted small">{rec}</p> : null}
         {!powerOn ? (
           <p className="small bad">
@@ -269,6 +230,20 @@ export function StateView({
           <p className="small bad">
             {t(GATE_WORDS[state.gate?.reason || ''] || 'gate.held',
                { mins: Math.floor((state.gate?.for_sec || 0) / 60) })}
+          </p>
+        ) : null}
+        {/* TWO PROFILES ON ONE CLIENT, which is the one fault about a profile that looks
+            like nothing at all — both report themselves healthy while farming a single
+            account (#1250). A reading and no button: the login that separates them is
+            typed in the window. */}
+        {shared.length ? (
+          <p className="small bad">
+            {t('web.ui.link.shared', {
+              others: shared.join(', '),
+              tab: t('tab.settings'),
+              page: t('settings.tab.game'),
+              frame: t('session.frame'),
+            })}
           </p>
         ) : null}
         <div className="controls stack">
@@ -293,29 +268,6 @@ export function StateView({
           />
         </div>
         <ControlRow controls={state.game.controls || []} route="/api/game" onDone={refresh} />
-      </div>
-
-      <ResourcesCard state={state} />
-
-      <div className="card">
-        <div className="row">
-          <span>{t('web.ui.link')}</span>
-          <Pill tone={colour}>{word}</Pill>
-        </div>
-        <p className="muted small">{t('web.ui.port', { port: state.link.port })}</p>
-        {state.link.user ? (
-          <p className="muted small">{t('web.ui.link.user', { user: state.link.user })}</p>
-        ) : null}
-        {shared.length ? (
-          <p className="small bad">
-            {t('web.ui.link.shared', {
-              others: shared.join(', '),
-              tab: t('tab.settings'),
-              page: t('settings.tab.game'),
-              frame: t('session.frame'),
-            })}
-          </p>
-        ) : null}
       </div>
 
       <div className="card">

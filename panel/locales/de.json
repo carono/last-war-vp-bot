@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "die Verbindung auf Port {port} bleibt: {others} steuert denselben Client",
   "splash.link": "Verbindung zum Spiel…",
   "top.link": "Verbindung:",
-  "web.ui.link": "Verbindung",
+  "web.ui.gamelink": "Spiel und Verbindung",
   "secrettasks.page.pieces": "Kartenteil-Tausch",
   "pieces.hint": "Eine Grabung verbraucht je ein Teil jeder Sorte, also bleiben so viele Grabungen wie vom seltensten Teil vorhanden sind. Ein Angebot wird angenommen, wenn wir von dem Teil, das es gibt, nicht mehr haben als von dem, das es verlangt — ein knappes Teil wird nie für eines hergegeben, von dem wir ohnehin mehr haben. Solange ein eigenes Angebot steht, ist das Teil, mit dem es bezahlt, zurückgehalten; beim Zurückziehen kommt es sofort zurück.",
   "pieces.summary": "Verbleibende Grabungen: {digs} · Teile — {have}",

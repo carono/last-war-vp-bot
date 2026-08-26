@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "the link on port {port} stays: {others} drives that client too",
   "splash.link": "Connecting to the game…",
   "top.link": "link:",
-  "web.ui.link": "Link",
+  "web.ui.gamelink": "Game and link",
   "secrettasks.page.pieces": "Map-piece swaps",
   "pieces.hint": "A dig spends one of each piece, so the digs you have left are the SMALLEST of the seven counts. An offer is taken when you hold no more of the piece it gives you than of the piece it asks for — never hand over what you are short of to get what you already have more of. While an offer of yours stands, the piece it pays with is held back; you get it straight back when you withdraw it.",
   "pieces.summary": "Digs left: {digs} · pieces — {have}",

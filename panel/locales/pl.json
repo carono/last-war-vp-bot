@@ -2172,7 +2172,7 @@
   "log.profile.link_kept": "połączenie na porcie {port} zostaje: {others} też prowadzi tego klienta",
   "splash.link": "Łączenie z grą…",
   "top.link": "połączenie:",
-  "web.ui.link": "Połączenie",
+  "web.ui.gamelink": "Gra i połączenie",
   "secrettasks.page.pieces": "Wymiana fragmentów",
   "pieces.hint": "Wykop zużywa po jednym fragmencie każdego rodzaju, więc wykopów zostaje tyle, ile jest najrzadszego fragmentu. Ofertę bierzemy, jeśli fragmentu, który daje, nie mamy więcej niż tego, o który prosi — rzadkiego fragmentu nigdy nie oddajemy za taki, którego i tak mamy więcej. Dopóki nasza oferta wisi, fragment, którym płaci, jest zablokowany; wraca w chwili jej wycofania.",
   "pieces.summary": "Pozostałe wykopy: {digs} · fragmenty — {have}",

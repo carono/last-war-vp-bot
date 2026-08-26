@@ -51,22 +51,6 @@ export interface RunningRun {
   step?: string
 }
 
-/* One resource the game counts, exactly as `actions/read_base_resources.md` read it.
-   `name` arrives already in the player's language — the game's own table said it, so
-   nothing here translates a resource (`CLAUDE.md`). `max` and `per_hour` are 0 where
-   the game reports none, and a zero is drawn as nothing rather than as a cap of none. */
-export interface ResourceRow {
-  type: number
-  name: string
-  count: number
-  max?: number
-  per_hour?: number
-  /* How much of it is standing UNCOLLECTED in the base's buildings — the game's own
-     figure, and the half of the card somebody can act on. */
-  pending?: number
-  base?: boolean
-}
-
 export interface State {
   profile: string
   time: number
@@ -83,7 +67,6 @@ export interface State {
   interrupt?: { running?: RunningRun[]; elsewhere?: number; stopping?: boolean }
   timers: { on: number; next?: number | null; next_name?: string }
   /* `age` is seconds since the stock was read, -1 when it never has been. */
-  resources?: { rows?: ResourceRow[]; age?: number; reading?: boolean; watching?: boolean }
   power?: { on?: boolean; off_for_sec?: number }
   watchdog?: boolean
   gate?: { held?: boolean; for_sec?: number; reason?: string }
