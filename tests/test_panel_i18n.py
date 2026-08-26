@@ -436,7 +436,11 @@ def test_a_language_switch_reaches_every_open_profile_not_just_the_one_on_screen
     from panel import profile as profilemod
     from panel.runtime import workspace as wsmod
 
-    tmp = tempfile.TemporaryDirectory()
+    # `ignore_cleanup_errors`: a profile that was opened has a `panel.db` behind it,
+    # and on Windows a SQLite file cannot be unlinked while any connection to it is
+    # open. What this test is about happened before the cleanup; a temp directory the
+    # OS will sweep is not worth failing over.
+    tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
     saved = (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE, wsmod.ProfileSession)
     profilemod.PROFILES_DIR = os.path.join(tmp.name, "profiles")
     profilemod.SETTINGS_FILE = os.path.join(tmp.name, "settings.json")
@@ -470,7 +474,11 @@ def test_a_profiles_own_language_is_migrated_once_and_swept():
 
     from panel import profile as profilemod
 
-    tmp = tempfile.TemporaryDirectory()
+    # `ignore_cleanup_errors`: a profile that was opened has a `panel.db` behind it,
+    # and on Windows a SQLite file cannot be unlinked while any connection to it is
+    # open. What this test is about happened before the cleanup; a temp directory the
+    # OS will sweep is not worth failing over.
+    tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
     saved = (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE, i18n._PREF_FILE)
     profilemod.PROFILES_DIR = os.path.join(tmp.name, "profiles")
     profilemod.SETTINGS_FILE = os.path.join(tmp.name, "settings.json")

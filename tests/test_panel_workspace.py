@@ -68,7 +68,9 @@ class _Env:
     """`profilemod` on a scratch directory, and the workspace built on it."""
 
     def __enter__(self):
-        self._tmp = tempfile.TemporaryDirectory()
+        # `ignore_cleanup_errors`: an opened profile leaves a `panel.db`, and on
+        # Windows a SQLite file cannot be unlinked while a connection is open.
+        self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         root = self._tmp.name
         self._saved = (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE,
                        wsmod.ProfileSession)

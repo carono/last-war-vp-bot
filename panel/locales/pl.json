@@ -73,6 +73,7 @@
   "autostart.error.failed": "Harmonogram zadań odmówił: {error}",
   "busy": "zajęte — poczekaj, aż skończy się bieżąca akcja",
   "action.detached": "«{name}» działa samodzielnie — nic innego na to nie czeka",
+  "action.raised": "«{name}» zatrzymał się na błędzie: {error}",
   "action.held.off": "«{name}» nie jest uruchamiane: ten profil jest wyłączony",
   "busy.elsewhere": "gra jest zajęta — {owner} prowadzi ją od {sec} s",
   "busy.foreground": "ekran jest zajęty — klika w nim {owner}; «{name}» pominięto",

@@ -250,8 +250,28 @@ class ActionRunner:
                 return False
             with self._activity.step("activity.action", name=name):
                 with self._registered(name, tag, ctx):
-                    ok = bool(script_engine.run_action(name, hwnd=hwnd,
-                                                       variables=args or {}, ctx=ctx))
+                    try:
+                        ok = bool(script_engine.run_action(name, hwnd=hwnd,
+                                                           variables=args or {}, ctx=ctx))
+                    # A RUN THAT COULD NOT HAPPEN IS A FAILED RUN, never a raise into the
+                    # caller (#1976). Everything above this line answers in `Outcome`s,
+                    # and a tab reading the game on its own thread, a trigger firing off a
+                    # capture's reader and the schedule all assume it: the one path that
+                    # did not was «нет клиента», which the attach reports by raising —
+                    # `SystemExit` at that, so it walked past every guard in the panel.
+                    # Said in the log, put on the context as the reason, and answered
+                    # `False`, exactly as a `FAIL` step is.
+                    except (Exception, SystemExit) as exc:      # noqa: BLE001
+                        said = f"{type(exc).__name__}: {exc}"
+                        self._log.say(tag, "action.raised", name=name, error=said)
+                        if getattr(ctx, "fail_reason", ""):
+                            said = ctx.fail_reason
+                        else:
+                            try:
+                                ctx.fail_reason = said
+                            except Exception:                  # noqa: BLE001
+                                pass
+                        ok = False
         if getattr(ctx, "cancelled", False):
             # IT REALLY STOPPED. Said separately from «прерываю», because between the two
             # there can be seconds — a run inside a call into the game notices only when

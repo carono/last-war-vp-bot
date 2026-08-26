@@ -38,7 +38,11 @@ def _run_lua(rt, chunk: str, marker: str, settle: float = 0.6):
     try:
         return rt.game.evaluator().run(chunk, marker=marker, settle=settle,
                                        early=True) or []
-    except Exception:       # noqa: BLE001 — a failed read is an empty tab, never a crash
+    # `SystemExit` TOO, and it is not paranoia: the probe under the evaluator says «нет
+    # клиента» by raising one (`tools/lib/il2cpp_probe.py`), which is right for a command
+    # line and lethal here — `Exception` does not catch it, so a tab reading a machine
+    # with no client took the whole panel down with it.
+    except (Exception, SystemExit):   # noqa: BLE001 — a failed read is an empty tab
         return []
 
 
@@ -128,7 +132,9 @@ class DataTab(PanelTab):
     def _work(self) -> None:
         try:
             data = self.fetch()
-        except Exception as exc:        # noqa: BLE001
+        # …and `SystemExit` for the same reason as `_run_lua` above: a read is allowed to
+        # fail, and no way of failing may end the process a tab is drawn in.
+        except (Exception, SystemExit) as exc:        # noqa: BLE001
             self.post(lambda e=exc: self._finish_error(e))
             return
         self.post(lambda: self._finish_ok(data))

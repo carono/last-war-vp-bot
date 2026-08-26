@@ -73,6 +73,7 @@
   "autostart.error.failed": "Die Aufgabenplanung hat abgelehnt: {error}",
   "busy": "beschäftigt — warte, bis die laufende Aktion fertig ist",
   "action.detached": "«{name}» läuft eigenständig — nichts anderes wartet darauf",
+  "action.raised": "«{name}» ist mit einem Fehler stehen geblieben: {error}",
   "action.held.off": "«{name}» wird nicht ausgeführt: dieses Profil ist ausgeschaltet",
   "busy.elsewhere": "das Spiel ist belegt — {owner} steuert es seit {sec} s",
   "busy.foreground": "der Bildschirm ist belegt — {owner} klickt darin; «{name}» übersprungen",

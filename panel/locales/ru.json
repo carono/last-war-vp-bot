@@ -73,6 +73,7 @@
   "autostart.error.failed": "Планировщик задач отказал: {error}",
   "busy": "занят — дождись завершения текущего действия",
   "action.detached": "«{name}» идёт своим ходом — остальное его не ждёт",
+  "action.raised": "«{name}» остановился на ошибке: {error}",
   "action.held.off": "«{name}» не запускается: профиль выключен",
   "busy.elsewhere": "игра занята — {owner} ведёт её уже {sec} с",
   "busy.foreground": "экран занят — в нём кликает {owner}; «{name}» пропущен",

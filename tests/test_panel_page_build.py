@@ -28,6 +28,7 @@ from __future__ import annotations
 
 TIER = "ui"        # Tk and a display — see tools/run_tests.py
 
+import re
 import sys
 import tempfile
 import time
@@ -178,7 +179,10 @@ def _built(harness: "_Harness") -> None:
         assert not hasattr(app, "_log"), "the log widget is back on «Главная»"
         assert session.rt.log_spool is not None, "nothing would drain this profile's log"
         assert app._status_var.get(), "the game status strip was not built"
-        assert app._daemon_var.get(), "the daemon indicator was not built"
+        # THE LINK, not «the daemon»: there is no daemon process for a client on this
+        # desktop since #1911 — the panel holds the game's Lua VM itself — and what the
+        # header carries is the link's own line.
+        assert app._link_var.get(), "the link indicator was not built"
         assert app._cmd_var.get() == "", "the command line was not built"
         assert app._main_nb is not None and app._main_controls is not None
         # …and the settings were applied to it, with auto-save armed afterwards.
@@ -308,7 +312,6 @@ def test_the_game_row_is_the_three_presses_and_they_grey_themselves() -> None:
     is not a press, and neither is «Запустить» with one already up.
     """
     from panel.runtime import game_control as gamectl
-    from panel.runtime import game_process as gp
 
     harness = _open(staged=False)
     if harness is None:
@@ -318,19 +321,23 @@ def test_the_game_row_is_the_three_presses_and_they_grey_themselves() -> None:
         with app._on(session):
             row = app._game_buttons
             assert list(row) == [c.id for c in gamectl.CONTROLS], list(row)
-            # A fresh page has not probed yet and assumes no client: the one press that
-            # is harmless when that belief is wrong is the only one offered.
-            assert str(row["launch"]["state"]) == "normal"
-            assert str(row["quit"]["state"]) == "disabled"
-            for link, expected in ((gp.ONLINE, {"launch": "disabled", "quit": "normal",
-                                                "restart": "normal"}),
-                                   (gp.LOST, {"launch": "disabled", "quit": "normal",
+            # WHAT A FRESH PAGE SHOWS IS NOT PINNED HERE, and deliberately: the page
+            # paints from the first probe, so on a machine where the client happens to be
+            # up the opening state is «Закрыть», and on one where it is not it is
+            # «Запустить». Both are correct, and asserting either would make this test
+            # pass or fail by what else is running on the box. What IS the contract is
+            # below: each state of the link greys exactly the presses that state forbids.
+            # THE READING IS THE PROCESS, not the four-state socket verdict (#1911): the
+            # sockets cannot say which conversation is the game, and for a night they
+            # called a healthy client dead. So the rule takes «is there a client», and
+            # `game_control.available` is the one place both front-ends ask it.
+            for running, expected in ((True, {"launch": "disabled", "quit": "normal",
                                               "restart": "normal"}),
-                                   (gp.OFFLINE, {"launch": "normal", "quit": "disabled",
-                                                 "restart": "disabled"})):
-                app._paint_game_buttons(link)
+                                      (False, {"launch": "normal", "quit": "disabled",
+                                               "restart": "disabled"})):
+                app._paint_game_buttons(running)
                 got = {i: str(b["state"]) for i, b in row.items()}
-                assert got == expected, (link, got)
+                assert got == expected, (running, got)
     finally:
         harness.close()
 
@@ -424,7 +431,10 @@ def test_a_maximised_window_is_remembered_as_maximised_not_as_a_rectangle() -> N
         app.geometry("800x600+40+40")
         app.update()
         normal = app._current_geometry()
-        assert normal.startswith("800x600"), normal
+        # WHAT THE WINDOW MANAGER GAVE, not what was asked for: a small screen, a scaled
+        # desktop or a taskbar clamps the size, and this test is about the maximised
+        # STATE being remembered separately from the rectangle — not about the rectangle.
+        assert re.match(r"^\d+x\d+\+-?\d+\+-?\d+$", normal), normal
         with app._on(harness.session):
             app._binder.values["window_geometry"] = normal
             try:
@@ -522,7 +532,10 @@ def test_the_splash_commentary_does_not_pump_the_event_loop() -> None:
     assert kinds.count("idle") == 0, f"the flush is not rationed: {kinds}"
 
     # …and once the window has passed, the next one flushes again.
-    fake._flushed -= splashmod.SAY_FLUSH_MS / 1000.0
+    # PAST the window, not exactly on it: stepping back by precisely `SAY_FLUSH_MS`
+    # lands on the boundary, and the subtraction loses a fraction of a millisecond to
+    # binary floating point, so the ration held and the flush did not happen.
+    fake._flushed -= 2 * splashmod.SAY_FLUSH_MS / 1000.0
     calls.clear()
     fake.say("a later phase…")
     assert [c[0] for c in calls] == ["label", "idle"], calls
@@ -543,7 +556,9 @@ def test_the_bottom_strip_says_what_this_profile_is_doing_and_nothing_else() -> 
     try:
         app, session = harness.app, harness.session
         assert app._activity_text() == app._t("activity.idle")
-        with session.rt.activity.step("activity.daemon.start", port=47654):
+        # `activity.link.attach` — there is no daemon process to start since #1911; the
+        # panel holds the VM itself, and taking the client is the step with a port in it.
+        with session.rt.activity.step("activity.link.attach", port=47654):
             said = app._activity_text()
             assert "47654" in said, said
             # Never named: the only profile it can be is the page being looked at.

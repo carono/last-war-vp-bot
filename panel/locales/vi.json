@@ -73,6 +73,7 @@
   "autostart.error.failed": "Bộ lập lịch tác vụ từ chối: {error}",
   "busy": "đang bận — chờ hành động hiện tại xong đã",
   "action.detached": "«{name}» chạy độc lập — không gì khác phải chờ nó",
+  "action.raised": "«{name}» đã dừng do lỗi: {error}",
   "action.held.off": "«{name}» không được chạy: hồ sơ này đang tắt",
   "busy.elsewhere": "trò chơi đang bận — {owner} đã điều khiển nó {sec} giây",
   "busy.foreground": "màn hình đang bận — {owner} đang bấm trong đó; bỏ qua «{name}»",

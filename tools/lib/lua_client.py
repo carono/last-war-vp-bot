@@ -290,4 +290,13 @@ def get_evaluator(prefer_daemon: bool = True, host: str = HOST, port: int = PORT
             f"no Lua daemon on {host}:{port} — that is another session's client, and it "
             f"cannot be driven locally. Bring it up with tools/rdp_instance.py --status")
     import lua_eval
-    return lua_eval.LuaEval()
+    try:
+        return lua_eval.LuaEval()
+    except SystemExit as exc:
+        # THE PROBE UNDER IT SAYS «нет клиента» BY RAISING `SystemExit`
+        # (`tools/lib/il2cpp_probe.py`), which is right for a command line and wrong for
+        # every caller here: `SystemExit` is not an `Exception`, so it walks past every
+        # «a failed read is an empty tab» guard in the panel and ends the process a tab
+        # or a scenario is running in. Said as an ordinary failure instead — with the
+        # same words, which is what :data:`GONE_WORDS` matches on.
+        raise ConnectionError(str(exc)) from exc

@@ -73,6 +73,7 @@
   "autostart.error.failed": "Le planificateur de tâches a refusé : {error}",
   "busy": "occupé — attends la fin de l'action en cours",
   "action.detached": "« {name} » tourne de son côté — rien d'autre ne l'attend",
+  "action.raised": "« {name} » s'est arrêté sur une erreur : {error}",
   "action.held.off": "« {name} » n'est pas lancé : ce profil est désactivé",
   "busy.elsewhere": "le jeu est pris — {owner} le pilote depuis {sec} s",
   "busy.foreground": "l'écran est pris — {owner} y clique ; «{name}» ignoré",

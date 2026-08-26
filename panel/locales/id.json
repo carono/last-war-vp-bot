@@ -73,6 +73,7 @@
   "autostart.error.failed": "Penjadwal tugas menolak: {error}",
   "busy": "sibuk — tunggu tindakan yang sedang berjalan selesai",
   "action.detached": "«{name}» berjalan sendiri — tidak ada yang menunggunya",
+  "action.raised": "«{name}» berhenti karena kesalahan: {error}",
   "action.held.off": "«{name}» tidak dijalankan: profil ini dimatikan",
   "busy.elsewhere": "permainan sedang dipakai — {owner} menjalankannya sejak {sec} d",
   "busy.foreground": "layar sedang dipakai — {owner} sedang mengeklik di dalamnya; «{name}» dilewati",

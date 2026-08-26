@@ -281,6 +281,15 @@ def test_the_hook_hands_the_run_the_new_token_and_drops_the_old_evaluator():
 
 
 def test_the_hook_says_so_and_answers_no_when_the_lease_is_gone_for_good():
+    """…and it WAITS first, out loud, before it gives up (#1702).
+
+    A lease has two ways of going and they want opposite answers: a daemon that restarted
+    hands it straight back, while a TIMER that took the client wants only its own minute.
+    So the hook says «жду» once, waits out `LEASE_WAIT_SEC`, and only then says the lease
+    is gone. The wait is shortened here — what is pinned is the pair of lines and the
+    `False`, not the ninety seconds.
+    """
+    from panel.runtime import host as hostmod
     from panel.runtime.host import PanelRuntime
 
     said = []
@@ -292,8 +301,13 @@ def test_the_hook_says_so_and_answers_no_when_the_lease_is_gone_for_good():
     ctx = script_engine.new_context()
     ctx.game_token = "dead"
 
-    assert PanelRuntime.regain_hook(stub, "timer")(ctx) is False
-    assert said == ["lease.gone"], said
+    waited = hostmod.LEASE_WAIT_SEC
+    hostmod.LEASE_WAIT_SEC = 0.2
+    try:
+        assert PanelRuntime.regain_hook(stub, "timer")(ctx) is False
+    finally:
+        hostmod.LEASE_WAIT_SEC = waited
+    assert said == ["lease.waiting", "lease.gone"], said
     # …and the dead token is left alone: the run is about to be stopped by the refusal
     # the interpreter is still holding, and an emptied token would drive unleased.
     assert ctx.game_token == "dead", ctx.game_token
