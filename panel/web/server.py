@@ -362,6 +362,9 @@ def _make_handler(server: WebServer):
             if path == "/api/itemicon":
                 self._itemicon(query)
                 return
+            if path == "/api/chatsprite":
+                self._chatsprite(query)
+                return
             if path.startswith("/api/"):
                 self._api("GET", path, query, {})
                 return
@@ -427,6 +430,25 @@ def _make_handler(server: WebServer):
             def resolve():
                 import item_icons
                 return item_icons.file_named(_one(query.get("cell")))
+
+            self._picture(query, resolve)
+
+        def _chatsprite(self, query: dict) -> None:
+            """Serve one chat sprite — an emoji or a sticker — out of the extracted tree.
+
+            The third of the same shape and for the same reasons (#1976): the pictures are
+            the game's own art extracted onto THIS machine, they are identical for every
+            profile, and the name is checked by `chat_assets.sprite_named` rather than
+            trusted. The person decided the phone gets the picker rather than a list of
+            ids, and a picker is sprites.
+
+            PHOTOGRAPHS ARE NOT HERE. A chat photo is somebody's own picture in a cache
+            this machine happens to hold; the phone draws those from the link the message
+            carries, and this route cannot name that folder at all.
+            """
+            def resolve():
+                import chat_assets
+                return chat_assets.sprite_named(_one(query.get("sprite")))
 
             self._picture(query, resolve)
 

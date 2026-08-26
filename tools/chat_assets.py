@@ -113,6 +113,55 @@ def token_image(kind: str, ident: str) -> str | None:
     return None
 
 
+#: Which sub-folders of `results/chat_assets/` a front-end may ask for by name. The
+#: photos are NOT among them: a chat photograph is somebody's own picture, and the phone
+#: draws those from the CDN link the message carries rather than from this machine.
+SPRITE_DIRS = ("emoji", "sticker", "sticker_cover")
+
+
+def sprite_named(name: str) -> "str | None":
+    """``"emoji/e006.png"`` back into a path inside the sprite tree, or ``None``.
+
+    The web front-end links a sprite by NAME (`panel/tabs/chat.py`), and this is the half
+    that resolves one — the same three checks `item_icons.file_named` makes, plus the
+    folder, because these sprites live in three: the name is a folder this module owns
+    and a plain file inside it, it carries the one suffix those folders hold, and it
+    lands INSIDE the tree. The route is reachable from a phone, so none of the three is
+    optional.
+    """
+    clean = str(name or "").strip().replace("\\", "/")
+    parts = clean.split("/")
+    if len(parts) != 2 or parts[0] not in SPRITE_DIRS:
+        return None
+    stem = parts[1]
+    if not stem or stem != os.path.basename(stem) or stem.startswith("."):
+        return None
+    if os.path.splitext(stem)[1].lower() != ".png":
+        return None
+    root = os.path.abspath(os.path.join(ASSETS_DIR, parts[0]))
+    full = os.path.abspath(os.path.join(root, stem))
+    if os.path.dirname(full) != root or not os.path.isfile(full):
+        return None
+    return full
+
+
+def sprite_link(path: str) -> "str | None":
+    """One sprite as the phone asks for it: ``/api/chatsprite?sprite=emoji/e006.png``.
+
+    A LINK and never bytes, for the reason `inventory.cell_url` is one: `web_view` runs
+    on the Tk thread and a card carrying a hundred base64 images would be a hundred file
+    reads in front of the event loop.
+    """
+    import urllib.parse as _url
+
+    if not path:
+        return None
+    folder = os.path.basename(os.path.dirname(path))
+    if folder not in SPRITE_DIRS:
+        return None
+    return "/api/chatsprite?sprite=" + _url.quote(f"{folder}/{os.path.basename(path)}")
+
+
 def emoji_catalogue() -> list:
     """Every inline emoji that has a sprite on disk, in config order.
 

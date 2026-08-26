@@ -92,6 +92,8 @@
   "chat.nothing_typed": "rien à envoyer — le champ est vide",
   "chat.photo": "🖼 photo",
   "chat.picker.empty": "aucune icône extraite — lance tools/extract_chat_assets.py",
+  "chat.picker.send_sticker": "Envoyer",
+  "chat.picker.room": "Envoyer dans",
   "chat.picker.emoji": "Émojis",
   "chat.picker.sticker": "Autocollants (envoyés comme message à part)",
   "chat.picker.title": "Émojis et autocollants",

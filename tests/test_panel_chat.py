@@ -526,6 +526,103 @@ def test_coords_button_shares_what_is_written_in_the_box():
     assert P._chat_msg_var.get() == "всем привет", P._chat_msg_var.get()
 
 
+def test_the_phone_gets_the_picker_and_its_sprites_come_off_the_panels_own_port():
+    """The emoji grid and the sticker grid on a phone (#1976).
+
+    They were the one part of this tab that had not travelled, and the reason was a
+    question rather than a decision: the sprites are the game's own art extracted onto
+    THIS machine, so a phone means serving those images over the remote-control port. The
+    person answered it — serve them — and what this pins is the shape that answer takes:
+
+      * every item carries a LINK to `/api/chatsprite`, never bytes: `web_view` runs on
+        the Tk thread, and a card with a hundred base64 images is a hundred file reads in
+        front of the event loop;
+      * a tap on an emoji opens the send box with its `{e:<id>}` token already in it —
+        the window inserts the same token at the caret — and a sticker is sent as its own
+        message, because the game allows no text beside one;
+      * WHICH ROOM is a field on the card. Outgoing chat cannot be unsent.
+    """
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
+        print(f"  SKIP test_the_phone_gets_the_picker: {exc}")
+        return
+
+    P = types.SimpleNamespace()
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("en")
+    P.t = i18n.t
+    P._picker_type = "alliance"
+    P._chat_room = lambda kind: {"world": "w1", "alliance": "a1"}.get(kind, "")
+    for name in ("_web_picker_cards", "_web_picker_type"):
+        setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
+    P.WEB_PICKER_DEFAULT = pm.ChatTab.WEB_PICKER_DEFAULT
+
+    cards = P._web_picker_cards()
+    assert [c["title"] for c in cards] == ["chat.picker.emoji", "chat.picker.sticker"]
+    field = cards[0]["fields"][0]
+    assert field["key"] == "picker_type" and field["kind"] == "choice"
+    assert field["value"] == "alliance", field
+    assert {o["value"] for o in field["options"]} == {"world", "alliance"}, field
+
+    for card in cards:
+        for item in card["items"]:
+            assert item["icon"].startswith("/api/chatsprite?sprite="), item
+            press = item["actions"][0]
+            assert press["args"]["type"] == "alliance", press
+    if cards[0]["items"]:
+        first = cards[0]["items"][0]["actions"][0]
+        assert first["id"] == "send", first
+        assert first["value"].startswith("{e:") and first["value"].endswith("}"), first
+        assert first["prompt"] == "chat.send.prompt", first
+    if cards[1]["items"]:
+        assert cards[1]["items"][0]["actions"][0]["id"] == "sticker"
+
+
+def test_a_sticker_from_the_phone_is_its_own_message_and_names_its_room():
+    """…and the room is the one the picker was set to, never «wherever the window is»."""
+    try:
+        from panel.tabs import chat as pm
+    except Exception as exc:      # noqa: BLE001
+        print(f"  SKIP test_a_sticker_from_the_phone: {exc}")
+        return
+
+    P = types.SimpleNamespace()
+    sent = []
+    P._chat_send = lambda args, what, room="": sent.append((args, what, room)) or True
+    P._chat_room = lambda kind: {"world": "w1", "alliance": "a1"}.get(kind, "")
+    P._known_rooms = lambda kind: {"w1", "a1"}
+    P.web_press = pm.ChatTab.web_press.__get__(P)
+
+    assert P.web_press("sticker", {"type": "alliance", "id": "35"}) == {"ok": True}
+    assert sent == [({"sticker": "35"}, "sticker 35", "a1")], sent
+
+    # A press with no sticker named is not a press…
+    assert P.web_press("sticker", {"type": "alliance"}) == {"error": "unknown"}
+    # …and the picker's own choice is checked against the rooms this tab has seen.
+    assert P.web_press("set", {"key": "picker_type", "value": "dm"})["ok"] is False
+    assert P.web_press("set", {"key": "picker_type", "value": "world"}) == {"ok": True}
+    assert P._picker_type == "world"
+    assert P.web_press("set", {"key": "elsewhere", "value": 1}) == {"error": "unknown"}
+
+
+def test_the_sprite_route_serves_only_the_extracted_art():
+    """A name from a phone is checked, and the photographs are not reachable at all."""
+    import chat_assets
+
+    assert chat_assets.sprite_named("emoji/../../secrets.png") is None
+    assert chat_assets.sprite_named("photos/whoever.jpg") is None
+    assert chat_assets.sprite_named("emoji/e006.txt") is None
+    assert chat_assets.sprite_named("") is None
+    link = chat_assets.sprite_link("/anywhere/emoji/e006.png")
+    assert link == "/api/chatsprite?sprite=emoji/e006.png", link
+    assert chat_assets.sprite_link("/anywhere/photos/a.png") is None
+    # …and every catalogue entry resolves back through the same check.
+    for entry in chat_assets.emoji_catalogue()[:5]:
+        name = chat_assets.sprite_link(entry["path"]).split("sprite=")[1]
+        import urllib.parse as _url
+        assert chat_assets.sprite_named(_url.unquote(name)), entry
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

@@ -92,6 +92,8 @@
   "chat.nothing_typed": "nie ma czego wysłać — pole jest puste",
   "chat.photo": "🖼 zdjęcie",
   "chat.picker.empty": "nie wypakowano żadnych ikon — uruchom tools/extract_chat_assets.py",
+  "chat.picker.send_sticker": "Wyślij",
+  "chat.picker.room": "Wyślij do",
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Naklejki (wysyłane jako osobna wiadomość)",
   "chat.picker.title": "Emoji i naklejki",

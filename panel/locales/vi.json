@@ -92,6 +92,8 @@
   "chat.nothing_typed": "không có gì để gửi — ô trống",
   "chat.photo": "🖼 ảnh",
   "chat.picker.empty": "chưa trích xuất biểu tượng nào — hãy chạy tools/extract_chat_assets.py",
+  "chat.picker.send_sticker": "Gửi",
+  "chat.picker.room": "Gửi tới",
   "chat.picker.emoji": "Biểu tượng",
   "chat.picker.sticker": "Nhãn dán (gửi thành tin nhắn riêng)",
   "chat.picker.title": "Biểu tượng và nhãn dán",

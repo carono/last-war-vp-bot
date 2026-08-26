@@ -92,6 +92,8 @@
   "chat.nothing_typed": "nada a enviar — o campo está vazio",
   "chat.photo": "🖼 foto",
   "chat.picker.empty": "nenhum ícone extraído — rode tools/extract_chat_assets.py",
+  "chat.picker.send_sticker": "Enviar",
+  "chat.picker.room": "Enviar para",
   "chat.picker.emoji": "Emojis",
   "chat.picker.sticker": "Figurinhas (vão como mensagem à parte)",
   "chat.picker.title": "Emojis e figurinhas",

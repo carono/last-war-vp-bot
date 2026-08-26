@@ -209,22 +209,104 @@ class ChatTab(PanelTab):
                      "prompt": "chat.send_coords.prompt", "args": {"type": chat_type}},
                 ]
             cards.append(card)
+        cards += self._web_picker_cards()
         return {"cards": cards, "now": _time.time(),
                 "actions": []}
 
-    def web_press(self, action: str, args: dict) -> dict:
-        """Answer into one card's room — the window's two sends, and nothing else.
+    #: Which channel the phone's picker sends into. Not a per-profile setting — it is
+    #: «which card am I answering» and it is answered again every time the screen is
+    #: opened, so it lives here and defaults to the room the window is answering in.
+    WEB_PICKER_DEFAULT = "world"
 
-        Both play `send_chat_message`. The emoji picker and the sticker grid have not
-        travelled yet — they are grids of sprites the client extracted onto THIS
-        machine's disk, so a phone would need them served over the remote-control port,
-        which is a question for the person and not a call anybody here gets to make. A
-        phone can still send an emoji meanwhile: `{e:<id>}` tokens are resolved inside
-        the recipe.
+    def _web_picker_type(self) -> str:
+        chosen = str(getattr(self, "_picker_type", "") or "")
+        rooms = [t for t in CHAT_TABS if t != "dm" and self._chat_room(t)]
+        if chosen in rooms:
+            return chosen
+        return rooms[0] if rooms else self.WEB_PICKER_DEFAULT
+
+    def _web_picker_cards(self) -> list:
+        """The emoji grid and the sticker grid, as the phone draws them (#1976).
+
+        THE SPRITES TRAVEL NOW, and it was a question rather than a decision until the
+        person answered it: they are the game's own art extracted onto THIS machine
+        (`tools/chat_assets.py`), so putting them on a phone means serving those images
+        over the remote-control port. That is `/api/chatsprite`, behind the same token as
+        everything else — and the pictures are the same for every profile, which is why
+        the route takes none.
+
+        WHAT A TAP DOES is exactly what it does in the window, in the shape a phone has:
+        an emoji opens the send box with its `{e:<id>}` token already in it, so words may
+        be typed around it — the window inserts the same token at the caret — and a
+        sticker is sent as its own message, because the game does not allow a sticker
+        beside text. Neither invents a press: both go through the sends this tab already
+        has.
+
+        WHICH ROOM is a field on the card rather than «wherever the window is looking»:
+        outgoing chat cannot be unsent, and a phone that had no way of saying where a
+        sticker was going would be the fastest way to post one in the wrong channel.
+        """
+        import chat_assets
+
+        rooms = [t for t in CHAT_TABS if t != "dm" and self._chat_room(t)]
+        if not rooms:
+            return []                     # nowhere to answer, so nothing to answer with
+        picked = self._web_picker_type()
+        field = {"key": "picker_type", "label": "chat.picker.room", "kind": "choice",
+                 "value": picked,
+                 "options": [{"value": t, "text": self.t(f"chat.tab.{t}")}
+                             for t in rooms]}
+        emoji, stickers = [], []
+        try:
+            catalogue = chat_assets.emoji_catalogue()
+            grid = chat_assets.sticker_catalogue()
+        except Exception:                 # noqa: BLE001 — nothing extracted is an empty card
+            catalogue, grid = [], []
+        for item in catalogue:
+            link = chat_assets.sprite_link(item.get("path"))
+            if not link:
+                continue
+            emoji.append({"text": str(item.get("id") or ""), "icon": link,
+                          "actions": [{"id": "send", "label": "chat.send",
+                                       "prompt": "chat.send.prompt",
+                                       "value": "{e:%s}" % item.get("id"),
+                                       "args": {"type": picked}}]})
+        for item in grid:
+            link = chat_assets.sprite_link(item.get("path"))
+            if not link:
+                continue
+            stickers.append({"text": str(item.get("name") or item.get("id") or ""),
+                             "icon": link,
+                             "actions": [{"id": "sticker",
+                                          "label": "chat.picker.send_sticker",
+                                          "args": {"type": picked,
+                                                   "id": str(item.get("id") or "")}}]})
+        return [{"title": "chat.picker.emoji", "fields": [field], "items": emoji,
+                 "empty": "chat.picker.empty"},
+                {"title": "chat.picker.sticker", "items": stickers,
+                 "empty": "chat.picker.empty"}]
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """Answer into one card's room — the window's sends, and nothing else.
+
+        All three play `send_chat_message`. THE PICKER TRAVELS TOO since #1976: the
+        sprites are served over the panel's own port (`/api/chatsprite`), an emoji opens
+        the send box with its token in it, and a sticker goes as its own message because
+        the game does not allow one beside text.
         """
         args = args or {}
+        if action == "set":
+            # The picker's own «в какой канал» — remembered for as long as the screen is
+            # being looked at, and checked against the rooms this tab has actually seen.
+            if str(args.get("key") or "") != "picker_type":
+                return {"error": "unknown"}
+            wanted = str(args.get("value") or "")
+            if wanted not in CHAT_TABS or wanted == "dm" or not self._chat_room(wanted):
+                return {"ok": False, "reason": "chat.no_room"}
+            self._picker_type = wanted
+            return {"ok": True}
         chat_type = str(args.get("type") or "")
-        if action not in ("send", "coords") or chat_type not in CHAT_TABS:
+        if action not in ("send", "coords", "sticker") or chat_type not in CHAT_TABS:
             return {"error": "unknown"}
         # A DM answers the room the ROW named; a channel is its own room. Never
         # «whatever thread the window has open» — outgoing chat cannot be unsent.
@@ -234,6 +316,14 @@ class ChatTab(PanelTab):
         room = room or ("" if chat_type == "dm" else self._chat_room(chat_type))
         if not room:
             return {"ok": False, "reason": "chat.no_room"}
+        if action == "sticker":
+            # A STICKER IS ITS OWN MESSAGE — the game allows no text beside it, which is
+            # why the window's grid sends on the click instead of writing into the box.
+            sticker = str(args.get("id") or "").strip()
+            if not sticker:
+                return {"error": "unknown"}
+            return {"ok": self._chat_send({"sticker": sticker},
+                                          f"sticker {sticker}", room=room)}
         typed = str(args.get("text") or "").strip()
         if not typed:
             return {"ok": False, "reason": "chat.nothing_typed"}

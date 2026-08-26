@@ -92,6 +92,8 @@
   "chat.nothing_typed": "nothing to send — the box is empty",
   "chat.photo": "🖼 photo",
   "chat.picker.empty": "no icons extracted — run tools/extract_chat_assets.py",
+  "chat.picker.send_sticker": "Send",
+  "chat.picker.room": "Send to",
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Stickers (sent as their own message)",
   "chat.picker.title": "Emoji & stickers",

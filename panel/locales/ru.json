@@ -92,6 +92,8 @@
   "chat.nothing_typed": "нечего отправлять — поле пустое",
   "chat.photo": "🖼 фото",
   "chat.picker.empty": "иконки не извлечены — запусти tools/extract_chat_assets.py",
+  "chat.picker.send_sticker": "Отправить",
+  "chat.picker.room": "Отправлять в",
   "chat.picker.emoji": "Эмодзи",
   "chat.picker.sticker": "Стикеры (уходят отдельным сообщением)",
   "chat.picker.title": "Эмодзи и стикеры",

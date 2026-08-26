@@ -92,6 +92,8 @@
   "chat.nothing_typed": "nichts zu senden — das Feld ist leer",
   "chat.photo": "🖼 Foto",
   "chat.picker.empty": "keine Symbole entpackt — führe tools/extract_chat_assets.py aus",
+  "chat.picker.send_sticker": "Senden",
+  "chat.picker.room": "Senden an",
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Sticker (gehen als eigene Nachricht hinaus)",
   "chat.picker.title": "Emoji & Sticker",

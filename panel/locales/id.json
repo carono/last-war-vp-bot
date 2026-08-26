@@ -92,6 +92,8 @@
   "chat.nothing_typed": "tidak ada yang dikirim — kotaknya kosong",
   "chat.photo": "🖼 foto",
   "chat.picker.empty": "tidak ada ikon yang diekstrak — jalankan tools/extract_chat_assets.py",
+  "chat.picker.send_sticker": "Kirim",
+  "chat.picker.room": "Kirim ke",
   "chat.picker.emoji": "Emoji",
   "chat.picker.sticker": "Stiker (dikirim sebagai pesan tersendiri)",
   "chat.picker.title": "Emoji & stiker",
