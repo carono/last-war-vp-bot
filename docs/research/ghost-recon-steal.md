@@ -432,3 +432,46 @@ after and says `ghost_taken` on a difference.
 Verified offline against a Lua stand-in of the manager, one case per refusal (no
 detail, a detail about another task, out of range, looted out, my own squad, the
 game's own «not yet») and one per send.
+
+## 6f. PROVEN, and the two numbers that were wrong (#2010)
+
+**2026-08-27, on the event day: five robberies sent, five confirmed by the server,
+`stealTimes` from 0 to 5 — the day's whole allowance.** The panel's own log, with the
+press relaying its own words at last:
+
+```
+ghost_detail_asked n=5
+ghost_steal_skipped uuid=… why=state_err
+ghost_steal_sent    uuid=… srv=996
+READ_LUA taken = 1                  ← the counter moved, which is the only «it worked»
+…
+ghost_steals_spent — the day's robberies are gone      (ghost_left=0 of 5)
+```
+
+The secret-task budget was 0 of 5 all evening and stayed there: two budgets, and only
+the ghost one moved.
+
+Four things had to be right at once, and each of them had been wrong on its own:
+
+1. **The list had to fill.** §6b — the squad travels as an event now, not through a
+   checkpoint that empties as the map lap walks warzones.
+2. **The press had to ask.** §6e — the game's own verdict per target, at the moment of
+   the press, and a refusal costs nothing.
+3. **The tile had to be asked about by ITS OWN id.** The wire carries a packed
+   `pointId` on every ghost tile; `SceneUtils.TilePosToIndex(x, y)` answers one more —
+   measured, 88195 against 88196 — and the server says nothing about the square next
+   door. `detail=0` versus `detail=1` on the same tile, the same second.
+4. **The robbery had to be addressed to the OWNER.** The detail's `taskInfo` carries
+   two warzones: `targetServer` (where the tile stands) and `ownerServer` (whose squad
+   it is). `ghost.recon.steal {uuid, ownerServer}` sent at the map's server is a
+   message about a squad that is not there. The confirmed sends went to 996, 973, 934,
+   974 and 957 while the tiles stood on 935.
+
+And two smaller ones, both measured rather than reasoned: the point's answer lands
+inside 3 s and had not at 1.5 (every press read `no_detail` until the ask was given
+its three), and a row with no `pid` cannot be asked about at all, so those go last.
+
+**What made the difference between four blind runs and this one** was not any of the
+fixes — it was the button relaying `ghost_steal_sent` / `ghost_steal_skipped`. Twenty
+presses had left exactly the same log as five successes: five lines saying a button
+was pressed. A press that can refuse has to say when it did.
