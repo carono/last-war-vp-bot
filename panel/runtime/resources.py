@@ -185,6 +185,24 @@ class BaseResources:
                 "age": round(now - self._at, 1) if self._at else -1,
                 "reading": self._reading}
 
+    def cached(self, now: float | None = None) -> dict:
+        """What is already in memory — no ear raised, no refresh booked (#2019).
+
+        :meth:`state` is the card's door and does two things besides answering: it
+        subscribes to the wire (which spawns a capture child) and it books a refresh when
+        the rows are stale. Both are right for the page the reading is FOR, and both
+        would be wrong for a passer-by — the timers page draws a line of «ждёт сбора»
+        under one errand, and a page of blocks must not be the reason a profile starts
+        listening or the reason the link is taken.
+
+        So this is a look and nothing else. It answers what the last read left, with its
+        age, and `age` of -1 means «nothing has ever been read» — which the caller draws
+        as no line at all rather than as a stock of zero.
+        """
+        now = self._clock() if now is None else now
+        return {"rows": [dict(row) for row in self._rows],
+                "age": round(now - self._at, 1) if self._at else -1}
+
     # -- the ear -------------------------------------------------------------
     def _listen(self) -> None:
         """Subscribe to «your balance changed», once, on the profile's shared ear.

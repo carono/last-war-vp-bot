@@ -91,6 +91,20 @@ export interface State {
   panel?: { version?: string; controls?: Control[] }
 }
 
+/* ONE LIVE LINE UNDER AN ERRAND'S BLOCK (#2019) — «+377 023 ждёт сбора» under «Сбор
+ * ресурсов». `key` is a locale key and `fmt` its placeholders, so the panel sends data
+ * and the phone says the words. `age` is seconds since the reading it came from, and
+ * `null` when the source has no clock of its own (a day's tally is «сегодня»).
+ *
+ * Bought with NO reading: every one of these comes off something the panel already had
+ * (`panel/runtime/errand_stats.py`). An errand with nothing free to say has no `stat`,
+ * and that blank is the honest answer rather than a gap. */
+export interface ErrandStat {
+  key: string
+  fmt?: Record<string, unknown>
+  age?: number | null
+}
+
 export interface TimerRow {
   name: string
   title: string
@@ -112,6 +126,9 @@ export interface TimerRow {
   /* WHAT THIS ERRAND CARRIES (#2017) — the fields behind the gear on its row. Absent
      or empty for a row with no knobs, which is most of them. */
   options?: Field[]
+  /* The game's own picture for it, and one live line under it (#2019). */
+  icon?: string
+  stat?: ErrandStat | null
 }
 
 export interface TriggerRow {
@@ -124,6 +141,8 @@ export interface TriggerRow {
   status?: string
   /* The knobs behind this listener's gear (#2017) — what the auto-join may spend. */
   options?: Field[]
+  icon?: string
+  stat?: ErrandStat | null
 }
 
 /* A STANDING ORDER THAT IS IN NO CATALOGUE (#2017): «Автолут ★», «Автопомощь»,
@@ -137,6 +156,8 @@ export interface OrderRow {
   state?: string
   hint?: string
   options?: Field[]
+  icon?: string
+  stat?: ErrandStat | null
 }
 
 export interface ActionRow {

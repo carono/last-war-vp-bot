@@ -769,3 +769,28 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   justify-content: center;
   margin: 0;
 }
+
+/* -- an errand's block: the game's own picture, and one live line (#2019) ------
+   The icon is the client's own sprite, so it is drawn at the size the row can spare and
+   never scaled up: these are authored small, and a blown-up 64 px sprite next to crisp
+   text reads as a mistake rather than as art. */
+.errand-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.errand-head .switch-row { flex: 1 1 auto; min-width: 0; }
+.errand-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  /* A sprite that fails to load leaves nothing behind — no broken-image frame in the
+     middle of a row on a machine that has not extracted the art. */
+  background: transparent;
+}
+
+/* The live line: the number is the thing, its age is an aside. */
+.stat { margin: 0; }
+.stat b { color: var(--ink); font-weight: 600; }

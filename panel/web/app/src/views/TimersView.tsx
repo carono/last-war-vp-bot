@@ -4,7 +4,15 @@ import { span, t, when } from '../i18n'
 import { FieldRow } from '../ui/FieldRow'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
-import type { ActionRow, Field, OrderRow, PressAnswer, TimerRow, TriggerRow } from '../types'
+import type {
+  ActionRow,
+  ErrandStat,
+  Field,
+  OrderRow,
+  PressAnswer,
+  TimerRow,
+  TriggerRow,
+} from '../types'
 
 /* THE GEAR (#2017). An errand's own knobs, on the row that says whether it is on.
  *
@@ -46,6 +54,39 @@ function Gear({
         </div>
       ) : null}
     </>
+  )
+}
+
+/* THE GAME'S OWN PICTURE FOR AN ERRAND (#2019), beside its switch.
+ *
+ * A link and not a blob: the panel sends `/api/errandicon?icon=…` and the browser fetches
+ * each sprite once, exactly as it already does for a player's face. A machine that has
+ * not extracted the art sends nothing and the block draws as it always did — the picture
+ * is a help, never a thing the row depends on. */
+function ErrandIcon({ src }: { src?: string }) {
+  if (!src) return null
+  return <img className="errand-icon" src={src} alt="" aria-hidden="true" />
+}
+
+/* ONE LIVE LINE UNDER THE BLOCK (#2019) — «+377 023 ждёт сбора», «12 стягов сегодня».
+ *
+ * IT COST NOTHING TO KNOW. Every number here came off something the panel already had
+ * (`panel/runtime/errand_stats.py`); nothing on this page asks the game, which is the
+ * rule a screen of a dozen polled blocks must obey above all others.
+ *
+ * SO IT SAYS HOW OLD IT IS. A reading with an age is a reading a person can judge; one
+ * without is a number that might be from yesterday and looks like now. A source with no
+ * clock of its own — a day's tally — sends `age: null` and says nothing, because
+ * «сегодня» is already the whole truth about when it is from. */
+function Stat({ stat }: { stat?: ErrandStat | null }) {
+  if (!stat || !stat.key) return null
+  const age = stat.age
+  const old = typeof age === 'number' && age >= 0 ? t('timers.stat.age', { span: span(age) }) : ''
+  return (
+    <p className="stat small">
+      <b>{t(stat.key, stat.fmt)}</b>
+      {old ? <span className="muted"> · {old}</span> : null}
+    </p>
   )
 }
 
@@ -221,14 +262,17 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
   }
   return (
     <div className="item">
-      <SwitchRow
-        title={row.title}
-        on={row.enabled}
-        onChange={async (want) => {
-          await post('/api/timers/set', { name: row.name, enabled: want })
-          await refresh()
-        }}
-      />
+      <div className="errand-head">
+        <ErrandIcon src={row.icon} />
+        <SwitchRow
+          title={row.title}
+          on={row.enabled}
+          onChange={async (want) => {
+            await post('/api/timers/set', { name: row.name, enabled: want })
+            await refresh()
+          }}
+        />
+      </div>
       {/* «СРАЗУ, БЕЗ ОЧЕРЕДИ» IS NOT DRAWN HERE ANY MORE — the person's decision, in
           their words: «настройку сразу без очереди тоже скрывай». The setting itself is
           untouched: what a row obeys is still whatever was last set, `/api/timers/now`
@@ -236,6 +280,7 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
           offering it, because a screen full of knobs nobody moves is what this screen
           was becoming. */}
       <p className="muted small">{bits.join(' · ')}</p>
+      <Stat stat={row.stat} />
       {/* ONE BUTTON PER ROW, AND IT IS «ЗАПУСТИТЬ» — the person's decision, in their
           words: «в таймерах из кнопок оставляй только запустить». Изменить / Дублировать
           / Удалить are gone from the phone; every one of them still exists — the routes
@@ -279,18 +324,22 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
         : t('triggers.off')
   return (
     <div className="item">
-      <SwitchRow
-        title={row.title}
-        on={row.enabled}
-        onChange={async (want) => {
-          await post('/api/triggers/set', { name: row.name, enabled: want })
-          await refresh()
-        }}
-      />
+      <div className="errand-head">
+        <ErrandIcon src={row.icon} />
+        <SwitchRow
+          title={row.title}
+          on={row.enabled}
+          onChange={async (want) => {
+            await post('/api/triggers/set', { name: row.name, enabled: want })
+            await refresh()
+          }}
+        />
+      </div>
       {/* …and the standing orders' own «сразу, без очереди» is hidden with the
           errands' (see `TimerItem`): one setting, one decision, and half a screen of it
           left drawn would be the confusing half. */}
       <p className="muted small">{signal + ' · ' + state}</p>
+      <Stat stat={row.stat} />
       {/* WHAT THE ORDER SPENDS (#2017): the squads «rally_auto_join» may send, the
           soldier floor, the day's ceiling. Nothing is drawn for a listener that has
           declared no knobs, which is most of them. */}
@@ -310,15 +359,19 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
 function OrderItem({ row, refresh }: { row: OrderRow; refresh: () => Promise<void> }) {
   return (
     <div className="item">
-      <SwitchRow
-        title={row.title}
-        on={row.enabled}
-        onChange={async (want) => {
-          await post('/api/orders/set', { name: row.name, enabled: want })
-          await refresh()
-        }}
-      />
+      <div className="errand-head">
+        <ErrandIcon src={row.icon} />
+        <SwitchRow
+          title={row.title}
+          on={row.enabled}
+          onChange={async (want) => {
+            await post('/api/orders/set', { name: row.name, enabled: want })
+            await refresh()
+          }}
+        />
+      </div>
       {row.state ? <p className="muted small">{row.state}</p> : null}
+      <Stat stat={row.stat} />
       <div className="foot">
         <span />
         <Gear errand={row.name} options={row.options} refresh={refresh} />

@@ -56,6 +56,8 @@ from .. import i18n as i18nmod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from ..runtime import autostart as autostartmod
+from ..runtime import errand_stats as statsmod
+from ..runtime import errand_art as artmod
 from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import updates
 from ..runtime import interrupt as interruptmod
@@ -633,6 +635,15 @@ class WebApi:
                 # orders whose rule used to be reachable only on the tab that owns the
                 # list they spend.
                 "options": schedule.options.fields(timer.name),
+                # WHAT THIS ERRAND IS FOR, RIGHT NOW (#2019) — «+377 023 ждёт сбора»
+                # under «Сбор ресурсов». Read off what the panel already has and never
+                # bought with a question to the game; an errand nobody can answer for
+                # free simply has no line (`panel/runtime/errand_stats.py`).
+                "stat": statsmod.of(rt, timer.name),
+                # …and the game's own picture for it (#2019), as a NAME the phone
+                # fetches once off `/api/errandicon` — a sprite inside the view
+                # would be tens of kilobytes on every poll of the page.
+                "icon": artmod.name_for(timer.name),
             })
         return {"timers": rows, "profile": self._name_of(rt),
                 "running": bool(getattr(schedule.timers, "running", False)),
@@ -909,6 +920,9 @@ class WebApi:
                 # and the day's ceiling were all on «Ралли» and nowhere near the row
                 # that says whether it is on.
                 "options": schedule.options.fields(trig.name),
+                # …and its own live line, where one is free (#2019).
+                "stat": statsmod.of(rt, trig.name),
+                "icon": artmod.name_for(trig.name),
             })
         # THE STANDING ORDERS THAT ARE IN NO CATALOGUE (#2017): «Автолут ★»,
         # «Автопомощь», «Автолут отрядов призрака». They are watchers a tab owns, and to
@@ -920,7 +934,9 @@ class WebApi:
                    "enabled": order.enabled(),
                    "state": order.state_text(),
                    "hint": order.hint_key,
-                   "options": schedule.options.fields(order.name)}
+                   "options": schedule.options.fields(order.name),
+                   "stat": statsmod.of(rt, order.name),
+                   "icon": artmod.name_for(order.name)}
                   for order in schedule.options.orders()]
         return {"triggers": rows, "orders": orders,
                 "profile": self._name_of(rt), "time": time.time()}

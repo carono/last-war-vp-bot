@@ -1,0 +1,30 @@
+"""The game's own picture for an errand, as a name the phone can ask for (#2019).
+
+A three-line door onto `tools/lib/errand_icons.py`, and it exists for the reason every
+other such door in `panel/runtime/` does: the panel must not import a tool by reaching
+into `tools/lib` from five callers, and the answer must never be an exception. A machine
+that has not run `tools/extract_errand_icons.py` has no pictures, every lookup answers
+`""`, and the page draws blocks with no icon — which is what it looked like before.
+"""
+from __future__ import annotations
+
+import urllib.parse as _url
+
+
+def name_for(errand: str) -> str:
+    """The LINK the phone draws, or `""` when this machine has no such picture.
+
+    A link and not a blob: a sprite is tens of kilobytes and the timers page is polled,
+    so the picture is fetched once by the browser and cached, exactly as a player's face
+    and an inventory cell already are (`panel/tabs/rally/roster.py`,
+    `panel/tabs/inventory.py`).
+    """
+    try:
+        import errand_icons
+
+        name = errand_icons.name_for(errand)
+    except Exception:                    # noqa: BLE001 — a picture, never the page
+        return ""
+    if not name:
+        return ""
+    return "/api/errandicon?icon=" + _url.quote(name)
