@@ -258,7 +258,8 @@ and «Ограбить всех» — was on «Командный пункт», 
 off, so five robberies a day were decided by a knob neither front-end could show. It is on
 «Секретки» → «Призрак: карта» now, the page holding the list it spends, which is where
 «Автолут ★» has been since #1271. **An order belongs on the page holding its list, and
-that page has to be one every profile has.**
+that page has to be one every profile has** — true of WHERE the list is, and no longer
+true as an exclusive home: the paragraph below replaces it.
 
 **…and since #2017 it also belongs on «Таймеры», because BOTH is the answer.** «An order
 belongs on the page holding its list» was right about the LIST and wrong as an exclusive
