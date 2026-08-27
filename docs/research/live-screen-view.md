@@ -9,9 +9,10 @@ person asked for something else and said so plainly: «я хочу, чтобы �
 That is a different picture from a different source: not our accumulated model, but the
 client's own view — where the camera stands, how high it is, and which objects the client
 is holding around it at this second. This file is what one such reading costs and what
-«transmitting» it would actually mean. **Nothing periodic was put in place: a broadcast is
-a repeated reading, which is exactly what «читаем один раз, дальше слушаем» forbids
-without the person's word (`CLAUDE.md`).**
+«transmitting» it would actually mean. **A broadcast is a repeated reading, which is
+exactly what «читаем один раз, дальше слушаем» forbids without the person's word
+(`CLAUDE.md`) — so nothing periodic was written until they had the numbers below and
+answered «ок, делай по умолчанию». What that turned into is §3b.**
 
 All values below are of the shape observed on a live client, with the account's own
 numbers replaced where they identify anything.
