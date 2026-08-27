@@ -117,9 +117,16 @@ So `panel/runtime/header.py` paces the two halves apart:
 * the character (name, HQ level) at most every **10 minutes** — a name never changes and
   a level changes a few times a season.
 
-Both plays go in at `claims.DETACHED`, below every ordinary errand, and neither is booked
-at all while the link is busy or the profile's gate is shut. Nothing ticks: `state()` is
-called by the route, so a panel nobody is looking at reads nothing.
+Both plays go in at `claims.DETACHED`, below every ordinary errand, and a refresh is not
+booked at all while the link is busy or the profile's gate is shut. Nothing ticks:
+`state()` is called by the route, so a panel nobody is looking at reads nothing.
+
+**The FIRST reading is the exception, and it was measured rather than guessed.** For the
+first minute after a restart the live panel's link was busy on every single poll — the
+boot errands run back to back — so a strip that only ever read on a free link said «игра
+ещё не прочитана» throughout it. With nothing read yet the busy test is skipped and the
+claim decides; the gate is never skipped, because a profile somebody switched off must
+not be asked anything at all.
 
 ## 4a. What it costs in PIXELS, which is the other budget
 

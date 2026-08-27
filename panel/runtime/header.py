@@ -38,7 +38,10 @@ a fifth of a second.
 
 BOTH PLAYS GO IN AT :data:`~panel.runtime.claims.DETACHED`, below every ordinary errand,
 for the same reason the stock's does: a header is a page being looked at, and no line of
-it is ever worth making a robbery wait.
+it is ever worth making a robbery wait. A busy link is therefore left alone — except for
+the FIRST reading, which asks anyway: measured on the live panel, the link was busy on
+every poll for the first minute after a restart, and a strip that waited for a free one
+said «игра ещё не прочитана» all the way through it.
 
 NOTHING IS WRITTEN DOWN. Where the player is standing is worth nothing after a restart —
 it has moved — so this is memory and not a table in `panel.db` (`CLAUDE.md`, «Game data
@@ -166,7 +169,15 @@ class StatusHeader:
 
     # -- the refresh ----------------------------------------------------------
     def _maybe_read(self, now: float) -> None:
-        if not self._may_play():
+        # NOTHING READ YET IS ITS OWN CASE, and it is the one a busy link would starve
+        # for ever. Measured on the live panel: for the first minute after a restart the
+        # link was busy on every single poll — the boot errands run back to back — so a
+        # strip that only reads on a free link said «игра ещё не прочитана» throughout.
+        # A first reading therefore asks anyway and lets the claim decide; the backoff
+        # below keeps a refusal to one line every :data:`RETRY_SEC` rather than one per
+        # poll.
+        first = not self._where_at and not self._who_at
+        if not self._may_play(first):
             return
         if (not self._where_reading and now >= self._where_hold
                 and (not self._where_at or now - self._where_at >= WHERE_GAP_SEC)):
@@ -181,8 +192,12 @@ class StatusHeader:
                 self._who_reading = False
                 self._who_hold = now + RETRY_SEC
 
-    def _may_play(self) -> bool:
+    def _may_play(self, first: bool = False) -> bool:
         """Is the link free, and is this profile allowed to press at all?
+
+        ``first`` is «nothing has ever been read», and it skips the busy test only — the
+        gate is never skipped, because a profile that is switched off must not be asked
+        anything at all.
 
         Asked HERE rather than left to the claim and the gate, for the reason
         `panel/runtime/resources.py` records: both of them refuse out loud, and at the
@@ -190,7 +205,7 @@ class StatusHeader:
         drowning the log somebody opened the page to read.
         """
         try:
-            if self._rt.game.busy:
+            if self._rt.game.busy and not first:
                 return False
         except Exception:                # noqa: BLE001 — an unreadable link is not a
             return False                 #   licence to press either
