@@ -516,8 +516,14 @@ def test_ghost_recon_recipe_is_a_noop_while_the_event_is_closed():
     body, _merged = se.prepare_source(path.read_text(encoding="utf-8"), {})
     stmts = se.parse_text(body)
     taps = [s for s in stmts if isinstance(s, se.TapStmt)]
-    assert [s.name for s in taps] == ["steal_ghost_recon", "dismiss_ghost_recon_reward"]
-    assert taps[0].count is None, "the press must be TAP … xall, not a fixed count"
+    # The order matters and is pinned whole: since #2010 the recipe ASKS the game about
+    # the queued tiles before it spends anything on them, so the robbery is the middle
+    # step rather than the first. The press itself is found BY NAME — an index is what
+    # made this test go red when the ask was added in front of it (#2020).
+    assert [s.name for s in taps] == ["ghost_recon_ask_details", "steal_ghost_recon",
+                                      "dismiss_ghost_recon_reward"]
+    press = next(s for s in taps if s.name == "steal_ghost_recon")
+    assert press.count is None, "the press must be TAP … xall, not a fixed count"
 
     button = gb.get("steal_ghost_recon")
     assert button is not None and button.count_lua, "xall needs a count expression"

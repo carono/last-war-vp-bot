@@ -293,16 +293,42 @@ def test_the_service_can_be_asked_to_restart_ITSELF_and_refuses_when_it_is_not_o
 
 
 def test_the_service_route_answers_its_state_and_refuses_a_press_it_does_not_know() -> None:
+    """Both branches, and neither of them asks THIS machine what it happens to have.
+
+    `registered()` puts the question to the live Windows SCM, so a computer that ran
+    `service_install.bat` answers «yes» and one that never did answers «no» — and a test
+    that reads the answer is testing the machine rather than the door (#2020). What is
+    pinned instead is the rule: no service known by that name, no controls and no press;
+    a service known, a control to press and a press that is accepted.
+    """
     service = _service()
+    real = selfctl.registered
     try:
+        selfctl.registered = lambda name="", run=None: False
         status, said = _get(service, "/api/service")
         assert status == 200 and said["name"], said
-        # A test process is not a registered service, so there is nothing to press.
         assert said["controls"] == [] and said["available"] is False, said
         assert _post(service, "/api/service", {"action": "sing"})[0] == 400
         status, said = _post(service, "/api/service", {"action": "restart"})
         assert status == 503 and said.get("unavailable") is True, said
+
+        # …and with the SCM knowing the name, the same door offers the press.
+        asked: list = []
+        selfctl.registered = lambda name="", run=None: True
+        real_spawn = selfctl._spawn
+        selfctl._spawn = asked.append
+        try:
+            status, said = _get(service, "/api/service")
+            assert status == 200 and said["available"] is True, said
+            assert [c["id"] for c in said["controls"]] == [selfctl.RESTART], said
+            assert _post(service, "/api/service", {"action": "sing"})[0] == 400
+            status, said = _post(service, "/api/service", {"action": "restart"})
+            assert status == 200 and said.get("ok") is True, said
+            assert len(asked) == 1, asked
+        finally:
+            selfctl._spawn = real_spawn
     finally:
+        selfctl.registered = real
         service.stop()
 
 
