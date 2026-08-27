@@ -1775,9 +1775,10 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     assert item["text"].startswith(gr.ROBBED_GLYPH), item
     assert {"label": "secrettasks.robbed_mark", "value": ""} in item["facts"], item
     assert item["pill"] == "secrettasks.robbed_mark", item
-    # …and the card's buttons are the display switches and nothing that robs.
+    # …and the card's buttons are the display switches plus the standing order's own box
+    # (#2010) — nothing that robs a named tile by hand.
     assert {a["id"] for a in cards["secrettasks.page.stars"]["actions"]} == {
-        "monitor", "show_spent", "hide_own", "clear"}
+        "autoloot", "monitor", "show_spent", "hide_own", "clear"}
 
 
 def test_collect_is_offered_ten_seconds_early_and_not_eleven():
@@ -1848,9 +1849,11 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
     assert "secrettasks.collect_soon" in pills, pills
     assert pills.count("secrettasks.collect_soon") == 1, pills
-    # …and still no press on the card: the display switches and nothing that robs.
-    assert {a["id"] for a in cards["secrettasks.page.stars"]["actions"]} == {
-        "monitor", "show_spent", "hide_own", "clear"}
+    # …and the presses on the card are the display switches plus the standing order's own
+    # box, which moved here with it (#2010). Still nothing that robs a named tile by
+    # hand: the ten-second window is a reading here, as it has been since #1188.
+    got = {a["id"] for a in cards["secrettasks.page.stars"]["actions"]}
+    assert got == {"autoloot", "monitor", "show_spent", "hide_own", "clear"}, got
 
 
 def test_the_early_window_is_the_hands_and_the_standing_order_keeps_the_strict_gate():
@@ -1997,9 +2000,11 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     pills = [i["pill"] for i in cards["secrettasks.page.stars"]["items"]]
     assert "secrettasks.collect_soon" in pills, pills
     assert pills.count("secrettasks.collect_soon") == 1, pills
-    # …and still no press on the card: the display switches and nothing that robs.
+    # …and the presses are the display switches plus the standing order's own box, which
+    # moved onto this card with it (#2010). Still nothing that robs a named tile by hand:
+    # the ten-second window is a reading here, as it has been since #1188.
     assert {a["id"] for a in cards["secrettasks.page.stars"]["actions"]} == {
-        "monitor", "show_spent", "hide_own", "clear"}
+        "autoloot", "monitor", "show_spent", "hide_own", "clear"}
 
 
 def test_the_early_window_is_the_hands_and_the_standing_order_keeps_the_strict_gate():
@@ -3036,7 +3041,19 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # EVERY BOX IS A BUTTON ON ITS OWN CARD (#1251) — a press has to say which list it
     # is about, exactly as the window's switches sit on their own pages.
     stars = {a["id"]: a["label"] for a in cards["secrettasks.page.stars"]["actions"]}
-    assert {"monitor", "hide_own", "show_spent", "clear"} == set(stars), stars
+    # …AND «АВТОЛУТ ★» IS ONE OF THEM NOW (#2010). It had a card of its own holding a
+    # switch, a rule and a state line — «целая вкладка для одного чекбокса лишняя» — and
+    # everything it said was about the list on the very next card, so it moved onto it.
+    assert {"autoloot", "monitor", "hide_own", "show_spent", "clear"} == set(stars), stars
+    assert "secret.autoloot.frame" not in cards, "the one-checkbox card came back"
+    # Its rule travelled as a FIELD rather than as the reading it used to be: the number
+    # that decides where the day's five go must be settable from the phone.
+    star_fields = {f["key"]: f for f in cards["secrettasks.page.stars"]["fields"]}
+    assert set(star_fields) == {"autoloot_level_min", "stale_hours"}, star_fields
+    assert star_fields["autoloot_level_min"]["value"] == "7"
+    # …and what is left of ITS budget, plus what it is doing, are the card's first rows.
+    star_rows = [r["label"] for r in cards["secrettasks.page.stars"]["rows"]]
+    assert star_rows[:2] == ["secrettasks.steals_left", "secret.autoloot"], star_rows
     assert stars["hide_own"] == "secrettasks.filter.show_own"       # it is hiding now
     # …and it says WHICH monitoring it starts, not just «monitoring» (#1264): the
     # screen has two of them and a thumb scrolls past the card titles.
