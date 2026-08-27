@@ -655,6 +655,11 @@ BUTTONS: dict[str, Button] = {
         # whole reward list. The queue pop is the safety net; this pause is what
         # keeps `xall` from leaning on it.
         wait=2.0, label="Rob a ghost-recon squad",
+        # …AND IT SAYS WHAT IT DID WITH EACH TARGET (#2010). The press asks the game
+        # first and skips what it refuses, so a run that takes nothing is either «the
+        # game said no, five times, and here is why» or a fault — and without the relay
+        # those two read identically: five presses in the log and no other word.
+        relay=("ghost_steal_sent", "ghost_steal_skipped"),
         # min(queued, robberies left today), and 0 while the event is closed — so
         # `xall` is a no-op six days a week instead of an error.
         count_lua=_lua_actions.ghost_recon_steals_pending(),
@@ -667,7 +672,11 @@ BUTTONS: dict[str, Button] = {
     # `steal_ghost_recon` reads them.
     "ghost_recon_ask_details": Button(
         lua=_lua_actions.ghost_recon_request_detail(),
-        wait=1.5, label="Ask the server about the queued ghost tiles",
+        # THREE SECONDS, measured (#2010): the reply to a point detail landed inside 3 s
+        # in the probe and had NOT landed at 1.5 — every press then read «no_detail» and
+        # skipped a tile the game was about to describe.
+        wait=3.0, label="Ask the server about the queued ghost tiles",
+        relay=("ghost_detail_asked",),
         # One ask covers the whole queue, so this is a single press and never an `xall`.
         count_lua="1",
     ),

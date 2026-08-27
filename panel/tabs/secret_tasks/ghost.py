@@ -557,9 +557,12 @@ class GhostMapGrid(_GhostGrid):
                         "x": int(row.get("x") or 0), "y": int(row.get("y") or 0),
                         "pid": int(row.get("point_id") or 0),
                         "level": level, "looted": int(looted or 0)})
-        # Best first, and among equals the tile fewest people have been at: it is the one
-        # most likely to still have a slot when the send lands.
-        out.sort(key=lambda t: (-t["level"], t["looted"]))
+        # ASKABLE FIRST, then best, then the tile fewest people have been at (#2010). A
+        # row with no `pid` is one the game cannot be asked about — the id is the tile's
+        # own and only a sighting carries it — so it is not a target the press can
+        # confirm, and it goes behind every row that is. It is not dropped: a squad the
+        # CLIENT knows is judged by `taskList` and needs no point at all.
+        out.sort(key=lambda t: (0 if t["pid"] else 1, -t["level"], t["looted"]))
         return out
 
     def build_filters(self, parent) -> None:
