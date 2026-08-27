@@ -492,3 +492,30 @@ client (every step logged `in ntdll SAFE_RIP+0x0`), the link went `colour: ok /
 reason: traffic / lands: true`, the schedule gate lifted (`held: false`), and the map came
 back — `1 map response(s), 26 tile(s), 2 task(s)` — where fourteen hours had produced
 `0 map response(s), 0 tile(s)`.
+
+### What the endurance run also found, and what it is NOT
+
+Watching the link for an hour after the fix turned up a second thing, and it is worth
+writing down precisely because the obvious reading of it is wrong. **The client process
+dies every few minutes while the panel drives it** — Windows Application Error 1000,
+`0xc0000005`, faulting module `GameAssembly.dll` or `UnityPlayer.dll` — and the panel's
+watchdog relaunches it each time.
+
+An access violation inside il2cpp is exactly the shape a bad hijack would produce, so the
+first question has to be «did we start doing this». The event log answers it: crashes per
+day over the preceding week are 3, 11, 4, 10, 17, 5, 7 — **today's count is not elevated**,
+and the worst day by a factor of two is one when this code did not exist. The faulting
+address is inside the game's own modules, not in a private RWX region, and the crashes
+land on ordinary gameplay rather than on an attach.
+
+So it is a standing condition of «the panel drives this client», not something this task
+introduced, and it deserves a task of its own rather than a paragraph here. What matters
+for THIS one is that the link survives it: the panel re-attaches by itself within about
+four minutes of each relaunch, with nobody at the keyboard, and goes back to landing
+chunks. That was measured three times in one twenty-minute window.
+
+**And it is why `colour`/`reason` is the wrong thing to judge the link by.** Those mix two
+independent facts — «can the panel reach the game's Lua VM» (this task) and «has the
+client got a confirmed connection to the game server» (the client's own business, minutes
+long after a relaunch). The reading to watch is `link.lands`: it was `true`, with the
+schedule gate lifted, through periods the lamp was calling amber.
