@@ -457,6 +457,17 @@ flag, check it still exists before acting on it.
   «SKIP …» and exits 0. That is why the tiers exist, and the runner
   counts those files at the end of a run rather than letting them pass
   quietly.
+
+  **Never pipe a run into `tail`, `head` or `grep`.** The exit code you
+  read is then the PIPE's, not the suite's, and a run that printed
+  nothing at all comes back 0 — a «green suite» that ran nothing (#2020).
+  Redirect to a file and read the file, or read it straight.
+
+  The offline tier is a hundred files and minutes of wall clock, so an
+  outer limit — a CI step, an agent's command timeout — will end it half
+  way. That is survivable now: the runner prints and flushes each file's
+  verdict as it finishes, so a killed run still shows how far it got, and
+  it says `INCOMPLETE` and exits non-zero when it did not finish.
 - **One coherent change per commit**. Script-only commits stay tiny;
   Python commits explain *why* the DSL was insufficient.
 

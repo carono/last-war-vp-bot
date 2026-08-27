@@ -40,6 +40,26 @@ can only RAISE the ceiling above `--timeout`, never lower it.
 Exit code is 0 only when every file in the tier passed. A file that times out counts as
 red and says so — a hung test is not a pass.
 
+## What it prints, and when
+
+Each file's verdict is printed AND FLUSHED the moment that file finishes, never
+collected for the end. The offline tier is a hundred files and minutes of wall clock, so
+something outside the run ends it half way often enough to design for: a CI step's limit,
+an agent's command timeout, a Ctrl-C. A runner that only speaks at the end says nothing
+at all when that happens — exit code 1, no output, and no way to tell a red suite from a
+suite that never ran (#2020). A run that did not finish says `INCOMPLETE` and exits
+non-zero.
+
+Two more traps that made a killed run look green rather than dead:
+
+  * **never pipe this into `tail` / `head` / `grep`** — the exit code you read is the
+    pipe's, so a run that printed nothing comes back 0. Redirect to a file instead.
+  * a file that leaves a GRANDCHILD behind (a spawned panel, a daemon) leaves it holding
+    this process's stdout pipe. `subprocess.run(timeout=…)` kills the test and then waits
+    on that pipe for ever, so the runner hangs rather than reporting. Each file gets its
+    own process group and a timeout kills the group; a pipe still held after that is
+    abandoned, not waited on.
+
 ## The one thing to watch
 
 A file that SKIPS what it cannot do still exits 0, and several do exactly that under an
@@ -55,6 +75,7 @@ import argparse
 import concurrent.futures
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -141,19 +162,62 @@ class Result:
         return self.ok and bool(_SKIP_RE.search(self.output)) and "passed" in self.output
 
 
+#: How long the runner waits for a killed file's pipes to close before giving up on
+#: them. A test that leaves a GRANDCHILD behind (a spawned panel, a daemon, a helper)
+#: leaves that grandchild holding the same stdout pipe, so the ordinary
+#: `subprocess.run(timeout=…)` kills the test, then blocks for ever reading a pipe
+#: nobody will close. That is a runner that hangs instead of reporting — which, under
+#: any outer time limit, is a whole suite that dies having printed nothing.
+DRAIN_GRACE = 10.0
+
+
 def run_one(path: Path, timeout: float) -> Result:
     started = time.monotonic()
+    popen_kwargs = {}
+    if os.name == "posix":
+        # Its own process group, so a timeout can take the grandchildren with it.
+        popen_kwargs["start_new_session"] = True
+    proc = subprocess.Popen([sys.executable, str(path)], cwd=str(REPO),
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, env={**os.environ,
+                                            "PYTHONIOENCODING": "utf-8"},
+                            **popen_kwargs)
     try:
-        proc = subprocess.run([sys.executable, str(path)], cwd=str(REPO),
-                              capture_output=True, text=True, timeout=timeout,
-                              env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-        code, output = proc.returncode, (proc.stdout or "") + (proc.stderr or "")
-    except subprocess.TimeoutExpired as exc:
-        out = exc.stdout or b""
+        output, _ = proc.communicate(timeout=timeout)
+        code = proc.returncode
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
         code = 124
-        output = (out.decode("utf-8", "replace") if isinstance(out, bytes) else out)
-        output += f"\nTIMED OUT after {timeout:.0f}s"
-    return Result(path, code, time.monotonic() - started, output)
+        try:
+            output, _ = proc.communicate(timeout=DRAIN_GRACE)
+        except subprocess.TimeoutExpired:
+            # Something is still holding the pipe. Abandon it rather than wait: the
+            # file is red either way and the run has to go on.
+            output = ""
+            if proc.stdout is not None:
+                proc.stdout.close()
+        output = (output or "") + f"\nTIMED OUT after {timeout:.0f}s"
+    return Result(path, code, time.monotonic() - started, output or "")
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill the test and anything it left running, so its pipe can close."""
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _say(line: str = "") -> None:
+    """Print and FLUSH. A pipe is block-buffered, so an unflushed line is a line that
+    is lost the moment the run is killed — which is exactly when it was needed."""
+    print(line, flush=True)
 
 
 def _tail(text: str, lines: int = 6) -> list[str]:
@@ -203,41 +267,65 @@ def main(argv: list[str] | None = None) -> int:
         # empty tier has no failures in it, which is what the exit code is about.
         return 1 if args.only else 0
 
-    print(f"{len(wanted)} file(s), tier {args.tier}, {sys.executable}")
+    _say(f"{len(wanted)} file(s), tier {args.tier}, {sys.executable}")
     started = time.monotonic()
     results: list[Result] = []
 
-    if args.jobs > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            futures = {pool.submit(run_one, p, timeout_of(p, args.timeout)): p
-                       for p in wanted}
-            for fut in concurrent.futures.as_completed(futures):
-                results.append(fut.result())
-    else:
-        for p in wanted:
-            results.append(run_one(p, timeout_of(p, args.timeout)))
+    def report(r: Result) -> None:
+        """Say how one file went, the moment it is known.
 
-    results.sort(key=lambda r: r.path.name)
-    for r in results:
+        Printed AS THE RUN GOES, never collected for the end: a suite that takes
+        minutes gets killed by whatever outer limit the caller has — a CI step, an
+        agent's command timeout, a person's patience — and a runner that only speaks
+        at the end says NOTHING at all when that happens. Exit code 1, no output, no
+        way to tell a red suite from a killed one (#2020).
+        """
         mark = "ok  " if r.ok else "FAIL"
         note = " (timed out)" if r.timed_out else ""
-        print(f"  {mark} {r.path.name:<45} {r.seconds:6.1f}s{note}")
+        _say(f"  {mark} {r.path.name:<45} {r.seconds:6.1f}s{note}")
         if args.verbose:
-            print("".join(f"       | {ln}\n" for ln in r.output.splitlines()))
+            for ln in r.output.splitlines():
+                _say(f"       | {ln}")
         elif not r.ok:
             for ln in _tail(r.output):
-                print(f"       | {ln}")
+                _say(f"       | {ln}")
+
+    interrupted = False
+    try:
+        if args.jobs > 1:
+            # Completion order, not alphabetical: a line is worth more when it is
+            # printed than when it is sorted.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+                futures = {pool.submit(run_one, p, timeout_of(p, args.timeout)): p
+                           for p in wanted}
+                for fut in concurrent.futures.as_completed(futures):
+                    r = fut.result()
+                    results.append(r)
+                    report(r)
+        else:
+            for p in wanted:
+                r = run_one(p, timeout_of(p, args.timeout))
+                results.append(r)
+                report(r)
+    except KeyboardInterrupt:
+        interrupted = True
+        _say("\ninterrupted")
 
     red = [r for r in results if not r.ok]
     hollow = [r for r in results if r.skipped_everything]
-    print(f"\n{len(results) - len(red)}/{len(results)} files green "
-          f"in {time.monotonic() - started:.0f}s")
+    _say(f"\n{len(results) - len(red)}/{len(results)} files green "
+         f"in {time.monotonic() - started:.0f}s")
+    if len(results) != len(wanted):
+        # Say it out loud rather than let a green-looking tally stand for a run that
+        # never finished: a partial suite is not a pass.
+        _say(f"INCOMPLETE: {len(wanted) - len(results)} of {len(wanted)} file(s) "
+             f"never ran")
     if hollow:
-        print(f"{len(hollow)} file(s) green having SKIPPED what they could not run "
-              f"here — {', '.join(r.path.name for r in hollow)}")
+        _say(f"{len(hollow)} file(s) green having SKIPPED what they could not run "
+             f"here — {', '.join(r.path.name for r in hollow)}")
     if red:
-        print("red: " + ", ".join(r.path.name for r in red))
-    return 1 if red else 0
+        _say("red: " + ", ".join(sorted(r.path.name for r in red)))
+    return 1 if (red or interrupted or len(results) != len(wanted)) else 0
 
 
 if __name__ == "__main__":
