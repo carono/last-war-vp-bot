@@ -60,6 +60,26 @@ holds (its own window is a day). A sweep that happened between two looks, with t
 long gone, is lost. Closing that properly means a hook where the checkpoint is written
 rather than where it is read — worth doing, not done here.
 
+### The grid travels through a FILE, and that was decided rather than overlooked
+
+The sweep grid is worked out in the capture CHILD (`tools/lib/world_index.py`) and
+reaches the panel through `world_map.json` — the child writes the checkpoint, the panel
+reads it and folds the grid into `panel.db`. Game data therefore crosses a file on its
+way into the database, which reads like a breach of «everything lives in the database»
+until you ask what the file IS.
+
+It is a CHANNEL between the panel and a process it spawned, not a store: rewritten whole
+every tick, worth nothing after a restart, and already named as such in CLAUDE.md beside
+`secret_tasks.json`, `ghost_recon_tiles.json` and `world_treasures.json`. The durable
+copy is the `world_coverage` blob in `panel.db`; the file is what the two processes say
+to each other in the meantime. Moving it into the database would make the one thing
+durable that must not be, and would turn a standalone tool into something that has to
+open another process's database.
+
+**The person was asked and answered «Оставь» (2026-08-27.)** So this is not an exception
+anybody carved out to save work — it is the case CLAUDE.md already covers, and it is
+written down here so the next agent does not «fix» it.
+
 ## What is still missing, in the order it is worth adding
 
 Every item below is shown on the tab itself (`worldview.gap.*` in all eleven locales),
