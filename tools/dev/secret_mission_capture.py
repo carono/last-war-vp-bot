@@ -479,6 +479,11 @@ def main() -> int:
                 # display filters do to the words below, the panel's list is fed.
                 print(GHOST_MARKER + "\t" + json.dumps({
                     "uuid": str(m.uuid), "server": m.owner_server,
+                    # THE TILE'S OWN packed pointId (#2010). The panel asks the game
+                    # about a point by this number before it presses, and a rebuilt one
+                    # is a different square: measured, (195, 88) is 88195 here and
+                    # `SceneUtils.TilePosToIndex` answers 88196.
+                    "pid": m.point_id,
                     "target_server": m.target_server,
                     "x": m.x, "y": m.y, "cfg": m.cfg_id, "state": m.state,
                     "members": m.member_count, "loot": m.steal_count,

@@ -2920,6 +2920,9 @@ class SecretTasksTab(PanelTab):
                 "server": server, "owner_server": server,
                 "target_server": int(record.get("target_server") or 0),
                 "x": record.get("x") or 0, "y": record.get("y") or 0,
+                # …and the tile's own packed pointId, which is what the game is asked
+                # about before a robbery (#2010).
+                "point_id": record.get("pid") or 0,
                 "cfg_id": cfg,
                 "level": template.get("level") or level or 0,
                 "starred": template.get("starred",

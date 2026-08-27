@@ -555,6 +555,7 @@ class GhostMapGrid(_GhostGrid):
                         # …and WHERE it is, which is what the recipe asks the game about
                         # before it presses (#2010).
                         "x": int(row.get("x") or 0), "y": int(row.get("y") or 0),
+                        "pid": int(row.get("point_id") or 0),
                         "level": level, "looted": int(looted or 0)})
         # Best first, and among equals the tile fewest people have been at: it is the one
         # most likely to still have a slot when the send lands.
@@ -649,6 +650,10 @@ class GhostMapGrid(_GhostGrid):
         # How old this row's information is. Kept on the row so the state cell can say
         # it, and checkpointed with the rest.
         row["seen_at"] = record.get("seen_at")
+        # …and the tile's own packed pointId (#2010): the robbery asks the game about
+        # that point before it presses, and the id has to survive a restart with the row.
+        if record.get("point_id"):
+            row["point_id"] = record.get("point_id")
         # …AND A TILE OFF THE MAP RIPENS BY ITS OWN CLOCK (#2010). The base forces the
         # verdict because a squad in the CLIENT's list has one — the game answers
         # «robbable / not» itself and there is nothing to count down to. A map tile has
@@ -682,6 +687,7 @@ class GhostMapGrid(_GhostGrid):
                 self.STATE_BLOB,
                 [{k: row.get(k) for k in
                   ("uuid", "server", "owner_server", "target_server", "x", "y",
+                   "point_id",
                    "cfg_id", "level", "starred", "colour", "loot_max",
                    "loot_count", "completed_at", "expires_at", "owner_uid",
                    "alliance_id", "members", "seen_at", "ready")}

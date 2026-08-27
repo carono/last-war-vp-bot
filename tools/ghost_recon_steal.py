@@ -348,6 +348,9 @@ def map_roster(path, config=None) -> list[dict]:
             "owner_server": m.owner_server or 0,
             "target_server": m.target_server or 0,
             "x": m.x or 0, "y": m.y or 0,
+            # …and the tile's own packed pointId, which is how the game is asked about
+            # that point before a robbery (#2010) — never a rebuild from x/y.
+            "point_id": m.point_id or 0,
             "cfg_id": m.cfg_id or 0,
             "level": cfg.get("level") or level or 0,
             "starred": cfg.get("starred", family == proto.GHOST_STAR_FAMILY),

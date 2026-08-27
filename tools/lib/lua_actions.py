@@ -3023,14 +3023,22 @@ def ghost_recon_request_detail() -> str:
 
     Sent for the whole queue in one chunk so the replies travel while the presses are
     still being gated; read them after a settle, never in the same chunk.
+
+    BY THE TILE'S OWN `pointId`, never by one rebuilt from x/y (#2010). The wire carries
+    it on every ghost tile, and the two do not agree: measured live, the tile at (195, 88)
+    is `88195` on the wire and `SceneUtils.TilePosToIndex` answers `88196` — one square
+    over, and the server duly said nothing about it. The rebuilt id stays as the fallback
+    for a caller that has no `pid` to give.
     """
     return ("local M=DataCenter.ActGhostreconManager "
             "local n=0 "
             "for _,t in ipairs(M.__lw_ghost_queue or {}) do "
-            "if t.x and t.y and tonumber(t.x) and tonumber(t.y) then "
+            "local pid=tonumber(t.pid or 0) or 0 "
+            "if pid<=0 and t.x and t.y then pid=SceneUtils.TilePosToIndex("
+            "CS.UnityEngine.Vector2Int(t.x, t.y)) end "
+            "if pid>0 then "
             "pcall(function() SFSNetwork.SendMessage('world.get.detail.new', "
-            "SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(t.x, t.y)), "
-            "t.server, 0, %d, '') end) n=n+1 end end "
+            "pid, t.server, 0, %d, '') end) n=n+1 end end "
             'CS.UnityEngine.Debug.LogError("ACT ghost_detail_asked n="..tostring(n))'
             % GHOST_RECON_POINT_TYPE)
 
@@ -3053,9 +3061,16 @@ def steal_next_ghost_recon() -> str:
       CanSteal`, plus the three things that gate cannot see — it is not mine, its looter
       list is not full, and its warzone is inside `dispatchStealRange`;
     * a tile only the MAP has seen has no entry there, so the authority is the detail
-      just asked for (:func:`ghost_recon_request_detail`): the point must have answered,
-      and it must still carry THIS uuid. A tile that has been robbed out, has expired or
-      was never there answers with something else or with nothing at all.
+      just asked for (:func:`ghost_recon_request_detail`). Its `taskInfo` is the squad
+      itself — measured live: `uuid`, `cfgId`, `completionTime`, `stealList`, `ownerId`
+      and, the field that matters most, `ownerServer` — so the same three checks are made
+      against it and `GetPointStealType` is asked with the tile's OWN looter list rather
+      than an empty one.
+
+      **AND THE SEND FOLLOWS THE DETAIL'S `ownerServer`, not the map's.** They are two
+      different numbers and the robbery wants the owner's: a tile standing on 935 was
+      dispatched by a player of 996, and `ghost.recon.steal {uuid, ownerServer}` addressed
+      at 935 is a message about a squad that is not there.
 
     Anything the game does not confirm is SKIPPED, silently and without a send — the
     day's five are spent only on what it called available. The skip says so on the
@@ -3083,13 +3098,28 @@ def steal_next_ghost_recon() -> str:
             "if okv and st==GhostreconPointStealType.CanSteal then ok=true "
             "else why='state_'..tostring(okv and st or 'err') end end end "
             "else "
+            "local pid=tonumber(t.pid or 0) or 0 "
+            "if pid<=0 and t.x and t.y then pid=SceneUtils.TilePosToIndex("
+            "CS.UnityEngine.Vector2Int(t.x, t.y)) end "
             "local okd,d=pcall(function() "
-            "return DataCenter.WorldPointDetailManager:GetDetailByPointId("
-            "SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(t.x or 0, t.y or 0))) "
-            "end) "
-            "if not okd or not d then why='no_detail' "
-            "elseif tostring(d.uuid)~=tostring(t.uuid) then why='gone' "
-            "else ok=true end end "
+            "return DataCenter.WorldPointDetailManager:GetDetailByPointId(pid) end) "
+            "local ti=(okd and d) and d.taskInfo or nil "
+            "if not ti then why='no_detail' "
+            "elseif tostring(ti.uuid)~=tostring(t.uuid) then why='gone' "
+            "elseif tostring(ti.ownerId)==me then why='mine' "
+            "else "
+            "local n=0 for _,sl in ipairs(ti.stealList or {}) do n=n+1 "
+            "if tostring(sl.uid)==me then n=99 end end "
+            "local tpl=M:GetTaskTemplate(ti.cfgId) "
+            "local cap=(tpl and tonumber(tpl.stealMaxtimes)) or 3 "
+            "local srv=ti.ownerServer or t.server "
+            "if n>=cap then why='looted_out' "
+            "elseif srv and (M.dispatchStealRange or {})[srv]~=true then why='out_of_range' "
+            "else local okv,st=pcall(function() return M:GetPointStealType("
+            "ti.cfgId, ti.completionTime, ti.stealList or {}) end) "
+            "if okv and st==GhostreconPointStealType.CanSteal then ok=true "
+            "t.server=srv "
+            "else why='state_'..tostring(okv and st or 'err') end end end end "
             "if not ok then "
             'CS.UnityEngine.Debug.LogError("ACT ghost_steal_skipped uuid="'
             '..tostring(t.uuid).." why="..why) return end '
