@@ -2716,6 +2716,47 @@ def ghost_recon_can_steal(uuid: int) -> str:
     )
 
 
+def daily_steal_budgets() -> str:
+    """Lua *expression* -> both robbery budgets in one string, straight from the game.
+
+    `secret=<left>/<cap> ghost=<left>/<cap> open=<0|1>` — TWO budgets, and the whole
+    reason this reads them together is that they are separate and were being mistaken
+    for one: on 2026-08-27 the account had `secret=0/5` while `ghost=5/5` (#2010). One
+    round trip rather than two, so a card can say both without paying twice.
+
+    Every number is the SERVER's, never a tally of presses the panel has made: the
+    secret-task pair is `GetDispatchSetting('steal_count')` against `GetTodayStealNum()`,
+    the ghost pair is `GetNowSettingCfg().stealCount` against `stealTimes`, and a steal
+    only moves either of them when the reply lands. A count of our own sends would be a
+    second set of books, and the first disagreement with the game would be a lie in our
+    favour — which is exactly what a person reading «осталось 3» would act on.
+
+    A manager the client has not loaded reads as `-` rather than 0: «not asked» and
+    «none left» are different facts, and a 0 would stop a watcher that has every right
+    to run.
+    """
+    return ("(function() "
+            "local function pair(f) local ok,v=pcall(f) "
+            "if not ok or v==nil then return '-' end return tostring(v) end "
+            "local S=DataCenter.ActDispatchTaskDataManager "
+            "local G=DataCenter.ActGhostreconManager "
+            "local s_cap=pair(function() return math.floor(tonumber("
+            "S:GetDispatchSetting('steal_count')) or 0) end) "
+            "local s_used=pair(function() return math.floor(tonumber("
+            "S:GetTodayStealNum()) or 0) end) "
+            "local g_cap=pair(function() local cfg=G:GetNowSettingCfg() "
+            "return math.floor(tonumber(cfg and cfg.stealCount) or 0) end) "
+            "local g_used=pair(function() return math.floor(tonumber(G.stealTimes) or 0) "
+            "end) "
+            "local open=pair(function() return G:IsOpenDay() and 1 or 0 end) "
+            "local function left(cap,used) if cap=='-' or used=='-' then return '-' end "
+            "local n=tonumber(cap)-tonumber(used) if n<0 then n=0 end return tostring(n) "
+            "end "
+            "return 'secret='..left(s_cap,s_used)..'/'..s_cap"
+            "..' ghost='..left(g_cap,g_used)..'/'..g_cap"
+            "..' open='..open end)()")
+
+
 def ghost_recon_refresh() -> str:
     """Ask the server for both ghost-recon task lists (own/known + alliance).
 

@@ -171,6 +171,16 @@ class _GhostGrid(grid.TaskGrid):
         the order beside it was acting on the real one.
         """
         self.status = {"open": bool(is_open), "left": int(left or 0)}
+        # …and into the tab's own pair of budgets, so the card says «N из 5» rather than
+        # a bare number (#2010). The CAP is not re-read here — a look pays for the two
+        # numbers it needs and no more — so whatever the last full read said is kept.
+        try:
+            _left, cap = self.tab._budgets.get("ghost") or (None, None)
+            self.tab._budgets = dict(self.tab._budgets,
+                                     ghost=(int(left or 0), cap),
+                                     ghost_open=bool(is_open))
+        except Exception:                     # noqa: BLE001 — a reading, never the watcher
+            pass
         try:
             self.tab.after(self._paint_status)
         except Exception:                     # noqa: BLE001 — no window, no repaint
@@ -359,8 +369,12 @@ class _GhostGrid(grid.TaskGrid):
         if known:
             # …and the budget only where there IS one to say. «0 краж осталось» about an
             # event nobody has asked about is the same lie in a number.
-            rows.append({"label": "secrettasks.ghost.left",
-                         "value": str(int(self.status.get("left") or 0))})
+            #
+            # Drawn by the tab's own builder (#2010), the same one the ★ card uses: a
+            # spent budget says so in words, an unread one says «не прочитано», and only
+            # a live pair becomes «N из 5». The numbers are the GAME's — `stealTimes`
+            # against the event's `stealCount` — never a count of what we pressed.
+            rows.append(self.tab._budget_row("ghost", "secrettasks.ghost.left"))
         return rows
 
 

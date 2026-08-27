@@ -487,6 +487,14 @@ class SecretTasksTab(PanelTab):
         self._verify_was: dict = {}
         # The event's config table, read once per session (see `_ghost_work`).
         self._ghost_config = None
+        # BOTH ROBBERY BUDGETS, AS THE GAME LAST SAID THEM (#2010): `secret` and `ghost`,
+        # each `(left, cap)`, and never a tally of what the panel has pressed — a count of
+        # our own sends is a second set of books, and the first disagreement with the
+        # server is a lie in our own favour. Filled by the read the ghost pages already
+        # make (`_ghost_work`); the ghost half is also refreshed for free by the standing
+        # order's own minute look. Empty until something has read: «not asked» is not
+        # «none left», and the cards say which.
+        self._budgets: dict = {}
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
         # StringVar and the row's frame, so a tick can update the timer in place and a
@@ -2713,12 +2721,54 @@ class SecretTasksTab(PanelTab):
                 self._ghost_config = ghost_tool.templates(evaluator)
             found = ghost_tool.map_roster(self.rt.profiles.ghost_json(),
                                           self._ghost_config)
+            # …AND BOTH BUDGETS, in the same worker rather than on a clock of their own
+            # (#2010). One Lua round trip (~0.15 s) per refresh of these pages, and none
+            # at all while nobody refreshes them — the ghost half is kept current for
+            # free besides, by the standing order's own minute look (`note_event`).
+            budgets = self._read_budgets(evaluator)
             ok = True
         except Exception:                     # noqa: BLE001 — no daemon, no game, no event
             status, mine, allies, found, ok = {}, [], [], [], False
-        self.after(lambda: self._ghost_landed(status, mine, allies, found, ok))
+            budgets = None
+        self.after(lambda: self._ghost_landed(status, mine, allies, found, ok, budgets))
 
-    def _ghost_landed(self, status, mine, allies, found, ok: bool) -> None:
+    def _read_budgets(self, evaluator) -> "dict | None":
+        """Both daily robbery budgets, off the game — `{'secret': (left, cap), …}`.
+
+        THE SERVER'S NUMBERS, never ours (#2010). The panel counting its own presses
+        would be a second set of books, and the first time the two disagreed it would be
+        the panel's that was wrong — in its own favour, which is the direction that
+        costs a day. One chunk for both, because they are two budgets and the whole
+        confusion this answers was reading one of them as the other.
+
+        `None` when the read failed, and a missing manager reads as `None` for THAT
+        budget rather than 0: «not asked» must not look like «none left».
+        """
+        import lua_actions
+
+        text = " ".join(evaluator.run(
+            'CS.UnityEngine.Debug.LogError("BUD " .. %s)' % lua_actions.daily_steal_budgets(),
+            marker="BUD", settle=0.6, early=True) or ())
+        out: dict = {}
+        for name in ("secret", "ghost"):
+            token = self._token(text, name + "=")
+            if token and "/" in token:
+                left, cap = token.split("/", 1)
+                out[name] = ((int(left) if left.isdigit() else None),
+                             (int(cap) if cap.isdigit() else None))
+        open_token = self._token(text, "open=")
+        if open_token in ("0", "1"):
+            out["ghost_open"] = open_token == "1"
+        return out or None
+
+    @staticmethod
+    def _token(text: str, key: str) -> str:
+        """`key` and the word after it, out of a one-line answer. '' when absent."""
+        if key not in text:
+            return ""
+        return text.split(key, 1)[1].split()[0] if text.split(key, 1)[1].split() else ""
+
+    def _ghost_landed(self, status, mine, allies, found, ok: bool, budgets=None) -> None:
         """Hand each ghost page its own list — a read that WORKED, at least.
 
         A failed one says nothing about the event, exactly as a failed roster read says
@@ -2732,6 +2782,10 @@ class SecretTasksTab(PanelTab):
         mine in both when I am the one who started it.
         """
         self._ghost_busy = False
+        # The budgets stand on their own: they are read in the same worker but they are
+        # not the roster, and a roster that came back empty says nothing about them.
+        if budgets:
+            self._budgets = dict(self._budgets, **budgets)
         take = self.take(INTAKE_GHOST)
         if not ok:
             take.dropped(reason="read_failed")
@@ -4437,6 +4491,13 @@ class SecretTasksTab(PanelTab):
                            "rows": [{"label": "secret.autoloot.level_min",
                                      "value": (str(low) if low is not None
                                                else self.t("secret.autoloot.any_level"))},
+                                    # …AND WHAT IS LEFT OF THE DAY'S BUDGET (#2010), off
+                                    # the GAME rather than off a tally of our presses.
+                                    # «Почему он не грабит» must be answerable on the
+                                    # card: a spent budget says so in words instead of
+                                    # showing a 0 and going quiet.
+                                    self._budget_row("secret",
+                                                     "secrettasks.steals_left"),
                                     {"label": state_key, "value": state_datum}],
                            # …AND THE BOX ITSELF (#1882). The card drew the rule and the
                            # state of a standing order the phone could not start or stop,
@@ -4809,6 +4870,30 @@ class SecretTasksTab(PanelTab):
         "world.trains": "trains",
         "world.trucks": "trucks",
     }
+
+    def _budget_row(self, which: str, label: str) -> dict:
+        """One robbery budget as a card row — «N из 5», or the reason there is no number.
+
+        THREE ANSWERS, and the third is the one panels usually get wrong: a budget that
+        is SPENT says so in words, an unread one says «не прочитано», and only a live
+        pair becomes a number. A 0 with nothing beside it reads as «сломалось», which is
+        exactly the report this whole task began with.
+
+        The numbers are the game's own (`lua_actions.daily_steal_budgets`) — the panel
+        never counts its own presses here (#2010).
+        """
+        # Through `getattr`, like every other reading a fixture may not have set up: a
+        # tab built by a test answers «не прочитано» rather than raising.
+        left, cap = (getattr(self, "_budgets", None) or {}).get(which) or (None, None)
+        if left is None or cap is None:
+            value = self.t("secrettasks.steals.unknown")
+        elif left <= 0:
+            value = self.t("secrettasks.steals.spent")
+        else:
+            # Not a sentence: two numbers with a separator, which every language writes
+            # the same way and no translator should have to carry.
+            value = "%d / %d" % (left, cap)
+        return {"label": label, "value": value}
 
     def _count_rows(self, page=None) -> list:
         """One card's «Показано / Скрыто» pair, for the phone (#1272).
