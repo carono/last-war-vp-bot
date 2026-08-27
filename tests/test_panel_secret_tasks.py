@@ -4233,8 +4233,9 @@ def test_an_unread_event_is_not_a_closed_one():
 
     page = object.__new__(gh.GhostGrid)
     page.status = {}
-    page.tab = types.SimpleNamespace(t=lambda key, **fmt: key,
-                                     after=lambda call: call())
+    page.tab = types.SimpleNamespace(
+        t=lambda key, **fmt: key, after=lambda call: call(), _budgets={},
+        _budget_row=lambda which, label: {"label": label, "value": "5 / 5"})
     rows = page.web_rows()
     assert [r["value"] for r in rows] == ["secrettasks.ghost.unknown"], rows
     assert len(rows) == 1, "a budget was said about an event nobody has asked about"
@@ -4242,9 +4243,69 @@ def test_an_unread_event_is_not_a_closed_one():
     # …and the standing order's own look is what fills it, without a second round trip.
     page._paint_status = lambda: None
     page.note_event(True, 5)
-    assert [r["value"] for r in page.web_rows()] == ["secrettasks.ghost.open", "5"]
+    # …and the budget beside it is «N из 5» off the game, drawn by the tab's own builder.
+    assert [r["value"] for r in page.web_rows()] == ["secrettasks.ghost.open", "5 / 5"]
     page.note_event(False, 0)
     assert page.web_rows()[0]["value"] == "secrettasks.ghost.closed"
+
+
+def test_both_budgets_are_drawn_from_the_game_and_say_why_when_there_is_no_number():
+    """«Выводи в панель счётчики» — and the three answers a counter may give (#2010).
+
+    A live pair is «N из 5». A SPENT budget says so in words: a bare 0 with nothing
+    beside it reads as «сломалось», which is the report this whole task began with. An
+    unread one says «ещё не прочитано» — «не спросили» is not «не осталось», and a 0
+    there would stop a watcher that has every right to run.
+
+    And the numbers are the GAME's. The panel counting its own presses would be a second
+    set of books, and the first disagreement would be a lie in our own favour.
+    """
+    from panel.tabs.secret_tasks.tab import SecretTasksTab
+
+    tab = object.__new__(SecretTasksTab)
+    tab.t = lambda key, **fmt: key
+    tab._budgets = {"secret": (0, 5), "ghost": (3, 5)}
+    assert tab._budget_row("secret", "L")["value"] == "secrettasks.steals.spent"
+    assert tab._budget_row("ghost", "L")["value"] == "3 / 5"
+    tab._budgets = {}
+    assert tab._budget_row("ghost", "L")["value"] == "secrettasks.steals.unknown"
+    # …and a manager the client has not loaded is «not read», never 0.
+    tab._budgets = {"ghost": (None, None)}
+    assert tab._budget_row("ghost", "L")["value"] == "secrettasks.steals.unknown"
+
+
+def test_the_budget_read_is_one_round_trip_and_parses_both():
+    """One chunk for both, off the read the ghost pages already make — no clock of its own.
+
+    The parse is what a card believes, so it is pinned against the exact shape the Lua
+    prints, including the `-` a missing manager comes back as.
+    """
+    from panel.tabs.secret_tasks.tab import SecretTasksTab
+
+    tab = object.__new__(SecretTasksTab)
+    calls = []
+
+    class _Ev:
+        def run(self, chunk, marker="", settle=0.0, early=False):
+            calls.append(chunk)
+            return ["BUD secret=2/5 ghost=5/5 open=1"]
+
+    assert tab._read_budgets(_Ev()) == {"secret": (2, 5), "ghost": (5, 5),
+                                        "ghost_open": True}
+    assert len(calls) == 1, "the budgets cost more than one round trip"
+
+    class _Half(_Ev):
+        def run(self, chunk, marker="", settle=0.0, early=False):
+            return ["BUD secret=-/- ghost=1/5 open=0"]
+
+    assert tab._read_budgets(_Half()) == {"secret": (None, None), "ghost": (1, 5),
+                                          "ghost_open": False}
+
+    class _Dead(_Ev):
+        def run(self, chunk, marker="", settle=0.0, early=False):
+            return []
+
+    assert tab._read_budgets(_Dead()) is None
 
 
 def test_the_two_robbery_budgets_are_never_the_same_number():
