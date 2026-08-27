@@ -254,7 +254,9 @@ whether `leave.message` needs the window open — it is built from the reply's
 
 «Автолут заданий призрака не работает, грид не заполняется.» Two complaints, one
 cause, and it was upstream of both: nothing the sniffer decoded ever reached the
-panel's list, so the standing order had nothing to spend the day's five on.
+panel's list, so the standing order had nothing to spend the event's own five a day on
+(five, counted apart from the five secret-task robberies — different manager, different
+counter; measured live on 2026-08-27, `steal_left=0 of 5` while `ghost_left=5 of 5`).
 
 **Measured on a live profile before the fix.** `ghost_map_state` in `panel.db`
 held `[]` and the capture's checkpoint held `[]`, while the same profile's log
@@ -330,7 +332,8 @@ What that changed, and what it deliberately did not:
   is a table to draw — this list is fed and spent headless;
 * the display filters do not narrow it. «Только звезда», the level range and the age
   rule are a pair of eyes; somebody narrowing them to read something must not thereby
-  change how the day's five are spent. That is the same separation the ★ list keeps;
+  change how the event's own five a day are spent — a budget of its own, not a share of
+  the secret tasks'. That is the same separation the ★ list keeps;
 * «Командный пункт» keeps what it is — the squads with the game's own verdict and
   «Ограбить» beside a row. Its per-row press asks the runtime's tab register for the one
   order (`docs/panel-tabs.md`), never for a second one, and answers «занят» when

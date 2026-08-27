@@ -208,7 +208,7 @@
   "ghost.autoloot": "Saquear escuadrones solo",
   "ghost.steal_all": "Robarlos todos",
   "ghost.frame": "Operaciones Fantasma",
-  "ghost.hint": "su propio presupuesto diario, aparte del de las tareas secretas. El evento dura un día por semana y el resto no hace nada. No hace falta barrer el mapa — el cliente conoce él mismo la lista de escuadrones.",
+  "ghost.hint": "su propio cupo diario de cinco, aparte de los cinco robos de tareas secretas. Toma lo que «Fantasma: mapa» ha reunido: solo el barrido del mapa muestra escuadras de otras alianzas. El evento dura un día a la semana.",
   "ghost.level_min": "Nivel mínimo",
   "ghost.off": "saqueo automático de Operaciones Fantasma apagado",
   "ghost.on": "saqueo automático de Operaciones Fantasma encendido",

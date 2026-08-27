@@ -4582,7 +4582,15 @@ class SecretTasksTab(PanelTab):
                           # same pair the ★ card carries.
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
-                           "rows": self._count_rows(self.ghost_map)
+                           # THE ORDER'S OWN BUDGET, ON THE CARD THAT CARRIES THE ORDER
+                           # (#2010). Five ghost robberies a day, counted apart from the
+                           # five secret-task ones — different manager, different counter,
+                           # and one being spent says nothing about the other. Live proof
+                           # the day this was written: `steal_left=0 of 5` while
+                           # `ghost_left=5 of 5`. So the switch and the number it spends
+                           # are read together, and neither is guessed from the other.
+                           "rows": self.ghost_map.web_rows()
+                                   + self._count_rows(self.ghost_map)
                                    + [{"label": "ghost.frame",
                                        "value": self.ghost_map.rule_text()}],
                            "empty": "secrettasks.ghost.map.empty",

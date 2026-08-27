@@ -208,7 +208,7 @@
   "ghost.autoloot": "Rampas skuad sendiri",
   "ghost.steal_all": "Rampok semuanya",
   "ghost.frame": "Operasi Hantu",
-  "ghost.hint": "anggaran hariannya sendiri, terpisah dari tugas rahasia. Acaranya berjalan satu hari seminggu dan pada hari lain tidak melakukan apa-apa. Tak perlu menyapu peta — klien tahu sendiri daftar skuadnya.",
+  "ghost.hint": "jatah hariannya sendiri lima kali, dihitung terpisah dari lima perampokan tugas rahasia. Mengambil dari daftar «Hantu: peta» — hanya sapuan peta yang menampilkan regu aliansi lain. Event berjalan satu hari seminggu.",
   "ghost.level_min": "Level terendah",
   "ghost.off": "rampasan otomatis Operasi Hantu mati",
   "ghost.on": "rampasan otomatis Operasi Hantu hidup",

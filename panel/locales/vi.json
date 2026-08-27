@@ -208,7 +208,7 @@
   "ghost.autoloot": "Tự cướp các đội",
   "ghost.steal_all": "Cướp hết",
   "ghost.frame": "Chiến Dịch Linh Hồn",
-  "ghost.hint": "có ngân sách hằng ngày riêng, tách khỏi nhiệm vụ bí mật. Sự kiện chạy một ngày mỗi tuần, các ngày khác không làm gì. Không cần quét bản đồ — client tự biết danh sách đội.",
+  "ghost.hint": "hạn mức riêng năm lần mỗi ngày, tính tách khỏi năm lần cướp nhiệm vụ bí mật. Lấy từ danh sách «Bóng ma: bản đồ» — chỉ vòng quét bản đồ mới thấy đội của liên minh khác. Sự kiện chạy một ngày mỗi tuần.",
   "ghost.level_min": "Cấp thấp nhất",
   "ghost.off": "tự cướp Chiến Dịch Linh Hồn đã tắt",
   "ghost.on": "tự cướp Chiến Dịch Linh Hồn đã bật",

@@ -208,7 +208,7 @@
   "ghost.autoloot": "Auto-loot squads",
   "ghost.steal_all": "Rob them all",
   "ghost.frame": "Ghost Ops",
-  "ghost.hint": "its own daily budget, separate from the secret tasks. The event runs one day a week and does nothing on the others. No map scan needed — the client knows the squad list itself.",
+  "ghost.hint": "its own daily budget of five, counted apart from the five secret-task robberies. It takes what «Ghost: map» has gathered — the map sweep is the only place another alliance's squads appear. The event runs one day a week and does nothing on the others.",
   "ghost.level_min": "Minimum level",
   "ghost.off": "ghost auto-loot off",
   "ghost.on": "ghost auto-loot on",
