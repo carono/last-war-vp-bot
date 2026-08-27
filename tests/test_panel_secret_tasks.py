@@ -4196,6 +4196,32 @@ def test_a_ghost_page_shows_only_starred_squads_when_the_box_is_ticked():
     assert [r["uuid"] for r in page.narrow(rows)] == ["1000000000000001"]
 
 
+def test_an_unread_event_is_not_a_closed_one():
+    """«Ещё не прочитано» and «событие закрыто» are different facts (#2010).
+
+    Nothing asks the game about the event at boot — it is a VM round trip and this tab
+    keeps those out of start-up — so a fresh panel's `status` is empty, and empty used to
+    come out of the card as «закрыто · 0 краж». Measured live on the day this was
+    written: the card said «закрыто», one press of «Обновить» turned it into «идёт · 5».
+    """
+    from panel.tabs.secret_tasks import ghost as gh
+
+    page = object.__new__(gh.GhostGrid)
+    page.status = {}
+    page.tab = types.SimpleNamespace(t=lambda key, **fmt: key,
+                                     after=lambda call: call())
+    rows = page.web_rows()
+    assert [r["value"] for r in rows] == ["secrettasks.ghost.unknown"], rows
+    assert len(rows) == 1, "a budget was said about an event nobody has asked about"
+
+    # …and the standing order's own look is what fills it, without a second round trip.
+    page._paint_status = lambda: None
+    page.note_event(True, 5)
+    assert [r["value"] for r in page.web_rows()] == ["secrettasks.ghost.open", "5"]
+    page.note_event(False, 0)
+    assert page.web_rows()[0]["value"] == "secrettasks.ghost.closed"
+
+
 def test_the_ghost_order_chooses_out_of_the_pages_own_list():
     """«Автолут отрядов» spends the list the person is looking at (#1256, #2010).
 
