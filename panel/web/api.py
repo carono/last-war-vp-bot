@@ -590,6 +590,10 @@ class WebApi:
     def timers(self, profile: str | None = None) -> dict:
         """Every configured errand: its switch, its period, and how it last ended."""
         rt = self._runtime(profile)
+        # …and this is the errands page being LOOKED at (#2019) — see `triggers` below
+        # and `panel/runtime/errand_reads.py`: at most one reading a minute, and only
+        # while a page is actually asking.
+        self._look_at_errands(rt)
         schedule = rt.schedule
         config = schedule.timer_config()
         records = schedule.store.records()
@@ -889,6 +893,11 @@ class WebApi:
         listening. Same runtime, same two switches, same three states.
         """
         rt = self._runtime(profile)
+        # SOMEBODY IS LOOKING AT THE ERRANDS (#2019) — the one place a read may be
+        # booked from, at most once a minute and never while nothing is open
+        # (`panel/runtime/errand_reads.py`). A LOOK, not a read: this returns at once
+        # whatever the last one left.
+        self._look_at_errands(rt)
         schedule = rt.schedule
         pending = set(schedule.timers.pending())
         watching = set(schedule.triggers.watching())
@@ -940,6 +949,14 @@ class WebApi:
                   for order in schedule.options.orders()]
         return {"triggers": rows, "orders": orders,
                 "profile": self._name_of(rt), "time": time.time()}
+
+    @staticmethod
+    def _look_at_errands(rt) -> None:
+        """Say that the errands page is open, so its one reading may be booked."""
+        try:
+            rt.daily_reads.look()
+        except Exception:                # noqa: BLE001 — a line, never the route
+            pass
 
     def _trigger_title(self, rt, trig) -> str:
         """What the listener is called — the operator's own words, or the built-in key."""

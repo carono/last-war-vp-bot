@@ -76,13 +76,29 @@ class _Resources:
         raise AssertionError("a stat must never open the reading door")
 
 
-class _Rt:
-    """Just enough runtime: a store, a profile's files, and the stock cache."""
+class _Daily:
+    """The one reading the errands page may book — here, already taken."""
 
-    def __init__(self, root: Path, blobs=None, rows=(), age=1.5) -> None:
+    def __init__(self, values=None, age=8.0) -> None:
+        self.values, self.age = dict(values or {}), age
+        self.looks = 0
+
+    def cached(self, now=None) -> dict:
+        return {"values": dict(self.values), "age": self.age}
+
+    def look(self, now=None) -> None:
+        self.looks += 1
+
+
+class _Rt:
+    """Just enough runtime: a store, a profile's files, and the two caches."""
+
+    def __init__(self, root: Path, blobs=None, rows=(), age=1.5, daily=None,
+                 daily_age=8.0) -> None:
         self.store = _Store(blobs)
         self.profiles = _Profiles(root)
         self.resources = _Resources(rows, age)
+        self.daily_reads = _Daily(daily, daily_age)
 
     # The two doors a stat must never find: playing anything, or taking the link.
     def play_async(self, *a, **k):
@@ -230,10 +246,15 @@ def test_the_treasure_line_comes_off_the_checkpoint_with_its_age():
 
 
 def test_an_errand_nobody_can_answer_for_free_has_no_line():
-    """The blank is the deliverable: it says «мы слепы», and a poll would hide that."""
+    """The blank is the deliverable: it says «мы слепы», and a poll would hide that.
+
+    These are the ones no reading the panel takes can answer — not even the checklist's
+    (#2019): the tavern's free pull, «Кодовое имя», the radar board, the ministry.
+    """
     rt = _rt()
     for errand in ("restart_game", "tavern_free_pull", "collect_alliance_gifts",
-                   "alliance_help", "session_kick", "upgrade_decorations"):
+                   "attack_codename_daily", "do_radar_tasks", "session_kick",
+                   "apply_ministry_interior"):
         assert errand not in statsmod.PROVIDERS
         assert statsmod.of(rt, errand) is None
 
@@ -246,6 +267,57 @@ def test_a_provider_that_throws_costs_the_line_and_nothing_else():
     rt = _rt()
     rt.store = _Boom()
     assert statsmod.of(rt, "rally_auto_join") is None
+
+
+
+# ---------------------------------------------------------------------------
+# the ONE reading the page is allowed to take (#2019)
+# ---------------------------------------------------------------------------
+def test_the_eight_lines_that_ride_on_one_reading():
+    """The truck was what the person approved; the rest come out of the same chunk."""
+    rt = _rt(daily={"trucks_ready": 2, "trucks_send_left": 3, "trucks_send_cap": 4,
+                    "help_waiting": 7, "donate_left": 17, "decorations": 5,
+                    "recruit_pending": 1, "gifts_pending": 2}, daily_age=8.0)
+    assert statsmod.of(rt, "collect_truck_resources") == {
+        "key": "timers.stat.trucks", "fmt": {"n": 2}, "age": 8.0}
+    assert statsmod.of(rt, "send_trucks")["fmt"] == {"n": 3, "all": 4}
+    assert statsmod.of(rt, "alliance_help")["fmt"] == {"n": 7}
+    assert statsmod.of(rt, "donate_alliance_tech")["fmt"] == {"n": 17}
+    assert statsmod.of(rt, "upgrade_decorations")["fmt"] == {"n": 5}
+    # The two queues are one number a person acts on, not two to add up.
+    assert statsmod.of(rt, "collect_visitor_gifts")["fmt"] == {"n": 3}
+    assert statsmod.of(rt, "recruit_survivors")["fmt"] == {"n": 3}
+
+
+def test_a_reading_never_taken_draws_no_line():
+    assert statsmod.of(_rt(daily={}, daily_age=-1), "collect_truck_resources") is None
+    # …and a client that would not answer that one field is not a zero either.
+    rt = _rt(daily={"help_waiting": 1}, daily_age=4.0)
+    assert statsmod.of(rt, "collect_truck_resources") is None
+
+
+def test_the_reading_is_booked_by_a_look_and_by_nothing_else():
+    """No clock, no thread, no subscription — and the route is the only caller."""
+    source = (_REPO / "panel" / "runtime"
+              / "errand_reads.py").read_text(encoding="utf-8")
+    code = source.split('"""', 2)[2]
+    for forbidden in ("tick.arm", "Thread(", ".after(", "subscribe"):
+        assert forbidden not in code, f"the reading must not {forbidden}"
+    # The person's five conditions, each pinned where it is written.
+    assert "MIN_GAP_SEC = 60.0" in code, "«не чаще раза в минуту»"
+    assert "now - self._looked_at > LOOK_SEC" in code, "«пока страницу реально смотрят»"
+    assert "claims.DETACHED" in code, "below the bot's own work"
+    assert "self._rt.game.busy" in code, "«занят линк — пропускаем такт»"
+    assert '"age"' in code, "the age travels with the number"
+
+    api = (_REPO / "panel" / "web" / "api.py").read_text(encoding="utf-8")
+    assert api.count("self._look_at_errands(rt)") == 2, "the two errand routes"
+    assert "rt.daily_reads.look()" in api
+
+    stats = (_REPO / "panel" / "runtime"
+             / "errand_stats.py").read_text(encoding="utf-8")
+    assert "daily_reads.cached()" in stats and "daily_reads.look" not in stats, \
+        "a provider LOOKS at what was read; it never books a reading"
 
 
 # ---------------------------------------------------------------------------

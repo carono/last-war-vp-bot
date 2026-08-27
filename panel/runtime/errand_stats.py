@@ -254,6 +254,56 @@ def _treasures(rt) -> "dict | None":
     return {"key": "timers.stat.chests", "fmt": {"n": len(rows)}, "age": age}
 
 
+
+# ---------------------------------------------------------------------------
+# the one reading this page is allowed to take (#2019) — see `errand_reads.py`
+# ---------------------------------------------------------------------------
+def _daily(rt) -> tuple:
+    """`(values, age)` of the checklist reading, or `({}, None)` when there is none.
+
+    A LOOK and never a read: the read itself is booked by the route, once a minute at
+    most and only while somebody is looking (`panel/runtime/errand_reads.py`). Every
+    provider below shares that one round trip, which is why the truck's bubble costs the
+    same as the eight lines beside it.
+    """
+    try:
+        held = rt.daily_reads.cached()
+    except Exception:                    # noqa: BLE001 — a reading, never the page
+        return {}, None
+    values, age = held.get("values") or {}, held.get("age", -1)
+    if not values or age is None or age < 0:
+        return {}, None
+    return values, age
+
+
+def _from_daily(key: str, field: str, *extra):
+    """A provider drawing one number (and any companions) out of that one reading."""
+    def provider(rt) -> "dict | None":
+        values, age = _daily(rt)
+        if field not in values:
+            return None
+        fmt = {"n": _int(values.get(field))}
+        for name, other in extra:
+            if other not in values:
+                return None
+            fmt[name] = _int(values.get(other))
+        return {"key": key, "fmt": fmt, "age": age}
+
+    return provider
+
+
+def _visitors(rt) -> "dict | None":
+    """Guests at the gate — the recruit queue and the gift queue are one line.
+
+    Two errands draw it and they spend the same queue readings, so «сколько ждёт» is one
+    number a person acts on rather than two they have to add up.
+    """
+    values, age = _daily(rt)
+    if "recruit_pending" not in values and "gifts_pending" not in values:
+        return None
+    total = _int(values.get("recruit_pending")) + _int(values.get("gifts_pending"))
+    return {"key": "timers.stat.visitors", "fmt": {"n": total}, "age": age}
+
 #: Errand name -> what to draw under its block. An errand that is not here draws
 #: nothing, and that is a deliberate answer rather than a gap to be filled in with a
 #: poll: see the module docstring, and the survey in `docs/research/errand-stats.md`.
@@ -270,6 +320,17 @@ PROVIDERS: dict = {
     "secret_autoassist": _secret_targets,
     "ghost_autoloot": _ghost_targets,
     "treasure_auto": _treasures,
+    # …and the eight that ride on the ONE reading the person allowed (#2019). The truck
+    # is the one that was asked for; the rest answer out of the same chunk and cost
+    # nothing more than it does.
+    "collect_truck_resources": _from_daily("timers.stat.trucks", "trucks_ready"),
+    "send_trucks": _from_daily("timers.stat.trucks_out", "trucks_send_left",
+                               ("all", "trucks_send_cap")),
+    "alliance_help": _from_daily("timers.stat.help", "help_waiting"),
+    "donate_alliance_tech": _from_daily("timers.stat.donate", "donate_left"),
+    "upgrade_decorations": _from_daily("timers.stat.decor", "decorations"),
+    "collect_visitor_gifts": _visitors,
+    "recruit_survivors": _visitors,
 }
 
 

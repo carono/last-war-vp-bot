@@ -23,6 +23,18 @@ what a blank costs is written down here rather than quietly filled in with a pol
 It may not play a scenario, take the link, subscribe to anything, or arm a clock. The
 test that pins this is `tests/test_panel_errand_stats.py`.
 
+**One exception exists and it was granted, not taken.** The truck's bubble has no push
+and nothing caches it, so the choice was «a reading or a blank» — the person's answer was
+«Ок, делай», with five conditions: read when the PAGE IS OPENED, at most once a minute,
+only while somebody is really looking, below the bot's own work, and skip the tick when
+the link is busy — with the age shown beside the number.
+`panel/runtime/errand_reads.py` is those five rules and nothing else: it has no clock, and
+a read can only be booked from inside `look()`, which the two errand routes call.
+
+The reading taken is `read_daily_checklist.md` WHOLE rather than the truck alone, because
+the cost of a play is the round trip and not the work inside it — so the approved cost
+buys the truck and gives eight more lines away for nothing.
+
 ## What is free today
 
 | Errand | Line | Where it comes from | Age |
@@ -34,6 +46,12 @@ test that pins this is `tests/test_panel_errand_stats.py`.
 | `secret_autoloot`, `secret_autoassist`, `secret_tasks_day` | ★ targets ripe now, of the list | `secret_tasks_state` in `panel.db` | yes — off `checked_at` (game ms) or `seen_at` (PC seconds), each on its own clock |
 | `ghost_autoloot` | ghost squads ripe now, of the list | `ghost_map_state` in `panel.db` | yes, same two clocks |
 | `treasure_auto` | chests on the map | `world_treasures.json`, the capture's checkpoint | yes, the file's mtime |
+| `collect_truck_resources` | trucks waiting on the base | the granted reading (below) | yes, from the reading |
+| `send_trucks` | dispatches left of today's cap | the same reading | yes |
+| `alliance_help` | how many are waiting for help | the same reading | yes |
+| `donate_alliance_tech` | donations left of the 30 | the same reading | yes |
+| `upgrade_decorations` | upgrade steps banked | the same reading | yes |
+| `collect_visitor_gifts`, `recruit_survivors` | guests at the gate (both queues, one number) | the same reading | yes |
 
 «Ripe» is the three clauses both robbers already apply — finished, not expired, not ours
 and not taken, a loot slot free. The LEVEL rule is deliberately not applied: that is the
@@ -46,32 +64,41 @@ Nothing below has a line, and none of them got one:
 
 | Errand | What a person would want | Why it is not free |
 |---|---|---|
-| `collect_truck_resources` | is the truck's bubble up | `lw.pve.idle.reward` in read mode — a round trip per look; nothing caches it |
-| `collect_visitor_gifts` | how many visitors are waiting | two client queues, readable only in the CITY scene (`docs/research/visitor-recruit.md`) |
-| `recruit_survivors` | is the recruit ready | a client reading, no push, nothing cached |
-| `donate_alliance_tech` | attempts left of the 30 | one Lua call, but it is a call |
 | `collect_alliance_gifts` | gifts uncollected | a per-type reading; the tab reads it only when opened |
-| `alliance_help` | how many can be helped | the gate needs two readings (`docs/research/alliance-help.md`) |
 | `alliance_train_board` | is a conductor appointed | the events card reads it on demand; nothing writes it down |
 | `exchange_treasure_pieces`, `piece_exchange` | offers on the board | the board is read when the page is opened; no store |
 | `do_radar_tasks`, `do_radar_marches`, `radar_full_cycle` | free radar slots | `RadarCenterDataManager` — a live read |
-| `upgrade_decorations` | spare duplicates | a bag reading |
 | `tavern_free_pull` | is the free pull up | a client timer, read on demand |
 | `attack_codename_daily` | attacks left today | the manager is empty until asked (`docs/research/codename.md`) |
 | `apply_ministry_interior` | is the post free | a live read |
-| `sweep_star_servers` | zones whose star day is today | derived from the season plan — free in principle, needs a store |
-| `send_trucks` | trucks out / idle | a live read |
+| `sweep_star_servers` | zones whose star day is today | not derivable from the launch date — see the section below |
 | `restart_game`, `session_kick`, `inventory_refresh`, `leaderboard_collect`, `secret_task_share`, `ghost_recon_alliance` | — | nothing a number would add |
 
-Two of these are worth a conversation rather than a poll, and neither was done here:
+## The star day: the launch-date formula does NOT reproduce our observations
 
-* **`sweep_star_servers`** — the star day per warzone comes out of the client's own config
-  tables (`docs/research/client-config-tables.md`), which are read once and never move.
-  A stat would need somewhere to keep them; that is a store, not a reading.
-* **`collect_truck_resources`** — the truck bubble is the one blind spot a person asks
-  about daily. It is one press-sized read, and the honest options are «read it when the
-  page is opened, at most once a minute» or «leave it blank». That is the person's call,
-  not an agent's.
+The person's proposal was «день звезды вообще можно считать на лету, там же от даты
+запуска сервера учет» — compute it rather than store it. **Measured against what this
+profile has already seen, it does not come out.** The evidence and the arithmetic:
+
+* the book of observations (`secret_days`, 200 rows) holds **36** days marked as the star
+  day, one marked plain, and 163 laps whose star share was recorded;
+* the launch date of every warzone is already on the machine (`cache/servers.json`:
+  `open_ms`, and the game's own day counter `day`);
+* if the day were a function of the launch date, the marked days would pile up on one
+  residue. They do not — `game_day % 7` came out **{5:7, 2:6, 6:6, 3:5, 0:4, 4:4, 1:4}**,
+  and `(observed_day − launch_day) % 7` came out **{4:7, 1:6, 3:5, 5:5, 2:5, 6:5, 0:3}**.
+  Flat, on both keyings, and on periods 4, 5, 10 and 14 as well;
+* the independent signal says the same. Across 140 laps of more than 200 tiles, the mean
+  star share by `game_day % 7` is 0.047–0.109 with no bucket standing out, and by
+  `(day − launch) % 7` it is 0.044–0.106. A real star day shows as a share several times
+  the ordinary one, not as a tenth of a point.
+
+So the fitted book stays what it is (`tools/lib/secret_day.py`), no store was added, and
+no formula was written. **This is «не сходится», not «невозможно»**: our evidence is thin
+and uneven — 78 warzones over 10 days, most rows `unknown` — and it is one account's laps.
+If the game shows a schedule somewhere we have not read, that beats all of the above.
+
+`sweep_star_servers` therefore still has no line.
 
 ## The picture
 

@@ -25,6 +25,7 @@ from .power import Power
 from .recovery import Recovery as RecoveryState
 from .header import StatusHeader
 from .resources import BaseResources
+from .errand_reads import DailyReads
 from .bus import EventBus
 from .children import ChildFactory
 from .link import GameLink
@@ -213,6 +214,12 @@ class PanelRuntime:
         # fifth of a second of the game link must be taken once per profile and shared —
         # never once per page that happens to be open.
         self.resources = BaseResources(self)
+        # …and the ONE reading the errands page is allowed to take (#2019): the
+        # truck's bubble and the dozen answers that ride in the same chunk, at
+        # most once a minute and only while somebody is looking at the page. Per
+        # profile for the same reason as the stock above — it reads THIS
+        # account's client — and it starts nothing until a page asks.
+        self.daily_reads = DailyReads(self)
         # …and WHO IS PLAYING AND WHERE THEY ARE STANDING (panel/runtime/header.py,
         # #2016) — the strip along the top of every screen on the phone: the character's
         # name and level, the warzone, the scene and the window on top of it. Here for
