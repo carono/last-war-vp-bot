@@ -495,6 +495,7 @@ class SecretTasksTab(PanelTab):
         # order's own minute look. Empty until something has read: «not asked» is not
         # «none left», and the cards say which.
         self._budgets: dict = {}
+        self._budgets_busy = False
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
         # StringVar and the row's frame, so a tick can update the timer in place and a
@@ -891,6 +892,9 @@ class SecretTasksTab(PanelTab):
         self._snapshot()
         self._roster()
         self._ghost()
+        # …and what is left of the two budgets, because somebody is now LOOKING at the
+        # cards that say them (#2010). Not on any clock — see `read_budgets_soon`.
+        self.read_budgets_soon()
 
     def on_profile_switch(self) -> None:
         """Bounce all three orders onto the new account.
@@ -2721,16 +2725,47 @@ class SecretTasksTab(PanelTab):
                 self._ghost_config = ghost_tool.templates(evaluator)
             found = ghost_tool.map_roster(self.rt.profiles.ghost_json(),
                                           self._ghost_config)
-            # …AND BOTH BUDGETS, in the same worker rather than on a clock of their own
-            # (#2010). One Lua round trip (~0.15 s) per refresh of these pages, and none
-            # at all while nobody refreshes them — the ghost half is kept current for
-            # free besides, by the standing order's own minute look (`note_event`).
-            budgets = self._read_budgets(evaluator)
             ok = True
         except Exception:                     # noqa: BLE001 — no daemon, no game, no event
             status, mine, allies, found, ok = {}, [], [], [], False
-            budgets = None
-        self.after(lambda: self._ghost_landed(status, mine, allies, found, ok, budgets))
+        self.after(lambda: self._ghost_landed(status, mine, allies, found, ok))
+
+    def read_budgets_soon(self) -> None:
+        """Ask the game for both robbery budgets — ONCE, on its own worker (#2010).
+
+        WHEN, and the answer is short: **when a person looks, and when we have just
+        spent one.** A budget moves for exactly one reason — a robbery of ours that the
+        server confirmed — so the honest moments to read it are the moment after a run
+        and the moment somebody opens or refreshes the tab. There is no clock behind
+        this and it is not on the sniffer's path: it used to ride the ghost read, which
+        the capture's own progress line nudges, so a lap of the map turned a fact that
+        changes five times a day into a round trip a second (the operator's rule:
+        «читаем один раз, дальше слушаем, никаких активных действий в фоне»).
+
+        The ghost half is refreshed for free besides — the standing order's own look
+        already reads the open day and the robberies left, and hands them over
+        (`GhostMapGrid.note_event`).
+        """
+        # Through `getattr`, like every other reading a fixture may not have set up.
+        if getattr(self, "_budgets_busy", False) or not self.rt.game.ready():
+            return
+        self._budgets_busy = True
+
+        def work() -> None:
+            try:
+                budgets = self._read_budgets(self.rt.game.evaluator())
+            except Exception:                 # noqa: BLE001 — a reading, never the tab
+                budgets = None
+            self.after(lambda: self._budgets_landed(budgets))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _budgets_landed(self, budgets) -> None:
+        """What the read said, on the Tk thread. A failed one changes nothing."""
+        self._budgets_busy = False
+        if budgets:
+            self._budgets = dict(self._budgets, **budgets)
+            self._render()
 
     def _read_budgets(self, evaluator) -> "dict | None":
         """Both daily robbery budgets, off the game — `{'secret': (left, cap), …}`.
@@ -2768,7 +2803,7 @@ class SecretTasksTab(PanelTab):
             return ""
         return text.split(key, 1)[1].split()[0] if text.split(key, 1)[1].split() else ""
 
-    def _ghost_landed(self, status, mine, allies, found, ok: bool, budgets=None) -> None:
+    def _ghost_landed(self, status, mine, allies, found, ok: bool) -> None:
         """Hand each ghost page its own list — a read that WORKED, at least.
 
         A failed one says nothing about the event, exactly as a failed roster read says
@@ -2782,10 +2817,6 @@ class SecretTasksTab(PanelTab):
         mine in both when I am the one who started it.
         """
         self._ghost_busy = False
-        # The budgets stand on their own: they are read in the same worker but they are
-        # not the roster, and a roster that came back empty says nothing about them.
-        if budgets:
-            self._budgets = dict(self._budgets, **budgets)
         take = self.take(INTAKE_GHOST)
         if not ok:
             take.dropped(reason="read_failed")
@@ -2944,6 +2975,13 @@ class SecretTasksTab(PanelTab):
             })
         self.take(INTAKE_GHOST_MAP).kept(len(rows))
         self.ghost_map.apply(rows)
+        # …AND THE STANDING ORDER IS TOLD, rather than left to ask (#2010). A squad it
+        # could rob appears for exactly one reason — these tiles — so the list rings its
+        # bell and the watcher wakes. That is what replaced its minute-by-minute look at
+        # the game, and it is the same shape the rest of this tab already had.
+        order = getattr(self.ghost_map, "order", None)
+        if order is not None and order.running:
+            order.nudge()
 
     def refresh_world(self) -> None:
         """Re-merge the world listener's checkpoint into the three pages it feeds.
@@ -3435,6 +3473,7 @@ class SecretTasksTab(PanelTab):
         self._snapshot()
         self._roster()
         self._ghost()
+        self.read_budgets_soon()
         # …and the monsters, which are the one list on this tab that no capture can
         # fill: nothing on the wire names a monster (#1289), so «Обновить» is when the
         # scenario that reads the client's own memory is played. The other three world

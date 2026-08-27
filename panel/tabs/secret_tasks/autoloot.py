@@ -438,6 +438,10 @@ class AutoLoot:
         elif not taken:
             self._state = (STATE_WATCHING, "")
         self._proc = None
+        # …AND WHAT IS LEFT OF THE DAY (#2010). A budget moves for exactly one reason —
+        # a robbery of ours the server confirmed — so this is one of the two moments
+        # worth asking about it, and there is no clock anywhere that does.
+        self.tab.after(self.tab.read_budgets_soon)
 
     # -- the rule ------------------------------------------------------------
     def limit(self) -> int:

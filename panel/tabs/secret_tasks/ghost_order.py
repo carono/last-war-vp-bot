@@ -64,10 +64,22 @@ from ...runtime import game_process
 
 import lua_actions                                   # noqa: E402  (see above)
 
-#: How often the watcher looks while the event is open.
-POLL = 60.0
-#: …and while it is shut. Six days a week that is the whole of it.
+#: THE SAFETY NET, NOT THE MECHANISM (#2010). The operator's rule is «читаем один раз,
+#: дальше слушаем, никаких активных действий в фоне», and this order obeys it: it is
+#: woken by a NEW GHOST TILE arriving in the list (:meth:`nudge`, off the sniffer's own
+#: `##GHOST##` event), by the day turning over, and by a person's press. It used to look
+#: every sixty seconds whether or not anything had changed, and each look was a round
+#: trip into the game VM — a fact that changes a handful of times a day, asked for a
+#: thousand times a day.
+#:
+#: An hour is what is left of that clock: long enough not to be a poll, short enough that
+#: a panel which somehow missed every event still catches the event day it is running in.
+POLL = 3600.0
+#: …and while the event is shut. Six days a week that is the whole of it.
 CLOSED_PAUSE = 3600.0
+#: How long a look waits after a tile arrives, so a lap of the map that brings back two
+#: hundred of them is ONE look and not two hundred.
+NUDGE_SEC = 5.0
 
 #: What the recipe says when the SERVER confirmed a robbery, and when the day's five are
 #: gone. Both are read off its own events — `stealTimes` only moves on the reply, so a
@@ -84,6 +96,7 @@ class GhostOrder:
         self.rt = rt
         self.page = page          # the page whose list this chooses out of
         self._stop = None         # threading.Event while watching, else None
+        self._wake = threading.Event()   # rung when a ghost tile reaches the list
         self._proc = None         # one robbery in flight at a time
         # uuids handed to a child this session. A squad the server refused stays in the
         # client's list wearing the same «можно грабить» verdict, so without this the
@@ -113,6 +126,9 @@ class GhostOrder:
         if self._stop is not None:
             return
         self._stop = threading.Event()
+        # …and the bell the list rings when a tile arrives (#2010). Made here rather than
+        # in `__init__` so a stopped order cannot be woken by a stray event.
+        self._wake = threading.Event()
         self._seen.clear()
         self.rt.say("ghost", "ghost.on")
         self.rt.say("ghost", "ghost.rule", rule=self.page.rule_text())
@@ -125,8 +141,27 @@ class GhostOrder:
             self.rt.say("ghost", "ghost.off")
 
     # -- the watch -----------------------------------------------------------
+    def nudge(self) -> None:
+        """A new ghost tile reached the list — look soon (#2010). ANY THREAD.
+
+        THIS IS WHAT REPLACED THE MINUTE CLOCK. A squad the order could rob appears for
+        exactly one reason: the sniffer decoded its tile and the list took it in. So the
+        list says so, and the watcher wakes — rather than asking the game every sixty
+        seconds whether the world has changed, which is the shape the operator's rule
+        forbids.
+
+        Debounced by :data:`NUDGE_SEC`: a lap of the map brings back hundreds of tiles in
+        a few seconds and they are one look, not hundreds.
+        """
+        self._wake.set()
+
     def _loop(self, stop: threading.Event) -> None:
-        """Poll the event's budget; rob when it is open and something is robbable."""
+        """Wait to be woken; look when something says there is a reason to.
+
+        The wait is the whole change (#2010): `POLL` is an hour — the net under the
+        events, not the way they arrive — and what actually starts a look is
+        :meth:`nudge` (a tile arrived), the day turning over, or a person's press.
+        """
         last_err = ""
         while not stop.is_set():
             wait = POLL
@@ -138,7 +173,19 @@ class GhostOrder:
                 if err != last_err:
                     last_err = err
                     self.rt.say("ghost", "log.ghost.error", error=err)
-            if stop.wait(wait):
+            # Woken early by a tile, or by the hour running out. `_wake` is cleared here
+            # rather than by the setter, so a burst during a look is one more look and
+            # not one per tile.
+            if self._wake.wait(min(wait, POLL)):
+                self._wake.clear()
+                if stop.is_set():
+                    return
+                # …and a moment for the rest of the lap to land, so two hundred tiles
+                # arriving together are one look.
+                if stop.wait(NUDGE_SEC):
+                    return
+                continue
+            if stop.is_set():
                 return
 
     def tick(self) -> float:
@@ -180,12 +227,14 @@ class GhostOrder:
         if "open=" in text:
             self.page.note_event("open=1" in text, left)
         if "open=1" not in text:
-            return CLOSED_PAUSE
+            # Shut, and it can only open at the day boundary — so wait for THAT, not for
+            # an hour that happens to be round (#2010).
+            return self._until_reset()
         if left <= 0:
-            # Open, but today's five are spent. The reset is at the server's day
-            # boundary, so the same pause the secret-task watcher uses fits.
-            return self.rt.settings.opt_int("autoloot_pause_min",
-                                            low=1, high=1440) * 60.0
+            # Open, but today's five are spent — and they come back at the server's day
+            # boundary and at no other moment, so that is what is waited for (#2010). It
+            # used to be a flat half-hour, which is a poll with a longer stride.
+            return self._until_reset()
         # The event is open and there is budget: ask the page what the rule wants
         # (#1256). The list itself is the page's and it is LIVE — the sniffer fills it as
         # it decodes (#2010) — so this only decides WHEN to look, which is the one thing
@@ -199,6 +248,25 @@ class GhostOrder:
             return POLL
         self.rob(picks[:left])
         return POLL
+
+    def _until_reset(self) -> float:
+        """Seconds to the server's day boundary — the only clock this order obeys.
+
+        The two things it waits for, the event opening and the budget coming back, both
+        happen there and nowhere else. Falls back to :data:`POLL` when the boundary is
+        not known yet (a fresh profile that has not asked the game for it), because an
+        unknown day is a reason to look again in an hour rather than to sleep for ever.
+        """
+        day = getattr(self.rt, "day_reset", None)
+        left = getattr(day, "seconds_to_reset", None)
+        if left is None:
+            return POLL
+        try:
+            secs = float(left())
+        except Exception:                      # noqa: BLE001 — a reading, never the loop
+            return POLL
+        # A minute past it, so the server has certainly turned over by the time we look.
+        return max(60.0, min(secs + 60.0, 24 * 3600.0))
 
     def _kick_hold(self) -> int:
         """Seconds this client is still owed after a session kick — 0 when none.
@@ -353,7 +421,17 @@ class GhostOrder:
             # and the moment the client came back there would have been nothing left to
             # rob today.
             self._seen.difference_update(str(u) for u in uuids or ())
-        elif spent and not taken:
+        # WHAT IS LEFT OF THE DAY, ASKED NOW AND ONLY NOW (#2010): a robbery of ours is
+        # the one thing that moves this budget, so the moment after a run is when the
+        # cards can be brought up to date without a clock asking all day.
+        page = getattr(self, "page", None)
+        tab = getattr(page, "tab", None)
+        if tab is not None:
+            try:
+                tab.after(tab.read_budgets_soon)
+            except Exception:                  # noqa: BLE001 — a reading, never the run
+                pass
+        if spent and not taken:
             # Open, budget gone, nothing taken this run: say it once rather than letting
             # the next look find the same squads and spend another round trip on them.
             self.rt.say("ghost", "log.ghost.spent")
