@@ -22,10 +22,14 @@ the person with its price measured (docs/research/live-screen-view.md) and they 
     and the only caller is the route the open page asks — `/api/screen/data`. Close the
     page and the calls stop, so the readings stop. That is the safety catch of the whole
     feature and it is structural rather than promised.
-  * **a busy link is skipped, never queued.** The bot's own work outranks a picture: if
-    the game is being driven, the tick is dropped and the page goes on showing the last
-    reading with its age climbing. Nothing accumulates, so a minute of bot work does not
-    end in a minute of catch-up readings.
+  * **a busy link costs a TICK, never the bot its work.** If the game is being driven the
+    tick is dropped — not queued — and the page goes on showing the last reading with its
+    age climbing. Nothing accumulates, so a minute of the bot's work does not end in a
+    minute of catch-up readings. On a working profile that means the picture can stand
+    still for a long while, which is why the age is drawn and why «Прочитать сейчас»
+    exists: **a person's press is a press like any other** and waits its turn on the door
+    (`claims.HUMAN`), so somebody who actually wants a picture gets one even while the
+    bot is busy. A tick has nobody waiting for it and is simply given up.
   * **the play goes in at** :data:`~panel.runtime.claims.DETACHED`, below every ordinary
     errand, exactly as the status strip's and the stock's do.
   * **the age is drawn.** A picture that has stopped moving has to LOOK stopped.
@@ -158,7 +162,19 @@ class LiveScreen:
         now = self._clock() if now is None else now
         due = force or not self._at or (now - self._at) >= self.interval()
         if due and not self._reading and now >= self._hold:
-            if self._may_play():
+            # A PERSON'S PRESS WAITS ITS TURN; A TICK DOES NOT. «Прочитать сейчас» is a
+            # button like any other and goes in as one — it hangs a demand on the door and
+            # the worker waits for the errand to park, which is what a press means
+            # everywhere else in this panel. A tick has nobody waiting for it, so a busy
+            # link simply costs it: on a working profile the link is busy most of the
+            # time, and a queue of ticks would spend it on pictures nobody is looking at
+            # any more.
+            if force:
+                self._reading = True
+                if not self._play(human=True):
+                    self._reading = False
+                    self._hold = now + RETRY_SEC
+            elif self._may_play():
                 self._reading = True
                 if not self._play():
                     self._reading = False
@@ -246,11 +262,12 @@ class LiveScreen:
             return False
         return True
 
-    def _play(self) -> bool:
+    def _play(self, human: bool = False) -> bool:
         try:
-            return bool(self._rt.play_async(ACTION, tag="screen", human=False,
-                                            priority=claims.DETACHED,
-                                            on_result=self._landed))
+            return bool(self._rt.play_async(
+                ACTION, tag="screen", human=human,
+                priority=claims.HUMAN if human else claims.DETACHED,
+                on_result=self._landed))
         except Exception:                # noqa: BLE001 — a picture is never a fault
             return False
 
