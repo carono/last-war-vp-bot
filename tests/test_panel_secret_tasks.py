@@ -1475,13 +1475,16 @@ def test_refresh_presses_every_source():
     tab._roster = lambda: calls.append("roster")
     tab._ghost = lambda: calls.append("ghost")
     tab._read_monsters = lambda: calls.append("monsters")
+    # …and what is left of the two robbery budgets, which is read WHEN SOMEBODY LOOKS and
+    # after a robbery, and on no clock at all (#2010).
+    tab.read_budgets_soon = lambda: calls.append("budgets")
 
     tab.refresh_both()
-    assert calls == ["wire", "vm", "roster", "ghost", "monsters"], calls
+    assert calls == ["wire", "vm", "roster", "ghost", "budgets", "monsters"], calls
 
     calls.clear()
     assert tab.web_press("refresh", {}) == {"ok": True}
-    assert calls == ["wire", "vm", "roster", "ghost", "monsters"], calls
+    assert calls == ["wire", "vm", "roster", "ghost", "budgets", "monsters"], calls
 
 
 def test_a_share_does_not_pay_for_the_roster_read():
@@ -4264,6 +4267,58 @@ def test_an_unread_event_is_not_a_closed_one():
     assert [r["value"] for r in page.web_rows()] == ["secrettasks.ghost.open", "5 / 5"]
     page.note_event(False, 0)
     assert page.web_rows()[0]["value"] == "secrettasks.ghost.closed"
+
+
+def test_the_budgets_are_read_when_somebody_looks_and_after_a_robbery_only():
+    """«Не долбить сервер»: a budget is asked about when it could have MOVED (#2010).
+
+    It moves for exactly one reason — a robbery of ours the server confirmed — so the
+    read hangs off a person's look and off the end of a run, and off nothing else. It
+    used to ride the ghost pages' read, which the capture's own progress line nudges: a
+    lap of the map turned a fact that changes five times a day into a round trip a
+    second. Read off the source, because the wiring is what the rule is about.
+    """
+    src = (Path(__file__).resolve().parents[1] / "panel" / "tabs" / "secret_tasks"
+           / "tab.py").read_text(encoding="utf-8")
+    ghost_work = src[src.index("def _ghost_work"):src.index("def read_budgets_soon")]
+    assert "_read_budgets" not in ghost_work, (
+        "the budget read is back on the sniffer's path — a lap of the map would ask for "
+        "it once a second")
+    for caller in ("def on_show", "def refresh_both"):
+        body = src[src.index(caller):]
+        body = body[:body.index("\n    def ", 10)]
+        assert "read_budgets_soon()" in body, f"{caller} no longer reads the budgets"
+    # …and the two orders ask after they have spent one.
+    for path in ("autoloot.py", "ghost_order.py"):
+        text = (Path(__file__).resolve().parents[1] / "panel" / "tabs" / "secret_tasks"
+                / path).read_text(encoding="utf-8")
+        assert "read_budgets_soon" in text, f"{path} does not read the budget it spent"
+
+
+def test_the_ghost_order_waits_to_be_woken_rather_than_asking_the_game():
+    """The minute clock is gone (#2010): a tile arriving is what starts a look.
+
+    The operator's rule is «читаем один раз, дальше слушаем, никаких активных действий в
+    фоне». A squad the order could rob appears for one reason — the sniffer decoded its
+    tile — so the list rings a bell and the watcher wakes; the clock that is left is an
+    hour, as the net under the events, and the two things it genuinely waits for (the
+    event opening, the budget coming back) are the SERVER's day boundary rather than any
+    interval of ours.
+    """
+    from panel.tabs.secret_tasks import ghost_order as gomod
+
+    assert gomod.POLL >= 3600.0, "the minute poll is back"
+    src = (Path(__file__).resolve().parents[1] / "panel" / "tabs" / "secret_tasks"
+           / "ghost_order.py").read_text(encoding="utf-8")
+    assert "def nudge" in src and "_wake" in src, "nothing can wake the order early"
+    tick = src[src.index("def tick"):src.index("def _until_reset")]
+    assert "self._until_reset()" in tick, "a flat pause is back in place of the day"
+    # …and the tab rings it when tiles land.
+    tab = (Path(__file__).resolve().parents[1] / "panel" / "tabs" / "secret_tasks"
+           / "tab.py").read_text(encoding="utf-8")
+    land = tab[tab.index("def _ghost_tiles_land"):]
+    land = land[:land.index("\n    def ", 10)]
+    assert "order.nudge()" in land, "a decoded tile no longer wakes the standing order"
 
 
 def test_both_budgets_are_drawn_from_the_game_and_say_why_when_there_is_no_number():
