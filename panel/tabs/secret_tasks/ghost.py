@@ -162,6 +162,20 @@ class _GhostGrid(grid.TaskGrid):
     def persist_vars(self) -> list:
         return super().persist_vars() + [self.star_var]
 
+    def note_event(self, is_open: bool, left: int) -> None:
+        """What the standing order's own look already learnt about the event (#2010).
+
+        ANY THREAD — a dict write and a repaint handed to Tk. The watcher reads
+        `IsOpenDay` and the robberies left before it chooses anything; without this the
+        answer died in the watcher and the card went on saying «ещё не прочитано» while
+        the order beside it was acting on the real one.
+        """
+        self.status = {"open": bool(is_open), "left": int(left or 0)}
+        try:
+            self.tab.after(self._paint_status)
+        except Exception:                     # noqa: BLE001 — no window, no repaint
+            pass
+
     def landed(self, status, records) -> None:
         """A read came back: keep what it said about the event, then draw the squads."""
         self.status = status or {}
@@ -327,12 +341,27 @@ class _GhostGrid(grid.TaskGrid):
         The window draws the same pair over the table — six days a week it is the only
         thing on these pages worth reading, and «closed» is not something to guess at
         from an empty list.
+
+        AND «NOT ASKED YET» IS NOT «CLOSED» (#2010). Nothing reads the event's own state
+        at boot — it is a round trip into the game VM, and this tab keeps those out of
+        start-up — so a fresh panel had an empty `status`, and an empty `status` came out
+        of here as «событие закрыто». That is the panel saying, in its own words, that
+        today is not the day, on a day the game itself says it is: exactly the lie a
+        person is entitled to read as «сломалось». Measured live on the day this was
+        written — the card said «закрыто · 0» and one press of «Обновить» turned it into
+        «идёт · 5».
         """
-        return [{"label": "secrettasks.ghost.state_line",
-                 "value": self.tab.t("secrettasks.ghost.open" if self.status.get("open")
-                                     else "secrettasks.ghost.closed")},
-                {"label": "secrettasks.ghost.left",
-                 "value": str(int(self.status.get("left") or 0))}]
+        known = bool(self.status)
+        state = ("secrettasks.ghost.unknown" if not known else
+                 "secrettasks.ghost.open" if self.status.get("open")
+                 else "secrettasks.ghost.closed")
+        rows = [{"label": "secrettasks.ghost.state_line", "value": self.tab.t(state)}]
+        if known:
+            # …and the budget only where there IS one to say. «0 краж осталось» about an
+            # event nobody has asked about is the same lie in a number.
+            rows.append({"label": "secrettasks.ghost.left",
+                         "value": str(int(self.status.get("left") or 0))})
+        return rows
 
 
 class GhostGrid(_GhostGrid):

@@ -155,14 +155,22 @@ class GhostOrder:
                     lua_actions.ghost_recon_steals_left()))
         text = " ".join(self.rt.game.client.run(chunk, marker="GHOST", settle=0.6,
                                                 early=True))
-        if "open=1" not in text:
-            return CLOSED_PAUSE
         left = 0
         if "left=" in text:
             try:
                 left = int(float(text.split("left=")[1].split()[0]))
             except (ValueError, IndexError):
                 left = 0
+        # WHAT THIS LOOK ALREADY KNOWS, WRITTEN WHERE THE CARD READS IT (#2010). Nothing
+        # asks the game about the event at boot — it is a VM round trip and this tab keeps
+        # those out of start-up — so until somebody presses «Обновить» the pages have no
+        # `status` at all. This look has just paid for that answer; handing it over costs
+        # a dict, and it is the difference between a card that says «ещё не прочитано» all
+        # day and one that says what the game said a minute ago.
+        if "open=" in text:
+            self.page.note_event("open=1" in text, left)
+        if "open=1" not in text:
+            return CLOSED_PAUSE
         if left <= 0:
             # Open, but today's five are spent. The reset is at the server's day
             # boundary, so the same pause the secret-task watcher uses fits.

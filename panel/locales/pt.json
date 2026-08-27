@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Roubos restantes",
   "secrettasks.ghost.open": "rolando",
   "secrettasks.ghost.closed": "fechado",
+  "secrettasks.ghost.unknown": "ainda não lido",
   "secrettasks.ghost.own": "esquadrão próprio",
   "secrettasks.ghost.looted": "roubados: {n}",
   "secrettasks.ghost.state.preview": "cedo demais",

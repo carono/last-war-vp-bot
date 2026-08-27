@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Ограблений осталось",
   "secrettasks.ghost.open": "идёт",
   "secrettasks.ghost.closed": "закрыто",
+  "secrettasks.ghost.unknown": "ещё не прочитано",
   "secrettasks.ghost.own": "свой отряд",
   "secrettasks.ghost.looted": "ограблен: {n}",
   "secrettasks.ghost.state.preview": "ещё рано",

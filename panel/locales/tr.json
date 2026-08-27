@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Kalan soygun",
   "secrettasks.ghost.open": "sürüyor",
   "secrettasks.ghost.closed": "kapalı",
+  "secrettasks.ghost.unknown": "henüz okunmadı",
   "secrettasks.ghost.own": "kendi takımı",
   "secrettasks.ghost.looted": "soyulan: {n}",
   "secrettasks.ghost.state.preview": "çok erken",

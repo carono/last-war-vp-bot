@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Verbleibende Raubzüge",
   "secrettasks.ghost.open": "läuft",
   "secrettasks.ghost.closed": "geschlossen",
+  "secrettasks.ghost.unknown": "noch nicht gelesen",
   "secrettasks.ghost.own": "eigene Truppe",
   "secrettasks.ghost.looted": "geplündert: {n}",
   "secrettasks.ghost.state.preview": "zu früh",

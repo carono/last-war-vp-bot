@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Pozostałe grabieże",
   "secrettasks.ghost.open": "trwa",
   "secrettasks.ghost.closed": "zamknięte",
+  "secrettasks.ghost.unknown": "jeszcze nie odczytano",
   "secrettasks.ghost.own": "własny oddział",
   "secrettasks.ghost.looted": "ograbionych: {n}",
   "secrettasks.ghost.state.preview": "za wcześnie",

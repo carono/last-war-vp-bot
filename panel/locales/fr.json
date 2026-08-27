@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Pillages restants",
   "secrettasks.ghost.open": "en cours",
   "secrettasks.ghost.closed": "fermé",
+  "secrettasks.ghost.unknown": "pas encore lu",
   "secrettasks.ghost.own": "équipe à soi",
   "secrettasks.ghost.looted": "pillées : {n}",
   "secrettasks.ghost.state.preview": "trop tôt",

@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Robberies left",
   "secrettasks.ghost.open": "running",
   "secrettasks.ghost.closed": "shut",
+  "secrettasks.ghost.unknown": "not read yet",
   "secrettasks.ghost.own": "own squad",
   "secrettasks.ghost.looted": "robbed: {n}",
   "secrettasks.ghost.state.preview": "too early",

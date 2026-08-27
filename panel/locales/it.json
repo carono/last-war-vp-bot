@@ -1147,6 +1147,7 @@
   "secrettasks.ghost.left": "Furti rimasti",
   "secrettasks.ghost.open": "in corso",
   "secrettasks.ghost.closed": "chiuso",
+  "secrettasks.ghost.unknown": "non ancora letto",
   "secrettasks.ghost.own": "squadra propria",
   "secrettasks.ghost.looted": "derubate: {n}",
   "secrettasks.ghost.state.preview": "troppo presto",
