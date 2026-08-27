@@ -923,6 +923,24 @@ errand row that is a scenario. All three reach the same `web_press`, so an id ha
 answered wherever it was offered — and an item's action carries `args`, which is how a
 row says WHICH errand it is.
 
+**A card of PLACES is drawn as small buttons, not as a row apiece** (#1999). A card may
+say `"layout": "tiles"`, and then its `items` are laid out as a wrapping grid of tiles
+instead of full-width rows — two or three columns on a phone, more on a wide screen,
+never a breakpoint. A tile carries the item's `text` (a coordinate, which is already the
+press that goes there), its `detail`, its first TWO facts as bare values with the
+label kept as the tooltip, its `pill` and its own `actions`. Everything else — the
+`note`, the third fact — is deliberately left off, and a card that needs the prose is a
+card that stays rows.
+
+The person's words, about «Карта»: «делаем не грид с секретками в одну строку, а
+небольшие кнопки с минимальной информацией». That screen sends 285 starred tiles, 288
+warzones and thousands of monsters, and a row apiece is a page nobody reads to the end
+of. Which cards it applies to is a table on the tab (`TILE_CARDS` on «Карта» and on
+«Секретный командный пункт»), attached in one loop rather than typed into ten card
+literals — the same shape as the flow strip beside it, and for the same reason: an
+eleventh page is then one line and not an eleventh place to forget.
+`tests/test_panel_web_screens.py` fails on a table naming a card that no longer exists.
+
 **A card may SET rather than show** (#1976). `fields` is a list of knobs — `key` (the
 knob's own id, data), `label` and an optional `hint` (locale keys), `kind` (`switch`,
 `number` or `text`, decided by the type the knob was DECLARED with, never guessed from

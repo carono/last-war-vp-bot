@@ -230,12 +230,91 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
   )
 }
 
+/* ONE ITEM OF A `layout: "tiles"` CARD — a small button rather than a wide row (#1999).
+ *
+ * The person's words: «карта, секретки грабеж: делаем не грид с секретками в одну строку,
+ * а небольшие кнопки с минимальной информацией». A ★ list is 285 places, and a place is
+ * recognised by four things — where it is, what level it is, what state it is in, and
+ * whether it can be taken. Everything else on the row is why the card was unreadable.
+ *
+ * So a tile carries the item's NAME (a coordinate, which is already the press that goes
+ * there — `Coord`), its first TWO facts as bare VALUES, its pill and its own buttons.
+ * Two, measured rather than chosen: a ★ tile has four readings and the fourth wrapped
+ * the line, which is the page this exists instead of. What survives is what the person
+ * asked for — «уровень, звезда, координата, состояние».
+ * The fact's label survives as the tile's tooltip: a value with no word beside it is
+ * readable at a glance and still nameable when somebody wonders what «1/3» was. A fact
+ * with no value at all is a MARK — «переслано», «ограблено» — and there the label IS the
+ * word, so it is drawn instead.
+ *
+ * The tile is not itself a button: what it holds already is one (the coordinate, and
+ * whatever the tab offered), and a button inside a button is neither valid nor pressable
+ * on a thumb. */
+/* How many of an item's facts fit on a tile before the line wraps — measured on an
+ * emulated iPhone against the live ★ list, which has four readings and wrapped at three. */
+const TILE_FACTS = 2
+
+function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
+  /* `detail` goes on the tile too, first — it is the one word that is not a fact and
+     still tells the places apart: the alliance a chest belongs to, the owner of a base.
+     `note` does not: it is prose, and prose is what a tile exists instead of. */
+  const bits: ReactNode[] = item.detail
+    ? [
+        <span className="bit" key="detail">
+          <Marked text={item.detail} parts={item.detail_parts} />
+        </span>,
+      ]
+    : []
+  bits.push(
+    ...(item.facts || []).slice(0, TILE_FACTS).map((f, i) => (
+    <span className="bit" key={i} title={t(f.label)}>
+      {!f.value ? (
+        t(f.label)
+      ) : f.value_parts ? (
+        <Marked text={f.value} parts={f.value_parts} />
+      ) : f.translate ? (
+        t(f.value)
+      ) : (
+        f.value
+      )}
+    </span>
+    )),
+  )
+  if (item.until)
+    bits.push(
+      <span className="bit" key="until">
+        {when(item.until, now || item.until)}
+      </span>,
+    )
+  return (
+    <div className="mini">
+      <div className="name">
+        {item.label ? t(item.label) : <Marked text={item.text} parts={item.text_parts} />}
+      </div>
+      {bits.length ? <div className="bits">{bits}</div> : null}
+      {item.pill ? <span className="pill">{t(item.pill)}</span> : null}
+      {(item.actions || []).length ? (
+        <div className="acts">
+          {(item.actions || []).map((action) => (
+            <PressButton key={action.id} action={action} screen={screen} after={after} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /* How many rows of a list a card draws before it stops and offers the rest. The map
  * screen sends 288 warzones, 285 starred tiles and 61 monsters in one payload, and the
  * phone drew every one of them under every other card — «огромная страница, сплошные
  * списки». A screen is a dashboard: the first screenful has to answer, and the rest is
  * one tap away. */
 const PAGE_ITEMS = 20
+
+/* …and how many a card of TILES draws, which is more because a tile is smaller: twenty
+ * wide rows are twenty screenfuls of scroll and thirty tiles are about five. Same
+ * «Показать ещё», same restart on a narrowed search. */
+const PAGE_TILES = 30
 
 /* What to call a card in the strip: its own title if it has one, its `head` (data, not a
  * key) otherwise, and a dash when it has neither — a chip with no word on it is worse
@@ -264,10 +343,14 @@ function Card({
     const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' + (item.note || '')).toLowerCase()
     return hay.includes(needle)
   })
-  const [shown, setShown] = useState(PAGE_ITEMS)
+  // A card of PLACES draws them as small buttons (#1999): `layout` is the tab's own
+  // word for it, so nothing here guesses from a title or a count.
+  const tiled = card.layout === 'tiles'
+  const page = tiled ? PAGE_TILES : PAGE_ITEMS
+  const [shown, setShown] = useState(page)
   // A narrowed search starts from the top again: «показать ещё» over a list that has
   // just changed under the person is the wrong twenty.
-  useEffect(() => setShown(PAGE_ITEMS), [needle, card.title])
+  useEffect(() => setShown(page), [needle, card.title, page])
   const rest = Math.max(0, items.length - shown)
   const rows = card.rows || []
   return (
@@ -307,12 +390,20 @@ function Card({
           </span>
         </div>
       ))}
-      {items.slice(0, shown).map((item, i) => (
-        <Item key={i} item={item} now={now} screen={screen} after={after} />
-      ))}
+      {tiled ? (
+        <div className="minis">
+          {items.slice(0, shown).map((item, i) => (
+            <MiniItem key={i} item={item} now={now} screen={screen} after={after} />
+          ))}
+        </div>
+      ) : (
+        items.slice(0, shown).map((item, i) => (
+          <Item key={i} item={item} now={now} screen={screen} after={after} />
+        ))
+      )}
       {rest ? (
-        <button className="more" onClick={() => setShown((was) => was + PAGE_ITEMS)}>
-          {t('web.ui.show_more', { n: Math.min(rest, PAGE_ITEMS) })}
+        <button className="more" onClick={() => setShown((was) => was + page)}>
+          {t('web.ui.show_more', { n: Math.min(rest, page) })}
         </button>
       ) : null}
       {!items.length && !rows.length && !(card.fields || []).length && card.empty ? <p className="muted">{t(card.empty)}</p> : null}

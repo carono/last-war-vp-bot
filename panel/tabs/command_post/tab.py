@@ -1497,7 +1497,14 @@ class CommandPostTab(PanelTab):
         # scenario»). So does «Ограбить всех» beside it, since #1976 made the ghost
         # robbery one recipe too — it takes its queue as an argument and parks nothing
         # with a child.
-        return {"cards": [c for c in cards if c], "now": now,
+        # A CARD OF PLACES IS DRAWN AS BUTTONS, NOT AS ROWS (#1999) — the same rule the
+        # map tab's lists follow, out of one table rather than typed into each literal.
+        # «Свои задания» is readings and knobs and has no list at all, so it is not here.
+        cards = [c for c in cards if c]
+        for card in cards:
+            if card.get("title") in self.TILE_CARDS:
+                card["layout"] = "tiles"
+        return {"cards": cards, "now": now,
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             {"id": "ghost_rob",
                              "label": "cmdpost.ghost.steal_all"},
@@ -1512,6 +1519,17 @@ class CommandPostTab(PanelTab):
                             {"id": "tasks_run", "label": "cmdpost.tasks.run"},
                             {"id": "tasks_collect",
                              "label": "cmdpost.tasks.collect"}]}
+
+    #: WHICH CARDS ARE LISTS OF PLACES (#1999). The person's words: «карта, секретки
+    #: грабеж: делаем не грид с секретками в одну строку, а небольшие кнопки с
+    #: минимальной информацией» — and the robbery page is the half of that sentence that
+    #: lives here. Each of the three is the same shape as the map's: where it is, what
+    #: level it is, what state it is in, and the press that takes it.
+    TILE_CARDS = frozenset({
+        "cmdpost.tab.ghost",
+        "cmdpost.tab.shared",
+        "cmdpost.tab.treasure",
+    })
 
     def _web_tasks(self) -> dict:
         """«Свои задания» — the readings the last run left, and the rule in one line."""

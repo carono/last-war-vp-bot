@@ -296,6 +296,21 @@ class PanelTab:
                  "empty": "alliance.empty"}],           # a KEY, shown for no items
              "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
 
+        A card whose items are PLACES says so, and the phone draws them as small buttons
+        instead of a row apiece (#1999)::
+
+            {"title": "secrettasks.page.stars",
+             "layout": "tiles",                   # or absent, which is the old row
+             "items": [...]}
+
+        A tile carries the item's `text` (a coordinate — already the press that goes
+        there), its `detail`, its first TWO facts as bare values with the label kept as
+        the tooltip, its `pill` and its own `actions`. Everything else on the item — the
+        `note`, the third fact — is left off on purpose: «минимальная информация» is the
+        whole point, and a card that needs the prose is a card that stays rows. The
+        person's words, on «Карта»: «делаем не грид с секретками в одну строку, а
+        небольшие кнопки с минимальной информацией».
+
         …and one more kind of card, for a screen that SETS rather than shows (#1976)::
 
             {"cards": [

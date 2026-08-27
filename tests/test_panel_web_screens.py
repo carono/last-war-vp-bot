@@ -212,8 +212,12 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     # `fields` and `note` are the settings shape (#1976): a card that SETS rather than
     # shows. A field is a knob — its own id, a label key, a kind and a value — and the
     # renderer draws the control the kind names.
+    # `layout` is how a card's ITEMS are drawn (#1999): absent or `rows` is the wide
+    # row a list has always been, `tiles` is a wrap of small buttons for a card whose
+    # items are places. Only those two — the renderer knows no third, and a card asking
+    # for one would silently fall back to rows.
     allowed_card = {"title", "head", "rows", "items", "empty", "search", "actions",
-                    "fields", "note", "flow"}
+                    "fields", "note", "flow", "layout"}
     # `avatar` is a LINK to the panel's own picture route, not bytes and not a word: the
     # «Ралли» screen draws the face of everybody standing in a banner, out of the game
     # client's own cache (#1324). The renderer draws it as an <img> and drops it if it
@@ -231,9 +235,64 @@ def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
         for card in view["cards"]:
             extra = set(card) - allowed_card
             assert not extra, f"{tab_id}: card has {sorted(extra)}"
+            assert card.get("layout", "rows") in ("rows", "tiles"), (
+                f"{tab_id}: card layout {card.get('layout')!r}")
             for item in card.get("items") or ():
                 extra = set(item) - allowed_item
                 assert not extra, f"{tab_id}: item has {sorted(extra)}"
+
+
+def test_a_list_of_places_is_drawn_as_buttons_and_names_cards_that_exist():
+    """The ★ list, the robbery list and their neighbours are TILES, not rows (#1999).
+
+    The person's words: «карта, секретки грабеж: делаем не грид с секретками в одну
+    строку, а небольшие кнопки с минимальной информацией». Two tabs declare which of
+    their cards that applies to (`TILE_CARDS`) and one loop attaches it, so what can go
+    wrong is not the drawing — it is the TABLE going stale: a card renamed, and its entry
+    left behind, silently putting the longest list on the screen back into rows.
+
+    So both halves are pinned. Every name in a table must be a real locale key, and —
+    where there is a display to build a page with — must actually be the title of a card
+    that tab hands over.
+    """
+    english = _english()
+    tabled = [(tab_id, cls) for tab_id, cls in _tabs_with_screens()
+              if getattr(cls, "TILE_CARDS", None)]
+    assert tabled, "nobody declares TILE_CARDS any more — was the table renamed?"
+    bad = []
+    for tab_id, cls in tabled:
+        for title in cls.TILE_CARDS:
+            if title not in english:
+                bad.append(f"{tab_id}: TILE_CARDS names «{title}», which is in no locale")
+    assert not bad, "\n  ".join([""] + bad)
+
+    harness = _page()
+    if harness is None:
+        return
+    stale = []
+    try:
+        app, session = harness.app, harness.session
+        with app._on(session):
+            for tab_id, cls in tabled:
+                tab = session.rt.tabs.get(tab_id)
+                if tab is None:
+                    continue                    # not in this profile — nothing to draw
+                view = tab.web_view() or {}
+                cards = view.get("cards") or []
+                titles = {card.get("title") for card in cards}
+                for title in cls.TILE_CARDS:
+                    if title not in titles:
+                        stale.append(f"{tab_id}: TILE_CARDS names «{title}», "
+                                     f"which is no card of this tab")
+                for card in cards:
+                    want = "tiles" if card.get("title") in cls.TILE_CARDS else "rows"
+                    got = card.get("layout", "rows")
+                    if got != want:
+                        stale.append(f"{tab_id}: «{card.get('title')}» is drawn as "
+                                     f"{got}, not {want}")
+    finally:
+        harness.close()
+    assert not stale, "\n  ".join([""] + stale)
 
 
 def test_the_data_tabs_hand_over_what_they_already_read():

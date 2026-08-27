@@ -4491,12 +4491,43 @@ class SecretTasksTab(PanelTab):
         # as «a card with no title».
         screen["cards"] = [card for card in screen["cards"] if card]
         for card in screen["cards"]:
+            # A CARD OF PLACES IS DRAWN AS BUTTONS, NOT AS ROWS (#1999) — attached from
+            # one table for the same reason the flow strip below is: ten card literals
+            # are ten places to forget, and the eleventh page would be the first to be
+            # missed.
+            if card.get("title") in self.TILE_CARDS:
+                card["layout"] = "tiles"
             page = self.FLOW_CARDS.get(card.get("title"))
             said = (self._star_web_flow() if page == "" else
                     getattr(self, page).web_flow() if page else None)
             if said:
                 card["flow"] = said
         return screen
+
+    #: WHICH CARDS ARE LISTS OF PLACES — drawn on the phone as small buttons rather
+    #: than as a row apiece (#1999). The person's words: «карта, секретки грабеж: делаем
+    #: не грид с секретками в одну строку, а небольшие кнопки с минимальной информацией».
+    #:
+    #: Every one of them is the same shape: a coordinate (or a warzone), a level, a state
+    #: and the press that goes there. The ★ page alone is 285 of them and the picker is
+    #: 288, which is the whole of why this screen was «огромная страница, сплошные
+    #: списки» — a row apiece is a page nobody reads to the end of.
+    #:
+    #: «Обмен кусочками» is deliberately NOT here: its items are offers with a verdict on
+    #: each, and the verdict is a sentence rather than a fact — a tile would cut exactly
+    #: the part a person opened the card for.
+    TILE_CARDS = frozenset({
+        "secrettasks.picker.title",
+        "secrettasks.page.stars",
+        "secrettasks.alliance",
+        "secrettasks.ghost",
+        "secrettasks.ghost.allies",
+        "secrettasks.ghost.map",
+        "world.mines",
+        "world.monsters",
+        "world.trains",
+        "world.trucks",
+    })
 
     #: WHICH CARD DRAWS WHICH PAGE'S FLOW STRIP — card title -> the attribute holding the
     #: grid, or `""` for the ★ list, which the tab draws itself (#1549). A card with no
