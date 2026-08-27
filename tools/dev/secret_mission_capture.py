@@ -70,6 +70,7 @@ summary and `diagnose()` tell those cases apart from a deaf capture.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import sys
@@ -90,6 +91,26 @@ from map_capture import (  # noqa: E402
 )
 
 C_MISSION = "\x1b[1;33m"  # bold yellow, the "worth acting on" colour
+
+#: The machine line this capture prints for every squad it has something new to say
+#: about — the EVENT the panel's «Призрак: карта» list is built from (#2010). It MUST
+#: match `panel/tabs/secret_tasks/capture.py::GHOST_MARKER`: the two processes agree on
+#: this string and on the JSON object after the tab, and on nothing else.
+#:
+#: WHY A CHECKPOINT WAS NOT ENOUGH, which is the whole of #2010. The file this capture
+#: rewrites every tick holds what the index holds, and the index drops every tile that is
+#: not on the server currently on screen (`MissionIndex.on_server_left`) — a lap of the
+#: map walks eighteen warzones in a few seconds, so the file is empty again long before
+#: anything reads it. Live: `1018 map response(s), 112950 tile(s), 1 mission(s)`, and a
+#: panel list that stayed empty through the whole of it. A tile that travels as an EVENT
+#: at the moment it is decoded cannot be lost that way, which is exactly why the
+#: secret-task scan got one in #1416.
+#:
+#: NOBODY IS ON THIS LINE (#1293). The owner's uid and the alliance id are decoded and go
+#: into the checkpoint, which is the panel's own file — they may not go into a stream that
+#: lands in `panel.log`. What travels is the TILE: where it is, what it is, its two clocks
+#: and how many times it has been robbed.
+GHOST_MARKER = "##GHOST##"
 
 # Freshness window for the mission index and its checkpoint. A ghost-recon tile
 # is re-sent every time the map is panned over it, exactly like a secret task,
@@ -453,6 +474,22 @@ def main() -> int:
                 if key in reported:
                     continue
                 reported.add(key)
+                # THE EVENT FIRST, the human line after — the same order and the
+                # same reason as the secret-task scan (#1416, #2010): whatever the
+                # display filters do to the words below, the panel's list is fed.
+                print(GHOST_MARKER + "\t" + json.dumps({
+                    "uuid": str(m.uuid), "server": m.owner_server,
+                    "target_server": m.target_server,
+                    "x": m.x, "y": m.y, "cfg": m.cfg_id, "state": m.state,
+                    "members": m.member_count, "loot": m.steal_count,
+                    "completed_at": m.completion_time,
+                    "expires_at": m.expire_time,
+                    # The clock's verdict as this capture read it. The panel re-reads it
+                    # against its own clock when it draws, so a row that ripens between
+                    # the two is not stuck on «ещё в пути».
+                    "ready": bool(m.can_loot),
+                    "seen_at": int(time.time()),
+                }, ensure_ascii=False), flush=True)
                 star = " *" if _starred(m) else "  "
                 lvl = f"{m.level:>2}" if m.level is not None else " ?"
                 where = (f"({m.x:>4},{m.y:>4})" if m.x is not None

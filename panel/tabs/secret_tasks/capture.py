@@ -54,6 +54,19 @@ TILE_MARKER = "##TILE##"
 #: while a list built out of older replies still shows a task.
 AREA_MARKER = "##AREA##"
 
+#: …and the same thing for the OTHER sniffer: one line per ghost-recon squad it has
+#: something new to say about (#2010). It MUST match `GHOST_MARKER` in
+#: `tools/dev/secret_mission_capture.py`.
+#:
+#: «Всё должно быть по аналогии с секретками.» It was not: a ghost tile reached the panel
+#: only through the checkpoint file, which that child rewrites every tick out of an index
+#: that drops everything not on the warzone currently on screen. A lap of the map walks
+#: eighteen of them in seconds, so the file was empty again before anything read it —
+#: 112 950 tiles decoded in one live run against a «Призрак: карта» list that stayed
+#: empty. The tile travels as an event now, exactly as a ★ tile has since #1416, and the
+#: file stays what it always was: the fallback for a restart.
+GHOST_MARKER = "##GHOST##"
+
 #: The `family NNNN` token the capture prints on every finding, and the leading ` *` it
 #: marks a starred one with. The family is what the rule is actually made of; the star
 #: glyph is the fallback for a line shape that ever stops carrying it.
@@ -433,6 +446,25 @@ class Capture:
             self.tab.area_seen(record)
         return False
 
+    def on_ghost(self, line: str) -> bool:
+        """One ghost-recon SQUAD event: hand it over and get out of the way (#2010).
+
+        The twin of :meth:`on_tile`, and it costs the same: a JSON parse, a dict write,
+        a return. It runs on the child's reader thread, which must never be blocked —
+        whatever the panel decides to do about the squad happens on the Tk thread, in one
+        pass over everything that has arrived (`SecretTasksTab.ghost_tile_seen`).
+
+        Returns `False` so the reader swallows the line: it is machinery, and the human
+        line for the same squad is printed right after it.
+        """
+        try:
+            record = json.loads(line[len(GHOST_MARKER):].strip())
+        except ValueError:
+            return False                # a torn line is not worth a word
+        if isinstance(record, dict):
+            self.tab.ghost_tile_seen(record)
+        return False
+
     def on_line(self, line: str) -> bool:
         """One capture line: log it if the display filter lets it through, record a real
         finding into the profile's own log, and nudge the list to re-merge the
@@ -448,6 +480,8 @@ class Capture:
             return self.on_tile(line)
         if line.startswith(AREA_MARKER):
             return self.on_area(line)
+        if line.startswith(GHOST_MARKER):
+            return self.on_ghost(line)
         is_finding = bool(coords.parse(line))
         # THE CHECKPOINT MERGE IS THE FALLBACK NOW, not the feed (#1416). The tiles
         # arrive as their own events above; this keeps the old path alive for what the

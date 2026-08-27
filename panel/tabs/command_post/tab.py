@@ -39,6 +39,7 @@ from tkinter import ttk
 
 from ...runtime import game_process
 from ...runtime import opt_value
+from ...runtime import store
 from ...runtime.paths import TOOLS
 from ...widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
                         font as ui_font)
@@ -524,23 +525,44 @@ class GhostReconPane(_Pane):
         return status, targets
 
     def _scanned_targets(self, known: set) -> list:
-        """The scan checkpoint's squads that the client's own list does not carry.
+        """Every squad off the MAP that the client's own list does not carry.
+
+        Two sources, in this order, and the first of them is the point of #2010:
+
+        1. **«Призрак: карта»'s own list** — what the panel has gathered and KEPT
+           (`store.GHOST_MAP_STATE`). The standing order has to choose out of the list
+           the panel is showing, which is the rule the ★ robbery has obeyed since #1256;
+        2. …then the capture's live checkpoint, for whatever that list has not heard of
+           yet — a «Сканировать» run on this page with «Секретки» switched off, most of
+           all.
+
+        It used to be (2) alone, read through the FRESHNESS window: a tile the map had
+        not re-sent in the last few minutes was dropped, and that child rewrites the file
+        every tick out of an index that keeps only the warzone currently on screen. A lap
+        walks eighteen of them in seconds, so what a lap found was gone before this ever
+        read it — «автолут призрака не работает» with nothing to rob.
 
         The game's per-tile gate (`GetPointStealType`) only answers for a squad in
-        `taskList`, so a foreign-alliance tile off the map has no verdict from it —
-        its readiness is the clock instead (the squad is back and the tile has not
-        expired), which is what `GhostReconMission.can_loot` reads. The event-day and
-        budget halves still gate the send itself in the VM, and the server has the
-        last word either way.
+        `taskList`, so a foreign-alliance tile off the map has no verdict from it — its
+        readiness is the clock instead (the squad is back and the tile has not expired),
+        which is what `GhostReconMission.can_loot` reads. The event-day and budget halves
+        still gate the send itself in the VM, and the server has the last word either way.
 
-        No checkpoint (a scan never ran) is simply no extra rows.
+        Nothing gathered and no checkpoint (a scan never ran) is simply no extra rows.
         """
         import lastwar_proto as proto
+
+        out = self._kept_targets(known)
+        known = set(known) | {t["uuid"] for t in out}
         try:
-            missions = proto.load_fresh_ghost_recon(self.rt.profiles.ghost_json())
+            # EVERYTHING the checkpoint holds, however long ago it was last seen — the
+            # same `max_age_seconds=None` `ghost_recon_steal.map_roster` reads it with
+            # (#1251). A tile leaves by its own clock, which is checked below, and never
+            # merely because the map has not been driven past it lately.
+            missions = proto.load_fresh_ghost_recon(self.rt.profiles.ghost_json(),
+                                                    max_age_seconds=None)
         except Exception:              # noqa: BLE001 — no file, or a half-written one
-            return []
-        out = []
+            return out
         for m in missions:
             if m.uuid is None or str(m.uuid) in known or m.empty:
                 continue
@@ -556,6 +578,61 @@ class GhostReconPane(_Pane):
                 # labelled off the clock instead — see `_row`.
                 "state": None,
                 "mine": False, "can": bool(m.can_loot), "scanned": True,
+            })
+        return out
+
+    def _kept_targets(self, known: set) -> list:
+        """What «Призрак: карта» has gathered and kept, as targets (#2010).
+
+        THE PANEL'S OWN LIST, read out of the row that page saves it in — never by
+        importing that tab, which a tab may not do (`docs/panel-tabs.md`). It is filled
+        by the sniffer as each tile is decoded and it survives a restart, which is
+        exactly what the live checkpoint cannot do.
+
+        A row is judged HERE against the clock rather than trusted from the moment it was
+        written: `ready` on a stored row is what was true when the row was last touched,
+        and a squad that has come back since — or a tile that has since expired — must
+        not be robbed on the strength of a stale verdict. A tile robbed out (its loot
+        slots are full) is not offered either; the server would refuse it and one of the
+        day's five would be spent finding that out.
+        """
+        import game_clock
+
+        try:
+            records = self.rt.store.blob_get(store.GHOST_MAP_STATE)
+        except Exception:              # noqa: BLE001 — no database, no kept list
+            return []
+        if not isinstance(records, list):
+            return []
+        now = game_clock.now_ms()
+        out = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            uuid = str(record.get("uuid") or "").strip()
+            if not uuid or uuid in known:
+                continue
+            done, ends = record.get("completed_at"), record.get("expires_at")
+            if ends and int(ends) <= now:
+                continue               # its own clock ran out — clause 1 of the rule
+            cap, looted = int(record.get("loot_max") or 0), record.get("loot_count")
+            if cap and looted is not None and int(looted) >= cap:
+                continue               # robbed out: the server would only refuse it
+            srv = int(record.get("owner_server") or record.get("server") or 0)
+            out.append({
+                "uuid": uuid, "cfg": record.get("cfg_id") or 0, "srv": srv,
+                "x": record.get("x") or 0, "y": record.get("y") or 0,
+                "done": done or 0, "ends": ends or 0,
+                "looted": looted,
+                # …and the level the GAME gave the template, where the page had it. The
+                # cfgId's digits are the fallback and `absorb` applies them.
+                "level": record.get("level") or 0,
+                # A tile off the map has no verdict from the client's own gate, and its
+                # `state` (f9) reads 3 whether the squad is back or not — see `_row`.
+                "state": None,
+                "mine": False,
+                "can": bool(done and int(done) <= now),
+                "scanned": True,
             })
         return out
 
@@ -575,6 +652,11 @@ class GhostReconPane(_Pane):
         import lastwar_proto as proto
         rows = list(targets or ())
         for target in rows:
+            # A row that already carries the GAME's own answer keeps it (#2010): the
+            # kept list is filled from the event's config table, and the cfgId's digits
+            # are the fallback for a template nobody has loaded — never a correction.
+            if target.get("level"):
+                continue
             _family, level = proto.ghost_recon_level(target.get("cfg"))
             target["level"] = level or 0
         self.status = dict(status or {})

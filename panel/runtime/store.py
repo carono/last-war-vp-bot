@@ -89,6 +89,16 @@ from contextlib import contextmanager
 #: The file inside the profile directory. One per profile, never one per window.
 DB_FILE = "panel.db"
 
+#: «Призрак: карта»'s own list, by name — the one blob TWO tabs meet over (#2010).
+#:
+#: «Секретки» owns it: its map page fills it from the sniffer and saves it whole
+#: (`GhostMapGrid.STATE_BLOB`). «Командный пункт» READS it, because the standing order
+#: that spends the day's five robberies has to choose out of the list the panel is
+#: showing — the same rule the ★ robbery has obeyed since #1256. The name lives here so
+#: neither tab has to import the other: a tab talks to the runtime and to nothing else
+#: (`docs/panel-tabs.md`), and two copies of a string is how they come to disagree.
+GHOST_MAP_STATE = "ghost_map_state"
+
 #: How long a writer waits for another writer before giving up. Generous on purpose:
 #: the competing writer is another thread of this panel, or a standalone tab in another
 #: process, and both finish in milliseconds. A person seeing «database is locked»

@@ -38,6 +38,7 @@ from tkinter import ttk
 from ...widgets import numeric_spinbox, tk_stringvar
 from . import grid
 from ...runtime import statevar
+from ...runtime import store as store_names
 
 # `GhostreconPointStealType` -> the locale key that spells it out. The same four values
 # `lua_actions.GHOST_STEAL_NAMES` logs, said in the person's own language instead.
@@ -405,11 +406,63 @@ class GhostMapGrid(_GhostGrid):
         return ("secrettasks.ghost.state.map_ready" if record.get("ready")
                 else "secrettasks.ghost.state.map_running")
 
+    def narrow(self, rows) -> list:
+        """«Звезда», and then the AGE rule the ★ list already obeys (#1999, #2010).
+
+        The same rule, the same number, the same field on the phone — one tab, one
+        answer to «сколько может пройти без подтверждения». This is the page it bites
+        hardest on: a lap of the map brings back everybody's tiles and nothing re-sends
+        them, so a list running for a day is mostly places nothing has confirmed since
+        yesterday.
+
+        A FILTER AND NEVER A DELETE, exactly as it is over there: the row stays in the
+        list, `counts()` puts it in «скрыто», 0 in the field brings every one of them
+        back at once, and the standing order never asks — it robs off the kept list, and
+        a display rule may not decide how the day's five are spent.
+        """
+        import game_clock
+
+        rows = super().narrow(rows)
+        # ASKED THROUGH `getattr`, like every other reading that crosses a page boundary
+        # (`SecretTasksTab._stale_ms` reads its own variable the same way): a page built
+        # by a fixture has no tab behind it, and there the answer is «no rule».
+        rule = getattr(getattr(self, "tab", None), "_stale_ms", None)
+        cut = rule() if rule is not None else 0
+        if not cut:
+            return rows
+        now = game_clock.now_ms()
+        return [r for r in rows if (now - self._last_word(r)) <= cut]
+
+    @staticmethod
+    def _last_word(row) -> int:
+        """The freshest evidence about a map row, on the game's clock in milliseconds.
+
+        Two stamps here rather than the ★ list's three, because a tile off the map has no
+        third: `seen_at` is when the sniffer last decoded this tile (epoch SECONDS on the
+        capture host — the drift against the game's clock is seconds, and the rule is
+        measured in hours), and `completed_at` is when its squad came back, which dates a
+        row restored from a checkpoint written before anything stamped `seen_at`.
+
+        A squad still OUT has `completed_at` in the future, so its age comes out negative
+        and it is never hidden: it is not stale, it is early.
+        """
+        return max(int(row.get("seen_at") or 0) * 1000,
+                   int(row.get("completed_at") or 0))
+
     def decorate(self, row, record) -> None:
         super().decorate(row, record)
         # How old this row's information is. Kept on the row so the state cell can say
         # it, and checkpointed with the rest.
         row["seen_at"] = record.get("seen_at")
+        # …AND A TILE OFF THE MAP RIPENS BY ITS OWN CLOCK (#2010). The base forces the
+        # verdict because a squad in the CLIENT's list has one — the game answers
+        # «robbable / not» itself and there is nothing to count down to. A map tile has
+        # no such answer and does carry the two stamps, so a forced `False` froze it at
+        # «ещё в пути» for as long as nobody drove past it again: the row went on saying
+        # the squad was out hours after it had come home. `None` hands the row back to
+        # `grid.refresh_timers`, which is what the ★ list has always been judged by.
+        if record.get("completed_at"):
+            row["ready_forced"] = None
 
     def update_row(self, row, record) -> None:
         super().update_row(row, record)
@@ -421,7 +474,10 @@ class GhostMapGrid(_GhostGrid):
 
 
     #: This list's row in `panel.db`'s `blobs` table (`panel/runtime/store.py`, #1465).
-    STATE_BLOB = "ghost_map_state"
+    #: Named THERE rather than here since #2010, because «Командный пункт» reads the same
+    #: row: its standing order has to spend the day's five robberies on the list this
+    #: page is showing, and neither tab may import the other.
+    STATE_BLOB = store_names.GHOST_MAP_STATE
 
     # -- surviving a restart ----------------------------------------------------------
     def persist(self) -> None:            # noqa: D102 — overrides the no-op above

@@ -541,6 +541,19 @@ class SecretTasksTab(PanelTab):
         # other side of the buffer.
         self._tiles: dict = {}
         self._tiles_lock = threading.Lock()
+        # …AND THE SAME BUFFER FOR THE OTHER SNIFFER (#2010). Ghost-recon squads used to
+        # reach this tab only through the checkpoint file, and that file is rewritten
+        # every tick out of an index that drops every tile not on the warzone currently
+        # on screen — a lap walks eighteen of them in seconds, so what a lap found was
+        # gone before anything read it. They travel as events now, exactly as ★ tiles
+        # have since #1416. Guarded by `_tiles_lock`, like the tiles and the areas.
+        self._ghost_tiles: dict = {}
+        # …and whether «Призрак: карта» has read its own list back yet (#2010). The same
+        # `_restored` flag the ★ list has, and for a sharper reason: the merge below runs
+        # headless, and a merge that persists before the restore writes an EMPTY list
+        # over the one the last session gathered. That is how a live profile's
+        # `ghost_map_state` came to hold `[]`.
+        self._ghost_restored = False
         # …and what the GAME says a template really is, cached (#1416). The capture reads
         # a level and a star off the cfgId's digits, which lie for one family (#1267), so
         # the client's own row is asked for — but ONCE PER TEMPLATE and off the hook: a
@@ -850,8 +863,10 @@ class SecretTasksTab(PanelTab):
             self._render()
             self._update_status()
         # …and the map page's own list, for the same reason: it is the panel's list, so
-        # it survives the panel closing (#1251).
-        self.ghost_map.restore()
+        # it survives the panel closing (#1251). Through the guard since #2010: the
+        # capture's own events may already have restored it before anybody looked, and
+        # reading the checkpoint twice would put back rows that have since left.
+        self._ensure_ghost_model()
         # …and the MONSTER page's own list (#1289), which is the only one of the four
         # that keeps a file: the other three come back out of the capture's own
         # checkpoint a line below, and a monster read leaves nothing on disk behind it.
@@ -915,6 +930,9 @@ class SecretTasksTab(PanelTab):
         self.ghost.clear()
         self.ghost_allies.clear()
         self.ghost_map.clear()
+        # …and the new account's own ghost list has not been read back yet (#2010),
+        # whoever asks for it first — the capture's next event, or a look at the page.
+        self._ghost_restored = False
         # …and the world pages, which are another account's map exactly as the ★ list
         # above is. The memo of what the checkpoint last said goes with them (#1298):
         # the new profile's own file has to be able to say «поезда: 0» out loud even if
@@ -926,8 +944,8 @@ class SecretTasksTab(PanelTab):
         # profile's own client has to be able to say «монстров: 0» out loud even if the
         # old one had just said it.
         self._monsters_said = None
+        self._ensure_ghost_model()    # the new account's squads, window or no window
         if self.loaded:
-            self.ghost_map.restore()
             # …and the monster page's own file, which is the new profile's memory of
             # what its client could see. The other three world pages come back from the
             # capture's checkpoint on the next `refresh`, so they are not read here.
@@ -2721,9 +2739,123 @@ class SecretTasksTab(PanelTab):
                 return
             take.seen(len(rows))
             take.kept(len(rows))
-            self.after(lambda: self.ghost_map.landed(self.ghost_map.status, rows))
+            self.after(lambda: self._ghost_map_landed(rows))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _ghost_map_landed(self, rows) -> None:
+        """The checkpoint's rows into the page's own list — AFTER the restore (#2010).
+
+        The order is the whole point. `apply` ends in `persist`, so a merge that runs
+        before the last session's list has been read back writes what it merged over the
+        top of it — and this path runs headless (#1523), on a panel nobody has opened.
+        Live, that is how a profile's `ghost_map_state` came to hold `[]` while its
+        capture was decoding a hundred thousand tiles an hour: the empty file merged
+        into an empty list and saved the result.
+        """
+        self._ensure_ghost_model()
+        self.ghost_map.landed(self.ghost_map.status, rows)
+
+    def _ensure_ghost_model(self) -> None:
+        """«Призрак: карта» holds the last session's squads — window or no window (#2010).
+
+        The ghost twin of :meth:`_ensure_model`, split out of `on_show` for the same
+        reason and made idempotent: the capture listens from boot, so squads arrive
+        before anybody has opened the page, and every path that MERGES into this list
+        also SAVES it. Whoever gets there first restores; the rest are a flag test.
+
+        Cheap by construction: one `blobs` read, no game round trip, nothing drawn.
+        """
+        if self._ghost_restored:
+            return
+        self._ghost_restored = True
+        self.ghost_map.restore()
+
+    # -- the ghost tiles, as they are decoded (#2010) ----------------------------
+    def ghost_tile_seen(self, record: dict) -> None:
+        """One ghost-recon squad off the capture — THE WHOLE HOOK. Any thread, no I/O.
+
+        The twin of :meth:`tile_seen`, and it costs what that one costs: a dict write and
+        a wake-up. Everything that costs anything — the event's config table, the clock,
+        the merge into the model, the checkpoint — happens on the Tk thread, once, over
+        whatever has piled up (:meth:`_ghost_tiles_land`).
+        """
+        take = self.take(INTAKE_GHOST_MAP)
+        take.seen()
+        uuid = str(record.get("uuid") or "").strip()
+        if not uuid:
+            take.dropped(reason="no_uuid")
+            return
+        with self._tiles_lock:
+            first = not self._ghost_tiles
+            self._ghost_tiles[uuid] = record
+        if first:
+            self.after(self._ghost_tiles_soon)
+
+    def _ghost_tiles_soon(self) -> None:
+        """Arm the one pass that lands them (Tk thread). A burst is still one merge."""
+        self.rt.tick.arm("ghost_tiles", TILES_MS, self._ghost_tiles_land)
+
+    def _ghost_tiles_land(self) -> None:
+        """Everything heard since the last pass, into the list — no file, no round trip.
+
+        The event carries the TILE and nothing about anybody (#1293), so what the game
+        calls the template — the level, the rarity, the star, how many robberies it
+        allows — is taken from the event's own config row, read once per session and
+        cached (`_ghost_config`). Without it the cfgId's digits are the fallback, exactly
+        as `ghost_recon_steal.map_roster` does it for the checkpoint.
+
+        Readiness is re-read against the clock rather than trusted from the line: a squad
+        that came back in the seconds between the decode and this pass is robbable now,
+        and the row has to say so.
+        """
+        import game_clock
+        import lastwar_proto as proto
+
+        self._ensure_ghost_model()
+        with self._tiles_lock:
+            records, self._ghost_tiles = self._ghost_tiles, {}
+        if not records:
+            return
+        config = self._ghost_config or {}
+        now = game_clock.now_ms()
+        rows = []
+        for record in records.values():
+            cfg = int(record.get("cfg") or 0)
+            template = config.get(cfg, {})
+            family, level = proto.ghost_recon_level(cfg)
+            done, ends = record.get("completed_at"), record.get("expires_at")
+            ready = bool(done and int(done) <= now
+                         and not (ends and int(ends) <= now))
+            server = int(record.get("server") or 0)
+            rows.append({
+                "uuid": str(record.get("uuid")),
+                # The tile stands on its OWNER's map, which is what the event's
+                # `server` is — the same field `map_roster` fills from.
+                "server": server, "owner_server": server,
+                "target_server": int(record.get("target_server") or 0),
+                "x": record.get("x") or 0, "y": record.get("y") or 0,
+                "cfg_id": cfg,
+                "level": template.get("level") or level or 0,
+                "starred": template.get("starred",
+                                        family == proto.GHOST_STAR_FAMILY),
+                "colour": template.get("colour", 0),
+                "loot_max": template.get("loot_max", 0),
+                "loot_count": record.get("loot"),
+                "completed_at": done, "expires_at": ends,
+                # A tile off the map carries no nickname anywhere on the wire, and its
+                # owner's uid deliberately does not travel on this line (#1293).
+                "owner_uid": "", "alliance_id": "", "owner_name": "",
+                "members": record.get("members") or 0,
+                "seen_at": record.get("seen_at"),
+                "mine": False,
+                # The game's per-tile steal gate only answers for squads in the client's
+                # own list, so a tile off the map is judged by its clock.
+                "state": None, "task_state": None,
+                "ready": ready,
+            })
+        self.take(INTAKE_GHOST_MAP).kept(len(rows))
+        self.ghost_map.apply(rows)
 
     def refresh_world(self) -> None:
         """Re-merge the world listener's checkpoint into the three pages it feeds.
