@@ -392,3 +392,43 @@ ghost_open=1 ghost_left=5 ghost_cap=5   ← ghost recon, in hand
 
 Different manager, different counter, and neither watcher reads the other's
 (`tests/test_panel_secret_tasks.py::test_the_two_robbery_budgets_are_never_the_same_number`).
+
+## 6e. The press asks first, and spends nothing on a refusal (#2010)
+
+§6d ended on a measurement — `found=0`, twenty presses, nothing taken — and the
+operator's answer to it was one sentence: «Спрашивать у игры, а если можно обновить
+состояние без смены сервера, то тоже делай.» Both halves are in the recipe now, and
+both happen INSIDE the robbery. There is no new clock and no sweep: the panel does
+not poll the server, it asks about the tile it is about to press and about nothing
+else.
+
+**Refreshing one tile, from where we stand.** `world.get.detail.new` takes the
+tile's own `serverId`, so a squad on another warzone is asked about without a jump —
+the same round trip the client fires when a finger taps that tile, and the same one
+the secret-task robbery uses to resolve a coordinate before it sends. It is asked
+per QUEUED target, and the queue is at most the day's remaining robberies; the list
+itself stays current the way it has since #2010's first half, by the sniffer's
+events.
+
+**Then the game's own verdict, per target, at the moment of the press.** Two forms,
+and the tile decides which:
+
+| the target | judged by |
+|---|---|
+| a squad in the client's `taskList` | `GetPointStealType(...) == CanSteal`, plus «not mine», «looter list not full» and «`dispatchStealRange` covers its warzone» |
+| a tile only a map lap has seen | the detail asked for a moment earlier: the point must have answered, and it must still carry that uuid |
+
+Anything the game does not confirm is skipped **without a send**, with the reason on
+the stream: `ghost_steal_skipped uuid=… why=no_detail|gone|mine|looted_out|out_of_range|state_N`.
+The five a day are spent only on what the game called available, which is the whole
+point — a press that goes out and is refused costs nothing on the counter but tells
+the operator nothing either, and twenty of them is how this fault stayed invisible.
+
+**And the only success is `stealTimes`.** Not a frame that left, not a reply without
+an error, not the reward window closing: the counter is the account's own spent
+count and only the server's reply moves it. The recipe still reads it before and
+after and says `ghost_taken` on a difference.
+
+Verified offline against a Lua stand-in of the manager, one case per refusal (no
+detail, a detail about another task, out of range, looted out, my own squad, the
+game's own «not yet») and one per send.
