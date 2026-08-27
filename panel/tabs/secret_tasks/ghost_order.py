@@ -39,6 +39,19 @@ the one day it matters.
 
 It was `Panel._ghost_loop` / `_ghost_tick` / `_ghost_run`, with its checkbox drawn on a
 different tab again. All three are here now, beside the page that shows the squads.
+
+AND «BESIDE THE PAGE THAT SHOWS THE SQUADS» MOVED ONE MORE TIME (#2010), because it was
+not true. The order lived on «Командный пункт», which is a DEV tab: the live profile had
+it switched off, so a standing order that spends five robberies a day did not exist at
+all there — not off, not idle, absent, with its checkbox on a page the person could not
+open. Meanwhile the list it spends itself over is «Призрак: карта», on «Секретки», which
+every profile has. So it went there, which is exactly what #1271 did for «Автолут ★»: the
+order belongs on the page holding the list it chooses out of.
+
+That is also why the choosing is simpler than it was. The page's rows are LIVE — the
+sniffer feeds them as it decodes (#2010) and they survive a restart — so a look does not
+have to re-read anything before it can choose: it asks the page, exactly as the ★ watcher
+asks its tab (`SecretTasksTab.rob_candidates`).
 """
 from __future__ import annotations
 
@@ -66,9 +79,9 @@ SPENT_MARK = "ghost_steals_spent"
 class GhostOrder:
     """The watcher, the read that gates it, and the child that does the robbing."""
 
-    def __init__(self, rt, pane) -> None:
+    def __init__(self, rt, page) -> None:
         self.rt = rt
-        self.pane = pane          # the page whose list this chooses out of
+        self.page = page          # the page whose list this chooses out of
         self._stop = None         # threading.Event while watching, else None
         self._proc = None         # one robbery in flight at a time
         # uuids handed to a child this session. A squad the server refused stays in the
@@ -85,14 +98,14 @@ class GhostOrder:
 
     # -- start / stop --------------------------------------------------------
     def toggle(self) -> None:
-        if self.pane.autoloot_var.get():
+        if self.page.autoloot_var.get():
             self.start()
         else:
             self.stop()
 
     def ensure_started(self) -> None:
         """Start it if this profile had it ticked. Idempotent."""
-        if self.pane.autoloot_var.get():
+        if self.page.autoloot_var.get():
             self.start()
 
     def start(self) -> None:
@@ -101,7 +114,7 @@ class GhostOrder:
         self._stop = threading.Event()
         self._seen.clear()
         self.rt.say("ghost", "ghost.on")
-        self.rt.say("ghost", "ghost.rule", rule=self.pane.rule_text())
+        self.rt.say("ghost", "ghost.rule", rule=self.page.rule_text())
         threading.Thread(target=self._loop, args=(self._stop,), daemon=True).start()
 
     def stop(self) -> None:
@@ -155,11 +168,14 @@ class GhostOrder:
             # boundary, so the same pause the secret-task watcher uses fits.
             return self.rt.settings.opt_int("autoloot_pause_min",
                                             low=1, high=1440) * 60.0
-        # The event is open and there is budget: fill the page's list, then ask the list
-        # what the rule wants (#1256). Both halves are the page's — this only decides
-        # WHEN to look, which is the one thing a watcher is for.
-        self.pane.reload()
-        picks = [t for t in self.pane.rob_candidates()
+        # The event is open and there is budget: ask the page what the rule wants
+        # (#1256). The list itself is the page's and it is LIVE — the sniffer fills it as
+        # it decodes (#2010) — so this only decides WHEN to look, which is the one thing
+        # a watcher is for. The checkpoint is re-merged on the way in for the one case
+        # the events cannot cover: a panel restarted mid-lap, whose child is still
+        # writing the file it was writing before.
+        self.page.reload()
+        picks = [t for t in self.page.rob_candidates()
                  if str(t.get("uuid")) not in self._seen]
         if not picks:
             return POLL
@@ -171,9 +187,9 @@ class GhostOrder:
         """«Ограбить всех» from the phone: re-read the list, then rob what the rule wants.
 
         The window's button robs what is ON SCREEN, because somebody is looking at it.
-        Nobody is looking at the phone's copy — its card is drawn from the map scan's
-        file, not from this page's list — so the reading is done first, exactly as the
-        watcher's own look does it (`tick`), and the choice is still the page's.
+        Nobody is looking at the phone's copy, so the checkpoint is re-merged first,
+        exactly as the watcher's own look does it (`tick`), and the choice is still the
+        page's.
 
         Returns False when a robbery is already in flight; the caller says so rather than
         parking a second set of squads on top of the queue this one is pressing.
@@ -194,8 +210,8 @@ class GhostOrder:
         """
         picks = []
         try:
-            self.pane.reload()
-            picks = self.pane.rob_candidates()
+            self.page.reload()
+            picks = self.page.rob_candidates()
         except Exception as exc:       # noqa: BLE001 — a failed read is a log line
             self.rt.say("ghost", "log.ghost.error", error=f"{type(exc).__name__}: {exc}")
         if not picks:

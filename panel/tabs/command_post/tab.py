@@ -41,10 +41,8 @@ from ...runtime import game_process
 from ...runtime import opt_value
 from ...runtime import store
 from ...runtime.paths import TOOLS
-from ...widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
-                        font as ui_font)
+from ...widgets import ScrollableFrame, tk_stringvar, font as ui_font
 from ..base import PanelTab
-from .ghost import GhostOrder
 from .tasks import TasksPane
 from ...runtime import statevar
 
@@ -80,10 +78,6 @@ GHOST_STATE_KEYS = {
 # pattern reads both and the «SHARE MATCH» prefix is what tells them apart.
 SHARE_LINE = re.compile(
     r"lvl\s+(?P<lvl>\d+|\?)\s+#(?P<srv>\d+)\s+cfg\s+(?P<cfg>\S+)\s+uuid\s+(?P<uuid>\d+)")
-
-# How long to wait before re-reading the ghost list after a robbery was handed to the
-# standalone tool — it spawns a child that walks the VM a few times.
-GHOST_RERE_MS = 9000
 
 # How long a map scan listens, and how often it flushes its checkpoint. A tile only
 # crosses the wire while the map moves, so the window has to be long enough for the
@@ -126,20 +120,6 @@ def _int(value, default: int = 0) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return default
-
-
-def _level_text(value) -> str:
-    """A saved level bound as the box shows it: a number, or blank for «no bound».
-
-    A profile is a file a person may have edited, so anything that is not a whole
-    number reads as blank — an unreadable bound must widen nothing.
-    """
-    if isinstance(value, bool):
-        return ""
-    if isinstance(value, int):
-        return str(value) if value > 0 else ""
-    text = str(value).strip() if value is not None else ""
-    return text if text.isdigit() else ""
 
 
 def _short(uuid) -> str:
@@ -370,48 +350,35 @@ class GhostReconPane(_Pane):
     LOG_TAG = "ghost"
 
     def __init__(self, rt, tab, parent) -> None:
-        # Created before `build`, which draws the box bound to it — and read by the
-        # profile load, which happens whether or not the page has ever been shown.
-        self.autoloot_var = statevar.boolean(rt.root, False)
-        # «Минимальный уровень» — this page's own, exactly like the secret tasks' own
-        # (#1256), and NOT the same number: a ghost squad runs levels 3-5 where a secret
-        # task runs 1-7, so one field for both would be wrong for one of them whichever
-        # way it was set. Blank is «any level».
-        self.level_min_var = tk_stringvar(rt.root)
-        self._rule_lbl = None
-        # OUR LIST (#1256): every squad the page knows about, by uuid — the client's own
+        # THE STANDING ORDER IS NOT HERE ANY MORE (#2010). It lived on this page — the
+        # checkbox, the level rule and the watcher — and this is a DEV tab: the live
+        # profile had it switched off, so an order that spends five robberies a day did
+        # not exist there at all. It is on «Секретки» → «Призрак: карта» now, the page
+        # holding the list it chooses out of, which is where «Автолут ★» has been since
+        # #1271. One ability, one place: this page reads and presses per row, and the
+        # unattended half is over there.
+        #
+        # OUR LIST: every squad the page knows about, by uuid — the client's own
         # `taskList` and whatever a map scan has written down, which is the only source
-        # that ever sees another alliance's tiles. The standing order picks out of THIS
-        # and out of nothing else, so what it robs is what the page is showing.
+        # that ever sees another alliance's tiles.
         self.status: dict = {}
         self.targets: list = []
-        self.order = GhostOrder(rt, self)
         super().__init__(rt, tab, parent)
 
-    def shutdown(self) -> None:
-        super().shutdown()
-        self.order.stop()
-
     def restart(self) -> None:
-        """The profile switched: another account's squads are not this one's (#1256).
-
-        The list goes, and so does the standing order's memory of what it has already
-        fired at — those uuids belong to the map the other client was looking at.
-        """
+        """The profile switched: another account's squads are not this one's (#1256)."""
         super().restart()
         self.status, self.targets = {}, []
-        self.order._seen.clear()
 
     def build(self) -> None:
         body = self._header()
-        self._build_autoloot_bar(body)
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
             anchor="w", pady=(6, 4))
         act = ttk.Frame(body)
         act.pack(fill="x", pady=(0, 6))
-        self._all_btn = self.rt.tr(ttk.Button(act, width=18, command=self._steal_all),
-                                     "cmdpost.ghost.steal_all")
-        self._all_btn.pack(side="left")
+        # «Ограбить всех» went with the standing order (#2010): it robbed what the RULE
+        # matched, and the rule is on «Призрак: карта» now. What is left here is the
+        # per-row press, which names one squad and reads no rule at all.
         self._scan_btn = self.rt.tr(ttk.Button(act, width=16, command=self._scan),
                                       "cmdpost.scan")
         self._scan_btn.pack(side="left", padx=(6, 0))
@@ -428,79 +395,23 @@ class GhostReconPane(_Pane):
         """
         self._scan_toggle(GHOST_SCAN_SCRIPT, self.rt.profiles.ghost_json())
 
-    def _build_autoloot_bar(self, parent) -> None:
-        """The «Операция Призрак» standing order: five robberies a day, unattended.
-
-        The box, the variable behind it and the watcher it starts are all this page's
-        (:mod:`panel.tabs.command_post.ghost`). They used to be split three ways — the
-        widget on the «Секретки» tab, the var on the app, the loop in the panel.
-
-        Beside it, since #1256, the one number that aims it: «минимальный уровень» —
-        this level and every one above it. Read live by the watcher, so raising it takes
-        effect on the next look rather than at the next tick of the checkbox, and drawn
-        out in words underneath because an invisible rule is how a day's budget gets
-        spent on something nobody wanted.
-        """
-        box = self.rt.tr(ttk.LabelFrame(parent, padding=8), "ghost.frame")
-        box.pack(fill="x")
-        bar = ttk.Frame(box)
-        bar.pack(fill="x")
-        self.rt.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
-                                   command=self.order.toggle),
-                   "ghost.autoloot").pack(side="left")
-        self.rt.tr(ttk.Label(bar), "ghost.level_min").pack(side="left", padx=(12, 2))
-        NumericEntry(bar, textvariable=self.level_min_var, width=4).pack(side="left")
-        self.rt.tr(ttk.Label(bar, foreground=DIM, wraplength=420, justify="left"),
-                   "ghost.hint").pack(side="left", padx=10)
-        self._rule_lbl = ttk.Label(box, foreground=DIM, wraplength=760, justify="left")
-        self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
-        self._paint_rule()
-        self.level_min_var.trace_add("write", lambda *_a: self._on_rule_change())
-
-    def _on_rule_change(self) -> None:
-        """«Минимальный уровень» was typed: remember it and say what it now means."""
-        self.rt.settings.changed()
-        self._paint_rule()
-
-    def _paint_rule(self) -> None:
-        """Write the standing order out in words — what it would take, right now."""
-        if self._rule_lbl is None:
-            return
-        try:
-            self._rule_lbl.configure(text=self.rule_text())
-        except tk.TclError:                # the widget may be gone
-            pass
-
-    def level_min(self) -> "int | None":
-        """«Минимальный уровень» as an int, or None for «any» (#1256).
-
-        Anything that is not a whole number is no bound at all — a half-typed box must
-        not silently become level 0, which is every squad on the map.
-        """
-        raw = str(self.level_min_var.get()).strip()
-        return int(raw) if raw.isdigit() else None
-
-    def rule_text(self) -> str:
-        """The standing order in one phrase, in the panel's language."""
-        low = self.level_min()
-        return (self.rt.t("ghost.rule_min", lvl=low) if low is not None
-                else self.rt.t("ghost.rule_any"))
-
     def retranslate(self) -> None:
-        """The language changed: the rule line is drawn, not bound to a variable."""
-        self._paint_rule()
+        """Nothing on this page is drawn by hand any more — the words are all keys."""
 
     # -- what is remembered between sessions --------------------------------
     def config(self) -> dict:
-        return {"level_min": self.level_min_var.get()}
+        """Nothing: «минимальный уровень» went with the standing order (#2010).
+
+        A profile written before that still HAS the key, and it is carried across once by
+        the tab that owns the rule now — see `SecretTasksTab.apply_config`.
+        """
+        return {}
 
     def apply_config(self, raw) -> None:
-        raw = raw if isinstance(raw, dict) else {}
-        self.level_min_var.set(_level_text(raw.get("level_min")))
-        self._paint_rule()
+        """Nothing to apply. See :meth:`config`."""
 
     def persist_vars(self) -> list:
-        return [self.level_min_var]
+        return []
 
     # -- reading the game ---------------------------------------------------
     def fetch(self):
@@ -673,24 +584,6 @@ class GhostReconPane(_Pane):
         self.after(self._paint)
         return self.targets
 
-    def rob_candidates(self) -> list:
-        """The squads the standing order would take right now — out of OUR list.
-
-        The rule, in order: the game itself says the tile may be robbed (`can` — for a
-        squad in the client's own list that is `GetPointStealType`, for one off a map
-        scan it is the clock), it is not my own squad, and its level is at or above
-        «минимальный уровень». Nothing else: the event day and the five-a-day budget are
-        the GAME's gates and are asked of the game (`GhostOrder.tick`,
-        `ghost_recon_steal.py`), not guessed at here.
-        """
-        low = self.level_min()
-        out = [t for t in self.targets
-               if t.get("can") and not t.get("mine")
-               and (low is None or int(t.get("level") or 0) >= low)]
-        # Best first, so a budget that runs out mid-list runs out on the small ones.
-        out.sort(key=lambda t: (-int(t.get("level") or 0), int(t.get("looted") or 0)))
-        return out
-
     def render(self, data) -> None:
         """A read came back on the Tk thread: into the list, then onto the screen."""
         self.absorb(*data)
@@ -704,7 +597,6 @@ class GhostReconPane(_Pane):
                    state=self.rt.t("cmdpost.ghost.open" if status.get("open")
                                      else "cmdpost.ghost.closed"),
                    left=status.get("left", 0), queued=status.get("queued", 0))
-        self._paint_rule()
         self._clear_list()
         if not targets:
             self._empty("cmdpost.ghost.empty" if status.get("open")
@@ -799,20 +691,6 @@ class GhostReconPane(_Pane):
             self.after(self.refresh)
 
         threading.Thread(target=work, daemon=True).start()
-
-    def _steal_all(self) -> None:
-        """Hand what the RULE matches to the standalone tool — the same call the standing
-        order makes, out of the same list — then re-read once it has walked the VM.
-
-        «Ограбить всё» means «everything this page would take by itself», not «everything
-        on the map»: a button that ignored «минимальный уровень» would spend the day's
-        five on exactly the squads the field was typed to avoid (#1256).
-        """
-        self.order.rob(self.rob_candidates())
-        # Named: pressing «ограбить всё» twice must leave ONE re-read pending,
-        # not one per press (see Panel._arm).
-        self.rt.tick.arm("cmdpost_ghost_reread", GHOST_RERE_MS, self.refresh)
-
 
 # ---------------------------------------------------------------------------
 class SharedMissionsPane(_Pane):
@@ -1576,9 +1454,8 @@ class CommandPostTab(PanelTab):
                  self._web_treasures(coords), self._web_tasks()]
         # «Отработать сейчас» travels because it is a press and the ability behind it is
         # ONE recipe (#1296, CLAUDE.md «A press travels only when the ability is a
-        # scenario»). So does «Ограбить всех» beside it, since #1976 made the ghost
-        # robbery one recipe too — it takes its queue as an argument and parks nothing
-        # with a child.
+        # scenario»). «Ограбить всех» used to stand beside it and is on the ★ tab's
+        # «Призрак: карта» card now (#2010), with the rule it obeys.
         # A CARD OF PLACES IS DRAWN AS BUTTONS, NOT AS ROWS (#1999) — the same rule the
         # map tab's lists follow, out of one table rather than typed into each literal.
         # «Свои задания» is readings and knobs and has no list at all, so it is not here.
@@ -1588,8 +1465,6 @@ class CommandPostTab(PanelTab):
                 card["layout"] = "tiles"
         return {"cards": cards, "now": now,
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
-                            {"id": "ghost_rob",
-                             "label": "cmdpost.ghost.steal_all"},
                             {"id": "treasure_auto",
                              "label": "cmdpost.treasure.auto"},
                             {"id": "treasure_sweep",
@@ -1621,31 +1496,18 @@ class CommandPostTab(PanelTab):
     def _web_ghost(self, coords, now) -> dict:
         """«Операция Призрак» — what the last scan wrote down, and what will be taken.
 
-        The standing order's two facts ride with the tiles (#1256) — and since #1976 they
-        are KNOBS here rather than readings. The person has decided the web is the MAIN
-        front-end and gets the whole of the panel's function; the window is kept only
-        until it is deleted and grows nothing new. From that decision a switch reachable
-        at the machine and nowhere else is a switch that stops existing on the day Tk
-        does.
+        THE STANDING ORDER IS NOT HERE ANY MORE (#2010) — neither its switch, nor its
+        level, nor «Ограбить всех», which robbed what that rule matched. All three are on
+        «Секретки» → «Призрак: карта», the page holding the list they spend, because this
+        is a DEV tab and the live profile had it switched off: a rule about five
+        robberies a day was kept behind a page the person could not open, on either
+        front-end.
 
-        And since #1976 the ROBBERY has moved too. It was held back while the press
-        needed a spawned tool to park its targets first; that tool is out of the path —
-        the queue is an argument of the recipe — so «Ограбить всех» is a screen action,
-        and it robs exactly what this page would rob by itself: `rob_candidates`, under
-        the same «минимальный уровень» the field above sets. Never «everything on the
-        map»: five robberies a day spent at the wrong level are five nobody gets back.
+        What stays is what this page IS: the squads with the game's own verdict on each,
+        and «Ограбить» beside a row, which names one squad and reads no rule at all.
         """
         pane = self._by_key.get("ghost")
-        low = pane.level_min() if pane is not None else None
-        on = bool(pane.autoloot_var.get()) if pane is not None else False
-        fields = [{"key": "ghost_autoloot", "label": "ghost.autoloot",
-                   "hint": "ghost.hint", "kind": opt_value.SWITCH, "value": on},
-                  # A number that may be EMPTY, and empty is «any level» — so it travels
-                  # as text rather than as a number the browser would helpfully turn into
-                  # a 0. Zero here is not «no bound», it is every squad on the map.
-                  {"key": "ghost_level_min", "label": "ghost.level_min",
-                   "kind": opt_value.TEXT,
-                   "value": (str(low) if low is not None else "")}]
+        fields = []
         rows = []
         # THE PAGE'S OWN LIST FIRST, and the scan file only when it has none (#1976).
         # They are not two opinions: `targets` is what a LOOK left behind — the client's
@@ -1789,28 +1651,24 @@ class CommandPostTab(PanelTab):
             if answer is None:
                 answer = self._web_press_ghost(key, args.get("value"))
             return answer if answer is not None else {"error": "unknown"}
-        if action == "ghost_rob":
-            # «Ограбить всех», and it plays what the window's button plays: the page's
-            # own list, filtered by the page's own rule, handed to the recipe as its
-            # queue. Nothing here re-derives the choice and nothing here presses.
-            page = self._by_key.get("ghost")
-            if page is None:
-                return {"error": "unknown"}
-            if not page.order.run_once():
-                # Already robbing. Say so rather than parking a second set of squads on
-                # top of the one being pressed — the five a day are not refundable.
-                return {"ok": False, "reason": "cmdpost.ghost.busy"}
-            return {"ok": True}
         if action == "ghost_rob_one":
-            # ONE squad, named by its row — the window's per-row «Ограбить», and the same
-            # recipe «Ограбить всех» plays with a queue of one. It waited for rows that
-            # carried a uuid; the card is drawn from the page's own list now, so they do.
+            # ONE squad, named by its row — the same recipe «Ограбить всех» plays,
+            # with a queue of one. The order that plays it is «Секретки»'s since #2010,
+            # so it is asked for through the runtime's own tab register (the way this
+            # tab already reads the ★ order's rule) and never by importing it.
             page = self._by_key.get("ghost")
             args = args if isinstance(args, dict) else {}
             uuid = str(args.get("uuid") or "").strip()
             if page is None or not uuid:
                 return {"error": "unknown"}
-            if not page.order.rob_one(uuid, _int(args.get("srv"))):
+            order = self._ghost_order()
+            if order is None:
+                # «Секретки» is switched off in this profile, so the one thing that may
+                # spend a ghost robbery is not there. Said rather than pressed by hand:
+                # the ability is one recipe and one order, and a second path into it is
+                # what «one ability, one place» exists to stop.
+                return {"ok": False, "reason": "cmdpost.ghost.busy"}
+            if not order.rob_one(uuid, _int(args.get("srv"))):
                 return {"ok": False, "reason": "cmdpost.ghost.busy"}
             return {"ok": True}
         if action == "refresh":
@@ -1871,44 +1729,36 @@ class CommandPostTab(PanelTab):
                 on_result=(page.lap_from_run if page is not None else None))}
         return {"error": "unknown"}
 
-    def _web_press_ghost(self, key: str, value) -> "dict | None":
-        """The ghost standing order's switch or its level; ``None`` for another key.
+    def _ghost_order(self):
+        """The ghost standing order, which lives on «Секретки» since #2010.
 
-        The SWITCH goes through `order.toggle`, which is what the window's checkbox is
-        bound to: the watcher is started and stopped there and nowhere else, so a switch
-        thrown from a phone brings the same thread up as one thrown at the machine.
-
-        The LEVEL is remembered the way every typed box on this page is — the variable is
-        traced, so setting it writes the profile, and the rule line is repainted for
-        whoever is standing at the window. Anything that is not a whole number is stored
-        as EMPTY, which is «any level»: a half-typed box must never quietly become level
-        0 and spend the day's five robberies on the first tile the watcher sees.
+        Through `rt.tabs`, which is how one tab may read another (`docs/panel-tabs.md`)
+        — never by importing it. `None` when that tab is switched off in this profile,
+        and then the caller says so rather than inventing a second way to rob.
         """
-        if key not in ("ghost_autoloot", "ghost_level_min"):
-            return None
-        page = self._by_key.get("ghost")
-        if page is None:
-            return {"error": "unknown"}
-        if key == "ghost_autoloot":
-            page.autoloot_var.set(bool(value))
-            page.order.toggle()
-            return {"ok": True}
-        raw = str(value or "").strip()
-        if raw and not raw.isdigit():
-            return {"ok": False, "reason": "web.ui.not_a_number"}
-        page.level_min_var.set(raw)
-        return {"ok": True}
+        tab = self.rt.tabs.get("secret_tasks") if self.rt.tabs is not None else None
+        page = getattr(tab, "ghost_map", None)
+        return getattr(page, "order", None)
+
+    def _web_press_ghost(self, _key: str, _value) -> "dict | None":
+        """Nothing on this screen answers to a knob any more (#2010).
+
+        «Автолут отрядов» and its «минимальный уровень» moved to «Секретки» →
+        «Призрак: карта» with the standing order itself, and that screen answers for
+        them. Kept as a method rather than deleted so the `set` branch above reads the
+        same for both pages — and so somebody searching for the old keys lands here.
+        """
+        return None
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
-        """Start the standing order this profile asked for — and nothing else.
+        """Nothing at boot: this tab has no standing order left to start (#2010).
 
-        This runs at BOOT (the tab is EAGER): the ghost watcher must not wait for a
-        click, because the event is open one day a week and the five robberies are the
-        whole of it. Loading a PAGE is a game read and waits for :meth:`on_show` — the
-        `_shown` guard below exists for exactly that reason and boot must not defeat it.
+        The ghost watcher used to be started here, and being EAGER was the whole reason —
+        the event is open one day a week and the five robberies are the whole of it. It
+        is «Секретки»'s now, whose tab is eager for the same reason and which every
+        profile has. Loading a PAGE is a game read and waits for :meth:`on_show`.
         """
-        self.ghost.order.ensure_started()
 
     def on_show(self) -> None:
         """The panel showed this tab: load whichever page is on top."""
@@ -1919,7 +1769,7 @@ class CommandPostTab(PanelTab):
 
     @property
     def ghost(self):
-        """The «Операция Призрак» page — the one carrying the standing order."""
+        """The «Операция Призрак» page — squads, their verdicts and a press per row."""
         return self._by_key["ghost"]
 
     def _on_page_changed(self, _event=None) -> None:
@@ -1955,30 +1805,29 @@ class CommandPostTab(PanelTab):
             stop = getattr(page, "shutdown", None)
             if stop is not None:
                 stop()
-        self.rt.tick.disarm("cmdpost_ghost_reread")
 
     def panic(self) -> None:
-        """«Стоп всё»: every child and every watcher this tab holds, boxes unticked."""
+        """«Стоп всё»: every child and every watcher this tab holds, boxes unticked.
+
+        One box now rather than two: the ghost order is «Секретки»'s since #2010, and
+        that tab's own `panic` is what stops it — a second tab reaching for it would be
+        two switches over one budget again.
+        """
         listen = getattr(self._by_key["shared"], "_listen_var", None)
-        self._was = {"autoloot": bool(self.ghost.autoloot_var.get()),
-                     "listen": bool(listen.get()) if listen is not None else False}
-        self.ghost.autoloot_var.set(False)
+        self._was = {"listen": bool(listen.get()) if listen is not None else False}
         if listen is not None:
             listen.set(False)
         self.shutdown()
 
     def resume(self) -> None:
-        """«Включить обратно»: the two standing orders that WERE standing.
+        """«Включить обратно»: the listener that WAS listening.
 
-        Ticking the box is what starts each of them, so nothing here has to know how.
-        The children `shutdown` ended are not restarted by hand — the boxes bring back
-        what they own.
+        Ticking the box is what starts it, so nothing here has to know how. The children
+        `shutdown` ended are not restarted by hand — the box brings back what it owns.
         """
         was, self._was = getattr(self, "_was", None), None
         if not was:
             return
-        if was.get("autoloot"):
-            self.ghost.autoloot_var.set(True)
         listen = getattr(self._by_key["shared"], "_listen_var", None)
         if listen is not None and was.get("listen"):
             listen.set(True)
@@ -1993,19 +1842,18 @@ class CommandPostTab(PanelTab):
 
     # -- what is remembered between sessions --------------------------------
     def config(self) -> dict:
-        """Every page's own settings, plus the standing order's switch.
+        """Every page's own settings. The standing order's switch is not one (#2010).
 
-        `pages` is the block the profile already had under «command_post»; the ghost
-        switch was a flat key beside it («ghost_autoloot») because its variable used to
-        live on the panel. Both keep their spelling.
+        `pages` is the block the profile already had under «command_post». The ghost
+        switch was a flat key beside it («ghost_autoloot») and is «Секретки»'s now; a
+        profile written before the move still carries it, and THAT tab reads it once.
         """
         pages = {}
         for key, page in self._by_key.items():
             read = getattr(page, "config", None)
             if read is not None:
                 pages[key] = read()
-        return {"pages": pages,
-                "ghost_autoloot": bool(self.ghost.autoloot_var.get())}
+        return {"pages": pages}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
@@ -2015,11 +1863,10 @@ class CommandPostTab(PanelTab):
             apply = getattr(page, "apply_config", None)
             if apply is not None:
                 apply(pages.get(key))
-        self.ghost.autoloot_var.set(bool(raw.get("ghost_autoloot", False)))
 
     def persist_vars(self) -> list:
         """Every control on the tab a change of has to be written to the profile."""
-        out = [self.ghost.autoloot_var]
+        out = []
         for page in self._by_key.values():
             read = getattr(page, "persist_vars", None)
             if read is not None:

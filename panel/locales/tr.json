@@ -206,6 +206,7 @@
   "game.watchdog": "Oyun düştüğünde yeniden başlat",
   "ghost.any_level": "fark etmez",
   "ghost.autoloot": "Takımları kendiliğinden yağmala",
+  "ghost.steal_all": "Hepsini soy",
   "ghost.frame": "Hayalet Operasyonu",
   "ghost.hint": "gizli görevlerden ayrı, kendi günlük bütçesi. Etkinlik haftada bir gün sürer, öbür günlerde hiçbir şey yapmaz. Harita taramasına gerek yok — istemci takım listesini kendisi bilir.",
   "ghost.level_min": "En düşük seviye",

@@ -206,6 +206,7 @@
   "game.watchdog": "Relaunch the game when it dies",
   "ghost.any_level": "any",
   "ghost.autoloot": "Auto-loot squads",
+  "ghost.steal_all": "Rob them all",
   "ghost.frame": "Ghost Ops",
   "ghost.hint": "its own daily budget, separate from the secret tasks. The event runs one day a week and does nothing on the others. No map scan needed — the client knows the squad list itself.",
   "ghost.level_min": "Minimum level",

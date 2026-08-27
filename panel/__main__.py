@@ -4387,11 +4387,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
     # The camera walk that keeps the passive capture fed: the box, the waypoints and
     # the pass-and-rest loop. panel/mapsweep.py is still the geometry.
 
-    # -- «Операция Призрак» went with the «Секретный командный пункт» tab -----
+    # -- «Операция Призрак» went with the tab, and then moved once more ------
     #
-    # The watcher, the open-day read that gates it and the child that robs are
-    # panel/tabs/command_post/ghost.py — beside the page that lists the squads and the
-    # box that switches the order on.
+    # The watcher, the open-day read that gates it and the press that robs are
+    # panel/tabs/secret_tasks/ghost_order.py since #2010 — on «Призрак: карта», the page
+    # holding the list it spends, which is where «Автолут ★» has been since #1271. It sat
+    # on «Командный пункт» in between, and that tab is dev-only: a profile with it
+    # switched off had no standing order at all and no way to reach its switch.
 
     # -- one DSL line, typed --------------------------------------------------
     def _run_command(self) -> None:

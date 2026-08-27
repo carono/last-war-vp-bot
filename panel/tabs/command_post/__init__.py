@@ -1,17 +1,19 @@
 """The «Секретный командный пункт» tab — the three raids the in-game panel offers.
 
-Two files: :mod:`~panel.tabs.command_post.tab` (the three pages) and
-:mod:`~panel.tabs.command_post.ghost` (the «Операция Призрак» standing order, which the
-ghost page switches on and which has to keep running whether or not anybody is looking).
+One file: :mod:`~panel.tabs.command_post.tab` (the three pages). The «Операция Призрак»
+STANDING ORDER used to be a second one here and is
+:mod:`panel.tabs.secret_tasks.ghost_order` since #2010 — an order belongs on the page
+holding the list it spends, and this tab is dev-only, so a profile with it switched off
+had no order at all and no way to reach its switch from either front-end.
 
-The tab is imported lazily (PEP 562), so the order module can be read without dragging
+The tab is imported lazily (PEP 562), so this package can be read without dragging
 tkinter in behind it.
 """
 from __future__ import annotations
 
 import importlib
 
-_SUBMODULES = frozenset({"tab", "ghost"})
+_SUBMODULES = frozenset({"tab"})
 
 
 def __getattr__(name: str):

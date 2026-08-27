@@ -35,8 +35,9 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ...widgets import numeric_spinbox, tk_stringvar
+from ...widgets import NumericEntry, numeric_spinbox, tk_stringvar
 from . import grid
+from . import ghost_order
 from ...runtime import statevar
 from ...runtime import store as store_names
 
@@ -389,6 +390,14 @@ class GhostMapGrid(_GhostGrid):
     from the event's config table, read once.
     """
 
+    #: The standing order's two, as class attributes for the same reason `star_var` is
+    #: one: a page built without `__init__` — a test's, or anything reading a block
+    #: before the boxes exist — is a page with the order OFF rather than one that raises.
+    autoloot_var = None
+    level_min_var = None
+    order = None
+    _rule_lbl = None
+
     CONFIG_KEY = "ghost_map"
     INTAKE = "ghost.map"
     TITLE_KEY = "secrettasks.ghost.map"
@@ -401,6 +410,146 @@ class GhostMapGrid(_GhostGrid):
         self.monitor_var = statevar.boolean(tab.rt.root, False)
         self.interval_var = tk_stringvar(tab.rt.root)
         self.interval_var.set("15")
+        # …AND THE STANDING ORDER, which lives here since #2010 for the reason «Автолут
+        # ★» lives on the ★ page (#1271): an order belongs on the page holding the list
+        # it spends itself over. It used to be on «Командный пункт» — a DEV tab, switched
+        # off on the live profile, so five robberies a day were being decided by a
+        # checkbox nobody could reach.
+        self.autoloot_var = statevar.boolean(tab.rt.root, False)
+        # Its own «минимальный уровень», not the ★ list's: a ghost squad runs levels 3-5
+        # where a secret task runs 1-7, so one field for both would be wrong for one of
+        # them whichever way it was set. Blank is «any level».
+        self.level_min_var = tk_stringvar(tab.rt.root)
+        self._rule_lbl = None
+        self.order = ghost_order.GhostOrder(tab.rt, self)
+
+    # -- the standing order's rule ----------------------------------------------------
+    def level_min(self) -> "int | None":
+        """«Минимальный уровень» as an int, or None for «any» (#1256).
+
+        Anything that is not a whole number is no bound at all — a half-typed box must
+        not silently become level 0, which is every squad on the map. A page with no box
+        at all (see the class attributes) answers «any» for the same reason.
+        """
+        if self.level_min_var is None:
+            return None
+        raw = str(self.level_min_var.get()).strip()
+        return int(raw) if raw.isdigit() else None
+
+    def rule_text(self) -> str:
+        """The standing order in one phrase, in the panel's language."""
+        low = self.level_min()
+        return (self.tab.t("ghost.rule_min", lvl=low) if low is not None
+                else self.tab.t("ghost.rule_any"))
+
+    def _paint_rule(self) -> None:
+        """Write the standing order out in words — what it would take, right now."""
+        if self._rule_lbl is None:
+            return
+        try:
+            self._rule_lbl.configure(text=self.rule_text())
+        except tk.TclError:                # the widget may be gone
+            pass
+
+    def _on_rule_change(self) -> None:
+        """«Минимальный уровень» was typed: remember it and say what it now means."""
+        self.tab.rt.settings.changed()
+        self._paint_rule()
+
+    def retranslate(self) -> None:
+        super().retranslate()
+        self._paint_rule()
+
+    def reload(self) -> list:
+        """What the watcher calls before it chooses: re-merge the checkpoint.
+
+        The page's rows are LIVE — the sniffer feeds them as it decodes (#2010) — so this
+        is not where the list comes from any more. It is here for the one case the events
+        cannot cover: a panel restarted while a lap was running, whose capture child is
+        still writing the file it was writing before. A file read and a dict write, off
+        the Tk thread by way of the tab's own merge.
+        """
+        self.tab.refresh_ghost_map()
+        return list(self._rows.values())
+
+    def rob_candidates(self) -> list:
+        """The squads the standing order would take right now — OUR list only (#1256).
+
+        The rule, in order: the squad is back and the tile has not expired (judged HERE,
+        against the game's clock, because `row["ready"]` is only recomputed while there
+        is a table to draw and this list is fed and spent headless), it is not one of
+        mine, its loot slots are not full — the server would only refuse, and one of the
+        five would pay for finding that out — and its level is at or above «минимальный
+        уровень». The event day and the daily budget stay the GAME's gates and are asked
+        of the game, both by the watcher and by the recipe's own `xall`.
+
+        NOT filtered by what the TABLE is showing. «Только звезда», the level range and
+        the age rule are a pair of eyes: somebody narrowing them to read something must
+        not thereby change which tiles the day's five are spent on — the same separation
+        the ★ list keeps (`SecretTasksTab.rob_candidates`).
+        """
+        import game_clock
+
+        now = game_clock.now_ms()
+        low = self.level_min()
+        out = []
+        for row in list(self._rows.values()):
+            if row.get("mine") or row.get("robbed"):
+                continue
+            done, ends = row.get("completed_at"), row.get("expires_at")
+            if not done or int(done) > now:
+                continue                   # still out — nothing to take yet
+            if ends and int(ends) <= now:
+                continue                   # its own clock ran out
+            cap, looted = int(row.get("loot_max") or 0), row.get("loot_count")
+            if cap and looted is not None and int(looted) >= cap:
+                continue
+            level = int(row.get("level") or 0)
+            if low is not None and level < low:
+                continue
+            out.append({"uuid": str(row["uuid"]),
+                        "srv": int(row.get("owner_server") or row.get("server") or 0),
+                        "level": level, "looted": int(looted or 0)})
+        # Best first, and among equals the tile fewest people have been at: it is the one
+        # most likely to still have a slot when the send lands.
+        out.sort(key=lambda t: (-t["level"], t["looted"]))
+        return out
+
+    def build_filters(self, parent) -> None:
+        """This page's boxes, and under them the standing order that spends its list.
+
+        `super()` FIRST — the event's own line and the level range belong to every ghost
+        page — and then the order's own frame, drawn the way «Автолут ★» is drawn on the
+        ★ page: a checkbox, the one number that aims it, and the rule written out in
+        words underneath, because an invisible rule is how a day's budget gets spent on
+        something nobody wanted.
+        """
+        super().build_filters(parent)
+        box = self.tab.tr(ttk.LabelFrame(parent, padding=8), "ghost.frame")
+        box.pack(fill="x", pady=(4, 0))
+        bar = ttk.Frame(box)
+        bar.pack(fill="x")
+        self.tab.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
+                                    command=self.order.toggle),
+                    "ghost.autoloot").pack(side="left")
+        self.tab.tr(ttk.Label(bar), "ghost.level_min").pack(side="left", padx=(12, 2))
+        NumericEntry(bar, textvariable=self.level_min_var, width=4).pack(side="left")
+        self.tab.tr(ttk.Button(bar, width=16, command=self._steal_all),
+                    "ghost.steal_all").pack(side="left", padx=(12, 0))
+        self._rule_lbl = ttk.Label(box, foreground="#888", wraplength=760,
+                                   justify="left")
+        self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
+        self._paint_rule()
+        self.level_min_var.trace_add("write", lambda *_a: self._on_rule_change())
+
+    def _steal_all(self) -> None:
+        """«Ограбить всех»: play the recipe over what the rule wants, right now.
+
+        The same choice the watcher makes, out of the same list — a press and a standing
+        order that disagreed about one budget is precisely what one place for one ability
+        is for. Refused while a robbery is in flight, and the day's five stay the game's.
+        """
+        self.order.run_once()
 
     def _state_key(self, record) -> str:          # noqa: D102 — see the base
         return ("secrettasks.ghost.state.map_ready" if record.get("ready")
@@ -552,7 +701,12 @@ class GhostMapGrid(_GhostGrid):
 
     def config(self) -> dict:
         return dict(super().config(), monitor=bool(self.monitor_var.get()),
-                    interval=self.interval_var.get())
+                    interval=self.interval_var.get(),
+                    # …and the standing order's two, which moved here with it (#2010).
+                    autoloot=bool(self.autoloot_var is not None
+                                  and self.autoloot_var.get()),
+                    level_min=(self.level_min_var.get()
+                               if self.level_min_var is not None else ""))
 
     def apply_config(self, raw) -> None:
         super().apply_config(raw)
@@ -560,9 +714,20 @@ class GhostMapGrid(_GhostGrid):
         # not mention it must not stop a capture that is running.
         grid.take(raw, "monitor", self.monitor_var)
         grid.take(raw, "interval", self.interval_var, str)
+        # …and the standing order's own pair, read the same way and for the same reason:
+        # a block written before #2010 says nothing about either, and a default applied
+        # over a live value is how a switch turns itself off.
+        if self.autoloot_var is not None:
+            grid.take(raw, "autoloot", self.autoloot_var)
+        if self.level_min_var is not None:
+            grid.take(raw, "level_min", self.level_min_var, str)
+        self._paint_rule()
 
     def persist_vars(self) -> list:
-        return super().persist_vars() + [self.monitor_var, self.interval_var]
+        return super().persist_vars() + [
+            var for var in (self.monitor_var, self.interval_var,
+                            self.autoloot_var, self.level_min_var)
+            if var is not None]
 
 
 class GhostAllianceGrid(_GhostGrid):

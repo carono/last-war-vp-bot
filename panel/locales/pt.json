@@ -206,6 +206,7 @@
   "game.watchdog": "Reiniciar o jogo quando ele cair",
   "ghost.any_level": "qualquer",
   "ghost.autoloot": "Saquear esquadrões sozinho",
+  "ghost.steal_all": "Roubar todos",
   "ghost.frame": "Operações Fantasmas",
   "ghost.hint": "um orçamento diário próprio, separado do das tarefas secretas. O evento dura um dia por semana e nos outros não faz nada. Não precisa varrer o mapa — o cliente conhece sozinho a lista de esquadrões.",
   "ghost.level_min": "Nível mínimo",

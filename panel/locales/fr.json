@@ -206,6 +206,7 @@
   "game.watchdog": "Relancer le jeu quand il tombe",
   "ghost.any_level": "indifférent",
   "ghost.autoloot": "Piller les équipes automatiquement",
+  "ghost.steal_all": "Toutes les piller",
   "ghost.frame": "Opérations Fantômes",
   "ghost.hint": "son propre budget quotidien, distinct des tâches secrètes. L'événement dure un jour par semaine et ne fait rien les autres. Aucun balayage de carte nécessaire — le client connaît lui-même la liste des équipes.",
   "ghost.level_min": "Niveau minimal",

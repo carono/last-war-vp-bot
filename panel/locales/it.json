@@ -206,6 +206,7 @@
   "game.watchdog": "Riavviare il gioco quando cade",
   "ghost.any_level": "qualsiasi",
   "ghost.autoloot": "Saccheggiare le squadre da sé",
+  "ghost.steal_all": "Derubale tutte",
   "ghost.frame": "Operazioni Fantasma",
   "ghost.hint": "un budget giornaliero suo, separato da quello delle attività segrete. L'evento dura un giorno alla settimana e negli altri non fa nulla. Non serve battere la mappa — il client conosce da sé l'elenco delle squadre.",
   "ghost.level_min": "Livello minimo",

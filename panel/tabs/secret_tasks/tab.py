@@ -817,6 +817,10 @@ class SecretTasksTab(PanelTab):
             self.autoloot.start()
         if self.autoassist_var.get():
             self.autoassist.start()
+        # …and the GHOST standing order, which lives on its own page since #2010 and is
+        # eager for the same reason the two above are: the event runs one day a week, and
+        # an order that only ran while somebody had the tab open would miss it.
+        self.ghost_map.order.ensure_started()
         # …AND THE HARVEST, at BOOT rather than at the first look. «Автолут ★» spends the
         # day's five robberies out of this list whether or not anybody opens the tab, so
         # the thing that keeps the list true has to run whether or not anybody does
@@ -891,6 +895,9 @@ class SecretTasksTab(PanelTab):
         self.ghost_capture.stop()
         self.autoloot.stop()
         self.autoassist.stop()
+        # …and the ghost order, whose targets belong to the map the old client was
+        # looking at — the list and the memory of what it fired at go below (#2010).
+        self.ghost_map.order.stop()
         # Another account is another server and another alliance: both cached readings
         # would otherwise answer for the profile that has just been left — and the own
         # server is what the robbery prohibition is judged against.
@@ -917,6 +924,8 @@ class SecretTasksTab(PanelTab):
         # old client too (#1272): the worker will fire into whatever is there and be
         # refused, and the set must not keep the tile un-pressable afterwards.
         self.autoloot._seen.clear()
+        # …and the ghost order's own book, for the same reason (#2010).
+        self.ghost_map.order._seen.clear()
         self._pressing.clear()
         self._restore_pending = set()
         # …and the new account's own checkpoint has not been read yet, whoever asks for
@@ -969,6 +978,7 @@ class SecretTasksTab(PanelTab):
             self.autoloot.start()
         if self.autoassist_var.get():
             self.autoassist.start()
+        self.ghost_map.order.ensure_started()
 
     def on_language_change(self) -> None:
         self._retranslate_headings()
@@ -1031,6 +1041,7 @@ class SecretTasksTab(PanelTab):
         self.ghost_capture.stop()
         self.autoloot.stop()
         self.autoassist.stop()
+        self.ghost_map.order.stop()
         for name in ("secret_tick", "secret_live", "secret_poll", "secret_nudge",
                      "secret_clock", "secret_harvest", "secret_areas",
                      # …and the two that were added after this list and not to it: the
@@ -1091,6 +1102,26 @@ class SecretTasksTab(PanelTab):
         raw = raw if isinstance(raw, dict) else {}
         self.interval_var.set(str(raw.get("monitor_interval") or DEFAULT_INTERVAL))
         blocks = raw.get("grids") if isinstance(raw.get("grids"), dict) else {}
+        # THE GHOST ORDER'S OWN PAIR, CARRIED ACROSS ONCE (#2010). It used to be saved by
+        # «Командный пункт» — the switch as a flat `ghost_autoloot`, the level inside that
+        # tab's own `pages.ghost.level_min` — and it is this page's now. Read only when
+        # this page's block says nothing about them, so a profile that has been asked
+        # since the move keeps its own answer and an old one does not lose the rule it
+        # was already running under.
+        ghost_block = dict(blocks.get(self.ghost_map.CONFIG_KEY) or {})
+        if "autoloot" not in ghost_block or "level_min" not in ghost_block:
+            legacy = self.rt.settings.tab_config(
+                "command_post", {"ghost_autoloot": "ghost_autoloot"})
+            pages = legacy.get("pages")
+            pages = pages if isinstance(pages, dict) else {}
+            old_level = (pages.get("ghost") or {}).get("level_min")
+            ghost_block.setdefault("autoloot", bool(legacy.get("ghost_autoloot", False)))
+            # A profile is a file a person may have edited, so anything that is not a
+            # whole number reads as blank — an unreadable bound must widen nothing.
+            text = str(old_level).strip() if old_level is not None else ""
+            ghost_block.setdefault("level_min", text if text.isdigit() else "")
+            blocks = dict(blocks)
+            blocks[self.ghost_map.CONFIG_KEY] = ghost_block
         for page in self._grid_pages():
             page.apply_config(blocks.get(page.CONFIG_KEY, {}))
         # A profile saved while the two sniffers were ONE box with a dropdown carries
@@ -4542,12 +4573,39 @@ class SecretTasksTab(PanelTab):
                            "empty": "secrettasks.ghost.allies.empty",
                            "actions": [self._star_action("ghost_allies"),
                                        self._clear_action("ghost_allies")]},
-                          # …and the sniffer's own card, where its tiles land (#1251).
+                          # …and the sniffer's own card, where its tiles land (#1251) —
+                          # and, since #2010, where the standing order that spends them
+                          # lives. It used to be on «Командный пункт», a DEV tab: the
+                          # live profile had it switched off, so five robberies a day
+                          # were decided by a switch nobody could reach from either
+                          # front-end. It is a knob here and a knob in the window, the
+                          # same pair the ★ card carries.
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
-                           "rows": self._count_rows(self.ghost_map),
+                           "rows": self._count_rows(self.ghost_map)
+                                   + [{"label": "ghost.frame",
+                                       "value": self.ghost_map.rule_text()}],
                            "empty": "secrettasks.ghost.map.empty",
+                           "fields": [{"key": "ghost_autoloot",
+                                       "label": "ghost.autoloot",
+                                       "hint": "ghost.hint",
+                                       "kind": opt_value.SWITCH,
+                                       "value": bool(
+                                           self.ghost_map.autoloot_var.get())},
+                                      # A number that may be EMPTY, and empty is «any
+                                      # level» — so it travels as text rather than as a
+                                      # number the browser would helpfully turn into a 0.
+                                      # Zero here is not «no bound», it is every squad on
+                                      # the map.
+                                      {"key": "ghost_level_min",
+                                       "label": "ghost.level_min",
+                                       "kind": opt_value.TEXT,
+                                       "value": (str(self.ghost_map.level_min())
+                                                 if self.ghost_map.level_min() is not None
+                                                 else "")}],
                            "actions": [self._ghost_monitor_action(),
+                                       {"id": "ghost_rob",
+                                        "label": "ghost.steal_all"},
                                        self._star_action("ghost_map"),
                                        self._clear_action("ghost_map")]},
                           # …and «Обмен кусочками», in the notebook's own order —
@@ -4865,9 +4923,34 @@ class SecretTasksTab(PanelTab):
         # than silently accepted — a press this tab does not know about is a 404, and a
         # phone told «ок» about a knob nobody moved is worse than one told «нет».
         if action == "set":
-            if str(args.get("key") or "") != "stale_hours":
-                return {"error": "unknown"}
-            self._set_stale_hours(args.get("value"))
+            key = str(args.get("key") or "")
+            if key == "stale_hours":
+                self._set_stale_hours(args.get("value"))
+                return {"ok": True}
+            # …and the ghost standing order's own two, which moved onto this tab with it
+            # (#2010). The SWITCH goes through `order.toggle`, which is what the window's
+            # checkbox calls: setting the variable alone would leave a watcher running
+            # under a box that says «off».
+            if key == "ghost_autoloot":
+                self.ghost_map.autoloot_var.set(bool(args.get("value")))
+                self.ghost_map.order.toggle()
+                self.rt.settings.changed()
+                return {"ok": True}
+            if key == "ghost_level_min":
+                raw = str(args.get("value") or "").strip()
+                # Anything that is not a whole number is «any level», never 0 — a
+                # half-typed field must not aim the day's five at every squad on the map.
+                self.ghost_map.level_min_var.set(raw if raw.isdigit() else "")
+                self.ghost_map._paint_rule()
+                self.rt.settings.changed()
+                return {"ok": True}
+            return {"error": "unknown"}
+        if action == "ghost_rob":
+            # «Ограбить всех» — the same choice the watcher makes, out of the same list,
+            # played as one recipe. Refused while a robbery is in flight: the five a day
+            # are not refundable, and two runs over one queue is what the flag is for.
+            if not self.ghost_map.order.run_once():
+                return {"ok": False, "reason": "cmdpost.ghost.busy"}
             return {"ok": True}
         if action == "refresh":
             # The window's «Обновить» refreshes both tables, so the phone's does too.

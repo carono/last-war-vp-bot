@@ -206,6 +206,7 @@
   "game.watchdog": "Khởi động lại trò chơi khi nó chết",
   "ghost.any_level": "bất kỳ",
   "ghost.autoloot": "Tự cướp các đội",
+  "ghost.steal_all": "Cướp hết",
   "ghost.frame": "Chiến Dịch Linh Hồn",
   "ghost.hint": "có ngân sách hằng ngày riêng, tách khỏi nhiệm vụ bí mật. Sự kiện chạy một ngày mỗi tuần, các ngày khác không làm gì. Không cần quét bản đồ — client tự biết danh sách đội.",
   "ghost.level_min": "Cấp thấp nhất",

@@ -206,6 +206,7 @@
   "game.watchdog": "Uruchamiać grę ponownie, gdy padnie",
   "ghost.any_level": "dowolny",
   "ghost.autoloot": "Sam grabić oddziały",
+  "ghost.steal_all": "Ograb wszystkie",
   "ghost.frame": "Operacja Widmo",
   "ghost.hint": "własny dzienny budżet, osobny od tajnych zadań. Wydarzenie trwa jeden dzień w tygodniu, w pozostałe nic nie robi. Objazd mapy niepotrzebny — klient sam zna listę oddziałów.",
   "ghost.level_min": "Poziom minimalny",

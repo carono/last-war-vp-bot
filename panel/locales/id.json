@@ -206,6 +206,7 @@
   "game.watchdog": "Mulai ulang permainan kalau mati",
   "ghost.any_level": "berapa pun",
   "ghost.autoloot": "Rampas skuad sendiri",
+  "ghost.steal_all": "Rampok semuanya",
   "ghost.frame": "Operasi Hantu",
   "ghost.hint": "anggaran hariannya sendiri, terpisah dari tugas rahasia. Acaranya berjalan satu hari seminggu dan pada hari lain tidak melakukan apa-apa. Tak perlu menyapu peta — klien tahu sendiri daftar skuadnya.",
   "ghost.level_min": "Level terendah",

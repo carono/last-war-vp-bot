@@ -206,6 +206,7 @@
   "game.watchdog": "Spiel neu starten, wenn es abstürzt",
   "ghost.any_level": "beliebig",
   "ghost.autoloot": "Truppen selbsttätig plündern",
+  "ghost.steal_all": "Alle plündern",
   "ghost.frame": "Geistereinsatz",
   "ghost.hint": "ein eigenes Tagesbudget, getrennt von den Geheimen Missionen. Das Ereignis läuft einen Tag in der Woche und tut an den übrigen nichts. Keine Kartenabfahrt nötig — der Client kennt die Truppenliste selbst.",
   "ghost.level_min": "Mindestlevel",
