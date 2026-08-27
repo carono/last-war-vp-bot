@@ -2247,5 +2247,10 @@
   "events.train.buy": "Eksikleri elmasla satın al",
   "events.train.buy.hint": "Kapalı — yalnızca çantadaki sözleşmelerle öderiz ve tek bir elmas harcamayız. Açık — eksikler satın alınır, kesinlikle yukarıdaki sayıya kadar ve bir sözleşme fazlası değil, ve her satın alma bedeliyle birlikte günlükte adıyla yazılır. Çantada kaç tane olduğu üstteki satırdadır.",
   "service.restart": "Hizmeti yeniden başlat",
-  "service.restart.confirm": "Makinenin hizmeti yeniden başlatılsın mı? Başlattığı tüm paneller kapanıp geri gelir."
+  "service.restart.confirm": "Makinenin hizmeti yeniden başlatılsın mı? Başlattığı tüm paneller kapanıp geri gelir.",
+  "secrettasks.stale_hours": "Şu kadar saattir doğrulanmayanları gizle, sa.",
+  "secrettasks.stale_hours.hint": "0 — hiçbir şeyi gizleme. Görevin kendi ömrü yaklaşık 60 saat ve onu oyun bitirir; buradaki ölçü, satırın en son ne zaman doğrulandığıdır.",
+  "secrettasks.filter.stale": "Yaşa göre gizlendi",
+  "log.secret.stale": "{hours} saatten uzun süredir doğrulanmayan satırları gizliyorum — şu anda {hidden} tane",
+  "log.secret.stale.off": "yaş kuralı kapalı — bütün satırları gösteriyorum"
 }

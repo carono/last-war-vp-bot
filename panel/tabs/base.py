@@ -311,6 +311,15 @@ class PanelTab:
         person's words, on «Карта»: «делаем не грид с секретками в одну строку, а
         небольшие кнопки с минимальной информацией».
 
+        A TILE WHOSE NAME IS A COORDINATE IS ITSELF THE PRESS, and the press is the JUMP
+        — the same `goto_coord` an underlined coordinate in a line of prose plays (#1982),
+        so the two cannot drift. Never the robbery: walking the camera costs nothing and
+        undoes itself, where a robbery spends one of the day's five. A press the TAB
+        offered stays a button of its own on the tile and presses only itself. An item
+        whose name is not a place — a warzone number, a player — is left a plain tile.
+        Nothing is guessed: the panel marks the coordinates it sends
+        (`panel/web/coordlinks.py`), and a tile is a button exactly when there is a mark.
+
         …and one more kind of card, for a screen that SETS rather than shows (#1976)::
 
             {"cards": [

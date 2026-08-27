@@ -941,6 +941,16 @@ literals — the same shape as the flow strip beside it, and for the same reason
 eleventh page is then one line and not an eleventh place to forget.
 `tests/test_panel_web_screens.py` fails on a table naming a card that no longer exists.
 
+**A tile whose name is a coordinate IS the press, and the press is the jump.** Tapping
+anywhere on it plays the same `goto_coord` an underlined coordinate in a line of prose
+plays (#1982) — one place in the front-end answers for both, so they cannot drift. Never
+the robbery: walking the camera costs nothing and undoes itself, where a robbery spends
+one of the day's five and does not come back. A press the TAB offered stays a button of
+its own on the tile and presses **only** itself; an item whose name is not a place — a
+warzone number, a player — is left a plain tile with whatever buttons it came with.
+Nothing is guessed here: the panel marks the coordinates it sends
+(`panel/web/coordlinks.py`), and a tile is a button exactly when there is a mark to press.
+
 **A card may SET rather than show** (#1976). `fields` is a list of knobs — `key` (the
 knob's own id, data), `label` and an optional `hint` (locale keys), `kind` (`switch`,
 `number` or `text`, decided by the type the knob was DECLARED with, never guessed from

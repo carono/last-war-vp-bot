@@ -256,6 +256,10 @@ main {
 }
 .mini {
   display: flex;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  width: 100%;
   flex-direction: column;
   gap: 2px;
   background: var(--bg-soft);
@@ -264,6 +268,13 @@ main {
   padding: 6px 8px;
   min-width: 0;
 }
+/* A TILE THAT IS A PLACE IS A BUTTON, all of it (#1999): tapping anywhere but its own
+   buttons walks the camera there. It wears the same skin as the tile beside it that is
+   not one — the difference is a press, not a decoration — and it is thumb-high without
+   `--tap`, because its own content already makes it so. */
+.mini.act { cursor: pointer; }
+.mini.act:active { border-color: var(--accent); }
+
 /* The name is the coordinate, and the coordinate is the press that goes there — so it
    is the biggest thing on the tile and it is never wrapped. */
 .mini .name {

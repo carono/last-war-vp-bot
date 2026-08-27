@@ -116,6 +116,43 @@ an absent per-tile detail with a live control point, or a read that could see th
 did not carry it). Everything else hides, not removes. Robbed rows are never removed by
 clause 2. «Очистить список» and a profile switch are the only wipes.
 
+## 3a. «Old» rows: measured, then hidden — never deleted (#1999)
+
+Asked for as «секретки старше 12 часов автоматически скрываем или удаляем из базы». The
+choice between the two is not a matter of taste here, so it was measured against a live
+list of **1 529 starred rows**:
+
+| reading | result |
+|---|---|
+| rows carrying the task's own `expires_at` | **1 529 of 1 529** |
+| the task's own life (`expires_at − completed_at`) | median **62 h**, quartiles 60–65 h |
+| time left before expiry, across the list | min 36 h, median 60 h |
+| last confirmation (`checked_at`) | 650 within 6 h · 650 aged 1–3 days · 229 never |
+
+So a secret task lives about **two and a half days**, the game ends it on its own clock,
+and `THE_LIST_RULE` clause 1 already takes the row off when that happens. **Twelve hours is
+not this thing's lifetime** — at twelve hours the median row still has two days to run and
+is perfectly robbable, so deleting there would throw away targets a lap of the map paid
+for. What twelve hours does describe is the OTHER clock on the row: how long ago anything
+last confirmed it (`checked_at`, «Сверено», #1484) — a statement about our knowledge, not
+about the tile.
+
+It is therefore a **filter**, the third display rule beside «Показывать исчерпанные» and
+the level range: the row stays in `_rows`, «Скрыто по возрасту» says how many are held
+back, and `0` brings every one of them straight back. It narrows nothing the standing
+order spends — `rob_candidates` never asks.
+
+The age is the newest of three stamps (`_last_word`): `checked_at` first, then `first_seen`
+— stamped when the row enters the list, so a tile heard a second ago is not judged by the
+day its task ripened — then `completed_at`, which every row has and which dates the rows
+restored from a checkpoint written before `first_seen` existed. An unripened tile has
+`completed_at` in the future, so its age is negative and it is never hidden.
+
+The threshold is a FIELD on the phone's ★ card (`stale_hours`, default 12, `0` = off) and
+is saved with the profile. The window has no widget for it: while #1976 runs, new controls
+go to the web only — the window applies the same rule and its «скрыто фильтрами» counter
+covers it.
+
 ## 4. Known defects
 
 Still open:

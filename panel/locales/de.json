@@ -2247,5 +2247,10 @@
   "events.train.buy": "Fehlende für Diamanten kaufen",
   "events.train.buy.hint": "Aus — wir zahlen nur mit den Verträgen im Beutel und geben keinen einzigen Diamanten aus. An — die fehlenden werden gekauft, streng bis zur Zahl oben und keinen Vertrag weiter, und jeder Kauf wird im Log mit seinem Preis genannt. Wie viele im Beutel liegen, steht in der Zeile darüber.",
   "service.restart": "Dienst neu starten",
-  "service.restart.confirm": "Den Dienst des Rechners neu starten? Alle von ihm gestarteten Panels gehen aus und kommen zurück."
+  "service.restart.confirm": "Den Dienst des Rechners neu starten? Alle von ihm gestarteten Panels gehen aus und kommen zurück.",
+  "secrettasks.stale_hours": "Unbestätigte ausblenden ab, Std.",
+  "secrettasks.stale_hours.hint": "0 — nichts ausblenden. Die Aufgabe selbst lebt etwa 60 Std. und wird vom Spiel beendet; hier geht es darum, wann die Zeile zuletzt bestätigt wurde.",
+  "secrettasks.filter.stale": "Nach Alter ausgeblendet",
+  "log.secret.stale": "blende Zeilen aus, die seit über {hours} Std. nicht bestätigt wurden — derzeit {hidden}",
+  "log.secret.stale.off": "Altersregel aus — alle Zeilen werden gezeigt"
 }

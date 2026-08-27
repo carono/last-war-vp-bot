@@ -2247,5 +2247,10 @@
   "events.train.buy": "Dokupować brakujące za diamenty",
   "events.train.buy.hint": "Odznaczone — płacimy tylko umowami z torby i nie wydajemy ani jednego diamentu. Zaznaczone — brakujące są dokupywane, ściśle do liczby powyżej i ani jednej umowy więcej, a każdy zakup jest nazwany w dzienniku wraz z ceną. Ile jest w torbie, mówi wiersz powyżej.",
   "service.restart": "Uruchom usługę ponownie",
-  "service.restart.confirm": "Uruchomić ponownie usługę tej maszyny? Wszystkie uruchomione przez nią panele zgasną i wrócą."
+  "service.restart.confirm": "Uruchomić ponownie usługę tej maszyny? Wszystkie uruchomione przez nią panele zgasną i wrócą.",
+  "secrettasks.stale_hours": "Ukrywaj niepotwierdzone dłużej niż, godz.",
+  "secrettasks.stale_hours.hint": "0 — nic nie ukrywaj. Samo zadanie żyje około 60 godz. i kończy je gra; tutaj chodzi o to, kiedy wiersz był ostatnio potwierdzony.",
+  "secrettasks.filter.stale": "Ukryte ze względu na wiek",
+  "log.secret.stale": "ukrywam wiersze niepotwierdzone dłużej niż {hours} godz. — teraz jest ich {hidden}",
+  "log.secret.stale.off": "reguła wieku wyłączona — pokazuję wszystkie wiersze"
 }

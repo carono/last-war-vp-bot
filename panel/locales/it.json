@@ -2247,5 +2247,10 @@
   "events.train.buy": "Comprare i mancanti con i diamanti",
   "events.train.buy.hint": "Spento — paghiamo solo con i contratti nella borsa e non spendiamo un solo diamante. Acceso — i mancanti vengono comprati, rigorosamente entro il numero sopra e non un contratto di più, e ogni acquisto è nominato nel log con il suo costo. Quanti ce ne sono nella borsa è la riga sopra.",
   "service.restart": "Riavvia il servizio",
-  "service.restart.confirm": "Riavviare il servizio della macchina? Tutti i pannelli che ha avviato si spengono e tornano."
+  "service.restart.confirm": "Riavviare il servizio della macchina? Tutti i pannelli che ha avviato si spengono e tornano.",
+  "secrettasks.stale_hours": "Nascondi le non confermate oltre, h",
+  "secrettasks.stale_hours.hint": "0 — non nascondere nulla. L'attività dura circa 60 h ed è il gioco a terminarla; qui si misura l'ultima conferma della riga.",
+  "secrettasks.filter.stale": "Nascoste per anzianità",
+  "log.secret.stale": "nascondo le righe non confermate da oltre {hours} h — ora sono {hidden}",
+  "log.secret.stale.off": "regola di anzianità disattivata — mostro tutte le righe"
 }

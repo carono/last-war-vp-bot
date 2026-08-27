@@ -2247,5 +2247,10 @@
   "events.train.buy": "Comprar os que faltam com diamantes",
   "events.train.buy.hint": "Desmarcado — pagamos apenas com os contratos da bolsa e não gastamos um único diamante. Marcado — os que faltam são comprados, estritamente até o número acima e nem um contrato além, e cada compra é nomeada no log com o que custou. Quantos há na bolsa é a linha acima.",
   "service.restart": "Reiniciar o serviço",
-  "service.restart.confirm": "Reiniciar o serviço da máquina? Todos os painéis que ele iniciou caem e voltam."
+  "service.restart.confirm": "Reiniciar o serviço da máquina? Todos os painéis que ele iniciou caem e voltam.",
+  "secrettasks.stale_hours": "Ocultar não confirmadas há mais de, h",
+  "secrettasks.stale_hours.hint": "0 — não ocultar nada. A tarefa dura cerca de 60 h e é o jogo que a encerra; aqui mede-se quando a linha foi confirmada pela última vez.",
+  "secrettasks.filter.stale": "Ocultas por antiguidade",
+  "log.secret.stale": "a ocultar as linhas não confirmadas há mais de {hours} h — são {hidden} neste momento",
+  "log.secret.stale.off": "regra de antiguidade desligada — mostro todas as linhas"
 }

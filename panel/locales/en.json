@@ -2247,5 +2247,10 @@
   "events.train.buy": "Buy the missing ones for diamonds",
   "events.train.buy.hint": "Off — we pay only with the contracts in the bag and spend no diamonds at all. On — the missing ones are bought, strictly up to the number above and never one contract further, and every purchase is named in the log with what it cost. The count in the bag is the row above.",
   "service.restart": "Restart the service",
-  "service.restart.confirm": "Restart the machine's service? Every panel it started goes down and comes back."
+  "service.restart.confirm": "Restart the machine's service? Every panel it started goes down and comes back.",
+  "secrettasks.stale_hours": "Hide unconfirmed for longer than, h",
+  "secrettasks.stale_hours.hint": "0 — hide nothing. The task's own life is about 60 h and the game itself ends it; this is about how long ago anything last confirmed the row.",
+  "secrettasks.filter.stale": "Hidden by age",
+  "log.secret.stale": "hiding rows nothing has confirmed for over {hours} h — that is {hidden} of them right now",
+  "log.secret.stale.off": "the age rule is off — every row is shown"
 }

@@ -1997,6 +1997,28 @@ def test_nothing_waits_for_a_cursor_that_is_not_there():
     assert ":hover" not in _css()
 
 
+def test_a_tile_is_the_place_it_draws_and_its_own_buttons_are_not():
+    """A list of places is small buttons, and pressing one goes there (#1999).
+
+    Three things, and each of them has a way of quietly going wrong:
+
+    * the tile is a BUTTON — «небольшие кнопки», not a row with a link buried in it;
+    * what it plays is the JUMP, out of the ONE place that plays it (`useJump`), so a
+      tile and an underlined coordinate in a line of prose cannot start doing different
+      things. A second `goto_coord` in the front-end is that drift beginning;
+    * a button the TAB put on a tile presses only itself. «Ограбить» spends one of the
+      day's five and there is no undo — it must never also walk the camera because the
+      press bubbled up to the tile it sits on.
+    """
+    script = _front_end_source()
+    assert '"mini act"' in script, "a tile that is a place is not a button"
+    assert "useJump" in script, "the tile does not play the panel's own jump"
+    assert script.count("name: 'goto_coord'") == 1, \
+        "the jump is played from more than one place — they will drift"
+    assert 'className="acts" onClick={(e) => e.stopPropagation()}' in script, \
+        "a button on a tile would also press the tile it sits on"
+
+
 def test_every_control_is_at_least_a_finger_wide():
     """44 CSS px, and the audit that measured it found the switches at 26."""
     css = _css()

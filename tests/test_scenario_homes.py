@@ -99,6 +99,14 @@ EXEMPT = {
     "watch_fireworks": "the standing order itself — the trigger's box is its switch",
     "unwatch_fireworks": "the other half of watch_fireworks, played when it is unticked",
     "read_fireworks_watch": "the reading half of watch_fireworks — «События» draws it",
+    # THE PRESS IS EVERY COORDINATE THERE IS, and it lives in the web front-end
+    # rather than in a tab (#1982, #1999). An underlined coordinate in a line of
+    # prose plays it, and so does a tap on a tile whose name is a place — both from
+    # `panel/web/app/src/ui/Coord.tsx`, which is TypeScript and therefore invisible
+    # to the sweep above, since that reads `panel/**/*.py` for a quoted name. A
+    # button of its own on some tab would be a fourth way to walk the camera to a
+    # place the person would have to type out by hand.
+    "goto_coord": "played by every coordinate link and every place-tile in the web front-end (Coord.tsx), which the python sweep cannot see",
 }
 
 

@@ -2247,5 +2247,10 @@
   "events.train.buy": "Mua bù bằng kim cương khi thiếu",
   "events.train.buy.hint": "Tắt — chỉ trả bằng hợp đồng có trong túi và không tiêu một viên kim cương nào. Bật — phần thiếu sẽ được mua, nghiêm ngặt trong giới hạn con số ở trên và không quá một hợp đồng, và mỗi lần mua đều được ghi rõ trong nhật ký kèm giá. Số lượng trong túi ở dòng ngay trên.",
   "service.restart": "Khởi động lại dịch vụ",
-  "service.restart.confirm": "Khởi động lại dịch vụ của máy? Mọi bảng điều khiển do nó khởi chạy sẽ tắt rồi quay lại."
+  "service.restart.confirm": "Khởi động lại dịch vụ của máy? Mọi bảng điều khiển do nó khởi chạy sẽ tắt rồi quay lại.",
+  "secrettasks.stale_hours": "Ẩn ô chưa xác nhận quá, giờ",
+  "secrettasks.stale_hours.hint": "0 — không ẩn gì cả. Bản thân nhiệm vụ sống khoảng 60 giờ và chính trò chơi kết thúc nó; ở đây đo lần cuối dòng được xác nhận.",
+  "secrettasks.filter.stale": "Đã ẩn theo tuổi",
+  "log.secret.stale": "đang ẩn những dòng không được xác nhận quá {hours} giờ — hiện có {hidden}",
+  "log.secret.stale.off": "quy tắc tuổi đã tắt — hiện toàn bộ các dòng"
 }

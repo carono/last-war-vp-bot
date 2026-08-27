@@ -5,7 +5,7 @@ import { t, when } from '../i18n'
 import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
 import { SwitchRow } from '../ui/SwitchRow'
-import { Marked } from '../ui/Coord'
+import { firstPlace, Marked, useJump } from '../ui/Coord'
 import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
 
 /* ONE RENDERER FOR EVERY TAB'S SCREEN.
@@ -233,12 +233,13 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
 /* ONE ITEM OF A `layout: "tiles"` CARD — a small button rather than a wide row (#1999).
  *
  * The person's words: «карта, секретки грабеж: делаем не грид с секретками в одну строку,
- * а небольшие кнопки с минимальной информацией». A ★ list is 285 places, and a place is
- * recognised by four things — where it is, what level it is, what state it is in, and
- * whether it can be taken. Everything else on the row is why the card was unreadable.
+ * а небольшие кнопки с минимальной информацией». The ★ list runs to hundreds of places,
+ * and a place is recognised by four things — where it is, what level it is, what state it
+ * is in, and whether it can be taken. Everything else on the row is why the card was
+ * unreadable.
  *
- * So a tile carries the item's NAME (a coordinate, which is already the press that goes
- * there — `Coord`), its first TWO facts as bare VALUES, its pill and its own buttons.
+ * So a tile carries the item's NAME (the coordinate), its first TWO facts as bare VALUES,
+ * its pill and its own buttons.
  * Two, measured rather than chosen: a ★ tile has four readings and the fourth wrapped
  * the line, which is the page this exists instead of. What survives is what the person
  * asked for — «уровень, звезда, координата, состояние».
@@ -247,37 +248,56 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
  * with no value at all is a MARK — «переслано», «ограблено» — and there the label IS the
  * word, so it is drawn instead.
  *
- * The tile is not itself a button: what it holds already is one (the coordinate, and
- * whatever the tab offered), and a button inside a button is neither valid nor pressable
- * on a thumb. */
+ * THE WHOLE TILE IS THE PRESS, AND THE PRESS IS THE JUMP. An item whose name is a
+ * coordinate goes there when the tile is tapped — the same `goto_coord` the underlined
+ * coordinate in a line of prose plays (#1982), out of one place (`useJump`), so the two
+ * cannot drift. Never the robbery: a jump walks the camera and costs nothing, where a
+ * robbery spends one of the day's five and does not come back. Where the tab offers one
+ * it stays a BUTTON OF ITS OWN on the tile, and pressing it does not also jump.
+ *
+ * An item whose name is not a place — a warzone number on «Куда идти сегодня», a player —
+ * is left a plain tile with whatever buttons it came with. Nothing here guesses: the
+ * panel marks the coordinates it sends (`panel/web/coordlinks.py`), and a tile is a
+ * button exactly when there is a mark to press.
+ *
+ * Inside a tile that IS a button the marks are drawn as PLAIN TEXT: the tile already
+ * carries the jump, so a second control inside it would be the same press twice. */
 /* How many of an item's facts fit on a tile before the line wraps — measured on an
  * emulated iPhone against the live ★ list, which has four readings and wrapped at three. */
 const TILE_FACTS = 2
 
 function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
+  const jump = useJump()
+  //: The place this tile IS, or `null` — see the note above. Only the NAME counts: a
+  //: coordinate buried in a fact is not what the tile is about.
+  const place = item.label ? null : firstPlace(item.text_parts)
+  //: Inside a tile that is a button, a mark is drawn as text rather than as a second
+  //: button — `mark` is that decision, made once and used for every piece of prose.
+  const mark = (text?: string | null, parts?: ViewItem['text_parts']) =>
+    place ? <>{text || ''}</> : <Marked text={text} parts={parts} />
   /* `detail` goes on the tile too, first — it is the one word that is not a fact and
      still tells the places apart: the alliance a chest belongs to, the owner of a base.
      `note` does not: it is prose, and prose is what a tile exists instead of. */
   const bits: ReactNode[] = item.detail
     ? [
         <span className="bit" key="detail">
-          <Marked text={item.detail} parts={item.detail_parts} />
+          {mark(item.detail, item.detail_parts)}
         </span>,
       ]
     : []
   bits.push(
     ...(item.facts || []).slice(0, TILE_FACTS).map((f, i) => (
-    <span className="bit" key={i} title={t(f.label)}>
-      {!f.value ? (
-        t(f.label)
-      ) : f.value_parts ? (
-        <Marked text={f.value} parts={f.value_parts} />
-      ) : f.translate ? (
-        t(f.value)
-      ) : (
-        f.value
-      )}
-    </span>
+      <span className="bit" key={i} title={t(f.label)}>
+        {!f.value ? (
+          t(f.label)
+        ) : f.value_parts ? (
+          mark(f.value, f.value_parts)
+        ) : f.translate ? (
+          t(f.value)
+        ) : (
+          f.value
+        )}
+      </span>
     )),
   )
   if (item.until)
@@ -286,21 +306,27 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
         {when(item.until, now || item.until)}
       </span>,
     )
-  return (
-    <div className="mini">
-      <div className="name">
-        {item.label ? t(item.label) : <Marked text={item.text} parts={item.text_parts} />}
-      </div>
+  const inside = (
+    <>
+      <div className="name">{item.label ? t(item.label) : mark(item.text, item.text_parts)}</div>
       {bits.length ? <div className="bits">{bits}</div> : null}
       {item.pill ? <span className="pill">{t(item.pill)}</span> : null}
       {(item.actions || []).length ? (
-        <div className="acts">
+        /* A BUTTON ON A TILE THAT IS ITSELF A BUTTON. The press is about the button —
+           «Ограбить» must never also walk the camera — so the click stops here. */
+        <div className="acts" onClick={(e) => e.stopPropagation()}>
           {(item.actions || []).map((action) => (
             <PressButton key={action.id} action={action} screen={screen} after={after} />
           ))}
         </div>
       ) : null}
-    </div>
+    </>
+  )
+  if (!place) return <div className="mini">{inside}</div>
+  return (
+    <button className="mini act" onClick={() => void jump(place)}>
+      {inside}
+    </button>
   )
 }
 

@@ -2247,5 +2247,10 @@
   "events.train.buy": "Acheter les manquants avec des diamants",
   "events.train.buy.hint": "Décoché — nous payons uniquement avec les contrats du sac et ne dépensons aucun diamant. Coché — les manquants sont achetés, strictement dans la limite du nombre ci-dessus et pas un contrat de plus, et chaque achat est nommé dans le journal avec son prix. Le compte du sac est la ligne au-dessus.",
   "service.restart": "Redémarrer le service",
-  "service.restart.confirm": "Redémarrer le service de la machine ? Tous les panneaux qu'il a lancés s'arrêtent puis reviennent."
+  "service.restart.confirm": "Redémarrer le service de la machine ? Tous les panneaux qu'il a lancés s'arrêtent puis reviennent.",
+  "secrettasks.stale_hours": "Masquer les non confirmées au-delà de, h",
+  "secrettasks.stale_hours.hint": "0 — ne rien masquer. La tâche elle-même vit environ 60 h et c'est le jeu qui y met fin ; ici il s'agit de la dernière confirmation de la ligne.",
+  "secrettasks.filter.stale": "Masquées par ancienneté",
+  "log.secret.stale": "je masque les lignes non confirmées depuis plus de {hours} h — soit {hidden} pour l'instant",
+  "log.secret.stale.off": "règle d'ancienneté désactivée — toutes les lignes sont affichées"
 }

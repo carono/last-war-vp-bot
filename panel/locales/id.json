@@ -2247,5 +2247,10 @@
   "events.train.buy": "Beli yang kurang dengan berlian",
   "events.train.buy.hint": "Mati — kita membayar hanya dengan kontrak di tas dan tidak menghabiskan satu berlian pun. Hidup — yang kurang dibeli, ketat sampai angka di atas dan tidak satu kontrak pun lebih, dan setiap pembelian disebut di log beserta harganya. Berapa yang ada di tas ada di baris atas.",
   "service.restart": "Mulai ulang layanan",
-  "service.restart.confirm": "Mulai ulang layanan mesin ini? Semua panel yang dijalankannya akan mati lalu kembali."
+  "service.restart.confirm": "Mulai ulang layanan mesin ini? Semua panel yang dijalankannya akan mati lalu kembali.",
+  "secrettasks.stale_hours": "Sembunyikan yang tak terkonfirmasi lebih dari, jam",
+  "secrettasks.stale_hours.hint": "0 — jangan sembunyikan apa pun. Tugasnya sendiri hidup sekitar 60 jam dan permainanlah yang mengakhirinya; di sini yang diukur adalah kapan baris terakhir dikonfirmasi.",
+  "secrettasks.filter.stale": "Disembunyikan karena usia",
+  "log.secret.stale": "menyembunyikan baris yang tidak dikonfirmasi lebih dari {hours} jam — saat ini ada {hidden}",
+  "log.secret.stale.off": "aturan usia dimatikan — semua baris ditampilkan"
 }

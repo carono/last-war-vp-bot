@@ -2247,5 +2247,10 @@
   "events.train.buy": "Comprar los que falten con diamantes",
   "events.train.buy.hint": "Desmarcado: pagamos solo con los contratos de la bolsa y no gastamos ni un diamante. Marcado: los que falten se compran, estrictamente hasta el número de arriba y ni un contrato más, y cada compra se nombra en el registro con lo que costó. Lo que hay en la bolsa es la fila de arriba.",
   "service.restart": "Reiniciar el servicio",
-  "service.restart.confirm": "¿Reiniciar el servicio de la máquina? Todos los paneles que inició se apagan y vuelven."
+  "service.restart.confirm": "¿Reiniciar el servicio de la máquina? Todos los paneles que inició se apagan y vuelven.",
+  "secrettasks.stale_hours": "Ocultar sin confirmar más de, h",
+  "secrettasks.stale_hours.hint": "0 — no ocultar nada. La tarea vive unas 60 h y es el juego quien la termina; aquí se mide cuándo se confirmó la fila por última vez.",
+  "secrettasks.filter.stale": "Ocultas por antigüedad",
+  "log.secret.stale": "oculto las filas sin confirmar desde hace más de {hours} h — ahora son {hidden}",
+  "log.secret.stale.off": "regla de antigüedad desactivada — se muestran todas las filas"
 }

@@ -553,6 +553,57 @@ def test_the_jump_history_remembers_the_newest_first_and_is_capped():
     assert len(tab._jump_hist) == st.JUMP_HISTORY_MAX, len(tab._jump_hist)
 
 
+def test_a_row_nothing_has_confirmed_for_hours_is_HIDDEN_and_never_deleted():
+    """«Секретки старше 12 часов» is a FILTER, and the reason is the game's own clock.
+
+    The person asked for old rows to be «скрыты или удалены». Measured over a live list
+    of 1 529 starred rows, a secret task carries its own `expires_at` and lives about
+    58–66 hours — so twelve hours is not its lifetime, and a row that has reached it is
+    usually a live tile with two more days to run. `THE_LIST_RULE` clause 1 already ends
+    a task the moment the GAME's clock says so; what twelve hours describes is the other
+    thing on the row — how long ago anything last confirmed it (#1484).
+
+    So: hidden, counted, and brought straight back by 0 — like «Показывать исчерпанные»
+    and the level range beside it. Nothing leaves `_rows`.
+    """
+    hour = 3600_000
+    # …confirmed a day and a bit ago: the row this whole rule is about.
+    old_row = dict(_row(1, 7, -40 * hour, 20 * hour), checked_at=_ms(-30 * hour))
+    # …confirmed an hour ago — recent, whatever its task's own age is.
+    fresh = dict(_row(2, 7, -40 * hour, 20 * hour), checked_at=_ms(-hour))
+    # …heard for the FIRST time just now and not confirmed since. Its task ripened days
+    # ago, so without `first_seen` a brand-new find would be hidden on arrival.
+    just_found = dict(_row(3, 7, -40 * hour, 20 * hour), first_seen=_ms(0))
+    # …not ripe yet: `completed_at` is in the FUTURE, so its age is negative. Early is
+    # not stale.
+    early = dict(_row(4, 7, 2 * hour, 40 * hour))
+    rows = {"1": old_row, "2": fresh, "3": just_found, "4": early}
+    tab = _make_tab(rows)
+    tab.stale_hours_var = _Var("12")
+
+    assert sorted(r["uuid"] for r in tab._visible_rows()) == [2, 3, 4]
+    # HIDDEN, NOT REMOVED — the whole point.
+    assert sorted(tab._rows) == ["1", "2", "3", "4"]
+    assert tab.counts() == (3, 1)
+    assert tab.stale_hidden() == 1
+
+    # 0 shows everything, and so does anything unreadable: a typo must never be the
+    # reason a list looks empty.
+    tab.stale_hours_var = _Var("0")
+    assert sorted(r["uuid"] for r in tab._visible_rows()) == [1, 2, 3, 4]
+    assert tab.stale_hidden() == 0
+    tab.stale_hours_var = _Var("не число")
+    assert sorted(r["uuid"] for r in tab._visible_rows()) == [1, 2, 3, 4]
+
+    # …and it narrows what is SHOWN and never what is spent: the standing order chooses
+    # its targets in `rob_candidates`, which must not consult this rule any more than it
+    # consults «Скрывать со своего сервера».
+    src = (Path(__file__).resolve().parents[1] /
+           "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
+    order = src.split("def rob_candidates")[1].split("\n    def ")[0]
+    assert "_stale" not in order, "the age filter reached into what gets robbed"
+
+
 def test_a_looted_out_tile_is_off_the_list_unless_it_is_asked_for():
     """3/3 is spent — it cannot pay anybody, so it is not on the list (#1227).
 
@@ -3436,6 +3487,9 @@ def _config_stub():
     stub.interval_var = _Var("15")
     stub.monitor_var, stub.show_spent_var = _Var(False), _Var(False)
     stub.hide_own_var = _Var(True)
+    # …and the third display rule (#1999): how long a row may go unconfirmed before the
+    # page holds it back. Saved under its own key like the two above.
+    stub.stale_hours_var = _Var("12")
     stub.filter_from_var = stub.filter_to_var = _Var("")
     stub.autoloot_var = _Var(False)
     stub.level_min_var = _Var("")

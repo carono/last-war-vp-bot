@@ -96,6 +96,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ...runtime import claims
+from ...runtime import opt_value
 from ...runtime import players
 from ...widgets import NumericEntry, tk_stringvar, font as ui_font
 from ..base import PanelTab, TriggerSpec
@@ -392,6 +393,24 @@ SOURCE_WIRE = "wire"    # found by the passive capture, or restored from its che
 #: earned rather than evidence against it.
 THE_LIST_RULE = "expiry, or the game saying the tile is not there — nothing else"
 
+#: HOW LONG A ROW MAY GO UNCONFIRMED BEFORE IT IS HIDDEN, in hours. `0` shows everything.
+#:
+#: The person's words were «секретки старше 12 часов автоматически скрываем или удаляем из
+#: базы», and the choice between the two is settled by what the game itself says (#1999).
+#: A ★ row carries the task's OWN `expires_at`, and measured over a live list of 1 529 of
+#: them the task lives about **58–66 hours** (median 62) — never 12. So twelve hours is not
+#: this thing's lifetime, and a row that has reached it is very often a live, robbable tile
+#: with two more days to run: deleting at twelve hours would throw away targets the game is
+#: still serving, and `THE_LIST_RULE` clause 1 already removes a task the moment its own
+#: clock runs out, on the game's word rather than ours.
+#:
+#: What twelve hours DOES describe is the other thing on the row — how long ago anything
+#: last CONFIRMED it (`checked_at`, the «Сверено» column, #1484). That is a statement about
+#: our knowledge, not about the tile, so it is a FILTER exactly like «Показывать
+#: исчерпанные» and the level range: the row stays in the list, the counter says how many
+#: are held back, and setting this to 0 brings them all back.
+DEFAULT_STALE_HOURS = 12
+
 # The two channels a task can be forwarded to. The room ids are built from the player's
 # own server / alliance, read once and cached (see `_self_ids`).
 SHARE_ALLIANCE = "alliance"
@@ -613,6 +632,14 @@ class SecretTasksTab(PanelTab):
         # how a rule about spending five raids a day silently became a rule about what
         # is on screen.
         self.hide_own_var = statevar.boolean(master, True)
+        # «Скрывать не подтверждённые дольше N часов» (#1999) — a DISPLAY rule and the
+        # third of its kind, kept as text rather than as a number so that the field on the
+        # phone can be cleared without the browser helpfully turning it into a 0. See
+        # :data:`DEFAULT_STALE_HOURS` for why the answer to «старьё мешает» is a filter on
+        # `checked_at` and not a delete: the task's own expiry is already clause 1 of
+        # `THE_LIST_RULE`, and it is measured in DAYS, not in twelve hours.
+        self.stale_hours_var = tk_stringvar(master)
+        self.stale_hours_var.set(str(DEFAULT_STALE_HOURS))
         # «Автопомощь» and its own minimum level (#1272). A SECOND budget and a second
         # standing order, on the alliance page because that is the list it spends itself
         # over — the same reasoning that moved «Автолут ★» onto the ★ page (#1271).
@@ -1018,6 +1045,9 @@ class SecretTasksTab(PanelTab):
             # what is robbed. The robbery's own rule is `autoloot_skip_own_server`
             # below, and the two are kept apart on purpose.
             "hide_own_server": bool(self.hide_own_var.get()),
+            # …and the third display rule (#1999): how long a row may go unconfirmed
+            # before it is held back. Its own key, like the two above.
+            "stale_hours": self.stale_hours_var.get(),
             "filter_level_from": self.filter_from_var.get(),
             "filter_level_to": self.filter_to_var.get(),
             "autoloot": bool(self.autoloot_var.get()),
@@ -1062,6 +1092,10 @@ class SecretTasksTab(PanelTab):
         # ON for a profile that has never been asked (#1251): a raid at home is not
         # what this list is read for, and the box is how somebody says otherwise.
         self.hide_own_var.set(bool(raw.get("hide_own_server", True)))
+        # A profile written before this existed gets the default rather than «off»
+        # (#1999): the complaint it answers — «старьё мешает» — is true of every list
+        # that has been running for a day, and 0 is one press away.
+        self.stale_hours_var.set(str(raw.get("stale_hours", DEFAULT_STALE_HOURS)))
         # A profile written before the pages kept their own settings spelled these two
         # flat; the page's own block wins where there is one (#1251).
         if "grids" not in raw:
@@ -1117,7 +1151,7 @@ class SecretTasksTab(PanelTab):
     def persist_vars(self) -> list:
         pages = [v for page in self._grid_pages() for v in page.persist_vars()]
         return pages + [self.monitor_var, self.interval_var, self.show_spent_var,
-                self.hide_own_var,
+                self.hide_own_var, self.stale_hours_var,
                 self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_min_var,
                 self.autoassist_var, self.assist_level_var,
@@ -3763,6 +3797,13 @@ class SecretTasksTab(PanelTab):
                 # …and WHICH FEED put it here (#1272), which is what decides whose
                 # absence is allowed to take it away again. See `_answerable`.
                 "source": source,
+                # …AND WHEN THIS ROW ARRIVED (#1999), on the game's clock. Not a fact
+                # about the tile — a fact about US — and it is what keeps the age filter
+                # honest at the one moment `checked_at` cannot: a tile heard a second ago
+                # has no confirmation yet (this path stamps none; the next merge does),
+                # while the task itself ripened two days back. Judged by `completed_at`
+                # alone, a brand-new find would be hidden as «старьё» on arrival.
+                "first_seen": now_ms,
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
         # EVERY DOOR, WITH A NUMBER ON IT (#1476). «Не появляется» was answered three
@@ -3865,7 +3906,12 @@ class SecretTasksTab(PanelTab):
              # kept saying «0/3, готово к сбору» about a tile emptied an hour before.
              # Absent on a checkpoint written before this existed, and that reads as
              # «ни разу», which is the honest answer for a row nothing has verified.
-             "checked_at": r.get("checked_at")}
+             "checked_at": r.get("checked_at"),
+             # …AND WHEN WE FIRST HEARD OF IT (#1999). Kept for the age filter and for
+             # nothing else: without it a restart would date every restored row by the
+             # moment its task ripened, and a list that came back an hour after a lap
+             # would hide the whole of what the lap had just paid for.
+             "first_seen": r.get("first_seen")}
             for r in self._rows.values()]})
 
     # -- the book of removals (#1416) -------------------------------------------
@@ -4091,6 +4137,10 @@ class SecretTasksTab(PanelTab):
                 # older checkpoint has — is «ни разу», said in the column in so many words
                 # rather than drawn as a dash somebody reads as «только что».
                 "checked_at": rec.get("checked_at"),
+                # …and when it first arrived (#1999). `None` on a checkpoint written
+                # before this existed, and such a row is then dated by whichever of the
+                # other two stamps is newer — see `_last_word`.
+                "first_seen": rec.get("first_seen"),
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
             if rec.get("robbed"):
@@ -4193,6 +4243,7 @@ class SecretTasksTab(PanelTab):
                          if self._collectable(row) else None),
             })
         hidden = self._hidden_at_home()
+        stale = self.stale_hidden()
         # What «Автолут ★» is doing, in the same words the window puts under the
         # checkbox. It is the reading somebody away from the machine most needs: the
         # tiles say what is on the map, this says whether anything is going to be taken
@@ -4246,7 +4297,23 @@ class SecretTasksTab(PanelTab):
                            # separately, because it is the one most easily forgotten.
                            "rows": (self._count_rows()
                                     + ([{"label": "secrettasks.filter.hide_own",
-                                         "value": str(hidden)}] if hidden else [])),
+                                         "value": str(hidden)}] if hidden else [])
+                                    # …and the age rule, named separately for the same
+                                    # reason (#1999): it is the newest of the three and
+                                    # the only one that hides rows nobody switched on by
+                                    # hand, so a list that looks short has to say so.
+                                    + ([{"label": "secrettasks.filter.stale",
+                                         "value": str(stale)}] if stale else [])),
+                           # …AND THE RULE ITSELF, as a field (#1999). «Секретки старше
+                           # 12 часов скрываем» is a THRESHOLD, not a switch, and a
+                           # threshold nobody can move from the phone is a number that
+                           # can only ever be the one somebody typed into the code.
+                           # 0 shows everything.
+                           "fields": [{"key": "stale_hours",
+                                       "label": "secrettasks.stale_hours",
+                                       "hint": "secrettasks.stale_hours.hint",
+                                       "kind": opt_value.NUMBER,
+                                       "value": self._stale_hours()}],
                            "empty": "secrettasks.empty",
                            # …and the button says WHAT it turns on (#1264). «Включить
                            # мониторинг» on a screen with two of them is a button whose
@@ -4661,6 +4728,15 @@ class SecretTasksTab(PanelTab):
         pressed = pieces.web_press(action) if pieces is not None else None
         if pressed is not None:
             return pressed
+        # THE ONE KNOB THIS TAB OWNS (#1999): how long a row may go unconfirmed before
+        # it is held back. A `set` naming anything else is answered «unknown» rather
+        # than silently accepted — a press this tab does not know about is a 404, and a
+        # phone told «ок» about a knob nobody moved is worse than one told «нет».
+        if action == "set":
+            if str(args.get("key") or "") != "stale_hours":
+                return {"error": "unknown"}
+            self._set_stale_hours(args.get("value"))
+            return {"ok": True}
         if action == "refresh":
             # The window's «Обновить» refreshes both tables, so the phone's does too.
             self.refresh_both()
@@ -4919,6 +4995,26 @@ class SecretTasksTab(PanelTab):
         low = self.autoloot.level_min()
         return low is None or int(level or 0) >= low
 
+    def _set_stale_hours(self, value) -> None:
+        """Move the age rule, and say in the log what it now holds back (#1999).
+
+        Anything unreadable — an empty box, a word — is 0, which SHOWS EVERYTHING. That
+        is the safe end of this control on purpose: a typo must never be the reason a
+        list looks empty, because «пусто» reads exactly like the list having been lost,
+        and losing it is the failure `THE_LIST_RULE` was written after.
+        """
+        try:
+            hours = max(0, int(float(str(value).strip().replace(",", ".") or 0)))
+        except (TypeError, ValueError):
+            hours = 0
+        self.stale_hours_var.set(str(hours))
+        if hours:
+            self.say("secret", "log.secret.stale", hours=hours, hidden=self.stale_hidden())
+        else:
+            self.say("secret", "log.secret.stale.off")
+        self._render()
+        self._update_status()
+
     def rule(self, name: str) -> str:
         """A standing order's level bound, readable from ANY thread (#1416).
 
@@ -5110,7 +5206,11 @@ class SecretTasksTab(PanelTab):
         change exists to stop. It carries the robbed mark and offers no «Собрать», so it
         cannot be mistaken for a target.
         """
+        import game_clock
+
         show_spent = bool(self.show_spent_var.get())
+        cut = self._stale_ms()
+        now_ms = game_clock.now_ms() if cut else 0
         # The CACHED reading only (`_own_server`), never `own_server()`: this runs on
         # the Tk thread on every redraw, and the reader behind that method goes to the
         # game whenever the answer is still unknown. It is primed once per profile by
@@ -5120,7 +5220,79 @@ class SecretTasksTab(PanelTab):
         return [r for r in self._rows.values()
                 if self._in_range(r["level"])
                 and (show_spent or not self._spent(r) or r.get("robbed"))
-                and not (mine and int(r["server"] or 0) == mine)]
+                and not (mine and int(r["server"] or 0) == mine)
+                and not self._stale(r, now_ms, cut)]
+
+    def _stale_hours(self) -> int:
+        """The rule as the phone's field holds it — a whole number of hours, 0 = off."""
+        return self._stale_ms() // 3600000
+
+    def _stale_ms(self) -> int:
+        """The «не подтверждено дольше» rule in milliseconds, or 0 when it is off.
+
+        Read off the Tk variable, like the two boxes beside it — this runs on the Tk
+        thread on every redraw. Anything that is not a positive number is «off»: a
+        cleared field and a typed «abc» must both leave the list alone rather than hide
+        it, because the failure the operator would see is identical to the list having
+        been emptied, which is the thing `THE_LIST_RULE` exists to prevent.
+        """
+        # ASKED THROUGH `getattr`, like every other box this tab reads across a page
+        # boundary (`_star_action`): a tab built by a fixture — or one nobody has looked
+        # at yet (`PanelTab.LAZY`) — has no variable, and there the answer is «off».
+        var = getattr(self, "stale_hours_var", None)
+        if var is None:
+            return 0
+        try:
+            hours = float(str(var.get()).strip().replace(",", "."))
+        except (TypeError, ValueError):
+            return 0
+        return int(hours * 3600000) if hours > 0 else 0
+
+    @staticmethod
+    def _last_word(row) -> int:
+        """The freshest EVIDENCE about this row, on the game's clock in milliseconds.
+
+        Three stamps, newest wins, and each is there for a case the others miss:
+
+        * `checked_at` — the game confirmed the tile (#1484). The one that matters.
+        * `first_seen` — when this row entered the list. A tile heard a second ago has
+          no confirmation yet (the ADD path carries none; the next merge stamps it), and
+          without this it would be judged by the third stamp and hidden on arrival.
+        * `completed_at` — when the task ripened, which every row has. It is what a row
+          restored from a checkpoint written before `first_seen` existed is judged by,
+          and for those it is honest: nothing has confirmed them since.
+
+        An unripened tile has `completed_at` in the FUTURE, so its age comes out negative
+        and it is never hidden — which is right: it is not stale, it is early.
+        """
+        return max(int(row.get("checked_at") or 0),
+                   int(row.get("first_seen") or 0),
+                   int(row.get("completed_at") or 0))
+
+    def _stale(self, row, now_ms: int, cut_ms: int) -> bool:
+        """Has nothing confirmed this row for longer than the rule allows?
+
+        A DISPLAY rule and nothing else (`THE_LIST_RULE`): the row stays in `_rows`, the
+        counter says how many are held back, and 0 in the field brings every one of them
+        straight back. It does not narrow what the standing order robs — `rob_candidates`
+        never asks — for the same reason «Скрывать со своего сервера» does not.
+        """
+        return bool(cut_ms) and (now_ms - self._last_word(row)) > cut_ms
+
+    def stale_hidden(self) -> int:
+        """How many rows the age rule is holding back — the number the card says (#1999).
+
+        Counted over the WHOLE list, like «Скрыто» itself: a row hidden by two rules is
+        hidden by this one too, and a number that only counted the rows this rule hides
+        ALONE would say «0» on a list where it is the reason nothing is on screen.
+        """
+        import game_clock
+
+        cut = self._stale_ms()
+        if not cut:
+            return 0
+        now_ms = game_clock.now_ms()
+        return sum(1 for r in self._rows.values() if self._stale(r, now_ms, cut))
 
     def counts(self) -> tuple:
         """`(shown, hidden)` for the ★ page — the same pair every grid answers (#1272).
