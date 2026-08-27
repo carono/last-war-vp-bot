@@ -418,6 +418,35 @@ class PanelTab:
             return self.config()
         return dict(self._saved_config or {})
 
+    def remember(self, changes: dict) -> None:
+        """Merge a change into the block an UNBUILT tab hands back on save (#2010).
+
+        THE PHONE CAN MOVE A KNOB ON A TAB NOBODY HAS LOOKED AT, and until this existed
+        the move was forgotten at the next restart: `stored_config` is a pass-through
+        while `_built` is false (see above, and it is right to be), so the profile was
+        written from the block the tab was GIVEN and the live variable the press had just
+        set was never read. Live, that is «включил автолут с телефона, перезапустил
+        панель — он выключен», with nothing anywhere saying so.
+
+        So a press that moves something says what it moved, and it lands in both places:
+        the variable, which is what the panel acts on now, and this block, which is what
+        the profile keeps. A built tab writes its widgets as it always did and this is
+        merely kept in step.
+
+        Nested one level, because a tab's block is (`grids` / `pages` -> page -> key).
+        """
+        block = dict(self._saved_config or {})
+        for key, value in (changes or {}).items():
+            if isinstance(value, dict) and isinstance(block.get(key), dict):
+                merged = dict(block[key])
+                for inner, deep in value.items():
+                    merged[inner] = (dict(merged.get(inner) or {}, **deep)
+                                     if isinstance(deep, dict) else deep)
+                block[key] = merged
+            else:
+                block[key] = value
+        self._saved_config = block
+
     def persist_vars(self) -> list:
         """Variables whose change means "save the profile now"."""
         return []

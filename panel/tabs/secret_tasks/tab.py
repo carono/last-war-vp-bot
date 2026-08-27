@@ -4932,16 +4932,23 @@ class SecretTasksTab(PanelTab):
             # checkbox calls: setting the variable alone would leave a watcher running
             # under a box that says «off».
             if key == "ghost_autoloot":
-                self.ghost_map.autoloot_var.set(bool(args.get("value")))
+                on = bool(args.get("value"))
+                self.ghost_map.autoloot_var.set(on)
                 self.ghost_map.order.toggle()
+                # …and into the block the profile keeps, because this tab may never have
+                # been LOOKED at: an unbuilt tab hands its saved block back on save, so
+                # without this the switch is off again after the next restart (#2010).
+                self.remember({"grids": {self.ghost_map.CONFIG_KEY: {"autoloot": on}}})
                 self.rt.settings.changed()
                 return {"ok": True}
             if key == "ghost_level_min":
                 raw = str(args.get("value") or "").strip()
                 # Anything that is not a whole number is «any level», never 0 — a
                 # half-typed field must not aim the day's five at every squad on the map.
-                self.ghost_map.level_min_var.set(raw if raw.isdigit() else "")
+                raw = raw if raw.isdigit() else ""
+                self.ghost_map.level_min_var.set(raw)
                 self.ghost_map._paint_rule()
+                self.remember({"grids": {self.ghost_map.CONFIG_KEY: {"level_min": raw}}})
                 self.rt.settings.changed()
                 return {"ok": True}
             return {"error": "unknown"}
@@ -5223,6 +5230,9 @@ class SecretTasksTab(PanelTab):
         except (TypeError, ValueError):
             hours = 0
         self.stale_hours_var.set(str(hours))
+        # …and into the saved block, for the same reason the ghost switch is (#2010):
+        # a tab nobody has opened writes the block it was given, not its variables.
+        self.remember({"stale_hours": str(hours)})
         if hours:
             self.say("secret", "log.secret.stale", hours=hours, hidden=self.stale_hidden())
         else:
