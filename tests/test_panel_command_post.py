@@ -929,6 +929,53 @@ def test_a_row_press_robs_that_row_and_a_second_one_is_refused():
         "ok": False, "reason": "cmdpost.ghost.busy"}
 
 
+def test_a_run_that_never_reached_the_server_gives_its_squads_back():
+    """A refusal about the LINK is not a refusal about the targets (#2010).
+
+    `_seen` keeps the order off a squad the SERVER refused. Live, with the client showing
+    «вход с другого устройства», every look took five more targets into it and the recipe
+    failed before a frame left: 284 squads would have been used up in under an hour, and
+    the moment the client came back there would have been nothing left to rob that day.
+    """
+    order, rt, _said = _order([], ok=False, reason="kicked")
+    if order is None:
+        return
+    order.limit = lambda: 5
+    order.rob([{"uuid": 11, "srv": 700}, {"uuid": 12, "srv": 700}])
+    _drain(order)
+    assert rt.actions.played == ["steal_ghost_recon"], rt.actions.played
+    assert order._seen == set(), "the squads stayed spent after a run that never sent"
+
+    # …and a run that DID reach the game keeps them: whatever the server said about those
+    # squads, it said it, and firing at them again this session is what `_seen` prevents.
+    order2, _rt2, _said2 = _order([], ok=True)
+    order2.limit = lambda: 5
+    order2.rob([{"uuid": 21, "srv": 700}])
+    _drain(order2)
+    assert order2._seen == {"21"}, order2._seen
+
+
+def test_a_kicked_client_is_not_looked_at_at_all():
+    """«Вход с другого устройства»: the link answers and nothing reaches the server.
+
+    The panel already holds such a client rather than relaunching it, because the person
+    is playing somewhere else. The watcher asks that same clock before it chooses
+    anything — otherwise it hands five squads to a recipe that cannot send.
+    """
+    import types as _types
+
+    order, _rt, _said = _order([])
+    if order is None:
+        return
+    looked = []
+    order.rt.game = _types.SimpleNamespace(busy=False, ready=lambda: True)
+    order.rt.recovery = _types.SimpleNamespace(kick_hold_left=lambda _now: 300)
+    order.page = _types.SimpleNamespace(
+        reload=lambda: looked.append(1), rob_candidates=lambda: [])
+    assert order.tick() > 0
+    assert looked == [], "a kicked client was asked for targets anyway"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
