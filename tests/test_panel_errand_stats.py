@@ -166,7 +166,10 @@ def _tile(**kw) -> dict:
     now = int(time.time() * 1000)
     row = {"uuid": 1000000000000001, "server": 100, "x": 1, "y": 2, "level": 7,
            "completed_at": now - 60_000, "expires_at": now + 3_600_000,
-           "loot_max": 3, "loot_count": 0, "seen_at": now - 30_000}
+           "loot_max": 3, "loot_count": 0,
+           # The sniffer's stamp is this PC's epoch SECONDS; the game's confirmation
+           # («Сверено») is game MILLISECONDS. A row may carry either.
+           "seen_at": time.time() - 30}
     row.update(kw)
     return row
 
@@ -185,7 +188,15 @@ def test_a_tile_list_counts_what_is_worth_a_robbery_now():
     stat = statsmod.of(rt, "secret_autoloot")
     assert stat["key"] == "timers.stat.targets"
     assert stat["fmt"] == {"n": 1, "all": 6}, stat
-    assert 0 <= stat["age"] < 120, stat
+    assert 25 <= stat["age"] < 120, stat        # seconds, off `seen_at`
+
+    # …and a list stamped the other way — the game's own «Сверено», in game milliseconds.
+    import game_clock
+
+    game_rows = [_tile(checked_at=game_clock.now_ms() - 45_000, seen_at=None)]
+    rt = _rt(blobs={"secret_tasks_state": {"rows": game_rows}})
+    aged = statsmod.of(rt, "secret_autoloot")["age"]
+    assert 40 <= aged < 120, aged
 
     # …and the ghost list, which is a BARE list rather than a dict with books beside it.
     rt = _rt(blobs={"ghost_map_state": rows})

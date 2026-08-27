@@ -34,9 +34,9 @@ import json
 import os
 import time
 
-#: Rows whose own clock is in game milliseconds — the two tile lists. Their `seen_at`
-#: is the game's, so «how old» is judged against the same clock the tiles were stamped
-#: on rather than against this PC's (`tools/lib/game_clock.py`).
+#: Milliseconds in a second — the two tile lists stamp `checked_at` on the GAME's clock
+#: in ms, and this PC's clock is hours away from it (`tools/lib/game_clock.py`), so the
+#: two are never mixed. See :func:`_freshest`.
 _MS = 1000.0
 
 
@@ -81,15 +81,31 @@ def _int(value, default: int = 0) -> int:
 
 
 def _freshest(rows, now_ms: float) -> "float | None":
-    """Seconds since the newest `seen_at` in `rows`, or `None` when none carries one."""
-    newest = 0
+    """Seconds since the newest row, or `None` when not one of them says when.
+
+    TWO CLOCKS, deliberately, because the two lists stamp their rows differently and
+    subtracting one from the other is hours out: `checked_at` is when the GAME last
+    confirmed a tile and it is the game's milliseconds (#1484), while `seen_at` is when
+    a sniffer decoded it and it is this PC's epoch SECONDS. Each is judged against its
+    own clock (`tools/lib/game_clock.py`), and the freshest of the two answers.
+    """
+    best = None
+    now_s = time.time()
     for row in rows:
-        seen = _int(row.get("seen_at"))
-        if seen > newest:
-            newest = seen
-    if not newest:
-        return None
-    return max(0.0, (now_ms - newest) / _MS)
+        stamp = _int(row.get("checked_at"))
+        if stamp:
+            age = max(0.0, (now_ms - stamp) / _MS)
+        else:
+            try:
+                seen = float(row.get("seen_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not seen:
+                continue
+            age = max(0.0, now_s - seen)
+        if best is None or age < best:
+            best = age
+    return best
 
 
 def _file_rows(path: str) -> tuple:
