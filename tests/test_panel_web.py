@@ -46,6 +46,7 @@ from panel import tabs as tabsreg          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import gate as gatemod           # noqa: E402
+from panel.runtime import header as headermod       # noqa: E402
 from panel.runtime import health as healthmod       # noqa: E402
 from panel.runtime import interrupt as interruptmod  # noqa: E402
 from panel.runtime import day_reset as dayresetmod  # noqa: E402
@@ -232,6 +233,11 @@ class _Runtime:
         # home — it is a small JSON file and an arithmetic helper, with no client behind
         # it unless something calls `refresh()`, which no route does.
         self.day = dayresetmod.DayReset(self, os.path.join(home, "day_reset.json"))
+        # …and the strip along the top of every screen (#2016): `/api/state` carries
+        # who is playing and where they are standing. The real object again — it is a
+        # cache and a pair of gaps, and it asks the game through `play_async` below,
+        # which this stub records rather than performs.
+        self.header = headermod.StatusHeader(self)
         self.played: list = []
         self.busy_next = False
 

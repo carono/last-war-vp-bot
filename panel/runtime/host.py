@@ -23,6 +23,7 @@ from .actions import ActionRunner, Outcome
 from .activity import Activity
 from .power import Power
 from .recovery import Recovery as RecoveryState
+from .header import StatusHeader
 from .resources import BaseResources
 from .bus import EventBus
 from .children import ChildFactory
@@ -212,6 +213,13 @@ class PanelRuntime:
         # fifth of a second of the game link must be taken once per profile and shared —
         # never once per page that happens to be open.
         self.resources = BaseResources(self)
+        # …and WHO IS PLAYING AND WHERE THEY ARE STANDING (panel/runtime/header.py,
+        # #2016) — the strip along the top of every screen on the phone: the character's
+        # name and level, the warzone, the scene and the window on top of it. Here for
+        # the same reason the stock is: it is not a tab's reading, it costs a fifth of a
+        # second of the exclusive game link, and it must be taken once per profile and
+        # shared rather than once per page that happens to be open.
+        self.header = StatusHeader(self)
         # WHICH SCENARIOS ARE RUNNING RIGHT NOW, and the press that ends them
         # (panel/runtime/interrupt.py). Here rather than on the window because the runner
         # below has to fill it and both front-ends have to read it: the footer's

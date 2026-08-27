@@ -11,6 +11,7 @@ import { StateView } from './views/StateView'
 import { TimersView } from './views/TimersView'
 import type {
   ActionRow,
+  Header,
   Light,
   LogLine,
   Profiles,
@@ -76,6 +77,68 @@ function Lights({
           {light.name}
         </button>
       ))}
+    </div>
+  )
+}
+
+/* WHO IS PLAYING AND WHERE THEY ARE STANDING — the strip under the account's name, on
+ * every screen (#2016). Every value is the GAME's own answer, read once per profile and
+ * paced in the panel (`panel/runtime/header.py`); nothing here works anything out.
+ *
+ * The window's id is shown raw — `UILWAlMain` — and that is deliberate: it is the name
+ * the game itself gives that screen, so it is DATA rather than a word of the panel's,
+ * exactly like a player's nickname or a resource's name. Translating it would mean the
+ * panel keeping a table of two thousand window ids and being wrong about the ones a new
+ * season adds.
+ *
+ * IT COSTS NO HEIGHT WORTH THE NAME. Two short lines share the header the account picker
+ * already had, at 12.5 px, and the place line collapses to nothing at all when there is
+ * no reading — the pixels a phone spends on this are the pixels #1976 fought for. */
+/* The scenes the game names, each with its own key — spelled out rather than built as
+ * `'web.ui.where.' + scene`, because a key nobody can grep for is a key that quietly
+ * stops being translated (`tests/test_panel_web.py` checks exactly this). */
+const WHERE: Record<string, string> = {
+  city: 'web.ui.where.city',
+  world: 'web.ui.where.world',
+  pve: 'web.ui.where.pve',
+}
+
+function StatusStrip({ header }: { header?: Header }) {
+  const known = (header?.age ?? -1) >= 0
+  const nick = header?.nick || ''
+  const scene = header?.scene || ''
+  const win = header?.window || ''
+  const depth = header?.depth || 0
+  const server = header?.server || 0
+  const home = header?.home || 0
+  const level = header?.level || 0
+  /* NOTHING HAS BEEN READ, so the strip SAYS so in words. It does not draw a name-shaped
+   * dash beside a zero of a warzone: a header that shows empty fields reads as «этот
+   * аккаунт has nothing», and a panel that had just started once announced «событие
+   * закрыто · 0 краж» without having asked the game anything at all. */
+  if (!known && !nick) {
+    return (
+      <div className="status">
+        <span className="where cold">{t('web.ui.head.nothing')}</span>
+      </div>
+    )
+  }
+  return (
+    <div className="status">
+      {nick ? <span className="who">{nick}</span> : null}
+      {level > 0 ? <span className="fact">{t('web.ui.head.level', { n: level })}</span> : null}
+      {server > 0 ? (
+        <span className={'fact' + (home > 0 && home !== server ? ' away' : '')}>
+          {t('web.ui.head.server', { n: server })}
+        </span>
+      ) : null}
+      <span className={'where' + (known ? '' : ' cold')}>
+        {t(known ? WHERE[scene] || 'web.ui.where.unknown' : 'web.ui.head.nothing')}
+      </span>
+      {known && win ? <span className="win">{win}</span> : null}
+      {known && depth > 1 ? (
+        <span className="fact">{t('web.ui.head.stacked', { n: depth - 1 })}</span>
+      ) : null}
     </div>
   )
 }
@@ -222,21 +285,24 @@ function Panel() {
   return (
     <div className="app">
       <header>
-        {many ? (
-          <select
-            className="profile picker"
-            value={profile}
-            onChange={(e) => void switchProfile(e.target.value)}
-          >
-            {names.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="profile">{state?.profile || profile}</span>
-        )}
+        <div className="head-line">
+          {many ? (
+            <select
+              className="profile picker"
+              value={profile}
+              onChange={(e) => void switchProfile(e.target.value)}
+            >
+              {names.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="profile">{state?.profile || profile}</span>
+          )}
+        </div>
+        <StatusStrip header={state?.header} />
       </header>
 
       <Lights lights={profiles.lights || []} profile={profile} onPick={(n) => void switchProfile(n)} />

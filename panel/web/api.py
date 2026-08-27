@@ -404,6 +404,17 @@ class WebApi:
             # was necessarily reading. Asked from the tab's screen instead, the ear is up
             # exactly while somebody is looking at the stock and is given back two
             # minutes after the last look.
+            # WHO IS PLAYING AND WHERE THEY ARE STANDING (#2016,
+            # panel/runtime/header.py) — the strip along the top of every screen: the
+            # character's name and HQ level, the warzone the client is looking at, the
+            # scene (base, world map, operation) and the window on top of it. It rides
+            # THIS route rather than one of its own because the strip is on screen
+            # whatever page is open, so it would otherwise be a second poll at the same
+            # pace for one line of text. The reading itself is paced in the runtime and
+            # not here: the place is re-read at most every 10 s and the character every
+            # 10 minutes, so a page polling every 2.5 s does not spend the game link on
+            # a header.
+            "header": rt.header.state(),
             "timers": self._due(rt),
             # THE PANEL ITSELF, which is the one thing on this page that is not about
             # an account: which version of the bot the window is running, and the press

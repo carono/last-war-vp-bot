@@ -62,17 +62,76 @@ header {
   top: 0;
   z-index: 5;
   display: flex;
-  align-items: center;
-  gap: var(--gap);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   padding: calc(env(safe-area-inset-top) + 10px) var(--pad) 10px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--card-edge);
 }
 
+.head-line {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+
 .profile {
   font-weight: 650;
   letter-spacing: 0.2px;
+}
+
+/* -- who is playing, and where they are standing (#2016) -------------------- */
+
+/* ONE LINE, AND IT MAY NOT GROW INTO TWO. The strip is drawn on every screen, so every
+   pixel it takes is taken from the page on a phone — hence 12.5 px, no wrapping, and a
+   window id that ellipses rather than pushing the warzone off the end. */
+.status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status .who {
+  font-weight: 600;
+  color: var(--ink);
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status .fact { flex: 0 0 auto; }
+
+/* The warzone the camera is in, when it is NOT the account's own — standing in
+   somebody else's world is the one thing on this strip a person acts on. */
+.status .fact.away { color: var(--warn); }
+
+.status .where {
+  flex: 0 0 auto;
+  color: var(--ink);
+}
+
+/* Nothing has been read yet — say so by going quiet, never by naming a scene. */
+.status .where.cold { color: var(--ink-soft); }
+
+/* The game's own id of the window on top. It is an identifier rather than a word, so it
+   is set in the face code is set in, and it gets whatever room the rest of the line
+   leaves. */
+.status .win {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  opacity: 0.85;
 }
 
 select.picker {

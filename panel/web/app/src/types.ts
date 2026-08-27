@@ -51,9 +51,27 @@ export interface RunningRun {
   step?: string
 }
 
+/* THE STRIP ALONG THE TOP (#2016, panel/runtime/header.py). Who this character is, and
+ * where they are standing in the client right now. `scene` is the game's own answer —
+ * `city` / `world` / `pve`, or `unknown` while it is loading; `window` is the game's id
+ * of the screen on top, empty when the player is looking at the scene itself; `age` is
+ * how many seconds old the place reading is, -1 when nothing has been read yet. */
+export interface Header {
+  nick?: string
+  level?: number
+  scene?: string
+  window?: string
+  depth?: number
+  server?: number
+  home?: number
+  age?: number
+  reading?: boolean
+}
+
 export interface State {
   profile: string
   time: number
+  header?: Header
   game: {
     running?: boolean
     colour?: Colour
