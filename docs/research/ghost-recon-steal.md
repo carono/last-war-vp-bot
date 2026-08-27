@@ -249,3 +249,59 @@ Also open: which `cfgId` families are worth robbing (the capture shows `60302` �
 family "6", the star, ур.5 by the `MM + 2` rule in §3a, `stealMaxtimes` 3), and
 whether `leave.message` needs the window open — it is built from the reply's
 `recordUuid` and has never been sent from here.
+
+## 6b. Why the list was empty, and the day the squads stopped riding a file (#2010)
+
+«Автолут заданий призрака не работает, грид не заполняется.» Two complaints, one
+cause, and it was upstream of both: nothing the sniffer decoded ever reached the
+panel's list, so the standing order had nothing to spend the day's five on.
+
+**Measured on a live profile before the fix.** `ghost_map_state` in `panel.db`
+held `[]` and the capture's checkpoint held `[]`, while the same profile's log
+said, of the very same minute:
+
+```
+…running — server <N>, 1551 map response(s), 168938 tile(s), 3 task(s)      ← ★ sniffer
+…running — server <N>, 1018 map response(s), 112950 tile(s), 1 mission(s)   ← ghost sniffer
+```
+
+A hundred thousand tiles decoded, one squad in the file, an empty page.
+
+**Three things had to be wrong at once, and they were:**
+
+1. **A ghost squad reached the panel only through a checkpoint FILE**, rewritten
+   every tick out of an index that drops every tile not on the warzone currently on
+   screen (`MissionIndex.on_server_left`). A lap of the map walks eighteen warzones
+   in a few seconds, so what a lap found was gone before anything read it. The ★
+   tiles stopped depending on that in #1416, when each one began travelling as its
+   own event (`##TILE##`) at the moment it was decoded; the ghost ones never did.
+2. **The merge saved before it restored.** `refresh_ghost_map` runs headless
+   (#1523) and ends in `apply` → `persist`, while `GhostMapGrid.restore` hung on
+   somebody opening the tab. A panel nobody had looked at therefore merged an empty
+   file into an empty list and wrote the result over what the last session had
+   gathered. That is the `[]` above — not a list that never filled, a list erased.
+3. **The standing order chose out of a third thing again** — `load_fresh_ghost_recon`
+   over that same vanishing file, through its freshness window. So even a lap that
+   did land somewhere left the robbery with nothing.
+
+**What it is now, and it is the ★ shape throughout.** The squad is an event
+(`##GHOST##`, printed beside the human line, carrying the tile and nobody's uid —
+#1293); the panel's hook parses it and hands it over; the merge is one Tk pass over
+whatever piled up, and it restores the kept list first (`_ensure_ghost_model`, the
+twin of `_ensure_model`). The checkpoint stays what it always should have been: the
+fallback for a restart. And the standing order reads the list the person is looking
+at — `store.GHOST_MAP_STATE`, judged against the clock as it is read, so a stale
+`ready` cannot spend one of the five and a tile robbed out is never offered.
+
+The age rule the ★ list got in #1999 applies to the map page too, for the reason it
+bites hardest there: a lap brings back everybody's tiles and nothing re-sends them.
+It is the same field, the same number and the same promise — a filter, never a
+delete, and the robbery never asks.
+
+**Still open, and named here so it is not rediscovered as a bug:** the ghost sniffer
+is a second npcap reader on one interface, which is why its counters run below the ★
+one's in the same minute (1018 against 1551 above). Two captures over one adapter
+starve each other (044c19f, `docs/research/world-monitor.md` §1), and the cure is the
+one that worked for the mines: fold the index into the ★ capture's process behind a
+flag rather than run a second child. It costs three forwarded calls and it was not
+part of this fix.
