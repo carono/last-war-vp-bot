@@ -83,13 +83,43 @@ def sample_rip(pid: int, tid: int, n: int = 40, gap: float = 0.05) -> Counter:
     return counts
 
 
+def _ntdll_span(pid: int) -> tuple[int, int] | None:
+    """(base, size) of ntdll in the target, or None. Asked once per learn."""
+    try:
+        return P.module_base(pid, "ntdll.dll")
+    except SystemExit:
+        return None
+
+
 def learn_safe_rip(pid: int, tid: int, n: int = 40) -> tuple[int, int] | None:
-    """Return (safe_rip, hit_count) for the dominant parked RIP, or None."""
+    """Return (safe_rip, hit_count) for the dominant PARKED RIP, or None when the
+    thread never parked while we watched.
+
+    The park is the message-pump wait, which lives in ntdll — so a candidate
+    OUTSIDE ntdll is not a park at all, it is merely wherever a busy main thread
+    happened to be when the sampler caught it. Taking the most common sample with
+    no such check is how a busy client used to hand out a SAFE_RIP the gate could
+    never match: `hijack_call` accepts a thread only within +-16 bytes of the
+    learned address, so every hijack of that run failed with "returned None" — and
+    because the address is learned ONCE per build, it stayed wrong for the whole
+    life of the process even after the client went quiet again (#1994: a panel
+    spent fourteen hours reporting "no traffic" from behind exactly this).
+
+    So the winner is the most-sampled ntdll address rather than the most-sampled
+    address; and when the thread never reached ntdll at all, say so by returning
+    None instead of aiming the gate at a random instruction in the render loop.
+    """
     counts = sample_rip(pid, tid, n=n)
     if not counts:
         return None
-    rip, hits = counts.most_common(1)[0]
-    return rip, hits
+    span = _ntdll_span(pid)
+    if span is None:        # cannot tell a park from anything else — old behaviour
+        return counts.most_common(1)[0]
+    base, size = span
+    for rip, hits in counts.most_common():
+        if base <= rip < base + size:
+            return rip, hits
+    return None
 
 
 def main() -> int:
@@ -111,17 +141,26 @@ def main() -> int:
     for rip, hits in counts.most_common(6):
         print(f"  0x{rip:x}  x{hits:<3} ({100 * hits // total:3d}%)  {module_of(pid, rip)}")
 
-    rip, hits = counts.most_common(1)[0]
-    frac = 100 * hits // total
-    mod = module_of(pid, rip)
-    print(f"\nSAFE_RIP candidate = 0x{rip:x}  ({frac}% of samples)  {mod}")
-    if frac < 60:
-        print("!! dominant RIP < 60% of samples — game may not be idle; "
-              "let it settle in the base and re-run")
+    # What the GATE would take, which is not the same as what was sampled most: a
+    # candidate outside ntdll is not a park, so the learner skips it (see above).
+    span = _ntdll_span(pid)
+    got = None
+    for cand, hits in counts.most_common():
+        if span and span[0] <= cand < span[0] + span[1]:
+            got = (cand, hits)
+            break
+    if got is None:
+        print("\n!! the main thread never reached ntdll in these samples — it is not "
+              "parking at all. Let the game sit in the base, untouched, for a minute "
+              "and re-run; nothing can be run in the client until then.")
         return 2
-    if not mod.startswith("ntdll.dll"):
-        print("!! dominant RIP is NOT in ntdll — unexpected for a parked wait; "
-              "inspect before gating on it")
+    rip, hits = got
+    frac = 100 * hits // total
+    print(f"\nSAFE_RIP candidate = 0x{rip:x}  ({frac}% of samples)  "
+          f"{module_of(pid, rip)}")
+    if frac < 60:
+        print("!! the park holds < 60% of samples — the game is busy, so the gate will "
+              "have to wait for it; let it settle in the base for a steadier read")
     print(f"\nSAFE_RIP=0x{rip:x}")
     return 0
 

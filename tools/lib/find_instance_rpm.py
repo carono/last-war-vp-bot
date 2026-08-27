@@ -62,6 +62,10 @@ def resolve_class(h, pid, e, name):
     """Live Il2CppClass* for an Assembly-CSharp class via one safe enum hijack."""
     mt = R.main_thread_tid(pid)
     sr = R.learn_safe_rip(pid, mt, n=30)
+    if sr is None:
+        raise SystemExit("the client's main thread never stood still while we watched, "
+                         "so nothing can be run in it yet — let the game sit in the "
+                         "base, untouched, for a minute")
     S = int(P.VirtualAllocEx(h, None, D.REGION_SIZE, 0x3000, 0x40))
     cr = int(P.VirtualAllocEx(h, None, 0x2000, 0x3000, 0x40))
     P.WriteProcessMemory(h, C.c_void_p(S), b"\x00" * D.CLASS_OFF, D.CLASS_OFF,

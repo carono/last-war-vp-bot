@@ -385,3 +385,62 @@ AbdouRoumi/Early_Bird_APC_Injection and redcanaryco/atomic-red-team T1055.004;
 cocomelonc & War Room SetWindowsHookEx tutorials; Unity manual "C++ source code
 plugins for IL2CPP" and IL2CPP overview; Tencent/xLua and zentia/xLua repos;
 CVE-2025-59489 (Unity Runtime pre-init native-library injection).
+
+---
+
+## 8. A busy client used to break the gate PERMANENTLY (#1994, 2026-08-27)
+
+**The complaint was «the panel does not see any traffic».** It did: the ear was
+reporting continuously (71 events in one second — rally pushes, three leaderboards,
+110 rows), the client's socket to the game server was `ESTABLISHED`, and the panel
+had been correctly restarted onto the current commit (`panel.boot.head` matched
+`HEAD`, and there was exactly one process for the profile). What the panel could not
+do was **ask** anything, and every consequence downstream reads like a different bug:
+
+```
+gated hijack returned None   (enum / mpc / LuaEnv cls, every ~70 s, for 14 hours)
+  → the Lua VM never attaches
+  → the active server probe cannot fly     probe: fails 0/2, flying false
+  → the socket shape stays UNKNOWN         game_link.classify refuses to judge
+  → the lamp says «no_traffic»
+  → gate: {held: true, reason: "link", for_sec: 52 555}
+  → no scenario jumps the map              0 map response(s), 0 tile(s), 0 task(s)
+```
+
+**Cause, measured.** `learn_safe_rip` returned `counts.most_common(1)[0]` — the
+most-sampled RIP, whatever it was. On a client the player is actually playing, the
+main thread is almost never in the pump wait: `tools/lib/rip_gate.py` on the live
+client sampled **45 distinct RIPs out of 50**, the ntdll park holding 8–12% and the
+rest scattered through the render loop. So the learner handed the gate a **private
+address inside game code**, `hijack_call` accepted a thread only within ±16 bytes of
+it, and no thread was ever there.
+
+**And it never recovered.** `xlua_route.X` learns the park ONCE, while the evaluator
+is built. A build started at a bad moment therefore stayed broken for the life of the
+process — the client going quiet ten seconds later changed nothing, and only a panel
+restart could have re-learned it. That is the fourteen hours.
+
+**What was done.**
+
+1. `learn_safe_rip` now returns the most-sampled **ntdll** address, because the park
+   is the message-pump wait and a candidate outside ntdll is not a park at all. A
+   thread that never reached ntdll while we watched is answered `None` — a refusal,
+   not a guess.
+2. `X.hj` **re-learns once** before giving up, so a client that was busy at build
+   time is picked up on the next call rather than at the next restart. A re-learn
+   that lands on the same address is not paid for twice.
+3. What reaches the person is a sentence about what to DO — «let the game sit in the
+   base, untouched, for a minute» — instead of `gated hijack returned None`. Same for
+   `find_instance_rpm.resolve_class`.
+4. `tools/lib/rip_gate.py`'s own report agrees with the learner: it names the park the
+   gate would take, and a low residency is now «the game is busy, the gate will have to
+   wait» rather than a refusal to print anything.
+
+**What was NOT changed, deliberately.** The gate still holds ONE address rather than
+accepting any sampled ntdll RIP. Sampling catches whatever the thread was doing,
+including ntdll heap locks and APC dispatch — the exact places §1 exists to avoid — so
+widening the target would trade a wait for the wedge this whole mechanism was written
+to prevent. A busy client is meant to cost patience, not safety.
+
+Pinned by `tests/test_rip_gate.py` (offline: the selection is arithmetic over sampled
+counters, with the Windows layer stubbed).

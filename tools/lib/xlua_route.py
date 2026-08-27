@@ -51,18 +51,49 @@ class X:
             raise SystemExit(f"the client at pid {self.pid} has no window this session "
                              "can see, so its main thread cannot be found — nothing can "
                              "be run in it yet")
-        self.sr = R.learn_safe_rip(self.pid, self.mt, n=40)[0]
+        self.sr = self._learn_park()
         self.sc = int(P.VirtualAllocEx(self.h, None, 0x400, 0x3000, 4))
         self._s = {}
         print(f"pid={self.pid} SAFE_RIP=0x{self.sr:x}")
 
+    #: What a busy client is told, in a sentence rather than in the mechanism's own
+    #: words. It reaches the panel's log through `log.link.attach_failed`, and the
+    #: person reading it has to know what to DO — which is nothing but leave the game
+    #: alone for a minute (#1994).
+    BUSY = ("the client's main thread never stood still while we watched, so nothing "
+            "can be run in it yet — let the game sit in the base, untouched, for a "
+            "minute and it will be taken then")
+
+    def _learn_park(self) -> int:
+        """The main thread's parked RIP, or a sentence saying the client is busy."""
+        got = R.learn_safe_rip(self.pid, self.mt, n=40)
+        if got is None:
+            raise SystemExit(self.BUSY)
+        return got[0]
+
     def hj(self, func, args, label):
-        r = H.hijack_call(self.h, self.pid, func, args, label, save_xmm=True,
-                          only_tid=self.mt, safe_rip=self.sr, rip_tol=16,
-                          park_timeout=4.0)
-        if r is None:
-            raise SystemExit(f"{label}: gated hijack returned None")
-        return r
+        """One gated hijack, with ONE re-learn behind it.
+
+        The park address is learned once per build and a client that was busy then may
+        be quiet a second later — so a refusal re-asks for the park before giving up.
+        Without that, a build started at a bad moment stayed broken for the life of the
+        process, which is precisely how #1994 lost fourteen hours.
+        """
+        for attempt in (0, 1):
+            r = H.hijack_call(self.h, self.pid, func, args, label, save_xmm=True,
+                              only_tid=self.mt, safe_rip=self.sr, rip_tol=16,
+                              park_timeout=4.0)
+            if r is not None:
+                return r
+            if attempt == 0:
+                fresh = R.learn_safe_rip(self.pid, self.mt, n=40)
+                if fresh is None:
+                    break
+                if fresh[0] == self.sr:
+                    break          # same park, still unreachable — do not pay twice
+                print(f"[{label}] re-learned SAFE_RIP 0x{self.sr:x} -> 0x{fresh[0]:x}")
+                self.sr = fresh[0]
+        raise SystemExit(f"{label}: {self.BUSY}")
 
     def cstr(self, t):
         if t not in self._s:
