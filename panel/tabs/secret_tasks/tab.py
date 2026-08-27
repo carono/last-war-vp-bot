@@ -4482,34 +4482,14 @@ class SecretTasksTab(PanelTab):
         # say nothing is left off the card rather than drawn blank.
         assist_tally = self.autoassist.tally_text()
         screen = {"cards": [self._picker_card(),
-                          {"title": "secret.autoloot.frame",
-                           # The RULE as well as the state (#1256): the window draws the
-                           # two side by side under the checkbox, and «минимальный
-                           # уровень» is the one number that decides where the day's five
-                           # go — reading «сторожит» without it says nothing about what
-                           # is about to be spent.
-                           "rows": [{"label": "secret.autoloot.level_min",
-                                     "value": (str(low) if low is not None
-                                               else self.t("secret.autoloot.any_level"))},
-                                    # …AND WHAT IS LEFT OF THE DAY'S BUDGET (#2010), off
-                                    # the GAME rather than off a tally of our presses.
-                                    # «Почему он не грабит» must be answerable on the
-                                    # card: a spent budget says so in words instead of
-                                    # showing a 0 and going quiet.
-                                    self._budget_row("secret",
-                                                     "secrettasks.steals_left"),
-                                    {"label": state_key, "value": state_datum}],
-                           # …AND THE BOX ITSELF (#1882). The card drew the rule and the
-                           # state of a standing order the phone could not start or stop,
-                           # so «автолут выключен» was a fact with no answer to it. The
-                           # robbery is `actions/steal_secret_task.md` and the order
-                           # spawns no tool of its own, so the press is allowed out of
-                           # the house (`CLAUDE.md`, #1188) — the same rule that lets
-                           # «Автопомощь» be pressed from the card below.
-                           "actions": [{"id": "autoloot",
-                                        "label": ("secret.autoloot.off"
-                                                  if self.autoloot_var.get()
-                                                  else "secret.autoloot.on")}]},
+                          # «АВТОЛУТ ★» HAS NO CARD OF ITS OWN ANY MORE (#2010). The
+                          # person's words: «целая вкладка для одного чекбокса лишняя».
+                          # It was a card holding a switch, a rule and a state line, and
+                          # everything it said was about the list on the very next card —
+                          # so it moved onto it, exactly as the ghost order moved onto
+                          # «Призрак: карта». An order belongs on the page that holds the
+                          # list it spends; that is what #1271 decided for this one and
+                          # what the card had never caught up with.
                           # The window's pages, as the phone's cards (#1244, #1251) — a
                           # screen scrolls where a window switches. EACH CARD CARRIES
                           # ITS OWN PAGE'S SWITCHES, for the same reason the window
@@ -4519,7 +4499,15 @@ class SecretTasksTab(PanelTab):
                            # How many are on the card, and how many the boxes are
                            # holding back (#1272) — with the home-server rule named
                            # separately, because it is the one most easily forgotten.
-                           "rows": (self._count_rows()
+                           # THE STANDING ORDER'S OWN THREE FIRST (#2010): what is
+                           # left of ITS budget — the game's number, not a tally of our
+                           # presses — and what it is doing right now. «Почему он не
+                           # грабит» is answered here or in the log, and the log is not
+                           # somewhere a person on a bus can look.
+                           "rows": ([self._budget_row("secret",
+                                                      "secrettasks.steals_left"),
+                                     {"label": state_key, "value": state_datum}]
+                                    + self._count_rows()
                                     + ([{"label": "secrettasks.filter.hide_own",
                                          "value": str(hidden)}] if hidden else [])
                                     # …and the age rule, named separately for the same
@@ -4533,7 +4521,18 @@ class SecretTasksTab(PanelTab):
                            # threshold nobody can move from the phone is a number that
                            # can only ever be the one somebody typed into the code.
                            # 0 shows everything.
-                           "fields": [{"key": "stale_hours",
+                           "fields": [# THE RULE THE ROBBERIES OBEY, and a field
+                                       # rather than the reading it used to be (#2010):
+                                       # it decides where the day's five go, and a number
+                                       # only settable at the machine is one nobody on a
+                                       # phone can correct. Empty is «any level», so it
+                                       # travels as text — a 0 here is not «no bound», it
+                                       # is every tile on the map.
+                                       {"key": "autoloot_level_min",
+                                        "label": "secret.autoloot.level_min",
+                                        "kind": opt_value.TEXT,
+                                        "value": (str(low) if low is not None else "")},
+                                       {"key": "stale_hours",
                                        "label": "secrettasks.stale_hours",
                                        "hint": "secrettasks.stale_hours.hint",
                                        "kind": opt_value.NUMBER,
@@ -4543,7 +4542,16 @@ class SecretTasksTab(PanelTab):
                            # мониторинг» on a screen with two of them is a button whose
                            # meaning depends on which card it happens to be under, and a
                            # phone is scrolled past the titles.
-                           "actions": [{"id": "monitor",
+                           "actions": [# …AND THE SWITCH ITSELF, first, because it is
+                                       # what the card is now read for. The robbery is
+                                       # `actions/steal_secret_task.md` and the order
+                                       # spawns no tool of its own, so the press is
+                                       # allowed out of the house (#1188).
+                                       {"id": "autoloot",
+                                        "label": ("secret.autoloot.off"
+                                                  if self.autoloot_var.get()
+                                                  else "secret.autoloot.on")},
+                                       {"id": "monitor",
                                         "label": ("secret.monitoring.stars.off"
                                                   if self.monitor_var.get()
                                                   else "secret.monitoring.stars.on")},
@@ -5024,6 +5032,16 @@ class SecretTasksTab(PanelTab):
             # (#2010). The SWITCH goes through `order.toggle`, which is what the window's
             # checkbox calls: setting the variable alone would leave a watcher running
             # under a box that says «off».
+            if key == "autoloot_level_min":
+                raw = str(args.get("value") or "").strip()
+                # Anything that is not a whole number is «any level», never 0: a
+                # half-typed field must not aim the day's five at the first tile seen.
+                raw = raw if raw.isdigit() else ""
+                self.level_min_var.set(raw)
+                self.remember({"autoloot_level_min": raw})
+                self.rt.settings.changed()
+                self._refresh_rule_hints()
+                return {"ok": True}
             if key == "ghost_autoloot":
                 on = bool(args.get("value"))
                 self.ghost_map.autoloot_var.set(on)
