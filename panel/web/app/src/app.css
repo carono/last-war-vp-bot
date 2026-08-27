@@ -115,6 +115,10 @@ header {
 
 .status .fact { flex: 0 0 auto; }
 
+/* How old the reading is. Dimmer than the reading itself — it is the caveat, not the
+   fact — and only drawn once there is an age worth a caveat. */
+.status .fact.age { opacity: 0.75; }
+
 /* The warzone the camera is in, when it is NOT the account's own — standing in
    somebody else's world is the one thing on this strip a person acts on. */
 .status .fact.away { color: var(--warn); }

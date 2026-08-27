@@ -4,8 +4,9 @@ The header is on screen on EVERY page of the web panel, so it is the most-asked 
 in the panel — which is exactly why the things pinned here are pacing and honesty rather
 than looks:
 
-* **the two halves are paced apart** — the place at most every 10 s, the character at
-  most every 10 minutes, because one moves all day and the other never does;
+* **each half is read ONCE and never on a clock** — `CLAUDE.md`'s «Читаем один раз,
+  дальше слушаем»: a second reading happens only when something TELLS the strip it moved,
+  and `mark_stale` is the only door that exists;
 * **a poll never touches the game on the calling thread** — every read is booked through
   `play_async` at DETACHED, and a busy link or a shut gate books nothing at all;
 * **a client that answered nothing is not a client standing nowhere** — the previous
@@ -119,25 +120,41 @@ def test_both_halves_are_read_on_the_first_look() -> None:
     assert all(priority == claims.DETACHED for _n, priority, *_ in rt.played), rt.played
 
 
-def test_the_place_is_paced_and_the_character_is_paced_far_slower() -> None:
-    """The whole reason this class exists: /api/state is asked every 2.5 s."""
+def test_it_reads_once_and_no_clock_ever_reads_again() -> None:
+    """THE RULE: «читаем один раз, дальше слушаем». A page open all evening polls
+    /api/state every 2.5 s and must not cost the game a single further question."""
     rt, clock = _Runtime(), _Clock()
     rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="city;;;;0;;935;;935")
     rt.answers[headermod.WHO_ACTION] = _Outcome(player_card="Player1;;35;;0;;;;0;;0;;0")
     head = _header(rt, clock)
     head.state()
     rt.played.clear()
-    for _ in range(3):                    # 7.5 s of polling at the page's own pace
+    for _ in range(1440):                 # an hour of polling at the page's own pace
         clock.now += 2.5
         head.state()
-    assert rt.played == [], rt.played     # …and not one question asked
-    clock.now += 2.5                      # now the place is due, and only the place
+    assert rt.played == [], rt.played
+    assert head.state()["age"] > 3500, head.state()   # …and the age says so honestly
+
+
+def test_only_an_event_takes_a_second_reading() -> None:
+    """`mark_stale` is the door the in-client signal will come through — and the only
+    one. Nothing in the panel may call it on a timer."""
+    rt, clock = _Runtime(), _Clock()
+    rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="city;;;;0;;935;;935")
+    rt.answers[headermod.WHO_ACTION] = _Outcome(player_card="Player1;;35;;0;;;;0;;0;;0")
+    head = _header(rt, clock)
     head.state()
-    assert [name for name, *_ in rt.played] == [headermod.WHERE_ACTION], rt.played
     rt.played.clear()
-    clock.now += headermod.WHO_GAP_SEC    # …and much later, the character too
+    clock.now += 3600
     head.state()
-    assert headermod.WHO_ACTION in [name for name, *_ in rt.played], rt.played
+    assert rt.played == [], rt.played
+    rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="world;;UISearch;;1;;935;;935")
+    head.mark_stale()                     # something says the player moved
+    state = head.state()
+    assert [name for name, *_ in rt.played] == [headermod.WHERE_ACTION], rt.played
+    assert state["scene"] == "world" and state["age"] == 0, state
+    # …and the character is left alone unless the event was about the character.
+    assert headermod.WHO_ACTION not in [name for name, *_ in rt.played], rt.played
 
 
 def test_a_busy_link_or_a_shut_gate_asks_nothing() -> None:
@@ -160,10 +177,11 @@ def test_a_client_that_answered_nothing_keeps_the_last_place_and_ages_it() -> No
     head = _header(rt, clock)
     head.state()
     rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="")   # login screen
-    clock.now += headermod.WHERE_GAP_SEC + 1
+    head.mark_stale()
+    clock.now += 30
     state = head.state()
     assert state["scene"] == "world", state          # the old reading, not a blank one
-    assert state["age"] > headermod.WHERE_GAP_SEC, state
+    assert state["age"] >= 30, state
 
 
 def test_nothing_read_yet_names_no_scene() -> None:

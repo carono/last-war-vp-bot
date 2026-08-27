@@ -699,6 +699,55 @@ The whole inventory — what leaked, what is shared deliberately, and what was m
 is [`docs/research/profile-isolation.md`](docs/research/profile-isolation.md), and
 `tests/test_profile_isolation.py` fails when one of them comes back.
 
+## Read once, then LISTEN — and nothing runs in the background unasked
+
+**This rule is binding on every agent working in this repository — dispatcher, worker, or
+one-off session. No exceptions.** It is the operator's, in their own words:
+
+> «Берем за правило, не долбить сервер любыми запросами, работаем в той же парадигме как и
+> клиент, читаем один раз, остальное слушаем изменения, никаких активных действий просто в
+> фоне быть не должно, все подобные моменты проговариваются отдельно».
+
+Three sentences, and each of them is a separate prohibition.
+
+1. **Read once, then subscribe.** Work the way the CLIENT works. The game client does not
+   ask the server what it already knows: it is told the state once and kept up to date by
+   the server's own updates. #1990 measured exactly that — over 45 s of an idle base the
+   client's resource writers fired **zero** times and the numbers came back
+   byte-identical, and one harvest fired 25 updates. So the panel reads a thing when it
+   first needs it and then SUBSCRIBES (`panel/runtime/wire.py`); a clock is a safety net
+   with a long interval and a stated reason, never the mechanism.
+2. **Nothing active in the background.** No poll for the sake of polling, no periodic
+   prod at the game, no «на всякий случай» round every few seconds. The game link is
+   exclusive: every question asked in the background is a robbery, a rally join or an
+   errand that did not happen. A reading that only exists because a timer went off is
+   forbidden even when it is cheap.
+3. **Anything that can ONLY be had by asking is a conversation, not a decision.** If a
+   thing has no event behind it and cannot be learnt without a repeated question, that is
+   **not** a licence to write the poll. It is a reason to go to the person, name the cost
+   and the interval you propose, and **wait for an answer before putting it in**. Ask
+   BEFORE, never report after.
+
+The shape a compliant reading has: one play on first need → the answer held in memory →
+a subscription (or a hook, or a signal) that says when it moved → the page showing HOW OLD
+the reading is, so a stale one is visibly stale instead of quietly wrong. When there is no
+signal to subscribe to, the honest thing is one reading with its age on it — and a door
+for the signal to arrive through later, called by an event and never by a timer.
+
+**#2016 is the worked example, and it got it wrong first.** The status strip is drawn
+above every screen of the web panel, so its reading would have been the most frequent
+question in the panel — and it shipped with a 10-second refresh, "paced" and measured and
+argued for in a docstring, which is precisely this rule's definition of a background poll.
+It reads once now (`panel/runtime/header.py`), holds what it read with its age beside it,
+and exposes `mark_stale()` for the signal that does not exist yet. The scene and the open
+window are CLIENT state — nobody tells the server that a player opened a screen — so
+there is nothing on the wire to subscribe to, and what to do about that is the person's
+call, not an agent's (docs/research/player-place.md).
+
+What is NOT forbidden: reading in response to a person's press, reading once when a page
+is first opened, and a scenario doing whatever it needs while it runs. The rule is about
+what the panel does when nobody asked it to do anything.
+
 ## Game data lives only in the database
 
 **This rule is binding on every agent working in this repository — dispatcher, worker,

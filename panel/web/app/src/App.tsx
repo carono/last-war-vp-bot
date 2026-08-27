@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, ping, setProfile, Unauthorised } from './api'
-import { loadWords, t, type Words } from './i18n'
+import { loadWords, span, t, type Words } from './i18n'
 import { ToastHost, useToast } from './ui/Toast'
 import { ActionsView } from './views/ActionsView'
 import { LoginView } from './views/LoginView'
@@ -85,6 +85,12 @@ function Lights({
  * every screen (#2016). Every value is the GAME's own answer, read once per profile and
  * paced in the panel (`panel/runtime/header.py`); nothing here works anything out.
  *
+ * IT IS ONE READING WITH ITS AGE ON IT, and the age is not decoration. The panel reads
+ * the game once and then waits to be told it changed (`CLAUDE.md` — «Читаем один раз,
+ * дальше слушаем»), and there is no in-client signal for «the player changed screen»
+ * yet, so this line can be an hour old. Saying so is what makes it honest: a strip that
+ * showed «База» with no age would be asserting something nobody has checked since.
+ *
  * The window's id is shown raw — `UILWAlMain` — and that is deliberate: it is the name
  * the game itself gives that screen, so it is DATA rather than a word of the panel's,
  * exactly like a player's nickname or a resource's name. Translating it would mean the
@@ -149,6 +155,12 @@ function StatusStrip({ header, account }: { header?: Header; account?: string })
       {known && win ? <span className="win">{win}</span> : null}
       {known && depth > 1 ? (
         <span className="fact">{t('web.ui.head.stacked', { n: depth - 1 })}</span>
+      ) : null}
+      {/* WHEN it was read. Silent for the first minute — a reading that fresh is simply
+          «now» — and from then on the line carries its own age, because nothing re-takes
+          it until something says the player moved. */}
+      {known && (header?.age ?? 0) >= 60 ? (
+        <span className="fact age">{t('web.ui.ago', { span: span(header?.age || 0) })}</span>
       ) : null}
     </div>
   )

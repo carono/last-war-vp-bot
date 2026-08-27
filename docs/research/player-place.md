@@ -110,16 +110,17 @@ own window sweep was 1.0 ms and is not even in the shipped recipe.
 spent here is time the schedule, the robberies and the rally joins do not get. Reading
 the place on every poll would hold the link about **8 %** of the time, permanently.
 
-So `panel/runtime/header.py` paces the two halves apart:
+**It shipped with a 10-second refresh for a few hours on 2026-08-27, and that was wrong
+on the rule rather than on the arithmetic.** «Читаем один раз, дальше слушаем» is a
+REQUIREMENT (`CLAUDE.md`, «Read once, then LISTEN», and §2a of `base-resources.md`): a
+reading with no event behind it is not solved by choosing a gentler interval, and an
+interval nobody agreed to is a background poll however small it is.
 
-* the place at most every **10 s** (≈2 % of the link) — it genuinely moves, because the
-  panel drives the client all day;
-* the character (name, HQ level) at most every **10 minutes** — a name never changes and
-  a level changes a few times a season.
-
-Both plays go in at `claims.DETACHED`, below every ordinary errand, and a refresh is not
-booked at all while the link is busy or the profile's gate is shut. Nothing ticks:
-`state()` is called by the route, so a panel nobody is looking at reads nothing.
+So `panel/runtime/header.py` reads each half exactly ONCE, on the first look, and then
+holds it with its age drawn beside it on the strip. A second reading is taken only when
+`mark_stale()` is called — the door the eventual in-client signal will come through — and
+nothing in the panel may call it on a timer. Both plays go in at `claims.DETACHED`, and
+neither is booked while the link is busy or the profile's gate is shut.
 
 **Forcing the FIRST reading through a busy link was tried live, and dropped.** For the
 first minute after a restart the panel's link is busy on every single poll — the boot
@@ -158,10 +159,16 @@ not.
 ## 5. What was looked for and is not there
 
 * **A push.** The resource balance is driven by `push.resource.item.update` (#1990) and
-  the same shape was wanted here. There is none: the scene and the window stack are
-  CLIENT state — nobody tells the server that a player opened a screen — so there is no
-  event to subscribe to and a paced read is the only honest option. The one thing that
-  does travel is a cross-server jump, and it is already covered by re-reading.
+  the same shape was wanted here. **There is none, and this is the open question of the
+  task**: the scene and the window stack are CLIENT state — nobody tells the server that
+  a player opened a screen — so `rt.wire` has nothing to carry. What the client does have
+  is its own internals, which could be hooked in Lua once (the `UIWorldPointCtrl:InitData`
+  wrapper of #1420 is the precedent) so that the client ANNOUNCES a scene or window
+  change instead of being asked; `tools/lua_trace.py` already proves the other half —
+  a hook writing to `Player.log` and a reader tailing that file, which touches neither
+  the game nor the server afterwards. **Nothing of the sort has been built: it is an
+  active change to the client and therefore the person's call, put to them rather than
+  decided here** (`CLAUDE.md`).
 * **A camera coordinate.** `curPos` is nil, and the world scene object that does hold one
   is found by enumerating `MonoBehaviour`s (`attack_golden_zombies2.md`) — seconds of
   work, for a line the strip does not need.

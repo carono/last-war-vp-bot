@@ -14,27 +14,35 @@ WHERE THE NUMBERS COME FROM. Two scenarios, and not one line of Lua here
   * `actions/read_player_place.md` — the scene, the window on top, how deep the window
     stack is, the warzone the camera is in and the account's own (#2016).
 
-WHAT A READ COSTS, AND WHY THE TWO ARE PACED DIFFERENTLY. Measured live on this client,
-end to end through the panel's own runner: the place read took **167 / 193 / 219 ms**,
-which is the panel↔VM round trip rather than the work in the chunk (the chunk's own scan
-of the window table is 1.0 ms). The link is EXCLUSIVE — that is time the schedule, the
-robberies and the rally joins do not get — and `/api/state` is asked every 2.5 s by every
-open page, per profile. Reading the place on every poll would hold the link some 8 % of
-the time, for ever, because the header is on screen always. So:
+ONCE, AND THEN NOT AGAIN — THE RULE, NOT AN OPTIMISATION. `CLAUDE.md` («Читаем один раз,
+дальше слушаем») forbids a background poll outright: the panel reads a thing when it
+first needs it and then waits to be TOLD it changed. A clock is a safety net with a long
+interval, never the mechanism, and anything that can only be learnt by asking again is a
+conversation with the person, not a decision an agent makes.
 
-  * :data:`WHERE_GAP_SEC` — the place is re-read at most every 10 s (≈2 % of the link).
-    It is the reading that genuinely moves: the panel drives the client all day, and a
-    header still saying «база» while a robbery is walking the map is worse than a header
-    a few seconds behind.
-  * :data:`WHO_GAP_SEC` — the character is re-read at most every 10 minutes. A name and a
-    level asked for oftener than that is a round trip spent on an answer that is already
-    known.
+So this class reads each half exactly ONCE, on the first look, and then holds what it
+read with its age climbing beside it. It had a 10-second refresh for a few hours on
+2026-08-27 and that was the violation this paragraph exists to prevent: the strip is on
+screen on every page, so its poll would have been the most frequent thing in the panel.
+
+WHAT ONE READ COSTS, measured live end to end through the panel's own runner: **167 / 193
+/ 219 ms** for the place — the panel↔VM round trip rather than the work in the chunk,
+whose own scan of the window table is 1.0 ms. The link is EXCLUSIVE, so that is time the
+schedule, the robberies and the rally joins do not get. `/api/state` is asked every 2.5 s
+by every open page: reading the place per poll would have held the link some 8 % of the
+time, for ever.
+
+THERE IS NO SUBSCRIPTION TO PUT IN ITS PLACE — YET. The scene and the window stack are
+CLIENT state: nobody tells the server that a player opened a screen, so `rt.wire` has
+nothing to carry (docs/research/player-place.md §5). Until an in-CLIENT signal is agreed
+with the person, the honest strip is one reading with its age on it, and
+:meth:`StatusHeader.mark_stale` is the door that signal will come through when there is
+one. Nothing in the panel may call it on a timer.
 
 DEMAND-DRIVEN, NOT A CLOCK. Nothing ticks here. :meth:`state` is what the route calls, so
-a panel nobody is looking at reads nothing at all, and the first look after a long
-silence is served stale-then-fresh: what is in memory goes out at once and the refresh
-lands on the next poll, because a route that waited for the game would block the page for
-a fifth of a second.
+a panel nobody is looking at reads nothing at all, and a page that is opened is served
+what is in memory at once — a route that waited for the game would block it for a fifth
+of a second.
 
 BOTH PLAYS GO IN AT :data:`~panel.runtime.claims.DETACHED`, below every ordinary errand,
 for the same reason the stock's does: a header is a page being looked at, and no line of
@@ -69,16 +77,11 @@ WHERE_VARIABLE = "player_place"
 #: How the two scenarios separate their fields.
 FIELD_SEP = ";;"
 
-#: The floor between two place readings, in seconds. See the module docstring: one read
-#: is ~0.2 s of the exclusive game link, and the page polls every 2.5 s.
-WHERE_GAP_SEC = 10.0
-
-#: The floor between two character readings, in seconds. A name and an HQ level.
-WHO_GAP_SEC = 600.0
-
-#: How long to wait after a refused play before asking again. A refusal is ordinary —
-#: the link is exclusive — but retrying at the poll's own pace would make the refusal
-#: itself the log.
+#: How long to wait before ASKING AGAIN FOR A READING THAT NEVER ARRIVED, in seconds.
+#: This is not a refresh interval and must never become one: it applies only while a half
+#: has never been read at all — a busy link, a client at the login screen, a refused play
+#: — and it stops the moment there is something to show. A reading that exists is never
+#: re-taken by a clock (`CLAUDE.md`, «Читаем один раз, дальше слушаем»).
 RETRY_SEC = 15.0
 
 #: The scenes `read_player_place.md` can name. Anything else is drawn as unknown.
@@ -139,10 +142,17 @@ class StatusHeader:
         self._where_reading = False
         self._who_hold = 0.0             # a refusal backs off until then
         self._where_hold = 0.0
+        # «THIS WANTS READING» — set at birth and by :meth:`mark_stale`, cleared by a
+        # reading that arrived. Kept apart from the stamps above on purpose: an event
+        # that asks for a fresh reading must not make the reading the strip is CURRENTLY
+        # showing look ageless, and a read that then failed must leave the old one on
+        # screen with its true age.
+        self._where_want = True
+        self._who_want = True
 
     # -- what the route draws -------------------------------------------------
     def state(self, now: float | None = None) -> dict:
-        """The header as it stands, with whichever half is stale booked for a re-read.
+        """The header as it stands, and the ONE reading booked if it has not happened.
 
         Never blocks and never touches the game on the calling thread: the plays are
         handed to a worker by :meth:`~panel.runtime.host.PanelRuntime.play_async`, and
@@ -158,26 +168,52 @@ class StatusHeader:
             "depth": int(self._where.get("depth") or 0),
             "server": int(self._where.get("server") or 0),
             "home": int(self._where.get("home") or 0),
-            # Seconds since the PLACE was read — the half that moves — so the strip can
-            # fade when it is looking at something old rather than assert it. -1 means
-            # nothing has been read at all, which draws as dashes and never as «база».
+            # Seconds since the PLACE was read. It is not a freshness ornament any more
+            # but the strip's central fact: this reading was taken once and nothing
+            # re-takes it, so the page SAYS how old it is and the person judges it. -1
+            # means nothing has been read at all, which draws as words and never as
+            # «база».
             "age": round(now - self._where_at, 1) if self._where_at else -1,
             "reading": self._where_reading or self._who_reading,
         }
         return out
 
-    # -- the refresh ----------------------------------------------------------
+    # -- being told it moved ---------------------------------------------------
+    def mark_stale(self, place: bool = True, who: bool = False) -> None:
+        """Somebody knows the reading is out of date — take it again on the next look.
+
+        THE ONLY WAY A SECOND READING IS EVER TAKEN, and it exists so that the eventual
+        in-client signal has a door to come through. It must be called BY AN EVENT — a
+        push, a hook, a scenario this panel itself played that moved the client — and
+        never by a clock, which is the whole of `CLAUDE.md`'s «Читаем один раз, дальше
+        слушаем».
+        """
+        if place:
+            self._where_want = True
+            self._where_hold = 0.0
+        if who:
+            self._who_want = True
+            self._who_hold = 0.0
+
+    # -- the one reading -------------------------------------------------------
     def _maybe_read(self, now: float) -> None:
-        if not self._may_play():
+        """Read a half that has NEVER been read. There is no refresh here on purpose.
+
+        `_where_want` / `_who_want` are «somebody asked for this», raised once at birth
+        and afterwards only by :meth:`mark_stale`. There is no clock in this method and
+        none may be added: the retry below is for a reading that never ARRIVED, not for
+        one that got old.
+        """
+        want_where = self._where_want and not self._where_reading and now >= self._where_hold
+        want_who = self._who_want and not self._who_reading and now >= self._who_hold
+        if not (want_where or want_who) or not self._may_play():
             return
-        if (not self._where_reading and now >= self._where_hold
-                and (not self._where_at or now - self._where_at >= WHERE_GAP_SEC)):
+        if want_where:
             self._where_reading = True
             if not self._play(WHERE_ACTION, self._from_where):
                 self._where_reading = False
                 self._where_hold = now + RETRY_SEC
-        if (not self._who_reading and now >= self._who_hold
-                and (not self._who_at or now - self._who_at >= WHO_GAP_SEC)):
+        if want_who:
             self._who_reading = True
             if not self._play(WHO_ACTION, self._from_who):
                 self._who_reading = False
@@ -186,7 +222,7 @@ class StatusHeader:
     def _may_play(self) -> bool:
         """Is the link free, and is this profile allowed to press at all?
 
-        A BUSY LINK IS WAITED OUT, INCLUDING FOR THE VERY FIRST READING, and that was
+        A BUSY LINK IS WAITED OUT, INCLUDING FOR THE ONE AND ONLY READING, and that was
         tried the other way round first. Forcing the first read through — on the grounds
         that a strip which has never read anything is worth one queued play — costs TWO
         «занят — дождись завершения текущего действия» warnings per attempt, because
@@ -198,9 +234,8 @@ class StatusHeader:
         6 polls out of 24.
 
         Asked HERE rather than left to the claim and the gate, for the reason
-        `panel/runtime/resources.py` records: both of them refuse out loud, and at the
-        poll's own pace that is a warning line every 2.5 s for as long as an errand runs,
-        drowning the log somebody opened the page to read.
+        `panel/runtime/resources.py` records: both of them refuse out loud, and a page
+        being opened repeatedly would otherwise write a warning line each time.
         """
         try:
             if self._rt.game.busy:
@@ -233,18 +268,24 @@ class StatusHeader:
         got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
         place = parse_place(got.get(WHERE_VARIABLE, ""))
         if not place:
+            # Nothing came back, so nothing is answered: the want stays up and the retry
+            # applies. What must NOT happen is the old reading being cleared — see the
+            # method's docstring.
+            self._where_hold = self._clock() + RETRY_SEC
             return
         self._where = place
         self._where_at = self._clock()
+        self._where_want = False
 
     def _from_who(self, outcome) -> None:
         self._who_reading = False
         got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
         who = parse_who(got.get(WHO_VARIABLE, ""))
         if not who:
-            # Not read, so not remembered as read: the next poll asks again rather than
-            # sitting on ten minutes of silence.
+            # Not read, so not remembered as read: the want stays up and the next look
+            # after the backoff asks again.
             self._who_hold = self._clock() + RETRY_SEC
             return
         self._who = who
         self._who_at = self._clock()
+        self._who_want = False

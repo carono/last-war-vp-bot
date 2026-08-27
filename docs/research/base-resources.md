@@ -62,7 +62,16 @@ and its metatable carries the accessors that matter:
 | `GetResCurrentPercentByResType(type)` | how full it is |
 | `LWResourceLackUtil.GetResourceSpeedCountPerHour(type)` | the per-hour rate |
 
-## 2a. ONE READ AT LOGIN, THEN DELTAS — measured, not assumed
+## 2a. ONE READ AT LOGIN, THEN DELTAS — measured, and now REQUIRED
+
+**This stopped being an observation about the client and became the rule the panel is
+written under** (`CLAUDE.md`, «Read once, then LISTEN»). The operator's words: «работаем в
+той же парадигме как и клиент, читаем один раз, остальное слушаем изменения, никаких
+активных действий просто в фоне быть не должно, все подобные моменты проговариваются
+отдельно». So what follows is not merely how the GAME happens to work — it is how every
+reading in this panel has to work, and a background poll is a violation whatever it costs.
+Where there is no event to subscribe to, the poll is not written: the cost and the
+interval are put to the person first.
 
 The operator's hunch, and it is right: the client does not ask the server for the
 balance. It is handed the numbers once and then keeps them, applying every change as it
