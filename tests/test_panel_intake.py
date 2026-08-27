@@ -258,6 +258,62 @@ def test_the_ghost_map_merges_with_the_tab_shut():
     assert (row["seen"], row["kept"], row["lost"]) == (2, 2, 0), row
 
 
+def test_a_ghost_squad_reaches_the_list_as_an_event():
+    """The whole of #2010: a decoded squad lands in the list without any file at all.
+
+    It used to travel only through the capture's checkpoint, and that file is rewritten
+    every tick out of an index that keeps ONLY the warzone currently on screen — a lap
+    walks eighteen of them in seconds, so what a lap found was gone before the panel read
+    it. Live: 112 950 tiles decoded, one squad in the file, an empty page and an autoloot
+    with nothing to rob.
+    """
+    tab, rt = _tab()
+    tab.loaded = False                       # nobody has ever opened it
+    # What the GAME says the template is — the level and the star come from here, never
+    # from the cfgId's digits (#1244).
+    tab._ghost_config = {60050101: {"level": 5, "starred": True, "loot_max": 3,
+                                    "colour": 4}}
+    tab.ghost_tile_seen({"uuid": "1000000000000001", "server": 100,
+                         "target_server": 101, "x": 12, "y": 34, "cfg": 60050101,
+                         "members": 3, "loot": 1,
+                         "completed_at": 1, "expires_at": 4102444800000,
+                         "ready": True, "seen_at": 1700000000})
+    _run_sync(tab._ghost_tiles_land)
+    assert tab.ghost_map.applied, "the squad never reached the list"
+    row = tab.ghost_map.applied[0][0]
+    assert (row["uuid"], row["level"], row["starred"], row["ready"]) == \
+        ("1000000000000001", 5, True, True), row
+    assert (row["server"], row["owner_server"]) == (100, 100), row
+    counted = _row_for(rt, "ghost.map")
+    assert (counted["seen"], counted["kept"], counted["lost"]) == (1, 1, 0), counted
+
+
+def test_the_ghost_list_is_restored_before_anything_saves_it():
+    """A merge that saves before it restores writes an EMPTY list over the kept one.
+
+    This is not hypothetical: `refresh_ghost_map` runs headless (#1523) and ends in
+    `apply` -> `persist`, while the restore hung on somebody opening the tab. A live
+    profile's `ghost_map_state` held `[]` while its capture was decoding a hundred
+    thousand tiles an hour.
+    """
+    tab, _rt = _tab()
+    tab.loaded = False
+    _run_sync(lambda: tab.refresh_ghost_map())
+    assert tab.ghost_map.restored, "the checkpoint merged into a list nobody read back"
+    tab.ghost_tile_seen({"uuid": "1000000000000002", "cfg": 0, "server": 100})
+    _run_sync(tab._ghost_tiles_land)
+    assert len(tab.ghost_map.restored) == 1, "restored twice — rows that left came back"
+
+
+def test_a_ghost_event_with_no_uuid_is_a_refusal_and_says_why():
+    """A dropped event is counted WITH a reason; `lost` stays at zero (#1523)."""
+    tab, rt = _tab()
+    tab.ghost_tile_seen({"server": 100, "cfg": 60050101})
+    row = _row_for(rt, "ghost.map")
+    assert (row["seen"], row["lost"]) == (1, 0), row
+    assert row["reasons"] == {"no_uuid": 1}, row
+
+
 def test_the_monsters_are_read_with_the_tab_shut():
     """THE ONE PAGE WITH NO FILE BEHIND IT. The other three come back out of the
     capture's own checkpoint whenever anybody next looks; a monster read leaves nothing
@@ -580,12 +636,20 @@ def _tab(checkpoint=None, game_ready: bool = True):
     tab.post = lambda call: call()
     tab.mines, tab.trains, tab.trucks = _Page(), _Page(), _Page()
     tab.monsters = _Page()
-    tab.ghost_map = types.SimpleNamespace(status={}, landed=lambda status, rows: None)
+    tab.ghost_map = types.SimpleNamespace(status={}, landed=lambda status, rows: None,
+                                          restored=[], applied=[])
+    tab.ghost_map.restore = lambda: tab.ghost_map.restored.append(True)
+    tab.ghost_map.apply = lambda rows: tab.ghost_map.applied.append(list(rows))
     tab._tiles, tab._areas = {}, []
+    # …and the ghost list's own buffer and its own restore flag (#2010), the twins of
+    # the two above: the map page is fed by events now, exactly as the ★ list is.
+    tab._ghost_tiles = {}
+    tab._ghost_restored = False
 
     import threading as _threading
     tab._tiles_lock = _threading.Lock()
     tab._tiles_soon = lambda: None
+    tab._ghost_tiles_soon = lambda: None
     tab._areas_soon = lambda: None
 
     # The two sources this tab reads, replaced with answers of the right SHAPE and made-up

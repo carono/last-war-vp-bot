@@ -4155,6 +4155,37 @@ def test_a_ghost_page_shows_only_starred_squads_when_the_box_is_ticked():
     assert [r["uuid"] for r in page.narrow(rows)] == ["1000000000000001"]
 
 
+def test_the_map_page_hides_what_nothing_has_confirmed_for_hours():
+    """The ★ list's age rule, over the page it bites hardest on (#1999, #2010).
+
+    A lap of the map brings back everybody's tiles and nothing re-sends them, so a list
+    that has been running for a day is mostly places nothing has confirmed since
+    yesterday. It is a FILTER: the row stays, the counter says how many are held back,
+    and 0 in the field brings them all back.
+    """
+    import time as _time
+    import types as _types
+
+    from panel.tabs.secret_tasks import ghost as ghostmod
+
+    hours = [12]
+    page = object.__new__(ghostmod.GhostMapGrid)
+    page.star_var = _Var(False)
+    page.tab = _types.SimpleNamespace(_stale_ms=lambda: hours[0] * 3600000)
+    now = int(_time.time())
+    rows = [{"uuid": "1000000000000001", "seen_at": now},                # just now
+            {"uuid": "1000000000000002", "seen_at": now - 13 * 3600},    # yesterday
+            # Still out: it ripens in the FUTURE, so its age is negative and it is
+            # never hidden — early, not stale.
+            {"uuid": "1000000000000003", "seen_at": 0,
+             "completed_at": (now + 3600) * 1000}]
+
+    assert [r["uuid"] for r in page.narrow(rows)] == ["1000000000000001",
+                                                      "1000000000000003"]
+    hours[0] = 0                       # the rule off — everything comes straight back
+    assert page.narrow(rows) == rows
+
+
 def test_a_block_that_says_nothing_about_a_box_does_not_untick_it():
     """The box was reported ticking itself off «через какое-то время».
 

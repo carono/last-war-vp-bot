@@ -453,6 +453,64 @@ def test_the_scan_checkpoints_feed_the_two_lists():
     assert tpane._scanned_targets({str(chest.uuid)}, home=100) == []
 
 
+def test_the_standing_order_chooses_out_of_the_panels_own_list():
+    """«Автолут призрака» takes what «Призрак: карта» has KEPT (#2010).
+
+    It used to read the capture's live checkpoint through the freshness window, and that
+    file is rewritten every tick out of an index holding only the warzone on screen — a
+    lap walks eighteen of them in seconds, so the standing order had nothing to rob while
+    the sniffer was decoding thousands of tiles. The kept list is the panel's own, it
+    survives a restart, and it is the list the person is looking at.
+    """
+    cp = _module()
+    if cp is None:
+        return
+    import game_clock
+
+    now = game_clock.now_ms()
+    kept = [
+        # Back and still running: a target.
+        {"uuid": "1000000000000001", "owner_server": 700, "x": 10, "y": 20,
+         "cfg_id": 60050101, "level": 5, "loot_max": 3, "loot_count": 1,
+         "completed_at": now - 1000, "expires_at": now + 3_600_000},
+        # Still out — listed, but not robbable yet.
+        {"uuid": "1000000000000002", "owner_server": 700, "cfg_id": 60050101,
+         "level": 5, "completed_at": now + 3_600_000, "expires_at": now + 7_200_000},
+        # Its own clock ran out: gone, clause 1 of THE_LIST_RULE.
+        {"uuid": "1000000000000003", "owner_server": 700, "cfg_id": 60050101,
+         "level": 5, "completed_at": now - 5000, "expires_at": now - 1000},
+        # Robbed out: the server would only refuse, and one of the five would pay for it.
+        {"uuid": "1000000000000004", "owner_server": 700, "cfg_id": 60050101,
+         "level": 5, "loot_max": 3, "loot_count": 3,
+         "completed_at": now - 5000, "expires_at": now + 3_600_000},
+    ]
+
+    class Rt:
+        store = types.SimpleNamespace(blob_get=lambda _name: list(kept))
+        profiles = types.SimpleNamespace(
+            ghost_json=lambda: "/nonexistent/ghost.json")
+
+    pane = cp.GhostReconPane.__new__(cp.GhostReconPane)
+    pane.rt = Rt()
+    rows = pane._scanned_targets(set())
+    assert [r["uuid"] for r in rows] == ["1000000000000001",
+                                         "1000000000000002"], rows
+    assert rows[0]["can"] is True and rows[1]["can"] is False, rows
+    assert rows[0]["srv"] == 700 and rows[0]["level"] == 5, rows[0]
+    # …and one the client's own list already carries is not added a second time.
+    assert [r["uuid"] for r in pane._scanned_targets({"1000000000000001"})] == \
+        ["1000000000000002"]
+
+    # The rule the standing order then applies over that list: robbable, not mine, at or
+    # above «минимальный уровень» — and the LEVEL the game gave is not overwritten by the
+    # cfgId's digits on the way (`absorb`).
+    pane.level_min = lambda: 5
+    pane.status, pane.targets = {}, []
+    pane.absorb({"open": True, "left": 5}, rows)
+    assert [t["uuid"] for t in pane.rob_candidates()] == ["1000000000000001"]
+    assert pane.targets[0]["level"] == 5, pane.targets[0]
+
+
 def test_a_missing_checkpoint_is_no_rows_not_a_crash():
     cp = _module()
     if cp is None:

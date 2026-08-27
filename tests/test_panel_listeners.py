@@ -206,6 +206,66 @@ def test_the_tile_line_carries_no_owner():
         assert banned not in fields, f"the tile event carries {banned}: {sorted(fields)}"
 
 
+def test_the_ghost_marker_is_one_string_in_two_processes():
+    """The ghost twin of the tile marker (#2010), and it exists for the same reason.
+
+    A ghost-recon squad used to reach the panel only through the capture's checkpoint,
+    and that file is rewritten every tick out of an index that keeps only the warzone
+    currently on screen — so a lap of the map filled it and emptied it before anything
+    read it. The squad travels as an event now, and both halves spell the marker for
+    themselves.
+    """
+    tool = (_REPO / "tools" / "dev" / "secret_mission_capture.py").read_text(
+        encoding="utf-8")
+    hook = (_REPO / "panel" / "tabs" / "secret_tasks" / "capture.py").read_text(
+        encoding="utf-8")
+    assert 'GHOST_MARKER = "##GHOST##"' in tool, "the capture no longer speaks squads"
+    assert 'GHOST_MARKER = "##GHOST##"' in hook, "the panel no longer listens for them"
+    assert "GHOST_MARKER + " in tool, "the marker is defined and never printed"
+
+
+def test_the_ghost_line_carries_no_owner():
+    """A squad's tile is a place on the map; whose squad it is stays out of the stream.
+
+    Same rule as the ★ tile line (#1293): everything this child prints lands in
+    `panel.log`, which is a file people send each other when something goes wrong. The
+    owner's uid and the alliance id are decoded and go into the panel's own checkpoint.
+    """
+    import re as _re
+
+    tool = (_REPO / "tools" / "dev" / "secret_mission_capture.py").read_text(
+        encoding="utf-8")
+    line = tool[tool.index("GHOST_MARKER + "):]
+    line = line[:line.index("ensure_ascii")]
+    fields = set(_re.findall(r'"(\w+)":', line))
+    for banned in ("owner_uid", "alliance_id", "uid", "owner_id", "ownerUid",
+                   "name", "owner"):
+        assert banned not in fields, f"the squad event carries {banned}: {sorted(fields)}"
+
+
+def test_the_ghost_list_is_read_back_before_a_merge_saves_it():
+    """Every path that MERGES into «Призрак: карта» restores it first (#2010).
+
+    `apply` ends in `persist`, and the merges run headless (#1523) — so a pass that
+    saves before it reads writes an empty list over the one the last session gathered.
+    A live profile's `ghost_map_state` held `[]` while its capture was decoding a
+    hundred thousand tiles an hour. Read off the source, because both branches are one
+    line and building a tab needs Tk.
+    """
+    src = (_REPO / "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(
+        encoding="utf-8")
+    body = src[src.index("def _ghost_tiles_land"):]
+    body = body[:body.index("self._ghost_tiles, {}")]
+    assert "self._ensure_ghost_model()" in body, (
+        "the landing pass does not restore the list — a panel nobody opened would save "
+        "what it just merged over the top of what it had gathered")
+    landed = src[src.index("def _ghost_map_landed"):]
+    landed = landed[:landed.index("def _ensure_ghost_model")]
+    assert landed.index("self._ensure_ghost_model()") < \
+        landed.index("self.ghost_map.landed("), \
+        "the checkpoint is merged before the kept list is read back"
+
+
 def test_a_tile_is_never_dropped_because_the_tab_is_not_open():
     """The buffer is not a place an event may die — and since #1476 nor is the MODEL.
 
