@@ -2972,7 +2972,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
         # …and the standing order this page carries since #2010: its switch, the one
         # number that aims it and the rule written out for the card to say.
         autoloot_var=_Var(False), level_min=lambda: None,
-        rule_text=lambda: "любого уровня",
+        rule_text=lambda: "любого уровня", web_rows=lambda: [],
         web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
                             "pill": None}])
     # …and the four world pages (#1289), each a card of its own on the phone.
@@ -3757,7 +3757,7 @@ def test_the_two_ghost_pages_are_two_lists_from_two_managers():
 
     map_page = []
     tab.ghost_map = types.SimpleNamespace(
-        landed=lambda status, rows: map_page.extend(rows))
+        landed=lambda status, rows: map_page.extend(rows), web_rows=lambda: [])
     tab._ghost_landed({"open": True, "left": 5},
                       [_ghost_record(1, mine=True), _ghost_record(9, mine=False)],
                       [_ghost_record(2, mine=False), _ghost_record(3, mine=False),
@@ -4245,6 +4245,38 @@ def test_an_unread_event_is_not_a_closed_one():
     assert [r["value"] for r in page.web_rows()] == ["secrettasks.ghost.open", "5"]
     page.note_event(False, 0)
     assert page.web_rows()[0]["value"] == "secrettasks.ghost.closed"
+
+
+def test_the_two_robbery_budgets_are_never_the_same_number():
+    """Five secret-task robberies and five ghost ones — TWO budgets, not one (#2010).
+
+    Different managers and different counters in the game
+    (`ActDispatchTaskDataManager.GetTodayStealNum` against
+    `ActGhostreconManager.stealTimes`), and the panel must never let one answer for the
+    other: refusing to rob a ghost squad because the ★ five are gone is a mistake that
+    looks cheap and costs a whole day of the event, which runs once a week. Measured live
+    on 2026-08-27 — `steal_left=0 of 5` while `ghost_left=5 of 5`.
+
+    Read off the source: the two gates are Lua expressions, and what matters is that
+    neither watcher reaches for the other's.
+    """
+    root = Path(__file__).resolve().parents[1]
+    order = (root / "panel" / "tabs" / "secret_tasks" / "ghost_order.py").read_text(
+        encoding="utf-8")
+    star = (root / "panel" / "tabs" / "secret_tasks" / "autoloot.py").read_text(
+        encoding="utf-8")
+    assert "ghost_recon_steals_left" in order, "the ghost order stopped reading its budget"
+    for borrowed in ("secret_task_steals_left", "GetTodayStealNum",
+                     "ActDispatchTaskDataManager"):
+        assert borrowed not in order, f"the ghost order reads the ★ budget: {borrowed}"
+    for borrowed in ("ghost_recon_steals_left", "stealTimes", "ActGhostreconManager"):
+        assert borrowed not in star, f"«Автолут ★» reads the ghost budget: {borrowed}"
+    # …and the two «budget spent» marks are different words, or one recipe's success
+    # would pause the other's watcher.
+    import panel.tabs.secret_tasks.ghost_order as gmod
+    import panel.tabs.secret_tasks.autoloot as smod
+    assert gmod.SPENT_MARK != smod.SPENT_MARK
+    assert gmod.TAKEN_MARK != smod.TAKEN_MARK
 
 
 def test_the_ghost_order_chooses_out_of_the_pages_own_list():
