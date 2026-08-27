@@ -396,6 +396,10 @@ def test_a_panel_with_no_window_writes_a_moved_knob_down():
         assert node.value.id in classes, f"no class {node.value.id} in panel/headless.py"
     saver = source.split("def _save_tab_blocks", 1)[1]
     assert "set_tab_config" in saver and "rt.settings.save()" in saver
+    # …and the registry's tab list is a PROPERTY. Called as one, it raised «'list'
+    # object is not callable» inside the saver's own catch — so the write said «ok»,
+    # the log said «save failed» and the profile kept the old value.
+    assert "rt.tabs.live()" not in saver and "rt.tabs.live" in saver
     # …and only the tabs' blocks: a headless panel writing `tabs.enabled` off a list it
     # did not build is how a tab somebody switched off comes back.
     assert "enabled" not in saver.split("def ", 1)[0]

@@ -371,7 +371,7 @@ class HeadlessPanel:
     def _save_tab_blocks(rt) -> None:
         """Write every live tab's block into this profile, and nothing else."""
         try:
-            for tab in list(rt.tabs.live()):
+            for tab in list(rt.tabs.live):
                 rt.settings.set_tab_config(tab.ID, tab.stored_config(),
                                            type(tab).LEGACY_KEYS)
             rt.settings.save()
