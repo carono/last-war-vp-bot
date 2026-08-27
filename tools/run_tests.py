@@ -50,6 +50,13 @@ at all when that happens — exit code 1, no output, and no way to tell a red su
 suite that never ran (#2020). A run that did not finish says `INCOMPLETE` and exits
 non-zero.
 
+However a run ends, it prints the same summary — how many were green, what was red,
+and `INCOMPLETE: n of m file(s) never finished` when it did not get through the list. A
+SIGTERM (or SIGHUP) is caught for that reason alone; so is a crash inside the runner
+itself, which is reported and then re-raised. And an abort takes the file it landed in
+down with it and NAMES it: an orphaned test file here means a panel left running on a
+live profile, writing to the account's log (#2002).
+
 Two more traps that made a killed run look green rather than dead:
 
   * **never pipe this into `tail` / `head` / `grep`** — the exit code you read is the
@@ -73,11 +80,13 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import os
 import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -170,6 +179,12 @@ class Result:
 #: any outer time limit, is a whole suite that dies having printed nothing.
 DRAIN_GRACE = 10.0
 
+#: Every test file this runner has going right now, so an abort can take them with it
+#: instead of orphaning them (#2020, and #2002 is what an orphan does on this repo).
+_RUNNING: dict = {}
+_ABORTED: list = []
+_RUNNING_LOCK = threading.Lock()
+
 
 def run_one(path: Path, timeout: float) -> Result:
     started = time.monotonic()
@@ -182,6 +197,8 @@ def run_one(path: Path, timeout: float) -> Result:
                             text=True, env={**os.environ,
                                             "PYTHONIOENCODING": "utf-8"},
                             **popen_kwargs)
+    with _RUNNING_LOCK:
+        _RUNNING[proc] = path
     try:
         output, _ = proc.communicate(timeout=timeout)
         code = proc.returncode
@@ -197,16 +214,59 @@ def run_one(path: Path, timeout: float) -> Result:
             if proc.stdout is not None:
                 proc.stdout.close()
         output = (output or "") + f"\nTIMED OUT after {timeout:.0f}s"
+    except BaseException:
+        # A signal, or anything else that ends the run from outside, arrives HERE —
+        # in the wait for the file that is running. Take that file down before the
+        # exception travels on, or the abort orphans it (#2002 is what an orphaned
+        # test file does on this repo: a panel on the live profile, unwatched).
+        _kill_tree(proc)
+        with _RUNNING_LOCK:
+            _ABORTED.append(path.name)
+        raise
+    finally:
+        with _RUNNING_LOCK:
+            _RUNNING.pop(proc, None)
     return Result(path, code, time.monotonic() - started, output or "")
 
 
+def _kill_everything_still_running() -> list[str]:
+    """Take the running test files down on the way out, and name them.
+
+    An aborted run that leaves its children behind leaves them holding this repo's
+    live profile, its log and its locks — and nobody is watching them any more.
+    """
+    with _RUNNING_LOCK:
+        left = list(_RUNNING.items())
+        names = list(_ABORTED)
+        _RUNNING.clear()
+        _ABORTED.clear()
+    for proc, path in left:
+        _kill_tree(proc)
+        names.append(path.name)
+    return names
+
+
 def _kill_tree(proc: subprocess.Popen) -> None:
-    """Kill the test and anything it left running, so its pipe can close."""
+    """Kill the test AND anything it left running, so its pipe can close.
+
+    The tree, not the process: `proc.kill()` alone leaves the grandchildren holding
+    the stdout pipe this runner is reading, and the read then never returns. Windows
+    has no process group to signal, so the tree is `taskkill /T` — measured: without
+    it a leaked grandchild held the runner for the full 60 s of the test that catches
+    this, with the file's own 2 s ceiling long past.
+    """
     if os.name == "posix":
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             return
         except (ProcessLookupError, PermissionError, OSError):
+            pass
+    else:
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=15)
+            return
+        except Exception:                     # noqa: BLE001 — fall back to the process
             pass
     try:
         proc.kill()
@@ -225,6 +285,62 @@ def _tail(text: str, lines: int = 6) -> list[str]:
     keep = [ln.rstrip() for ln in text.splitlines()
             if ln.strip() and not ln.strip().startswith("ok ")]
     return keep[-lines:]
+
+
+class _Signalled(BaseException):
+    """A signal that ends the run — carried as an exception so the summary still prints.
+
+    `BaseException` on purpose: nothing in here may swallow it by catching `Exception`.
+    """
+
+    def __str__(self) -> str:                        # "stopped by SIGTERM"
+        return str(self.args[0]) if self.args else "a signal"
+
+
+@contextlib.contextmanager
+def _stop_signals():
+    """Turn SIGTERM (and SIGHUP where there is one) into an exception we can report on.
+
+    An outer limit — a CI step, an agent's command timeout, a `kill` — arrives as a
+    SIGTERM, and the default disposition ends the process on the spot: no summary, no
+    list of what had passed, and an exit status nobody can tell from a red suite. The
+    whole point of #2020 is that a killed run says so.
+    """
+    # SIGBREAK is the Windows half of this: there is no catchable SIGTERM there (a
+    # `TerminateProcess` cannot be handled at all), and Ctrl-Break is what a console
+    # or a parent sends when it wants a process to end and be able to say so.
+    names = [n for n in ("SIGTERM", "SIGHUP", "SIGBREAK") if hasattr(signal, n)]
+    saved = {}
+
+    def raise_it(signum, _frame):
+        raise _Signalled(signal.Signals(signum).name)
+
+    for name in names:
+        sig = getattr(signal, name)
+        try:
+            saved[sig] = signal.signal(sig, raise_it)
+        except (ValueError, OSError):
+            pass                                     # not the main thread, or no such
+    try:
+        yield names
+    finally:
+        for sig, was in saved.items():
+            try:
+                signal.signal(sig, was)
+            except (ValueError, OSError):
+                pass
+
+
+def _summarise(results: list, wanted: list, started: float) -> None:
+    """What passed, what did not, and what never ran — printed on every way out."""
+    red = [r for r in results if not r.ok]
+    _say(f"\n{len(results) - len(red)}/{len(results)} files green "
+         f"in {time.monotonic() - started:.0f}s")
+    if len(results) != len(wanted):
+        _say(f"INCOMPLETE: {len(wanted) - len(results)} of {len(wanted)} file(s) "
+             f"never finished")
+    if red:
+        _say("red: " + ", ".join(sorted(r.path.name for r in red)))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -290,42 +406,70 @@ def main(argv: list[str] | None = None) -> int:
             for ln in _tail(r.output):
                 _say(f"       | {ln}")
 
-    interrupted = False
+    def run_and_report(path: Path) -> Result:
+        """One file, whatever happens to it.
+
+        A crash INSIDE the runner — the pool's worker raising, `MemoryError`, a broken
+        pipe — used to travel up as a bare traceback with no file name in it, and under
+        `--jobs` it took the run down having named nothing. It is a red line with a
+        cause on it now, and the run goes on: what killed one file is exactly the thing
+        somebody needs to see next to the file's name.
+        """
+        try:
+            return run_one(path, timeout_of(path, args.timeout))
+        except MemoryError:                          # the worker died, not the test
+            return Result(path, 137, 0.0, "the runner ran out of memory on this file")
+        except Exception as exc:                     # noqa: BLE001
+            return Result(path, 1, 0.0,
+                          f"the runner itself failed on this file: "
+                          f"{type(exc).__name__}: {exc}")
+
+    stopped = ""
     try:
-        if args.jobs > 1:
-            # Completion order, not alphabetical: a line is worth more when it is
-            # printed than when it is sorted.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-                futures = {pool.submit(run_one, p, timeout_of(p, args.timeout)): p
-                           for p in wanted}
-                for fut in concurrent.futures.as_completed(futures):
-                    r = fut.result()
+        with _stop_signals() as why:
+            if args.jobs > 1:
+                # Completion order, not alphabetical: a line is worth more when it is
+                # printed than when it is sorted.
+                with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+                    futures = {pool.submit(run_and_report, p): p for p in wanted}
+                    for fut in concurrent.futures.as_completed(futures):
+                        r = fut.result()
+                        results.append(r)
+                        report(r)
+            else:
+                for p in wanted:
+                    r = run_and_report(p)
                     results.append(r)
                     report(r)
-        else:
-            for p in wanted:
-                r = run_one(p, timeout_of(p, args.timeout))
-                results.append(r)
-                report(r)
+            del why
     except KeyboardInterrupt:
-        interrupted = True
-        _say("\ninterrupted")
+        stopped = "interrupted (Ctrl-C)"
+    except _Signalled as sig:
+        stopped = f"stopped by {sig}"
+    except BaseException as exc:                     # noqa: BLE001 — then re-raised
+        # Anything else at all: say what it was and what had passed BEFORE the traceback
+        # goes out. A runner that dies quietly is the whole of #2020.
+        _say(f"\nthe runner died: {type(exc).__name__}: {exc}")
+        killed = _kill_everything_still_running()
+        if killed:
+            _say(f"stopped mid-file, and took it down: {', '.join(sorted(killed))}")
+        _summarise(results, wanted, started)
+        raise
+    if stopped:
+        _say(f"\n{stopped}")
+        killed = _kill_everything_still_running()
+        if killed:
+            _say(f"stopped mid-file, and took it down: {', '.join(sorted(killed))}")
 
-    red = [r for r in results if not r.ok]
+    # The same summary an aborted run prints, so the two can never drift apart: a
+    # partial run must be as loud about what it did as a finished one.
+    _summarise(results, wanted, started)
     hollow = [r for r in results if r.skipped_everything]
-    _say(f"\n{len(results) - len(red)}/{len(results)} files green "
-         f"in {time.monotonic() - started:.0f}s")
-    if len(results) != len(wanted):
-        # Say it out loud rather than let a green-looking tally stand for a run that
-        # never finished: a partial suite is not a pass.
-        _say(f"INCOMPLETE: {len(wanted) - len(results)} of {len(wanted)} file(s) "
-             f"never ran")
     if hollow:
         _say(f"{len(hollow)} file(s) green having SKIPPED what they could not run "
              f"here — {', '.join(r.path.name for r in hollow)}")
-    if red:
-        _say("red: " + ", ".join(sorted(r.path.name for r in red)))
-    return 1 if (red or interrupted or len(results) != len(wanted)) else 0
+    red = [r for r in results if not r.ok]
+    return 1 if (red or stopped or len(results) != len(wanted)) else 0
 
 
 if __name__ == "__main__":

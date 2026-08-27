@@ -511,10 +511,17 @@ def test_the_watchdogs_two_strikes_are_two_LOOKS_and_not_two_reads():
     two-second cache, and the watchdog counted them as two independent confirmations.
     A strike has to wait for the poll to come round again.
     """
-    src = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
+    # WHERE IT LIVES, as of #1984: the readings are the RUNTIME's, not the window's —
+    # a panel with no window used to watch nothing at all. This guard followed the
+    # method across (#2020): it was still reading `panel/__main__.py`, where there has
+    # been no `_watchdog_check` since, so it failed for having been left behind rather
+    # than for anything the watchdog does.
+    src = (ROOT / "panel" / "runtime" / "status.py").read_text(encoding="utf-8")
+    assert "def _watchdog_check" in src, \
+        "the watchdog moved again — find it and point this guard at it"
     body = src[src.index("def _watchdog_check"):]
     body = body[:body.index("\n    def ", 10)]
-    assert "STATUS_POLL_MS" in body, \
+    assert "POLL_SEC" in body, \
         "a strike is counted without asking how long ago the last one was"
     assert body.index("_game_gone_at") < body.index("self._game_gone += 1"), \
         "the counter moves before the spacing is checked"

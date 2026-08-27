@@ -24,6 +24,9 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
+import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -146,6 +149,82 @@ def test_a_run_that_did_not_finish_is_never_green() -> None:
         assert "INCOMPLETE" in printed, printed
     finally:
         mod.run_one = real
+        tmp.cleanup()
+
+
+def test_a_worker_that_dies_names_the_file_it_died_on() -> None:
+    """A crash inside the RUNNER used to travel up as a bare traceback with no file
+    name in it — and under `--jobs` it took the whole run with it."""
+    mod = _runner()
+    tmp = _scratch_tests({f"test_num_{i}.py": "pass\n" for i in range(3)})
+    real = mod.run_one
+
+    def die_on_the_second(path: Path, timeout: float):
+        if path.name == "test_num_1.py":
+            raise RuntimeError("the pool worker fell over")
+        return real(path, timeout)
+
+    mod.run_one = die_on_the_second
+    try:
+        code, out = _run(mod, ["offline"], tmp.name)
+        printed = "\n".join(ln for _, ln in out.stamps)
+        assert code != 0, printed
+        assert "test_num_1.py" in printed and "the pool worker fell over" in printed, \
+            printed
+        assert "2/3 files green" in printed, (
+            "one file's crash stopped the other two — a death is one red line")
+    finally:
+        mod.run_one = real
+        tmp.cleanup()
+
+
+def test_a_run_killed_from_outside_still_says_what_had_passed() -> None:
+    """SIGTERM is how an outer limit ends a run — a CI step, an agent's command
+    timeout, a `kill`. The default disposition ends the process on the spot: no
+    summary, no list, and a status nobody can tell from a red suite (#2020)."""
+    tmp = _scratch_tests({
+        "test_quick_one.py": "print('ok  quick')\n",
+        "test_zzz_endless.py": "import time; time.sleep(120)\n",
+    })
+    driver = Path(tmp.name) / "driver.py"
+    driver.write_text(
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('rt', r'{_REPO}/tools/run_tests.py')\n"
+        "mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)\n"
+        "from pathlib import Path\n"
+        f"mod.TESTS = Path(r'{tmp.name}')\n"
+        "raise SystemExit(mod.main(['offline']))\n", encoding="utf-8")
+    # Windows cannot be sent a catchable SIGTERM — `TerminateProcess` is not a signal
+    # and cannot be handled — so the kill that a run must survive out loud is
+    # Ctrl-Break, which needs its own process group to be sent into.
+    windows = os.name == "nt"
+    proc = subprocess.Popen(
+        [sys.executable, "-u", str(driver)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if windows else 0)
+    try:
+        deadline = time.monotonic() + 30
+        seen = ""
+        while time.monotonic() < deadline and "test_quick_one.py" not in seen:
+            seen += proc.stdout.readline()
+        assert "test_quick_one.py" in seen, f"nothing was printed to kill into: {seen!r}"
+        time.sleep(0.5)                  # let the next file actually start
+        proc.send_signal(signal.CTRL_BREAK_EVENT if windows else signal.SIGTERM)
+        rest = proc.stdout.read()
+        code = proc.wait(timeout=30)
+        printed = seen + rest
+        assert code != 0, printed
+        assert ("SIGBREAK" if windows else "SIGTERM") in printed, \
+            f"a killed run said nothing about why: {printed!r}"
+        assert "INCOMPLETE" in printed, f"a partial run looked whole: {printed!r}"
+        assert "test_quick_one.py" in printed, "…and lost what HAD passed"
+        assert "test_zzz_endless.py" in printed, (
+            "the file it died in the middle of was not named — and its process was "
+            "left running")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=10)
         tmp.cleanup()
 
 

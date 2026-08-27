@@ -467,7 +467,10 @@ flag, check it still exists before acting on it.
   outer limit — a CI step, an agent's command timeout — will end it half
   way. That is survivable now: the runner prints and flushes each file's
   verdict as it finishes, so a killed run still shows how far it got, and
-  it says `INCOMPLETE` and exits non-zero when it did not finish.
+  it says `INCOMPLETE` and exits non-zero when it did not finish. A
+  SIGTERM, a crash inside the runner and a worker that dies all print a
+  cause and the tally; the file an abort landed in is killed and named,
+  so nothing is left running behind the run.
 - **One coherent change per commit**. Script-only commits stay tiny;
   Python commits explain *why* the DSL was insufficient.
 
