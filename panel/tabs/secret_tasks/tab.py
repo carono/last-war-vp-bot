@@ -5312,6 +5312,27 @@ class SecretTasksTab(PanelTab):
         self.remember({"grids": {self.ghost_map.CONFIG_KEY: {"level_min": raw}}})
         self.rt.settings.changed()
 
+    def set_pieces_option(self, key: str, value) -> bool:
+        """One rule of the piece exchange, from the gear on «Таймеры» (#2017).
+
+        The «Кусочки» page's own variable — the errand reads them live at fire time
+        (`Schedule.register_args`), so there is nothing to restart — plus the block an
+        unbuilt tab hands back on save, without which the change is gone at the next
+        restart (#2010).
+        """
+        page = self.pieces
+        if key in ("offer", "share", "strict"):
+            getattr(page, key + "_var").set(bool(value))
+        else:
+            raw = str(value if value is not None else "").strip()
+            if not raw.isdigit():
+                return False
+            getattr(page, {"limit": "limit_var", "offer_gap": "offer_gap_var",
+                           "share_every": "share_every_var"}[key]).set(raw)
+        self.remember({"pieces": page.config()})
+        self.rt.settings.changed()
+        return True
+
     def standing_orders(self) -> tuple:
         """The three watchers this tab owns, drawn among the triggers (#2017).
 
@@ -5345,7 +5366,14 @@ class SecretTasksTab(PanelTab):
                 errandopts.Option("autoloot_level_min", "secret.autoloot.level_min",
                                   errandopts.TEXT,
                                   get=lambda: self.rule("level_min_var"),
-                                  set=self.set_autoloot_level),),
+                                  set=self.set_autoloot_level),
+                # HOW MANY OF THE DAY'S ROBBERIES IT MAY SPEND — a profile setting since
+                # it was written, and until now reachable only on «Настройки», which is
+                # nowhere near the order that spends them (#2017).
+                errandopts.Option("autoloot_limit", "opt.autoloot_limit",
+                                  errandopts.NUMBER, setting="autoloot_limit",
+                                  hint_key="opt.autoloot_limit.hint",
+                                  low=1, high=50)),
             "secret_autoassist": (
                 errandopts.Option("autoassist_level_min", "autoassist.level_min",
                                   errandopts.TEXT,
@@ -5357,6 +5385,33 @@ class SecretTasksTab(PanelTab):
                                   errandopts.NUMBER,
                                   setting="autoassist_star_wait_min",
                                   low=0, high=1440)),
+            # THE PIECE EXCHANGE (#2017). «exchange_treasure_pieces» is a timer, and
+            # everything that decides what it does when it fires — whether it offers,
+            # whether it shares, how strictly it matches, how many it may hand over —
+            # lived on the «Кусочки» page and nowhere near the row that runs it. The
+            # page's own variables, through one setter, so the two are one value.
+            "exchange_treasure_pieces": (
+                errandopts.Option("offer", "pieces.offer", errandopts.SWITCH,
+                                  get=lambda: bool(self.pieces.offer_var.get()),
+                                  set=lambda on: self.set_pieces_option("offer", on)),
+                errandopts.Option("share", "pieces.share", errandopts.SWITCH,
+                                  get=lambda: bool(self.pieces.share_var.get()),
+                                  set=lambda on: self.set_pieces_option("share", on)),
+                errandopts.Option("strict", "pieces.strict", errandopts.SWITCH,
+                                  get=lambda: bool(self.pieces.strict_var.get()),
+                                  set=lambda on: self.set_pieces_option("strict", on)),
+                errandopts.Option("limit", "pieces.limit", errandopts.NUMBER,
+                                  low=0, high=99,
+                                  get=lambda: self.pieces.limit_var.get(),
+                                  set=lambda v: self.set_pieces_option("limit", v)),
+                errandopts.Option("offer_gap", "pieces.offer_gap", errandopts.NUMBER,
+                                  low=1, high=99,
+                                  get=lambda: self.pieces.offer_gap_var.get(),
+                                  set=lambda v: self.set_pieces_option("offer_gap", v)),
+                errandopts.Option("share_every", "pieces.share_every",
+                                  errandopts.NUMBER, low=0, high=1440,
+                                  get=lambda: self.pieces.share_every_var.get(),
+                                  set=lambda v: self.set_pieces_option("share_every", v))),
             "ghost_autoloot": (
                 errandopts.Option("ghost_level_min", "ghost.level_min",
                                   errandopts.TEXT,

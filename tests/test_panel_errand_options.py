@@ -347,6 +347,43 @@ def test_a_knob_moved_from_anywhere_is_saved_where_an_unbuilt_tab_will_find_it()
     assert "self.set_join_squad(squad, on)" in rally
 
 
+def test_the_sweep_left_no_errand_with_its_rules_off_its_row():
+    """Every errand whose rules lived on somebody's page declares them here (#2017).
+
+    The person asked for the whole list, not for the two the task was named after: the
+    piece exchange's rules were on «Кусочки», the train's three knobs on «События», and
+    both errands' rows on «Таймеры» said a name and nothing else.
+    """
+    secret = (_REPO / "panel" / "tabs" / "secret_tasks"
+              / "tab.py").read_text(encoding="utf-8")
+    assert '"exchange_treasure_pieces": (' in secret
+    assert "def set_pieces_option(" in secret
+    body = secret.split("def set_pieces_option(", 1)[1].split("\n    def ", 1)[0]
+    assert "self.remember(" in body, "a rule moved from the phone must survive a restart"
+    # …and the day's five, which was a profile setting nowhere near the order.
+    assert '"autoloot_limit", "opt.autoloot_limit"' in secret
+
+    events = (_REPO / "panel" / "tabs" / "events" / "tab.py").read_text(encoding="utf-8")
+    assert '"alliance_train_board": (' in events
+    assert "def set_train_option(" in events
+    # ONE PATH: the gear presses the card's own handler rather than a second copy of it.
+    assert 'self.web_press("set"' in events
+    # …and the card's own press saves too, which is the hole #2010 found.
+    assert "_train_knob_saved" in events
+
+
+def test_a_panel_with_no_window_registers_its_tabs_too():
+    """The gear must work on the front-end that actually runs (#2017).
+
+    `panel.headless` is what a machine with no window runs, and it never made the call
+    the window makes — so every gear was empty there, and every trigger a tab binds a
+    handler to was listening to nothing.
+    """
+    source = (_REPO / "panel" / "headless.py").read_text(encoding="utf-8")
+    where = source.split("def _build_tabs", 1)[1]
+    assert "rt.schedule.register(tab)" in where
+
+
 def test_the_schedule_asks_every_tab_for_its_knobs():
     """A gear on «Таймеры» must work for a page nobody has opened (`LAZY`)."""
     source = (_REPO / "panel" / "runtime" / "schedule.py").read_text(encoding="utf-8")

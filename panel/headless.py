@@ -340,6 +340,14 @@ class HeadlessPanel:
                 saved = rt.settings.tab_config(spec.id, getattr(tab, "LEGACY_KEYS", {}))
                 if saved:
                     tab.restore(saved)
+                # …AND WHAT THE TAB BROUGHT WITH IT — its wire-driven errands, the knobs
+                # its errands carry and the standing orders it owns (#2017). After the
+                # block, exactly as the window does it, so a tab that decides its knobs
+                # off its saved state declares the ones it really has. Nobody made this
+                # call here at all: on the front-end that actually runs the panel every
+                # gear was empty, and every trigger a tab binds a HANDLER to was
+                # listening to nothing.
+                rt.schedule.register(tab)
                 if getattr(tab, "EAGER", False):
                     rt.tabs.realize(tab)
                     tab.ensure_loaded()

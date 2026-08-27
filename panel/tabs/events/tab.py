@@ -67,6 +67,7 @@ from ...widgets import ScrollableFrame, font as ui_font, tk_stringvar
 from ..base import PanelTab
 from . import model as modelmod
 from ...runtime import statevar
+from ...runtime import errand_options as errandopts
 
 #: How a state looks in the window. A glyph is not a word — it needs no translating and
 #: is the same in every language, which is why these three are literals and the sentence
@@ -239,6 +240,58 @@ class EventsTab(PanelTab):
             return                              # a tab opened on its own
         schedule.register_args("alliance_train_board", self.train_args)
         self._train_args_registered = True
+
+    def errand_options(self) -> dict:
+        """What the boarding order will do when the conductor is appointed (#2017).
+
+        The three knobs were on this card and nowhere else, so «Таймеры» — the tab that
+        says whether `alliance_train_board` is even listening — showed a name and no way
+        to say which carriage, what fare, or whether to buy the missing contracts. They
+        are the same values the card edits and the same the recipe reads at fire time
+        (`train_args`): plain attributes here, so a tab nobody has opened has them.
+        """
+        return {"alliance_train_board": (
+            errandopts.Option("train_carriage", "events.train.carriage.set",
+                              errandopts.NUMBER,
+                              low=min(modelmod.TRAIN_CARRIAGES),
+                              high=max(modelmod.TRAIN_CARRIAGES),
+                              get=self.carriage,
+                              set=lambda v: self.set_train_option(
+                                  modelmod.TRAIN_CARRIAGE_KEY, v)),
+            errandopts.Option("train_tickets", "events.train.tickets.set",
+                              errandopts.NUMBER,
+                              hint_key="events.train.tickets.hint",
+                              low=min(modelmod.TRAIN_TICKETS),
+                              high=max(modelmod.TRAIN_TICKETS),
+                              get=self.tickets,
+                              set=lambda v: self.set_train_option(
+                                  modelmod.TRAIN_TICKETS_KEY, v)),
+            errandopts.Option("train_buy", "events.train.buy", errandopts.SWITCH,
+                              hint_key="events.train.buy.hint",
+                              get=self.buy_missing,
+                              set=lambda on: self.set_train_option(
+                                  modelmod.TRAIN_BUY_KEY, on)))}
+
+    def _train_knob_saved(self) -> None:
+        """One of the three moved — ask for the profile to be written (#2010).
+
+        `config()` hands these back whether or not this tab was ever drawn, so the save
+        is all that is needed; without it a knob moved from the phone was silently gone
+        at the next restart. Asked for, never insisted on: a tab opened on its own has
+        no settings binder behind it, and a knob is not worth a crash.
+        """
+        settings = getattr(self.rt, "settings", None)
+        if settings is not None:
+            settings.changed()
+
+    def set_train_option(self, key: str, value) -> bool:
+        """Move one of the three, wherever it was pressed — card, gear or phone.
+
+        ONE PATH: this is the card's own press, so a value the model will not have is
+        REFUSED there rather than clamped here — «4 билета» must not quietly become 3
+        and spend a contract nobody offered.
+        """
+        return bool(self.web_press("set", {"key": key, "value": value}).get("ok"))
 
     def train_args(self) -> dict:
         """The boarding recipe's ARGS as this card has them right now."""
@@ -1412,15 +1465,18 @@ class EventsTab(PanelTab):
                 if number is None or number not in modelmod.TRAIN_CARRIAGES:
                     return {"ok": False, "reason": "web.ui.not_a_number"}
                 self._train_carriage = number
+                self._train_knob_saved()
                 return {"ok": True, "carriage": self._train_carriage}
             if key == modelmod.TRAIN_TICKETS_KEY:
                 number = _whole(raw)
                 if number is None or number not in modelmod.TRAIN_TICKETS:
                     return {"ok": False, "reason": "web.ui.not_a_number"}
                 self._train_tickets = number
+                self._train_knob_saved()
                 return {"ok": True, "tickets": self._train_tickets}
             if key == modelmod.TRAIN_BUY_KEY:
                 self._train_buy = bool(raw)
+                self._train_knob_saved()
                 return {"ok": True, "buy": self._train_buy}
             return {"error": "unknown"}
         if action == "hunt_golden":
