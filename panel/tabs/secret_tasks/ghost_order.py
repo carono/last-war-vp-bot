@@ -56,6 +56,7 @@ asks its tab (`SecretTasksTab.rob_candidates`).
 from __future__ import annotations
 
 import threading
+import time
 
 # The runtime FIRST: importing `panel.runtime` is what puts the repo's tools/lib on
 # sys.path, and `lua_actions` is one of the bare-name modules that live there.
@@ -146,6 +147,15 @@ class GhostOrder:
             return POLL
         if self.rt.game.busy or not self.rt.game.ready():
             return POLL
+        # A CLIENT SHOWING «вход с другого устройства» IS NOT A CLIENT (#2010). The link
+        # is fine — the socket answers, the VM reads — and nothing sent from it reaches
+        # the server, so a look here would choose five squads, hand them to the recipe
+        # and get them refused. The panel already knows: it holds the client rather than
+        # relaunching it, because the person is playing somewhere else. Asked of that
+        # same clock (`rt.recovery.kick_hold_left`), which is the reading every restarter
+        # asks before it touches anything.
+        if self._kick_hold() > 0:
+            return POLL
         running, _text = game_process.profile_status(self.rt.settings)
         if not running:
             return POLL
@@ -189,6 +199,21 @@ class GhostOrder:
             return POLL
         self.rob(picks[:left])
         return POLL
+
+    def _kick_hold(self) -> int:
+        """Seconds this client is still owed after a session kick — 0 when none.
+
+        Through `getattr`, so a runtime built by a test (or one from before the recovery
+        existed) answers «nothing owed» rather than raising.
+        """
+        recovery = getattr(self.rt, "recovery", None)
+        left = getattr(recovery, "kick_hold_left", None)
+        if left is None:
+            return 0
+        try:
+            return int(left(time.time()))
+        except Exception:                  # noqa: BLE001 — a reading, never the watcher
+            return 0
 
     # -- one press, from away --------------------------------------------------
     def run_once(self) -> bool:
@@ -271,9 +296,11 @@ class GhostOrder:
         queue = ",".join("{uuid=%d,server=%d}" % pair for pair in pairs)
         self.rt.say("ghost", "ghost.robbing", n=len(pairs))
         self._proc = object()      # «a robbery is in flight» — `tick` reads this
-        threading.Thread(target=self._spend, args=(queue,), daemon=True).start()
+        threading.Thread(target=self._spend,
+                         args=(queue, [str(uuid) for uuid, _srv in pairs]),
+                         daemon=True).start()
 
-    def _spend(self, queue: str) -> None:
+    def _spend(self, queue: str, uuids=()) -> None:
         """The press itself, on this worker thread.
 
         Straight through `rt.actions`, deliberately NOT `rt.play_async`: the interlock
@@ -303,6 +330,7 @@ class GhostOrder:
         except Exception as exc:       # noqa: BLE001 — a failed press, never the watcher
             self.rt.say("ghost", "log.ghost.spend_failed",
                         reason=f"{type(exc).__name__}: {exc}")
+            self._seen.difference_update(str(u) for u in uuids or ())
             return
         finally:
             self._proc = None
@@ -310,6 +338,14 @@ class GhostOrder:
             # The scenario's own reason, verbatim — it is the authority on why it
             # stopped and the panel's job is to repeat it, not to re-diagnose it.
             self.rt.say("ghost", "log.ghost.spend_failed", reason=outcome.reason or "?")
+            # …AND THE SQUADS GO BACK ON THE TABLE (#2010). `_seen` exists so that a
+            # squad the SERVER refused is not fired at again this session; a run that
+            # never reached the server refused nothing about them. Live, with the client
+            # showing «вход с другого устройства», every look took five more targets into
+            # `_seen` and failed — 284 of them would have been used up in under an hour,
+            # and the moment the client came back there would have been nothing left to
+            # rob today.
+            self._seen.difference_update(str(u) for u in uuids or ())
         elif spent and not taken:
             # Open, budget gone, nothing taken this run: say it once rather than letting
             # the next look find the same squads and spend another round trip on them.
