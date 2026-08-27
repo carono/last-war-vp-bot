@@ -353,6 +353,30 @@ class HeadlessPanel:
                     tab.ensure_loaded()
             except Exception as exc:              # noqa: BLE001 — one tab, not the panel
                 rt.log.put(f"[panel] {spec.id}: {type(exc).__name__}: {exc}")
+        # …AND SOMEBODY TO WRITE IT DOWN (#2017). `settings.changed()` is how every tab
+        # says «this belongs to the profile now» — a switch moved from the phone, a
+        # number typed behind a gear — and it does nothing at all until a container
+        # answers it. The window has answered since it had tabs; here nobody did, so on
+        # a machine with no window EVERY knob a phone moved was gone at the next
+        # restart, silently, which is the hole #2010 found in one tab and this is in all
+        # of them.
+        #
+        # ONLY THE TABS' OWN BLOCKS. The window's saver also collects its geometry, its
+        # settings widgets and the offered-tab bookkeeping; none of that exists here, and
+        # a headless panel writing `tabs.enabled` off a list it did not build is how a
+        # tab a person switched off would come back.
+        rt.settings.on_change = lambda: Panel._save_tab_blocks(rt)
+
+    @staticmethod
+    def _save_tab_blocks(rt) -> None:
+        """Write every live tab's block into this profile, and nothing else."""
+        try:
+            for tab in list(rt.tabs.live()):
+                rt.settings.set_tab_config(tab.ID, tab.stored_config(),
+                                           type(tab).LEGACY_KEYS)
+            rt.settings.save()
+        except Exception as exc:                  # noqa: BLE001 — a save, never the panel
+            rt.log.put(f"[panel] save failed: {type(exc).__name__}: {exc}")
 
 
 def _last_open() -> list:

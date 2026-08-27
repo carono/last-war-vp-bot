@@ -372,6 +372,23 @@ def test_the_sweep_left_no_errand_with_its_rules_off_its_row():
     assert "_train_knob_saved" in events
 
 
+def test_a_panel_with_no_window_writes_a_moved_knob_down():
+    """`settings.changed()` reaches a saver in a headless panel too (#2017).
+
+    It is how every tab says «this belongs to the profile now», and it does nothing at
+    all until a container answers it. The window has answered since it had tabs; a
+    machine with no window had nobody, so a knob moved from the phone was gone at the
+    next restart — the hole #2010 found in one tab, in all of them.
+    """
+    source = (_REPO / "panel" / "headless.py").read_text(encoding="utf-8")
+    assert "rt.settings.on_change" in source
+    saver = source.split("def _save_tab_blocks", 1)[1]
+    assert "set_tab_config" in saver and "rt.settings.save()" in saver
+    # …and only the tabs' blocks: a headless panel writing `tabs.enabled` off a list it
+    # did not build is how a tab somebody switched off comes back.
+    assert "enabled" not in saver.split("def ", 1)[0]
+
+
 def test_a_panel_with_no_window_registers_its_tabs_too():
     """The gear must work on the front-end that actually runs (#2017).
 

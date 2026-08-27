@@ -280,9 +280,17 @@ class EventsTab(PanelTab):
         at the next restart. Asked for, never insisted on: a tab opened on its own has
         no settings binder behind it, and a knob is not worth a crash.
         """
-        settings = getattr(self.rt, "settings", None)
-        if settings is not None:
-            settings.changed()
+        # INTO THE BLOCK FIRST. An undrawn tab hands back the block it was GIVEN rather
+        # than what `config()` reads (`PanelTab.stored_config`), and in a panel with no
+        # window no tab is ever drawn — so without this the save writes the old value
+        # over the new one.
+        try:
+            self.remember({modelmod.TRAIN_CARRIAGE_KEY: self.carriage(),
+                           modelmod.TRAIN_TICKETS_KEY: self.tickets(),
+                           modelmod.TRAIN_BUY_KEY: self.buy_missing()})
+            self.rt.settings.changed()
+        except Exception:                  # noqa: BLE001 — a save, never the card
+            pass
 
     def set_train_option(self, key: str, value) -> bool:
         """Move one of the three, wherever it was pressed — card, gear or phone.
