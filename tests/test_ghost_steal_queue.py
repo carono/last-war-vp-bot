@@ -187,14 +187,15 @@ GhostreconPointStealType = {CanSteal = 2}
 LuaEntry = {Player = {uid = 777}}
 DETAIL = nil
 DataCenter.ActGhostreconManager.taskList = {}
-DataCenter.ActGhostreconManager.dispatchStealRange = {[935] = true}
+DataCenter.ActGhostreconManager.dispatchStealRange = {[935] = true, [996] = true}
 DataCenter.ActGhostreconManager.GetTaskTemplate =
   function(self, c) return {stealMaxtimes = 3} end
 DataCenter.ActGhostreconManager.GetPointStealType =
   function(self, c, t, l) return VERDICT end
 VERDICT = 2
 DataCenter.WorldPointDetailManager =
-  {GetDetailByPointId = function(self, pid) return DETAIL end}
+  {GetDetailByPointId = function(self, pid) return (pid == PID) and DETAIL or nil end}
+PID = 88195
 """
 
 
@@ -229,21 +230,36 @@ def test_a_press_asks_the_games_own_verdict_and_skips_what_it_refuses():
         return
     lua, _manager = _press_vm()
 
+    # The live shape of a detail, measured: the point answers with a generic record whose
+    # `taskInfo` IS the squad — and whose `ownerServer` is the player's warzone, not the
+    # one the tile stands on.
+    task = ("{taskInfo = {uuid = 11, cfgId = 40310, completionTime = 1, stealList = {}, "
+            "ownerId = 555, ownerServer = 996}}")
+
     # A map tile nobody answered about: skipped, and it says why.
-    said = _press(lua, "{uuid=11,server=935,x=1,y=2}")
+    said = _press(lua, "{uuid=11,server=935,x=1,y=2,pid=88195}")
     assert "ghost_steal_skipped" in said and "no_detail" in said, said
     assert len(lua.globals().SENT) == 0, "a doomed frame went out anyway"
 
     # …the detail came back about a DIFFERENT task: the tile has changed under us.
-    lua.execute("DETAIL = {uuid = 99}")
-    said = _press(lua, "{uuid=11,server=935,x=1,y=2}")
+    lua.execute("DETAIL = {taskInfo = {uuid = 99}}")
+    said = _press(lua, "{uuid=11,server=935,x=1,y=2,pid=88195}")
     assert "ghost_steal_skipped" in said and "gone" in said, said
     assert len(lua.globals().SENT) == 0, said
 
-    # …and the same tile once the detail confirms it: one send, named by uuid.
-    lua.execute("DETAIL = {uuid = 11}")
+    # …and the same tile once the detail confirms it: one send, and it goes to the
+    # OWNER's server (996), never to the map's (935). Two different numbers, and the
+    # robbery is a message about the owner's squad.
+    lua.execute("DETAIL = " + task)
+    said = _press(lua, "{uuid=11,server=935,x=1,y=2,pid=88195}")
+    assert "ghost_steal_sent" in said and "srv=996" in said, said
+    assert len(lua.globals().SENT) == 1, said
+
+    # …and the id is the TILE's own: a pointId rebuilt from x/y is one square over —
+    # measured live, 88195 on the wire against 88196 from `TilePosToIndex` — and the
+    # server says nothing about it, so the press is skipped rather than fired blind.
     said = _press(lua, "{uuid=11,server=935,x=1,y=2}")
-    assert "ghost_steal_sent" in said and "11" in said, said
+    assert "no_detail" in said, said
     assert len(lua.globals().SENT) == 1, said
 
 
