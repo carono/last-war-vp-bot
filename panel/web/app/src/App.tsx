@@ -15,6 +15,7 @@ import type {
   Light,
   LogLine,
   Profiles,
+  OrderRow,
   Screen,
   State,
   TimerRow,
@@ -174,6 +175,8 @@ function Panel() {
   const [state, setState] = useState<State | null>(null)
   const [timers, setTimers] = useState<TimerRow[]>([])
   const [triggers, setTriggers] = useState<TriggerRow[]>([])
+  /* The watchers that are in no catalogue, drawn among the listeners (#2017). */
+  const [orders, setOrders] = useState<OrderRow[]>([])
   const [actions, setActions] = useState<ActionRow[]>([])
   const [screens, setScreens] = useState<Screen[]>([])
   const [lines, setLines] = useState<LogLine[]>([])
@@ -205,8 +208,9 @@ function Panel() {
       /* the tick says so */
     }
     try {
-      const answer = await get<{ triggers?: TriggerRow[] }>('/api/triggers')
+      const answer = await get<{ triggers?: TriggerRow[]; orders?: OrderRow[] }>('/api/triggers')
       setTriggers(answer.triggers || [])
+      setOrders(answer.orders || [])
     } catch {
       /* the tick says so */
     }
@@ -374,6 +378,7 @@ function Panel() {
           <TimersView
             timers={timers}
             triggers={triggers}
+            orders={orders}
             now={state?.time || 0}
             refresh={refreshTimers}
           />

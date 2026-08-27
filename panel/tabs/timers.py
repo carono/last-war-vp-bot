@@ -35,6 +35,7 @@ from ..runtime import list_actions
 from ..widgets import NumericEntry, numeric_spinbox
 from .base import PanelTab
 from ..runtime import statevar
+from ..runtime import errand_gear
 
 
 #: How wide one listener's block wants to be, and the gutter between two of them.
@@ -42,6 +43,11 @@ from ..runtime import statevar
 #: «сразу» box and the status underneath — and every one of them is the same width,
 #: which is what makes tiling them possible at all: a five-column table cannot be
 #: repeated sideways without its columns disagreeing from block to block.
+#: The ⚙ that opens an errand's own knobs (#2017). A glyph and not a word: it sits in a
+#: row of three-character buttons, and «Настройки» beside «Запустить» would be the
+#: widest thing on the tab.
+GEAR_GLYPH = "\u2699"
+
 TRIGGER_BLOCK_PX = 280
 TRIGGER_GUTTER_PX = 24
 #: The name is wrapped to a CONSTANT, never to the width a column turned out to have:
@@ -80,6 +86,10 @@ class TimersTab(PanelTab):
         # dict that answers two questions is how one of them gets the other's answer.
         self._trigger_now: dict = {}
         self._trigger_rows: dict = {}   # name -> {"status" Label}
+        #: The standing orders that are in no catalogue — «Автолут ★», «Автопомощь»,
+        #: «Автолут отрядов призрака» (#2017). A tab owns each of them; this one merely
+        #: draws them among the listeners, because to a person that is what they are.
+        self._order_rows: dict = {}     # name -> {"switch" Var, "state" Label}
         # A grid of checkbuttons has no selection of its own, so the row label
         # doubles as one — this is which row the editor's buttons act on.
         self._timer_selected = None
@@ -345,6 +355,14 @@ class TimersTab(PanelTab):
             self.tr(ttk.Button(grid, width=3,
                                 command=lambda t=timer: self._timer_cancel(t)),
                      "timers.cancel").grid(row=row, column=6, sticky="e", padx=(4, 0))
+            # ⚙ — WHAT THIS ERRAND CARRIES (#2017), and only where it carries anything.
+            # The knobs are the owning tab's own variables, so this opens a view of them
+            # rather than a copy: what is typed here is what that tab's page shows.
+            if self.rt.schedule.options.has(timer.name):
+                ttk.Button(grid, width=3, text=GEAR_GLYPH,
+                           command=lambda t=timer: self._open_gear(
+                               t.name, self._timer_title(t))).grid(
+                    row=row, column=7, sticky="e", padx=(4, 0))
             self._timer_rows[timer.name] = {"next": nxt, "outcome": outcome, "box": box}
         self._bind_timer_autosave()
         self._paint_timer_selection()
@@ -383,13 +401,20 @@ class TimersTab(PanelTab):
         for col in range(TRIGGER_MAX_COLS):
             grid.columnconfigure(col, weight=0, uniform="")
 
+        self._order_rows.clear()
         trigs = list(self._trigger_catalogue)
-        if not trigs:
+        # …and the standing orders nobody's catalogue holds, after them (#2017). Same
+        # blocks, same grid: a person looking for what runs by itself should not have to
+        # know which of the two lists the panel keeps a given watcher in.
+        orders = list(self.rt.schedule.options.orders())
+        makers = ([lambda t=trig: self._trigger_cell(grid, t) for trig in trigs]
+                  + [lambda o=order: self._order_cell(grid, o) for order in orders])
+        if not makers:
             return
-        columns = max(1, min(self._trigger_cols, TRIGGER_MAX_COLS, len(trigs)))
-        per_column = -(-len(trigs) // columns)
-        for index, trig in enumerate(trigs):
-            cell = self._trigger_cell(grid, trig)
+        columns = max(1, min(self._trigger_cols, TRIGGER_MAX_COLS, len(makers)))
+        per_column = -(-len(makers) // columns)
+        for index, make in enumerate(makers):
+            cell = make()
             cell.grid(row=index % per_column, column=index // per_column,
                       sticky="new", padx=(0, TRIGGER_GUTTER_PX), pady=(0, 6))
         # `uniform` is what keeps the columns the same width whatever is in them —
@@ -441,8 +466,61 @@ class TimersTab(PanelTab):
         status.pack(side="right")
         self.tr(ttk.Checkbutton(foot, variable=at_once),
                 "timers.col.now").pack(side="right", padx=(8, 8))
+        # …and its knobs, where it has any (#2017). «rally_auto_join» is the one that
+        # needed this: the squads it may send and the two numbers it obeys were on
+        # «Ралли», and this block — the one place that says whether it is even on — had
+        # nothing a person could act on.
+        if self.rt.schedule.options.has(trig.name):
+            ttk.Button(foot, width=3, text=GEAR_GLYPH,
+                       command=lambda n=trig.name, w=name: self._open_gear(
+                           n, w.cget("text"))).pack(side="right")
         self._trigger_rows[trig.name] = {"status": status}
         return cell
+
+    def _order_cell(self, parent, order):
+        """One standing order that is in no catalogue: its switch, its state, its knobs.
+
+        The switch is the OWNING TAB's variable (`panel/runtime/errand_options.py`), so
+        ticking it here is the same act as ticking it on that tab — never a second copy
+        that can disagree with the first.
+        """
+        cell = ttk.Frame(parent)
+        cell.columnconfigure(1, weight=1)
+        var = statevar.boolean(None, order.enabled())
+        box = ttk.Checkbutton(cell, variable=var,
+                              command=lambda: order.set_enabled(var.get()))
+        box.grid(row=0, column=0, sticky="nw")
+        name = ttk.Label(cell, wraplength=TRIGGER_NAME_PX, justify="left")
+        self.tr(name, order.label_key)
+        name.grid(row=0, column=1, sticky="w", padx=(4, 0))
+        name.bind("<Button-1>", lambda _e: (var.set(not var.get()),
+                                            order.set_enabled(var.get())), add="+")
+        foot = ttk.Frame(cell)
+        foot.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(2, 0))
+        # WHAT IT IS DOING RIGHT NOW, in the words its own tab puts under the box — «жду
+        # звезду», «лимит исчерпан». A silent order and a stopped one look identical
+        # without it, which is what «автолут не работает совершенно» turned out to be.
+        state = ttk.Label(foot, foreground="#888", wraplength=TRIGGER_NAME_PX,
+                          justify="left")
+        state.pack(side="left")
+        if self.rt.schedule.options.has(order.name):
+            ttk.Button(foot, width=3, text=GEAR_GLYPH,
+                       command=lambda n=order.name, w=name: self._open_gear(
+                           n, w.cget("text"))).pack(side="right")
+        self._order_rows[order.name] = {"switch": var, "state": state}
+        return cell
+
+    def _open_gear(self, errand: str, title: str) -> None:
+        """Open one errand's knobs (`panel/runtime/errand_gear.py`)."""
+        errand_gear.open_gear(self.rt, self.parent, errand, title)
+
+    def _timer_title(self, timer) -> str:
+        """What a row is called — the operator's own words, or its built-in key."""
+        if timer.title:
+            return timer.title
+        if timer.label_key:
+            return self.t(timer.label_key)
+        return timer.name
 
     # -- how many columns the listeners are laid out in ----------------------
     def _trigger_resized(self, event) -> None:
@@ -1042,6 +1120,16 @@ class TimersTab(PanelTab):
                 row["status"].configure(text=self.t("triggers.listening"))
             else:
                 row["status"].configure(text=self.t("triggers.off"))
+        # …and what each standing order is doing, off the owning tab's own words. The
+        # switch is repainted too: it can be moved on that tab, or from the phone, and a
+        # box here saying the opposite is the two front-ends disagreeing about one state.
+        for order in self.rt.schedule.options.orders():
+            row = self._order_rows.get(order.name)
+            if row is None:
+                continue
+            row["state"].configure(text=order.state_text())
+            if bool(row["switch"].get()) != order.enabled():
+                row["switch"].set(order.enabled())
 
     def _weekday_text(self, days) -> str:
         """«по воскресеньям» — the days a weekly errand runs on, in the panel's language.

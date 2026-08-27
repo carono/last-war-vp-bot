@@ -70,6 +70,7 @@ from .autorally import AutoRallyPage
 import coords                                                         # noqa: E402
 import rally_kinds                                                    # noqa: E402
 from ...runtime import statevar
+from ...runtime import errand_options as errandopts
 
 # ---------------------------------------------------------------------------
 # The two things a rally can be raised on: a «Роковая Элита» (searched under the
@@ -1083,6 +1084,72 @@ class RallyTab(PanelTab):
         self._refresh_day()
         return {"ok": True}
 
+    # -- «Автостяг»'s own rule, from the gear on «Таймеры» too (#2017) --------
+    def errand_options(self) -> dict:
+        """What the auto-join spends, as knobs on the `rally_auto_join` row.
+
+        THE ORDER ITSELF IS A TRIGGER and needs no `Order` of its own — its switch is
+        the row's own box. What was unreachable from that row is what the join actually
+        DOES: which of the four squads it may send, the soldiers that must be standing in
+        the base for a banner to be worth one, and the day's ceiling. All three lived on
+        «Ралли» alone, so the tab listing every standing order the panel has showed a
+        name and nothing a person could act on.
+
+        Read off this tab's own variables, which are made in `__init__` — the gear has to
+        work for a tab nobody has opened (`LAZY`).
+        """
+        squads = tuple(errandopts.Option(
+            "squad_%d" % squad, "autorally.squad", errandopts.SWITCH,
+            label_fmt={"n": squad},
+            get=(lambda s=squad: bool(self.autorally._squad_vars[s].get())),
+            set=(lambda on, s=squad: self.set_join_squad(s, on)))
+            for squad in RALLY_SQUADS)
+        return {self.AUTOJOIN_TRIGGER: squads + (
+            errandopts.Option("min_soldiers", "rally_troops.min", errandopts.NUMBER,
+                              hint_key="rally_troops.hint",
+                              low=0, high=autorallymod.MIN_SOLDIERS_TOP,
+                              get=self.autorally.min_soldiers,
+                              set=lambda v: self.set_join_number("min_soldiers", v)),
+            errandopts.Option("daily_max", "rally_day.max", errandopts.NUMBER,
+                              hint_key="rally_day.hint",
+                              low=0, high=autorallymod.DAILY_MAX_TOP,
+                              get=self.autorally.daily_max,
+                              set=lambda v: self.set_join_number("daily_max", v)))}
+
+    def set_join_squad(self, squad: int, on: bool) -> bool:
+        """Tick one squad of the auto-join's list — the page's own box, nothing else.
+
+        The joiner reads the list when a banner arrives, so there is nothing to restart;
+        what the write has to reach is the variable AND the block an unbuilt tab hands
+        back on save, or the choice is gone at the next restart (#2010).
+        """
+        if squad not in RALLY_SQUADS:
+            return False
+        self.autorally._squad_vars[squad].set(bool(on))
+        self.remember({"autorally": {"squads": self.autorally.join_squads()}})
+        self.rt.settings.changed()
+        return True
+
+    def set_join_number(self, key: str, value) -> bool:
+        """The soldier floor or the day's ceiling. A non-number is REFUSED, never 0.
+
+        0 means something in both boxes — «no floor» and «join for ever» — so a
+        half-typed value silently becoming one would turn a door off rather than leave
+        it where it was.
+        """
+        raw = str(value if value is not None else "").strip()
+        if not raw.isdigit():
+            return False
+        top = (autorallymod.MIN_SOLDIERS_TOP if key == "min_soldiers"
+               else autorallymod.DAILY_MAX_TOP)
+        number = max(0, min(top, int(raw)))
+        var = (self.autorally._min_soldiers_var if key == "min_soldiers"
+               else self.autorally._daily_var)
+        var.set(str(number))
+        self.remember({"autorally": {key: number}})
+        self.rt.settings.changed()
+        return True
+
     def _web_press_switch(self, key: str, on: bool) -> dict:
         """Throw one of the three switches, exactly as its box in the window does.
 
@@ -1103,12 +1170,10 @@ class RallyTab(PanelTab):
                 return {"error": "unknown"}
             if squad not in RALLY_SQUADS:
                 return {"error": "unknown"}
-            # The page's own variable, so the trace that saves the profile runs and the
-            # window's box moves with it. Nothing else: the joiner reads the list when a
-            # banner arrives.
-            self.autorally._squad_vars[squad].set(on)
-            self.rt.settings.changed()
-            return {"ok": True}
+            # Through the one setter (#2017): the card, the gear on «Таймеры» and the
+            # window's own box are three drawings of one list, so they write once.
+            return ({"ok": True} if self.set_join_squad(squad, on)
+                    else {"error": "unknown"})
         if key not in self.WEB_SWITCHES:
             return {"error": "unknown"}
         if key == "autojoin":

@@ -1189,3 +1189,90 @@ The shape that works:
   a person does not have to guess: «Слушать стяги (места и цель)» is the capture,
   «Присоединяться сам (поручение «Автостяг»)» is the standing order — and the Timers row
   says «та же галка, что на вкладке «Ралли»».
+
+## The knobs an errand carries — the gear on «Таймеры» (#2017)
+
+A standing order is never only a switch. «Автолут ★» spends the day's five robberies at
+whatever minimum level it was told; the rally auto-join sends whichever of the four
+squads it was allowed, above a soldier floor, up to a daily ceiling. Those knobs lived on
+the page holding the LIST the order spends — «Секретки», «Ралли» — so «Таймеры», the one
+tab that says what runs by itself, showed a row of names with nothing a person could act
+on, and «почему автолут не грабит» could only be answered by knowing which tab owned it.
+
+They are drawn in both places now and stored in exactly one. `panel/runtime/errand_options.py`
+is a register of **views**, not a new home: the value goes on living in the owning tab's
+own variable (or in this profile's settings, when it was already one), so the number
+typed behind the gear is the number that page shows the moment somebody looks at it.
+
+### What a tab declares
+
+Two methods on `PanelTab`, both called **with the tab and not with its widgets** — a gear
+on a page nobody has opened still has to work (`LAZY`), so whatever they reach must be
+made in `__init__`:
+
+```python
+from ...runtime import errand_options as errandopts
+
+def errand_options(self) -> dict:
+    """{errand name: (Option, …)} — a timer, a trigger, or a standing order."""
+    return {"secret_autoloot": (
+        errandopts.Option("autoloot_level_min", "secret.autoloot.level_min",
+                          errandopts.TEXT,
+                          get=lambda: self.rule("level_min_var"),
+                          set=self.set_autoloot_level),)}
+
+def standing_orders(self) -> tuple:
+    """A watcher this tab owns that is in nobody's catalogue."""
+    return (errandopts.Order("secret_autoloot", "secret.autoloot",
+                             get=lambda: bool(self.autoloot_var.get()),
+                             set=self.set_autoloot,
+                             state=self._autoloot_line),)
+```
+
+* `Option(key, label_key, kind, …)` — `kind` is `SWITCH` / `NUMBER` / `TEXT` / `CHOICE`
+  (the four the web already draws). Either `get`/`set`, the owner's own variable, **or**
+  `setting="…"`, a knob that was already a profile setting — never both, because a knob
+  with two homes is a knob with two answers. `low`/`high` bound a number, `hint_key` puts
+  a line under it, `label_fmt={"n": squad}` fills the label's placeholders (four squads
+  are one locale key, not four strings in eleven files), `options=({"value":…,"text":…},)`
+  fills a choice.
+* `Order(name, label_key, get=, set=, state=)` — a watcher drawn among the listeners,
+  because that is what it is to a person. `state` is a callable answering one phrase in
+  the panel's own words («жду звезду», «лимит исчерпан»): without it a silent order and a
+  stopped one look identical, which is what «автолут не работает совершенно» turned out
+  to be (#1227).
+
+`Schedule.register(tab)` collects both when the tab is registered, and
+`rt.schedule.options` answers `has` / `fields` / `write` / `orders` for either front-end.
+
+### One setter, whoever pressed
+
+The gear, the tab's own page and the phone's card are three drawings of one value, so
+they call **one setter** — and that setter writes the variable *and* `remember`s the
+block, because an unbuilt tab hands its SAVED block back on save and a write past it is
+gone at the next restart (#2010):
+
+```python
+def set_autoloot_level(self, value) -> None:
+    raw = self._level_rule(value)          # a half-typed box is «any level», NEVER 0
+    self.level_min_var.set(raw)
+    self.remember({"autoloot_level_min": raw})
+    self.rt.settings.changed()
+    self._refresh_rule_hints()
+```
+
+A blank number never becomes a `0`: for «минимальный уровень» a 0 is not «no bound», it
+is every tile on the map (#1256).
+
+### Both front-ends
+
+* the window — `panel/runtime/errand_gear.py` draws the ⚙ window off the same `Option`s;
+  `panel/tabs/timers.py` puts the gear on a timer's row, a listener's block and an
+  order's block, and paints each order's switch and state on the ordinary refresh;
+* the phone — `/api/timers` and `/api/triggers` carry each row's `options`, `/api/triggers`
+  also carries `orders`, and the two presses are `/api/errand/option`
+  (`{errand, key, value}`) and `/api/orders/set` (`{name, enabled}`). `FieldRow.tsx`
+  draws one field wherever it is drawn — a tab screen's knob and a gear's are the same
+  control over the same `Field`, differing only in which route it posts to.
+
+Pinned by `tests/test_panel_errand_options.py`.

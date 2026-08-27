@@ -260,6 +260,21 @@ off, so five robberies a day were decided by a knob neither front-end could show
 «Автолут ★» has been since #1271. **An order belongs on the page holding its list, and
 that page has to be one every profile has.**
 
+**…and since #2017 it also belongs on «Таймеры», because BOTH is the answer.** «An order
+belongs on the page holding its list» was right about the LIST and wrong as an exclusive
+home: the tab that lists everything running by itself showed a name, a box and nothing
+that decides what the box does, so «почему автолут не грабит» could only be answered by
+knowing which tab owns the autoloot. The person's decision, in their words: «настройки
+дублируются и в триггерах, и на страницах списков». So an errand's knobs are drawn twice
+and stored ONCE — `panel/runtime/errand_options.py` is a register of VIEWS, never a new
+home: a tab declares `errand_options()` (and `standing_orders()` for a watcher that is in
+no catalogue), each `Option` says where the value really lives, and the gear on «Таймеры»
+writes the owner's own variable through the owner's own setter. Nothing is copied and
+nothing is migrated, so the level typed behind the gear is the level that page shows a
+second later. **Two drawings of one value are wanted; two values are still the bug** — the
+same rule «One state, several places that draw it» has always stated
+(`docs/panel-tabs.md`).
+
 **What the rule forbids is the PRESS, and never the standing order behind it** — a
 distinction #1976 had to make out loud, and it is what let the ghost card carry its switch
 and its minimum level on the phone as FIELDS through the months when «Ограбить» could not

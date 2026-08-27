@@ -1,9 +1,53 @@
 import { useEffect, useState } from 'react'
 import { get, post } from '../api'
 import { span, t, when } from '../i18n'
+import { FieldRow } from '../ui/FieldRow'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
-import type { ActionRow, PressAnswer, TimerRow, TriggerRow } from '../types'
+import type { ActionRow, Field, OrderRow, PressAnswer, TimerRow, TriggerRow } from '../types'
+
+/* THE GEAR (#2017). An errand's own knobs, on the row that says whether it is on.
+ *
+ * They lived on the page holding the list the errand spends — the level «Автолут ★»
+ * robs at on «Секретки», the squads the auto-join sends on «Ралли» — so this screen,
+ * which is where a person comes to ask what runs by itself, showed a name and a switch
+ * and nothing that decides what the switch DOES. The values have not moved: the field
+ * writes the owner's own variable (`panel/runtime/errand_options.py`), so the number
+ * typed here is the number that page shows, and there is no second copy to disagree.
+ *
+ * Closed until asked, because most rows have no knobs and a screen of open forms is a
+ * screen nobody reads. */
+function Gear({
+  errand,
+  options,
+  refresh,
+}: {
+  errand: string
+  options?: Field[]
+  refresh: () => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  if (!options || !options.length) return null
+  return (
+    <>
+      <button className="go" title={t('timers.options')} onClick={() => setOpen((was) => !was)}>
+        {'\u2699'}
+      </button>
+      {open ? (
+        <div className="editor">
+          {options.map((field) => (
+            <FieldRow
+              key={field.key}
+              field={field}
+              after={() => void refresh()}
+              send={(key, value) => post<PressAnswer>('/api/errand/option', { errand, key, value })}
+            />
+          ))}
+        </div>
+      ) : null}
+    </>
+  )
+}
 
 /* The errands and, under them, the standing orders — the same two lists in the same
  * order the window's «Таймеры» tab draws them in. The listeners are a grid: one column
@@ -201,6 +245,7 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
           away from the machine actually does to an errand. */}
       <div className="foot">
         {row.queued ? <span className="pill warn">{t('web.ui.queued')}</span> : <span />}
+        <Gear errand={row.name} options={row.options} refresh={refresh} />
         <button
           className="go"
           disabled={busy}
@@ -246,6 +291,38 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
           errands' (see `TimerItem`): one setting, one decision, and half a screen of it
           left drawn would be the confusing half. */}
       <p className="muted small">{signal + ' · ' + state}</p>
+      {/* WHAT THE ORDER SPENDS (#2017): the squads «rally_auto_join» may send, the
+          soldier floor, the day's ceiling. Nothing is drawn for a listener that has
+          declared no knobs, which is most of them. */}
+      <div className="foot">
+        <span />
+        <Gear errand={row.name} options={row.options} refresh={refresh} />
+      </div>
+    </div>
+  )
+}
+
+/* A WATCHER THAT IS IN NO CATALOGUE (#2017) — «Автолут ★», «Автопомощь», «Автолут
+ * отрядов призрака». Same block as a listener, because to a person it is the same
+ * thing; what it says instead of an event is what it is DOING right now, which is the
+ * answer to «почему он не грабит» and the reason a silent order and a stopped one used
+ * to look identical. */
+function OrderItem({ row, refresh }: { row: OrderRow; refresh: () => Promise<void> }) {
+  return (
+    <div className="item">
+      <SwitchRow
+        title={row.title}
+        on={row.enabled}
+        onChange={async (want) => {
+          await post('/api/orders/set', { name: row.name, enabled: want })
+          await refresh()
+        }}
+      />
+      {row.state ? <p className="muted small">{row.state}</p> : null}
+      <div className="foot">
+        <span />
+        <Gear errand={row.name} options={row.options} refresh={refresh} />
+      </div>
     </div>
   )
 }
@@ -253,11 +330,13 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
 export function TimersView({
   timers,
   triggers,
+  orders,
   now,
   refresh,
 }: {
   timers: TimerRow[]
   triggers: TriggerRow[]
+  orders?: OrderRow[]
   now: number
   refresh: () => Promise<void>
 }) {
@@ -292,6 +371,9 @@ export function TimersView({
       <div className="tiles">
         {triggers.map((row) => (
           <TriggerItem key={row.name} row={row} refresh={refresh} />
+        ))}
+        {(orders || []).map((row) => (
+          <OrderItem key={row.name} row={row} refresh={refresh} />
         ))}
       </div>
       {!triggers.length ? <p className="muted">{t('web.ui.triggers.empty')}</p> : null}

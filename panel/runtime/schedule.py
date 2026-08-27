@@ -34,6 +34,7 @@ from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
 from . import claims
+from . import errand_options as errandopts
 from . import link as linkmod
 from . import game_control
 from . import game_process
@@ -145,6 +146,11 @@ class Schedule:
         # because that one writes into the SHARED file — right for one open profile and
         # wrong for two, which this panel routinely has (`PanelRuntime.dbg`).
         self._dbg = rt.dbg("schedule")
+        # THE KNOBS ONE ERRAND CARRIES, and the standing orders that are in no
+        # catalogue (`panel/runtime/errand_options.py`). Registered by whoever owns the
+        # value — a tab, at construction, with its variables and not its widgets — and
+        # read by both front-ends when they draw a row's gear.
+        self.options = errandopts.ErrandOptions(rt)
 
         self.load_timers()
         self.load_triggers()
@@ -185,6 +191,16 @@ class Schedule:
         data and needs nothing from us. Registration is what makes the trigger
         OFFERED — see :meth:`trigger_config`.
         """
+        # …and its KNOBS, and its standing orders. Both come off the tab's own state,
+        # so a tab nobody has opened still contributes them (`LAZY`) — which is the
+        # whole point: the gear on «Таймеры» must work for a page that was never drawn.
+        try:
+            for errand, options in (tab.errand_options() or {}).items():
+                self.options.register(errand, options)
+            for order in tab.standing_orders() or ():
+                self.options.register_order(order)
+        except Exception as exc:      # noqa: BLE001 — one tab's knobs, never the panel
+            self._dbg("errand options refused: %s: %s" % (type(exc).__name__, exc))
         for spec in getattr(tab, "TRIGGERS", ()):
             handler = getattr(spec, "handler", None)
             if not handler:

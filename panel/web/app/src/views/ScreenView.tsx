@@ -4,7 +4,7 @@ import { get, post } from '../api'
 import { t, when } from '../i18n'
 import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
-import { SwitchRow } from '../ui/SwitchRow'
+import { FieldRow } from '../ui/FieldRow'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
 import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
 
@@ -71,107 +71,17 @@ function PressButton({
   )
 }
 
-/* A KNOB, drawn as the control its kind names (#1976). The kind comes from the type the
- * knob was declared with, so nothing here guesses from a name — and the value is sent
- * back as the same `set` press whatever the control, so a tab answers for its own knobs
- * in one handler.
- *
- * A TYPED FIELD IS COMMITTED ON LEAVING IT, never on every keystroke: a panel that saved
- * «4», «40», «400» on the way to «4000» would spend three of those readings acting on a
- * number nobody meant. A switch is committed at once, because there is nothing half-typed
- * about it. */
-function FieldRow({
-  field,
-  screen,
-  after,
-}: {
-  field: Field
-  screen: string
-  after: () => void
-}) {
-  const toast = useToast()
-  const [draft, setDraft] = useState(String(field.value ?? ''))
-  const sent = useRef(String(field.value ?? ''))
-
-  useEffect(() => {
-    // The screen re-reads on the poll; a box nobody is typing in follows the panel.
-    if (document.activeElement?.getAttribute('data-field') !== field.key) {
-      setDraft(String(field.value ?? ''))
-      sent.current = String(field.value ?? '')
-    }
-  }, [field.value, field.key])
-
-  const send = async (value: string | number | boolean) => {
-    const answer = await post<PressAnswer>('/api/screen/press', {
-      id: screen,
-      action: 'set',
-      args: { key: field.key, value },
-    })
-    if (answer.ok === false || answer.error) toast(pressWord(answer))
-    else if (answer.reason) toast(t(answer.reason))
-    window.setTimeout(after, 400)
-  }
-
-  if (field.kind === 'choice') {
-    return (
-      <div className="field">
-        <label className="muted small" htmlFor={'f-' + field.key}>
-          {t(field.label)}
-        </label>
-        <select
-          id={'f-' + field.key}
-          value={String(field.value ?? '')}
-          onChange={(e) => void send(e.target.value)}
-        >
-          {(field.options || []).map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.text}
-            </option>
-          ))}
-        </select>
-        {field.hint ? <p className="muted small">{t(field.hint)}</p> : null}
-      </div>
-    )
-  }
-  if (field.kind === 'switch') {
-    return (
-      <>
-        <SwitchRow
-          title={t(field.label)}
-          on={!!field.value}
-          onChange={async (want) => {
-            await send(want)
-          }}
-        />
-        {field.hint ? <p className="muted small">{t(field.hint)}</p> : null}
-      </>
-    )
-  }
+/* The screen's own way of sending a moved knob: the tab's `set` press. The control
+ * itself is `ui/FieldRow.tsx` — the gear on «Таймеры» draws the same one (#2017). */
+function ScreenField({ field, screen, after }: { field: Field; screen: string; after: () => void }) {
   return (
-    <div className="field">
-      <label className="muted small" htmlFor={'f-' + field.key}>
-        {t(field.label)}
-      </label>
-      <input
-        id={'f-' + field.key}
-        data-field={field.key}
-        type={field.kind === 'number' ? 'number' : 'text'}
-        inputMode={field.kind === 'number' ? 'decimal' : undefined}
-        min={field.min}
-        max={field.max}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          if (draft === sent.current) return
-          sent.current = draft
-          void send(draft)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-        }}
-      />
-      {field.hint ? <p className="muted small">{t(field.hint)}</p> : null}
-    </div>
+    <FieldRow
+      field={field}
+      after={after}
+      send={(key, value) =>
+        post<PressAnswer>('/api/screen/press', { id: screen, action: 'set', args: { key, value } })
+      }
+    />
   )
 }
 
@@ -406,7 +316,7 @@ function Card({
           under that table is a control nobody scrolls to. Readings explain a card;
           knobs are what a person opened it to move. */}
       {(card.fields || []).map((field) => (
-        <FieldRow key={field.key} field={field} screen={screen} after={after} />
+        <ScreenField key={field.key} field={field} screen={screen} after={after} />
       ))}
       {rows.map((row, i) => (
         <div className="kv" key={i}>

@@ -109,6 +109,9 @@ export interface TimerRow {
   steps?: string[]
   args?: Record<string, unknown>
   custom_title?: string
+  /* WHAT THIS ERRAND CARRIES (#2017) — the fields behind the gear on its row. Absent
+     or empty for a row with no knobs, which is most of them. */
+  options?: Field[]
 }
 
 export interface TriggerRow {
@@ -119,6 +122,21 @@ export interface TriggerRow {
   poll?: boolean
   signal?: string
   status?: string
+  /* The knobs behind this listener's gear (#2017) — what the auto-join may spend. */
+  options?: Field[]
+}
+
+/* A STANDING ORDER THAT IS IN NO CATALOGUE (#2017): «Автолут ★», «Автопомощь»,
+ * «Автолут отрядов призрака». A watcher a tab owns, drawn among the listeners because
+ * that is what it is to a person. `state` is what it is doing right now, in the panel's
+ * own words — already translated, like a reading and unlike `title`'s neighbours. */
+export interface OrderRow {
+  name: string
+  title: string
+  enabled: boolean
+  state?: string
+  hint?: string
+  options?: Field[]
 }
 
 export interface ActionRow {
@@ -183,6 +201,9 @@ export interface ViewItem {
 export interface Field {
   key: string
   label: string
+  /* What goes into the label's placeholders — «Отряд {n}» is one key and four knobs
+     (#2017). Data, filled in by the panel, never a second key to translate. */
+  label_fmt?: Record<string, unknown>
   hint?: string
   kind: 'switch' | 'number' | 'text' | 'choice'
   value: string | number | boolean

@@ -213,6 +213,29 @@ class PanelTab:
     def settings_page(self, parent) -> None:
         """Draw this tab's page on the Settings tab (only if SETTINGS_PAGE_KEY is set)."""
 
+    # -- the knobs its errands carry ----------------------------------------
+    def errand_options(self) -> dict:
+        """One errand's settings, editable from the gear on «Таймеры».
+
+        ``{errand name: (Option, …)}`` — see `panel/runtime/errand_options.py`. The
+        errand is a timer, a trigger or a standing order this tab owns; the `Option`
+        says where the value REALLY lives, which is this tab's own variable, so the gear
+        and this tab's own page edit one value and can never disagree.
+
+        Called with the tab, NOT with its widgets: a gear on a page nobody has opened
+        still has to work (`LAZY`), so whatever it reaches must be made in ``__init__``.
+        """
+        return {}
+
+    def standing_orders(self) -> tuple:
+        """The watchers this tab owns that are in no catalogue — as `Order`s.
+
+        A standing order is drawn among the triggers, because that is what it is to a
+        person: something that runs by itself once it is switched on. Its switch is this
+        tab's own variable, so ticking it there and ticking it here are one act.
+        """
+        return ()
+
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
         """Bring up what this tab is FOR — once.

@@ -44,6 +44,7 @@ if str(_REPO) not in sys.path:
 from panel import i18n as i18nmod          # noqa: E402
 from panel import tabs as tabsreg          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
+from panel.runtime import errand_options as errandopts   # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import gate as gatemod           # noqa: E402
 from panel.runtime import header as headermod       # noqa: E402
@@ -166,6 +167,10 @@ class _Schedule:
         ))
         self.store = timersmod.LastRunStore(os.path.join(home, "last_run.json"))
         self.timers = _Timers()
+        # The knobs an errand carries, and the standing orders that are in no catalogue
+        # (#2017). Empty here: a stand-in schedule registers no tab, and what the routes
+        # have to prove is that they ask this and not that they find anything.
+        self.options = errandopts.ErrandOptions(None)
 
     def timer_config(self) -> dict:
         return self.timer_catalogue.default_config()

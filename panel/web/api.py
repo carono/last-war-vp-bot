@@ -628,6 +628,11 @@ class WebApi:
                 # built-in errand's label to whatever language the phone was in.
                 "custom_title": timer.title or "",
                 "args": dict(timer.args),
+                # THE KNOBS THIS ERRAND CARRIES (#2017) — what the gear on its row
+                # opens. Empty for most rows; the ones that have any are the standing
+                # orders whose rule used to be reachable only on the tab that owns the
+                # list they spend.
+                "options": schedule.options.fields(timer.name),
             })
         return {"timers": rows, "profile": self._name_of(rt),
                 "running": bool(getattr(schedule.timers, "running", False)),
@@ -899,8 +904,26 @@ class WebApi:
                 "poll": bool(trig.is_poll),
                 "signal": "" if trig.is_poll else trig.event_pattern,
                 "status": status,
+                # …and its own knobs, drawn behind the gear (#2017). «rally_auto_join»
+                # is the one that needed it: the squads it may send, the soldier floor
+                # and the day's ceiling were all on «Ралли» and nowhere near the row
+                # that says whether it is on.
+                "options": schedule.options.fields(trig.name),
             })
-        return {"triggers": rows, "profile": self._name_of(rt), "time": time.time()}
+        # THE STANDING ORDERS THAT ARE IN NO CATALOGUE (#2017): «Автолут ★»,
+        # «Автопомощь», «Автолут отрядов призрака». They are watchers a tab owns, and to
+        # a person they are exactly what a trigger is — something that runs by itself
+        # once it is switched on — so they are drawn among them, with the same switch
+        # and the reading their own tab shows under the box.
+        orders = [{"name": order.name,
+                   "title": rt.t(order.label_key),
+                   "enabled": order.enabled(),
+                   "state": order.state_text(),
+                   "hint": order.hint_key,
+                   "options": schedule.options.fields(order.name)}
+                  for order in schedule.options.orders()]
+        return {"triggers": rows, "orders": orders,
+                "profile": self._name_of(rt), "time": time.time()}
 
     def _trigger_title(self, rt, trig) -> str:
         """What the listener is called — the operator's own words, or the built-in key."""
@@ -955,6 +978,36 @@ class WebApi:
                                    rt.profiles.triggers_json())
         schedule.triggers.sync()
         return {"ok": True, "name": name, "immediate": bool(immediate)}
+
+    def set_option(self, errand: str, key: str, value,
+                   profile: str | None = None) -> dict:
+        """Move one knob of one errand — the gear's own press (#2017).
+
+        The value goes where it already lived: the owning tab's variable, or this
+        profile's settings. Nothing is copied, so the tab's own page shows the new number
+        the moment it is looked at. ON THE TK THREAD, because a knob's home is usually a
+        widget and an HTTP worker is never on that thread.
+        """
+        rt = self._runtime(profile)
+        done: dict = {}
+        self._on_tk(rt, lambda: done.update(
+            ok=bool(rt.schedule.options.write(errand, key, value))))
+        if not done.get("ok"):
+            return {"error": "unknown"}
+        return {"ok": True, "errand": errand, "key": key}
+
+    def set_order(self, name: str, enabled: bool,
+                  profile: str | None = None) -> dict:
+        """Switch one standing order that is in no catalogue on or off (#2017)."""
+        rt = self._runtime(profile)
+        order = rt.schedule.options.order(name)
+        if order is None:
+            return {"error": "unknown"}
+        done: dict = {}
+        self._on_tk(rt, lambda: done.update(ok=bool(order.set_enabled(enabled))))
+        if not done.get("ok"):
+            return {"error": "unknown"}
+        return {"ok": True, "name": name, "enabled": bool(enabled)}
 
     def run_timer(self, name: str, profile: str | None = None) -> dict:
         """«Запустить сейчас» — onto the schedule's own queue, never a thread of its own.
@@ -1697,6 +1750,12 @@ class WebApi:
                 return _answer(self.run_timer(name, who))
             if path == "/api/triggers/set":
                 return _answer(self.set_trigger(name, bool(body.get("enabled")), who))
+            if path == "/api/errand/option":
+                return _answer(self.set_option(str(body.get("errand") or ""),
+                                               str(body.get("key") or ""),
+                                               body.get("value"), who))
+            if path == "/api/orders/set":
+                return _answer(self.set_order(name, bool(body.get("enabled")), who))
             if path == "/api/triggers/now":
                 return _answer(self.set_trigger_immediate(
                     name, bool(body.get("immediate")), who))

@@ -112,6 +112,7 @@ from .star_round import StarRound
 from . import world
 from .world import MineGrid, MonsterGrid, TrainGrid, TruckGrid
 from ...runtime import statevar
+from ...runtime import errand_options as errandopts
 
 # The table itself — its columns, its colours, its sort keys and its countdown — is
 # `grid.py` now (#1244), because the tab draws it TWICE: once for the starred raid
@@ -5074,35 +5075,19 @@ class SecretTasksTab(PanelTab):
             # (#2010). The SWITCH goes through `order.toggle`, which is what the window's
             # checkbox calls: setting the variable alone would leave a watcher running
             # under a box that says «off».
+            # …and the standing orders' own knobs, through the very setters the gear on
+            # «Таймеры» calls (#2017). The knob has one home and one write; which
+            # front-end asked decides nothing. The block an unbuilt tab hands back is
+            # kept in step inside each of them, which is what «включил с телефона,
+            # перезапустил панель — выключено» was (#2010).
             if key == "autoloot_level_min":
-                raw = str(args.get("value") or "").strip()
-                # Anything that is not a whole number is «any level», never 0: a
-                # half-typed field must not aim the day's five at the first tile seen.
-                raw = raw if raw.isdigit() else ""
-                self.level_min_var.set(raw)
-                self.remember({"autoloot_level_min": raw})
-                self.rt.settings.changed()
-                self._refresh_rule_hints()
+                self.set_autoloot_level(args.get("value"))
                 return {"ok": True}
             if key == "ghost_autoloot":
-                on = bool(args.get("value"))
-                self.ghost_map.autoloot_var.set(on)
-                self.ghost_map.order.toggle()
-                # …and into the block the profile keeps, because this tab may never have
-                # been LOOKED at: an unbuilt tab hands its saved block back on save, so
-                # without this the switch is off again after the next restart (#2010).
-                self.remember({"grids": {self.ghost_map.CONFIG_KEY: {"autoloot": on}}})
-                self.rt.settings.changed()
+                self.set_ghost_autoloot(bool(args.get("value")))
                 return {"ok": True}
             if key == "ghost_level_min":
-                raw = str(args.get("value") or "").strip()
-                # Anything that is not a whole number is «any level», never 0 — a
-                # half-typed field must not aim the day's five at every squad on the map.
-                raw = raw if raw.isdigit() else ""
-                self.ghost_map.level_min_var.set(raw)
-                self.ghost_map._paint_rule()
-                self.remember({"grids": {self.ghost_map.CONFIG_KEY: {"level_min": raw}}})
-                self.rt.settings.changed()
+                self.set_ghost_level(args.get("value"))
                 return {"ok": True}
             return {"error": "unknown"}
         if action == "ghost_rob":
@@ -5260,6 +5245,126 @@ class SecretTasksTab(PanelTab):
         """Flip «Автопомощь» from the phone, on the Tk thread (#1272)."""
         self.autoassist_var.set(not self.autoassist_var.get())
         self._on_autoassist_toggle()
+
+    # -- the three standing orders, as anything else moves them (#2017) --------
+    #
+    # ONE VALUE, SEVERAL DRAWINGS. Each setter writes exactly where the tab's own box
+    # writes — the variable the watcher reads, plus the block an unbuilt tab hands back
+    # on save (`remember`) — so the gear on «Таймеры», this tab's own pages and the
+    # phone's cards are three pictures of one state and cannot disagree.
+    def set_autoloot(self, on: bool) -> None:
+        """«Автолут ★» on or off, through the handler a finger goes through."""
+        if bool(self.autoloot_var.get()) != bool(on):
+            self._toggle_autoloot()
+        self.remember({"autoloot": bool(on)})
+        self.rt.settings.changed()
+
+    def set_autoassist(self, on: bool) -> None:
+        """«Автопомощь» on or off (#1272)."""
+        if bool(self.autoassist_var.get()) != bool(on):
+            self._toggle_autoassist()
+        self.remember({"autoassist": bool(on)})
+        self.rt.settings.changed()
+
+    def set_ghost_autoloot(self, on: bool) -> None:
+        """«Автолут отрядов призрака» on or off (#2010).
+
+        Through `order.toggle`, which is what the window's checkbox calls: setting the
+        variable alone would leave a watcher running under a box that says «off».
+        """
+        on = bool(on)
+        self.ghost_map.autoloot_var.set(on)
+        self.ghost_map.order.toggle()
+        self.remember({"grids": {self.ghost_map.CONFIG_KEY: {"autoloot": on}}})
+        self.rt.settings.changed()
+
+    @staticmethod
+    def _level_rule(value) -> str:
+        """A level bound off a front-end: a whole number, or «any level».
+
+        Anything half-typed is «any level» and never 0 — a 0 here is not «no bound», it
+        is every tile on the map (#1256).
+        """
+        raw = str(value if value is not None else "").strip()
+        return raw if raw.isdigit() else ""
+
+    def set_autoloot_level(self, value) -> None:
+        """The minimum level «Автолут ★» spends the day's five at."""
+        raw = self._level_rule(value)
+        self.level_min_var.set(raw)
+        self.remember({"autoloot_level_min": raw})
+        self.rt.settings.changed()
+        self._refresh_rule_hints()
+
+    def set_assist_level(self, value) -> None:
+        """The minimum level «Автопомощь» helps at."""
+        raw = self._level_rule(value)
+        self.assist_level_var.set(raw)
+        self.remember({"autoassist_level_min": raw})
+        self.rt.settings.changed()
+        self._refresh_rule_hints()
+
+    def set_ghost_level(self, value) -> None:
+        """The minimum level the ghost order robs at."""
+        raw = self._level_rule(value)
+        self.ghost_map.level_min_var.set(raw)
+        self.ghost_map._paint_rule()
+        self.remember({"grids": {self.ghost_map.CONFIG_KEY: {"level_min": raw}}})
+        self.rt.settings.changed()
+
+    def standing_orders(self) -> tuple:
+        """The three watchers this tab owns, drawn among the triggers (#2017).
+
+        They are in no catalogue — a person looking for «почему автолут не грабит» had
+        to know which tab owns it. Now the tab that lists every standing order the panel
+        has lists these too, with the same switch and the same reading.
+        """
+        return (errandopts.Order("secret_autoloot", "secret.autoloot",
+                                 get=lambda: bool(self.autoloot_var.get()),
+                                 set=self.set_autoloot,
+                                 state=self._autoloot_line),
+                errandopts.Order("secret_autoassist", "autoassist.frame",
+                                 get=lambda: bool(self.autoassist_var.get()),
+                                 set=self.set_autoassist,
+                                 state=self._assist_line_text),
+                errandopts.Order("ghost_autoloot", "ghost.autoloot",
+                                 hint_key="ghost.hint",
+                                 get=lambda: bool(self.ghost_map.autoloot_var.get()),
+                                 set=self.set_ghost_autoloot,
+                                 state=self.ghost_map.rule_text))
+
+    def errand_options(self) -> dict:
+        """What each of those orders spends its budget ON — the gear's fields.
+
+        The levels travel as TEXT and not as numbers: empty is «any level», and a
+        browser helpfully turning a blank box into a 0 would aim the day's five at the
+        first tile seen.
+        """
+        return {
+            "secret_autoloot": (
+                errandopts.Option("autoloot_level_min", "secret.autoloot.level_min",
+                                  errandopts.TEXT,
+                                  get=lambda: self.rule("level_min_var"),
+                                  set=self.set_autoloot_level),),
+            "secret_autoassist": (
+                errandopts.Option("autoassist_level_min", "autoassist.level_min",
+                                  errandopts.TEXT,
+                                  get=lambda: self.rule("assist_level_var"),
+                                  set=self.set_assist_level),
+                # A pace rather than a rule of the list, and it was already a profile
+                # setting — so the gear edits it where it lives (`opt_value`).
+                errandopts.Option("autoassist_star_wait_min", "autoassist.star_wait",
+                                  errandopts.NUMBER,
+                                  setting="autoassist_star_wait_min",
+                                  low=0, high=1440)),
+            "ghost_autoloot": (
+                errandopts.Option("ghost_level_min", "ghost.level_min",
+                                  errandopts.TEXT,
+                                  get=lambda: (str(self.ghost_map.level_min())
+                                               if self.ghost_map.level_min() is not None
+                                               else ""),
+                                  set=self.set_ghost_level),),
+        }
 
     def _toggle_show_spent(self) -> None:
         """Flip «Показывать исчерпанные» from the phone, on the Tk thread.
