@@ -380,8 +380,20 @@ def test_a_panel_with_no_window_writes_a_moved_knob_down():
     machine with no window had nobody, so a knob moved from the phone was gone at the
     next restart — the hole #2010 found in one tab, in all of them.
     """
+    import ast
+
     source = (_REPO / "panel" / "headless.py").read_text(encoding="utf-8")
     assert "rt.settings.on_change" in source
+    # THE NAME IT CALLS MUST EXIST. This shipped once as a class that is not in the
+    # file, and nothing said so: the saver is reached through a lambda, the NameError
+    # surfaced as a knob answering «unknown», and every assertion about the text passed.
+    tree = ast.parse(source)
+    classes = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Attribute) and node.attr == "_save_tab_blocks"):
+            continue
+        assert isinstance(node.value, ast.Name), "the saver is called off a class"
+        assert node.value.id in classes, f"no class {node.value.id} in panel/headless.py"
     saver = source.split("def _save_tab_blocks", 1)[1]
     assert "set_tab_config" in saver and "rt.settings.save()" in saver
     # …and only the tabs' blocks: a headless panel writing `tabs.enabled` off a list it

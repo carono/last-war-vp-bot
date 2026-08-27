@@ -365,7 +365,7 @@ class HeadlessPanel:
         # settings widgets and the offered-tab bookkeeping; none of that exists here, and
         # a headless panel writing `tabs.enabled` off a list it did not build is how a
         # tab a person switched off would come back.
-        rt.settings.on_change = lambda: Panel._save_tab_blocks(rt)
+        rt.settings.on_change = lambda: HeadlessPanel._save_tab_blocks(rt)
 
     @staticmethod
     def _save_tab_blocks(rt) -> None:
