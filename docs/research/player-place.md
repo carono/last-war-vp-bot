@@ -121,12 +121,20 @@ Both plays go in at `claims.DETACHED`, below every ordinary errand, and a refres
 booked at all while the link is busy or the profile's gate is shut. Nothing ticks:
 `state()` is called by the route, so a panel nobody is looking at reads nothing.
 
-**The FIRST reading is the exception, and it was measured rather than guessed.** For the
-first minute after a restart the live panel's link was busy on every single poll — the
-boot errands run back to back — so a strip that only ever read on a free link said «игра
-ещё не прочитана» throughout it. With nothing read yet the busy test is skipped and the
-claim decides; the gate is never skipped, because a profile somebody switched off must
-not be asked anything at all.
+**Forcing the FIRST reading through a busy link was tried live, and dropped.** For the
+first minute after a restart the panel's link is busy on every single poll — the boot
+errands run back to back — so the strip says «игра ещё не прочитана» for that minute, and
+skipping the busy test for a reading that has never happened looks like the obvious cure.
+It is not: `play_async` refuses out loud, and the log filled with pairs of
+
+```
+[header] занят — дождись завершения текущего действия
+[header] занят — дождись завершения текущего действия
+```
+
+every fifteen seconds, without ever getting a reading. So the strip waits for a gap in
+the link instead. On a settled panel the link was busy on 6 polls out of 24, and the
+first reading landed within seconds of a page being opened.
 
 ## 4a. What it costs in PIXELS, which is the other budget
 

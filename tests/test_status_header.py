@@ -140,28 +140,17 @@ def test_the_place_is_paced_and_the_character_is_paced_far_slower() -> None:
     assert headermod.WHO_ACTION in [name for name, *_ in rt.played], rt.played
 
 
-def test_a_busy_link_stops_the_refresh_but_never_the_first_reading() -> None:
-    """Measured live: for the first minute after a restart the link is busy on EVERY
-    poll, and a strip that waited for a free one said «not read yet» throughout."""
+def test_a_busy_link_or_a_shut_gate_asks_nothing() -> None:
+    """Even with nothing read yet: `play_async` refuses a busy link OUT LOUD, twice, and
+    a strip that kept asking would write the log instead of reading the game."""
     rt, clock = _Runtime(), _Clock()
-    rt.answers[headermod.WHERE_ACTION] = _Outcome(player_place="city;;;;0;;935;;935")
     rt.game.busy = True
     head = _header(rt, clock)
-    head.state()
-    assert [name for name, *_ in rt.played] == [headermod.WHERE_ACTION,
-                                                headermod.WHO_ACTION], rt.played
-    # …and once there IS a reading, a busy link is left alone again.
-    rt.played.clear()
-    clock.now += headermod.WHERE_GAP_SEC + 1
-    head.state()
-    assert rt.played == [], rt.played
-
-
-def test_a_shut_gate_asks_nothing_even_on_the_first_look() -> None:
-    rt, clock = _Runtime(), _Clock()
-    rt.gate.shut = True
-    head = _header(rt, clock)
     assert head.state()["age"] == -1
+    assert rt.played == [], rt.played
+    rt.game.busy = False
+    rt.gate.shut = True
+    head.state()
     assert rt.played == [], rt.played
 
 
