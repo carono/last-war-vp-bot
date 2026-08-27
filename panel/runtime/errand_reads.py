@@ -103,15 +103,20 @@ class DailyReads:
         try:
             if self._rt.game.busy:
                 self._hold_until = now + RETRY_SEC
+                self._why("the link is busy")
                 return
-        except Exception:                # noqa: BLE001 — an unreadable link is not a
+        except Exception as exc:         # noqa: BLE001 — an unreadable link is not a
+            self._why("the link cannot be read: %s" % exc)
             return                       #   licence to press
         # ASKED SILENTLY: `play_async` gates too and writes a refusal line, which for a
         # page that is open for minutes would fill the log the person came to read.
         try:
-            if self._rt.gate.blocks(ACTION, human=False):
+            held = self._rt.gate.blocks(ACTION, human=False)
+            if held:
+                self._why("the gate holds it: %s" % held)
                 return
-        except Exception:                # noqa: BLE001
+        except Exception as exc:         # noqa: BLE001
+            self._why("the gate cannot answer: %s" % exc)
             return
         self._reading = True
         started = self._rt.play_async(ACTION, tag="errand-stats", human=False,
@@ -120,6 +125,20 @@ class DailyReads:
         if not started:
             self._reading = False
             self._hold_until = now + RETRY_SEC
+            self._why("the play would not start")
+
+    def _why(self, reason: str) -> None:
+        """Why a look booked nothing — on the profile's own debug channel, never the log.
+
+        A skip that says nothing is indistinguishable from a feature that does not work,
+        and that is exactly what it cost the first time: the page drew no line and there
+        was no way to tell a busy link from a bug. `dbg` and not `say`, because this is a
+        page being polled and it must not write into what a person reads.
+        """
+        try:
+            self._rt.dbg("errand-stats").debug("no reading booked: %s", reason)
+        except Exception:                # noqa: BLE001 — a debug line, never the page
+            pass
 
     def _from_run(self, outcome) -> None:
         """The play came back: keep what it read, or keep the old values and age them.
