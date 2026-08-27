@@ -124,6 +124,52 @@ it is already the rule.
 A combination is available and probably the right answer: **(d) always, (c) for free
 freshness, and (a) only while the tab is open and only at an interval the person names.**
 
+## 3b. What shipped, and why the interval is five seconds
+
+The person answered «ок, делай по умолчанию», so (d) + (c) + (a) were built together and
+(b) was left as the open probe below.
+
+* **`actions/read_screen_view.md`** — the reading, one round trip, no press primitive in
+  the file at all.
+* **`panel/runtime/screenview.py`** — holds the last reading with its age, and takes a new
+  one only inside `look()`. There is no thread, no `after`, no timer in the panel: the only
+  caller of `look()` is `/api/screen/data?kind=live`, which an OPEN page asks. **Closing
+  the tab therefore stops the readings by construction, not by promise** — measured live:
+  45 s with no page open, zero readings in the log.
+* **The loop lives in the browser** (`WorldMap.tsx`), as a `setTimeout` chain rather than
+  a `setInterval`, so a reading that takes a second and a half never has the next queued
+  behind it.
+* **Five seconds by default**, and the number is arithmetic rather than taste: one reading
+  costs 0.6–1.2 s of an exclusive link, so a five-second tick spends about a fifth of the
+  link while somebody is watching and nothing when nobody is. It is a FIELD on the tab
+  (`worldview.live.interval`, 2–120 s) kept in this profile's `panel.db` — the person keeps
+  the smoothness-against-link trade, so nobody re-tunes the constant on their behalf.
+* **A tick gives way; a press waits its turn.** A busy link costs the tick — dropped,
+  never queued, so a minute of the bot's work does not end in a minute of catch-up. But
+  «Прочитать сейчас» goes in at `claims.HUMAN` like every other button, because on a
+  working profile the link is busy most of the time and a person who wants a picture has
+  to be able to get one. The card counts the ticks given up, so «картинка стоит» has a
+  number beside it.
+* **(c), as far as it can honestly go.** True piggybacking — appending the 15 ms read to
+  scenarios that already hold the link — would mean editing every one of those scenarios,
+  so what is here instead is the next best thing: the tick that was skipped while the bot
+  worked reads on the first gap after it, which is «свежесть из пауз в работе бота» and
+  costs one round trip per interval rather than none. A real rider needs a
+  play-completion signal on `PanelRuntime`, which does not exist and would be a change to
+  shared runtime code — worth asking about, not worth taking unilaterally.
+
+## 3c. The open probe: can the CLIENT announce the move? (~30 minutes)
+
+Still the best answer, and still unproven. It fails on one fact: **`WorldScene` is a C#
+`MonoBehaviour` and xLua cannot wrap a C# method**, so the `UIWorldPointCtrl:InitData`
+trick (#1420) cannot be pointed at it. What has to be found is a LUA object that hears
+about the view moving — a world HUD controller, a minimap ctrl, anything the client itself
+calls when the camera settles. If one exists, wrap it once, have it write a line the way
+`tools/lua_trace.py` already does, tail the file, and the clock above disappears: one
+reading at the start and changes announced afterwards, which is what the rule actually
+asks for. **The next agent on this should start here**, and half an hour of live probing
+decides it either way.
+
 ## 4. What was NOT done, on purpose
 
 * No clock, no timer, no trigger, no «refresh every N seconds» anywhere — the decision is
