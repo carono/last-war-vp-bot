@@ -71,6 +71,27 @@ export interface Scene {
   ages: Record<string, number | null>
 }
 
+/** WHAT THE CLIENT IS LOOKING AT (#2018) — the answer of `kind=live`.
+ *
+ * A different picture from a different source: not what the panel has gathered, but what
+ * the client is holding around its camera at this second. `age` is how many seconds ago
+ * it was read and it is drawn on the page, because this reading is skipped whenever the
+ * bot is driving the game and a picture that has stopped must look stopped. */
+export interface LiveView {
+  scene?: string
+  server?: number
+  x?: number
+  y?: number
+  zoom?: number
+  lod?: number
+  radius?: number
+  objects?: SceneObject[]
+  age?: number
+  reading?: boolean
+  interval?: number
+  skipped?: number
+}
+
 /* WHAT EACH KIND LOOKS LIKE. A colour and a size in TILES, so a dot keeps its meaning at
  * every zoom: a base is a tile, a monster is smaller because there are thousands of
  * them, and the two moving things are round so a lorry standing on a mine is still two
@@ -86,6 +107,12 @@ const KINDS: { id: string; colour: number; size: number; shape: 'square' | 'dot'
   { id: 'treasure', colour: 0xff9f45, size: 2.0, shape: 'square' },
   { id: 'truck', colour: 0x59d6d6, size: 1.6, shape: 'dot' },
   { id: 'train', colour: 0xf07ad0, size: 2.0, shape: 'dot' },
+  /* …and the three only the CLIENT'S OWN view ever carries (#2018): a stronghold, an
+   * alliance city, and this account's marches in the air. */
+  { id: 'stronghold', colour: 0xc9a227, size: 2.0, shape: 'square' },
+  { id: 'alliance', colour: 0x7fb3ff, size: 2.4, shape: 'square' },
+  { id: 'march', colour: 0xffffff, size: 1.4, shape: 'dot' },
+  { id: 'camera', colour: 0xff5c5c, size: 3.0, shape: 'dot' },
 ]
 
 const COLOUR: Record<string, number> = Object.fromEntries(KINDS.map((k) => [k.id, k.colour]))
@@ -133,6 +160,9 @@ export function WorldMap({ screen }: { screen: string }) {
   const [spot, setSpot] = useState<{ x: number; y: number; cell: CoverageCell | null } | null>(null)
   //: Bumped when the application is up, so the paint below runs once there is a stage.
   const [ready, setReady] = useState(0)
+  /* WHICH PICTURE IS ON: the panel's own model, or the CLIENT'S OWN SCREEN (#2018). */
+  const [mode, setMode] = useState<'model' | 'live'>('model')
+  const [live, setLive] = useState<LiveView | null>(null)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -151,6 +181,41 @@ export function WorldMap({ screen }: { screen: string }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  /* THE LIVE READING, AND THE ONLY CLOCK THE FEATURE HAS — HERE, IN THE OPEN PAGE.
+   *
+   * The panel itself never ticks: `LiveScreen` reads when this route asks and at no other
+   * time (`panel/runtime/screenview.py`). So the loop lives in the component, which means
+   * closing the tab, switching to «our model» or locking the phone ends it — «закрыл
+   * вкладку — чтений ноль» is then a property of where the loop is, not a promise
+   * somebody has to keep. The interval comes back WITH the reading, because it is a field
+   * the person edits on this very page.
+   *
+   * A tick is `setTimeout` after the answer rather than `setInterval`: a reading that
+   * takes a second and a half must not have the next one queued behind it. */
+  useEffect(() => {
+    if (mode !== 'live') return
+    let dead = false
+    let timer = 0
+    const tick = async (force: boolean) => {
+      try {
+        const answer = await get<LiveView>(
+          '/api/screen/data?id=' + encodeURIComponent(screen) + '&kind=live' + (force ? '&force=1' : ''),
+        )
+        if (dead) return
+        setLive(answer)
+        const wait = Math.max(2, Number(answer.interval) || 5) * 1000
+        timer = window.setTimeout(() => void tick(false), wait)
+      } catch {
+        if (!dead) timer = window.setTimeout(() => void tick(false), 10000)
+      }
+    }
+    void tick(true)
+    return () => {
+      dead = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [mode, screen])
 
   /* THE ENGINE, FETCHED ON DEMAND. A phone that never opens this tab downloads none of
    * it: the bundler splits `pixi.js` into its own chunk because this import is dynamic. */
@@ -200,27 +265,56 @@ export function WorldMap({ screen }: { screen: string }) {
   /* WHAT IS ACTUALLY DRAWN: the scene, narrowed by the warzone chip and by whichever
    * kinds the legend has switched off. Kept out of the paint so a legend press costs no
    * round trip — the filtering is the browser's. */
+  /* THE CLIENT'S OWN VIEW, IN THE SHAPE THE PAINT ALREADY KNOWS. The box is the camera's
+   * own — radius tiles either side of where it stands — so the picture is the client's
+   * window and not the warzone; there is no coverage under it, because «where we have
+   * looked» is a fact about our model and says nothing about what the client is holding. */
+  const liveScene = useMemo<Scene | null>(() => {
+    if (!live || live.scene !== 'world' || live.x === undefined) return null
+    const r = live.radius || 20
+    return {
+      at: Math.floor(Date.now() / 1000),
+      server: live.server ?? null,
+      servers: live.server ? [live.server] : [],
+      bounds: { x0: live.x - r, y0: (live.y || 0) - r, x1: live.x + r, y1: (live.y || 0) + r },
+      objects: [
+        ...(live.objects || []),
+        /* …and the camera itself, so «где мы стоим» is on the picture rather than only
+         * in the card above it. */
+        { k: 'camera', x: live.x, y: live.y || 0 },
+      ],
+      coverage: { cell: 25, sizes: {}, cells: [] },
+      counts: {},
+      hidden: {},
+      ages: {},
+    }
+  }, [live])
+
+  /* Which of the two is on screen. Everything below paints `painted` and does not care
+   * which source it came from. */
+  const painted = mode === 'live' ? liveScene : scene
+
   const shown = useMemo(() => {
-    if (!scene) return []
-    return scene.objects.filter(
+    if (!painted) return []
+    return painted.objects.filter(
       (o) => !off.has(o.k) && (server === 'all' || o.s === undefined || o.s === server),
     )
-  }, [scene, off, server])
+  }, [painted, off, server])
 
   const cells = useMemo(() => {
-    if (!scene) return []
-    return scene.coverage.cells.filter((c) => server === 'all' || c.s === server)
-  }, [scene, server])
+    if (!painted) return []
+    return painted.coverage.cells.filter((c) => server === 'all' || c.s === server)
+  }, [painted, server])
 
   /* THE PAINT. One `Graphics` per layer, cleared and refilled; pan and zoom move the
    * container instead of redrawing, so dragging costs nothing at all. */
   useEffect(() => {
     const app = appRef.current
     const world = worldRef.current
-    if (!pixi || !app || !world || !scene) return
+    if (!pixi || !app || !world || !painted) return
     world.removeChildren()
 
-    const bounds = scene.bounds
+    const bounds = painted.bounds
     const width = Math.max(1, bounds.x1 - bounds.x0)
     const height = Math.max(1, bounds.y1 - bounds.y0)
     const view = app.screen
@@ -235,10 +329,10 @@ export function WorldMap({ screen }: { screen: string }) {
     /* THE GROUND, UNDER EVERYTHING. First the whole warzone as UNSWEPT — that is the
      * honest default and the thing this layer exists to say — then the cells we have
      * actually been over, tinted by how long ago. */
-    const cell = scene.coverage.cell || 25
-    if (ground) {
+    const cell = painted.coverage.cell || 25
+    if (ground && mode === 'model') {
       const floor = new pixi.Graphics()
-      for (const [name, size] of Object.entries(scene.coverage.sizes)) {
+      for (const [name, size] of Object.entries(painted.coverage.sizes)) {
         if (server !== 'all' && Number(name) !== server) continue
         floor.rect(0, 0, size, size)
       }
@@ -246,7 +340,7 @@ export function WorldMap({ screen }: { screen: string }) {
       floor.stroke({ color: 0x30363d, width: Math.max(1 / scale, 0.5) })
       world.addChild(floor)
 
-      const now = scene.at
+      const now = painted.at
       const fresh = new pixi.Graphics()
       const stale = new pixi.Graphics()
       for (const c of cells) {
@@ -273,7 +367,7 @@ export function WorldMap({ screen }: { screen: string }) {
       g.fill({ color: kind.colour })
       world.addChild(g)
     }
-  }, [pixi, scene, shown, cells, ground, server, ready])
+  }, [pixi, painted, shown, cells, ground, server, ready, mode])
 
   /* PAN, ZOOM AND ONE TAP. The tap is a READING: the nearest object, or — on bare
    * ground — when we were last over that spot. It presses nothing. Zoom is anchored at
@@ -370,13 +464,33 @@ export function WorldMap({ screen }: { screen: string }) {
 
   return (
     <div className="worldmap">
+      {/* THE TWO PICTURES (#2018). «Наша модель» is everything the panel has gathered;
+          «Экран клиента» is what the client is holding around its camera right now, read
+          only while this view is on — switching back to the model ends the reading. */}
+      <div className="chips">
+        <button className={'chip' + (mode === 'model' ? ' on' : '')} onClick={() => setMode('model')}>
+          {t('worldview.mode.model')}
+        </button>
+        <button className={'chip' + (mode === 'live' ? ' on' : '')} onClick={() => setMode('live')}>
+          {t('worldview.mode.live')}
+        </button>
+      </div>
+
       <div className="row">
         <button className="go" disabled={busy} onClick={() => void load()}>
           {t('worldview.map.refresh')}
         </button>
         <span className="muted small">
-          {t('worldview.map.age')} {ageText(scene ? oldest : null)}
+          {t('worldview.map.age')}{' '}
+          {mode === 'live'
+            ? live && (live.age ?? -1) >= 0
+              ? ageText(live.age)
+              : t('worldview.live.never')
+            : ageText(scene ? oldest : null)}
         </span>
+        {mode === 'live' && live?.reading ? (
+          <span className="muted small">{t('worldview.live.reading')}</span>
+        ) : null}
         {hidden ? <span className="muted small">{t('worldview.map.hidden', { n: hidden })}</span> : null}
       </div>
 
@@ -424,6 +538,9 @@ export function WorldMap({ screen }: { screen: string }) {
       </div>
 
       {failed ? <p className="muted">{t('worldview.map.failed')}</p> : null}
+      {mode === 'live' && live && live.scene !== 'world' ? (
+        <p className="muted">{t('worldview.live.empty')}</p>
+      ) : null}
       {!failed && scene && !scene.objects.length && !scene.coverage.cells.length ? (
         <p className="muted">{t('worldview.map.empty')}</p>
       ) : null}

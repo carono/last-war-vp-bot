@@ -278,17 +278,172 @@ def test_the_map_width_arrives_with_the_coverage_and_nothing_else_knew_it():
 
 
 # -- read-only, and impossible to make otherwise ----------------------------
-def test_the_map_screen_offers_no_press_at_all():
-    """READ-ONLY is the person's condition, so it is pinned rather than merely true."""
+def test_the_map_screen_can_only_ever_READ():
+    """READ-ONLY is the person's condition, so it is pinned rather than merely true.
+
+    The tab grew two presses when the live view arrived (#2018) and neither of them can
+    touch the game: «Прочитать сейчас» plays ONE named scenario, which is a read, and
+    `set` moves a number in this profile's database. What is pinned here is that no third
+    press can exist and that the one scenario is the read-only one — «невозможно, а не
+    просто не сделано», in the person's words.
+    """
     source = (_REPO_ROOT / "panel" / "tabs" / "worldview.py").read_text(encoding="utf-8")
-    for forbidden in ("play_async", "rt.actions", "run_action", "lua", "web_press"):
+    for forbidden in ("run_action", "lua_actions", "rt.actions", "GAME ", "TAP "):
         assert forbidden not in source, f"the map tab must not be able to {forbidden}"
-    # …and the tab defines no press handler at all, so every press falls through to
-    # `PanelTab.web_press`, whose answer is «панель не знает такого нажатия».
-    assert "def web_press" not in source
-    # Nor does the screen offer a button to press: no `actions` anywhere in the view.
-    view = source.split("def web_view", 1)[1].split("def web_data", 1)[0]
-    assert '"actions"' not in view, "a read-only screen has no buttons on it"
+    # The tab never names a scenario itself: the only one it can play is the constant in
+    # `screenview`, and it plays it through that module rather than by name.
+    assert "play_async" not in source, "the tab plays nothing directly"
+    # …and its press handler answers exactly two things, everything else «unknown».
+    press = source.split("def web_press", 1)[1].split("def web_data", 1)[0]
+    assert 'if action == "look"' in press and 'action == "set"' in press
+    assert press.count("return {") >= 3 and '{"error": "unknown"}' in press
+
+    # THE ONE SCENARIO IT CAN PLAY IS A READ. Not «we did not write a press into it» — the
+    # file may hold no press primitive at all.
+    recipe = (_REPO_ROOT / "src" / "lastwar_bot" / "actions"
+              / "read_screen_view.md").read_text(encoding="utf-8")
+    body = "\n".join(line for line in recipe.splitlines()
+                     if line.strip() and not line.lstrip().startswith("#"))
+    for step in ("TAP ", "CLICK ", "GAME ", "JUMP ", "DONATE", "FIND "):
+        assert step not in body, f"a reading may not {step.strip()}"
+    for word in ("SendMessage", "SendCreateMarchMessage", "OnClick", "SendCollect"):
+        assert word not in body, f"a reading may not call {word}"
+    assert body.count("READ_LUA") == 1 and body.startswith("ARGS")
+
+
+def test_the_live_view_reads_only_when_a_page_asks_and_never_on_a_clock():
+    """«Закрыл вкладку — чтений ноль» is the safety catch of the whole live view.
+
+    It holds because there is no clock in the panel at all: `LiveScreen` reads inside
+    `look()`, and `look()` is called by the route an OPEN page asks. Nobody looking means
+    nobody calling means nothing read.
+    """
+    source = (_REPO_ROOT / "panel" / "runtime" / "screenview.py").read_text(encoding="utf-8")
+    for forbidden in ("threading", "Thread", "after(", "Timer", "sleep("):
+        assert forbidden not in source, f"the live view must not own a {forbidden}"
+
+    import panel.runtime.screenview as screenviewmod
+
+    played = []
+
+    class _Game:
+        busy = False
+
+    class _Gate:
+        def blocks(self, name, human=False):
+            return False
+
+    class _Rt:
+        game, gate, store = _Game(), _Gate(), None
+
+        def play_async(self, name, **kw):
+            played.append(name)
+            return True
+
+    now = [1000.0]
+    live = screenviewmod.LiveScreen(_Rt(), clock=lambda: now[0])
+
+    # Nobody has looked: no reading, whatever the clock does.
+    now[0] += 3600
+    assert live.state()["age"] == -1
+    assert played == [], "a page nobody opened read the game"
+
+    # One look books exactly one reading, and it is the read-only scenario.
+    live.look()
+    assert played == [screenviewmod.ACTION], played
+
+    # …and while that reading is in flight, further looks book nothing.
+    live.look()
+    live.look()
+    assert played == [screenviewmod.ACTION], "a second reading was queued behind the first"
+
+
+def test_a_busy_link_costs_the_picture_a_tick_and_never_the_bot_its_work():
+    """The bot's work outranks the picture: a busy tick is DROPPED, not queued."""
+    import panel.runtime.screenview as screenviewmod
+
+    played = []
+
+    class _Game:
+        busy = True
+
+    class _Gate:
+        def blocks(self, name, human=False):
+            return False
+
+    class _Rt:
+        game, gate, store = _Game(), _Gate(), None
+
+        def play_async(self, name, **kw):
+            played.append(name)
+            return True
+
+    rt = _Rt()
+    live = screenviewmod.LiveScreen(rt, clock=lambda: 1000.0)
+    for _ in range(5):
+        live.look()
+    assert played == [], "the picture took the link from the bot"
+    assert live.state()["skipped"] == 5, live.state()
+    # …and nothing accumulated: the link frees, and ONE reading goes in, not five.
+    rt.game.busy = False
+    live.look()
+    assert played == [screenviewmod.ACTION], played
+
+
+def test_the_live_reading_is_parsed_and_its_age_is_told_the_truth_about():
+    """A picture that has stopped must LOOK stopped, so the age is what the page draws."""
+    import panel.runtime.screenview as screenviewmod
+
+    view = screenviewmod.parse_view(
+        "world;;935;;718;;390;;105.0;;1;;20;;6:718:390,7:700:381,m:702:377;;w:711:388")
+    assert view["scene"] == "world" and view["server"] == 935
+    assert (view["x"], view["y"]) == (718, 390)
+    assert view["zoom"] == 105 and view["radius"] == 20
+    kinds = [o["k"] for o in view["objects"]]
+    assert kinds == ["base", "mine", "monster", "march"], kinds
+
+    # A client that is not in the world says so and carries no picture — that is an
+    # answer, not a failure, and it must not draw as an empty map.
+    away = screenviewmod.parse_view("city;;935;;;;;;;;;;;;;;")
+    assert away["scene"] == "city" and away["objects"] == []
+
+    # A short line is dropped WHOLE rather than half-read: the fields are positional.
+    assert screenviewmod.parse_view("world;;935;;718") == {}
+
+
+def test_the_interval_is_a_field_in_the_database_and_not_a_constant_in_the_code():
+    """The person keeps the smoothness-against-link trade, so it is a knob — in `panel.db`."""
+    import panel.runtime.screenview as screenviewmod
+
+    class _Store:
+        def __init__(self):
+            self.rows = {}
+
+        def blob_get(self, name):
+            return self.rows.get(name)
+
+        def blob_set(self, name, value):
+            self.rows[name] = value
+
+    class _Rt:
+        game = gate = None
+        store = _Store()
+
+    rt = _Rt()
+    live = screenviewmod.LiveScreen(rt)
+    assert live.interval() == screenviewmod.DEFAULT_INTERVAL == 5.0
+
+    assert live.set_interval(10) is True
+    assert live.interval() == 10.0
+    # …in the DATABASE, under its own name — never a file beside it.
+    assert rt.store.rows[screenviewmod.SETTINGS_BLOB]["interval"] == 10.0
+
+    # Out of range is clamped to what the link can bear; nonsense is REFUSED rather than
+    # rounded into a value nobody typed.
+    live.set_interval(9999)
+    assert live.interval() == screenviewmod.MAX_INTERVAL
+    assert live.set_interval("быстро") is False
+    assert live.interval() == screenviewmod.MAX_INTERVAL
 
 
 def test_the_data_route_can_only_read():
@@ -301,7 +456,8 @@ def test_the_data_route_can_only_read():
     # …and the tab answers no kind but its own — anything else is a 404, never a guess.
     source = (_REPO_ROOT / "panel" / "tabs" / "worldview.py").read_text(encoding="utf-8")
     data = source.split("def web_data", 1)[1]
-    assert 'if kind != "map":' in data and "return None" in data
+    assert 'if kind == "live":' in data and 'if kind != "map":' in data
+    assert "return None" in data
 
 
 def test_the_four_kinds_are_what_records_holds_and_coverage_rides_beside_them():

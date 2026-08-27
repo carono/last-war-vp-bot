@@ -30,6 +30,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from ..runtime import screenview
 from ..runtime import worldscene
 from ..widgets import tk_stringvar
 from .base import PanelTab
@@ -84,6 +85,10 @@ class WorldViewTab(PanelTab):
         self._swept = 0
         self._count_vars: dict = {}
         self._age_vars: dict = {}
+        #: THE OTHER HALF: what the client can see AT THIS SECOND (#2018). It holds the
+        #: last reading and takes a new one only when the open page asks
+        #: (`panel/runtime/screenview.py`) — there is no clock anywhere in this tab.
+        self._live = screenview.LiveScreen(self.rt)
 
     # -- the window ---------------------------------------------------------
     def build(self) -> None:
@@ -159,6 +164,9 @@ class WorldViewTab(PanelTab):
         return {
             "map": {"kind": "world"},
             "cards": [
+                # WHAT THE CLIENT SEES RIGHT NOW — first, because it is the question the
+                # person actually asked; the model's own counts are underneath it.
+                self._web_live_card(),
                 {"title": "worldview.counts", "note": "worldview.hint", "rows": counts},
                 {"title": "worldview.ages", "note": "worldview.ages_hint",
                  "rows": ages},
@@ -166,14 +174,79 @@ class WorldViewTab(PanelTab):
                 {"title": "worldview.gaps", "note": "worldview.gaps_hint",
                  "items": [{"label": f"worldview.gap.{name}"} for name in GAPS]},
             ],
+            # ONE PRESS, AND IT IS A READING. Nothing here can move anything in the game.
+            "actions": [{"id": "look", "label": "worldview.live.look"}],
         }
+
+    def _web_live_card(self) -> dict:
+        """«Экран клиента» — what the last reading found, and how old it is.
+
+        The AGE is the row that matters: this picture is taken while somebody is looking
+        and skipped whenever the bot is busy, so it can legitimately stand still for a
+        minute, and a picture that has stopped has to look stopped.
+        """
+        live = self._live.state()
+        scene = str(live.get("scene") or "")
+        where = ("%d,%d" % (live.get("x") or 0, live.get("y") or 0)
+                 if scene == "world" else _NEVER)
+        age = live.get("age")
+        return {
+            "title": "worldview.live",
+            "note": "worldview.live.hint",
+            "rows": [
+                {"label": "worldview.live.scene",
+                 "value": (self.t("worldview.live.scene." + scene)
+                           if scene in ("world", "city", "pve") else _NEVER)},
+                {"label": "worldview.live.camera", "value": where},
+                {"label": "worldview.live.zoom",
+                 "value": str(live.get("zoom") or 0) if scene == "world" else _NEVER},
+                {"label": "worldview.live.objects",
+                 "value": str(len(live.get("objects") or []))},
+                {"label": "worldview.live.age",
+                 "value": (age_text(age) if age is not None and age >= 0
+                           else self.t("worldview.live.never"))},
+                {"label": "worldview.live.skipped", "value": str(live.get("skipped") or 0)},
+            ],
+            "fields": [
+                {"key": "interval", "label": "worldview.live.interval",
+                 "hint": "worldview.live.interval_hint", "kind": "number",
+                 "value": live.get("interval"),
+                 "min": screenview.MIN_INTERVAL, "max": screenview.MAX_INTERVAL},
+            ],
+        }
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """The two presses this tab has, and NEITHER of them touches the game.
+
+        «Обновить» takes one READING — the same read-only scenario the interval takes,
+        never anything else — and `set` moves the interval, which is a number in this
+        profile's database. There is no third: an action this tab does not name is
+        answered «unknown», so a page from another version cannot ask it to press
+        anything in the game (`tests/test_panel_worldscene.py` pins that shut).
+        """
+        if action == "look":
+            return {"ok": True, "view": self._live.look(force=True)}
+        if action == "set" and str((args or {}).get("key") or "") == "interval":
+            if not self._live.set_interval((args or {}).get("value")):
+                return {"error": "refused"}
+            return {"ok": True}
+        return {"error": "unknown"}
 
     def web_data(self, kind: str, args: dict) -> "dict | None":
         """The scene itself, for the canvas — the one thing too big to poll.
 
         Read-only and off the Tk thread: files and SQLite, nothing that touches a widget
         (`panel/web/api.py`, «WHICH THREAD»).
+
+        `kind = "live"` is the OTHER picture — what the client is looking at right now.
+        It is answered here rather than in `web_view` for a second reason beside its size:
+        this route is asked by an OPEN PAGE and by nothing else, so «закрыл вкладку —
+        чтений ноль» is a property of where the call comes from rather than a promise
+        somebody has to keep (`panel/runtime/screenview.py`).
         """
+        if kind == "live":
+            forced = str((args or {}).get("force") or "") in ("1", "true", "yes")
+            return self._live.look(force=forced)
         if kind != "map":
             return None
         server = args.get("server") if isinstance(args, dict) else None
