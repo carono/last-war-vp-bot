@@ -6,6 +6,7 @@ import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
 import { FieldRow } from '../ui/FieldRow'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
+import { WorldMap } from './WorldMap'
 import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
 
 /* ONE RENDERER FOR EVERY TAB'S SCREEN.
@@ -430,6 +431,10 @@ export function ScreenPage({
         </button>
         <b>{t(view?.title || '')}</b>
       </div>
+      {/* A SCREEN MAY BE A PICTURE (#2018). It is drawn above its cards, which then
+          read as the legend of what is on it — and it keeps its own data, so the
+          screen's poll below never carries a scene. */}
+      {view?.map ? <WorldMap screen={id} /> : null}
       {sectioned ? (
         <div className="chips">
           <button className={'chip' + (part === 0 ? ' on' : '')} onClick={() => setPart(0)}>

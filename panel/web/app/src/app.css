@@ -718,3 +718,54 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   flex: 1 1 140px;
   min-width: 0;
 }
+
+/* -- the schematic map (#2018) -----------------------------------------------
+   A picture of what the panel believes is on the world map, drawn beside the real
+   client to compare the two. Read-only: nothing on this canvas presses anything, so
+   it wears no affordance that suggests it might. */
+.worldmap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The canvas fills the width and takes a screenful of height — a map any smaller is
+   one nobody can compare anything against. `touch-action: none` because the pan is
+   ours: without it a drag scrolls the page out from under the map. */
+.worldmap-canvas {
+  position: relative;
+  width: 100%;
+  height: 58vh;
+  min-height: 260px;
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #0b0f14;
+  touch-action: none;
+}
+.worldmap-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The legend's colour, which is the only way to tell two kinds of dot apart. */
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* While the renderer is still being fetched — it is a separate chunk, downloaded only
+   by somebody who actually opens the map. */
+.worldmap-wait {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}

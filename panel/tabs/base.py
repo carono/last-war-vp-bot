@@ -410,6 +410,24 @@ class PanelTab:
         """
         return {"error": "unknown"}
 
+    def web_data(self, kind: str, args: dict) -> "dict | None":
+        """A BULK reading this tab's screen draws but must not carry (#2018).
+
+        `web_view` is re-read on the phone's ordinary poll, so everything it returns
+        travels every few seconds. That is right for a card of readings and wrong for a
+        picture: the schematic map is tens of thousands of objects, and putting it in
+        the view would make an open page into a steady megabyte a minute.
+
+        So a screen that needs one asks for it separately —
+        `/api/screen/data?id=<tab>&kind=<kind>` — and the front-end decides when: on
+        opening, and when the person presses «обновить». It is answered on an HTTP
+        WORKER THREAD, unlike everything else here, so it must touch no widget and no
+        Tk variable; files and this profile's database are fine.
+
+        `None` means «this tab has no such reading», and the route answers 404.
+        """
+        return None
+
     # -- persistence --------------------------------------------------------
     def config(self) -> dict:
         return {}

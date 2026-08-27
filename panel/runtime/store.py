@@ -99,6 +99,11 @@ DB_FILE = "panel.db"
 #: (`docs/panel-tabs.md`), and two copies of a string is how they come to disagree.
 GHOST_MAP_STATE = "ghost_map_state"
 
+#: …and the ★ list beside it, for the same reason (#2018). «Секретки» fills and saves
+#: it; the schematic map (`panel/runtime/worldscene.py`) paints it. One name, in the
+#: place both of them already talk to.
+SECRET_TASKS_STATE = "secret_tasks_state"
+
 #: How long a writer waits for another writer before giving up. Generous on purpose:
 #: the competing writer is another thread of this panel, or a standalone tab in another
 #: process, and both finish in milliseconds. A person seeing «database is locked»

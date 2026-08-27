@@ -1175,6 +1175,33 @@ class WebApi:
         # rather than deciding what a coordinate is — see `panel/web/coordlinks.py`.
         return coordlinks.mark_screen(view)
 
+    def screen_data(self, screen_id: str, kind: str, args: dict,
+                    profile: str | None = None) -> dict:
+        """A screen's BULK reading — the one thing a view may not carry (#2018).
+
+        `screen` above is re-read on the phone's ordinary poll, so everything it returns
+        travels every few seconds; the schematic map is tens of thousands of objects and
+        would turn an open page into a steady stream. So the tab answers for it here
+        instead, and the front-end decides when to ask (`panel/tabs/base.py::web_data`).
+
+        **Not on the Tk thread**, unlike every other route that reaches a tab. That is
+        the whole point of the split: this reads files and this profile's database, both
+        of which take long enough to be felt, and the thread that draws four open
+        profiles must not be the one waiting for SQLite. A `web_data` that touched a
+        widget would be a bug in the tab, and the contract says so.
+        """
+        rt = self._runtime(profile)
+        tab = rt.tabs.peek(screen_id)
+        if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
+            return {"error": "unknown"}
+        try:
+            data = tab.web_data(kind, args or {})
+        except Exception as exc:     # noqa: BLE001 — one reading, never the panel
+            return {"error": "failed", "detail": str(exc)}
+        if data is None:
+            return {"error": "unknown"}
+        return data
+
     # -- «Серверы»: the screen with no tab behind it -------------------------
     def _servers_view(self, profile: str | None = None) -> dict:
         """Every warzone the game has, as the phone's cards — the window's own model.
@@ -1722,6 +1749,15 @@ class WebApi:
                 return 200, self.screens(who)
             if path == "/api/screen":
                 return _answer(self.screen(str(query.get("id") or ""), who))
+            if path == "/api/screen/data":
+                # A BULK reading, asked for on its own (#2018) — see `screen_data`.
+                # Everything but `id`/`kind`/`profile` is handed to the tab as its own
+                # arguments, which is how the map is narrowed to one warzone.
+                extra = {k: v for k, v in query.items()
+                         if k not in ("id", "kind", "profile")}
+                return _answer(self.screen_data(str(query.get("id") or ""),
+                                                str(query.get("kind") or ""),
+                                                extra, who))
         elif method == "POST":
             who = str(body.get("profile") or "") or None
             name = str(body.get("name") or "")

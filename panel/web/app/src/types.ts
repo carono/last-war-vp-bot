@@ -242,6 +242,11 @@ export interface ScreenView {
   now?: number
   cards?: ViewCard[]
   actions?: ViewAction[]
+  /* A SCREEN THAT IS DRAWN RATHER THAN LISTED (#2018). The tab says what kind of
+     picture it has; the renderer for it fetches its own data off
+     `/api/screen/data`, because a scene of thirty thousand objects may not ride the
+     screen's poll (`panel/tabs/base.py::web_data`). */
+  map?: { kind: string }
 }
 
 export interface PressAnswer {

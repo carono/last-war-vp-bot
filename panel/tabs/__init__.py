@@ -205,6 +205,7 @@ TABS: tuple = (
             in_development=True),
     TabSpec("treasure_debug", "panel.tabs.treasure_debug", "TreasureDebugTab",
             order=340, default_enabled=False, in_development=True),
+    TabSpec("worldview", "panel.tabs.worldview", "WorldViewTab", order=350),
     TabSpec("develop",   "panel.tabs.develop",   "DevelopTab",   order=900,
             default_enabled=False),
 )

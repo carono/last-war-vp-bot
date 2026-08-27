@@ -76,6 +76,28 @@ DEFAULT_MAX_PER_KIND = 5000
 #: them, and it keeps them for good.
 DEFAULT_MAX_PLAYERS = 20000
 
+#: WHERE WE HAVE ACTUALLY LOOKED, in tiles per cell (#2018).
+#:
+#: The reply to a map query says which RECTANGLE it answered about
+#: (`lastwar_proto.block_areas`) — the one fact that tells «there is nothing there»
+#: apart from «we never looked there», and until now the world listener threw it away.
+#: Nothing new is asked of the game: this is a field already in every response.
+#:
+#: Kept as a coarse grid rather than as rectangles because a lap answers in hundreds of
+#: overlapping blocks and nobody can read that; twenty-five tiles is small enough to see
+#: the shape of a sweep and coarse enough that a whole 1000×1000 warzone is 1 600 cells.
+COVERAGE_CELL = 25
+
+#: How long a cell is remembered as swept. Far longer than a sighting: a mine's occupancy
+#: goes stale in minutes, but «somebody drove the camera over this ground at 14:02» stays
+#: true for ever — what ages is only how much it is worth. A day is what a person
+#: comparing two pictures can still make sense of.
+COVERAGE_TTL_SEC = 24 * 3600
+
+#: …and the ceiling, for the same reason every other kind here has one. Four warzones'
+#: worth of grid; what falls off the end is the oldest, and it is counted.
+MAX_COVERAGE_CELLS = 8000
+
 
 def _mine_rank(record: dict) -> tuple:
     """What survives the cap first: the highest level, then the freshest."""
@@ -137,6 +159,20 @@ class WorldIndex:
         #: «none matched».
         self.profiles_seen = 0
         self.remarks_known = 0
+        #: WHERE THE CAMERA HAS BEEN (#2018) — `(server, cx, cy) -> [seen_at, view]`,
+        #: the coarse grid described at :data:`COVERAGE_CELL`. The lowest view level a
+        #: cell was heard at is kept beside the time, because the client asks for less
+        #: at greater heights (docs/research/map-sweep-zoom.md): ground swept only from
+        #: high up has been looked at for bases and not for tasks, and a picture that
+        #: called both «обойдено» would lie in exactly the direction that matters.
+        self._areas: dict = {}
+        #: server -> the warzone's own `maxAreaSize`. The map's WIDTH, which nothing in
+        #: this repository knew until now — it rides on every block and was discarded
+        #: with the rest of the rectangle.
+        self._sizes: dict = {}
+        #: How many rectangles have been folded in, and how many cells the cap dropped.
+        self.areas_seen = 0
+        self.areas_dropped = 0
         #: alliance uuid -> full name, off the alliance's own city tiles. Held
         #: rather than merged once, because a base tile and its alliance's city
         #: arrive in no particular order — and stamped both ways, so whichever
@@ -149,7 +185,8 @@ class WorldIndex:
 
     # -- the two hooks the capture forwards --------------------------------
     def on_blocks(self, payload, blocks, now: float) -> None:
-        """Map tiles: the mines and the player bases among them."""
+        """Map tiles: the mines and the player bases among them — and WHERE we looked."""
+        self._cover(payload, now)
         learned = False
         for uuid, _abbr, name in proto.alliance_names(payload):
             with self._lock:
@@ -183,6 +220,67 @@ class WorldIndex:
                         record[field] = held[field]
                 self._kinds["players"][base.uid] = self._stamp(record)
                 self.players_seen += 1
+
+    def _cover(self, payload, now: float) -> None:
+        """Mark the ground this reply ANSWERED ABOUT as looked at (#2018).
+
+        The rectangle is already decoded for us (`lastwar_proto.block_areas`), including
+        the horizontal wrap a block that runs off the right edge comes back with — a
+        block from x 991 to x 0 covers both ends of the map and not the empty range
+        between them, and getting that backwards would paint the whole warzone swept.
+        """
+        for area in proto.block_areas(payload):
+            server = int(area.get("server") or 0)
+            size = int(area.get("area") or 0)
+            view = int(area.get("view") or 0)
+            if not server or size <= 0:
+                continue
+            with self._lock:
+                self._sizes[server] = max(self._sizes.get(server, 0), size)
+            wide = size // COVERAGE_CELL + 1
+            y0, y1 = sorted((int(area["y0"]), int(area["y1"])))
+            x0, x1 = int(area["x0"]), int(area["x1"])
+            spans = [(x0, x1)] if x0 <= x1 else [(x0, size - 1), (0, x1)]
+            for cy in range(y0 // COVERAGE_CELL, y1 // COVERAGE_CELL + 1):
+                for left, right in spans:
+                    for cx in range(left // COVERAGE_CELL,
+                                    min(right, size - 1) // COVERAGE_CELL + 1):
+                        if cx >= wide:
+                            continue
+                        key = (server, cx, cy)
+                        with self._lock:
+                            held = self._areas.get(key)
+                            if held is None:
+                                self._areas[key] = [int(now), view]
+                            else:
+                                held[0] = int(now)
+                                # The LOWEST height it was ever heard at — see the
+                                # field's own note in `__init__`.
+                                held[1] = min(held[1], view)
+            with self._lock:
+                self.areas_seen += 1
+
+    def coverage(self) -> dict:
+        """Where the camera has been, as the checkpoint carries it.
+
+        ``{"cells": [{"s": …, "cx": …, "cy": …, "t": …, "v": …}], "sizes": {"935": 1000}}``
+
+        Cells are dropped by age and then by the cap, oldest first — and how many were
+        dropped is said out loud (`areas_dropped`), because a picture that quietly
+        forgot half a sweep would show «мы туда не смотрели» about ground we did.
+        """
+        cutoff = time.time() - COVERAGE_TTL_SEC
+        with self._lock:
+            for key, held in list(self._areas.items()):
+                if held[0] < cutoff:
+                    self._areas.pop(key, None)
+            rows = sorted(self._areas.items(), key=lambda kv: -kv[1][0])
+            self.areas_dropped = max(len(rows) - MAX_COVERAGE_CELLS, 0)
+            rows = rows[:MAX_COVERAGE_CELLS]
+            sizes = {str(server): size for server, size in self._sizes.items()}
+        return {"cell": COVERAGE_CELL, "sizes": sizes,
+                "cells": [{"s": server, "cx": cx, "cy": cy, "t": held[0], "v": held[1]}
+                          for (server, cx, cy), held in rows]}
 
     def _stamp(self, record: dict) -> dict:
         """Write on `record` the two things no base tile carries.
@@ -383,6 +481,10 @@ class WorldIndex:
                 rows = sorted(records.values(), key=ranks[kind])
                 self.dropped[kind] = max(len(rows) - cap, 0)
                 out[kind] = [dict(row) for row in rows[:cap]]
+        # WHERE WE LOOKED, beside WHAT WE FOUND (#2018). Outside the lock above because
+        # `coverage` takes it itself, and it is a fifth key rather than a fifth kind: it
+        # is not a list of things on the map, it is the shape of our own ignorance.
+        out["coverage"] = self.coverage()
         return out
 
     def counts(self) -> dict:
