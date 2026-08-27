@@ -252,6 +252,14 @@ is (#1272 the secret task, #1976 the ghost), and «Операция Призра
 всех» on the phone because the ability is one recipe now, not because an exception was
 made for it.
 
+**And a press the phone can reach only on a tab the profile has switched OFF is a press
+the phone cannot reach** (#2010). The ghost order — its switch, its «минимальный уровень»
+and «Ограбить всех» — was on «Командный пункт», which is dev-only: the live profile had it
+off, so five robberies a day were decided by a knob neither front-end could show. It is on
+«Секретки» → «Призрак: карта» now, the page holding the list it spends, which is where
+«Автолут ★» has been since #1271. **An order belongs on the page holding its list, and
+that page has to be one every profile has.**
+
 **What the rule forbids is the PRESS, and never the standing order behind it** — a
 distinction #1976 had to make out loud, and it is what let the ghost card carry its switch
 and its minimum level on the phone as FIELDS through the months when «Ограбить» could not

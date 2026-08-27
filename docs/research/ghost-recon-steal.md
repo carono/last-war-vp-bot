@@ -305,3 +305,36 @@ starve each other (044c19f, `docs/research/world-monitor.md` §1), and the cure 
 one that worked for the mines: fold the index into the ★ capture's process behind a
 flag rather than run a second child. It costs three forwarded calls and it was not
 part of this fix.
+
+## 6c. …and the order moved to the page holding its list (#2010)
+
+The other half of «автолут не работает», and it was not a bug in the watcher: on the
+live profile the watcher did not EXIST. Its switch, its «минимальный уровень» and
+«Ограбить всех» were on «Командный пункт», which is a dev-only tab
+(`DEFAULT_ENABLED = False`); that profile had it switched off, so the order was never
+built, on either front-end, and `ghost_autoloot` sat `false` in a block nobody could
+open.
+
+So it went where «Автолут ★» has been since #1271 — the page holding the list it spends,
+which is «Секретки» → «Призрак: карта», a tab every profile has and one that is EAGER
+(its capture listens from boot, which is what an order over a weekly event needs).
+
+What that changed, and what it deliberately did not:
+
+* the switch, the level rule and «Ограбить всех» are on that page in the window and on
+  its card on the phone — a knob nobody can reach is worse than one somebody can get
+  wrong, and this one was unreachable from both;
+* the choosing is simpler, because the page's rows are LIVE: a look no longer has to
+  re-read anything to have a list. `GhostMapGrid.rob_candidates` judges readiness
+  against the clock rather than off `row["ready"]`, which is only recomputed while there
+  is a table to draw — this list is fed and spent headless;
+* the display filters do not narrow it. «Только звезда», the level range and the age
+  rule are a pair of eyes; somebody narrowing them to read something must not thereby
+  change how the day's five are spent. That is the same separation the ★ list keeps;
+* «Командный пункт» keeps what it is — the squads with the game's own verdict and
+  «Ограбить» beside a row. Its per-row press asks the runtime's tab register for the one
+  order (`docs/panel-tabs.md`), never for a second one, and answers «занят» when
+  «Секретки» is switched off. One ability, one place;
+* a profile written before the move is carried across once: the flat `ghost_autoloot`
+  and `command_post.pages.ghost.level_min` are read into the page's own block the first
+  time it is applied, so a rule somebody was already running under is not lost.

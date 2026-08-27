@@ -451,6 +451,14 @@ belongs to — a row on «Чеклист» for a daily errand, «Ралли» / 
 «Командный пункт» for one that needs a target chosen first — and mirror it into
 `web_view` / `web_press` like any other control.
 
+**Nor is a STANDING ORDER's switch, and for the same reason** (#2010). «Автолут отрядов»
+— the ghost-recon order that spends five robberies a day — lived on «Командный пункт»,
+which is also `DEFAULT_ENABLED = False`: the live profile had that tab off, so the order
+was never built at all, and its switch, its level rule and «Ограбить всех» were reachable
+from neither the window nor the phone. It is on «Секретки» → «Призрак: карта» now, the
+page holding the list it spends, which is where «Автолут ★» has been since #1271. An order
+belongs on the page holding its list, and that page has to be one every profile has.
+
 A timer or a trigger is not that home. Both are real ways an ability runs, and neither is
 a way for a person to say «сделай это сейчас»; three abilities lived in the timer
 catalogue and nowhere else until #1247. `tests/test_scenario_homes.py` fails on a

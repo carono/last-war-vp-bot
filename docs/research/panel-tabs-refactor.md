@@ -615,7 +615,7 @@ exist and the panel bypasses them:
 > **Done, #1188 — and the correction above is what it was built from.** Both orders now
 > run their tool with `--queue-only` (select and park, then stop) and play the recipe
 > themselves: `panel/tabs/secret_tasks/autoloot.py::_spend` and
-> `panel/tabs/command_post/ghost.py::_spend`, both `rt.actions.play(…)` on the reader
+> `panel/tabs/secret_tasks/ghost_order.py::_spend`, both `rt.actions.play(…)` on the reader
 > thread the parking run already had. Four things worth writing down, because each of
 > them was a decision and not an obvious step:
 >
