@@ -4196,6 +4196,31 @@ def test_a_ghost_page_shows_only_starred_squads_when_the_box_is_ticked():
     assert [r["uuid"] for r in page.narrow(rows)] == ["1000000000000001"]
 
 
+def test_a_knob_moved_from_the_phone_survives_a_restart():
+    """A press on a tab NOBODY HAS OPENED must reach the profile, not just the variable.
+
+    `stored_config` is a pass-through while the tab is unbuilt — rightly, or a save made
+    with the tab shut would write default-born variables over the saved block. So the
+    press has to say what it moved (`PanelTab.remember`). Live, this was «включил автолут
+    с телефона, перезапустил панель — он выключен», and nothing anywhere said so (#2010).
+    """
+    from panel.tabs import base as basemod
+
+    tab = object.__new__(pm.SecretTasksTab) if hasattr(pm, "SecretTasksTab") else None
+    if tab is None:
+        from panel.tabs.secret_tasks.tab import SecretTasksTab
+        tab = object.__new__(SecretTasksTab)
+    tab._built = False
+    tab._saved_config = {"grids": {"ghost_map": {"monitor": True, "autoloot": False}},
+                         "stale_hours": "12"}
+    basemod.PanelTab.remember(tab, {"grids": {"ghost_map": {"autoloot": True}}})
+    saved = basemod.PanelTab.stored_config(tab)
+    assert saved["grids"]["ghost_map"] == {"monitor": True, "autoloot": True}, saved
+    assert saved["stale_hours"] == "12", "an untouched key was dropped"
+    basemod.PanelTab.remember(tab, {"stale_hours": "0"})
+    assert basemod.PanelTab.stored_config(tab)["stale_hours"] == "0"
+
+
 def test_an_unread_event_is_not_a_closed_one():
     """«Ещё не прочитано» and «событие закрыто» are different facts (#2010).
 
