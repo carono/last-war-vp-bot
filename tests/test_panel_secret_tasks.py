@@ -6,6 +6,7 @@ from __future__ import annotations
 
 TIER = "ui"        # Tk and a display — see tools/run_tests.py
 
+import types
 import sys
 import time as _time_module
 from pathlib import Path
@@ -1222,6 +1223,14 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab.ghost_allies = _FakeAllianceGrid()
     tab.ghost_map = _FakeAllianceGrid()
     tab.ghost_map.monitor_var = _Var(False)
+    # …and the standing order the map page carries since #2010: another account's map is
+    # another account's targets, so it stops and forgets what it fired at.
+    tab.ghost_map.order = types.SimpleNamespace(
+        _seen={"1000000000000001"}, stopped=0, started=0,
+        stop=lambda: setattr(tab.ghost_map.order, "stopped",
+                             tab.ghost_map.order.stopped + 1),
+        ensure_started=lambda: setattr(tab.ghost_map.order, "started",
+                                       tab.ghost_map.order.started + 1))
     # …and the four world pages (#1289), which are the old account's MAP: its mines, its
     # monsters and the vehicles crossing its server. Left in place they would be drawn
     # under the new profile and, for the monster page, checkpointed into its file (#1298).
@@ -1247,6 +1256,10 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     # …and what the standing order had already fired at is the other account's map too
     # (#1256 — the book moved onto the watcher when the choosing did).
     assert tab._collected == set() and tab.autoloot._seen == set()
+    # …and the ghost order's own book with it (#2010), the watcher stopped and asked to
+    # come back up under the new account.
+    assert tab.ghost_map.order._seen == set()
+    assert tab.ghost_map.order.stopped == 1 and tab.ghost_map.order.started == 1
     assert tab._ids is None and tab._own_server == 0
     assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1
     assert tab.autoassist.stopped == 1, "the help order stayed on the old account"
@@ -1749,8 +1762,11 @@ def test_the_robbed_mark_reaches_the_phone_and_no_press_goes_with_it():
     tab.ghost_allies = types.SimpleNamespace(
         web_flow=lambda: None,web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(
-        web_flow=lambda: None,web_items=lambda: [], web_rows=lambda: [],
+        web_flow=lambda: None, web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
+                                          autoloot_var=_Var(False),
+                                          level_min=lambda: None,
+                                          rule_text=lambda: "",
                                           counts=lambda: (0, 0))
     _empty_world_pages(tab)
 
@@ -1822,6 +1838,9 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
+                                          autoloot_var=_Var(False),
+                                          level_min=lambda: None,
+                                          rule_text=lambda: "",
                                           counts=lambda: (0, 0))
     _empty_world_pages(tab)
 
@@ -1968,6 +1987,9 @@ def test_the_phone_says_the_window_is_open_at_the_same_instant_the_button_appear
     tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
+                                          autoloot_var=_Var(False),
+                                          level_min=lambda: None,
+                                          rule_text=lambda: "",
                                           counts=lambda: (0, 0))
     _empty_world_pages(tab)
 
@@ -2947,6 +2969,10 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.ghost_map = types.SimpleNamespace(
         monitor_var=_Var(False), counts=lambda: (1, 0), star_var=_Var(False),
         web_flow=lambda: None,
+        # …and the standing order this page carries since #2010: its switch, the one
+        # number that aims it and the rule written out for the card to say.
+        autoloot_var=_Var(False), level_min=lambda: None,
+        rule_text=lambda: "любого уровня",
         web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
                             "pill": None}])
     # …and the four world pages (#1289), each a card of its own on the phone.
@@ -3039,9 +3065,21 @@ def test_the_phone_is_shown_every_page_the_window_has():
     for title, page in (("secrettasks.ghost", "ghost"),
                         ("secrettasks.ghost.map", "ghost_map")):
         actions = {a["id"]: a["label"] for a in cards[title]["actions"]}
-        assert actions == {"ghost_monitor": "secret.monitoring.ghost.on",
-                           "star_%s" % page: "secrettasks.filter.star_on",
-                           "clear_%s" % page: "secrettasks.clear"}, (title, actions)
+        expected = {"ghost_monitor": "secret.monitoring.ghost.on",
+                    "star_%s" % page: "secrettasks.filter.star_on",
+                    "clear_%s" % page: "secrettasks.clear"}
+        if page == "ghost_map":
+            # …AND THE ROBBERY, on the card holding the list it spends (#2010). It was on
+            # «Командный пункт», a dev tab a profile may have switched off — so the phone
+            # could not reach it at all on the profile that reported it broken.
+            expected["ghost_rob"] = "ghost.steal_all"
+        assert actions == expected, (title, actions)
+    # …and the standing order's own two knobs beside it, on that same card: the switch
+    # and the one number that aims it. Nobody can reach them from the window alone.
+    fields = {f["key"]: f for f in cards["secrettasks.ghost.map"]["fields"]}
+    assert set(fields) == {"ghost_autoloot", "ghost_level_min"}, fields
+    assert fields["ghost_autoloot"]["value"] is False
+    assert fields["ghost_level_min"]["value"] == ""
     # …and the allies' card, which has nothing to switch and still has its own star box
     # and its own clear.
     assert [a["id"] for a in cards["secrettasks.ghost.allies"]["actions"]] == [
@@ -3190,6 +3228,9 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
     tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [], counts=lambda: (0, 0))
     tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
                                           monitor_var=_Var(False),
+                                          autoloot_var=_Var(False),
+                                          level_min=lambda: None,
+                                          rule_text=lambda: "",
                                           counts=lambda: (0, 0))
     _empty_world_pages(tab)
     item = [c for c in tab.web_view()["cards"] if c.get("items")][0]["items"][0]
@@ -4155,6 +4196,47 @@ def test_a_ghost_page_shows_only_starred_squads_when_the_box_is_ticked():
     assert [r["uuid"] for r in page.narrow(rows)] == ["1000000000000001"]
 
 
+def test_the_ghost_order_chooses_out_of_the_pages_own_list():
+    """«Автолут отрядов» spends the list the person is looking at (#1256, #2010).
+
+    Judged against the clock HERE rather than off `row["ready"]`: that flag is only
+    recomputed while there is a table to draw, and this list is fed and spent headless.
+    And never through the display filters — «Только звезда», the level range and the age
+    rule are a pair of eyes, not a rule about what the day's five are spent on.
+    """
+    import game_clock
+    from panel.tabs.secret_tasks import ghost as gh
+
+    now = game_clock.now_ms()
+
+    def row(uuid, **over):
+        base = {"uuid": uuid, "owner_server": 700, "level": 5, "starred": False,
+                "completed_at": now - 1000, "expires_at": now + 3_600_000,
+                "loot_max": 3, "loot_count": 0, "mine": False}
+        base.update(over)
+        return base
+
+    page = object.__new__(gh.GhostMapGrid)
+    page.level_min_var = _Var("")
+    page._rows = {r["uuid"]: r for r in [
+        row("1000000000000001", level=5),
+        row("1000000000000002", level=3),
+        row("1000000000000003", completed_at=now + 3_600_000),   # still out
+        row("1000000000000004", expires_at=now - 1),             # its clock ran out
+        row("1000000000000005", loot_count=3),                   # robbed out
+        row("1000000000000006", mine=True),                      # my own squad
+    ]}
+
+    assert [t["uuid"] for t in page.rob_candidates()] == ["1000000000000001",
+                                                          "1000000000000002"]
+    assert page.rob_candidates()[0]["srv"] == 700
+    page.level_min_var.set("5")
+    assert [t["uuid"] for t in page.rob_candidates()] == ["1000000000000001"]
+    # A half-typed box is «any level», never level 0.
+    page.level_min_var.set("x")
+    assert len(page.rob_candidates()) == 2
+
+
 def test_the_map_page_hides_what_nothing_has_confirmed_for_hours():
     """The ★ list's age rule, over the page it bites hardest on (#1999, #2010).
 
@@ -4803,7 +4885,10 @@ def test_each_page_saves_its_filters_under_its_own_key():
     page.star_var.set(True)
     saved = page.config()
     assert saved == {"level_from": "4", "level_to": "", "monitor": True,
-                     "interval": "7", "star_only": True}, saved
+                     "interval": "7", "star_only": True,
+                     # …and the standing order's own pair, which lives on this page
+                     # since #2010 and is saved with the rest of it.
+                     "autoloot": False, "level_min": ""}, saved
 
     fresh = _ghost_grid(gh.GhostMapGrid)
     fresh.apply_config(saved)

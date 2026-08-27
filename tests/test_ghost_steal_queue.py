@@ -40,8 +40,8 @@ except ImportError:                                 # pragma: no cover - optiona
     lupa = None
 
 RECIPE = ROOT / "src" / "lastwar_bot" / "actions" / "steal_ghost_recon.md"
-ORDER = ROOT / "panel" / "tabs" / "command_post" / "ghost.py"
-TAB = ROOT / "panel" / "tabs" / "command_post" / "tab.py"
+ORDER = ROOT / "panel" / "tabs" / "secret_tasks" / "ghost_order.py"
+TAB = ROOT / "panel" / "tabs" / "secret_tasks" / "tab.py"
 
 #: As much of the client's ghost-recon manager as the recipe touches: the queue it parks,
 #: the spent counter the server moves, and the settings row the cap comes off.
@@ -208,7 +208,12 @@ def test_the_queue_string_is_lua_the_recipe_can_park():
 
 def test_the_phone_may_press_it_now():
     """The press travels because the ability is ONE recipe (`CLAUDE.md`). Before #1976 it
-    was reading-only here, and the reason was the spawn that has just gone."""
+    was reading-only, and the reason was the spawn that has since gone.
+
+    On «Секретки» → «Призрак: карта» since #2010: the screen it was on belongs to a DEV
+    tab, so on a profile with that tab switched off the phone could not reach the press
+    at all — nor the switch and the level rule beside it.
+    """
     tab = TAB.read_text(encoding="utf-8")
     assert '"id": "ghost_rob"' in tab, "«Ограбить всех» is missing from the screen"
     assert 'action == "ghost_rob"' in tab, "the screen offers a press nobody answers"
@@ -219,7 +224,7 @@ def test_a_second_press_is_refused_while_one_is_in_flight():
     """Two presses must not park two sets of squads on top of each other. Checked against
     the real class, with the runtime stubbed out — no game, no Tk."""
     try:
-        import panel.tabs.command_post.ghost as ghost_mod
+        import panel.tabs.secret_tasks.ghost_order as ghost_mod
     except Exception as exc:              # noqa: BLE001 — no tkinter here, say which
         print(f"       (skipped the in-flight refusal: {type(exc).__name__}: {exc})")
         return
@@ -232,7 +237,8 @@ def test_a_second_press_is_refused_while_one_is_in_flight():
             pass
 
     order = ghost_mod.GhostOrder.__new__(ghost_mod.GhostOrder)
-    order.rt, order.pane, order._stop, order._proc, order._seen = _Rt(), None, None, None, set()
+    order.rt, order.page, order._stop, order._proc, order._seen = \
+        _Rt(), None, None, None, set()
     started = []
     order._look_and_rob = lambda: started.append(1)          # never really reads
     assert order.run_once() is True

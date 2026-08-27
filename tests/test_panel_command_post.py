@@ -177,23 +177,24 @@ def test_the_ghost_standing_order_is_this_tabs_own():
     have created it. Now the page that shows the squads owns all three, so the check is
     that nothing outside this package mentions the variable at all.
     """
-    # The «Секретки» tab has a ghost page of its own now (#1251) and so it says the
-    # word — what it must not have is the ghost STANDING ORDER's switch, which is this
-    # page's. So the check names the thing rather than the word: a variable or a call
-    # that ties the two together anywhere in that package.
-    import re
-    tie = re.compile(r"ghost\w*[_.]?autoloot|autoloot\w*[_.]?ghost", re.IGNORECASE)
-    for path in sorted((ROOT / "panel" / "tabs" / "secret_tasks").glob("*.py")):
+    # …AND IT MOVED AGAIN (#2010), for the same kind of reason it was gathered up in the
+    # first place: this tab is dev-only and the live profile had it switched OFF, so an
+    # order that spends five robberies a day did not exist there at all. It is on
+    # «Секретки» → «Призрак: карта» now — the page holding the list it chooses out of,
+    # which is where «Автолут ★» has been since #1271. So the check is the other way
+    # round: nothing of it may be left HERE, and the shell must still not hold it.
+    for path in sorted((ROOT / "panel" / "tabs" / "command_post").glob("*.py")):
         text = path.read_text(encoding="utf-8")
-        assert not tie.search(text), f"{path.name} holds the ghost standing order"
         assert "GhostOrder" not in text, path.name
-    assert '"panel/__main__.py has no ghost"' or True
+        assert "autoloot_var" not in text, f"{path.name} still holds the ghost switch"
     shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
     assert "_ghost_autoloot_var" not in shell, "the shell still holds the ghost switch"
+    ghost = (ROOT / "panel" / "tabs" / "secret_tasks" / "ghost.py").read_text(
+        encoding="utf-8")
     # `statevar.boolean` rather than `tk.BooleanVar` since #1976 (P3): the switch is the
     # window's own variable while there is a window and a plain one when there is not.
-    assert "self.autoloot_var = statevar.boolean" in SOURCE
-    assert "command=self.order.toggle" in SOURCE
+    assert "self.autoloot_var = statevar.boolean" in ghost
+    assert "command=self.order.toggle" in ghost
 
 
 # --- the widget (needs Tk) --------------------------------------------------
@@ -231,9 +232,10 @@ def test_tab_builds_and_drives_its_controls():
         shared = next(p for p in pages if isinstance(p, cp.SharedMissionsPane))
         treasure = next(p for p in pages if isinstance(p, cp.TreasuresPane))
 
-        # The ghost page owns the standing order: its checkbox var and its watcher.
-        assert ghost.autoloot_var.get() is False
-        assert ghost.order.running is False
+        # The ghost page does NOT own the standing order any more (#2010): it moved to
+        # «Секретки» → «Призрак: карта», the page holding the list it spends, because
+        # this tab is dev-only and a profile with it switched off had no order at all.
+        assert not hasattr(ghost, "autoloot_var") and not hasattr(ghost, "order")
         assert ghost.LOG_TAG == "ghost"
 
         # Building the tab must not read the game: Tk selects the first inner page by
@@ -453,8 +455,8 @@ def test_the_scan_checkpoints_feed_the_two_lists():
     assert tpane._scanned_targets({str(chest.uuid)}, home=100) == []
 
 
-def test_the_standing_order_chooses_out_of_the_panels_own_list():
-    """«Автолут призрака» takes what «Призрак: карта» has KEPT (#2010).
+def test_the_ghost_page_reads_the_panels_own_kept_list():
+    """This page's rows come out of what «Призрак: карта» has KEPT (#2010).
 
     It used to read the capture's live checkpoint through the freshness window, and that
     file is rewritten every tick out of an index holding only the warzone on screen — a
@@ -501,13 +503,11 @@ def test_the_standing_order_chooses_out_of_the_panels_own_list():
     assert [r["uuid"] for r in pane._scanned_targets({"1000000000000001"})] == \
         ["1000000000000002"]
 
-    # The rule the standing order then applies over that list: robbable, not mine, at or
-    # above «минимальный уровень» — and the LEVEL the game gave is not overwritten by the
-    # cfgId's digits on the way (`absorb`).
-    pane.level_min = lambda: 5
+    # …and the LEVEL the game gave is not overwritten by the cfgId's digits on the way in
+    # (`absorb`). The RULE that spends the day's five is not this page's any more — it is
+    # «Секретки» → «Призрак: карта»'s since #2010, and it is pinned there.
     pane.status, pane.targets = {}, []
     pane.absorb({"open": True, "left": 5}, rows)
-    assert [t["uuid"] for t in pane.rob_candidates()] == ["1000000000000001"]
     assert pane.targets[0]["level"] == 5, pane.targets[0]
 
 
@@ -746,7 +746,7 @@ def _order(lines, ok: bool = True, reason: str = ""):
     ``None`` where there is no tkinter — importing the page reaches the panel runtime.
     """
     try:
-        from panel.tabs.command_post.ghost import GhostOrder
+        from panel.tabs.secret_tasks.ghost_order import GhostOrder
     except Exception as exc:            # noqa: BLE001 — no tkinter is a skip, not a fail
         _skip(exc)
         return None, None, None
@@ -755,7 +755,7 @@ def _order(lines, ok: bool = True, reason: str = ""):
         children=_Children(lines), actions=_Actions(ok, reason),
         settings=types.SimpleNamespace(opt_int=lambda key, low=0, high=0: 5),
         say=lambda tag, key, **fmt: said.append(key), put=lambda line: None)
-    return GhostOrder(rt, pane=None), rt, said
+    return GhostOrder(rt, page=None), rt, said
 
 
 def _drain(order) -> None:
@@ -902,7 +902,11 @@ def test_a_row_press_robs_that_row_and_a_second_one_is_refused():
         return
     tab = cp.CommandPostTab.__new__(cp.CommandPostTab)
     tab.rt = rt
-    tab._by_key = {"ghost": types.SimpleNamespace(order=order)}
+    tab._by_key = {"ghost": types.SimpleNamespace()}
+    # The order is «Секретки»'s since #2010, and this tab asks the runtime's own tab
+    # register for it rather than importing it (`docs/panel-tabs.md`).
+    rt.tabs = {"secret_tasks": types.SimpleNamespace(
+        ghost_map=types.SimpleNamespace(order=order))}
 
     assert tab.web_press("ghost_rob_one", {"uuid": "11", "srv": 700}) == {"ok": True}
     _drain(order)
@@ -915,6 +919,13 @@ def test_a_row_press_robs_that_row_and_a_second_one_is_refused():
 
     order._proc = object()                       # a robbery in flight
     assert tab.web_press("ghost_rob_one", {"uuid": "12", "srv": 700}) == {
+        "ok": False, "reason": "cmdpost.ghost.busy"}
+
+    # …and a profile with «Секретки» switched off has no order at all: said, not pressed
+    # by hand — a second way to spend a ghost robbery is what one-ability-one-place
+    # exists to stop.
+    rt.tabs = {}
+    assert tab.web_press("ghost_rob_one", {"uuid": "13", "srv": 700}) == {
         "ok": False, "reason": "cmdpost.ghost.busy"}
 
 
