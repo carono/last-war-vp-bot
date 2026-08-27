@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "расписание включено",
   "timers.on_days": "по {days}",
   "timers.stat.pending": "+{n} ждёт сбора",
+  "timers.stat.base_ready": "построек готово к сбору: {n}",
   "timers.stat.trucks": "грузовиков ждёт: {n}",
   "timers.stat.trucks_out": "отправок осталось: {n} из {all}",
   "timers.stat.help": "ждут помощи: {n}",

@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "programación encendida",
   "timers.on_days": "los {days}",
   "timers.stat.pending": "+{n} esperando la recogida",
+  "timers.stat.base_ready": "edificios listos para recoger: {n}",
   "timers.stat.trucks": "camiones esperando: {n}",
   "timers.stat.trucks_out": "envíos restantes: {n} de {all}",
   "timers.stat.help": "esperando ayuda: {n}",

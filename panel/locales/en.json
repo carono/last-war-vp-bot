@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "schedule on",
   "timers.on_days": "on {days}",
   "timers.stat.pending": "+{n} waiting to be collected",
+  "timers.stat.base_ready": "buildings ready to collect: {n}",
   "timers.stat.trucks": "trucks waiting: {n}",
   "timers.stat.trucks_out": "dispatches left: {n} of {all}",
   "timers.stat.help": "waiting for help: {n}",

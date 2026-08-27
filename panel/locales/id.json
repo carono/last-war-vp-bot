@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "penjadwalan hidup",
   "timers.on_days": "setiap {days}",
   "timers.stat.pending": "+{n} menunggu dikumpulkan",
+  "timers.stat.base_ready": "bangunan siap dikumpulkan: {n}",
   "timers.stat.trucks": "truk menunggu: {n}",
   "timers.stat.trucks_out": "pengiriman tersisa: {n} dari {all}",
   "timers.stat.help": "menunggu bantuan: {n}",

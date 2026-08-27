@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "zamanlama açık",
   "timers.on_days": "{days} günleri",
   "timers.stat.pending": "+{n} toplanmayı bekliyor",
+  "timers.stat.base_ready": "toplamaya hazır binalar: {n}",
   "timers.stat.trucks": "bekleyen kamyonlar: {n}",
   "timers.stat.trucks_out": "kalan sevkiyat: {all} içinden {n}",
   "timers.stat.help": "yardım bekleyen: {n}",

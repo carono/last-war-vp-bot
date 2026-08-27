@@ -39,7 +39,7 @@ buys the truck and gives eight more lines away for nothing.
 
 | Errand | Line | Where it comes from | Age |
 |---|---|---|---|
-| `collect_base_resources` | what is standing uncollected | the stock cache the front page fills and `push.resource.item.update` keeps current | yes, from the reading |
+| `collect_base_resources` | what is standing uncollected — or, until the stock has been read, how many buildings are ready | the stock cache the front page fills and `push.resource.item.update` keeps current; `base_ready` out of the granted reading as the fallback | yes, from whichever answered |
 | `resource_tracker` | (the same line) | as above | yes |
 | `rally_auto_join`, `rally_monitor` | rallies joined today | `rally_counts` in `panel.db` | «today» — no clock |
 | `firework_collect`, `firework_watch` | gifts taken today | `firework_state` in `panel.db`, written by the ear | «today» — no clock |

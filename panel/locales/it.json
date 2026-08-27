@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "pianificazione accesa",
   "timers.on_days": "il {days}",
   "timers.stat.pending": "+{n} in attesa di raccolta",
+  "timers.stat.base_ready": "edifici pronti da raccogliere: {n}",
   "timers.stat.trucks": "camion in attesa: {n}",
   "timers.stat.trucks_out": "invii rimasti: {n} su {all}",
   "timers.stat.help": "in attesa di aiuto: {n}",

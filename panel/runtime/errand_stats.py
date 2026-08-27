@@ -161,6 +161,25 @@ def _pending_resources(rt) -> "dict | None":
     return {"key": "timers.stat.pending", "fmt": {"n": _number(total)}, "age": age}
 
 
+def _collect_ready(rt) -> "dict | None":
+    """The pile if the stock has been read, else how many BUILDINGS are ready.
+
+    «Сколько ждёт» is the better answer and it comes off the stock cache — which is only
+    filled once somebody has looked at the front page. The checklist reading counts the
+    buildings with something in store (`base_ready`), and that answers the same question
+    a person actually asks — «стоит ли жать» — on a panel where nobody has opened
+    anything else.
+    """
+    pile = _pending_resources(rt)
+    if pile is not None:
+        return pile
+    values, age = _daily(rt)
+    if "base_ready" not in values:
+        return None
+    return {"key": "timers.stat.base_ready",
+            "fmt": {"n": _int(values.get("base_ready"))}, "age": age}
+
+
 def _rally_joins(rt) -> "dict | None":
     """«N стягов сегодня» — today's tally, off the day-keyed store the joiner writes."""
     from .. import rally_limits

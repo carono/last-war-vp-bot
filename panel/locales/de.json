@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "Zeitplan an",
   "timers.on_days": "an {days}",
   "timers.stat.pending": "+{n} warten auf die Abholung",
+  "timers.stat.base_ready": "abholbereite Gebäude: {n}",
   "timers.stat.trucks": "wartende Lkw: {n}",
   "timers.stat.trucks_out": "verbleibende Fahrten: {n} von {all}",
   "timers.stat.help": "warten auf Hilfe: {n}",

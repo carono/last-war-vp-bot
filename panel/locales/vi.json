@@ -914,6 +914,7 @@
   "timers.log.scheduler_on": "lịch đang bật",
   "timers.on_days": "vào {days}",
   "timers.stat.pending": "+{n} đang chờ thu thập",
+  "timers.stat.base_ready": "công trình sẵn sàng thu thập: {n}",
   "timers.stat.trucks": "xe tải đang chờ: {n}",
   "timers.stat.trucks_out": "lượt gửi còn lại: {n} trên {all}",
   "timers.stat.help": "đang chờ trợ giúp: {n}",
