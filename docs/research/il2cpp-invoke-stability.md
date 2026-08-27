@@ -444,3 +444,51 @@ to prevent. A busy client is meant to cost patience, not safety.
 
 Pinned by `tests/test_rip_gate.py` (offline: the selection is arithmetic over sampled
 counters, with the Windows layer stubbed).
+
+### …and aiming right was only half of it: the wait was written for an idle base
+
+**Same task, same day, one restart later.** With the park learned correctly the hijacks
+started landing — and the link still did not hold. The reason is the other constant in
+the same call: `park_timeout=4.0`.
+
+Four seconds is a fine window for a client sitting idle in the base, where the park holds
+90%+ of samples. It is a coin toss on a client somebody is PLAYING, where the park holds
+8–12%. And a build of the evaluator is not one hijack: it is `enum`, `LuaEnv cls`,
+`XLuaManager`, `GameEntry`, `gmfn:get_Lua/0`, `fl`, `pc`, `GameEntry.get_Lua`, `mpc`,
+`iterMgrM`, `rettypename`… — dozens of gated calls in a row, each raising `SystemExit` on
+refusal. **One refusal in a hundred threw the whole build away**, the next attempt started
+from scratch and died at a different random step, and the panel retried that every 1.5 s
+for fourteen hours without ever completing one.
+
+There is a second reason a fixed window misses: **the main thread alternates between two
+parks**, `ntdll+0xa0e84` and `ntdll+0xa0f44`, `0xC0` apart — far outside the ±16 the gate
+allows. Learn one while the thread is favouring the other and the wait is spent watching
+an address the thread is not using.
+
+**What was done — and the distinction that makes it safe.** The gate is UNCHANGED: still
+±16 bytes of one learned park, still the main thread only. What grew is how long we are
+prepared to WAIT for the thread to get there, which is not a safety property at all —
+§1's whole argument is about WHERE a thread may be taken, never about how patiently one
+waits for it to arrive.
+
+* `xlua_route.X.PARK_WINDOW = 15.0` — one hijack's wait.
+* `X.STEP_BUDGET = 60.0` — a step keeps trying across re-learns before it gives up, so a
+  single refusal costs seconds instead of the whole attach.
+* the park is **re-learned between tries**, which is what catches the alternation above.
+* `X._learn_park` and `find_instance_rpm.resolve_class` wait for the park instead of
+  sampling once and calling a takeable client busy.
+* a refusal carries the marker `client-busy`, so the panel can tell the ordinary case
+  («somebody is playing») from a real fault and say so in the person's own language.
+
+**And the panel had a matching fault of its own.** `link._say_failure` said a standing
+failure once and then not again for `FAIL_SAY_SEC = 300`. Silence is not neutral: it reads
+as «the panel is working», and through the whole outage the log carried one line and then
+nothing while the schedule stood behind a held gate. A standing failure now repeats once a
+minute as **how long it has been true** (`log.link.attach_busy` / `log.link.attach_stuck`,
+all eleven locales).
+
+**Measured after the change**, panel `06b608bd`: the build completed in full on a live
+client (every step logged `in ntdll SAFE_RIP+0x0`), the link went `colour: ok /
+reason: traffic / lands: true`, the schedule gate lifted (`held: false`), and the map came
+back — `1 map response(s), 26 tile(s), 2 task(s)` — where fourteen hours had produced
+`0 map response(s), 0 tile(s)`.
