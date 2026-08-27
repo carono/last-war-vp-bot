@@ -99,6 +99,12 @@ header {
   overflow: hidden;
 }
 
+.status .profile.small {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
 .status .who {
   font-weight: 600;
   color: var(--ink);

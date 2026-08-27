@@ -91,9 +91,12 @@ function Lights({
  * panel keeping a table of two thousand window ids and being wrong about the ones a new
  * season adds.
  *
- * IT COSTS NO HEIGHT WORTH THE NAME. Two short lines share the header the account picker
- * already had, at 12.5 px, and the place line collapses to nothing at all when there is
- * no reading — the pixels a phone spends on this are the pixels #1976 fought for. */
+ * IT GIVES HEIGHT BACK ON ONE ACCOUNT, which is the ordinary case and the one the pixels
+ * of #1976 were fought for: the strip absorbs the profile's name, so the picker's whole
+ * row goes and the header measures 37 px on an iPhone 13 mini against the 43 px it took
+ * before this existed. With several accounts open the picker keeps its row — it is a tap
+ * target and may not shrink — and the strip costs 16 px under it. */
+
 /* The scenes the game names, each with its own key — spelled out rather than built as
  * `'web.ui.where.' + scene`, because a key nobody can grep for is a key that quietly
  * stops being translated (`tests/test_panel_web.py` checks exactly this). */
@@ -103,7 +106,7 @@ const WHERE: Record<string, string> = {
   pve: 'web.ui.where.pve',
 }
 
-function StatusStrip({ header }: { header?: Header }) {
+function StatusStrip({ header, account }: { header?: Header; account?: string }) {
   const known = (header?.age ?? -1) >= 0
   const nick = header?.nick || ''
   const scene = header?.scene || ''
@@ -116,15 +119,23 @@ function StatusStrip({ header }: { header?: Header }) {
    * dash beside a zero of a warzone: a header that shows empty fields reads as «этот
    * аккаунт has nothing», and a panel that had just started once announced «событие
    * закрыто · 0 краж» without having asked the game anything at all. */
+  /* THE ACCOUNT'S OWN NAME RIDES THIS LINE when there is only one profile open, and
+   * that is what pays for the strip: with nothing to pick between, the picker's whole row
+   * goes, and the header comes out SHORTER than it was before this existed (37 px against
+   * 43 on an iPhone 13 mini, measured). With several accounts open the picker keeps its
+   * row, because it is a tap target and the one control that must not be cramped. */
+  const who = account ? <span className="profile small">{account}</span> : null
   if (!known && !nick) {
     return (
       <div className="status">
+        {who}
         <span className="where cold">{t('web.ui.head.nothing')}</span>
       </div>
     )
   }
   return (
     <div className="status">
+      {who}
       {nick ? <span className="who">{nick}</span> : null}
       {level > 0 ? <span className="fact">{t('web.ui.head.level', { n: level })}</span> : null}
       {server > 0 ? (
@@ -285,8 +296,8 @@ function Panel() {
   return (
     <div className="app">
       <header>
-        <div className="head-line">
-          {many ? (
+        {many ? (
+          <div className="head-line">
             <select
               className="profile picker"
               value={profile}
@@ -298,11 +309,12 @@ function Panel() {
                 </option>
               ))}
             </select>
-          ) : (
-            <span className="profile">{state?.profile || profile}</span>
-          )}
-        </div>
-        <StatusStrip header={state?.header} />
+          </div>
+        ) : null}
+        <StatusStrip
+          header={state?.header}
+          account={many ? '' : state?.profile || profile}
+        />
       </header>
 
       <Lights lights={profiles.lights || []} profile={profile} onPick={(n) => void switchProfile(n)} />

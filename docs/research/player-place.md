@@ -121,6 +121,25 @@ Both plays go in at `claims.DETACHED`, below every ordinary errand, and neither 
 at all while the link is busy or the profile's gate is shut. Nothing ticks: `state()` is
 called by the route, so a panel nobody is looking at reads nothing.
 
+## 4a. What it costs in PIXELS, which is the other budget
+
+The strip is sticky and drawn above every screen, so it is spent on every page — the same
+budget #1976 fought over. Measured in WebKit on real device profiles
+(`~/playwright-tests`), `header.offsetHeight` with the panel live:
+
+| | iPhone 13 mini (720 px tall) | iPhone 15 Pro Max (739 px) |
+|---|---|---|
+| before this change (picker row) | 43 px | 43 px |
+| after, ONE profile open | **37 px** | **37 px** |
+| after, several profiles open | 43 + 16 px | 43 + 16 px |
+
+With one account open the strip absorbs the profile's name and the picker's row goes
+altogether, so the header comes out 6 px SHORTER than it was. With several open the picker
+keeps its row — it is a tap target — and the strip adds 16 px under it. The whole line
+(`default · Player1 · ур. 35 · сервер 935 · Карта мира · UIMainMiniMap`) fits without
+wrapping on the narrowest phone in the set; the window id ellipses first if it ever does
+not.
+
 ## 5. What was looked for and is not there
 
 * **A push.** The resource balance is driven by `push.resource.item.update` (#1990) and
