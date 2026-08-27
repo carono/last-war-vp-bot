@@ -660,6 +660,17 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.ghost_recon_steals_pending(),
         max_taps=10,
     ),
+    # …and the question that has to be asked BEFORE any of those presses (#2010): what
+    # does the server say about the tiles now queued? One `world.get.detail.new` per
+    # queued tile and no server jump — the same round trip a finger makes when it taps
+    # one. Its `wait` is the settle the replies need; the gate inside
+    # `steal_ghost_recon` reads them.
+    "ghost_recon_ask_details": Button(
+        lua=_lua_actions.ghost_recon_request_detail(),
+        wait=1.5, label="Ask the server about the queued ghost tiles",
+        # One ask covers the whole queue, so this is a single press and never an `xall`.
+        count_lua="1",
+    ),
     "dismiss_ghost_recon_reward": Button(
         # A successful robbery raises the event's own loot window
         # (UIGhostreconReward; the box variant is UIGhostreconGetBoxReward).

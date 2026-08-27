@@ -552,6 +552,9 @@ class GhostMapGrid(_GhostGrid):
                 continue
             out.append({"uuid": str(row["uuid"]),
                         "srv": int(row.get("owner_server") or row.get("server") or 0),
+                        # …and WHERE it is, which is what the recipe asks the game about
+                        # before it presses (#2010).
+                        "x": int(row.get("x") or 0), "y": int(row.get("y") or 0),
                         "level": level, "looted": int(looted or 0)})
         # Best first, and among equals the tile fewest people have been at: it is the one
         # most likely to still have a slot when the send lands.

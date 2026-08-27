@@ -2636,6 +2636,11 @@ def ghost_recon_steals_left() -> str:
             "local left=cap-used if left<0 then left=0 end return left end)()")
 
 
+#: `WorldPointType` of a ghost-recon squad's tile — what `world.get.detail.new` has to
+#: be told to answer about one (`f2 = 29` on the wire, docs/research/protocol.md).
+GHOST_RECON_POINT_TYPE = 29
+
+
 def _ghost_task_by_uuid() -> str:
     """Lua chunk fragment: `find(uuid)` -> the task record, or nil.
 
@@ -3003,21 +3008,96 @@ def ghost_recon_steals_pending() -> str:
             % (ghost_recon_is_open(), ghost_recon_queue_len(), ghost_recon_steals_left()))
 
 
-def steal_next_ghost_recon() -> str:
-    """Rob the first queued ghost-recon target (one press, one squad).
+def ghost_recon_request_detail() -> str:
+    """Ask the server about every QUEUED ghost tile — one `world.get.detail.new` each.
 
-    The target is popped BEFORE the send, so a refused robbery costs one queue entry
-    rather than wedging `xall` on the same doomed uuid. One press per chunk: the
-    budget only moves when the server's reply lands.
+    THE SAME ROUND TRIP A FINGER MAKES when it taps that tile, and no server jump: the
+    message carries the tile's own `serverId`, so a squad standing on another warzone is
+    asked about from here (#2010). The reply lands in `WorldPointDetailManager`, keyed by
+    pointId, exactly as the secret-task robbery's coordinate lookup does.
+
+    ONE PER TARGET WE ARE ABOUT TO TRY, and never a sweep of the list: the queue holds at
+    most the day's remaining robberies, the list itself is kept current by the sniffer's
+    events, and a periodic re-read of everything is the background activity the operator
+    has forbidden.
+
+    Sent for the whole queue in one chunk so the replies travel while the presses are
+    still being gated; read them after a settle, never in the same chunk.
+    """
+    return ("local M=DataCenter.ActGhostreconManager "
+            "local n=0 "
+            "for _,t in ipairs(M.__lw_ghost_queue or {}) do "
+            "if t.x and t.y and tonumber(t.x) and tonumber(t.y) then "
+            "pcall(function() SFSNetwork.SendMessage('world.get.detail.new', "
+            "SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(t.x, t.y)), "
+            "t.server, 0, %d, '') end) n=n+1 end end "
+            'CS.UnityEngine.Debug.LogError("ACT ghost_detail_asked n="..tostring(n))'
+            % GHOST_RECON_POINT_TYPE)
+
+
+def steal_next_ghost_recon() -> str:
+    """Rob the first queued ghost-recon target — IF THE GAME SAYS IT MAY BE ROBBED.
+
+    The target is popped BEFORE anything else, so a refusal costs one queue entry rather
+    than wedging `xall` on the same doomed uuid. One press per chunk: the budget only
+    moves when the server's reply lands.
+
+    THE GAME'S OWN VERDICT, ASKED PER TARGET, AT THE MOMENT OF THE PRESS (#2010). It used
+    to send at whatever was queued, and the whole of what gated it was the event day and
+    the daily budget — so a tile the panel believed ready by its own clock was fired at,
+    the server refused it, and `stealTimes` never moved: measured over four runs and
+    twenty presses, not one confirmation. The verdict has two forms and the tile decides
+    which:
+
+    * a squad the CLIENT knows (`taskList`) is judged by `GetPointStealType(...) ==
+      CanSteal`, plus the three things that gate cannot see — it is not mine, its looter
+      list is not full, and its warzone is inside `dispatchStealRange`;
+    * a tile only the MAP has seen has no entry there, so the authority is the detail
+      just asked for (:func:`ghost_recon_request_detail`): the point must have answered,
+      and it must still carry THIS uuid. A tile that has been robbed out, has expired or
+      was never there answers with something else or with nothing at all.
+
+    Anything the game does not confirm is SKIPPED, silently and without a send — the
+    day's five are spent only on what it called available. The skip says so on the
+    stream (`ghost_steal_skipped`) so a run that takes nothing can be read.
     """
     return ("local M=DataCenter.ActGhostreconManager "
             "local q=M.__lw_ghost_queue or {} local t=table.remove(q,1) "
-            "if t and %s > 0 and %s > 0 then "
+            "if not t then return end "
+            "if %s <= 0 or %s <= 0 then return end "
+            "%s"
+            "local me=tostring(LuaEntry.Player.uid) "
+            "local ok=false local why='no_verdict' "
+            "local task=find(t.uuid) "
+            "if task then "
+            "if tostring(task.ownerId)==me then why='mine' else "
+            "local n=0 for _,s in ipairs(task.stealList or {}) do n=n+1 "
+            "if tostring(s.uid)==me then n=99 end end "
+            "local tpl=M:GetTaskTemplate(task.cfgId) "
+            "local cap=(tpl and tonumber(tpl.stealMaxtimes)) or 3 "
+            "local srv=task.ownerServer or task.targetServer "
+            "if n>=cap then why='looted_out' "
+            "elseif srv and (M.dispatchStealRange or {})[srv]~=true then why='out_of_range' "
+            "else local okv,st=pcall(function() "
+            "return M:GetPointStealType(task.cfgId, task.completionTime, {}) end) "
+            "if okv and st==GhostreconPointStealType.CanSteal then ok=true "
+            "else why='state_'..tostring(okv and st or 'err') end end end "
+            "else "
+            "local okd,d=pcall(function() "
+            "return DataCenter.WorldPointDetailManager:GetDetailByPointId("
+            "SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(t.x or 0, t.y or 0))) "
+            "end) "
+            "if not okd or not d then why='no_detail' "
+            "elseif tostring(d.uuid)~=tostring(t.uuid) then why='gone' "
+            "else ok=true end end "
+            "if not ok then "
+            'CS.UnityEngine.Debug.LogError("ACT ghost_steal_skipped uuid="'
+            '..tostring(t.uuid).." why="..why) return end '
             "pcall(function() SFSNetwork.SendMessage(MsgDefines.GhostReconSteal, "
             "t.uuid, t.server) end) "
             'CS.UnityEngine.Debug.LogError("ACT ghost_steal_sent uuid="..tostring(t.uuid)'
-            '.." srv="..tostring(t.server)) end'
-            % (ghost_recon_is_open(), ghost_recon_steals_left()))
+            '.." srv="..tostring(t.server))'
+            % (ghost_recon_is_open(), ghost_recon_steals_left(), _ghost_task_by_uuid()))
 
 
 # ---------------------------------------------------------------------------

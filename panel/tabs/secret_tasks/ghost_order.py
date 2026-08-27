@@ -252,7 +252,7 @@ class GhostOrder:
             return
         self.rob(picks)
 
-    def rob_one(self, uuid, server) -> bool:
+    def rob_one(self, uuid, server, x=0, y=0) -> bool:
         """ONE squad, named by the row that offered the press (#1976).
 
         The phone's rows carry their own uuid since the card is drawn from the page's own
@@ -267,7 +267,7 @@ class GhostOrder:
         """
         if self._proc is not None:
             return False
-        self.rob([{"uuid": uuid, "srv": server}])
+        self.rob([{"uuid": uuid, "srv": server, "x": x, "y": y}])
         return True
 
     # -- the robbery ---------------------------------------------------------
@@ -285,19 +285,24 @@ class GhostOrder:
         applied where the targets were CHOSEN; the recipe re-derives neither, and the
         event day and the daily budget stay the game's, read by its own `xall`.
         """
-        pairs = [(int(t["uuid"]), int(t.get("srv") or 0))
+        # …WITH THE COORDINATE, because the recipe asks the game about each tile before it
+        # presses (#2010) and `world.get.detail.new` is keyed by the point, not the uuid.
+        # A target with no coordinate still travels: the gate then judges it by the
+        # client's own list, which is where such a target came from in the first place.
+        pairs = [(int(t["uuid"]), int(t.get("srv") or 0),
+                  int(t.get("x") or 0), int(t.get("y") or 0))
                  for t in (targets or ()) if t.get("uuid")]
         pairs = pairs[:self.limit()]
         if not pairs:
             # Whoever set the flag — `run_once` does, before the read — gets it back.
             self._proc = None
             return
-        self._seen.update(str(uuid) for uuid, _srv in pairs)
-        queue = ",".join("{uuid=%d,server=%d}" % pair for pair in pairs)
+        self._seen.update(str(uuid) for uuid, _srv, _x, _y in pairs)
+        queue = ",".join("{uuid=%d,server=%d,x=%d,y=%d}" % pair for pair in pairs)
         self.rt.say("ghost", "ghost.robbing", n=len(pairs))
         self._proc = object()      # «a robbery is in flight» — `tick` reads this
         threading.Thread(target=self._spend,
-                         args=(queue, [str(uuid) for uuid, _srv in pairs]),
+                         args=(queue, [str(uuid) for uuid, _srv, _x, _y in pairs]),
                          daemon=True).start()
 
     def _spend(self, queue: str, uuids=()) -> None:

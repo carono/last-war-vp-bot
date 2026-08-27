@@ -54,14 +54,34 @@ READ_LUA (function() return #(DataCenter.ActGhostreconManager.__lw_ghost_queue o
 IF targets == 0
     LOG "No ghost-recon squad queued — name them in `queue`, or run tools/ghost_recon_steal.py first."
 
-# 3. Spend the queue. `xall` re-reads min(queued, robberies left today) between
+# 3. ASK THE GAME ABOUT THE QUEUED TILES FIRST (#2010). One `world.get.detail.new` per
+#    tile, no server jump — the same round trip the client itself makes when a finger
+#    taps one. It is asked only for what is about to be tried (the queue is at most the
+#    day's remaining robberies), never as a sweep of the list: the list is kept current
+#    by the sniffer's own events, and a periodic re-read of everything is the background
+#    activity this repository does not do.
+#
+#    Why it is here at all: twenty presses over four runs took nothing, and the gate
+#    probe said why — `found=0`, the client did not know those squads. A tile only a map
+#    lap has seen has no entry in `taskList`, so its detail is the only word the game can
+#    give about it.
+TAP ghost_recon_ask_details
+
+# 4. Spend the queue. `xall` re-reads min(queued, robberies left today) between
 #    presses — and reads 0 outright while the event is closed.
+#
+#    EVERY PRESS ASKS THE GAME'S OWN VERDICT ABOUT ITS OWN TARGET FIRST (#2010): a squad
+#    the client knows is judged by `GetPointStealType == CanSteal` plus «not mine», «loot
+#    slots free» and «inside dispatchStealRange»; a tile only the map has seen is judged
+#    by the detail asked for above — it must have answered, and still carry that uuid.
+#    Anything the game does not confirm is skipped without a send, so the day's five are
+#    spent only on what it called available (`ghost_steal_skipped` says which and why).
 TAP steal_ghost_recon xall
 
-# 4. A success raises the event's loot window; close it so the next run is clean.
+# 5. A success raises the event's loot window; close it so the next run is clean.
 TAP dismiss_ghost_recon_reward
 
-# 5. Say what the SERVER did. `stealTimes` is the account's spent count and only the
+# 6. Say what the SERVER did. `stealTimes` is the account's spent count and only the
 #    reply moves it, so this is the one honest «it worked» — a `ghost_steal_sent` line
 #    above proves a frame left the client and nothing more.
 READ_LUA (function() local M=DataCenter.ActGhostreconManager local now=tonumber(M.stealTimes) or 0 local was=tonumber(M.__lw_ghost_run) or now return now-was end)() INTO taken
