@@ -471,6 +471,13 @@ And two smaller ones, both measured rather than reasoned: the point's answer lan
 inside 3 s and had not at 1.5 (every press read `no_detail` until the ask was given
 its three), and a row with no `pid` cannot be asked about at all, so those go last.
 
+**The tally of the three runs that took the day, exactly as the log has it:** ten
+targets asked about (`ghost_detail_asked n=5`, `n=4`, `n=1`), five sent and five
+confirmed, five passed over — four because the game's own verdict raised on the
+`taskInfo` (`why=state_err`: the squad is in no state to be robbed) and one because
+the row carried no `pid` and could not be asked about at all. Not one of the five
+skips cost a robbery, which is the whole point of asking first.
+
 **What made the difference between four blind runs and this one** was not any of the
 fixes — it was the button relaying `ghost_steal_sent` / `ghost_steal_skipped`. Twenty
 presses had left exactly the same log as five successes: five lines saying a button
