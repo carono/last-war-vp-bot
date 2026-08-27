@@ -165,9 +165,126 @@ def test_the_run_is_judged_by_the_server_and_not_by_a_sent_frame():
     lua.execute(_park_chunk("{uuid=1,server=1}"))
     assert int(manager.__lw_ghost_run) == 2, "no baseline was stamped"
     manager.stealTimes = 3                   # the reply landed
-    taken = _statements()[5]
-    assert type(taken).__name__ == "ReadLuaStmt", type(taken).__name__
+    # Index rather than name because the recipe is a list of statements; it moved by one
+    # when the game began being asked about each tile before the press (#2010).
+    taken = next(st for st in _statements()
+                 if type(st).__name__ == "ReadLuaStmt" and getattr(st, "var", "") == "taken")
     assert int(lua.eval(taken.expr if hasattr(taken, "expr") else taken.code)) == 1
+
+
+#: The rest of the client a PRESS touches since #2010: the point details the recipe asks
+#: for, the steal verdict, the reachable-warzone set and the network the send goes out on.
+_PRESS_WORLD = """
+local logged = {}
+LOGGED = logged
+SENT = {}
+CS = {UnityEngine = {Debug = {LogError = function(s) logged[#logged + 1] = s end},
+                     Vector2Int = function(a, b) return {a, b} end}}
+SceneUtils = {TilePosToIndex = function(v) return v[1] * 10000 + v[2] end}
+SFSNetwork = {SendMessage = function(...) SENT[#SENT + 1] = {...} end}
+MsgDefines = {GhostReconSteal = 'steal'}
+GhostreconPointStealType = {CanSteal = 2}
+LuaEntry = {Player = {uid = 777}}
+DETAIL = nil
+DataCenter.ActGhostreconManager.taskList = {}
+DataCenter.ActGhostreconManager.dispatchStealRange = {[935] = true}
+DataCenter.ActGhostreconManager.GetTaskTemplate =
+  function(self, c) return {stealMaxtimes = 3} end
+DataCenter.ActGhostreconManager.GetPointStealType =
+  function(self, c, t, l) return VERDICT end
+VERDICT = 2
+DataCenter.WorldPointDetailManager =
+  {GetDetailByPointId = function(self, pid) return DETAIL end}
+"""
+
+
+def _press_vm():
+    """A VM that can answer everything ONE press asks — and record what it sent."""
+    lua, manager = _vm(spent=0)
+    lua.execute(_PRESS_WORLD)
+    return lua, manager
+
+
+def _press(lua, queue_lua: str) -> str:
+    """Run one `steal_ghost_recon` press over a queue of one; return its last log line."""
+    import lua_actions
+
+    lua.execute("DataCenter.ActGhostreconManager.__lw_ghost_queue = {%s}" % queue_lua)
+    lua.execute(lua_actions.steal_next_ghost_recon())
+    said = list(lua.globals().LOGGED.values())
+    return said[-1] if said else ""
+
+
+def test_a_press_asks_the_games_own_verdict_and_skips_what_it_refuses():
+    """The whole of #2010's last mile: the day's five go only on what the GAME confirms.
+
+    Twenty presses over four live runs took nothing, and the gate probe said why — the
+    client did not know those squads, so the server refused every send. A press asks
+    first now, per target, at the moment of the press: a squad the client knows is judged
+    by `GetPointStealType`, a tile only the map has seen by the detail asked for a moment
+    earlier. What is not confirmed is skipped WITHOUT a send, so nothing is spent finding
+    out what the client could have said.
+    """
+    if not _needs_lua("the press asks before it sends"):
+        return
+    lua, _manager = _press_vm()
+
+    # A map tile nobody answered about: skipped, and it says why.
+    said = _press(lua, "{uuid=11,server=935,x=1,y=2}")
+    assert "ghost_steal_skipped" in said and "no_detail" in said, said
+    assert len(lua.globals().SENT) == 0, "a doomed frame went out anyway"
+
+    # …the detail came back about a DIFFERENT task: the tile has changed under us.
+    lua.execute("DETAIL = {uuid = 99}")
+    said = _press(lua, "{uuid=11,server=935,x=1,y=2}")
+    assert "ghost_steal_skipped" in said and "gone" in said, said
+    assert len(lua.globals().SENT) == 0, said
+
+    # …and the same tile once the detail confirms it: one send, named by uuid.
+    lua.execute("DETAIL = {uuid = 11}")
+    said = _press(lua, "{uuid=11,server=935,x=1,y=2}")
+    assert "ghost_steal_sent" in said and "11" in said, said
+    assert len(lua.globals().SENT) == 1, said
+
+
+def test_a_squad_the_client_knows_is_judged_by_the_game_and_not_by_our_clock():
+    """`GetPointStealType == CanSteal`, plus the three things that verdict cannot see."""
+    if not _needs_lua("the client's own verdict gates the press"):
+        return
+    lua, _manager = _press_vm()
+    known = ("DataCenter.ActGhostreconManager.taskList = {{uuid = 21, ownerId = 555, "
+             "cfgId = 1, completionTime = 1, ownerServer = %s, stealList = %s}}")
+
+    lua.execute(known % (935, "{}"))
+    assert "ghost_steal_sent" in _press(lua, "{uuid=21,server=935,x=3,y=4}")
+    assert len(lua.globals().SENT) == 1
+
+    # …out of the event's reachable set: seen, pressable, and refused by the server.
+    lua.execute(known % (1, "{}"))
+    said = _press(lua, "{uuid=21,server=1,x=3,y=4}")
+    assert "out_of_range" in said, said
+
+    # …looted out by three other players.
+    lua.execute(known % (935, "{{uid=1},{uid=2},{uid=3}}"))
+    assert "looted_out" in _press(lua, "{uuid=21,server=935,x=3,y=4}")
+
+    # …my own squad.
+    lua.execute("DataCenter.ActGhostreconManager.taskList = {{uuid = 21, ownerId = 777, "
+                "cfgId = 1, completionTime = 1, ownerServer = 935, stealList = {}}}")
+    assert "mine" in _press(lua, "{uuid=21,server=935,x=3,y=4}")
+
+    # …and the game's own «not yet» — whatever our clock thinks.
+    lua.execute(known % (935, "{}"))
+    lua.execute("VERDICT = 1")
+    assert "state_1" in _press(lua, "{uuid=21,server=935,x=3,y=4}")
+    assert len(lua.globals().SENT) == 1, "only the confirmed one was ever sent"
+
+
+def test_the_recipe_asks_about_the_queue_before_it_presses():
+    """The order of the steps is the fix: ask, settle, then press."""
+    steps = [getattr(st, "name", "") for st in _statements("{uuid=1,server=1,x=2,y=3}")]
+    taps = [n for n in steps if n]
+    assert taps.index("ghost_recon_ask_details") < taps.index("steal_ghost_recon"), taps
 
 
 def test_the_marks_the_panel_reads_are_the_ones_the_recipe_says():

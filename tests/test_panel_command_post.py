@@ -788,7 +788,11 @@ def test_the_ghost_robbery_travels_as_a_queue_and_spawns_nothing():
     assert rt.children.cmd is None, f"a child was spawned: {rt.children.cmd}"
     assert rt.actions.played == ["steal_ghost_recon"], rt.actions.played
     queue = rt.actions.args[0].get("queue", "")
-    assert queue == "{uuid=1,server=100},{uuid=2,server=101}", queue
+    # …and each entry names WHERE the tile is as well as which it is (#2010): the recipe
+    # asks the game about that point before it presses, and the question is keyed by the
+    # point rather than by the uuid.
+    assert queue == ("{uuid=1,server=100,x=0,y=0},"
+                     "{uuid=2,server=101,x=0,y=0}"), queue
 
 
 def test_a_robbery_with_nothing_chosen_presses_nothing() -> None:
@@ -911,7 +915,10 @@ def test_a_row_press_robs_that_row_and_a_second_one_is_refused():
     assert tab.web_press("ghost_rob_one", {"uuid": "11", "srv": 700}) == {"ok": True}
     _drain(order)
     assert rt.actions.played == ["steal_ghost_recon"], rt.actions.played
-    assert rt.actions.args[0]["queue"] == "{uuid=11,server=700}", rt.actions.args
+    # …with the coordinate, which the recipe asks the game about before it presses
+    # (#2010). A row that carries none travels as 0,0 and is judged by the client's own
+    # list instead.
+    assert rt.actions.args[0]["queue"] == "{uuid=11,server=700,x=0,y=0}", rt.actions.args
     assert rt.children.cmd is None, "a per-row robbery spawned something"
 
     # …and a press with no row named is not a press.
