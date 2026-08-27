@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 55 of 158
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 56 of 159
 
-🟩 55 done · 🟨 68 partly · 🟥 35 not automated
+🟩 56 done · 🟨 68 partly · 🟥 35 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -302,6 +302,7 @@ the bot understanding what is actually going on in the game.
 - ✅ Writing down the alliance duel (VS): the whole week broken down by day, both sides at once. One press and the panel has every day's ranking — every player of your alliance AND of the one you are fighting, with what each of them scored on each day — plus the two alliances' own daily totals, who won which day, and each side's best player. It reads the game rather than waiting for you: nothing has to be opened, no screen has to be walked, and the enemy's numbers arrive with your own because the game sends both in the same list. It keeps everything the game says about a player, not just the columns the panel happens to show, so a number that turns out to matter later is already recorded. The one thing it cannot do is go back: a day that ended before the panel was ever asked about it stays missing, so press it once a day — or leave the collector on, which now also files what it catches by day and by side
 - 🟡 Attacking a monster on the map without clicking
 - 🟡 Seeing the monsters on the map as a list — where each one stands, what kind it is and what level. This is the one thing on the map the game never tells anybody over the network: it decides where the monsters are inside the client itself, so the list is read out of the client's own memory rather than caught in flight. That has a price and the page is honest about it — it shows what the client can currently SEE, not the whole server, so it fills up as you move the camera around and press «Обновить». Not yet read beside a live map with monsters on it
+- ✅ A page that DRAWS the map instead of listing it — two pictures, side by side with the real game. One is everything the panel itself has gathered: every base, mine, lorry, train, starred raid, ghost squad and treasure it has ever been told about, painted where it believes they are, with the ground it has never looked at left dark so «there is nothing there» is never confused with «we have never been there». The other is what the CLIENT is holding right now — where its camera stands, how high, and every tile, monster and march of ours around it — so the panel's model can be held up against the game's own screen and checked. Read-only on purpose: nothing on the picture presses anything, and it cannot, because the only thing the page is allowed to play is the reading itself. The live half reads only while the page is open, gives up its turn whenever the bot is working, and says on screen how many seconds old the picture is, so one that has stopped looks stopped; how often it reads is yours to set. **Checked live against the game by the player: «Экран клиента — очень хорошо, с реальностью сходится»**
 
 ---
 
