@@ -74,6 +74,12 @@ EXEMPT = {
     # a recipe of your own. What the panel actually presses is the gated, schedulable
     # `apply_ministry_interior`, which is on «Чеклист» and in the timer catalogue.
     "submit_ministry": "a template to copy — apply_ministry_interior is the shipped press",
+    # A DIAGNOSIS, not an ability (#2010): it reads why the game would refuse to rob one
+    # named ghost-recon squad and presses nothing at all. It exists because the send is
+    # fire-and-forget — a robbery the server refuses looks exactly like one it accepted
+    # until `stealTimes` fails to move — and it is run against a uuid the panel has just
+    # pressed at, which is not a thing a button on a tab could pass.
+    "read_ghost_steal_gate": "a read-only diagnosis for one uuid, pressed by nobody",
     # Nothing to press: it is what the panel plays when the SERVER kicks this session,
     # and the person it happens to is not at the machine. A button would be a way to
     # relog for no reason, which the client's own «Перезапустить» already is.

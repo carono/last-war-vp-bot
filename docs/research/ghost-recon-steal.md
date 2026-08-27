@@ -341,3 +341,54 @@ What that changed, and what it deliberately did not:
 * a profile written before the move is carried across once: the flat `ghost_autoloot`
   and `command_post.pages.ghost.level_min` are read into the page's own block the first
   time it is applied, so a rule somebody was already running under is not lost.
+
+## 6d. Why the presses take nothing: the client does not know the tile (#2010)
+
+The order was switched on with the operator's go-ahead and given a live event day.
+It pressed, and the counter did not move — twice on hour-old targets and once on
+targets a map lap had stamped two minutes earlier, so **staleness is not the
+reason**:
+
+```
+TAP Rob a ghost-recon squad xall -> 5 press(es)
+READ_LUA taken = 0
+READ_LUA left  = 5          ← the event's own five, none of them spent
+```
+
+`actions/read_ghost_steal_gate.md` was written to answer the one question the logs
+cannot — the send is fire-and-forget, so a robbery the server refuses reads exactly
+like one it accepted until `stealTimes` fails to move. It takes the game's own gate
+apart for one uuid. Three targets the order had just pressed at, on three separate
+runs:
+
+```
+ghost_gate found=0 left=5 range_size=144
+```
+
+**`found=0` is the whole answer.** The uuid is not in the client's own ghost lists —
+neither `taskList` nor `allianceTaskList` — because those hold MY squads and MY
+alliance's, and every target the order chooses comes off a map sweep, which is the
+only place another alliance's squads are ever seen. `dispatchStealRange` holds 144
+warzones, so reach was never the problem, and the budget was never touched.
+
+So `ghost.recon.steal {uuid, ownerServer}` is not the whole robbery for a tile the
+client has not loaded. The in-game press is a CLICK on the tile: the client fetches
+that point first and the squad enters its knowledge, exactly as the secret-task
+robbery has to resolve a coordinate through `world.get.detail.new` before
+`hero.dispatch.steal` will land (docs/research/secret-task-steal.md).
+
+**What that makes the next step:** fetch the tile's detail for the chosen uuid, wait
+for the client to hold it, then press — and only count a run as a robbery when
+`stealTimes` moves. Until that is written, the ghost robbery stays 🟡 in the farming
+list: it presses, and nothing is taken.
+
+**And the two budgets are separate, which this run also measured.** On 2026-08-27,
+with the ★ five long gone, the event's five were untouched all evening:
+
+```
+steal_left=0 steal_cap=5      ← secret tasks, spent
+ghost_open=1 ghost_left=5 ghost_cap=5   ← ghost recon, in hand
+```
+
+Different manager, different counter, and neither watcher reads the other's
+(`tests/test_panel_secret_tasks.py::test_the_two_robbery_budgets_are_never_the_same_number`).
