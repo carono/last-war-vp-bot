@@ -439,7 +439,7 @@ def main() -> int:
                           f"flush){C_RESET}")
                 if world is not None:
                     held = world.counts()
-                    if not dump_tasks(world.records(), args.world_json):
+                    if not dump_tasks(world.checkpoint(), args.world_json):
                         print(f"{C_DIM}  (world checkpoint locked, skipped this "
                               f"flush){C_RESET}")
                     elif changed:
@@ -580,7 +580,7 @@ def main() -> int:
 
     if world is not None:
         held = world.counts()
-        if dump_tasks(world.records(), args.world_json):
+        if dump_tasks(world.checkpoint(), args.world_json):
             print(f"{C_OK}wrote {held['mines']} mine(s), {held['trucks']} truck(s), "
                   f"{held['trains']} train(s) and {held['players']} player(s) to "
                   f"{args.world_json}{C_RESET}")

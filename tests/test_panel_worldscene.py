@@ -304,6 +304,36 @@ def test_the_data_route_can_only_read():
     assert 'if kind != "map":' in data and "return None" in data
 
 
+def test_the_four_kinds_are_what_records_holds_and_coverage_rides_beside_them():
+    """`records()` is kind -> rows, and every reader walks its values as such.
+
+    Coverage went INTO that mapping when it was added and broke the world monitor's own
+    test: `all(row["seen_at"] for rows in records.values() for row in rows)` walked a
+    dict of cells as if it were a list of sightings. It is the checkpoint's own key
+    instead — the file carries it, the mapping does not.
+    """
+    import world_index
+
+    index = world_index.WorldIndex()
+    index._cover({"serverPointArr": [{"serverId": 1, "maxAreaSize": 1000,
+                                      "leftBottom": 0, "rightTop": 1000 * 40 + 40,
+                                      "viewLvl": 0, "points": []}]}, time.time())
+    records = index.records()
+    assert set(records) == {"mines", "trucks", "trains", "players"}, sorted(records)
+    for rows in records.values():
+        assert isinstance(rows, list), records
+    checkpoint = index.checkpoint()
+    assert checkpoint["coverage"]["cells"], checkpoint["coverage"]
+    assert set(checkpoint) == set(records) | {"coverage"}, sorted(checkpoint)
+
+
+def test_the_world_checkpoint_is_written_from_the_one_call_that_carries_coverage():
+    """The capture writes `checkpoint()`; `records()` there would drop the sweep."""
+    source = (_REPO_ROOT / "tools" / "secret_task_capture.py").read_text(encoding="utf-8")
+    assert "dump_tasks(world.checkpoint(), args.world_json)" in source
+    assert "dump_tasks(world.records(), args.world_json)" not in source
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

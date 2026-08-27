@@ -481,9 +481,18 @@ class WorldIndex:
                 rows = sorted(records.values(), key=ranks[kind])
                 self.dropped[kind] = max(len(rows) - cap, 0)
                 out[kind] = [dict(row) for row in rows[:cap]]
-        # WHERE WE LOOKED, beside WHAT WE FOUND (#2018). Outside the lock above because
-        # `coverage` takes it itself, and it is a fifth key rather than a fifth kind: it
-        # is not a list of things on the map, it is the shape of our own ignorance.
+        return out
+
+    def checkpoint(self) -> dict:
+        """What the world CHECKPOINT holds: the four kinds, and where we looked (#2018).
+
+        `records` is the four kinds and nothing else, and it has to stay that way — it is
+        a mapping of kind to rows and every reader walks its values as such. Coverage is
+        not a fifth kind: it is not a list of things on the map, it is the shape of our
+        own ignorance. So it is joined on HERE, in the one place that writes the file,
+        and `world_map.json` carries it beside them under its own key.
+        """
+        out = self.records()
         out["coverage"] = self.coverage()
         return out
 
