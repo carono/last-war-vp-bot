@@ -131,6 +131,8 @@ class GameLink:
         #: edge and not on every poll — the class of defect this codebase keeps
         #: relearning (#1910).
         self._said_fail = ""
+        self._said_at = 0.0
+        self._fail_since = 0.0
         # `token=""` — explicitly unleased, rather than "whatever this process
         # inherited". A panel process may hold two profiles' leases at once.
         self._client = None
@@ -378,7 +380,7 @@ class GameLink:
         if not ok:
             self._say_failure("attach", "log.link.attach_failed", error=service.error())
         else:
-            self._said_fail = ""
+            self._said_fail, self._fail_since = "", 0.0
         return ok
 
     def _ensure_remote(self) -> bool:
@@ -408,7 +410,7 @@ class GameLink:
                 return False
         for _ in range(60):
             if self.up(fresh=True):
-                self._said_fail = ""
+                self._said_fail, self._fail_since = "", 0.0
                 self.on_state("green", True)
                 return True
             time.sleep(0.5)
@@ -469,19 +471,44 @@ class GameLink:
     #: watching sees it is still true, and rare enough that the log stays readable.
     FAIL_SAY_SEC = 300.0
 
+    #: …BUT SILENCE IS NOT THE SAME AS QUIET (#1994). Five minutes of nothing reads as
+    #: «the panel is working» — during the fourteen-hour outage the log said one line at
+    #: the start and then nothing at all, while the schedule stood still behind a held
+    #: gate. So a standing failure is repeated once a minute in a SHORTER form that
+    #: carries the one fact the first line could not: how long it has been true.
+    FAIL_AGAIN_SEC = 60.0
+
+    #: What the route puts in front of «the client is busy» so the panel can tell that
+    #: case from every other reason nothing lands (`tools/lib/xlua_route.py::BUSY_MARK`).
+    #: A client somebody is PLAYING is the ordinary case, not a fault, and it is the one
+    #: the person needs named in their own language rather than in the mechanism's.
+    BUSY_MARK = "client-busy"
+
     def _say_failure(self, fingerprint: str, key: str, **fmt) -> None:
-        """Say why the link is amber — on the EDGE, then rarely.
+        """Say why the link is amber — on the EDGE, then briefly, but never silently.
 
         `fingerprint` is what makes two failures the same failure: a REASON that has
         changed is news whatever the clock says, because it usually means the person has
         just fixed one thing and hit the next.
+
+        A reason that has NOT changed is still said once a minute, as «for how long» —
+        because a person reading the log is asking «is the panel doing anything», and an
+        answer that stops arriving is indistinguishable from an answer of «yes».
         """
         now = time.monotonic()
         said, at = (self._said_fail, getattr(self, "_said_at", 0.0))
-        if said == fingerprint and at and (now - at) < self.FAIL_SAY_SEC:
-            self._note_warn("still failing: %s", fingerprint)
+        since = getattr(self, "_fail_since", 0.0)
+        if said == fingerprint and at:
+            if (now - at) < self.FAIL_AGAIN_SEC:
+                self._note_warn("still failing: %s", fingerprint)
+                return
+            self._said_at = now
+            mins = max(1, int((now - (since or at)) // 60))
+            busy = self.BUSY_MARK in str(fmt.get("error") or "")
+            self._log.say("link", "log.link.attach_busy" if busy
+                          else "log.link.attach_stuck", minutes=mins, **fmt)
             return
-        self._said_fail, self._said_at = fingerprint, now
+        self._said_fail, self._said_at, self._fail_since = fingerprint, now, now
         self._log.say("link", key, **fmt)
 
     # -- the claim ----------------------------------------------------------

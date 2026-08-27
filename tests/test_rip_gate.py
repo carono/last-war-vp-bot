@@ -101,15 +101,44 @@ def test_nothing_sampled_is_none():
     assert g.learn_safe_rip(1, 2) is None
 
 
-def test_the_route_relearns_once_and_says_what_to_do():
-    """Read off the source: the retry and the sentence, without a game to run it."""
+def test_the_route_waits_for_a_busy_client_instead_of_dying():
+    """Read off the source: a step waits, re-learns, and only then calls it busy.
+
+    The gate is what keeps the client alive, so what is pinned here is that the WAIT
+    grew and the TARGET did not: ±16 bytes of the learned park, main thread only.
+    """
     src = (_REPO / "tools" / "lib" / "xlua_route.py").read_text(encoding="utf-8")
-    assert "for attempt in (0, 1):" in src, "a refusal no longer re-asks for the park"
-    assert "re-learned SAFE_RIP" in src, "…and never says that it did"
+    assert "PARK_WINDOW = 15.0" in src, "a step gave up after one short look again"
+    assert "STEP_BUDGET = 60.0" in src, "…and with no budget across re-learns"
+    assert "park_timeout=self.PARK_WINDOW" in src, "the window is not the one being used"
+    assert "rip_tol=16" in src and "only_tid=self.mt" in src, \
+        "the GATE was widened — the wait is what may grow, never the target"
+    assert "re-learned SAFE_RIP" in src, "a refusal no longer re-asks for the park"
     assert "gated hijack returned None" not in src, \
         "the mechanism's own words reached the person again"
-    assert "let the game sit in the base" in src, \
-        "the sentence stopped saying what to DO about it"
+    assert 'BUSY_MARK = "client-busy"' in src, \
+        "the panel can no longer tell «busy» from every other reason nothing lands"
+
+
+def test_the_panel_keeps_saying_how_long_it_has_been_stuck():
+    """The other half of #1994: one line at the start and then five minutes of nothing."""
+    src = (_REPO / "panel" / "runtime" / "link.py").read_text(encoding="utf-8")
+    assert "FAIL_AGAIN_SEC = 60.0" in src, "a standing failure went quiet again"
+    assert "log.link.attach_busy" in src and "log.link.attach_stuck" in src, \
+        "the repeat says nothing about how long it has been true"
+    assert 'BUSY_MARK = "client-busy"' in src, \
+        "«the client is busy» is not told apart from a real fault"
+
+
+def test_the_two_new_lines_are_in_every_shipped_locale():
+    import json
+    locales = sorted((_REPO / "panel" / "locales").glob("*.json"))
+    assert len(locales) >= 11, "the shipped set shrank — check panel/locales/"
+    for path in locales:
+        keys = json.loads(path.read_text(encoding="utf-8"))
+        for key in ("log.link.attach_busy", "log.link.attach_stuck"):
+            assert key in keys, f"{path.name} is missing {key}"
+            assert "{minutes}" in keys[key], f"{path.name}:{key} lost its duration"
 
 
 def _main() -> int:

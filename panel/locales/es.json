@@ -2164,6 +2164,8 @@
   "log.link.reattaching": "reconectando con el cliente…",
   "log.link.letting_go": "suelto el cliente",
   "log.link.attach_failed": "no se pudo tomar el cliente: {error}",
+  "log.link.attach_busy": "el cliente está ocupado — el panel lleva {minutes} min sin poder tomarlo; la programación espera",
+  "log.link.attach_stuck": "sigue sin poder tomarse el cliente — ya {minutes} min: {error}",
   "log.link.session_failed": "no se llega al cliente en la otra sesión de Windows: {error}",
   "log.link.session_silent": "la otra sesión de Windows no responde en el puerto {port}",
   "log.link.port_taken": "el puerto {port} está ocupado: las herramientas hijas no alcanzan este perfil",

@@ -18,6 +18,7 @@ How:
 from __future__ import annotations
 import ctypes as C
 import sys
+import time
 from ctypes import wintypes
 
 sys.path.insert(0, "tools/lib")
@@ -61,21 +62,31 @@ PAGE_NOACCESS = 0x01
 def resolve_class(h, pid, e, name):
     """Live Il2CppClass* for an Assembly-CSharp class via one safe enum hijack."""
     mt = R.main_thread_tid(pid)
-    sr = R.learn_safe_rip(pid, mt, n=30)
-    if sr is None:
-        raise SystemExit("the client's main thread never stood still while we watched, "
-                         "so nothing can be run in it yet — let the game sit in the "
-                         "base, untouched, for a minute")
+    # The park is WAITED for, not sampled once: a client somebody is playing reaches it
+    # a few per cent of the time, so one sweep of 30 samples can miss a thread that is
+    # perfectly takeable a second later (#1994).
+    sr = None
+    deadline = time.time() + 30.0
+    while sr is None:
+        sr = R.learn_safe_rip(pid, mt, n=30)
+        if sr is None and time.time() >= deadline:
+            raise SystemExit("client-busy: the client's main thread is busy — it did "
+                             "not reach its park once in 30s, so nothing can be run in "
+                             "it yet")
+        if sr is None:
+            time.sleep(0.5)
     S = int(P.VirtualAllocEx(h, None, D.REGION_SIZE, 0x3000, 0x40))
     cr = int(P.VirtualAllocEx(h, None, 0x2000, 0x3000, 0x40))
     P.WriteProcessMemory(h, C.c_void_p(S), b"\x00" * D.CLASS_OFF, D.CLASS_OFF,
                          C.byref(C.c_size_t(0)))
     code = D.build_dump_all(e, S)
     P.WriteProcessMemory(h, C.c_void_p(cr), code, len(code), C.byref(C.c_size_t(0)))
+    # Same window as the route's own steps: the gate is unchanged, the wait is not.
     r = H.hijack_call(h, pid, cr, [S, 100000, D.CLASS_CAP], "enum",
-                      only_tid=mt, safe_rip=sr[0], rip_tol=16)
+                      only_tid=mt, safe_rip=sr[0], rip_tol=16, park_timeout=15.0)
     if not r:
-        raise SystemExit("enum failed")
+        raise SystemExit("client-busy: enum — the client's main thread did not reach "
+                         "its park while we waited, so nothing can be run in it yet")
     na = D.u64(P.rpm(h, S, 8), 0)
     asms = D.read_asm_table(h, S, na)
     cs = next(x for x in asms if D.cstr(h, x["name_ptr"]) == "Assembly-CSharp")

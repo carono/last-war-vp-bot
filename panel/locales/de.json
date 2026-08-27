@@ -2164,6 +2164,8 @@
   "log.link.reattaching": "verbinde mich neu mit dem Client…",
   "log.link.letting_go": "lasse den Client los",
   "log.link.attach_failed": "Der Client konnte nicht übernommen werden: {error}",
+  "log.link.attach_busy": "Der Client ist beschäftigt — die Panel kann ihn seit {minutes} Min. nicht übernehmen; der Zeitplan wartet",
+  "log.link.attach_stuck": "Der Client ist weiterhin nicht zu übernehmen — seit {minutes} Min.: {error}",
   "log.link.session_failed": "Der Client in der anderen Windows-Sitzung ist nicht erreichbar: {error}",
   "log.link.session_silent": "Die andere Windows-Sitzung antwortet auf Port {port} nicht",
   "log.link.port_taken": "Port {port} ist belegt — die Hilfsprogramme erreichen dieses Profil nicht",

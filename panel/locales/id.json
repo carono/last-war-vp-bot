@@ -2164,6 +2164,8 @@
   "log.link.reattaching": "menghubungkan ulang ke klien…",
   "log.link.letting_go": "melepaskan klien",
   "log.link.attach_failed": "tidak bisa memegang klien: {error}",
+  "log.link.attach_busy": "klien sedang sibuk — panel belum bisa mengambil alih selama {minutes} mnt; jadwal menunggu",
+  "log.link.attach_stuck": "klien masih belum bisa diambil alih — sudah {minutes} mnt: {error}",
   "log.link.session_failed": "tidak bisa menjangkau klien di sesi Windows lain: {error}",
   "log.link.session_silent": "sesi Windows lain tidak menjawab di port {port}",
   "log.link.port_taken": "port {port} dipakai hal lain — alat anak tidak bisa menjangkau profil ini",

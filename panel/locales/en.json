@@ -2164,6 +2164,8 @@
   "log.link.reattaching": "reconnecting to the client…",
   "log.link.letting_go": "letting the client go",
   "log.link.attach_failed": "could not take hold of the client: {error}",
+  "log.link.attach_busy": "the client is busy — the panel has not been able to take hold of it for {minutes} min; the schedule is waiting",
+  "log.link.attach_stuck": "still cannot take hold of the client — {minutes} min now: {error}",
   "log.link.session_failed": "could not reach the client in the other Windows session: {error}",
   "log.link.session_silent": "the other Windows session is not answering on port {port}",
   "log.link.port_taken": "port {port} is held by something else — the child tools cannot reach this profile",

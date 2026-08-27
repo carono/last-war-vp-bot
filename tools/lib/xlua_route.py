@@ -18,6 +18,7 @@ Steps (per task #984):
 from __future__ import annotations
 import ctypes as C
 import struct
+import time
 import sys
 
 sys.path.insert(0, "tools/lib")
@@ -56,44 +57,84 @@ class X:
         self._s = {}
         print(f"pid={self.pid} SAFE_RIP=0x{self.sr:x}")
 
-    #: What a busy client is told, in a sentence rather than in the mechanism's own
-    #: words. It reaches the panel's log through `log.link.attach_failed`, and the
-    #: person reading it has to know what to DO — which is nothing but leave the game
-    #: alone for a minute (#1994).
-    BUSY = ("the client's main thread never stood still while we watched, so nothing "
-            "can be run in it yet — let the game sit in the base, untouched, for a "
-            "minute and it will be taken then")
+    #: BUSY_MARK — how the panel tells «the client is busy» from every other reason
+    #: nothing lands. It travels inside the message rather than as a type, because the
+    #: message crosses a `SystemExit` through code that only ever reads its text.
+    BUSY_MARK = "client-busy"
 
-    def _learn_park(self) -> int:
-        """The main thread's parked RIP, or a sentence saying the client is busy."""
-        got = R.learn_safe_rip(self.pid, self.mt, n=40)
-        if got is None:
-            raise SystemExit(self.BUSY)
-        return got[0]
+    #: One hijack's wait for the park. The gate itself is UNCHANGED — the thread is
+    #: still only taken within ±16 bytes of the learned park — but how long we are
+    #: prepared to wait for it to get there is not a safety property at all, and four
+    #: seconds was written for a client sitting idle in the base. A client somebody is
+    #: PLAYING parks for a few per cent of its samples, so four seconds is a coin toss
+    #: and a build makes dozens of these calls: one refusal used to throw the whole
+    #: evaluator away (#1994).
+    PARK_WINDOW = 15.0
+
+    #: …and how long a single step keeps trying across re-learns before it gives up.
+    #: Spent only while the client is busy; a step that can be taken costs nothing.
+    STEP_BUDGET = 60.0
+
+    #: How often a step that is still waiting says so, so the log shows a panel that is
+    #: WAITING rather than a panel that has gone quiet.
+    SAY_EVERY = 20.0
+
+    def busy(self, label: str, waited: float) -> SystemExit:
+        """The refusal, in words that say what is happening and for how long."""
+        return SystemExit(f"{self.BUSY_MARK}: {label}: the client's main thread is busy "
+                          f"— it did not reach its park once in {waited:.0f}s, so nothing "
+                          f"can be run in it yet")
+
+    def _learn_park(self, budget: float = 30.0) -> int:
+        """The main thread's parked RIP, waited for rather than sampled once.
+
+        A busy client reaches the park a few per cent of the time, so a single sweep of
+        40 samples can genuinely miss it — and answering «busy» off one miss is how a
+        client that was perfectly takeable a second later got refused.
+        """
+        started = time.time()
+        while True:
+            got = R.learn_safe_rip(self.pid, self.mt, n=40)
+            if got is not None:
+                return got[0]
+            if time.time() - started >= budget:
+                raise self.busy("park", time.time() - started)
+            time.sleep(0.5)
 
     def hj(self, func, args, label):
-        """One gated hijack, with ONE re-learn behind it.
+        """One gated hijack — retried, and with the park re-learned between tries.
 
-        The park address is learned once per build and a client that was busy then may
-        be quiet a second later — so a refusal re-asks for the park before giving up.
-        Without that, a build started at a bad moment stayed broken for the life of the
-        process, which is precisely how #1994 lost fourteen hours.
+        THE GATE IS NOT WIDENED, THE WAIT IS. Where the thread may be taken is what
+        keeps the client alive (§1 of `docs/research/il2cpp-invoke-stability.md`), and
+        that is untouched: ±16 bytes of the park, main thread only. What changes is that
+        a step no longer gives up after one four-second look — it waits, re-learns the
+        park in case the thread has moved to a different wait, and only calls the client
+        busy after :data:`STEP_BUDGET`. A build of the evaluator makes dozens of these,
+        so a per-step refusal used to be an all-or-nothing throw of the whole build.
         """
-        for attempt in (0, 1):
+        started = time.time()
+        said = 0.0
+        tries = 0
+        while True:
+            tries += 1
             r = H.hijack_call(self.h, self.pid, func, args, label, save_xmm=True,
                               only_tid=self.mt, safe_rip=self.sr, rip_tol=16,
-                              park_timeout=4.0)
+                              park_timeout=self.PARK_WINDOW)
             if r is not None:
+                if tries > 1:
+                    print(f"[{label}] taken on try {tries} after "
+                          f"{time.time() - started:.0f}s of a busy client")
                 return r
-            if attempt == 0:
-                fresh = R.learn_safe_rip(self.pid, self.mt, n=40)
-                if fresh is None:
-                    break
-                if fresh[0] == self.sr:
-                    break          # same park, still unreachable — do not pay twice
+            waited = time.time() - started
+            if waited >= self.STEP_BUDGET:
+                raise self.busy(label, waited)
+            fresh = R.learn_safe_rip(self.pid, self.mt, n=40)
+            if fresh is not None and fresh[0] != self.sr:
                 print(f"[{label}] re-learned SAFE_RIP 0x{self.sr:x} -> 0x{fresh[0]:x}")
                 self.sr = fresh[0]
-        raise SystemExit(f"{label}: {self.BUSY}")
+            if waited - said >= self.SAY_EVERY:
+                said = waited
+                print(f"[{label}] still waiting for the client's park — {waited:.0f}s")
 
     def cstr(self, t):
         if t not in self._s:

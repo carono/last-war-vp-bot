@@ -2164,6 +2164,8 @@
   "log.link.reattaching": "đang kết nối lại với ứng dụng…",
   "log.link.letting_go": "nhả ứng dụng",
   "log.link.attach_failed": "không thể bắt lấy ứng dụng: {error}",
+  "log.link.attach_busy": "máy khách đang bận — bảng điều khiển chưa tiếp quản được suốt {minutes} phút; lịch đang chờ",
+  "log.link.attach_stuck": "vẫn chưa tiếp quản được máy khách — đã {minutes} phút: {error}",
   "log.link.session_failed": "không thể với tới ứng dụng trong phiên Windows khác: {error}",
   "log.link.session_silent": "phiên Windows khác không trả lời trên cổng {port}",
   "log.link.port_taken": "cổng {port} đang bị thứ khác giữ — các công cụ con không tới được hồ sơ này",
