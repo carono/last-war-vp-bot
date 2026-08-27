@@ -31,8 +31,8 @@ test that pins this is `tests/test_panel_errand_stats.py`.
 | `resource_tracker` | (the same line) | as above | yes |
 | `rally_auto_join`, `rally_monitor` | rallies joined today | `rally_counts` in `panel.db` | «today» — no clock |
 | `firework_collect`, `firework_watch` | gifts taken today | `firework_state` in `panel.db`, written by the ear | «today» — no clock |
-| `secret_autoloot`, `secret_tasks_day` | ★ targets ripe now, of the list | `secret_tasks_state` in `panel.db` | yes, off the rows' own `seen_at` |
-| `ghost_autoloot` | ghost squads ripe now, of the list | `ghost_map_state` in `panel.db` | yes, same |
+| `secret_autoloot`, `secret_autoassist`, `secret_tasks_day` | ★ targets ripe now, of the list | `secret_tasks_state` in `panel.db` | yes — off `checked_at` (game ms) or `seen_at` (PC seconds), each on its own clock |
+| `ghost_autoloot` | ghost squads ripe now, of the list | `ghost_map_state` in `panel.db` | yes, same two clocks |
 | `treasure_auto` | chests on the map | `world_treasures.json`, the capture's checkpoint | yes, the file's mtime |
 
 «Ripe» is the three clauses both robbers already apply — finished, not expired, not ours
@@ -59,7 +59,6 @@ Nothing below has a line, and none of them got one:
 | `tavern_free_pull` | is the free pull up | a client timer, read on demand |
 | `attack_codename_daily` | attacks left today | the manager is empty until asked (`docs/research/codename.md`) |
 | `apply_ministry_interior` | is the post free | a live read |
-| `secret_autoassist` | how many stars are being helped | the assist's own budget is read when it runs |
 | `sweep_star_servers` | zones whose star day is today | derived from the season plan — free in principle, needs a store |
 | `send_trucks` | trucks out / idle | a live read |
 | `restart_game`, `session_kick`, `inventory_refresh`, `leaderboard_collect`, `secret_task_share`, `ghost_recon_alliance` | — | nothing a number would add |

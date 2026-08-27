@@ -265,6 +265,9 @@ PROVIDERS: dict = {
     "firework_watch": _fireworks_taken,
     "secret_autoloot": _secret_targets,
     "secret_tasks_day": _secret_targets,
+    # «Автопомощь» spends the SAME list — it helps the starred tasks the ★ list
+    # holds, so the line under it answers the same question.
+    "secret_autoassist": _secret_targets,
     "ghost_autoloot": _ghost_targets,
     "treasure_auto": _treasures,
 }
