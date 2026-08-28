@@ -504,8 +504,23 @@ class PanelRuntime:
                 self.dbg("store").exception("could not close the previous store")
             self._store = None
         if self._store is None:
-            from .store import Store
+            from .store import Store, import_profile_db_once
             store = Store(want, whose)
+            # WHAT THIS PROFILE HAD WHEN IT HAD A DATABASE OF ITS OWN (#2025) — its
+            # register, its monsters, its ★ list, its ghost tiles, its map coverage and
+            # its day counters. Once, on the first ask, before anything reads: a panel
+            # that opened on the shared database with none of it would look exactly like
+            # a panel that had forgotten the account, and the day counters are what stop
+            # a quota being spent twice.
+            try:
+                carried = import_profile_db_once(
+                    store, self.profiles.legacy_store_db())
+            except Exception:                                       # noqa: BLE001
+                self.dbg("store").exception("the old profile database was not imported")
+            else:
+                if carried:
+                    self.dbg("store").info("carried the old profile database across: %s",
+                                           carried)
             # A background write has nobody waiting on it, so a job that fails alone
             # would fail in silence. It says so in THIS profile's debug log.
             store._failed = lambda job: self.dbg("store").exception(   # noqa: SLF001

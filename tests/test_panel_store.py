@@ -445,6 +445,77 @@ def test_a_write_by_the_old_table_name_fails_instead_of_crossing_profiles() -> N
     store.close()
 
 
+def test_a_profiles_own_old_database_is_carried_across_once_and_kept() -> None:
+    """THE DATA, not just the schema (#2025). What is in one of these files is the
+    register, the monsters, the ★ list, the ghost tiles, the map coverage and the day
+    counters — and a panel that opened on one database with none of it would look
+    exactly like a panel that had forgotten the account.
+    """
+    from panel.runtime.store import LEGACY_MIGRATIONS, import_profile_db_once
+
+    tmp = tempfile.mkdtemp()
+    old = str(Path(tmp) / "old_panel.db")
+    # A profile's own database exactly as the last per-profile schema left it. Raw SQL
+    # on purpose: the store's own writers reach `all_…`, which this file has never had.
+    was = Store(old, "Player1", migrations=LEGACY_MIGRATIONS)
+    with was.write() as conn:
+        conn.execute("INSERT INTO blobs(name, data, updated_at) VALUES(?, ?, 1)",
+                     ("secret_tasks_state", json.dumps({"tiles": [1, 2, 3]})))
+        conn.execute("INSERT INTO meta(key, value) VALUES('import:blob:settings:timers',"
+                     " '123')")
+        conn.execute("INSERT INTO players(uid, name, level) VALUES('7', 'Player1', 30)")
+        conn.executemany("INSERT INTO monsters(uuid, server, seen_at) VALUES(?, ?, ?)",
+                         [("1:2", 1, 10), ("1:3", 1, 11)])
+        conn.execute("INSERT INTO secret_days(server, day, state, source, seen_at)"
+                     " VALUES(1, 5, 'day', 'game', 999)")
+    was.close()
+
+    shared = str(Path(tmp) / "panel.db")
+    mine, theirs = Store(shared, "Player1"), Store(shared, "Player2")
+    carried = import_profile_db_once(mine, old)
+    assert carried == {"meta": 1, "players": 1, "blobs": 1, "secret_days": 1,
+                       "monsters": 2}, carried
+    assert mine.blob_get("secret_tasks_state") == {"tiles": [1, 2, 3]}
+    assert mine.monsters_count() == 2
+    assert mine.meta_get("import:blob:settings:timers") == "123", \
+        "the marks came across too, or every already-imported file would import again"
+    assert mine.read().execute(
+        "SELECT COUNT(*) c FROM players").fetchone()["c"] == 1
+
+    # …under THIS profile and nobody else's.
+    assert theirs.blob_get("secret_tasks_state") is None
+    assert theirs.monsters_count() == 0
+    assert theirs.read().execute("SELECT COUNT(*) c FROM players").fetchone()["c"] == 0
+
+    # Once: a second call does nothing, so a later edit cannot be undone by the file.
+    assert import_profile_db_once(mine, old) == {}
+    # …and the file is kept, renamed, never deleted.
+    assert not os.path.exists(old)
+    assert os.path.exists(old + ".imported")
+    mine.close()
+    theirs.close()
+
+
+def test_an_old_profile_database_behind_the_last_per_profile_version_still_comes() -> None:
+    """A profile shut down on an older panel is at whatever version it stopped at. It
+    is brought up to the last per-profile schema — and no further — and then read."""
+    from panel.runtime.store import LEGACY_MIGRATIONS, import_profile_db_once
+
+    tmp = tempfile.mkdtemp()
+    old = str(Path(tmp) / "old_panel.db")
+    behind = Store(old, "Player1", migrations=LEGACY_MIGRATIONS[:4])
+    with behind.write() as conn:
+        conn.execute("INSERT INTO blobs(name, data, updated_at) VALUES('rally_counts',"
+                     " '{\"boss\": 2}', 1)")
+    assert behind.version() == 4
+    behind.close()
+
+    mine = Store(str(Path(tmp) / "panel.db"), "Player1")
+    assert import_profile_db_once(mine, old).get("blobs") == 1
+    assert mine.blob_get("rally_counts") == {"boss": 2}
+    mine.close()
+
+
 def _run() -> int:
     tests = [(n, f) for n, f in sorted(globals().items())
              if n.startswith("test_") and callable(f)]

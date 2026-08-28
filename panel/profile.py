@@ -835,6 +835,16 @@ class ProfileManager:
         """
         return paths.SHARED_DB
 
+    def legacy_store_db(self, name: str | None = None) -> str:
+        """Where this profile's OWN database used to be, before #2025.
+
+        Read by the import that carries its rows into the shared one
+        (`panel/runtime/store.py::import_profile_db_once`) and by nothing else. The file
+        is never written again and never deleted — it is renamed `panel.db.imported`
+        once its contents are across.
+        """
+        return os.path.join(self.dir(name), STORE_DB)
+
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)
 

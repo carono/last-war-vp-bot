@@ -600,6 +600,16 @@ MIGRATIONS: tuple = (
     ),
 )
 
+#: THE SCHEMA AS IT STOOD WHEN EVERY PROFILE HAD A DATABASE OF ITS OWN (#2025).
+#:
+#: Frozen at v7 on purpose and never extended again: it is not a schema anything is
+#: written with any more, it is the shape :func:`import_profile_db_once` has to be able
+#: to READ. A profile shut down on an older panel may be at any version up to 7, so the
+#: importer opens its file with exactly this history, lets the ordinary machinery bring
+#: it up to 7, and copies the rows out. Extending it would migrate a file we are about
+#: to retire.
+LEGACY_MIGRATIONS = MIGRATIONS[:7]
+
 #: What the code in this checkout expects. A database above it was written by a NEWER
 #: panel — see :meth:`Store.connect` for why that is refused rather than migrated back.
 CODE_VERSION = len(MIGRATIONS)
@@ -1222,6 +1232,106 @@ def blob_import_once(store: Store, name: str, path: str) -> bool:
         return 1
 
     return bool(import_once(store, f"blob:{name}", path, load, insert))
+
+
+#: The tables a profile's own database held, and the columns to carry across. Spelled
+#: out rather than `SELECT *`, because the shared table has `profile` in front and the
+#: old one does not — and because a column added to `all_…` later must not silently
+#: change what an old file is read for.
+_LEGACY_TABLES = {
+    "meta": ("key", "value"),
+    "players": None,             # every column it has — worked out from the old file
+    "blobs": ("name", "data", "updated_at"),
+    "secret_days": ("server", "day", "state", "source", "stars", "tiles", "seen_at"),
+    "monsters": None,
+}
+
+
+def import_profile_db_once(store: Store, path: str) -> dict:
+    """Carry ONE profile's own old `panel.db` into the shared one, exactly once (#2025).
+
+    `store` is that profile's view of the shared database; `path` is the file that used
+    to be its own. Returns `{table: rows}` for what was carried — `{}` when there was
+    nothing to do, which is also what every later call returns.
+
+    **This is a move of DATA, not of a schema.** What is in one of these files is the
+    register of players, the monsters the client drew, the ★ list, the ghost tiles, the
+    map coverage and the day counters — everything the panel would otherwise appear to
+    have forgotten the first time it opened on one database. Losing any of it is not
+    recoverable by looking again: the register only ever grows, and the day counters are
+    what stop a quota being spent twice.
+
+    The order is the safety of it, and it is the same order every other import here uses:
+
+    1. the mark is checked, in THIS profile's scope — an import that has run does not run
+       again, so nothing written since can be overwritten by a stale file;
+    2. the rows are read and written with `INSERT OR IGNORE`, so anything already in the
+       shared database wins over what the old file says, and the mark lands in the SAME
+       transaction — a panel killed halfway leaves neither and the next start imports
+       cleanly rather than half again;
+    3. only THEN is the file renamed to `panel.db.imported`, with its WAL and shared-memory
+       companions, and a rename that fails is not an error — the mark already says the
+       work is done.
+
+    The file is KEPT. An import that turns out to have misread a column is answered by
+    opening it; a delete is answered by nothing.
+    """
+    if store.meta_get("import:profile_db"):
+        return {}
+    if not os.path.exists(path) or os.path.abspath(path) == os.path.abspath(store.path):
+        # No old file — a profile made after #2025. NOT marked done: a file that turns
+        # up later (a folder copied in from another machine) must still be imported.
+        return {}
+    # Opened with the OLD history, so a profile last written by an older panel is
+    # brought up to the shape this reads and not one step further.
+    old = Store(path, store.profile, migrations=LEGACY_MIGRATIONS)
+    counts: dict = {}
+    try:
+        source = old.connect()
+        have = {row[0] for row in source.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        payload = {}
+        for table, columns in _LEGACY_TABLES.items():
+            if table not in have:
+                continue
+            if columns is None:
+                columns = tuple(row[1] for row in
+                                source.execute(f"PRAGMA table_info({table})"))
+            names = ", ".join(columns)
+            rows = [tuple(row) for row in
+                    source.execute(f"SELECT {names} FROM {table}")]
+            if rows:
+                payload[table] = (columns, rows)
+        if payload:
+            with store.write() as conn:
+                for table, (columns, rows) in payload.items():
+                    target = SCOPED_TABLES[table]
+                    # Only the columns the shared table actually has: an old file cannot
+                    # carry one it never knew, and must not fail over one we dropped.
+                    known = {row[1] for row in conn.execute(
+                        f"PRAGMA table_info({target})")}
+                    keep = [i for i, c in enumerate(columns) if c in known]
+                    names = ", ".join(columns[i] for i in keep)
+                    marks = ", ".join("?" * (len(keep) + 1))
+                    conn.executemany(
+                        f"INSERT OR IGNORE INTO {target}(profile, {names}) "
+                        f"VALUES({marks})",
+                        [(store.profile,) + tuple(row[i] for i in keep)
+                         for row in rows])
+                    counts[table] = len(rows)
+                conn.execute(META_UPSERT, (store.profile, "import:profile_db",
+                                           str(int(time.time()))))
+        else:
+            store.meta_set("import:profile_db", str(int(time.time())))
+    finally:
+        old.close()
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            if os.path.exists(path + suffix):
+                os.replace(path + suffix, path + IMPORTED_SUFFIX + suffix)
+        except OSError:
+            pass
+    return counts
 
 
 def monsters_import_blob_once(store: Store, name: str = "world_state_monsters",
