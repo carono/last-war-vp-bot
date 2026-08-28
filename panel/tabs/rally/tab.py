@@ -746,6 +746,10 @@ class RallyTab(PanelTab):
         # for, how much room is left and who is already in it, faces and all. Cheap —
         # it reads the model the pushes maintain and asks the game for nothing, which
         # is the rule for everything in a `web_view` (docs/panel-tabs.md).
+        # …AND THE CAPS, as a card of typed numbers rather than a tail of readings
+        # (#2055). After «Автосбор», which is where the person looks for them, and before
+        # the banners, which are what is happening rather than what is allowed.
+        cards.append(self._web_limit_card())
         cards += self._web_roster_cards()
         return {"cards": cards, "now": __import__("time").time(),
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
@@ -969,14 +973,8 @@ class RallyTab(PanelTab):
         if over:
             rows.append({"label": "rally_kind.over",
                          "value": rallylimits.over_text(self.rt, over)})
-        rows += [{"label": "rally_limit.type." + key,
-                  # A kind with no cap says so in words rather than as «3/0», which reads
-                  # like a budget that has been overspent.
-                  "value": ("%d/%d" % (counts.count_for(key), limits.limit_for(key))
-                            if limits.limit_for(key) > 0
-                            else "%d · %s" % (counts.count_for(key),
-                                              self.t("rally_day.unlimited")))}
-                 for key in limits.types()]
+        # THE SIXTY-EIGHT CAPS THEMSELVES ARE A CARD OF THEIR OWN NOW (#2055), and
+        # they are FIELDS rather than readings — see :meth:`_web_limit_card`.
         return {
             "title": "autorally.frame",
             "items": [
@@ -1001,6 +999,41 @@ class RallyTab(PanelTab):
             ],
             "rows": rows,
         }
+
+    def _web_limit_card(self) -> dict:
+        """The daily cap per kind — and on the phone it is TYPED, not merely read (#2055).
+
+        «В веб панели нельзя настроить лимиты автостягов», in the person's own words. The
+        caps have been on this screen since #1317 and they were sixty-eight readings: the
+        one set of numbers that decides how many squads a day this account spends could be
+        moved only at the machine. By the reasoning that ended the «Настройки» divergence
+        — a knob with no screen is a knob NOBODY can reach once the window is retired —
+        they are fields.
+
+        A CARD OF ITS OWN, because sixty-eight of anything inside the card that also
+        carries the switches, the squads and the day's readings is a card nobody can find
+        the top of. It is also the shape the GROUPS will take when they land: three cards
+        instead of one long list.
+
+        TODAY'S COUNT RIDES ON THE LABEL rather than in a row beside it, so a kind is one
+        line and not two. It is DATA in `label_fmt` — the kind's own translated name and
+        the number — never a second key to translate, which is the rule every other
+        formatted label on this screen follows.
+        """
+        limits, counts = rallylimits.read(self.rt)
+        fields = []
+        for key in limits.types():
+            fields.append({
+                "key": "limit_" + key,
+                "label": "rally_limit.field",
+                "label_fmt": {"name": self.t("rally_limit.type." + key),
+                              "count": counts.count_for(key)},
+                "kind": opt_value.NUMBER,
+                "value": limits.limit_for(key),
+                "min": 0,
+            })
+        return {"title": "rally_limit.frame", "fields": fields,
+                "note": "rally_limit.hint"}
 
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить» — the squad reader's own asynchronous read, nothing else.
@@ -1030,6 +1063,14 @@ class RallyTab(PanelTab):
             # else on this screen is a box, and a box is a boolean.
             if key.startswith("run_"):
                 return self._web_press_run(key[len("run_"):], raw)
+            # …AND THE CAPS, which are numbers and go to the one setter that respects a
+            # drawn window's own field (#2055). A kind this profile has no cap for is
+            # answered «unknown» rather than invented.
+            if key.startswith("limit_"):
+                kind = key[len("limit_"):]
+                if not self.autorally.set_cap(kind, raw):
+                    return {"error": "unknown"}
+                return {"ok": True}
             return self._web_press_switch(key, bool(raw))
         if action in ("launch", "stop"):
             # The window's own two buttons under the manual form. `_launch` refuses an

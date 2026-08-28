@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Jenis",
   "rally_limit.col.cap": "Per hari",
   "rally_limit.col.today": "Hari ini",
+  "rally_limit.field": "{name} · hari ini {count}",
   "rally_limit.hint": "Berapa rally tiap jenis yang boleh diikuti auto-join dalam sehari; 0 = tanpa batas. Game tidak menghitung per jenis — angka ini dihitung panel sendiri sehingga bisa melenceng; batas di atas dihitung oleh game.",
   "rally_limit.type.alliance_drill": "Latihan Aliansi",
   "rally_limit.type.doom_elite": "Doom Elite",

@@ -368,6 +368,9 @@ def _make_handler(server: WebServer):
             if path == "/api/errandicon":
                 self._errandicon(query)
                 return
+            if path == "/api/monstericon":
+                self._monstericon(query)
+                return
             if path.startswith("/api/"):
                 self._api("GET", path, query, {})
                 return
@@ -468,6 +471,21 @@ def _make_handler(server: WebServer):
             def resolve():
                 import errand_icons
                 return errand_icons.file_named(_one(query.get("icon")))
+
+            self._picture(query, resolve)
+
+        def _monstericon(self, query: dict) -> None:
+            """Serve the sprite for one kind of banner, out of `results/monster_icons`.
+
+            The fifth of the same shape and for the same reasons (#2055): the pictures are
+            the game's own art extracted onto THIS machine, they are identical for every
+            profile, and the name is checked by `monster_icons.file_named` rather than
+            trusted. A machine that has not run the extractor answers 404 for every one of
+            them and the cards draw with no picture — which is what they look like now.
+            """
+            def resolve():
+                import monster_icons
+                return monster_icons.file_named(_one(query.get("icon")))
 
             self._picture(query, resolve)
 

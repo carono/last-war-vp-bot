@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Kind",
   "rally_limit.col.cap": "Per day",
   "rally_limit.col.today": "Today",
+  "rally_limit.field": "{name} · today {count}",
   "rally_limit.hint": "How many banners of each kind the auto-join may join in a day; 0 = no cap. The game keeps no count per kind — the panel counts these itself, so they can drift; the ceiling above is the one the game counts.",
   "rally_limit.type.alliance_drill": "Alliance Exercise",
   "rally_limit.type.doom_elite": "Doom Elite",

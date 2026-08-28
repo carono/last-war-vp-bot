@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Tipo",
   "rally_limit.col.cap": "Al giorno",
   "rally_limit.col.today": "Oggi",
+  "rally_limit.field": "{name} · oggi {count}",
   "rally_limit.hint": "A quanti raduni di ogni tipo l'auto-unione può unirsi in un giorno; 0 = nessun limite. Il gioco non tiene un conto per tipo — questi numeri li conta il pannello e possono divergere; il tetto qui sopra lo conta il gioco.",
   "rally_limit.type.alliance_drill": "Esercitazione dell'Alleanza",
   "rally_limit.type.doom_elite": "Elite Zombie",

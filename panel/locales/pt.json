@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Tipo",
   "rally_limit.col.cap": "Por dia",
   "rally_limit.col.today": "Hoje",
+  "rally_limit.field": "{name} · hoje {count}",
   "rally_limit.hint": "Em quantos ataques de cada tipo a entrada automática pode entrar por dia; 0 = sem limite. O jogo não conta por tipo — estes números são contados pelo painel e podem divergir; o teto acima é contado pelo jogo.",
   "rally_limit.type.alliance_drill": "Exercício da Aliança",
   "rally_limit.type.doom_elite": "Elite da Destruição",

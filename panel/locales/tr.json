@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Tür",
   "rally_limit.col.cap": "Günlük",
   "rally_limit.col.today": "Bugün",
+  "rally_limit.field": "{name} · bugün {count}",
   "rally_limit.hint": "Otomatik katılımın her türden günde kaç saldırı birliğine katılabileceği; 0 = sınırsız. Oyun tür bazında saymaz — bu sayıları panelin kendisi tutar, bu yüzden kayabilirler; yukarıdaki tavanı oyun sayar.",
   "rally_limit.type.alliance_drill": "İttifak Tatbikatı",
   "rally_limit.type.doom_elite": "Kıyamet Eliti",

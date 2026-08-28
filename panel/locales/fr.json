@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Type",
   "rally_limit.col.cap": "Par jour",
   "rally_limit.col.today": "Aujourd'hui",
+  "rally_limit.field": "{name} · aujourd'hui {count}",
   "rally_limit.hint": "Combien de ralliements de chaque type l'auto-ralliement peut rejoindre par jour ; 0 = sans limite. Le jeu ne compte pas par type — c'est le panneau qui compte, donc ces chiffres peuvent dériver ; le plafond ci-dessus, lui, vient du jeu.",
   "rally_limit.type.alliance_drill": "Exercice d'Alliance",
   "rally_limit.type.doom_elite": "Élite Maudite",

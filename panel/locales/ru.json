@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Вид",
   "rally_limit.col.cap": "За день",
   "rally_limit.col.today": "Сегодня",
+  "rally_limit.field": "{name} · сегодня {count}",
   "rally_limit.hint": "Сколько стягов каждого вида автосбор присоединяет за сутки; 0 — без лимита. В игре счёта по видам нет — эти числа считает сама панель, поэтому они могут разойтись с игрой; потолок выше считает игра.",
   "rally_limit.type.alliance_drill": "Учение Альянса",
   "rally_limit.type.doom_elite": "Роковая Элита",

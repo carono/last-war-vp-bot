@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Tipo",
   "rally_limit.col.cap": "Por día",
   "rally_limit.col.today": "Hoy",
+  "rally_limit.field": "{name} · hoy {count}",
   "rally_limit.hint": "A cuántas concentraciones de cada tipo puede unirse la auto-unión al día; 0 = sin límite. El juego no lleva cuenta por tipo — estos números los cuenta el panel, así que pueden desviarse; el tope de arriba lo cuenta el juego.",
   "rally_limit.type.alliance_drill": "Ejercicio de Alianza",
   "rally_limit.type.doom_elite": "Doom Élite",

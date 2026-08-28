@@ -404,6 +404,48 @@ class AutoRallyPage:
             self.rt.profiles.rally_limits_json())
         return limits.limit_for(key)
 
+    def set_cap(self, key: str, value) -> bool:
+        """Set one kind's daily cap — from the phone, or from anywhere with no window.
+
+        THE FIELD WAS THE MACHINE'S ONLY, AND THAT IS THE COMPLAINT (#2055): «в веб
+        панели нельзя настроить лимиты автостягов». The screen has drawn the caps as
+        READINGS since #1317 — sixty-eight rows of «сегодня / лимит» nobody could touch —
+        and by the reasoning that ended the «Настройки» divergence, a knob with no screen
+        is a knob NOBODY can reach once the window is retired.
+
+        THE DRAWN FIELD WINS WHERE THERE IS ONE, exactly as `set_timer` gives way to the
+        Timers tab's own boxes (`panel/web/api.py`): `save_limits` rebuilds the whole file
+        out of the widgets on every keystroke, so a write that only touched the store
+        would be undone by the next one and read, from the phone, as a number that will
+        not stay. With no window — the ordinary case now — the store IS the caps and the
+        branch below writes it straight.
+
+        Returns whether the key is one this profile has a cap for at all: a kind nobody
+        has heard of is answered «no» rather than quietly invented.
+        """
+        key = str(key or "")
+        limits = self._limits or rallylimitsmod.load_limits(
+            self.rt.profiles.rally_limits_json())
+        if key not in limits.types():
+            return False
+        try:
+            cap = max(0, int(float(value)))
+        except (TypeError, ValueError):
+            return False
+        var = self._limit_vars.get(key)
+        if var is not None:
+            # The widget's own trace writes the file; setting it here is the same edit a
+            # thumb at the machine makes, so the two front-ends cannot disagree.
+            try:
+                var.set(str(cap))
+                return True
+            except tk.TclError:              # the page is going away — fall through
+                pass
+        self._limits = limits.with_limit(key, cap)
+        rallylimitsmod.save_limits(self._limits,
+                                   self.rt.profiles.rally_limits_json())
+        return True
+
     def reload_limits(self) -> None:
         """Re-read the active profile's caps into the fields (on a profile switch).
 

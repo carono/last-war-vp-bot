@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Loại",
   "rally_limit.col.cap": "Mỗi ngày",
   "rally_limit.col.today": "Hôm nay",
+  "rally_limit.field": "{name} · hôm nay {count}",
   "rally_limit.hint": "Mỗi ngày tự động tham gia được vào bao nhiêu lượt tập kết mỗi loại; 0 = không giới hạn. Trò chơi không đếm theo loại — bảng điều khiển tự đếm nên các số này có thể lệch; mức trần ở trên do trò chơi đếm.",
   "rally_limit.type.alliance_drill": "Diễn Tập Liên Minh",
   "rally_limit.type.doom_elite": "Tinh Anh Tận Thế",

@@ -610,6 +610,7 @@
   "rally_limit.col.kind": "Art",
   "rally_limit.col.cap": "Pro Tag",
   "rally_limit.col.today": "Heute",
+  "rally_limit.field": "{name} · heute {count}",
   "rally_limit.hint": "Wie vielen Sammelangriffen je Art der Autobeitritt pro Tag beitreten darf; 0 = kein Limit. Das Spiel zählt nicht nach Art — diese Zahlen zählt das Panel selbst und sie können abweichen; die Obergrenze darüber zählt das Spiel.",
   "rally_limit.type.alliance_drill": "Allianz-Übung",
   "rally_limit.type.doom_elite": "Elite der Verdammten",
