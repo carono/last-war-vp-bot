@@ -5,11 +5,12 @@ other players rob on the way, and the initiator empties on arrival. **Not** the
 supply truck that arrives at the base (`resource-collection.md`) and not the base's
 idle accumulator — three different things wearing the same word.
 
-What is done today is the **reading** behind the checklist's first group (#1249)
-**and the dispatch itself** (#1908) — `actions/send_trucks.md`, which rotates the
-fleet up to a rarity you name and then sends out as many trucks as the day still
-allows. The last section of this file is how that was measured; everything before
-it is the reading.
+What is done today is the **reading** behind the checklist's first group (#1249),
+**the dispatch itself** (#1908) and **the round trip** (#2023) — `actions/send_trucks.md`,
+which empties the trucks that have come home, rotates the rest up to a rarity you name,
+sends out as many as the day still allows and books its own next turn for the moment the
+nearest truck lands. The last two sections of this file are how that was measured;
+everything before them is the reading.
 
 ## The manager
 
@@ -145,3 +146,35 @@ UIManager.Instance:OpenWindow(UIWindowNames.UILWTruckRecord)          -- who rob
 Enums worth knowing: `TruckStationState` (`Lock` 0, `Ready` 1, `Exhausted` 2,
 `Travelling` 3, `Reward` 4), `TruckStateType` (`Safe` 1, `Robed` 2, `DefendSuccess` 3),
 `TruckRecordType` (`TruckSend` 1, `TruckRob` 2, `TruckCollect` 3).
+
+## The round trip: collecting an arrival, and one truck at a time (#2023)
+
+A dispatch is three to four hours out and comes back carrying what it earned. **Until
+that load is taken the truck is `TruckStationState.Reward`** — neither `Travelling` nor
+`Ready` — so it cannot be sent again, and a day's five dispatches are decided by whether
+anybody collects in time rather than by the fleet's size.
+
+Measured live on the station manager (the names it really has, `getmetatable(M).__index`):
+
+| call | what it is |
+|---|---|
+| `GetTruckStationStateByTrainData(t)` | the truck's state — the only honest way to say «this one has landed». `arriveTs` is the client's clock and answers «the timer has run out», not «the server has said so» |
+| `TryBatchCollectReward()` | **no arguments**, empties every arrived truck at once (`train.batch.reward`) |
+| `TryCollectReward(uuid)` | one truck. Called bare it raises inside the serialiser — `bad argument #2 to 'pack' (number expected, got nil)` — which is how the signature was found |
+| `GetRealReadyCountPlusRewardCount()` | ready **plus** arrived: the number a bubble is drawn from, not the one a dispatch is capped by |
+
+So the collect is one press for the fleet (`collect_arrived_trucks`), made only when the
+scan says something is home — a batch of nothing is a frame the server is asked to think
+about for no reason.
+
+**The next turn is booked, not polled.** The recipe reads the nearest `arriveTs` off the
+client, hands it back as `next_run_in` (docs/dsl.md) and the schedule plays the errand
+again a minute after the landing — one deferred turn per arrival. It books that turn even
+when the day's allowance is spent, because the load still has to be taken; and it books
+nothing at all when no truck is on the road, so the row's own period stands.
+
+**«По одному за раз»** (`one_at_a_time`) caps the departure selection at one. The rows are
+already ranked by rarity, so the truck that goes is the best one standing, and the escort
+is the window's own first formation — the strongest the person has arranged. Four trucks
+ticked at once spend four formations, including the weak ones, which is what the operator
+asked to be able to avoid.

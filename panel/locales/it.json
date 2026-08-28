@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "Il massimo che un mega aggiornamento può costare in diamanti, e la stessa dotazione per gli aggiornamenti ordinari a passaggio.",
   "errand.arg.secret.dispatch": "Inviare poi le squadre",
   "errand.arg.secret.dispatch.hint": "Inviare tutto quello che resta alla fine del passaggio. Con «solo UR» attivo escono solo gli incarichi UR.",
+  "errand.arg.trucks.collect": "Raccogliere i camion tornati",
+  "errand.arg.trucks.collect.hint": "Un camion arrivato tiene il carico finché non viene preso, e fino ad allora non può ripartire — la corsa svuota prima gli arrivi e fissa il turno successivo al momento in cui rientra il più vicino.",
+  "errand.arg.trucks.one_at_a_time": "Inviare un camion alla volta",
+  "errand.arg.trucks.one_at_a_time.hint": "Parte solo il camion migliore fermo alla stazione, con la prima scorta — la più forte — e la corsa torna quando è rientrato per mandarne un altro al suo posto.",
+  "errand.arg.trucks.target": "Migliorare fino a",
+  "errand.arg.trucks.target.hint": "Un account senza la tecnologia della «Corsa sulla slitta di renne» punta silenziosamente a UR.",
+  "errand.arg.trucks.target.sleigh": "Corsa sulla slitta di renne",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Migliorare prima di inviare",
+  "errand.arg.trucks.dispatch": "Inviare i camion",
+  "errand.arg.trucks.use_diamonds": "Può spendere diamanti",
+  "errand.arg.trucks.diamond_cap": "Tetto di diamanti",
+  "errand.arg.trucks.diamond_cap.hint": "Quanto può costare al massimo in diamanti una rotazione quando i contratti commerciali non bastano. 0 = nessun tetto.",
   "errand.arg.frontline.rounds": "Round per passaggio"
 }

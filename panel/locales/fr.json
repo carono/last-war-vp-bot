@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "Le maximum qu'un méga-rafraîchissement peut coûter en diamants, et l'enveloppe dont disposent les rafraîchissements ordinaires par passage.",
   "errand.arg.secret.dispatch": "Envoyer les escouades ensuite",
   "errand.arg.secret.dispatch.hint": "Envoyer tout ce qui attend à la fin du passage. Avec « UR seulement », seules les tâches UR partent.",
+  "errand.arg.trucks.collect": "Récupérer les camions rentrés",
+  "errand.arg.trucks.collect.hint": "Un camion arrivé garde son chargement jusqu'à ce qu'on le prenne, et ne peut pas repartir avant — le passage vide donc d'abord les arrivées et fixe son prochain tour au moment où le camion le plus proche rentre.",
+  "errand.arg.trucks.one_at_a_time": "Envoyer un camion à la fois",
+  "errand.arg.trucks.one_at_a_time.hint": "Seul le meilleur camion en attente part, avec la première escorte — la plus forte — et le passage revient à son retour pour en envoyer un autre à sa place.",
+  "errand.arg.trucks.target": "Améliorer jusqu'à",
+  "errand.arg.trucks.target.hint": "Un compte sans la technologie du «Promenade en Traîneau de Rennes» vise discrètement l'UR.",
+  "errand.arg.trucks.target.sleigh": "Promenade en Traîneau de Rennes",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Améliorer avant l'envoi",
+  "errand.arg.trucks.dispatch": "Envoyer les camions",
+  "errand.arg.trucks.use_diamonds": "Peut dépenser des diamants",
+  "errand.arg.trucks.diamond_cap": "Plafond de diamants",
+  "errand.arg.trucks.diamond_cap.hint": "Ce qu'une amélioration peut coûter au maximum en diamants quand les contrats commerciaux manquent. 0 = aucun plafond.",
   "errand.arg.frontline.rounds": "Manches par passage"
 }

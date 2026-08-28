@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "Дороже этого одно мега-обновление не берётся, и столько же отпущено на обычные обновления за прогон.",
   "errand.arg.secret.dispatch": "Отправлять отряды после",
   "errand.arg.secret.dispatch.hint": "Отправить в конце прогона всё, что стоит. При включённом «только UR» уходят только UR задания.",
+  "errand.arg.trucks.collect": "Собирать вернувшиеся грузовики",
+  "errand.arg.trucks.collect.hint": "Пришедший грузовик держит груз, пока его не заберут, и до этого его нельзя отправить снова — поэтому прогон сначала собирает прибывших, а следующий свой запуск назначает на момент, когда придёт ближайший.",
+  "errand.arg.trucks.one_at_a_time": "Отправлять по одному грузовику",
+  "errand.arg.trucks.one_at_a_time.hint": "Уходит только лучший из стоящих, с первым — самым сильным — отрядом сопровождения, а прогон возвращается, когда он придёт, чтобы отправить на его место следующий.",
+  "errand.arg.trucks.target": "Обновлять до",
+  "errand.arg.trucks.target.hint": "Аккаунт без технологии «Оленья повозка» молча целится в UR.",
+  "errand.arg.trucks.target.sleigh": "Оленья повозка",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Обновлять перед отправкой",
+  "errand.arg.trucks.dispatch": "Отправлять грузовики",
+  "errand.arg.trucks.use_diamonds": "Можно тратить алмазы",
+  "errand.arg.trucks.diamond_cap": "Потолок алмазов",
+  "errand.arg.trucks.diamond_cap.hint": "Дороже этого одна ротация не берётся, когда не хватает торговых контрактов. 0 — без потолка.",
   "errand.arg.frontline.rounds": "Раундов за прогон"
 }

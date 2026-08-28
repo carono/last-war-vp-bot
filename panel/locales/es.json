@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "Lo máximo que puede costar una mega actualización en diamantes, y la misma asignación para las actualizaciones normales por pasada.",
   "errand.arg.secret.dispatch": "Enviar las escuadras después",
   "errand.arg.secret.dispatch.hint": "Enviar todo lo que quede al final de la pasada. Con «solo UR» activado, solo salen las tareas UR.",
+  "errand.arg.trucks.collect": "Recoger los camiones que han vuelto",
+  "errand.arg.trucks.collect.hint": "Un camión que ha llegado guarda su carga hasta que alguien la recoge, y hasta entonces no puede volver a salir — así que la ejecución vacía primero las llegadas y fija su siguiente turno para cuando llegue el más cercano.",
+  "errand.arg.trucks.one_at_a_time": "Enviar un camión cada vez",
+  "errand.arg.trucks.one_at_a_time.hint": "Solo sale el mejor camión disponible, con la primera escolta — la más fuerte — y la ejecución vuelve cuando llega para enviar otro en su lugar.",
+  "errand.arg.trucks.target": "Mejorar hasta",
+  "errand.arg.trucks.target.hint": "Una cuenta sin la tecnología del «Paseo en Trineo de Renos» apunta a UR sin decir nada.",
+  "errand.arg.trucks.target.sleigh": "Paseo en Trineo de Renos",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Mejorar antes de enviar",
+  "errand.arg.trucks.dispatch": "Enviar los camiones",
+  "errand.arg.trucks.use_diamonds": "Puede gastar diamantes",
+  "errand.arg.trucks.diamond_cap": "Techo de diamantes",
+  "errand.arg.trucks.diamond_cap.hint": "Lo máximo que puede costar una mejora en diamantes cuando faltan contratos comerciales. 0 = sin techo.",
   "errand.arg.frontline.rounds": "Rondas por pasada"
 }

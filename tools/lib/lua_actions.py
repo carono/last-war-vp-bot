@@ -13931,6 +13931,7 @@ def truck_station_stamp() -> str:
             "if M.__lw_trk_target==nil then M.__lw_trk_target=10 end "
             "if M.__lw_trk_gold==nil then M.__lw_trk_gold=1 end "
             "if M.__lw_trk_budget==nil then M.__lw_trk_budget=0 end "
+            "if M.__lw_trk_one==nil then M.__lw_trk_one=0 end "
             "M.__lw_trk_cost=-1 M.__lw_trk_want=0 M.__lw_trk_ok=0 M.__lw_trk_need=0 "
             "M.__lw_trk_picked=0 "
             "local g=0 pcall(function() g=_num(LuaEntry.Player.gold) end) "
@@ -13997,9 +13998,15 @@ def truck_station_scan() -> str:
             #     its rows around what can be acted on, and a truck in flight cannot;
             #   * `poor` comes from the window, because it is «how many presses are
             #     there», and a truck the refresh may not touch is not one of them.
-            "local poor,good,fleet=0,0,0 "
+            "local poor,good,fleet,home,road=0,0,0,0,0 "
+            # A truck that has come home with a load is `TruckStationState.Reward`,
+            # asked of the manager rather than derived from `arriveTs`: the client
+            # owns the difference between «the clock says it has landed» and «the
+            # server has said so», and only the second one can be collected.
             "pcall(function() for _,t in pairs(M:GetMyTrainList() or {}) do "
-            "fleet=fleet+1 if _enough(t,target) then good=good+1 end end end) "
+            "fleet=fleet+1 if _enough(t,target) then good=good+1 end "
+            "local st=-1 pcall(function() st=_num((M:GetTruckStationStateByTrainData(t))) end) "
+            "if st==4 then home=home+1 elseif st==3 then road=road+1 end end end) "
             "pcall(function() for i=1,8 do local d=v and v.truckShowDataList[i] "
             "local t=d and d.truckData "
             "if t~=nil and not _enough(t,target) and v.canSelectRefreshTruckIndexMap "
@@ -14008,11 +14015,12 @@ def truck_station_scan() -> str:
             "M.__lw_trk_ready=ready M.__lw_trk_tick=tick M.__lw_trk_goldnow=gold "
             "M.__lw_trk_win=win M.__lw_trk_sleigh=sleigh M.__lw_trk_rate=rate "
             "M.__lw_trk_own=own M.__lw_trk_poor=poor M.__lw_trk_good=good "
-            "M.__lw_trk_fleet=fleet "
+            "M.__lw_trk_fleet=fleet M.__lw_trk_home=home M.__lw_trk_road=road "
             'CS.UnityEngine.Debug.LogError("ACT trk_scan lock="..tostring(lock)'
             '.." sent="..tostring(sent).."/"..tostring(cap).." ready="..tostring(ready)'
             '.." tickets="..tostring(tick).." poor="..tostring(poor).." good="..tostring(good)'
-            '.." window="..tostring(win).." sleigh="..tostring(sleigh)) end)')
+            '.." window="..tostring(win).." sleigh="..tostring(sleigh)'
+            '.." home="..tostring(home).." road="..tostring(road)) end)')
 
 
 def truck_refresh_select() -> str:
@@ -14141,6 +14149,12 @@ def truck_send_select() -> str:
             "local cap=0 pcall(function() cap=_num((M:GetMaxDailyCount())) end) "
             "local left=cap-sent if left<0 then left=0 end "
             "local picked=0 "
+            # «По одному за раз»: the rows are already ranked by rarity, so a cap of
+            # one sends the BEST truck standing and leaves the rest for the turns
+            # this errand books itself as each one comes home. The escorting squad is
+            # still the window's own — with a single truck ticked it puts up the first
+            # formation, which is the strongest one the person has arranged.
+            "local one=_num(M.__lw_trk_one) if one~=0 and left>1 then left=1 end "
             "for _,r in ipairs(rows) do if picked>=left then break end "
             "map[r.i]=true picked=picked+1 end "
             "M.__lw_trk_picked=picked M.__lw_trk_left=left M.__lw_trk_standing=#rows "
@@ -14170,6 +14184,39 @@ def truck_send_press() -> str:
             "local v=_tview() if v==nil then return end "
             "pcall(function() v:TrySendDepartureMsg() end) "
             'CS.UnityEngine.Debug.LogError("ACT trk_send sent=1") end)')
+
+
+def truck_collect_arrived() -> str:
+    """Empty every truck that has come home — the window's own batch collect.
+
+    A truck the trade station sent out comes back three to four hours later carrying
+    what it earned, and until somebody takes that load the truck is not standing at the
+    station either: it is `TruckStationState.Reward`, which is neither `Ready` (it cannot
+    be sent) nor `Travelling` (it is not going anywhere). So the collect is not a tidying
+    step at the end of the day — it is what turns an arrival back into a dispatch, and
+    the day's allowance is spent by trucks that were collected in time and wasted by ones
+    that were not.
+
+    `TryBatchCollectReward()` is the one press, measured live: it takes no arguments and
+    empties the lot (`train.batch.reward`). Its per-truck sibling `TryCollectReward` wants
+    a uuid — called bare it raises inside the serialiser — and one press for the fleet is
+    one round trip instead of four.
+
+    The arrived count is parked before the press so the recipe can say what it took, and
+    the press is not made at all when nothing is home: a batch of nothing is a frame the
+    server is asked to think about for no reason.
+    """
+    return ("pcall(function() " + _NUM + _TRUCK_M +
+            "if not M then return end "
+            "local home=0 "
+            "pcall(function() for _,t in pairs(M:GetMyTrainList() or {}) do "
+            "local st=-1 pcall(function() st=_num((M:GetTruckStationStateByTrainData(t))) end) "
+            "if st==4 then home=home+1 end end end) "
+            "M.__lw_trk_home=home M.__lw_trk_took=0 "
+            "if home>0 then local ok=pcall(function() M:TryBatchCollectReward() end) "
+            "if ok then M.__lw_trk_took=home end end "
+            'CS.UnityEngine.Debug.LogError("ACT trk_collect home="..tostring(home)'
+            '.." took="..tostring(M.__lw_trk_took)) end)')
 
 
 def truck_gold_spent() -> str:

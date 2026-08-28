@@ -1,5 +1,5 @@
-# Rotate the trade station's trucks up to the wanted rarity, then send out what the day allows.
-# ru: Ротация грузовиков торговой станции до нужного качества и отправка по дневной норме.
+# Collect the trucks that came home, rotate the rest up to the wanted rarity, send out what the day allows.
+# ru: Сбор вернувшихся грузовиков, ротация до нужного качества и отправка по дневной норме.
 #
 # THE TRADE STATION, not the base. Three trucks in the game are called the same word and
 # only this one spends anything: `collect_truck_resources.md` empties the accumulator
@@ -41,6 +41,20 @@
 # press would re-roll a win and charge for it. So only the trucks below the target are
 # ticked, out of the ones the game says are selectable.
 #
+# A TRUCK COMES BACK, AND THAT IS WHEN THE NEXT ONE GOES OUT. A dispatch takes three to
+# four hours and lands with a load nobody has taken yet — and until it IS taken the truck
+# is `Reward`: not on the road, not standing ready, and not usable for the day's next
+# dispatch. So the run collects first, and then books its own next turn for the moment the
+# nearest truck lands (`next_run_in`, step 9), which is one deferred turn read off the
+# client's own clock rather than anything that polls. Five dispatches a day therefore need
+# no more attention than switching the errand on.
+#
+# «ПО ОДНОМУ ЗА РАЗ» is the other half of that. With `one_at_a_time` on, exactly one truck
+# leaves per turn — the best one standing — and the run comes back when it is home. The
+# escorting squad is the window's own either way, and with a single truck ticked that is
+# the first formation, which is the strongest one the person has arranged; four trucks
+# ticked at once spend four formations, including the weak ones.
+
 # AND THE DISPATCH IS CAPPED BY THE DAY, not by the fleet. Trucks standing at the station
 # and dispatches still banked today are two different numbers; when the allowance is the
 # smaller one the trucks are ranked by rarity and the best go first, because a sleigh held
@@ -66,9 +80,21 @@ ARGS diamond_cap = 0
 # Send the trucks out afterwards. 0 rotates and leaves them standing.
 ARGS dispatch = 1
 
+# Empty the trucks that have come home before anything else. A truck carrying a load is
+# neither on the road nor standing ready, so an uncollected arrival is a dispatch the day
+# quietly loses — which is why this is on by default and why the run books its own next
+# turn for the moment the nearest truck lands.
+ARGS collect = 1
+
+# «Отправлять по одному грузовику за раз». Off, the run fills every slot the day still
+# allows in one go. On, it sends the BEST truck standing and nothing else, and comes back
+# when that one is home — so the fleet leaves under the first, strongest escort rather
+# than four trucks going out under four formations at once.
+ARGS one_at_a_time = 0
+
 # 1. Park the rule where the presses can read it — `TAP` takes no arguments — and stamp
 #    the two purses everything below is measured against.
-LUA pcall(function() local M=DataCenter.LWMyStationDataManager M.__lw_trk_target={target} M.__lw_trk_gold={use_diamonds} M.__lw_trk_budget={diamond_cap} end)
+LUA pcall(function() local M=DataCenter.LWMyStationDataManager M.__lw_trk_target={target} M.__lw_trk_gold={use_diamonds} M.__lw_trk_budget={diamond_cap} M.__lw_trk_one={one_at_a_time} end)
 TAP arm_truck_station
 
 # 2. Open the station and look at it once, so every question underneath is answered about
@@ -84,7 +110,9 @@ READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_tick) or 0) INTO t
 READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_poor) or 0) INTO poor
 READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_good) or 0) INTO good
 READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_sleigh) or 0) INTO sleigh_open
-LOG "trade station: {sent} of {cap} sent today, {ready} could go now, {poor} truck(s) below the target and {good} at it, {tickets} contract(s) in hand, sleigh tech={sleigh_open}"
+READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_home) or 0) INTO home
+READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_road) or 0) INTO road
+LOG "trade station: {sent} of {cap} sent today, {ready} could go now, {home} home with a load, {road} still on the road, {poor} truck(s) below the target and {good} at it, {tickets} contract(s) in hand, sleigh tech={sleigh_open}"
 
 # 3. A station the base has not unlocked yet answers zero to everything, exactly like an
 #    idle one. Say which of the two it is and stop, rather than reporting a day's work
@@ -101,7 +129,22 @@ IF window == 0
     TAP close_truck_station
     STOP "super mode window did not open"
 
-# 5. The rotation. The selection is built first and the price read off the game, so the
+# 5. The trucks that have come home. Taken FIRST, because a collected truck stands ready
+#    again and can go back out in the same run — and because a load nobody takes holds
+#    the slot the day's next dispatch would have used.
+IF collect == 1
+    IF home > 0
+        TAP collect_arrived_trucks
+        READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_took) or 0) INTO took
+        LOG "collected {took} truck(s) that came home"
+        TAP scan_truck_station
+        READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_ready) or 0) INTO ready
+        READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_poor) or 0) INTO poor
+        READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_home) or 0) INTO home
+    ELSE
+        LOG "no truck has come home with a load"
+
+# 6. The rotation. The selection is built first and the price read off the game, so the
 #    decision below is made against a number nobody guessed.
 IF refresh == 1
     IF poor > 0
@@ -128,7 +171,7 @@ IF refresh == 1
     ELSE
         LOG "no truck is below the target — nothing to rotate"
 
-# 6. The dispatch. Capped by the day's own allowance, best trucks first.
+# 7. The dispatch. Capped by the day's own allowance, best trucks first.
 IF dispatch == 1
     TAP select_truck_departure
     READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_picked) or 0) INTO picked
@@ -140,7 +183,7 @@ IF dispatch == 1
     ELSE
         LOG "nothing to send: {standing} truck(s) standing, {allowance} dispatch(es) left today"
 
-# 7. One last look, so whoever pressed this — the window or the phone — is told the state
+# 8. One last look, so whoever pressed this — the window or the phone — is told the state
 #    it LEFT rather than the one it started from.
 TAP scan_truck_station
 READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_sent) or 0) INTO sent
@@ -152,13 +195,19 @@ READ_LUA (tonumber(DataCenter.LWMyStationDataManager.__lw_trk_poor) or 0) INTO p
 READ_LUA (function() local M=DataCenter.LWMyStationDataManager local was=tonumber(M.__lw_trk_tick0) if was==nil then return 0 end local now=tonumber(M.__lw_trk_tick) or was local d=was-now if d<0 then d=0 end return d end)() INTO contracts_spent
 LOG "trade station: {sent}/{cap} sent, {ready} still able to go, {good} at the target, {poor} below it, {tickets} contract(s) left — this run spent {contracts_spent} contract(s)"
 
-# 8. What could not go is not abandoned. A truck on the road comes home at a moment the
+# 9. What could not go is not abandoned. A truck on the road comes home at a moment the
 #    client knows to the millisecond, so THAT is when this errand is worth playing again —
-#    plus a minute, so the arrival has really landed. Nothing out, or nothing left to
-#    send: `0`, and the timer's own period stands (docs/dsl.md, `next_run_in`).
-READ_LUA (function() local M=DataCenter.LWMyStationDataManager local sent=tonumber(M.__lw_trk_sent) or 0 local cap=tonumber(M.__lw_trk_cap) or 0 if sent>=cap then return 0 end local now=0 pcall(function() now=UITimeManager:GetInstance():GetServerSeconds()+0 end) if now<=0 then return 0 end local best=0 pcall(function() for _,t in pairs(M:GetMyTrainList() or {}) do local a=math.floor((t.arriveTs or 0)/1000) if a>now then local d=a-now if best==0 or d<best then best=d end end end end) if best<=0 then return 0 end return best+60 end)() INTO next_run_in
+#    plus a minute, so the arrival has really landed. Nothing on the road: `0`, and the
+#    timer's own period stands (docs/dsl.md, `next_run_in`).
+#
+#    THE ARRIVAL IS WORTH A TURN EVEN WHEN THE DAY IS SPENT. A truck that has landed is
+#    holding its load until somebody takes it, and it is not standing ready until then —
+#    so a run booked for the landing collects it, and «по одному за раз» gets the next
+#    dispatch out of the slot that has just come free. This is ONE booked turn per
+#    arrival, read off a clock the client already keeps; nothing here polls.
+READ_LUA (function() local M=DataCenter.LWMyStationDataManager local now=0 pcall(function() now=UITimeManager:GetInstance():GetServerSeconds()+0 end) if now<=0 then return 0 end local best=0 pcall(function() for _,t in pairs(M:GetMyTrainList() or {}) do local a=math.floor((t.arriveTs or 0)/1000) if a>now then local d=a-now if best==0 or d<best then best=d end end end end) if best<=0 then return 0 end return best+60 end)() INTO next_run_in
 IF next_run_in > 0
     LOG "a truck is still on the road — coming back in {next_run_in} s, when the nearest one is home"
 
-# 9. Leave the screen as it was found.
+# 10. Leave the screen as it was found.
 TAP close_truck_station

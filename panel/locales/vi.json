@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "Mức cao nhất một lần mega làm mới được phép tốn bằng kim cương, và cũng là khoản dành cho các lần làm mới thường trong mỗi lượt chạy.",
   "errand.arg.secret.dispatch": "Sau đó gửi đội quân",
   "errand.arg.secret.dispatch.hint": "Gửi tất cả những gì còn đứng đó ở cuối lượt chạy. Khi «chỉ UR» đang bật, chỉ nhiệm vụ UR đi ra.",
+  "errand.arg.trucks.collect": "Thu xe tải đã trở về",
+  "errand.arg.trucks.collect.hint": "Xe tải đã về vẫn giữ hàng cho đến khi có người lấy, và trước đó không thể lên đường lại — nên lượt chạy dọn hàng về trước rồi hẹn lượt kế tiếp vào lúc chiếc gần nhất cập bến.",
+  "errand.arg.trucks.one_at_a_time": "Gửi mỗi lần một xe",
+  "errand.arg.trucks.one_at_a_time.hint": "Chỉ chiếc xe tốt nhất đang đậu lên đường, với đội hộ tống đầu tiên — mạnh nhất — và lượt chạy quay lại khi xe về để gửi chiếc kế tiếp thay chỗ.",
+  "errand.arg.trucks.target": "Nâng lên đến",
+  "errand.arg.trucks.target.hint": "Tài khoản chưa có công nghệ «Xe Tuần Lộc» sẽ lặng lẽ nhắm tới UR.",
+  "errand.arg.trucks.target.sleigh": "Xe Tuần Lộc",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Nâng cấp trước khi gửi",
+  "errand.arg.trucks.dispatch": "Gửi xe tải đi",
+  "errand.arg.trucks.use_diamonds": "Được tiêu kim cương",
+  "errand.arg.trucks.diamond_cap": "Trần kim cương",
+  "errand.arg.trucks.diamond_cap.hint": "Mức kim cương tối đa cho một lần nâng khi thiếu Hợp Đồng Thương Mại. 0 = không giới hạn.",
   "errand.arg.frontline.rounds": "Số hiệp mỗi lượt"
 }

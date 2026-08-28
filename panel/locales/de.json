@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "So viel darf eine Mega-Auffrischung höchstens in Diamanten kosten, und ebenso viel steht den gewöhnlichen Auffrischungen pro Lauf zu.",
   "errand.arg.secret.dispatch": "Danach die Trupps senden",
   "errand.arg.secret.dispatch.hint": "Am Ende des Laufs alles senden, was bereitsteht. Mit «nur UR» gehen ausschließlich UR-Aufträge hinaus.",
+  "errand.arg.trucks.collect": "Zurückgekehrte Lkw einsammeln",
+  "errand.arg.trucks.collect.hint": "Ein angekommener Lkw hält seine Ladung, bis sie abgeholt wird, und kann bis dahin nicht erneut losfahren — der Lauf leert daher zuerst die Ankünfte und legt seinen nächsten Durchgang auf den Moment, in dem der nächste Lkw eintrifft.",
+  "errand.arg.trucks.one_at_a_time": "Nur einen Lkw auf einmal schicken",
+  "errand.arg.trucks.one_at_a_time.hint": "Nur der beste wartende Lkw fährt los, mit der ersten — stärksten — Eskorte, und der Lauf kehrt zurück, sobald er zu Hause ist, um den nächsten an seiner Stelle zu schicken.",
+  "errand.arg.trucks.target": "Aufwerten bis",
+  "errand.arg.trucks.target.hint": "Ein Konto ohne die «Rentierschlitten» zielt stillschweigend auf UR.",
+  "errand.arg.trucks.target.sleigh": "Rentierschlitten",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Vor dem Versand aufwerten",
+  "errand.arg.trucks.dispatch": "Lkw losschicken",
+  "errand.arg.trucks.use_diamonds": "Darf Diamanten ausgeben",
+  "errand.arg.trucks.diamond_cap": "Diamanten-Obergrenze",
+  "errand.arg.trucks.diamond_cap.hint": "So viel darf eine Aufwertung höchstens an Diamanten kosten, wenn die Handelsverträge nicht reichen. 0 = keine Grenze.",
   "errand.arg.frontline.rounds": "Runden pro Lauf"
 }

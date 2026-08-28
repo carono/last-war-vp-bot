@@ -116,6 +116,26 @@ SPEC: dict = {
         _flag("dispatch", "errand.arg.secret.dispatch",
               hint_key="errand.arg.secret.dispatch.hint"),
     ),
+    # THE TRADE TRUCKS (#2023). The errand spends a five-a-day allowance and the person's
+    # Trade Contracts, and until now every one of those decisions was an `ARGS` line only
+    # the row editor could reach — which on a phone is nowhere. «По одному за раз» is the
+    # one the operator asked for by name: it sends the best truck standing and comes back
+    # when it lands, so the fleet leaves under the first, strongest escort.
+    "send_trucks": (
+        _flag("collect", "errand.arg.trucks.collect",
+              hint_key="errand.arg.trucks.collect.hint"),
+        _flag("one_at_a_time", "errand.arg.trucks.one_at_a_time",
+              hint_key="errand.arg.trucks.one_at_a_time.hint"),
+        _choice("target", "errand.arg.trucks.target",
+                ((10, "errand.arg.trucks.target.sleigh"),
+                 (5, "errand.arg.trucks.target.ur")),
+                hint_key="errand.arg.trucks.target.hint"),
+        _flag("refresh", "errand.arg.trucks.refresh"),
+        _flag("dispatch", "errand.arg.trucks.dispatch"),
+        _flag("use_diamonds", "errand.arg.trucks.use_diamonds"),
+        _num("diamond_cap", "errand.arg.trucks.diamond_cap", low=0, high=100000,
+             hint_key="errand.arg.trucks.diamond_cap.hint"),
+    ),
     "play_frontline_breakthrough": (
         _num("rounds", "errand.arg.frontline.rounds", low=1, high=20),
     ),

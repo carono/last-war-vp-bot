@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "The most one mega refresh may cost in diamonds, and the allowance the ordinary refreshes spend against.",
   "errand.arg.secret.dispatch": "Send the squads afterwards",
   "errand.arg.secret.dispatch.hint": "Send whatever is standing at the end of the run. With «only UR» on, only the UR tasks go out.",
+  "errand.arg.trucks.collect": "Collect the trucks that came home",
+  "errand.arg.trucks.collect.hint": "A truck that has landed holds its load until it is taken, and until then it cannot be sent out again — so the run empties the arrivals first and books its next turn for the moment the nearest truck lands.",
+  "errand.arg.trucks.one_at_a_time": "Send one truck at a time",
+  "errand.arg.trucks.one_at_a_time.hint": "Only the best truck standing goes out, under the first — strongest — escort, and the run comes back when it is home to send the next one in its place.",
+  "errand.arg.trucks.target": "Rotate up to",
+  "errand.arg.trucks.target.hint": "An account without the Reindeer Sleigh Ride tech quietly aims at UR instead.",
+  "errand.arg.trucks.target.sleigh": "Reindeer Sleigh Ride",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Rotate before sending",
+  "errand.arg.trucks.dispatch": "Send the trucks out",
+  "errand.arg.trucks.use_diamonds": "May spend diamonds",
+  "errand.arg.trucks.diamond_cap": "Diamond ceiling",
+  "errand.arg.trucks.diamond_cap.hint": "The most one rotation may cost in diamonds when the bag of Trade Contracts is short. 0 = no ceiling.",
   "errand.arg.frontline.rounds": "Rounds to play"
 }

@@ -307,6 +307,16 @@ BUTTONS: dict[str, Button] = {
         wait=0.4, label="Scan the trade station",
         relay=("trk_scan",),
     ),
+    "collect_arrived_trucks": Button(
+        # WHAT TURNS AN ARRIVAL BACK INTO A DISPATCH. A truck that has come home is
+        # neither travelling nor standing ready until its load is taken, so a day's
+        # allowance is spent by the fleet that gets collected and wasted by the one
+        # that does not. One press for all of them (`train.batch.reward`), and no
+        # press at all when nothing is home.
+        lua=_lua_actions.truck_collect_arrived(),
+        wait=1.2, label="Collect the trucks that came home",
+        relay=("trk_collect",),
+    ),
     "select_truck_refresh": Button(
         # Ticks only the trucks BELOW the target — never the window's own «select all»,
         # which at the UR target would re-roll a truck that is already UR and charge for

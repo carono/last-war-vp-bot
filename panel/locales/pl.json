@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "Najwięcej, ile jedno mega odświeżenie może kosztować w diamentach, i tyle samo przypada zwykłym odświeżeniom na jeden przebieg.",
   "errand.arg.secret.dispatch": "Wysyłać potem oddziały",
   "errand.arg.secret.dispatch.hint": "Wysłać na koniec przebiegu wszystko, co stoi. Przy włączonym «tylko UR» wychodzą wyłącznie zadania UR.",
+  "errand.arg.trucks.collect": "Odbierać ciężarówki, które wróciły",
+  "errand.arg.trucks.collect.hint": "Ciężarówka, która dojechała, trzyma ładunek, dopóki ktoś go nie odbierze, i do tego czasu nie może wyruszyć ponownie — dlatego przebieg najpierw opróżnia przyjazdy i wyznacza swój kolejny bieg na moment powrotu najbliższej.",
+  "errand.arg.trucks.one_at_a_time": "Wysyłać po jednej ciężarówce",
+  "errand.arg.trucks.one_at_a_time.hint": "Wyrusza tylko najlepsza stojąca ciężarówka, z pierwszą — najsilniejszą — eskortą, a przebieg wraca po jej powrocie, by wysłać następną na jej miejsce.",
+  "errand.arg.trucks.target": "Ulepszać do",
+  "errand.arg.trucks.target.hint": "Konto bez technologii «Przejażdżka zaprzęgiem reniferów» po cichu celuje w UR.",
+  "errand.arg.trucks.target.sleigh": "Przejażdżka zaprzęgiem reniferów",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Ulepszać przed wysyłką",
+  "errand.arg.trucks.dispatch": "Wysyłać ciężarówki",
+  "errand.arg.trucks.use_diamonds": "Może wydawać diamenty",
+  "errand.arg.trucks.diamond_cap": "Limit diamentów",
+  "errand.arg.trucks.diamond_cap.hint": "Najwięcej, ile jedno ulepszenie może kosztować w diamentach, gdy brakuje kontraktów handlowych. 0 = bez limitu.",
   "errand.arg.frontline.rounds": "Rund na przebieg"
 }

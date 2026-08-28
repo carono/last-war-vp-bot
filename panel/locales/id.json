@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "Paling mahal sebuah mega penyegaran boleh berharga sekian berlian, dan jatah yang sama untuk penyegaran biasa per putaran.",
   "errand.arg.secret.dispatch": "Kirim regu setelahnya",
   "errand.arg.secret.dispatch.hint": "Kirim apa pun yang masih berdiri di akhir putaran. Dengan «hanya UR» menyala, hanya tugas UR yang berangkat.",
+  "errand.arg.trucks.collect": "Kumpulkan truk yang sudah pulang",
+  "errand.arg.trucks.collect.hint": "Truk yang tiba menahan muatannya sampai diambil, dan sebelum itu tidak bisa dikirim lagi — jadi proses mengosongkan kedatangan lebih dulu dan menjadwalkan giliran berikutnya saat truk terdekat tiba.",
+  "errand.arg.trucks.one_at_a_time": "Kirim satu truk sekali jalan",
+  "errand.arg.trucks.one_at_a_time.hint": "Hanya truk terbaik yang menunggu yang berangkat, dengan pengawal pertama — yang terkuat — dan proses kembali saat truk itu tiba untuk mengirim yang berikutnya di tempatnya.",
+  "errand.arg.trucks.target": "Tingkatkan sampai",
+  "errand.arg.trucks.target.hint": "Akun tanpa teknologi «Kereta Rusa Kutub» diam-diam menargetkan UR.",
+  "errand.arg.trucks.target.sleigh": "Kereta Rusa Kutub",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Tingkatkan sebelum dikirim",
+  "errand.arg.trucks.dispatch": "Kirim truknya",
+  "errand.arg.trucks.use_diamonds": "Boleh memakai berlian",
+  "errand.arg.trucks.diamond_cap": "Batas berlian",
+  "errand.arg.trucks.diamond_cap.hint": "Biaya berlian tertinggi untuk satu peningkatan saat Kontrak Dagang kurang. 0 = tanpa batas.",
   "errand.arg.frontline.rounds": "Ronde per jalan"
 }

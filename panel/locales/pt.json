@@ -2395,5 +2395,18 @@
   "errand.arg.secret.diamond_cap.hint": "O máximo que uma mega atualização pode custar em diamantes, e a mesma verba para as atualizações comuns por passagem.",
   "errand.arg.secret.dispatch": "Enviar os esquadrões depois",
   "errand.arg.secret.dispatch.hint": "Enviar tudo o que ficou de pé no fim da passagem. Com «só UR» ligado, só saem as tarefas UR.",
+  "errand.arg.trucks.collect": "Recolher os camiões que voltaram",
+  "errand.arg.trucks.collect.hint": "Um camião que chegou guarda a carga até alguém a levar e, até lá, não pode voltar a sair — por isso a execução esvazia primeiro as chegadas e marca o próximo turno para quando o mais próximo chegar.",
+  "errand.arg.trucks.one_at_a_time": "Enviar um camião de cada vez",
+  "errand.arg.trucks.one_at_a_time.hint": "Só sai o melhor camião parado, com a primeira escolta — a mais forte — e a execução volta quando ele chegar para enviar outro no lugar dele.",
+  "errand.arg.trucks.target": "Melhorar até",
+  "errand.arg.trucks.target.hint": "Uma conta sem a tecnologia do «Passeio do Trenó de Rena» aponta discretamente para UR.",
+  "errand.arg.trucks.target.sleigh": "Passeio do Trenó de Rena",
+  "errand.arg.trucks.target.ur": "UR",
+  "errand.arg.trucks.refresh": "Melhorar antes de enviar",
+  "errand.arg.trucks.dispatch": "Enviar os camiões",
+  "errand.arg.trucks.use_diamonds": "Pode gastar diamantes",
+  "errand.arg.trucks.diamond_cap": "Tecto de diamantes",
+  "errand.arg.trucks.diamond_cap.hint": "O máximo que uma melhoria pode custar em diamantes quando faltam contratos comerciais. 0 = sem tecto.",
   "errand.arg.frontline.rounds": "Rondas por passagem"
 }
