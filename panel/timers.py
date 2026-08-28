@@ -102,6 +102,7 @@ from dataclasses import dataclass, field
 from . import debug_log, paths
 from .i18n import Message
 from .profile import _write_json
+from .runtime import settings_files
 
 # The debug logger for a scheduler NOBODY GAVE ONE TO. The panel always hands each
 # profile's own (`rt.dbg("timers")`); this fallback used to be the unscoped root,
@@ -1190,15 +1191,20 @@ def load_catalogue(path: str, seed_from=None) -> Catalogue:
     whatever the operator typed there for them to fix.
     """
     seed = seed_from if seed_from is not None else Catalogue(DEFAULT_TIMERS)
-    if not os.path.exists(path):
-        fresh = Catalogue(seed.timers, path)
-        save_catalogue(fresh, path)
-        return fresh
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError) as exc:
-        return Catalogue(seed.timers, path, [f"{os.path.basename(path)}: {exc}"])
+    # THE PROFILE'S OWN LIST IS IN ITS DATABASE (#2017) — carried across from the file
+    # the first time it is read. A path in the source tree is a shipped TEMPLATE and
+    # stays a file: it is code, and code does not live in an account's data.
+    data = settings_files.read(path)
+    if data is None:
+        if not os.path.exists(path):
+            fresh = Catalogue(seed.timers, path)
+            save_catalogue(fresh, path)
+            return fresh
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as exc:
+            return Catalogue(seed.timers, path, [f"{os.path.basename(path)}: {exc}"])
     return parse_catalogue(data, path, fallback=seed)
 
 
@@ -1395,7 +1401,9 @@ def load_profile_catalogue(path: str) -> Catalogue:
     """
     template = load_template()
     offered = offered_catalogue(template)
-    fresh_profile = not os.path.exists(path)
+    # «Fresh» is now «nothing has ever been saved», in the database OR in a file
+    # that has not been carried across yet (#2017).
+    fresh_profile = not settings_files.exists(path)
     catalogue = load_catalogue(path, seed_from=offered)
     if fresh_profile:
         # It IS everything on offer, so all of it counts as offered — otherwise a row
@@ -1418,7 +1426,14 @@ def load_profile_catalogue(path: str) -> Catalogue:
 
 
 def _readable(path: str) -> bool:
-    """Is the file there and still valid JSON? (Cheap: these are a few hundred bytes.)"""
+    """Did this profile's own list come back — rather than the fallback?
+
+    In the database since #2017, with the file as the thing it was imported from; a
+    store nobody could read answers `None` and the caller keeps the seed rather than
+    writing our guess over the operator's list.
+    """
+    if settings_files.read(path) is not None:
+        return True
     try:
         with open(path, encoding="utf-8") as fh:
             json.load(fh)
@@ -1428,9 +1443,16 @@ def _readable(path: str) -> bool:
 
 
 def save_catalogue(catalogue: Catalogue, path: str | None = None) -> None:
-    """Write a catalogue back out in the file's own format."""
-    _write_json(path or catalogue.path or TEMPLATE_FILE,
-                [timer.as_dict() for timer in catalogue.timers])
+    """Write a catalogue back out — into the profile's database, or a template file.
+
+    A profile's list is a SETTING and settings are rows now (#2017,
+    `panel/runtime/settings_files.py`). The shipped template is the one thing here that
+    is still a file, because it is part of the repository rather than of an account.
+    """
+    where = path or catalogue.path or TEMPLATE_FILE
+    rows = [timer.as_dict() for timer in catalogue.timers]
+    if not settings_files.write(where, rows):
+        _write_json(where, rows)
 
 
 class LastRunStore:

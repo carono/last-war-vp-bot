@@ -45,7 +45,8 @@ for _p in (str(_REPO_ROOT), str(_REPO_ROOT / "tools" / "lib"),
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from panel import timers as timersmod          # noqa: E402
+from panel import timers as timersmod
+from panel.runtime import settings_files          # noqa: E402
 from panel import triggers as triggersmod      # noqa: E402
 from panel.runtime import claims               # noqa: E402
 from lastwar_bot import script_engine          # noqa: E402
@@ -357,7 +358,9 @@ def test_the_flag_round_trips_through_a_timer_file():
     assert again.by_name("quick").immediate is True
     # An entry that is not urgent does not carry the key at all — the file stays as
     # short as it was.
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    # …read back out of the store the catalogue lives in (#2017: it is a row in the
+    # profile's database, not a file), because the shape written is what this is about.
+    raw = settings_files.read(str(path))
     entries = {item["name"]: item
                for item in (raw["timers"] if isinstance(raw, dict) else raw)}
     assert "immediate" not in entries["slow"], entries["slow"]

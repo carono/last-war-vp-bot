@@ -25,7 +25,8 @@ for _p in (_REPO_ROOT, _REPO_ROOT / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from panel import rally_limits as rl  # noqa: E402
+from panel import rally_limits as rl
+from panel.runtime import settings_files  # noqa: E402
 from panel.tabs.rally import limits as gate  # noqa: E402
 
 DAY1 = "2026-07-30"
@@ -92,8 +93,10 @@ def test_limits_file_is_seeded_then_round_trips():
     path = str(tmp / "rally_limits.json")
     seeded = rl.load_limits(path)                           # writes the built-ins
     assert seeded.as_dict() == rl.DEFAULT_RALLY_LIMITS
-    assert Path(path).exists()
-    # a hand edit is honoured on the next read.
+    # Into the profile's database since #2017, so what is asserted is what a reader
+    # gets back rather than what a file holds.
+    assert settings_files.read(path) is not None
+    # a file left by an older panel is still carried across on the next read.
     Path(path).write_text(json.dumps({"monster": 9}), encoding="utf-8")
     back = rl.load_limits(path)
     assert back.limit_for("monster") == 9
@@ -869,7 +872,8 @@ def test_a_seed_of_ours_that_changed_is_carried_across_but_a_typed_number_is_not
     # …the Golden line was not touched: it is still uncapped on purpose.
     assert back.limit_for("golden_defender") == 0
     # …and the file now says so, so the migration cannot run twice.
-    stored = json.loads(Path(path).read_text(encoding="utf-8"))
+    # The caps are a row in the profile's database since #2017.
+    stored = settings_files.read(path)
     assert stored["v"] == rl.FILE_VERSION
     assert stored["wandering_mummy_warlord"] == rl.DEFAULT_CAP
 

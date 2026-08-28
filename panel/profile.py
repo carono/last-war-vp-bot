@@ -153,10 +153,12 @@ RESOURCE_STATS_STATE = "resource_stats.json"
 LEADERBOARD_DB = "leaderboard_history.db"
 # THIS PROFILE'S DATABASE (#1398, panel/runtime/store.py). One per profile, in the
 # profile's own directory, holding what the panel used to keep as whole-file JSON — the
-# register of players, the ★ list, the counters and the tallies. Not the settings
-# (`config.json`, the timer and trigger catalogues, `rally_limits.json`), which a person
-# edits by hand; not the logs; and not the checkpoints a capture child writes for the
-# panel to read. `docs/panel-storage.md` is the inventory and the reasoning.
+# register of players, the ★ list, the counters and the tallies — and, since #2017, this
+# profile's SETTINGS as well: the timer and trigger catalogues and the rally caps are
+# rows of `blobs` under `settings:<name>` (`panel/runtime/settings_files.py`). Not
+# `config.json`, which is also the marker that says a directory IS a profile (#1306);
+# not the logs; and not the checkpoints a capture child writes for the panel to read.
+# `docs/panel-storage.md` is the inventory and the reasoning.
 STORE_DB = "panel.db"
 # The three files the autostart uses (panel/runtime/autostart.py). ALIVE_FILE is the heartbeat
 # the open panel rewrites once a minute from its Tk event loop — the hourly scheduled

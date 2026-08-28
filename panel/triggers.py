@@ -69,6 +69,7 @@ import lua_actions      # noqa: E402
 from . import debug_log, paths
 from .i18n import Message
 from .profile import _write_json
+from .runtime import settings_files
 
 # The debug logger for a watcher NOBODY GAVE ONE TO — and for the catalogue loader,
 # which is a module function with no runtime to ask (`load_catalogue`).
@@ -969,16 +970,21 @@ def load_catalogue(path: str, seed_from=None) -> TriggerCatalogue:
     switched off — instead of having to be recreated.
     """
     seed = seed_from if seed_from is not None else TriggerCatalogue(DEFAULT_TRIGGERS)
-    if not os.path.exists(path):
-        fresh = TriggerCatalogue(seed.triggers, path)
-        save_catalogue(fresh, path)
-        return fresh
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError) as exc:
-        return TriggerCatalogue(seed.triggers, path,
-                                [f"{os.path.basename(path)}: {exc}"])
+    # The profile's own list is a SETTING, and settings are rows in its database since
+    # #2017 — carried across from the file the first time it is read. The shipped
+    # template stays a file: it is code.
+    data = settings_files.read(path)
+    if data is None:
+        if not os.path.exists(path):
+            fresh = TriggerCatalogue(seed.triggers, path)
+            save_catalogue(fresh, path)
+            return fresh
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as exc:
+            return TriggerCatalogue(seed.triggers, path,
+                                    [f"{os.path.basename(path)}: {exc}"])
     parsed = parse_catalogue(data, path, fallback=seed)
     # The seed already carries the built-ins (the template is itself loaded through
     # here), so merging against it covers both the template and a profile. A file
@@ -1036,9 +1042,11 @@ def turn_on(path: str, names) -> "tuple[str, ...]":
 
 
 def save_catalogue(catalogue: TriggerCatalogue, path: str | None = None) -> None:
-    """Write a catalogue back out in the file's own format."""
-    _write_json(path or catalogue.path or TEMPLATE_FILE,
-                [t.as_dict() for t in catalogue.triggers])
+    """Write a catalogue back out — into the profile's database, or a template file."""
+    where = path or catalogue.path or TEMPLATE_FILE
+    rows = [t.as_dict() for t in catalogue.triggers]
+    if not settings_files.write(where, rows):
+        _write_json(where, rows)
 
 
 class TriggerWatcher:

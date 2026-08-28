@@ -33,6 +33,7 @@ import json
 import os
 
 from .profile import _write_json
+from .runtime import settings_files
 
 # The vocabulary itself — every kind of banner the game knows, read off the live config
 # (#1317). `tools/lib` is on the path by the time the panel imports this.
@@ -158,6 +159,14 @@ SERVER_DAY_HOUR_UTC = game_day.DEFAULT_RESET_HOUR_UTC
 
 
 def _read_json(path: str):
+    """One of this module's plain JSON files, as it is written.
+
+    NOT the caps: those are a row in the profile's database since #2017 and are read
+    through :func:`load_limits`. This is still the reader for `rally_counts.json`, which
+    is game data with an import route of its own (`load_counts_from_store`) — routing it
+    through the settings store would carry the counts across as if they were a setting
+    and take the file out from under that route.
+    """
     try:
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
@@ -212,11 +221,15 @@ def load_limits(path: str) -> RallyLimits:
     A file that exists but is unreadable falls back to the built-ins WITHOUT being
     overwritten — the same rule the timers/triggers catalogues follow.
     """
-    if not os.path.exists(path):
+    # The caps are a row in the profile's database since #2017; the file is what a
+    # profile written before that is carried across from, exactly once.
+    data = settings_files.read(path)
+    if data is None:
+        data = _read_json(path)
+    if data is None and not os.path.exists(path):
         fresh = RallyLimits(DEFAULT_RALLY_LIMITS, path)
         save_limits(fresh, path)
         return fresh
-    data = _read_json(path)
     if not isinstance(data, dict):
         return RallyLimits(DEFAULT_RALLY_LIMITS, path)
     # New built-in types added after this profile's file was written are folded in so
@@ -286,9 +299,13 @@ def migrate_kinds(stored: dict, tally: bool = False) -> dict:
 
 
 def save_limits(limits: RallyLimits, path: str | None = None) -> None:
+    """The caps, into the profile's database (#2017) — a file only where there is no
+    profile to speak of, which is a template or a test writing into a bare folder."""
     stored = limits.as_dict()
     stored["v"] = FILE_VERSION
-    _write_json(path or limits.path, stored)
+    where = path or limits.path
+    if not settings_files.write(where, stored):
+        _write_json(where, stored)
 
 
 class RallyCounts:

@@ -1527,7 +1527,8 @@ def test_the_poll_is_true_whenever_the_client_is_out_in_the_world():
 def test_the_clock_is_gone_and_names_the_listener_that_replaced_it():
     """No `auto_treasure` row in the catalogue any more, and the name is retired rather
     than merely absent — an absent one comes back the moment a stale template is read."""
-    from panel import timers as timersmod                    # noqa: E402
+    from panel import timers as timersmod
+    from panel.runtime import settings_files
 
     assert not [t for t in timersmod.DEFAULT_TIMERS if t.name == "auto_treasure"], \
         "the errand is a listener's now, not a clock's"
@@ -1544,6 +1545,7 @@ def test_a_profile_that_had_the_clock_on_keeps_having_the_job_done(tmp=None):
     import json, tempfile                                    # noqa: E402
     from panel import timers as timersmod                    # noqa: E402
     from panel import triggers as triggersmod                # noqa: E402
+    from panel.runtime import settings_files                  # noqa: E402
 
     home = Path(tempfile.mkdtemp())
     rows = [{"name": "auto_treasure", "scenario": "auto_treasure",
@@ -1561,7 +1563,8 @@ def test_a_profile_that_had_the_clock_on_keeps_having_the_job_done(tmp=None):
         catalogue = timersmod.load_profile_catalogue(str(profile))
         assert "auto_treasure" not in catalogue.names(), catalogue.names()
         assert catalogue.retired_on == ("auto_treasure",), catalogue.retired_on
-        written = [e["name"] for e in json.load(open(profile, encoding="utf-8"))]
+        # …out of the store the catalogue lives in — a row since #2017.
+        written = [e["name"] for e in settings_files.read(str(profile))]
         assert "auto_treasure" not in written, written
         seen = json.load(open(timersmod.seen_path(str(profile)), encoding="utf-8"))
         assert "auto_treasure" in seen, "…or a stale template hands it straight back"
@@ -1585,7 +1588,7 @@ def test_a_profile_that_had_the_clock_on_keeps_having_the_job_done(tmp=None):
     triggersmod.TEMPLATE_FILE = str(trig_template)
     try:
         assert triggersmod.turn_on(str(triggers), ("treasure_auto",)) == ("treasure_auto",)
-        rows = {e["name"]: e for e in json.load(open(triggers, encoding="utf-8"))}
+        rows = {e["name"]: e for e in settings_files.read(str(triggers))}
         assert rows["treasure_auto"]["enabled"] is True
         assert triggersmod.turn_on(str(triggers), ("treasure_auto",)) == ()
     finally:

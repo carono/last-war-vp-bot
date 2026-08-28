@@ -31,7 +31,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from panel import triggers as triggersmod  # noqa: E402
+from panel import triggers as triggersmod
+from panel.runtime import settings_files  # noqa: E402
 
 
 # -- the catalogue ----------------------------------------------------------
@@ -252,9 +253,9 @@ def test_loading_an_old_file_grows_it_on_disk():
         cat = triggersmod.load_catalogue(path)
         assert "session_kick" in cat.names()
         assert cat.by_name("alliance_help").enabled is True
-        # the growth was written back, so the next start reads the same list
-        with open(path, encoding="utf-8") as fh:
-            on_disk = json.load(fh)
+        # the growth was written back, so the next start reads the same list —
+        # into the profile's own database since #2017, not into the file it came from
+        on_disk = settings_files.read(path)
         assert [e["name"] for e in on_disk] == cat.names()
         assert on_disk[0]["enabled"] is True
 

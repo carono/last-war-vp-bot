@@ -53,7 +53,8 @@ if str(_REPO_ROOT) not in sys.path:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fake_runtime  # noqa: E402
 
-from panel import timers as timersmod  # noqa: E402
+from panel import timers as timersmod
+from panel.runtime import settings_files  # noqa: E402
 
 BASE = "collect_base_resources"
 ALLY = "donate_alliance_tech"     # spend the banked donation attempts
@@ -174,18 +175,22 @@ def test_a_missing_file_is_seeded_and_a_broken_one_falls_back():
 
     cat = timersmod.load_catalogue(str(path))
     assert cat.names() == defaults, cat.names()
-    assert path.exists(), "the config file was not seeded"
-    written = json.loads(path.read_text(encoding="utf-8"))
+    # SEEDED INTO THE PROFILE'S DATABASE since #2017 — the list is a setting, and
+    # settings are rows. What is asserted is therefore what a reader gets back, not
+    # what a file holds.
+    written = settings_files.read(str(path))
+    assert written is not None, "the list was not seeded"
     assert [e["name"] for e in written] == defaults, written
     assert written[1]["scenario"] == "donate_alliance_tech", written[1]
 
-    # A file that cannot be read is NOT overwritten — whatever the operator typed
-    # is still there to be fixed, and the panel runs on the fallback meanwhile.
-    path.write_text("{ this is not json", encoding="utf-8")
-    broken = timersmod.load_catalogue(str(path))
+    # A store that cannot be read is NOT overwritten — whatever is in it is still
+    # there to be fixed, and the panel runs on the fallback meanwhile.
+    broken_at = Path(tempfile.mkdtemp()) / "timers.json"
+    broken_at.write_text("{ this is not json", encoding="utf-8")
+    broken = timersmod.load_catalogue(str(broken_at))
     assert broken.names() == defaults, broken.names()
-    assert broken.errors, "a broken file must say so"
-    assert path.read_text(encoding="utf-8") == "{ this is not json"
+    assert broken.errors, "a broken store must say so"
+    assert broken_at.read_text(encoding="utf-8") == "{ this is not json"
 
 
 def test_each_profile_keeps_its_own_timers():
@@ -476,7 +481,8 @@ def test_a_new_builtin_errand_reaches_a_profile_that_already_had_a_file():
     assert cat.by_name("old_one").interval_sec == 900
     assert cat.by_name("old_one").enabled is True
     # …and the adoption is on disk, not just in memory.
-    on_disk = [e["name"] for e in json.loads(profile.read_text(encoding="utf-8"))]
+    # The stored list, not the file: a profile's catalogue is a row (#2017).
+    on_disk = [e["name"] for e in settings_files.read(str(profile))]
     assert on_disk == ["old_one", "brand_new"], on_disk
 
 
@@ -551,7 +557,7 @@ def test_the_merged_alliance_errand_is_split_in_place_keeping_its_switch():
         assert cat.by_name(ALLY).interval_sec == 1200, cat.by_name(ALLY)
         assert cat.by_name(GIFTS).interval_sec == 21600, cat.by_name(GIFTS)
 
-        on_disk = [e["name"] for e in json.loads(profile.read_text(encoding="utf-8"))]
+        on_disk = [e["name"] for e in settings_files.read(str(profile))]
         assert on_disk == [BASE, ALLY, GIFTS], on_disk
         again = timersmod.load_profile_catalogue(str(profile))
     assert again.names() == [BASE, ALLY, GIFTS], "the stale template brought it back"

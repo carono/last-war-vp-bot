@@ -43,7 +43,8 @@ if str(_REPO) not in sys.path:
 
 from panel import i18n as i18nmod          # noqa: E402
 from panel import tabs as tabsreg          # noqa: E402
-from panel import timers as timersmod      # noqa: E402
+from panel import timers as timersmod
+from panel.runtime import settings_files      # noqa: E402
 from panel.runtime import errand_options as errandopts   # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime import gate as gatemod           # noqa: E402
@@ -375,7 +376,8 @@ def test_a_switch_from_the_phone_lands_in_the_profiles_own_file():
     with tempfile.TemporaryDirectory() as home:
         rt, api = _api(home)
         assert api.set_timer("upkeep", True)["ok"] is True
-        saved = json.loads(Path(rt.profiles.timers_json()).read_text(encoding="utf-8"))
+        # The catalogue is a row in the profile's database since #2017.
+        saved = settings_files.read(rt.profiles.timers_json())
         rows = saved["timers"] if isinstance(saved, dict) else saved
         by_name = {row["name"]: row for row in rows}
         assert by_name["upkeep"]["enabled"] is True
@@ -396,7 +398,8 @@ def test_the_phone_draws_and_sets_the_at_once_flag():
         assert api.set_timer_immediate("upkeep", True)["ok"] is True
         row = {t["name"]: t for t in api.timers()["timers"]}["upkeep"]
         assert row["immediate"] is True, row
-        saved = json.loads(Path(rt.profiles.timers_json()).read_text(encoding="utf-8"))
+        # The catalogue is a row in the profile's database since #2017.
+        saved = settings_files.read(rt.profiles.timers_json())
         rows = saved["timers"] if isinstance(saved, dict) else saved
         by_name = {item["name"]: item for item in rows}
         assert by_name["upkeep"].get("immediate") is True, by_name["upkeep"]
@@ -416,8 +419,8 @@ def test_the_at_once_box_goes_through_a_live_tab_like_the_switch_does():
         rt.tabs.get = lambda tab_id: _Tab() if tab_id == "timers" else None
         assert api.set_timer_immediate("upkeep", True)["ok"] is True
         assert moved == [("upkeep", True)]
-        assert not os.path.exists(rt.profiles.timers_json()), (
-            "the file was written behind a live tab's back")
+        assert settings_files.read(rt.profiles.timers_json()) is None, (
+            "the catalogue was written behind a live tab's back")
 
 
 def test_the_phone_writes_a_whole_errand_steps_args_and_all():
@@ -444,7 +447,8 @@ def test_the_phone_writes_a_whole_errand_steps_args_and_all():
         # A brand-new errand starts OFF: one nobody has read yet must not fire a minute
         # later.
         assert row["enabled"] is False, row
-        saved = json.loads(Path(rt.profiles.timers_json()).read_text(encoding="utf-8"))
+        # The catalogue is a row in the profile's database since #2017.
+        saved = settings_files.read(rt.profiles.timers_json())
         rows = saved["timers"] if isinstance(saved, dict) else saved
         assert "evening" in {item["name"] for item in rows}
 
@@ -528,8 +532,8 @@ def test_the_whole_entry_goes_through_a_live_tab_like_every_switch_does():
                               steps="collect_base_resources")["ok"] is True
         assert api.delete_timer("collect")["ok"] is True
         assert wrote == [("collect2", "collect"), ("deleted", "collect")], wrote
-        assert not os.path.exists(rt.profiles.timers_json()), (
-            "the file was written behind a live tab's back")
+        assert settings_files.read(rt.profiles.timers_json()) is None, (
+            "the catalogue was written behind a live tab's back")
 
 
 def test_every_editing_route_is_reachable_over_the_wire():
@@ -559,8 +563,8 @@ def test_the_timers_tabs_boxes_win_when_it_is_open():
         rt.tabs.get = lambda tab_id: _Tab() if tab_id == "timers" else None
         assert api.set_timer("upkeep", True)["ok"] is True
         assert moved == [("upkeep", True)]
-        assert not os.path.exists(rt.profiles.timers_json()), (
-            "the file was written behind a live tab's back")
+        assert settings_files.read(rt.profiles.timers_json()) is None, (
+            "the catalogue was written behind a live tab's back")
 
 
 # ---------------------------------------------------------------------------

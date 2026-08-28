@@ -800,10 +800,28 @@ shipped — and an OLD file a profile still has is brought across exactly once
 `<name>.imported`, never deleted: an import that turns out to have misread a field is
 answered by opening the file, and a delete is answered by nothing.
 
+**A SETTING IS IN THE DATABASE TOO, since #2017 — this half of the rule was reversed by
+the person, in these words: «Никаких json, все должно быть в базе, еще раз услышу, что
+что-то хранится в файлах — получишь по жопе».** What used to be written here — that a
+setting stays a file because somebody may want to hand-edit it — is no longer true, and
+it is spelled out rather than quietly deleted so that the next agent can tell an
+exception from an omission. The timer catalogue, the trigger catalogue and the rally
+caps are rows of `blobs` under `settings:<name>` (`panel/runtime/settings_files.py`); a
+profile written before that has its file carried across ONCE and kept beside the
+database as `<name>.imported`.
+
+**Two settings stores have NOT moved, and each is a question for the person rather than
+a decision an agent may take:** `config.json` is a settings store AND the thing that says
+a directory IS a profile — the panel lists, repairs and refuses profiles by looking for
+it (#1306), so moving it means redefining what a profile is; `profiles/settings.json` is
+panel-wide and there is no machine-wide database, which needs either a new store or a
+written exception («Every store is per PROFILE» below). The two shipped TEMPLATES
+(`panel/timers.json`, `panel/triggers.json`) stay files for a different reason again:
+they are code, part of the repository rather than of an account.
+
 **What counts as game data:** a tile, a task, a squad, a tally, a count, a history of
 findings — anything the SERVER said or the panel derived from what it said. **What does
-not, and stays a file a person can open and hand-edit:** a setting
-(`config.json`, `rally_limits.json`, the timer and trigger catalogues), a log
+not, and stays a file:** a log
 (`panel.log`, `debug.log*`, an append-only `.jsonl` that was never rewritten whole and
 so never had the cost a database exists to remove), session bookkeeping
 (`panel.lock`, `panel_alive.json`, `children-<pid>.json`, and `timers_last_run.json` —
@@ -830,7 +848,7 @@ because it is refreshed by a person's press rather than rewritten on a tick, so 
 conversation as any other exception below — asked, agreed, written down here.
 
 **Nothing here is a licence to invent new tables for their own sake.** A store still
-gets to decide it does not need one — a checkpoint, a log, a setting stays exactly what
+gets to decide it does not need one — a checkpoint, a log stays exactly what
 it is. The rule is about where GAME DATA that is meant to survive a restart and be read
 back whole may live, not a demand that every file in `profiles/<name>/` become SQL.
 
