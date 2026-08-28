@@ -2430,5 +2430,16 @@
   "rewards.unknown": "okno nagrody, za które nikt nie ręczy: {window} — celowo niezamknięte",
   "rewards.unknown.title": "Nie ma na liście — zostawione otwarte",
   "rewards.why.unknown": "nie wiem",
-  "tab.rewards": "Nagrody"
+  "tab.rewards": "Nagrody",
+  "rally_group.frame": "Autodołączanie: rodzaje potworów",
+  "rally_group.doom_elite": "Elita Zagłady",
+  "rally_group.event": "Bossowie wydarzeń",
+  "rally_group.other": "Inne potwory",
+  "rally_group.cap": "Zbiórek dziennie dla grupy",
+  "rally_group.cap.hint": "Jedna liczba dla całej grupy — zapisuje się w każdym jej rodzaju. 0 oznacza brak limitu.",
+  "rally_group.today": "Dziś",
+  "rally_group.limit": "Limit",
+  "rally_group.kinds": "Rodzajów",
+  "web.ui.options": "Ustawienia",
+  "web.ui.close": "Zamknij"
 }

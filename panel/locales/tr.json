@@ -2430,5 +2430,16 @@
   "rewards.unknown": "kimsenin onaylamadığı bir ödül penceresi: {window} — bilerek kapatılmadı",
   "rewards.unknown.title": "Listede yok — açık bırakıldı",
   "rewards.why.unknown": "bilmiyorum",
-  "tab.rewards": "Ödüller"
+  "tab.rewards": "Ödüller",
+  "rally_group.frame": "Otomatik katılım: canavar türleri",
+  "rally_group.doom_elite": "Kıyamet Seçkini",
+  "rally_group.event": "Etkinlik patronları",
+  "rally_group.other": "Diğer canavarlar",
+  "rally_group.cap": "Grup için günlük seferberlik",
+  "rally_group.cap.hint": "Tüm grup için tek bir sayı — içindeki her türe yazılır. 0, sınır yok demektir.",
+  "rally_group.today": "Bugün",
+  "rally_group.limit": "Sınır",
+  "rally_group.kinds": "Tür",
+  "web.ui.options": "Ayarlar",
+  "web.ui.close": "Kapat"
 }

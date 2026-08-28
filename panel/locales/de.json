@@ -2430,5 +2430,16 @@
   "rewards.unknown": "ein Belohnungsfenster, für das niemand bürgt: {window} — absichtlich nicht geschlossen",
   "rewards.unknown.title": "Nicht auf der Liste — offen gelassen",
   "rewards.why.unknown": "weiß nicht",
-  "tab.rewards": "Belohnungen"
+  "tab.rewards": "Belohnungen",
+  "rally_group.frame": "Auto-Beitritt: Monsterarten",
+  "rally_group.doom_elite": "Doom-Elite",
+  "rally_group.event": "Event-Bosse",
+  "rally_group.other": "Andere Monster",
+  "rally_group.cap": "Sammlungen pro Tag für die Gruppe",
+  "rally_group.cap.hint": "Eine Zahl für die ganze Gruppe — sie wird auf jede Art darin geschrieben. 0 heißt kein Limit.",
+  "rally_group.today": "Heute",
+  "rally_group.limit": "Limit",
+  "rally_group.kinds": "Arten",
+  "web.ui.options": "Einstellungen",
+  "web.ui.close": "Schließen"
 }

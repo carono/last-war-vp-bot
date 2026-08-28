@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { get, post } from '../api'
 import { span, t, when } from '../i18n'
 import { FieldRow } from '../ui/FieldRow'
+import { Modal } from '../ui/Modal'
 import { SwitchRow } from '../ui/SwitchRow'
 import { useToast } from '../ui/Toast'
 import type {
@@ -29,7 +30,7 @@ import type {
  * belongs on the head row beside the switch, and the fields it opens belong under the
  * whole block. So the hook hands back both and the block puts each where it goes —
  * rendering them together would mean a form unfolding inside a flex row. */
-function useGear(errand: string, options: Field[] | undefined, refresh: () => Promise<void>) {
+function useGear(errand: string, title: string, options: Field[] | undefined, refresh: () => Promise<void>) {
   const [open, setOpen] = useState(false)
   if (!options || !options.length) return { button: null, panel: null }
   return {
@@ -43,8 +44,12 @@ function useGear(errand: string, options: Field[] | undefined, refresh: () => Pr
         {'\u2699'}
       </button>
     ),
+    /* A SHEET, NOT A COLLAPSE (#2051), in the person's words: «при клике на шестеренку
+       открывалась модалка с параметрами, а не коллапс, это везде». The knobs used to
+       open inside the list, so the row being edited slid under the thumb and everything
+       below it jumped. */
     panel: open ? (
-      <div className="editor">
+      <Modal title={title} onClose={() => setOpen(false)}>
         {options.map((field) => (
           <FieldRow
             key={field.key}
@@ -53,7 +58,7 @@ function useGear(errand: string, options: Field[] | undefined, refresh: () => Pr
             send={(key, value) => post<PressAnswer>('/api/errand/option', { errand, key, value })}
           />
         ))}
-      </div>
+      </Modal>
     ) : null,
   }
 }
@@ -142,7 +147,7 @@ function ErrandBlock({
   refresh: () => Promise<void>
   run?: ReactNode
 }) {
-  const gear = useGear(errand, options, refresh)
+  const gear = useGear(errand, title, options, refresh)
   return (
     <div className="item errand">
       <div className="errand-head">

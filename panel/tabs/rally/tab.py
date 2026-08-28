@@ -69,8 +69,10 @@ from .autorally import AutoRallyPage
 # The kind vocabulary, read off the live game config (tools/lib/rally_kinds.py, #1317).
 import coords                                                         # noqa: E402
 import rally_kinds                                                    # noqa: E402
+import rally_kinds as rallykinds                                      # noqa: E402
 from ...runtime import statevar
 from ...runtime import errand_options as errandopts
+from ...runtime import monster_art as monsterart
 
 # ---------------------------------------------------------------------------
 # The two things a rally can be raised on: a «Роковая Элита» (searched under the
@@ -138,6 +140,20 @@ def _switch(on) -> str:
 class _Stopped(Exception):
     """Raised inside the run loop when Stop was pressed — unwinds to the finally."""
 
+
+
+def _common(values) -> int:
+    """The number most of them carry — ties go to the smallest, an empty list to 0.
+
+    What a GROUP's ceiling reads as (#2051). A mean would invent a number nobody typed
+    and a minimum would let one odd member speak for fifty-seven others.
+    """
+    if not values:
+        return 0
+    counted: dict = {}
+    for value in values:
+        counted[value] = counted.get(value, 0) + 1
+    return sorted(counted, key=lambda v: (-counted[v], v))[0]
 
 class RallyTab(PanelTab):
     """Raising a rally, and the monitor that notices somebody else's."""
@@ -748,18 +764,18 @@ class RallyTab(PanelTab):
                       # that is served, translated and editable is still MISSING if it is
                       # not on the route somebody walks to it by. So they are fields of
                       # «Автостяг» again: one card, one subject, nothing to discover.
-                      "fields": (list(switches["fields"]) + self._web_squad_fields()
-                                 + list(caps["fields"])),
+                      "fields": list(switches["fields"]) + self._web_squad_fields(),
                       "items": list(page["items"]),
-                      "rows": page["rows"],
-                      "note": caps["note"]})
+                      "rows": page["rows"]})
+        # …AND THE CAPS, as tiles with a picture and a gear each (#2051). They were fields
+        # of this card for one commit — put back where the person looked for them — and
+        # sixty-eight number boxes in a row is what he called «плохо, я просил карточки».
+        cards.append(caps)
         # …AND THE BANNERS THEMSELVES, which is the whole reason a phone is being held
         # (#1324). The same block the window draws: what is standing, what it is going
         # for, how much room is left and who is already in it, faces and all. Cheap —
         # it reads the model the pushes maintain and asks the game for nothing, which
         # is the rule for everything in a `web_view` (docs/panel-tabs.md).
-        # …and the caps are NOT a card of their own any more (#2051): they are fields of
-        # «Автостяг» above, which is the section the person opens to find them.
         cards += self._web_roster_cards()
         return {"cards": cards, "now": __import__("time").time(),
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
@@ -1011,39 +1027,94 @@ class RallyTab(PanelTab):
         }
 
     def _web_limit_card(self) -> dict:
-        """The daily cap per kind — and on the phone it is TYPED, not merely read (#2055).
+        """The day's caps — THREE CARDS WITH A PICTURE AND A GEAR, not a list (#2051).
 
-        «В веб панели нельзя настроить лимиты автостягов», in the person's own words. The
-        caps have been on this screen since #1317 and they were sixty-eight readings: the
-        one set of numbers that decides how many squads a day this account spends could be
-        moved only at the machine. By the reasoning that ended the «Настройки» divergence
-        — a knob with no screen is a knob NOBODY can reach once the window is retired —
-        they are fields.
+        The person had asked for the caps to be typeable (#2055) and got sixty-eight
+        number fields in a row: «плохо, я просил карточки, а не список, такой же как в
+        таймерах, и должна быть картинка соответствующих монстров, и настройки на группу,
+        должна быть шестеренка». So the caps are a tile per GROUP, the shape «Таймеры»
+        draws an errand in, and the knobs are behind the tile's own gear — which opens a
+        sheet, never a collapse.
 
-        A CARD OF ITS OWN, because sixty-eight of anything inside the card that also
-        carries the switches, the squads and the day's readings is a card nobody can find
-        the top of. It is also the shape the GROUPS will take when they land: three cards
-        instead of one long list.
+        WHAT A GROUP IS WAS READ OUT OF THE GAME, not typed (`tools/lib/rally_kinds.py`,
+        `docs/research/rally-monster-groups.md`): `lw_world_monster.special == 0` is the
+        Doom Elite line across all six seasons, and the portrait column puts THIS season's
+        crocodile beside it — which is the whole of «сезон сменил Элиту на крокодила», in
+        the config's own words rather than in a list somebody has to fix every season.
 
-        TODAY'S COUNT RIDES ON THE LABEL rather than in a row beside it, so a kind is one
-        line and not two. It is DATA in `label_fmt` — the kind's own translated name and
-        the number — never a second key to translate, which is the rule every other
-        formatted label on this screen follows.
+        THE GROUP'S OWN CAP IS ONE NUMBER OVER ALL ITS KINDS, and the kinds are under it
+        in the same sheet, because a group whose members disagree still has to be readable:
+        the tile shows the group's ceiling as the LOWEST cap its kinds carry — the number
+        that actually stops the joining — and typing one sets every kind in the group.
         """
         limits, counts = rallylimits.read(self.rt)
-        fields = []
-        for key in limits.types():
-            fields.append({
-                "key": "limit_" + key,
-                "label": "rally_limit.field",
-                "label_fmt": {"name": self.t("rally_limit.type." + key),
-                              "count": counts.count_for(key)},
+        kinds = list(limits.types())
+        items = []
+        for group in rallykinds.GROUPS:
+            mine = rallykinds.kinds_in_group(group, kinds)
+            if not mine:
+                continue
+            caps = [limits.limit_for(k) for k in mine]
+            spent = sum(counts.count_for(k) for k in mine)
+            # THE GROUP'S CEILING IS THE ONE MOST OF ITS KINDS CARRY. A group is fifty
+            # eight kinds at «Другие», and one member left at 1 would make the whole
+            # group read «1» if this were a minimum — a reading that describes one kind
+            # and misdescribes fifty-seven. «0» means «no cap» rather than «none
+            # allowed», so an uncapped member is left out of the count and the group says
+            # so in words only when they ALL are.
+            capped = [c for c in caps if c > 0]
+            cap = _common(capped)
+            fields = [{
+                "key": "gcap_" + group,
+                "label": "rally_group.cap",
                 "kind": opt_value.NUMBER,
-                "value": limits.limit_for(key),
+                "value": cap,
                 "min": 0,
+                "hint": "rally_group.cap.hint",
+            }]
+            fields += [{
+                "key": "limit_" + kind,
+                "label": "rally_limit.field",
+                "label_fmt": {"name": self.t("rally_limit.type." + kind),
+                              "count": counts.count_for(kind)},
+                "kind": opt_value.NUMBER,
+                "value": limits.limit_for(kind),
+                "min": 0,
+            } for kind in mine]
+            items.append({
+                "label": "rally_group." + group,
+                # The face of the group is the first of its kinds this machine has art
+                # for; with nothing extracted the tile simply has no picture (#2019).
+                "icon": self._group_icon(mine),
+                # ONE LINE OF WORDS, not three bare numbers. A tile draws a fact's VALUE
+                # and keeps its label for the tooltip, and a phone has no tooltips — «20
+                # 20 4» says nothing. The words are the panel's own keys, put together
+                # here exactly as every other composed reading on this screen is.
+                "detail": "%s %d · %s %s · %s %d" % (
+                    self.t("rally_group.today"), spent,
+                    self.t("rally_group.limit"),
+                    str(cap) if cap > 0 else self.t("rally_day.unlimited"),
+                    self.t("rally_group.kinds"), len(mine)),
+                "options_title": "rally_group." + group,
+                "options": fields,
             })
-        return {"title": "rally_limit.frame", "fields": fields,
+        return {"title": "rally_group.frame", "layout": "tiles", "items": items,
                 "note": "rally_limit.hint"}
+
+    def _group_icon(self, kinds) -> str:
+        """The face of a group: its own first member with art, then anything it holds.
+
+        The order matters — a group is drawn by what it is ABOUT, so «Роковая Элита»
+        must show the elite and not whichever of its four kinds the caps file happens to
+        list first.
+        """
+        named = [k for k in rallykinds.GROUP_MEMBERS.get(
+            rallykinds.group_of(kinds[0] if kinds else ""), ()) if k in kinds]
+        for kind in list(named) + list(kinds):
+            link = monsterart.name_for(kind)
+            if link:
+                return link
+        return ""
 
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить» — the squad reader's own asynchronous read, nothing else.
@@ -1076,6 +1147,20 @@ class RallyTab(PanelTab):
             # …AND THE CAPS, which are numbers and go to the one setter that respects a
             # drawn window's own field (#2055). A kind this profile has no cap for is
             # answered «unknown» rather than invented.
+            # …A WHOLE GROUP AT ONCE (#2051): the tile's own «сколько за день», which is
+            # the number the person actually thinks in. It writes every kind in the group
+            # through the same setter a single cap uses, so the group and its members can
+            # never mean two different things.
+            if key.startswith("gcap_"):
+                group = key[len("gcap_"):]
+                limits, _counts = rallylimits.read(self.rt)
+                mine = rallykinds.kinds_in_group(group, list(limits.types()))
+                if not mine:
+                    return {"error": "unknown"}
+                for kind in mine:
+                    if not self.autorally.set_cap(kind, raw):
+                        return {"error": "unknown"}
+                return {"ok": True}
             if key.startswith("limit_"):
                 kind = key[len("limit_"):]
                 if not self.autorally.set_cap(kind, raw):

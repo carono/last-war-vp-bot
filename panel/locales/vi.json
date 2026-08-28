@@ -2430,5 +2430,16 @@
   "rewards.unknown": "một cửa sổ phần thưởng chưa ai xác nhận: {window} — cố ý không đóng",
   "rewards.unknown.title": "Không có trong danh sách — để mở",
   "rewards.why.unknown": "không biết",
-  "tab.rewards": "Phần thưởng"
+  "tab.rewards": "Phần thưởng",
+  "rally_group.frame": "Tự tham gia: các loại quái",
+  "rally_group.doom_elite": "Tinh Nhuệ Diệt Vong",
+  "rally_group.event": "Trùm sự kiện",
+  "rally_group.other": "Quái khác",
+  "rally_group.cap": "Số lần tập kết mỗi ngày cho nhóm",
+  "rally_group.cap.hint": "Một con số cho cả nhóm — được ghi vào mọi loại trong nhóm. 0 nghĩa là không giới hạn.",
+  "rally_group.today": "Hôm nay",
+  "rally_group.limit": "Giới hạn",
+  "rally_group.kinds": "Loại",
+  "web.ui.options": "Cài đặt",
+  "web.ui.close": "Đóng"
 }

@@ -5,6 +5,7 @@ import { t, when } from '../i18n'
 import { pressWord } from '../ui/press'
 import { useToast } from '../ui/Toast'
 import { FieldRow } from '../ui/FieldRow'
+import { Modal } from '../ui/Modal'
 import { firstPlace, Marked, useJump } from '../ui/Coord'
 import { WorldMap } from './WorldMap'
 import type { Field, PressAnswer, ScreenView as View, ViewAction, ViewCard, ViewItem } from '../types'
@@ -74,6 +75,42 @@ function PressButton({
 
 /* The screen's own way of sending a moved knob: the tab's `set` press. The control
  * itself is `ui/FieldRow.tsx` — the gear on «Таймеры» draws the same one (#2017). */
+/* ONE TILE'S OWN SETTINGS, behind a gear and inside a sheet (#2051).
+ *
+ * The same gesture «Таймеры» has had since #2017 and the same sheet since #2051 — a
+ * press opens a modal, never a collapse that pushes the list around under the thumb.
+ * The knobs are ordinary screen fields, so they travel back through the screen's own
+ * `set` press and no new route is needed.
+ */
+function useItemGear(item: ViewItem, screen: string, after: () => void) {
+  const [open, setOpen] = useState(false)
+  const options = item.options || []
+  if (!options.length) return { button: null, sheet: null }
+  const name = item.options_title ? t(item.options_title) : (item.label ? t(item.label) : item.text || '')
+  return {
+    button: (
+      <button
+        className="go icon"
+        title={t('web.ui.options')}
+        aria-label={t('web.ui.options')}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(true)
+        }}
+      >
+        {'\u2699'}
+      </button>
+    ),
+    sheet: open ? (
+      <Modal title={name} onClose={() => setOpen(false)}>
+        {options.map((field) => (
+          <ScreenField key={field.key} field={field} screen={screen} after={after} />
+        ))}
+      </Modal>
+    ) : null,
+  }
+}
+
 function ScreenField({ field, screen, after }: { field: Field; screen: string; after: () => void }) {
   return (
     <FieldRow
@@ -87,6 +124,7 @@ function ScreenField({ field, screen, after }: { field: Field; screen: string; a
 }
 
 function Item({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
+  const gear = useItemGear(item, screen, after)
   const facts = item.facts || []
   /* EVERY PIECE OF PROSE ON A ROW CAN HOLD A PLACE (#1982): the name of the tile, the
    * detail beside it, the note under it and each fact. They are drawn through `Marked`,
@@ -122,7 +160,9 @@ function Item({ item, now, screen, after }: { item: ViewItem; now: number; scree
             <Marked text={item.detail} parts={item.detail_parts} />
           </span>
         ) : null}
+        {gear.button}
       </div>
+      {gear.sheet}
       {item.note ? (
         <p className="muted small">
           <Marked text={item.note} parts={item.note_parts} />
@@ -179,6 +219,7 @@ const TILE_FACTS = 2
 
 function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; screen: string; after: () => void }) {
   const jump = useJump()
+  const gear = useItemGear(item, screen, after)
   //: The place this tile IS, or `null` — see the note above. Only the NAME counts: a
   //: coordinate buried in a fact is not what the tile is about.
   const place = item.label ? null : firstPlace(item.text_parts)
@@ -219,9 +260,17 @@ function MiniItem({ item, now, screen, after }: { item: ViewItem; now: number; s
     )
   const inside = (
     <>
-      <div className="name">{item.label ? t(item.label) : mark(item.text, item.text_parts)}</div>
+      {/* THE GAME'S OWN PICTURE ON THE TILE (#2051), the same link-not-a-blob the
+          errands draw: the browser fetches each sprite once and a machine that has not
+          extracted the art simply shows a tile with no picture. */}
+      <div className="name">
+        {item.icon ? <img className="mini-icon" src={item.icon} alt="" aria-hidden="true" /> : null}
+        <span>{item.label ? t(item.label) : mark(item.text, item.text_parts)}</span>
+        {gear.button}
+      </div>
       {bits.length ? <div className="bits">{bits}</div> : null}
       {item.pill ? <span className="pill">{t(item.pill)}</span> : null}
+      {gear.sheet}
       {(item.actions || []).length ? (
         /* A BUTTON ON A TILE THAT IS ITSELF A BUTTON. The press is about the button —
            «Ограбить» must never also walk the camera — so the click stops here. */

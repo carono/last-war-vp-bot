@@ -1132,6 +1132,7 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
     try:
         from panel.tabs.rally import autorally as autorallymod
         from panel.runtime import opt_value
+        import rally_kinds
 
         _hold_autojoin(tab, False)
         tab._monitor_var.set(True)
@@ -1201,34 +1202,43 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         rows = {r["label"]: r["value"] for r in tab._web_autorally_card()["rows"]}
         assert rows["rally_troops.now"] == "%s / 4000" % dash, rows
         tab.autorally._min_soldiers_var.set("0")
-        # …and EVERY KIND is on the phone under a card of its own (#1317, #2055). They
-        # were sixty-eight READINGS until #2055 and they are FIELDS now — the one set of
-        # numbers deciding how many squads a day this account spends could be moved only
-        # at the machine, which is a knob nobody can reach once the window is retired.
+        # …and EVERY KIND is on the phone (#1317, #2055, #2051), as THREE TILES with a
+        # picture and a gear each rather than sixty-eight number boxes in a row — «я
+        # просил карточки, а не список, такой же как в таймерах». What a group IS comes
+        # out of the game's own config, so a season that renames the elite cannot empty
+        # it: `special == 0` is the Doom Elite line and the portrait column puts this
+        # season's crocodile beside it (`tools/lib/rally_kinds.py`).
         limit_card = tab._web_limit_card()
-        caps = {f["key"]: f for f in limit_card["fields"]}
-        assert caps, limit_card
-        for kind in ("doom_elite", "doom_walker", "zombie_boss", "general_trial",
-                     "general_trial_elite", "alliance_drill", "zombie_invasion"):
-            assert "limit_" + kind in caps, (kind, sorted(caps))
-        # The cap is the value that is TYPED; today's count rides on the label as data,
-        # so a kind is one line and not two, and it needs no second key to translate.
-        elite = caps["limit_doom_elite"]
-        assert elite["kind"] == opt_value.NUMBER, elite
-        assert elite["value"] == 20, elite
-        assert elite["label"] == "rally_limit.field", elite
-        assert elite["label_fmt"]["count"] == 0, elite
-        assert elite["label_fmt"]["name"] == rt.t("rally_limit.type.doom_elite"), elite
-        # «на золотых оставляем без лимита» — an uncapped kind is a zero in its own box
-        # rather than a row of words, and the card says what a zero means in its note.
-        assert caps["limit_desert_boss"]["value"] == 0, caps["limit_desert_boss"]
-        assert limit_card.get("note"), limit_card
-        # …and typing one lands through the tab's own setter.
+        assert limit_card["layout"] == "tiles", limit_card
+        tiles = {i["label"]: i for i in limit_card["items"]}
+        assert "rally_group.doom_elite" in tiles, sorted(tiles)
+        elite = tiles["rally_group.doom_elite"]
+        caps = {f["key"]: f for f in elite["options"]}
+        # The group's own ceiling first, then the kinds it is made of.
+        assert "gcap_doom_elite" in caps, sorted(caps)
+        assert "limit_doom_elite" in caps, sorted(caps)
+        assert "limit_giant_crocodile" in caps, sorted(caps)
+        assert caps["limit_doom_elite"]["kind"] == opt_value.NUMBER
+        assert caps["limit_doom_elite"]["value"] == 20, caps["limit_doom_elite"]
+        assert caps["limit_doom_elite"]["label_fmt"]["count"] == 0
+        assert elite["options_title"] == "rally_group.doom_elite", elite
+        # …and the group's tile says what it spent, its ceiling and how many kinds it
+        # holds — in WORDS, because a tile keeps a fact's label for a tooltip and a phone
+        # has none.
+        detail = elite["detail"]
+        assert rt.t("rally_group.today") in detail, detail
+        assert rt.t("rally_group.limit") in detail, detail
+        assert str(len(rally_kinds.GROUP_MEMBERS["doom_elite"])) in detail, detail
+        # A press on the GROUP writes every kind in it; one on a kind writes that kind.
+        assert tab.web_press("set", {"key": "gcap_doom_elite", "value": 5}) == {"ok": True}
+        assert tab.autorally.cap_for("doom_elite") == 5
+        assert tab.autorally.cap_for("giant_crocodile") == 5
         assert tab.web_press("set", {"key": "limit_doom_elite", "value": 7}) == {"ok": True}
         assert tab.autorally.cap_for("doom_elite") == 7
-        assert tab.web_press("set", {"key": "limit_dragon", "value": 7}) == {
-            "error": "unknown"}
+        assert tab.web_press("set", {"key": "limit_dragon", "value": 7}) == {"error": "unknown"}
+        assert tab.web_press("set", {"key": "gcap_dragons", "value": 7}) == {"error": "unknown"}
         tab.autorally.set_cap("doom_elite", 20)
+        tab.autorally.set_cap("giant_crocodile", 19)
 
         # ONE CARD, exactly as the window now draws one group (#1317): the switches and
         # the «Автосбор» block are the same subject — what the bot does by itself — and
@@ -1247,8 +1257,9 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         # a card of their own and the person went looking where they had always been:
         # «захожу в стягивания, раздел с автостягами, и нету ничего». A setting served,
         # translated and editable is still missing if it is off the route somebody walks.
-        assert "limit_doom_elite" in keys, sorted(keys)
-        assert "rally_limit.frame" not in titles, titles
+        # The caps are NOT fields of this card: they are the tiles above (#2051).
+        assert not [k for k in keys if k.startswith("limit_")], sorted(keys)
+        assert "rally_group.frame" in titles, titles
         labels = [i["label"] for i in group["items"]]
         assert "autorally.squads" in labels, labels
         assert group["rows"], group

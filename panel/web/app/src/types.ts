@@ -217,6 +217,12 @@ export interface ViewItem {
   facts?: Fact[]
   until?: number
   actions?: ViewAction[]
+  /* THE KNOBS THIS TILE OWNS, behind its own gear (#2051). A screen's card may be a
+     grid of things that each have settings of their own — the rally groups are the
+     first — and they open in the same sheet the errands' gear opens. */
+  options?: Field[]
+  /* What to call that sheet: a key, or the tile's own words when it has no key. */
+  options_title?: string
 }
 
 export interface Field {

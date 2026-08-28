@@ -6,12 +6,14 @@ answer must never be an exception. A machine that has not run the extractor has 
 pictures, every lookup answers `""`, and the cards draw with no picture — which is what
 they look like now, not a fault.
 
-WHICH COLUMN OF THE CONFIG NAMES THE SPRITE IS NOT SETTLED. `pic_name` is the one #2018
-pointed at, and reading `docs/research/golden-zombies.md` shows it is a PREFAB — the world
-model, `world_monster_general_invasion` — rather than a 2D icon; the same census names a
-`worldmap_icon` column beside it, which is the likelier one. Nothing here has to choose:
-the map is `tools/data/monster_icons.json`, kind -> sprite stem, exactly as the errands'
-is, and whichever column settles it fills that file.
+WHICH COLUMN OF THE CONFIG NAMES THE SPRITE WAS SETTLED BY READING IT (#2051,
+`docs/research/rally-monster-groups.md`): `worldmap_icon` is the shared MAP PIN — one
+value on most of the seasonal line — and `pic_name` is the species' own picture, a
+portrait for the seasonal monsters and a world prefab for the older ones, which is what
+`docs/research/golden-zombies.md` saw. The map is `tools/data/monster_icons.json`, kind ->
+sprite stem, generated from that read: a portrait where a kind has one, and among
+portraits the newest season's, because a kind that has run six seasons should draw the
+face the player is looking at now.
 """
 from __future__ import annotations
 

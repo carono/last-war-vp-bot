@@ -2430,5 +2430,16 @@
   "rewards.unknown": "a reward window nobody has vouched for: {window} — left open on purpose",
   "rewards.unknown.title": "Not on the list — left open",
   "rewards.why.unknown": "don't know",
-  "tab.rewards": "Rewards"
+  "tab.rewards": "Rewards",
+  "rally_group.frame": "Auto-join: kinds of banner",
+  "rally_group.doom_elite": "Doom Elite",
+  "rally_group.event": "Event bosses",
+  "rally_group.other": "Other monsters",
+  "rally_group.cap": "Rallies a day for the group",
+  "rally_group.cap.hint": "One number for the whole group — it is written onto every kind in it. 0 means no cap.",
+  "rally_group.today": "Today",
+  "rally_group.limit": "Cap",
+  "rally_group.kinds": "Kinds",
+  "web.ui.options": "Settings",
+  "web.ui.close": "Close"
 }

@@ -2430,5 +2430,16 @@
   "rewards.unknown": "una finestra di ricompensa che nessuno ha confermato: {window} — lasciata aperta apposta",
   "rewards.unknown.title": "Non è in elenco — lasciata aperta",
   "rewards.why.unknown": "non lo so",
-  "tab.rewards": "Ricompense"
+  "tab.rewards": "Ricompense",
+  "rally_group.frame": "Auto-unione: tipi di mostro",
+  "rally_group.doom_elite": "Élite del Destino",
+  "rally_group.event": "Boss degli eventi",
+  "rally_group.other": "Altri mostri",
+  "rally_group.cap": "Raduni al giorno per il gruppo",
+  "rally_group.cap.hint": "Un solo numero per l'intero gruppo: viene scritto su ogni suo tipo. 0 significa nessun limite.",
+  "rally_group.today": "Oggi",
+  "rally_group.limit": "Limite",
+  "rally_group.kinds": "Tipi",
+  "web.ui.options": "Impostazioni",
+  "web.ui.close": "Chiudi"
 }

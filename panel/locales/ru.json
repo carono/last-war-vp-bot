@@ -2430,5 +2430,16 @@
   "rewards.unknown": "наградное окно, которого нет в списке: {window} — намеренно не закрыто",
   "rewards.unknown.title": "Нет в списке — оставлено открытым",
   "rewards.why.unknown": "не знаю",
-  "tab.rewards": "Награды"
+  "tab.rewards": "Награды",
+  "rally_group.frame": "Автостяг: виды монстров",
+  "rally_group.doom_elite": "Роковая Элита",
+  "rally_group.event": "Событийные",
+  "rally_group.other": "Другие монстры",
+  "rally_group.cap": "Стягов за день на группу",
+  "rally_group.cap.hint": "Одно число на всю группу — записывается во все её виды. 0 — без лимита.",
+  "rally_group.today": "Сегодня",
+  "rally_group.limit": "Лимит",
+  "rally_group.kinds": "Видов",
+  "web.ui.options": "Настройки",
+  "web.ui.close": "Закрыть"
 }

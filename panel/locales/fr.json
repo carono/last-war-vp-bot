@@ -2430,5 +2430,16 @@
   "rewards.unknown": "une fenêtre de récompense que personne n'a validée : {window} — laissée ouverte exprès",
   "rewards.unknown.title": "Pas dans la liste — laissée ouverte",
   "rewards.why.unknown": "je ne sais pas",
-  "tab.rewards": "Récompenses"
+  "tab.rewards": "Récompenses",
+  "rally_group.frame": "Auto-ralliement : types de monstres",
+  "rally_group.doom_elite": "Élite du Destin",
+  "rally_group.event": "Boss d'événement",
+  "rally_group.other": "Autres monstres",
+  "rally_group.cap": "Ralliements par jour pour le groupe",
+  "rally_group.cap.hint": "Un seul nombre pour tout le groupe — il est écrit sur chacun de ses types. 0 signifie sans limite.",
+  "rally_group.today": "Aujourd'hui",
+  "rally_group.limit": "Plafond",
+  "rally_group.kinds": "Types",
+  "web.ui.options": "Paramètres",
+  "web.ui.close": "Fermer"
 }

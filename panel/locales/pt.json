@@ -2430,5 +2430,16 @@
   "rewards.unknown": "uma janela de recompensa que ninguém confirmou: {window} — deixada aberta de propósito",
   "rewards.unknown.title": "Não está na lista — deixada aberta",
   "rewards.why.unknown": "não sei",
-  "tab.rewards": "Recompensas"
+  "tab.rewards": "Recompensas",
+  "rally_group.frame": "Auto-adesão: tipos de monstro",
+  "rally_group.doom_elite": "Elite Fatal",
+  "rally_group.event": "Chefes de evento",
+  "rally_group.other": "Outros monstros",
+  "rally_group.cap": "Concentrações por dia para o grupo",
+  "rally_group.cap.hint": "Um número para todo o grupo — é escrito em cada tipo dele. 0 significa sem limite.",
+  "rally_group.today": "Hoje",
+  "rally_group.limit": "Limite",
+  "rally_group.kinds": "Tipos",
+  "web.ui.options": "Configurações",
+  "web.ui.close": "Fechar"
 }

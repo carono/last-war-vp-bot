@@ -168,3 +168,72 @@ KIND_ORDER: tuple = (
     "zombie_horde",
     "zombie_raider",
 )
+
+
+# --------------------------------------------------------------------------- groups --
+#
+# THREE GROUPS, READ OUT OF THE CONFIG RATHER THAN TYPED (#2051). The person asked for
+# cards with settings per group, and the first question was what a group IS — «сезон
+# сменил Роковую Элиту на крокодила» is exactly the failure a hand-written list of names
+# produces every season. So `lw_world_monster` was read live, every column of it
+# (`docs/research/rally-monster-groups.md`), and the answer is in two of them:
+#
+#   * `special == 0` marks the DOOM ELITE line and nothing else — two name keys across
+#     six seasons (`300602` and the Blood Night one), where `type` moves between 1, 3, 17
+#     and 21 and the name key changes every season;
+#   * `pic_name` — the species' own portrait — puts this season's crocodile beside the
+#     elite it replaced, because the game gives them the SAME picture, and the Blood
+#     Night alpha wolf beside the Blood Night elite for the same reason. Four kinds, and
+#     not one of them was chosen by hand.
+#
+# The events are not species at all: two are matched off their own managers
+# (`alliance_drill`, `zombie_invasion`) and the General's Trial family carries
+# `activity = 107` on rows that are not `boss = 1`, so they never appear in the boss
+# census above. They are named here because there is nowhere else to read them from.
+#
+# WHAT THE CONFIG DOES NOT SAY: there is no column meaning «a rally cannot be raised on
+# this». `auto_limit` was the candidate and it is on exactly two kinds (`oni_general`,
+# `wandering_oniwagon`), which is not that question. Anything of the sort has to come off
+# a live banner instead.
+
+#: The elite line — `special == 0`, plus whoever shares its portrait.
+GROUP_DOOM_ELITE = "doom_elite"
+#: The events, which are not species: matched off their own managers.
+GROUP_EVENT = "event"
+#: Everything else the map can carry.
+GROUP_OTHER = "other"
+
+#: The groups in the order the cards are drawn.
+GROUPS = (GROUP_DOOM_ELITE, GROUP_EVENT, GROUP_OTHER)
+
+#: The kinds of each of the two named groups; everything else is `other`.
+GROUP_MEMBERS: dict = {
+    GROUP_DOOM_ELITE: (
+        "doom_elite",                 # special = 0, six seasons of name keys
+        "blood_night_doom_elite",     # special = 0
+        "giant_crocodile",            # this season's — shares the elite's portrait
+        "bloodnight_alpha_wolf",      # shares the Blood Night elite's portrait
+    ),
+    GROUP_EVENT: (
+        "alliance_drill",             # AllyDrillDataManager
+        "zombie_invasion",            # the invasion's own lists
+        "invading_zombies",
+        "general_trial",              # activity = 107
+        "general_trial_elite",
+        "general_trial_forces",
+    ),
+}
+
+
+def group_of(kind: str) -> str:
+    """Which of the three groups a kind belongs to."""
+    kind = str(kind or "")
+    for group, members in GROUP_MEMBERS.items():
+        if kind in members:
+            return group
+    return GROUP_OTHER
+
+
+def kinds_in_group(group: str, kinds) -> list:
+    """The kinds of one group, in the order they were given."""
+    return [k for k in kinds if group_of(k) == str(group or "")]

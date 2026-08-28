@@ -809,3 +809,44 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
 /* The live line: the number is the thing, its age is an aside. */
 .stat { margin: 0; }
 .stat b { color: var(--ink); font-weight: 600; }
+
+/* A SHEET OVER THE PAGE (#2051) — what every gear opens now, in place of a collapse
+   that pushed the list around under the thumb. One set of rules for all of them. */
+body.modal-open { overflow: hidden; }
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 40;
+}
+.modal {
+  width: min(560px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card, #161a21);
+  border: 1px solid var(--line, #262c36);
+  border-radius: 14px 14px 0 0;
+  padding: 12px 14px 18px;
+}
+@media (min-width: 620px) {
+  .modal-back { align-items: center; }
+  .modal { border-radius: 14px; }
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line, #262c36);
+}
+.modal-body { overflow: auto; padding-top: 6px; }
+
+/* …and the picture on a tile, beside its name. */
+.mini .name { display: flex; align-items: center; gap: 8px; }
+.mini .name > span { flex: 1 1 auto; min-width: 0; }
+.mini-icon { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
