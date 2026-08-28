@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 56 of 159
+🟩🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥  **35%** — 56 of 160
 
-🟩 56 done · 🟨 68 partly · 🟥 35 not automated
+🟩 56 done · 🟨 69 partly · 🟥 35 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -120,6 +120,13 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot runs it by
   itself; it does not hold a distance past about 1000 m.
+- 🟡 Beneath the Ruins («Под руинами», the seasonal descent machine) — one press and the
+  bot plays it by itself: it opens the machine, drops down the platforms steering towards
+  the one below worth landing on, and goes straight into the next round for as many rounds
+  as it was asked for, then closes the window. Attempts are not limited and only the best
+  depth counts for the ranking, so the runs are free and the deepest one is what is kept.
+  It reaches roughly twice the depth of simply falling, and a person still plays it better;
+  the card on «События» says how the last run went.
 - 🟡 Frontline Breakthrough («Прорыв обороны», the Sunday minigame) — one press plays it
   by itself, chain after chain: it enters the stage the event offers, steers the squad
   between the three lanes for the whole run, waits for the verdict and goes straight into

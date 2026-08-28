@@ -137,6 +137,13 @@ class EventsTab(PanelTab):
         #: the right one. `None` while nothing is running.
         self._sent_key = None
 
+        # -- «Под руинами» ---------------------------------------------------
+        #: The last line the descent's own reader brought back, verbatim. Nothing is
+        #: read to draw the card (`CLAUDE.md` — read once, then listen): the numbers
+        #: appear when a person plays a run or asks for them.
+        self._ruins_said = ""
+        self._ruins_running = False
+
         # -- «Золотые зомби» ------------------------------------------------
         #: Its own reading, on its own clock: the two events answer different questions
         #: and one being unreadable must not blank the other.
@@ -1394,6 +1401,18 @@ class EventsTab(PanelTab):
             tcard["items"] = [{"label": "events.train.board",
                                "pill": "events.codename.attack.off"}]
 
+        # …and «Под руинами», the seasonal descent. Attempts are not limited and only
+        # the best depth is ranked, so the card carries what the last run reached and a
+        # press that plays another one. The whole ability is one recipe: the autopilot
+        # lives inside the game on its own tick, and the panel only starts it and asks
+        # afterwards how it went (docs/research/beneath-ruins.md).
+        rcard = {"title": "events.group.ruins", "rows": [
+            {"label": "events.ruins.result",
+             "value": self._ruins_said or "—"}],
+            "actions": [{"id": "ruins_play", "label": "events.ruins.play",
+                         "confirm": "events.ruins.confirm"},
+                        {"id": "ruins_read", "label": "events.ruins.read"}]}
+
         return {"cards": [
             {"title": None, "rows": [
                 {"label": "events.web.read",
@@ -1403,6 +1422,7 @@ class EventsTab(PanelTab):
             gcard,
             tcard,
             fcard,
+            rcard,
         ], "now": time.time(),
             "actions": [{"id": "refresh", "label": "events.refresh"},
                         # …AND «ПРОРЫВ ОБОРОНЫ» (#1976), the Sunday mini-game. One recipe
@@ -1413,10 +1433,35 @@ class EventsTab(PanelTab):
                         {"id": "frontline", "label": "events.frontline.play",
                          "confirm": "events.frontline.confirm"}]}
 
+    def ruins(self, play: bool) -> dict:
+        """Play the descent, or ask how the last run went.
+
+        Both are the same recipe pair (`play_beneath_ruins` arms the autopilot inside
+        the game, `read_beneath_ruins` says what it reached), so the press is one
+        `play_async` and the answer is the reading the run left in its own variables.
+        """
+        if play and self._ruins_running:
+            return {"ok": False, "reason": "events.ruins.busy"}
+        name = "play_beneath_ruins" if play else "read_beneath_ruins"
+        if play:
+            self._ruins_running = True
+
+        def came(outcome) -> None:
+            got = (getattr(outcome, "ctx", None) and outcome.ctx.vars) or {}
+            said = str(got.get("armed") or got.get("run") or "").strip()
+            if said:
+                self._ruins_said = said.replace("true :: ", "")
+            self._ruins_running = False
+
+        return {"ok": self.rt.play_async(name, tag="events", human=True,
+                                         on_result=came)}
+
     def web_press(self, action: str, args: dict) -> dict:
         """The same three presses the window has, and nothing the window has not."""
         if action == "refresh":
             return {"ok": self.refresh_both(human=True)}
+        if action in ("ruins_play", "ruins_read"):
+            return self.ruins(action == "ruins_play")
         if action == "collect_fireworks":
             return {"ok": self.collect_fireworks()}
         if action == "frontline":
