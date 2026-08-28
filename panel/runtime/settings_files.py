@@ -104,8 +104,12 @@ def read(path: str, default=None):
 
     `None` (or whatever `default` says) means «nothing has ever been saved», which is
     what a brand-new profile answers and what every caller already knew how to seed.
+
+    A READ NEVER CREATES A DATABASE. With neither a database nor a file there is
+    nothing to answer with, and opening one would build the whole schema to find that
+    out — measured at 29 s across one test that walks a great many empty profiles.
     """
-    if not owned(path):
+    if not owned(path) or _nothing_there(path):
         return default
     try:
         with _LOCK, opened(path) as store:
@@ -131,6 +135,12 @@ def write(path: str, value) -> bool:
     return True
 
 
+def _nothing_there(path: str) -> bool:
+    """Neither a database nor a file — so there is nothing to read and nothing to
+    import, and no reason to build a schema in order to discover it."""
+    return not os.path.exists(_database(path)) and not os.path.exists(path)
+
+
 def exists(path: str) -> bool:
     """Has anything ever been saved here — in the database, or in the file that has
     not been carried across yet?"""
@@ -138,6 +148,8 @@ def exists(path: str) -> bool:
         return os.path.exists(path)
     if os.path.exists(path):
         return True
+    if _nothing_there(path):
+        return False
     try:
         with _LOCK, opened(path) as store:
             return store.blob_get(blob_name(path)) is not None
