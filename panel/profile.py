@@ -156,8 +156,9 @@ RESOURCE_STATS_STATE = "resource_stats.json"
 # The accumulating SQLite history of ranking-board snapshots (tools/lib/leaderboard_store.py),
 # filled by the «leaderboard_collect» trigger.
 LEADERBOARD_DB = "leaderboard_history.db"
-# THIS PROFILE'S DATABASE (#1398, panel/runtime/store.py). One per profile, in the
-# profile's own directory, holding what the panel used to keep as whole-file JSON — the
+# THE DATABASE (#1398, panel/runtime/store.py). One per profile until #2025, in that
+# profile's own directory; ONE for the whole panel since, holding for every account what
+# the panel used to keep as whole-file JSON — the
 # register of players, the ★ list, the counters and the tallies — and, since #2017, this
 # profile's SETTINGS as well: the timer and trigger catalogues and the rally caps are
 # rows of `blobs` under `settings:<name>` (`panel/runtime/settings_files.py`). Not

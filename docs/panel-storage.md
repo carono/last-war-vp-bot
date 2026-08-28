@@ -94,7 +94,7 @@ the bottom).
 **Every list-shaped store here now lives in `panel.db`, not a file (#1398, #1465).** A
 row below marked → `panel.db` moved; its old file is renamed `<name>.imported` the first
 time the new code opens that profile and kept beside the database for good, never
-deleted (see «The profile's database» below for the mechanics). What is left in this
+deleted (see «The database» below for the mechanics). What is left in this
 table is either a CAPTURE CHECKPOINT (a channel between two processes, rewritten whole
 every tick, deliberately worth nothing after a restart — moving it into the database
 would only make it durable, which is the one thing it must not be) or an append-only log
@@ -201,14 +201,17 @@ start cannot put stale files back over fresher ones. **Nothing is ever deleted**
 existing file in the new place is never overwritten. If both exist, the new one wins and
 the old one stays on disk for you to look at.
 
-## The profile's database — `panel.db`
+## The database — `profiles/panel.db`
 
-**One database per PROFILE, in that profile's own directory** (#1398,
-`panel/runtime/store.py`). Not one per window and never «the first profile that opened»:
-a register of players, a ★ list and a day's counters belong to an ACCOUNT, and a store
-held in a module global belongs to whichever profile imported first — which is what
-`docs/research/profile-isolation.md` is a list of. A caller asks `rt.store`; nothing
-opens the file for itself.
+**ONE database for the whole panel** (#1398, #2025, `panel/runtime/store.py`), one level
+above the profile directories. It was one per profile until #2025 — see «One database,
+one level above the profiles» at the top of this page for the decision, and for what
+keeps the accounts apart now that the file does not.
+
+What has not changed is whose the rows are. A register of players, a ★ list and a day's
+counters belong to an ACCOUNT, never to the window and never to «the first profile that
+opened» — which is what `docs/research/profile-isolation.md` is a list of. A caller asks
+`rt.store` and is handed its own profile's view; nothing opens the file for itself.
 
 ### Why, in one measurement
 
