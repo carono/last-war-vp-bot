@@ -127,8 +127,12 @@ def test_old_layout_moves_across_whole():
         names = sorted(n for n in os.listdir(profilemod.PROFILES_DIR)
                        if os.path.isdir(os.path.join(profilemod.PROFILES_DIR, n)))
         assert names == ["default", "second"], names
-        moved = Path(profilemod.PROFILES_DIR) / "second" / "config.json"
-        assert json.loads(moved.read_text(encoding="utf-8")) == {"port": 47655}
+        # A ROW SINCE #2025 — the old checkout's `config.json` still MOVES across (that
+        # is what the migration does) and is then adopted into the `profiles` table on
+        # the first start, leaving the file beside it as `config.json.imported`.
+        assert profilemod.ProfileManager()._load_own("second") == {"port": 47655}
+        assert (Path(profilemod.PROFILES_DIR) / "second"
+                / "config.json.imported").exists(), "the adopted file was not kept"
         assert (Path(profilemod.PROFILES_DIR) / "second" / "panel.log"
                 ).read_text(encoding="utf-8") == "a line"
         # THE PANEL-WIDE BLOCK IS A ROW SINCE #2025. The old checkout's FILE still

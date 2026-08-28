@@ -60,11 +60,15 @@ class _Env:
         return self
 
     def write(self, name: str, config: dict) -> str:
-        """A profile with exactly this in its own file — `{}` for the empty ones."""
+        """A profile with exactly this as its OWN block — `{}` for the empty ones.
+
+        A row rather than a file since #2025, written through the panel's own door so
+        that the fixture cannot drift from what the panel reads back. `_ensure_dir` is
+        what makes the directory the logs and the locks go in.
+        """
         self.profiles._ensure_dir(name)
-        path = os.path.join(profilemod.PROFILES_DIR, name, profilemod.CONFIG_FILE)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(config, fh)
+        with profilemod.panel_store() as store:
+            store.profile_set_config(name, config)
         return name
 
     def own(self, name: str) -> dict:

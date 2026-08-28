@@ -51,24 +51,20 @@ class _Profiles:
         os.makedirs(profilemod.PROFILES_DIR, exist_ok=True)
         return self
 
+    # A PROFILE IS A ROW AND ITS CONFIG IS A COLUMN SINCE #2025 — both of these go
+    # through the panel's own door, so the fixture cannot drift from what the panel
+    # reads back. `write` still makes the DIRECTORY: the logs and the locks live there.
     def write(self, name: str, config: dict) -> None:
-        path = os.path.join(profilemod.PROFILES_DIR, name)
-        os.makedirs(path, exist_ok=True)
-        with open(os.path.join(path, profilemod.CONFIG_FILE), "w",
-                  encoding="utf-8") as fh:
-            json.dump(config, fh, ensure_ascii=False, indent=2)
+        os.makedirs(os.path.join(profilemod.PROFILES_DIR, name), exist_ok=True)
+        with profilemod.panel_store() as store:
+            store.profile_set_config(name, config)
 
     def read(self, name: str) -> dict:
-        with open(os.path.join(profilemod.PROFILES_DIR, name,
-                               profilemod.CONFIG_FILE), encoding="utf-8") as fh:
-            return json.load(fh)
+        with profilemod.panel_store() as store:
+            return store.profile_config(name)
 
     def settings(self) -> dict:
-        try:
-            with open(profilemod.SETTINGS_FILE, encoding="utf-8") as fh:
-                return json.load(fh)
-        except OSError:
-            return {}
+        return profilemod.panel_settings()
 
     def __exit__(self, *exc):
         profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE = self._saved

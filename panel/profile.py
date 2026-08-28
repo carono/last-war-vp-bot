@@ -5,17 +5,24 @@ A *profile* is a named set of panel settings plus its own logs, stored under
 :mod:`panel.paths` owns that path and explains why there is exactly one directory
 called ``profiles`` now (#1276); read it before moving anything::
 
-    config.json             this profile's settings — see "the default is the base" below
     rally_log.jsonl         rally-monitor output for this profile
     secret_tasks_log.jsonl  secret-task findings for this profile
     timers.json             this profile's timers (what runs, how often, args)
     timers_last_run.json    when each scheduled errand last ran
     panel.log               plain-text mirror of the panel log widget
 
-The active profile name lives in ``profiles/settings.json`` (global, profile-
-independent), so the last-used profile is restored on the next launch. Switching
-a profile just means reading a different ``config.json``; the panel re-applies
-every setting from it.
+**A PROFILE IS A ROW, NOT A DIRECTORY WITH A FILE IN IT (#2025).** Its settings are a
+row of the ``profiles`` table in the one database (``profiles/panel.db``); the directory
+above is what is left — logs, locks, capture checkpoints, the things that are not game
+data and not settings. A directory with no row is a stray and is said out loud
+(:meth:`ProfileManager.strays`); a profile that still has a ``config.json`` is adopted
+once, on the first start of a panel that knows about the table, and the file is kept
+beside it as ``config.json.imported`` (:func:`adopt_configs`).
+
+Which profile is showing is panel-wide and lives in the same database under a scope no
+account can be named, so the last-used profile is restored on the next launch. Switching
+a profile just means reading a different row; the panel re-applies every setting from
+it.
 
 WHAT WAS SOMEWHERE ELSE COMES ACROSS BY ITSELF, ONCE (#1276). A checkout that still
 has the old ``panel/profiles/``, ``panel/settings.json``, the two templates beside them
@@ -25,8 +32,8 @@ filesystem allows a move, copied and marked where it does not, and never deleted
 anybody's back. See :func:`migrate_legacy_layout`.
 
 THE DEFAULT PROFILE IS THE BASE, EVERY OTHER ONE IS ITS OVERRIDES (#1246). A
-profile named anything but :data:`DEFAULT_PROFILE` stores on disk only the
-settings that differ from the default profile's own ``config.json`` — :meth:`load`
+profile named anything but :data:`DEFAULT_PROFILE` stores only the
+settings that differ from the default profile's own block — :meth:`load`
 layers those overrides onto the default's config, and :meth:`save` throws away
 whatever a profile would have written unchanged from it. The default profile's
 file has no parent and is read and written whole, exactly as before.
@@ -40,12 +47,9 @@ drifting apart, which is how one profile here ended up rebuilding NO tabs at all
 it to fall back to). A profile that DOES set its own value for a setting keeps
 overriding the default with it, same as it always could.
 
-A brand-new profile's ``config.json`` is written the moment its directory is —
-empty (``{}``, "nothing overridden yet") rather than left to appear only after
-the first Settings save. A profile directory that existed before this rule with
-no file of its own is backfilled the same empty way the next time anything asks
-for its directory, so ``profiles/`` never again shows a profile with no config
-file to point at (part of #1246 too — several already had none).
+A brand-new profile's row is written the moment it is created — empty (``{}``,
+"nothing overridden yet") rather than left to appear only after the first Settings
+save.
 
 This module is intentionally UI-agnostic: it only reads/writes JSON and manages
 the on-disk layout. The panel binds its Tk variables to config keys and calls
@@ -53,6 +57,7 @@ the on-disk layout. The panel binds its Tk variables to config keys and calls
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -159,6 +164,11 @@ LEADERBOARD_DB = "leaderboard_history.db"
 # `config.json`, which is also the marker that says a directory IS a profile (#1306);
 # not the logs; and not the checkpoints a capture child writes for the panel to read.
 # `docs/panel-storage.md` is the inventory and the reasoning.
+#
+# ONE DATABASE FOR EVERY PROFILE SINCE #2025, `profiles/panel.db`, one level above the
+# profile directories — and `config.json` with it, which is why a profile is a ROW now
+# and not a directory with a file in it. The name is kept for `panel/paths.py`, which
+# spells the path.
 STORE_DB = "panel.db"
 # The three files the autostart uses (panel/runtime/autostart.py). ALIVE_FILE is the heartbeat
 # the open panel rewrites once a minute from its Tk event loop — the hourly scheduled
@@ -179,6 +189,8 @@ PANEL_LOG = "panel.log"
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
 # which is only the human-facing widget's mirror.
 DEBUG_LOG = "debug.log"
+#: What a profile's settings USED TO BE IN. Read once, by :func:`adopt_configs`, to carry
+#: an older profile into the ``profiles`` table, and written by nothing (#2025).
 CONFIG_FILE = "config.json"
 
 # Filesystem-hostile characters; profile names are used verbatim as directory
@@ -493,6 +505,9 @@ class ProfileManager:
         # else, and a panel that seeded a fresh default profile first would look for all
         # the world like the settings had been lost (#1276).
         migrate_legacy_layout()
+        # …and before anything is LISTED: a profile that predates #2025 says it is one
+        # by having a `config.json`, and this is where it stops needing to.
+        adopt_configs()
         # A fresh install has no profiles — seed the default so the UI always
         # has something to select.
         if not self.list():
@@ -513,26 +528,33 @@ class ProfileManager:
     def list(self) -> list[str]:
         """Existing profile names, sorted (the default first if present).
 
-        **A PROFILE IS A DIRECTORY WITH A `config.json` IN IT** (#1306), not any
-        directory that happens to sit in ``profiles/``. That answers the question
-        «what makes a profile a profile» once, and it stays right whatever else ends up
-        beside them — which the old rule did not: the squads report writes its faces
-        into ``profiles/<report>_avatars/``, and the panel duly believed there was an
-        account of that name and reported it as a co-owner of the default profile's
-        daemon. Reserving that one name would have fixed that one folder; this fixes
-        the class.
+        **A PROFILE IS A ROW IN THE `profiles` TABLE** (#2025), not a directory that
+        happens to sit in ``profiles/`` and not, since #2025, a directory with a
+        ``config.json`` in it either.
 
-        The machinery is excluded first and separately (:func:`paths.is_profile_name`):
-        the DSL bot's ``_bot/``, anything dot-prefixed. A folder that passes THAT and
-        still has no config is not silently dropped — :meth:`strays` is what the panel
-        says out loud about it, because «skipped quietly» and «there was nothing there»
-        are the same two states this repository keeps having to tell apart.
+        It was the file from #1306 until now, and the question that rule answered is
+        the same one this answers: «what makes a profile a profile», once, so that it
+        stays right whatever else ends up beside them — the squads report writes its
+        faces into ``profiles/<report>_avatars/``, and the panel duly believed there was
+        an account of that name and reported it as a co-owner of the default profile's
+        daemon.
+
+        What a row buys over a file is the reason the person asked for one database at
+        all: creating, renaming and deleting an account are ONE transaction with the
+        account's own data, instead of a directory move that can half-happen and leave
+        the settings and the data disagreeing about the account's name.
+
+        A directory that passes :func:`paths.is_profile_name` and has no row is not
+        silently dropped — :meth:`strays` is what the panel says out loud about it,
+        because «skipped quietly» and «there was nothing there» are the same two states
+        this repository keeps having to tell apart.
         """
-        return sorted(self._dirs(with_config=True),
-                      key=lambda n: (n != DEFAULT_PROFILE, n.lower()))
+        with panel_store() as store:
+            names = [n for n in store.profiles() if paths.is_profile_name(n)]
+        return sorted(names, key=lambda n: (n != DEFAULT_PROFILE, n.lower()))
 
     def strays(self) -> list[str]:
-        """Directories that look like a profile and have no ``config.json``. Sorted.
+        """Directories that look like a profile and have no ROW of their own. Sorted.
 
         Two quite different things end up here and the panel says the same sentence
         about both, because from the outside they ARE the same thing — a folder in
@@ -543,27 +565,15 @@ class ProfileManager:
           above has just become invisible. That one MUST be said: a person who put it
           there is otherwise left looking for a profile the panel will never mention.
         """
-        return sorted(self._dirs(with_config=False), key=str.lower)
-
-    def _dirs(self, *, with_config: bool) -> list[str]:
-        """Directory names in ``profiles/`` that pass the name rule, split by config."""
-        try:
-            entries = os.listdir(PROFILES_DIR)
-        except OSError:
-            return []
-        out = []
-        for name in entries:
-            path = os.path.join(PROFILES_DIR, name)
-            if not (paths.is_profile_name(name) and os.path.isdir(path)):
-                continue
-            if os.path.exists(os.path.join(path, CONFIG_FILE)) is with_config:
-                out.append(name)
-        return out
+        known = set(self.list())
+        return sorted((n for n in _profile_dirs() if n not in known), key=str.lower)
 
     def exists(self, name: str) -> bool:
         name = sanitize(name)
-        return (bool(name) and paths.is_profile_name(name)
-                and os.path.isfile(os.path.join(PROFILES_DIR, name, CONFIG_FILE)))
+        if not name or not paths.is_profile_name(name):
+            return False
+        with panel_store() as store:
+            return store.profile_exists(name)
 
     @property
     def active(self) -> str:
@@ -679,7 +689,15 @@ class ProfileManager:
         if self.exists(new):
             raise ValueError(Message("profile.error.exists",
                                      f"profile already exists: {new}", name=new))
-        os.rename(os.path.join(PROFILES_DIR, old), os.path.join(PROFILES_DIR, new))
+        # THE DIRECTORY AND THE ACCOUNT ARE TWO THINGS SINCE #2025, and the account is
+        # the row. The directory holds this profile's logs, locks and checkpoints and is
+        # moved when it is there; the row and every row it owns move in ONE transaction,
+        # which is the half that used to be a directory move able to half-happen.
+        old_dir = os.path.join(PROFILES_DIR, old)
+        if os.path.isdir(old_dir):
+            os.rename(old_dir, os.path.join(PROFILES_DIR, new))
+        with panel_store() as store:
+            store.profile_rename(old, new)
         if self._active == old:
             self.set_active(new)
         return new
@@ -729,19 +747,21 @@ class ProfileManager:
                 "profile.error.not_removed",
                 f"the profile directory could not be removed: {said}",
                 name=name, path=path, error=said))
+        # …and only once the directory is really gone: the row and everything the
+        # account owns, in one transaction (#2025). Before it, so that a profile whose
+        # directory survived keeps its row and stays in the list — a profile that is
+        # still on the disk must not have been quietly stood down.
+        with panel_store() as store:
+            store.profile_drop(name)
         if self._active == name:
             return self.set_active(self.list()[0])
         return self._active
 
     # -- config read / write ------------------------------------------------
     def _load_own(self, name: str) -> dict:
-        """This profile's OWN file, unmerged — ``{}`` if it has none yet."""
-        try:
-            with open(os.path.join(PROFILES_DIR, name, CONFIG_FILE), encoding="utf-8") as fh:
-                data = json.load(fh)
-            return data if isinstance(data, dict) else {}
-        except (OSError, ValueError):
-            return {}
+        """This profile's OWN block, unmerged — ``{}`` if it has none yet."""
+        with panel_store() as store:
+            return store.profile_config(name)
 
     def _default_base(self, name: str) -> dict:
         """The default profile's own config, unless ``name`` already IS the default —
@@ -770,7 +790,8 @@ class ProfileManager:
         name = sanitize(name) if name else self._active
         self._ensure_dir(name)
         own = config if name == DEFAULT_PROFILE else _deep_diff(config, self._default_base(name))
-        _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), own)
+        with panel_store() as store:
+            store.profile_set_config(name, own)
 
     # -- per-profile log paths ---------------------------------------------
     def dir(self, name: str | None = None) -> str:
@@ -936,19 +957,16 @@ class ProfileManager:
         Callers (``set_active``/``create``/``_read_active``) rely on getting the
         name back, so keep returning the name — :meth:`dir` builds the full path.
 
-        Also backfills ``config.json`` with an empty ``{}`` when the profile has none
-        yet — a brand-new profile as much as one from before this rule existed — so a
-        profile in ``panel/profiles/`` always has a config file to point at rather
-        than one that only appears after its first Settings save (#1246). Empty means
-        "nothing overridden": read through :meth:`load` it is exactly the default
-        profile's own config, or the code's constants for the default profile itself.
+        Two things, and since #2025 they are not the same thing: the DIRECTORY, which
+        holds the logs, the locks and the capture checkpoints, and the ROW, which is
+        what makes this an account at all. A row with an empty config means «nothing
+        overridden»: read through :meth:`load` it is exactly the default profile's own
+        config, or the code's constants for the default profile itself (#1246).
         """
         name = sanitize(name) or DEFAULT_PROFILE
-        path = os.path.join(PROFILES_DIR, name)
-        os.makedirs(path, exist_ok=True)
-        config_path = os.path.join(path, CONFIG_FILE)
-        if not os.path.exists(config_path):
-            _write_json(config_path, {})
+        os.makedirs(os.path.join(PROFILES_DIR, name), exist_ok=True)
+        with panel_store() as store:
+            store.profile_add(name)
         return name
 
 
@@ -985,6 +1003,27 @@ class ProfileManager:
 # LAZILY IMPORTED, and that is not fussiness: `panel.runtime` imports this module on the
 # way up, so a top-level import here would be a cycle. By the time anybody ASKS for a
 # setting, both packages are built.
+
+
+@contextlib.contextmanager
+def panel_store():
+    """The ONE database, opened for the PANEL, for one piece of work and closed after.
+
+    Not cached and not module-level, for the same reason `panel/runtime/settings_files.py`
+    is not: a handle kept open is a file Windows will not let anybody delete, and this
+    one is opened a handful of times a minute against the milliseconds a small SQLite
+    open costs. `PROFILES_DIR` is read at CALL time — it is the name a test rebinds to
+    point the panel at a scratch tree.
+    """
+    from .runtime import store as storemod
+    store = storemod.PanelStore(os.path.join(PROFILES_DIR, storemod.DB_FILE))
+    try:
+        yield store
+    finally:
+        try:
+            store.close()
+        except Exception:                     # noqa: BLE001 — closing, never the panel
+            pass
 
 
 def panel_settings() -> dict:
@@ -1128,7 +1167,8 @@ def _sweep_web_leftovers(manager: "ProfileManager", name: str) -> None:
         del config[LEGACY_WEB_TAB]
         changed = True
     if changed:
-        _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), own)
+        with panel_store() as store:
+            store.profile_set_config(name, own)
 
 
 # -- the language: panel-wide too, for the same reason (#1515) -------------------
@@ -1182,7 +1222,8 @@ def migrate_profile_language() -> "str | None":
         if LEGACY_PROFILE_LANGUAGE in own:
             own = dict(own)
             del own[LEGACY_PROFILE_LANGUAGE]
-            _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), own)
+            with panel_store() as store:
+                store.profile_set_config(name, own)
     return source
 
 
@@ -1222,6 +1263,63 @@ def _leftovers(path: str, most: int = 5) -> str:
         return str(exc)
     shown = ", ".join(names[:most])
     return f"{shown}, …" if len(names) > most else shown or path
+
+
+def _profile_dirs() -> list[str]:
+    """Directory names in ``profiles/`` that pass the name rule. Not accounts — just
+    directories; what makes one an account is a row (:meth:`ProfileManager.list`)."""
+    try:
+        entries = os.listdir(PROFILES_DIR)
+    except OSError:
+        return []
+    return [n for n in entries
+            if paths.is_profile_name(n) and os.path.isdir(os.path.join(PROFILES_DIR, n))]
+
+
+def adopt_configs() -> list[str]:
+    """Carry every profile that still says it is one with a ``config.json`` into the
+    ``profiles`` table — once each, and safe to call on every boot after that (#2025).
+
+    Returns the names taken across, so a caller can log them.
+
+    THE ORDER IS THE SAFETY OF IT, the same order every other import in this repository
+    uses (`panel/runtime/store.py::import_once`):
+
+    1. a profile that already HAS a row is left entirely alone — its row is the truth,
+       and a stale file must never overwrite what somebody has changed since;
+    2. the row is written from the file's contents, so nothing is adopted empty;
+    3. only THEN is the file renamed to ``config.json.imported``, and a rename that
+       fails is not an error — the row already says the work is done.
+
+    The file is KEPT, never deleted. An import that turns out to have misread a field is
+    answered by opening it; a delete is answered by nothing.
+    """
+    taken: list[str] = []
+    directories = _profile_dirs()
+    if not directories:
+        return taken
+    with panel_store() as store:
+        known = set(store.profiles())
+        for name in sorted(directories):
+            if name in known:
+                continue
+            path = os.path.join(PROFILES_DIR, name, CONFIG_FILE)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except (OSError, ValueError):
+                # No file, or unreadable. NOT a profile we may invent a row for: a
+                # directory with no config is exactly what `strays()` is for, and
+                # adopting it here would turn every stray folder into an account —
+                # the bug #1306 was opened about.
+                continue
+            store.profile_add(name, data if isinstance(data, dict) else {})
+            taken.append(name)
+            try:
+                os.replace(path, path + ".imported")
+            except OSError:
+                pass
+    return taken
 
 
 def _write_json(path: str, data) -> None:

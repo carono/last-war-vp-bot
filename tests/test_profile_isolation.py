@@ -280,13 +280,17 @@ def _scratch_profiles(tmp: str):
     return profilemod, manager
 
 
-def test_a_profile_is_a_directory_with_a_config_not_any_directory():
-    """The definition, and the folder that forced it (#1306).
+def test_a_profile_is_a_row_not_any_directory():
+    """The definition, and the folder that forced it (#1306, #2025).
 
     `profiles/` also collects things that are not accounts — the squads report writes
     its faces into `profiles/<report>_avatars/` — and «every directory in profiles/»
     made one of those an account with a share in another profile's daemon. Reserving
     that one name would have fixed that one folder.
+
+    The definition was «a directory with a `config.json`» from #1306 and is «a row in
+    the `profiles` table» since #2025. A profile written by an older panel arrives
+    through `adopt_configs()`, which is what a manager runs on its way up.
     """
     import tempfile
     from panel import profile as profilemod
@@ -302,6 +306,7 @@ def test_a_profile_is_a_directory_with_a_config_not_any_directory():
                           encoding="utf-8") as fh:
                     fh.write("{}")
 
+            mod.adopt_configs()          # what a manager does on its way up
             assert manager.list() == ["alpha", "beta"], manager.list()
             assert manager.exists("alpha")
             assert not manager.exists("avatars_of_a_report"), (
@@ -313,8 +318,8 @@ def test_a_profile_is_a_directory_with_a_config_not_any_directory():
 def test_an_empty_config_is_still_a_profile():
     """`{}` means «nothing overridden», not «not a profile».
 
-    Pinned because the rule above is about the FILE existing, and a profile that has
-    never had a setting changed is exactly the one whose file is empty.
+    Pinned because the rule above is about EXISTING at all, and a profile that has never
+    had a setting changed is exactly the one whose block is empty.
     """
     import tempfile
     from panel import profile as profilemod
@@ -327,6 +332,7 @@ def test_an_empty_config_is_still_a_profile():
             with open(os.path.join(tmp, "untouched", mod.CONFIG_FILE), "w",
                       encoding="utf-8") as fh:
                 fh.write("{}")
+            mod.adopt_configs()
             assert manager.list() == ["untouched"]
             assert manager.exists("untouched")
         finally:
@@ -355,6 +361,7 @@ def test_a_folder_that_is_not_a_profile_is_SAID_not_skipped():
             os.makedirs(os.path.join(tmp, "_bot"))          # machinery: never said
             os.makedirs(os.path.join(tmp, ".hidden"))       # nor is a dot-directory
 
+            mod.adopt_configs()
             assert manager.strays() == ["avatars_of_a_report"], manager.strays()
         finally:
             profilemod.PROFILES_DIR = keep

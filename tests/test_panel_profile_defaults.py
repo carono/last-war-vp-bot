@@ -54,7 +54,13 @@ class _Profiles:
         return self
 
     def config_path(self, name: str) -> str:
+        """Where a profile's settings USED to be. Only «is it there» is asked of it now
+        — what is stored is a row (#2025), and :meth:`stored` is what reads it."""
         return os.path.join(profilemod.PROFILES_DIR, name, profilemod.CONFIG_FILE)
+
+    def stored(self, name: str) -> dict:
+        """This profile's OWN block as the database holds it, unmerged."""
+        return profilemod.ProfileManager()._load_own(name)
 
     def __exit__(self, *exc):
         profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE = self._saved
@@ -70,33 +76,98 @@ def test_a_freshly_created_profile_has_a_config_file_right_away() -> None:
     with _Profiles() as env:
         mgr = profilemod.ProfileManager()
         mgr.create("alt")
-        assert os.path.exists(env.config_path("alt")), "no config.json right after create()"
-        assert json.loads(Path(env.config_path("alt")).read_text(encoding="utf-8")) == {}
+        # A ROW, NOT A FILE, SINCE #2025 — and it is there the moment the profile is,
+        # empty («nothing overridden yet») rather than appearing at the first save.
+        assert "alt" in profilemod.ProfileManager().list(), "create() made no profile"
+        assert env.stored("alt") == {}
+        assert not os.path.exists(env.config_path("alt")), \
+            "a config.json was written after all"
 
 
-def test_a_directory_with_no_config_is_not_a_profile_and_is_not_backfilled() -> None:
-    """The reversal of #1246's backfill, and why it is not a regression (#1306).
+def test_a_directory_with_no_row_is_not_a_profile_and_is_not_promoted() -> None:
+    """The reversal of #1246's backfill, and why it is not a regression (#1306, #2025).
 
     That rule wrote an empty `config.json` into every listed directory so no profile was
     left without a file to point at. It ran over «every directory in profiles/» — which
     is how the squads report's picture folder acquired a config and became an account
     with a share in another profile's daemon.
 
-    A profile is a directory WITH a config now, so the invariant #1246 was maintaining
-    is the definition instead of something defended against it. A directory without one
-    is not promoted, not listed — and not silently dropped either: `strays()` is what
-    the panel says out loud about it, because a real profile whose config was lost lands
-    there too and would otherwise simply vanish.
+    A profile is a ROW since #2025, so the invariant #1246 was maintaining is the
+    definition instead of something defended against it. A directory without one is not
+    promoted, not listed — and not silently dropped either: `strays()` is what the panel
+    says out loud about it, because a real profile whose settings were lost lands there
+    too and would otherwise simply vanish.
     """
     with _Profiles() as env:
+        del env
         os.makedirs(os.path.join(profilemod.PROFILES_DIR, "orphan"))
-        assert not os.path.exists(env.config_path("orphan"))
         mgr = profilemod.ProfileManager()          # constructing a manager promotes nothing
-        assert not os.path.exists(env.config_path("orphan")), (
-            "the folder was promoted into an account")
         assert "orphan" not in mgr.list()
         assert not mgr.exists("orphan")
         assert "orphan" in mgr.strays(), "it was dropped without a word"
+
+
+def test_a_profile_that_still_has_a_config_file_is_adopted_once_and_the_file_kept():
+    """WHAT MAKES A PROFILE A PROFILE CHANGED, so every profile that predates #2025 has
+    to arrive by itself — a panel that listed none of them would look exactly like a
+    panel whose settings had been lost, which is the report #1276 came in as.
+
+    Once each: what is written afterwards must never be overwritten by the stale file on
+    the next start. And the file is KEPT — an import that misread a field is answered by
+    opening it, a delete is answered by nothing.
+    """
+    with _Profiles() as env:
+        os.makedirs(os.path.join(profilemod.PROFILES_DIR, "old"))
+        Path(env.config_path("old")).write_text(
+            json.dumps({"daemon_port": 47655}), encoding="utf-8")
+
+        mgr = profilemod.ProfileManager()
+        assert "old" in mgr.list(), "a profile from before #2025 disappeared"
+        assert mgr._load_own("old") == {"daemon_port": 47655}
+        assert not os.path.exists(env.config_path("old")), "the file was left in place"
+        assert os.path.exists(env.config_path("old") + ".imported"), \
+            "the adopted file was deleted instead of kept"
+
+        # …and a second start does not undo what happened since.
+        mgr.save({"daemon_port": 47999}, name="old")
+        Path(env.config_path("old")).write_text(
+            json.dumps({"daemon_port": 47655}), encoding="utf-8")
+        profilemod.adopt_configs()
+        assert profilemod.ProfileManager()._load_own("old") == {"daemon_port": 47999}, \
+            "a stale file overwrote what was saved after it"
+
+
+def test_renaming_and_deleting_move_the_account_and_its_own_data() -> None:
+    """ONE TRANSACTION, which is why the person asked for one database (#2025).
+
+    A rename used to be a directory move and nothing else; a delete used to be a tree
+    removal. Either could half-happen and leave an account whose settings and whose data
+    disagreed about its own name.
+    """
+    from panel.runtime import store as storemod
+
+    with _Profiles() as env:
+        del env
+        mgr = profilemod.ProfileManager()
+        mgr.create("alt")
+        mgr.save({"watchdog": True}, name="alt")
+        database = os.path.join(profilemod.PROFILES_DIR, storemod.DB_FILE)
+        alt = storemod.Store(database, "alt")
+        alt.blob_set("kept", {"n": 1})
+        alt.close()
+
+        mgr.rename("alt", "moved")
+        assert "moved" in mgr.list() and "alt" not in mgr.list()
+        assert mgr._load_own("moved") == {"watchdog": True}
+        moved = storemod.Store(database, "moved")
+        assert moved.blob_get("kept") == {"n": 1}, "the data stayed under the old name"
+        moved.close()
+
+        mgr.delete("moved")
+        assert "moved" not in mgr.list()
+        gone = storemod.Store(database, "moved")
+        assert gone.blob_get("kept") is None, "the account went and its data stayed"
+        gone.close()
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +206,7 @@ def test_saving_a_profile_keeps_only_what_differs_from_the_default() -> None:
         full["daemon_port"] = 47655
         mgr.save(full, name="alt")
 
-        on_disk = json.loads(Path(env.config_path("alt")).read_text(encoding="utf-8"))
+        on_disk = env.stored("alt")
         assert on_disk == {"daemon_port": 47655}, on_disk
 
 
@@ -145,7 +216,7 @@ def test_the_default_profile_itself_is_stored_whole() -> None:
         mgr = profilemod.ProfileManager()
         saved = {"tabs": {"known": ["a"], "enabled": ["a"]}, "watchdog": True}
         mgr.save(saved, name="default")
-        on_disk = json.loads(Path(env.config_path("default")).read_text(encoding="utf-8"))
+        on_disk = env.stored("default")
         assert on_disk == saved
 
 
@@ -157,8 +228,10 @@ def test_a_profile_missing_before_the_default_exists_has_no_base_to_fall_back_to
         mgr.save({"daemon_port": 47654}, name="default")
         mgr.create("alt")
         mgr.save({"watchdog": True}, name="alt")
-        import shutil
-        shutil.rmtree(os.path.join(profilemod.PROFILES_DIR, "default"))
+        # DELETED THROUGH THE MANAGER, not by removing the directory (#2025): the
+        # directory holds logs and locks, the ROW is the account, and taking one without
+        # the other is exactly the half-happened state one database exists to prevent.
+        mgr.delete("default")
         assert mgr.load("alt") == {"watchdog": True}
 
 

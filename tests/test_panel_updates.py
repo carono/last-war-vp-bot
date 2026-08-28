@@ -698,8 +698,10 @@ def test_the_tick_is_remembered_for_the_whole_panel():
         profilemod.set_dev_updates(True)
         assert profilemod.dev_updates() is True
         assert profilemod.update_channel() == updates.DEV
-        # …and it is on disk, not in a variable: the next window reads the same answer.
-        assert "dev_updates" in Path(profilemod.SETTINGS_FILE).read_text(encoding="utf-8")
+        # …and it is written down, not held in a variable: the next window reads the
+        # same answer. A ROW rather than a file since #2025 — asked through the one door
+        # the panel itself uses, so this cannot drift from what a fresh window sees.
+        assert profilemod.panel_settings().get("dev_updates") is True
         profilemod.set_dev_updates(False)
         assert profilemod.update_channel() == updates.RELEASE
     finally:

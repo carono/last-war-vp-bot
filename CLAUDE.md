@@ -814,9 +814,16 @@ database as `<name>.imported`.
 that could not, «because there is no machine-wide database». There is one now: the person
 decided there would be ONE database for everything, so the panel's own settings are rows
 in it under a scope no account can be named (`:panel`), and the file is carried across
-once and kept beside as `settings.json.imported`. `config.json` is the one still being
-asked about, because moving it means redefining what a profile IS (#1306). The two
-shipped TEMPLATES (`panel/timers.json`, `panel/triggers.json`) stay files for a different
+once and kept beside as `settings.json.imported`. **`config.json` went with it**, which
+did mean redefining what a profile IS: **a profile is a ROW in the `profiles` table**
+(name, config, created_at), not a directory with a file in it (#1306's rule, replaced).
+The directory stays and holds what is not settings and not game data — the logs, the
+locks, the heartbeat, the capture checkpoints — and a directory with no row is a STRAY
+the panel says out loud about, exactly as before. A profile that still has a
+`config.json` is adopted once, on the first start, and the file is kept beside it as
+`config.json.imported`. What this bought is the thing the person asked for: creating,
+renaming and deleting an account is ONE transaction with that account's own data, not a
+directory move that can half-happen. The two shipped TEMPLATES (`panel/timers.json`, `panel/triggers.json`) stay files for a different
 reason again: they are code, part of the repository rather than of an account.
 
 **What counts as game data:** a tile, a task, a squad, a tally, a count, a history of
