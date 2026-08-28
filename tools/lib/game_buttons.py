@@ -231,6 +231,25 @@ BUTTONS: dict[str, Button] = {
              "end end end"),
         wait=0.5, label="dismiss reward popup",
     ),
+    "watch_reward_popups": Button(
+        # The EAR (#2027), and the counterpart of `dismiss_reward_popup` above: that one
+        # is a press a recipe makes after a collect, this one is installed once and then
+        # closes the popups itself, whatever raised them, and writes down what was in
+        # them. Idempotent — a second press finds the ear already in and does nothing —
+        # and it dies with the client, so a recipe puts it back for free.
+        # `tools/lib/lua_actions.py::reward_watch_install`, docs/research/reward-popups.md.
+        lua=_lua_actions.reward_watch_install(),
+        wait=0.0, label="watch reward popups",
+    ),
+    "hold_reward_popups": Button(
+        # «I am holding a window of my own — close nothing» (#2027). For a recipe whose
+        # window IS the work: the mini-game holds its screen for a whole match, a march
+        # holds the squad screen. The hold carries a deadline of its own, so a recipe
+        # that arms something and returns cannot deafen the ear for the rest of the
+        # client's life. Half an hour covers the longest match there is.
+        lua=_lua_actions.reward_watch_hold(30),
+        wait=0.0, label="hold the reward-popup ear",
+    ),
     # --- base -> collect every ready resource building -----------------------
     "collect_base_resources": Button(
         # "Собрать все ресурсы с базы" — the base's own "Collect All" in one press.

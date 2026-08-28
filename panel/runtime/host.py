@@ -301,6 +301,7 @@ class PanelRuntime:
         self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
         self._banners = None            # …and what it heard about the banners out
         self._fireworks = None          # …and about the fireworks going off (#1677)
+        self._rewards = None            # …and the reward popups it shut (#2027)
         self._players = None            # …and the register every source writes into
         self._secret_days = None        # …and the book of star-secret-task days (#1467)
         self._store = None              # …and this profile's database (#1398)
@@ -348,6 +349,15 @@ class PanelRuntime:
         Nothing waits for it and nothing depends on it: a tab that asks first simply does
         the import itself, and one that asks second finds it done.
         """
+        # THE REWARD BOOK STARTS LISTENING HERE, and it has to be here rather than on
+        # first ask (#2027): the drains arrive as log lines while a recipe runs, so a
+        # book nobody had built yet would have missed exactly the rows it exists for.
+        # Building it costs a tap on the log bus — a substring test per line — and no
+        # thread, no clock and no question of the game.
+        try:
+            self.rewards                                   # noqa: B018 — built to listen
+        except Exception:                 # noqa: BLE001 — the panel still works
+            self.dbg("rewards").error("could not start the reward book", exc_info=True)
         try:
             moved = self.players.ensure_imported()
         except Exception:                 # noqa: BLE001 — the register still works
@@ -435,6 +445,27 @@ class PanelRuntime:
             from .firework_wire import FireworkBook
             self._fireworks = FireworkBook(self)
         return self._fireworks
+
+    @property
+    def rewards(self):
+        """The book of reward popups this client raised (#2027).
+
+        On the runtime rather than on a page for the same reason `fireworks` is: the ear
+        is in the CLIENT and its drains arrive in the log whoever started the recipe, so
+        a book that lived on a tab would be absent in every profile that does not draw
+        that tab — and the rows would be lost rather than merely unseen.
+
+        It starts listening the moment it is built, and building it is what
+        :meth:`start_heartbeat` does at boot: nothing here polls, the tap is a substring
+        test on lines the panel was writing anyway.
+        """
+        if self._rewards is None:
+            from .rewards import RewardBook
+            book = RewardBook(self.log, store=lambda: self.store,
+                              activity=self.activity, say=self.say)
+            book.listen()
+            self._rewards = book
+        return self._rewards
 
     @property
     def players(self):

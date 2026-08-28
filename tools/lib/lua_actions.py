@@ -14240,3 +14240,210 @@ def truck_tickets_spent() -> str:
             "pcall(function() for _,s in pairs(DataCenter.ItemData.ItemInfos or {}) do "
             "if _num(s.itemId)==item then now=now+_num(s.count) end end end) "
             "local d=was-now if d<0 then d=0 end return d end)()")
+
+
+# ---------------------------------------------------------------------------
+# the reward popups: an ear inside the client, not a round of questions (#2027)
+# ---------------------------------------------------------------------------
+#
+# WHAT THIS IS FOR. Half the abilities of this bot end in a modal: a help given to an
+# alliancemate's secret task, a gift collected, a truck brought home. The panel presses
+# headless, so nobody asked for that window — it lands on top of the client anyway. The
+# old answer was a press of its own after each collect (`dismiss_reward_popup` in
+# `game_buttons.py`): a sweep of every open window whose name carries `Reward`/`GetGift`.
+# It works, and it is a PRESS — it happens only where a recipe remembered to put it, it
+# says nothing about what was IN the window, and a popup raised by something the panel
+# did not start sits there until the next recipe runs.
+#
+# So this is an EAR instead, which is what «читаем один раз, дальше слушаем» asks for
+# (`CLAUDE.md`). Two of the client's own Lua methods are wrapped ONCE per client:
+#
+#   * `DataCenter.RewardManager`'s show-methods — the client's own «here is what you were
+#     given». They carry the reward list, so this is where WHAT is read.
+#   * `UIManager.Instance.OpenWindow` — where the popup arrives, and where it is closed
+#     with `Ctrl:CloseSelf()` (never `DestroyAllWindow`, which takes the HUD with it).
+#
+# Both write into a small ring on `DataCenter.__lw_rewards`, and NOTHING asks the game
+# anything: the wrappers run inside calls the client was making anyway. The panel drains
+# the ring the next time it is talking to the VM (`actions/collect_reward_popups.md`).
+#
+# WHY WRAPPING WORKS HERE. Both objects are Lua tables with a class behind a metatable —
+# measured live (#2027): `UIManager.Instance` is a table whose metatable's `__index`
+# carries `OpenWindow`, and `DataCenter.RewardManager` the same with `ShowCommonReward`
+# and its siblings. A `rawset` on the INSTANCE shadows the class for that instance alone,
+# so nothing else in the client sees a changed class — the same form #1420 used on
+# `UIWorldPointCtrl:InitData` and #1990 on the resource writers.
+#
+# The ear dies with the client, which is correct: a fresh client has no wrappers and the
+# recipe puts them back. It is idempotent — a second install finds `__lw_rewards.on`.
+#
+# ---------------------------------------------------------------------------
+# THREE GUARDS, AND THE ORDER THEY ARE IN MATTERS
+# ---------------------------------------------------------------------------
+#
+# «Close whatever popped up» is the one change here that can break something expensive:
+# a mini-game holds its own window for the whole match (#2021), a march holds the squad
+# screen, a purchase holds its dialog. Shutting one of those from a wrapper would look
+# exactly like the game closing it, and the recipe waiting on it would fail for no
+# readable reason. So a window is closed only when ALL THREE hold:
+#
+#   1. **The name is in :data:`REWARD_WINDOWS`** — an explicit list, never a substring
+#      match. A reward-shaped window that is NOT in the list is recorded as `unknown`
+#      and LEFT ALONE, which is how the list grows: by evidence a person can read on the
+#      «Награды» page, not by a guess made inside a wrapper.
+#   2. **A reward show fired in the last :data:`REWARD_WINDOW_MS`** — the game itself
+#      said «here is what you were given» microseconds ago. A window that opens outside
+#      that span is somebody's press, not a reward.
+#   3. **Nothing has claimed a hold.** A recipe that keeps a window of its own for the
+#      length of its run sets `DataCenter.__lw_rewards.hold`, and while it is set the ear
+#      records (`held`) and closes nothing at all. It is a belt beside the braces: the
+#      screens in question are not in the list either, and the two mistakes that would
+#      have to happen together are «somebody adds a name» and «somebody removes a flag».
+#
+# WHY CLOSE AT ALL, EVEN OVER OUR OWN WORK. A reward popup is an acknowledgement of
+# something the SERVER has already granted — closing it takes nothing back. What it does
+# do is sit on top of the client, where it blocks the vision steps (`FIND`/`CLICK`) and
+# any press that goes through the window stack. So the popup is the thing in the way, and
+# the hold above is what protects the one case where the window is the work.
+
+#: The windows this ear may close, by NAME. Every one of them exists in the client's own
+#: `UIWindowNames` table (pinned by `tests/test_reward_popups.py` against
+#: `docs/research/ui-open-data/ui_window_names.json`), and every one is a reward
+#: acknowledgement: a list of what was just granted, with nothing to decide on it.
+#:
+#: **Grow it only with evidence.** An `unknown|<name>` row on the «Награды» page is what
+#: says a window belongs here — the ear records those and never closes them.
+REWARD_WINDOWS = (
+    # Proven live: the modal an alliance-gift collect raises (#1188 era,
+    # docs/research/alliance-gift-collection.md).
+    "UIGiftPackageRewardGet",
+    # The secret-task family — the complaint this task started from: a help given to an
+    # alliancemate's task raises one of these headless.
+    "UIDispatchTaskReward",
+    # The abilities that already end in a reward list of their own.
+    "UILWTruckRewardGet", "UIGhostreconReward", "UIGhostreconGetBoxReward",
+    "UIDispatchTreasureReward", "UIDispatchTreasureGetBoxReward", "UICollectReward",
+    # The generic «here is what you got» tips the client reuses across features.
+    "UICommonRewardTip", "UIRewardShow", "UIRewardTip", "UIRewardContentTip",
+    "UIGetRewardView", "UICommonBoxRewardShow", "UILWCommonBoxShowRewardTip",
+    "UIMultiRewardPop", "UILWGetGiftView",
+)
+
+#: The show-methods on `RewardManager` that mean «the player has just been given this».
+#: Read off the live class (#2027); a name that is not on it is skipped rather than
+#: guessed at, so a client that renames one loses that row and nothing else.
+REWARD_SHOWS = (
+    "ShowCommonReward", "ShowSingleReward", "ShowGiftReward", "ShowTwoLinesRewards",
+    "SequenceShowReward", "ShowCommonHeroReward", "ShowGiftBoxOpenReward",
+    "ShowDailyTaskReward", "ShowGeift", "ShowDetectEventCombineReward",
+)
+
+#: How long after a reward show a window opening still counts as THAT reward's popup, in
+#: milliseconds of the game's own clock. Generous enough for a window that waits for its
+#: atlas, short enough that the next thing a person opens by hand falls outside it.
+REWARD_WINDOW_MS = 3000
+
+#: How many rows the ring holds before it counts losses instead. A drain empties it and
+#: the recipes that earn things drain as they go, so this is a ceiling on a client
+#: nobody has played anything through — not a working size.
+REWARD_RING = 80
+
+
+def reward_watch_install() -> str:
+    """Lua *chunk* — put the ear in, once. Idempotent, and silent when already in.
+
+    Everything is `pcall`-guarded twice over: this runs on the client's own Lua thread
+    INSIDE the game's call to `OpenWindow`, and a wrapper that raises would take the
+    window with it.
+    """
+    shows = ",".join(f"'{name}'" for name in REWARD_SHOWS)
+    allow = " ".join(f"W['{name}']=true" for name in REWARD_WINDOWS)
+    return (
+        "pcall(function() "
+        "local D=DataCenter local B=D.__lw_rewards "
+        "if B and B.on then return end "
+        "B={rows={},lost=0,closed=0,seen=0} D.__lw_rewards=B "
+        f"local W={{}} {allow} B.allow=W "
+        "local function now() local t=0 "
+        "pcall(function() t=UITimeManager.Instance:GetServerTime() end) "
+        "return math.floor((tonumber(tostring(t)) or 0)+0) end "
+        "local function add(kind,what) B.seen=B.seen+1 "
+        f"if #B.rows>={REWARD_RING} then B.lost=B.lost+1 return end "
+        "B.rows[#B.rows+1]=tostring(now())..'|'..kind..'|'..tostring(what) end "
+        # What was in the reward list. The client's reward rows carry an id and a count
+        # under several names depending on which show was called, so each is tried in
+        # turn and a row that answers none of them is counted and not named.
+        "local function items(v) if type(v)~='table' then return '' end "
+        "local out={} local n=0 "
+        "for _,it in pairs(v) do if type(it)=='table' then "
+        "local id=it.id or it.rewardId or it.itemId or it.rewardType or it.type "
+        "local num=it.num or it.count or it.value or it.amount or it.number "
+        "if id~=nil then n=n+1 if n<=12 then "
+        "out[#out+1]=tostring(id)..'x'..tostring(num or 1) end end end end "
+        "if n>12 then out[#out+1]='+'..tostring(n-12) end "
+        "return table.concat(out,',') end "
+        # -- the reward shows: WHAT was given ---------------------------------
+        "local rm=D.RewardManager local rmt=getmetatable(rm) "
+        "local rcls=rmt and rawget(rmt,'__index') "
+        "if type(rcls)=='table' then "
+        f"for _,m in ipairs({{{shows}}}) do local f=rcls[m] "
+        "if type(f)=='function' then rawset(rm,m,function(self,...) "
+        "local a={...} "
+        "pcall(function() local got='' "
+        "for i=1,#a do local s=items(a[i]) if s~='' then got=s break end end "
+        "B.expect=now() add('reward',m..'|'..got) end) "
+        "return f(self,...) end) end end end "
+        # -- the window: the three guards, then CloseSelf ---------------------
+        "local mgr=UIManager.Instance local mmt=getmetatable(mgr) "
+        "local mcls=mmt and rawget(mmt,'__index') "
+        "local orig=mcls and mcls.OpenWindow "
+        # `table.pack`/`unpack` rather than `{...}`: a window that returns nil in the
+        # middle of its results would be truncated by the table constructor, and this
+        # wrapper sits in front of EVERY window the client opens — it may not change
+        # what the caller gets back by so much as an argument. `unpack` is the 5.1
+        # spelling, kept as a fallback so the ear cannot break windows on a client
+        # built against an older Lua.
+        "local pk=table.pack or function(...) return {n=select('#',...),...} end "
+        "local up=table.unpack or unpack "
+        "if type(orig)=='function' then rawset(mgr,'OpenWindow',function(self,name,...) "
+        "local res=pk(orig(self,name,...)) "
+        "pcall(function() local s=tostring(name) "
+        # guard 2: the game said «here is a reward» a moment ago. Everything else that
+        # opens is somebody's press and is not this ear's business at all.
+        f"if not (B.expect and (now()-B.expect)<{REWARD_WINDOW_MS}) then return end "
+        # guard 3: a recipe is holding a window of its own — record and touch nothing.
+        # The hold carries a DEADLINE rather than a flag, so a recipe that ends without
+        # lifting it (a crash, a stop, a mini-game armed and left to play itself) cannot
+        # deafen the ear until the client restarts.
+        "if B.hold and now()<B.hold then add('held',s) return end "
+        # guard 1: the name, explicitly. An unknown one is REPORTED, never closed.
+        "if not W[s] then add('unknown',s) return end "
+        "local w=self:GetWindow(name) "
+        "if w and w.Ctrl and w.Ctrl.CloseSelf then "
+        "local ok=pcall(function() w.Ctrl:CloseSelf() end) "
+        "if ok then B.closed=B.closed+1 add('closed',s) else add('popup',s) end "
+        "else add('popup',s) end end) "
+        "return up(res,1,res.n) end) end "
+        "B.on=true end)")
+
+
+def reward_watch_hold(minutes: float = 30.0) -> str:
+    """Lua *chunk* — «I am holding a window of my own for this long; close nothing».
+
+    For a recipe whose window IS the work: the mini-game holds its screen for the whole
+    match (#2021), a march holds the squad screen. The names of those screens are not in
+    :data:`REWARD_WINDOWS` either — this is the second lock on the same door, and it is
+    the one that does not depend on a list staying right.
+
+    It carries a DEADLINE, in minutes of the game's own clock, and never a bare flag. A
+    recipe that arms something and returns — which is exactly what the mini-game does —
+    has nobody left to lift a flag afterwards, and a hold nobody lifts is an ear that
+    hears nothing for the rest of the client's life. `minutes=0` lifts it at once.
+
+    Safe to set twice, safe to lift when it was never set, and gone with the client.
+    """
+    span = max(0.0, float(minutes)) * 60_000
+    return ("pcall(function() local B=DataCenter.__lw_rewards if B==nil then return end "
+            "local t=0 pcall(function() t=UITimeManager.Instance:GetServerTime() end) "
+            "t=math.floor((tonumber(tostring(t)) or 0)+0) "
+            f"B.hold=(({span:.0f})>0) and (t+{span:.0f}) or nil end)")

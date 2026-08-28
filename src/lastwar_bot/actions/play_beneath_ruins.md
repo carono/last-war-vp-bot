@@ -2,6 +2,13 @@
 # ru: Сыграть в сезонную мини-игру «Под руинами» самостоятельно, N раундов.
 
 ARGS rounds = 5
+
+# The match IS this recipe's window, and it goes on playing after the recipe has
+# armed it. So the reward-popup ear is told to close nothing while it runs (#2027):
+# the screens here are not on its whitelist either, and this is the lock that does
+# not depend on that list staying right. The hold carries its own deadline — half an
+# hour, longer than any match — because nobody is left here to lift it.
+TAP hold_reward_popups
 READ_LUA (function() local ok, res = pcall(function() for _, nd in ipairs((__lw_gg or {}).nodes or {}) do pcall(function() UpdateBeat:RemoveListener(nd) end) end __lw_gg = nil local r = CS.UnityEngine.Object.FindObjectOfType(typeof(CS.MiniGame.GGGo.Client.GGGoRuntime)) if r ~= nil then return 'open' end local M = package.loaded['DataCenter.SmallGameManager.SmallGameManager'] local g = M:GetGameByType(4) local d = DataCenter.LWGGGoDataManager if d == nil or d.data == nil or d.data.bid == nil then return 'no round data' end g:ChangeSource(2) g:UpdateGGGoInfo(d.data) g:Enter() return 'opening' end) return tostring(ok) .. ' :: ' .. tostring(res) end)() INTO door
 LOG "beneath-ruins: {door}"
 WAIT 12

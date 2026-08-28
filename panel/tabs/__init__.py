@@ -195,6 +195,11 @@ TABS: tuple = (
             in_development=True),
     TabSpec("stats",     "panel.tabs.stats",     "StatsTab",     order=250,
             in_development=True),
+    # The book of reward popups the client raised and the ear shut (#2027). Beside
+    # «Статистика» because it answers the same kind of question — what came in — and
+    # like it, it reads nothing from the game at all.
+    TabSpec("rewards",   "panel.tabs.rewards",   "RewardsTab",   order=255,
+            in_development=True),
     TabSpec("players",   "panel.tabs.players",   "PlayersTab",   order=260),
     TabSpec("rally",     "panel.tabs.rally",     "RallyTab",     order=300),
     TabSpec("secret_tasks", "panel.tabs.secret_tasks", "SecretTasksTab",

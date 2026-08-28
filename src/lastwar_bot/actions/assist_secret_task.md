@@ -120,3 +120,11 @@ ELSE
 #    URs into whatever is left AFTER one help per ripening star. It stops when the list
 #    runs out, when the budget does, and when the only thing left is the reserve.
 TAP assist_secret_task xall
+
+# 8. …and shut the «вот что вам дали» window each help raises, writing down what was
+#    in it (#2027). The panel presses headless, so nobody asked for that modal — it
+#    lands on the client anyway and sits on top of everything after it. This puts
+#    the ear in (idempotent, free on a client that has it) and brings back what it
+#    heard, so «что дали и за что» is a row in the database rather than a window
+#    somebody has to close by hand.
+CALL collect_reward_popups

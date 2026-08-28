@@ -149,6 +149,7 @@ SCOPED_TABLES = {
     "blobs": "all_blobs",
     "secret_days": "all_secret_days",
     "monsters": "all_monsters",
+    "reward_popups": "all_reward_popups",
 }
 
 #: «Призрак: карта»'s own list, by name — the one blob TWO tabs meet over (#2010).
@@ -598,6 +599,41 @@ MIGRATIONS: tuple = (
                created_at INTEGER NOT NULL
            )""",
     ),
+    # -- v9: what the game gave, and what the panel was doing at the time (#2027) ------
+    #
+    # The reward popups the client raises on its own — a help given to an alliancemate's
+    # secret task, a gift collected, a truck brought home. The ear inside the client
+    # (`tools/lib/lua_actions.py::reward_watch_install`) closes them and says what was in
+    # them; this is where those rows land, because anything the game told the panel is a
+    # row in the database and never a file (`CLAUDE.md`).
+    #
+    # A TABLE rather than a blob, by the rule #1963 wrote down: this grows without bound,
+    # is written a row at a time as rewards arrive, and is read back narrowed («the last
+    # fifty», «the unknown windows»). A blob would be re-serialised whole on every drain.
+    (
+        """CREATE TABLE all_reward_popups (
+               profile TEXT NOT NULL,
+               -- The GAME's own clock, in milliseconds, as the ear stamped it. Zero for
+               -- a row the ear could not stamp (a client that answered no time at all).
+               at      INTEGER NOT NULL,
+               -- …and the panel's, so a row is still orderable when the game's is 0.
+               seen_at INTEGER NOT NULL,
+               -- `reward` (what was given), `closed` / `popup` / `unknown` / `held`
+               -- (what happened to the window), `lost` (rows the ring dropped).
+               kind    TEXT NOT NULL,
+               -- The reward method, or the window's name — whichever this row is about.
+               source  TEXT NOT NULL,
+               -- The reward list as the client had it: `<id>x<count>`, comma separated.
+               items   TEXT NOT NULL DEFAULT '',
+               -- WHAT THE PANEL WAS PLAYING when the row arrived, and empty when it was
+               -- playing nothing. Empty means «не знаю» and is drawn as such: nothing in
+               -- the client knows why a reward came, so a guess written here would be
+               -- indistinguishable from a fact.
+               why     TEXT NOT NULL DEFAULT ''
+           )""",
+        "CREATE INDEX ix_reward_popups_seen ON all_reward_popups(profile, seen_at)",
+        "CREATE INDEX ix_reward_popups_kind ON all_reward_popups(profile, kind)",
+    ),
 )
 
 #: THE SCHEMA AS IT STOOD WHEN EVERY PROFILE HAD A DATABASE OF ITS OWN (#2025).
@@ -1036,6 +1072,69 @@ class Store:
     def monsters_count(self) -> int:
         row = self.read().execute("SELECT COUNT(*) FROM monsters").fetchone()
         return int(row[0]) if row else 0
+
+    # -- the reward popups the client raised, and what the panel was doing (#2027) -----
+    #
+    # A DRAIN at a time, off whatever thread the log line arrived on — which is why these
+    # go through :meth:`submit` like the monsters do: a reward can land while the person
+    # is dragging the map, and a write on the Tk thread is a frame nobody gets back.
+    REWARD_COLUMNS = ("at", "seen_at", "kind", "source", "items", "why")
+
+    REWARD_INSERT = ("INSERT INTO all_reward_popups(profile, "
+                     + ", ".join(REWARD_COLUMNS) + ") VALUES("
+                     + ", ".join("?" * (len(REWARD_COLUMNS) + 1)) + ")")
+
+    def rewards_add(self, rows) -> None:
+        """Book these rows. Each is a dict in :data:`REWARD_COLUMNS`; `why` may be empty.
+
+        Empty `why` is «не знаю» and is stored as such: the client cannot say why a
+        reward arrived, so the only honest source for it is what the panel was playing —
+        and when it was playing nothing, the honest answer is nothing.
+        """
+        values = []
+        for row in rows or ():
+            values.append((self.profile,
+                           int(row.get("at") or 0), int(row.get("seen_at") or 0),
+                           str(row.get("kind") or ""), str(row.get("source") or ""),
+                           str(row.get("items") or ""), str(row.get("why") or "")))
+        if not values:
+            return
+        sql = self.REWARD_INSERT
+
+        def job(conn) -> None:
+            conn.executemany(sql, values)
+        self.submit(job)
+
+    def rewards_recent(self, limit: int = 50, *, kind: str = "") -> list:
+        """The newest rows first, as plain dicts. `kind` narrows to one sort of row."""
+        sql = f"SELECT {', '.join(self.REWARD_COLUMNS)} FROM reward_popups"
+        args: tuple = ()
+        if kind:
+            sql += " WHERE kind = ?"
+            args = (str(kind),)
+        # A VIEW has no `rowid`, so the game's own stamp is the tie-break —
+        # several rows of one drain share a second of panel clock.
+        sql += " ORDER BY seen_at DESC, at DESC LIMIT ?"
+        rows = self.read().execute(sql, args + (int(limit),)).fetchall()
+        return [dict(zip(self.REWARD_COLUMNS, row)) for row in rows]
+
+    def rewards_count(self, *, kind: str = "") -> int:
+        sql = "SELECT COUNT(*) FROM reward_popups"
+        args: tuple = ()
+        if kind:
+            sql += " WHERE kind = ?"
+            args = (str(kind),)
+        row = self.read().execute(sql, args).fetchone()
+        return int(row[0]) if row else 0
+
+    def rewards_prune(self, cutoff: float) -> None:
+        """Forget rows older than `cutoff` (a `time.time`). Nothing else touches them."""
+        profile, when = self.profile, int(cutoff)
+
+        def job(conn) -> None:
+            conn.execute("DELETE FROM all_reward_popups WHERE profile = ? "
+                         "AND seen_at < ?", (profile, when))
+        self.submit(job)
 
     # -- closing ----------------------------------------------------------------------
     def close(self) -> None:
