@@ -1304,7 +1304,17 @@ def import_profile_db_once(store: Store, path: str) -> dict:
                 payload[table] = (columns, rows)
         if payload:
             with store.write() as conn:
-                for table, (columns, rows) in payload.items():
+                # ASKED AGAIN, INSIDE THE LOCK, and it is not superstition: two runtimes
+                # in one window can build a store for the same profile at the same
+                # moment, both read «not imported» and both do the work. `INSERT OR
+                # IGNORE` made that harmless — it was measured live on a profile of
+                # 23 386 players and not one row doubled — but it is twenty thousand
+                # rows written twice, and with two PANELS it would be two processes.
+                # `BEGIN IMMEDIATE` is already held here, so the loser reads the mark.
+                beaten = conn.execute(
+                    "SELECT 1 FROM all_meta WHERE profile = ? AND key = ?",
+                    (store.profile, "import:profile_db")).fetchone() is not None
+                for table, (columns, rows) in ({} if beaten else payload).items():
                     target = SCOPED_TABLES[table]
                     # Only the columns the shared table actually has: an old file cannot
                     # carry one it never knew, and must not fail over one we dropped.
@@ -1319,8 +1329,9 @@ def import_profile_db_once(store: Store, path: str) -> dict:
                         [(store.profile,) + tuple(row[i] for i in keep)
                          for row in rows])
                     counts[table] = len(rows)
-                conn.execute(META_UPSERT, (store.profile, "import:profile_db",
-                                           str(int(time.time()))))
+                if not beaten:
+                    conn.execute(META_UPSERT, (store.profile, "import:profile_db",
+                                               str(int(time.time()))))
         else:
             store.meta_set("import:profile_db", str(int(time.time())))
     finally:
