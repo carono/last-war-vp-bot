@@ -118,6 +118,33 @@ def test_machinery_is_not_a_profile():
             raise AssertionError("creating a profile named _bot was allowed")
 
 
+def test_the_one_database_follows_a_redirected_store():
+    """WHAT A TEST REBINDS, THE DATABASE MUST FOLLOW (#2025).
+
+    `store_db()` used to be built under the profile's own directory, so a test pointing
+    `PROFILES_DIR` at a scratch tree took the database with it. When it became one file
+    it was briefly built from `paths.SHARED_DB` — fixed at import, and therefore the
+    LIVE database whatever a test was holding. Every test that builds a real runtime
+    then read one account's rows, and was one write away from changing them; a rally
+    test caught it by reading «14/20» off the machine it was running on.
+
+    So the path is built from the REBINDABLE name, and `paths.SHARED_DB` is what that
+    name resolves to when nobody has moved it.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        keep = profilemod.PROFILES_DIR
+        try:
+            profilemod.PROFILES_DIR = os.path.join(tmp, "profiles")
+            manager = profilemod.ProfileManager()
+            where = manager.store_db()
+            assert where == os.path.join(profilemod.PROFILES_DIR, "panel.db"), where
+            assert Path(tmp) in Path(where).parents, \
+                f"a redirected store still points at {where}"
+        finally:
+            profilemod.PROFILES_DIR = keep
+    assert profilemod.ProfileManager().store_db() == paths.SHARED_DB
+
+
 # -- the migration -------------------------------------------------------------------
 
 def test_old_layout_moves_across_whole():

@@ -833,8 +833,17 @@ class ProfileManager:
         that every caller keeps working; what changed is that the path no longer says
         WHOSE rows are wanted. That is the store's own `profile`, and it is required
         (`Store.__init__`) — reached through `rt.store`, never opened by a caller.
+
+        BUILT FROM `PROFILES_DIR` AND NOT FROM :data:`paths.SHARED_DB`, and the two are
+        the same answer everywhere except the one place it matters: `PROFILES_DIR` is
+        the name a test rebinds to point the panel at a scratch tree, and `paths` is
+        fixed at import. Returning the fixed one sent every test that builds a real
+        runtime — which is most of the tab tests — at the LIVE database, reading one
+        account's rally counts and free to write to them. That is the same failure as
+        #1306 arriving from the outside, and it was caught by a rally test reading
+        «14/20» off the machine it was running on.
         """
-        return paths.SHARED_DB
+        return os.path.join(PROFILES_DIR, STORE_DB)
 
     def legacy_store_db(self, name: str | None = None) -> str:
         """Where this profile's OWN database used to be, before #2025.
