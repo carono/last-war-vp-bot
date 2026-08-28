@@ -136,13 +136,14 @@ class SecretDayBook:
 
         def job(conn) -> None:
             conn.execute(
-                "INSERT INTO secret_days"
-                "  (server, day, state, source, stars, tiles, seen_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT(server, day, source) DO UPDATE SET"
+                "INSERT INTO all_secret_days"
+                "  (profile, server, day, state, source, stars, tiles, seen_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(profile, server, day, source) DO UPDATE SET"
                 "   state = excluded.state, stars = excluded.stars,"
                 "   tiles = excluded.tiles, seen_at = excluded.seen_at",
-                (row["server"], row["day"], row["state"], row["source"],
+                (self.store.profile,
+                 row["server"], row["day"], row["state"], row["source"],
                  row["stars"], row["tiles"], row["seen_at"]))
 
         self.store.submit(job)
@@ -178,14 +179,15 @@ class SecretDayBook:
 
         def job(conn) -> None:
             conn.execute(
-                "INSERT INTO secret_days"
-                "  (server, day, state, source, stars, tiles, seen_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT(server, day, source) DO UPDATE SET"
-                "   stars = secret_days.stars + excluded.stars,"
-                "   tiles = secret_days.tiles + excluded.tiles,"
+                "INSERT INTO all_secret_days"
+                "  (profile, server, day, state, source, stars, tiles, seen_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(profile, server, day, source) DO UPDATE SET"
+                "   stars = all_secret_days.stars + excluded.stars,"
+                "   tiles = all_secret_days.tiles + excluded.tiles,"
                 "   seen_at = excluded.seen_at",
-                (server, when, model.STATE_UNKNOWN, model.SOURCE_LAP,
+                (self.store.profile,
+                 server, when, model.STATE_UNKNOWN, model.SOURCE_LAP,
                  stars, tiles, stamp))
 
         self.store.submit(job)
@@ -207,9 +209,9 @@ class SecretDayBook:
     def forget(self, server, day, source) -> None:
         """Drop one observation — the only DELETE here, and it is a person asking."""
         def job(conn) -> None:
-            conn.execute("DELETE FROM secret_days"
-                         " WHERE server = ? AND day = ? AND source = ?",
-                         (int(server), int(day), str(source)))
+            conn.execute("DELETE FROM all_secret_days"
+                         " WHERE profile = ? AND server = ? AND day = ? AND source = ?",
+                         (self.store.profile, int(server), int(day), str(source)))
 
         self.store.submit(job)
         self._pending = [p for p in self._pending

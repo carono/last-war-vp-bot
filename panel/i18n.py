@@ -193,33 +193,31 @@ def translated(t, value) -> str:
     return t(key, **getattr(src, "fmt", {}))
 
 
+# THE PANEL-WIDE BLOCK IS A ROW IN THE ONE DATABASE (#2025), not a file any more —
+# `panel/profile.py` owns the door and this module borrows it for its one key. Imported
+# inside the functions on purpose: `panel.profile` imports THIS module for `Message`, so
+# a top-level import here would be a cycle. By the time a language is asked for, both
+# modules are built.
+
+
 def load_pref() -> str:
-    """The panel-wide language, read straight off disk — the default if none is set."""
+    """The panel-wide language — the default when nobody has chosen one."""
+    from .profile import panel_settings
     try:
-        with open(_PREF_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
+        lang = panel_settings().get(_PREF_KEY)
+    except Exception:                      # noqa: BLE001 — a preference, never the panel
         return DEFAULT_LANG
-    lang = data.get(_PREF_KEY) if isinstance(data, dict) else None
     return lang if isinstance(lang, str) and lang else DEFAULT_LANG
 
 
 def save_pref(lang: str) -> None:
     """Remember ``lang`` for the WHOLE panel — every window, every open profile."""
-    data = {}
+    from .profile import panel_settings, set_panel_settings
     try:
-        with open(_PREF_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    data[_PREF_KEY] = lang
-    try:
-        os.makedirs(os.path.dirname(_PREF_FILE), exist_ok=True)
-        with open(_PREF_FILE, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=2)
-    except OSError:
+        data = panel_settings()
+        data[_PREF_KEY] = lang
+        set_panel_settings(data)
+    except Exception:                      # noqa: BLE001 — a preference, never the panel
         pass
 
 

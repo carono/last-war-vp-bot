@@ -61,7 +61,7 @@ class _Rt:
 
     def __init__(self, root: Path) -> None:
         self.profiles = _Profiles(root)
-        self.store = Store(str(root / "panel.db"))
+        self.store = Store(str(root / "panel.db"), "Player1")
 
     def dbg(self, component: str = "panel"):
         raise AssertionError("the scene must not need a logger")

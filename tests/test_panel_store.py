@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -42,16 +43,20 @@ from panel.runtime.store import Store, StoreTooNew, import_once      # noqa: E40
 
 #: A schema history of our own, so the tests do not have to be rewritten every time the
 #: real one grows a version. Same shape: index 0 is version 1.
+#: `all_meta` and not `meta`, because that is the one table the shared machinery here
+#: writes for itself (`import_once`'s mark) — see `panel/runtime/store.py`'s
+#: `PROFILE_COLUMN`. Everything else is this test's own.
 _SCHEMA = (
-    "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    "CREATE TABLE all_meta (profile TEXT NOT NULL, key TEXT NOT NULL,"
+    "                       value TEXT NOT NULL, PRIMARY KEY (profile, key));",
     "CREATE TABLE rows_ (uid TEXT PRIMARY KEY, name TEXT);",
     "ALTER TABLE rows_ ADD COLUMN level INTEGER;",
 )
 
 
-def _store(schema=_SCHEMA) -> Store:
+def _store(schema=_SCHEMA, profile: str = "Player1") -> Store:
     tmp = tempfile.mkdtemp()
-    return Store(str(Path(tmp) / "panel.db"), migrations=schema)
+    return Store(str(Path(tmp) / "panel.db"), profile, migrations=schema)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +80,7 @@ def test_an_old_database_is_carried_forward_and_keeps_its_rows() -> None:
     assert old.version() == 2
     old.close()
 
-    new = Store(old.path, migrations=_SCHEMA)
+    new = Store(old.path, "Player1", migrations=_SCHEMA)
     assert new.version() == 3, "the upgrade did not run"
     row = new.read().execute("SELECT * FROM rows_").fetchone()
     assert (row["uid"], row["name"], row["level"]) == ("1", "Player1", None), \
@@ -92,7 +97,7 @@ def test_a_newer_database_is_refused_rather_than_migrated_backwards() -> None:
     ahead = _store(_SCHEMA)
     ahead.connect()                       # a Store does not touch the file until asked
     ahead.close()
-    behind = Store(ahead.path, migrations=_SCHEMA[:1])
+    behind = Store(ahead.path, "Player1", migrations=_SCHEMA[:1])
     try:
         behind.connect()
     except StoreTooNew:
@@ -111,7 +116,7 @@ def test_a_migration_runs_once_however_many_threads_open_it() -> None:
 
     def open_it() -> None:
         try:
-            Store(path, migrations=_SCHEMA).connect()
+            Store(path, "Player1", migrations=_SCHEMA).connect()
         except Exception as exc:                                     # noqa: BLE001
             errors.append(exc)
 
@@ -140,7 +145,7 @@ def test_the_real_schema_repairs_the_two_shapes_v2_shipped_in() -> None:
     old = list(MIGRATIONS[:2])
     old[1] = tuple(st.replace("               uuid,", "               uuid TEXT,")
                    for st in MIGRATIONS[1])
-    was = Store(path, migrations=tuple(old))
+    was = Store(path, "Player1", migrations=tuple(old))
     with was.write() as conn:
         conn.executemany(
             "INSERT INTO players(uid, name, uuid, level) VALUES(?, ?, ?, ?)",
@@ -151,7 +156,11 @@ def test_the_real_schema_repairs_the_two_shapes_v2_shipped_in() -> None:
         "SELECT typeof(uuid) t FROM players WHERE uid = '1'").fetchone()["t"] == "text"
     was.close()
 
-    now = Store(path)                                    # the panel, with v3 in it
+    # THE PANEL'S SCOPE, and that is what v8 does with rows it finds (#2025): the only
+    # database this migration ever runs on is `profiles/panel.db`, whose rows before it
+    # were the panel's own. A profile's OLD database is a separate file and is carried
+    # across by an import instead.
+    now = Store(path, storemod.PANEL_SCOPE)              # the panel, with v8 in it
     assert now.version() == len(MIGRATIONS)
     rows = {r["uid"]: r for r in now.read().execute("SELECT * FROM players")}
     assert len(rows) == 3, "the rebuild lost a row"
@@ -205,7 +214,7 @@ def test_a_second_process_writes_the_same_database() -> None:
     code = (
         "import sys; sys.path.insert(0, %r)\n"
         "from panel.runtime.store import Store\n"
-        "s = Store(%r, migrations=%r)\n"
+        "s = Store(%r, 'Player1', migrations=%r)\n"
         "with s.write() as c:\n"
         "    c.executemany('INSERT INTO rows_(uid, name) VALUES(?, ?)',\n"
         "                  [(f'theirs-{i}', 'Player2') for i in range(100)])\n"
@@ -401,14 +410,39 @@ def test_there_is_no_store_at_module_level() -> None:
              f"database must be reached through `rt.store` and nowhere else")
 
 
-def test_two_profiles_are_two_databases() -> None:
-    a, b = _store(), _store()
-    with a.write() as conn:
-        conn.execute("INSERT INTO rows_(uid, name) VALUES('1', 'Player1')")
-    assert b.read().execute("SELECT COUNT(*) c FROM rows_").fetchone()["c"] == 0, \
-        "one profile's write turned up in another profile's database"
+def test_two_profiles_share_one_file_and_see_nothing_of_each_other() -> None:
+    """ONE DATABASE SINCE #2025, and this is the whole of what replaces the file that
+    used to keep the accounts apart: every row says whose it is, and the old table names
+    are per-connection views scoped to one profile."""
+    tmp = tempfile.mkdtemp()
+    path = str(Path(tmp) / "panel.db")
+    a, b = Store(path, "Player1"), Store(path, "Player2")
+    a.blob_set("kept", {"n": 1})
+    b.blob_set("kept", {"n": 2})
+    a.meta_set("mark", "mine")
+    assert a.blob_get("kept") == {"n": 1} and b.blob_get("kept") == {"n": 2}, \
+        "one profile's checkpoint turned up in another profile's scope"
+    assert b.meta_get("mark") is None, "one profile read another profile's meta row"
+    assert a.read().execute("SELECT COUNT(*) c FROM blobs").fetchone()["c"] == 1, \
+        "the view showed rows belonging to another profile"
     a.close()
     b.close()
+
+
+def test_a_write_by_the_old_table_name_fails_instead_of_crossing_profiles() -> None:
+    """THE POINT OF THE VIEWS (#2025). A query written without a thought for the profile
+    READS only its own rows; one that WRITES cannot land in everybody's account, because
+    the name it uses is a view and SQLite refuses. «Forgot the filter» stops being a
+    silent leak and becomes an error at the first run."""
+    store = Store(str(Path(tempfile.mkdtemp()) / "panel.db"), "Player1")
+    try:
+        store.connect().execute(
+            "INSERT INTO blobs(name, data, updated_at) VALUES('x', '{}', 0)")
+    except sqlite3.OperationalError as exc:
+        assert "view" in str(exc), f"refused for the wrong reason: {exc}"
+    else:
+        raise AssertionError("a write reached a scoped table by its old name")
+    store.close()
 
 
 def _run() -> int:

@@ -480,17 +480,24 @@ class PanelRuntime:
 
     @property
     def store(self):
-        """THIS PROFILE'S DATABASE (#1398, panel/runtime/store.py).
+        """THIS PROFILE'S VIEW OF THE ONE DATABASE (#1398, #2025).
 
-        One per profile, in the profile's own directory. Built on first ask and
+        One file for every account since #2025, and the isolation is the store's own
+        `profile` rather than the path (`panel/runtime/store.py`). Built on first ask and
         **re-checked against the profile on every ask**: the runtime outlives a profile
         switch, and a store that did not follow would go on writing the previous
         account's register — the failure `docs/research/profile-isolation.md` is a list
-        of. The check is a string compare; the store is only rebuilt when the path has
+        of. The check is a string compare; the store is only rebuilt when the profile has
         actually moved, and the one being left is closed rather than leaked.
         """
         want = self.profiles.store_db()
-        if self._store is not None and self._store.path != want:
+        whose = self.profiles.active
+        # THE PATH NO LONGER MOVES (#2025) — there is one database — so the profile is
+        # what is compared. A store that did not follow the switch would go on writing
+        # the previous account's rows under the previous account's name, which is the
+        # same failure as before with the file merged away.
+        if self._store is not None and (self._store.path != want
+                                        or self._store.profile != whose):
             try:
                 self._store.close()
             except Exception:                                       # noqa: BLE001
@@ -498,7 +505,7 @@ class PanelRuntime:
             self._store = None
         if self._store is None:
             from .store import Store
-            store = Store(want)
+            store = Store(want, whose)
             # A background write has nobody waiting on it, so a job that fails alone
             # would fail in silence. It says so in THIS profile's debug log.
             store._failed = lambda job: self.dbg("store").exception(   # noqa: SLF001

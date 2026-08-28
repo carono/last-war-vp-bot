@@ -131,7 +131,11 @@ def test_old_layout_moves_across_whole():
         assert json.loads(moved.read_text(encoding="utf-8")) == {"port": 47655}
         assert (Path(profilemod.PROFILES_DIR) / "second" / "panel.log"
                 ).read_text(encoding="utf-8") == "a line"
-        settings = json.loads(Path(profilemod.SETTINGS_FILE).read_text(encoding="utf-8"))
+        # THE PANEL-WIDE BLOCK IS A ROW SINCE #2025. The old checkout's FILE still
+        # moves across — that is what the migration does — and the first read carries
+        # its contents into the one database and leaves it beside as `.imported`. What
+        # is pinned is that nothing was lost on the way.
+        settings = profilemod.panel_settings()
         assert settings["active_profile"] == "second", settings
         assert settings["language"] == "ru", settings
         for template in (paths.TIMERS_TEMPLATE, paths.TRIGGERS_TEMPLATE):
@@ -154,7 +158,7 @@ def test_a_loose_bot_profile_is_swept_into_its_own_folder():
         assert not loose.exists(), "left lying beside the profiles"
         swept = Path(paths.BOT_PROFILES_DIR) / "someone.json"
         assert json.loads(swept.read_text(encoding="utf-8")) == {"name": "Player1"}
-        assert os.path.isfile(profilemod.SETTINGS_FILE), "settings.json was swept away"
+        assert profilemod.panel_settings(), "the panel-wide settings were swept away"
         assert os.path.isfile(paths.TIMERS_TEMPLATE), "the template was swept away"
 
 

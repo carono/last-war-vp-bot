@@ -453,8 +453,7 @@ class PlayerBook:
             self.ensure_imported()
         return self.store
 
-    @staticmethod
-    def _insert_many(conn, rows) -> int:
+    def _insert_many(self, conn, rows) -> int:
         """Write whole rows, for the import only. Not a merge — see :meth:`sighted`."""
         payload = []
         for row in rows:
@@ -463,7 +462,8 @@ class PlayerBook:
             row = dict(row)
             row["uid"] = str(row["uid"])
             payload.append(_values_of(row))
-        conn.executemany(_INSERT_SQL, payload)
+        conn.executemany(_INSERT_SQL,
+                         [(self.store.profile,) + row for row in payload])
         return len(payload)
 
     # -- reading ---------------------------------------------------------------------
@@ -569,7 +569,9 @@ class PlayerBook:
             if not merged:
                 return 0
             with store.write() as conn:
-                conn.executemany(_INSERT_SQL, [_values_of(r) for r in merged])
+                conn.executemany(
+                    _INSERT_SQL,
+                    [(store.profile,) + _values_of(r) for r in merged])
             return len(merged)
 
     def _held(self, uids: set) -> dict:
@@ -627,7 +629,8 @@ class PlayerBook:
             src["note"] = [SRC_PERSON, int(time.time())]
             row = dict(held, uid=str(uid), note=text, src=src)
             with self.store.write() as conn:
-                conn.execute(_INSERT_SQL, _values_of(row))
+                conn.execute(_INSERT_SQL,
+                             (self.store.profile,) + _values_of(row))
             return True
 
     def forget(self, uid) -> bool:
@@ -641,7 +644,9 @@ class PlayerBook:
         with self._lock:
             store = self._ready()
             with store.write() as conn:
-                cur = conn.execute("DELETE FROM players WHERE uid = ?", (str(uid),))
+                cur = conn.execute(
+                    "DELETE FROM all_players WHERE profile = ? AND uid = ?",
+                    (store.profile, str(uid)))
             return bool(cur.rowcount)
 
     # -- what the page tells about itself --------------------------------------------
@@ -663,10 +668,15 @@ class PlayerBook:
 #: the old row first and a register whose writes are deletes-and-inserts is one `ON
 #: DELETE` away from being a register that loses rows.
 _ALL_COLUMNS = COLUMNS + DERIVED
+#: `all_players` and not `players`, and the profile is the FIRST parameter (#2025):
+#: there is one database for every account now, and `players` is a per-connection view
+#: over this table that a write cannot reach at all (`panel/runtime/store.py`,
+#: :data:`~panel.runtime.store.PROFILE_COLUMN`). A caller that forgets to say whose row
+#: this is does not write somebody else's — it fails on the parameter count.
 _INSERT_SQL = (
-    "INSERT INTO players(" + ", ".join(_ALL_COLUMNS) + ") "
-    "VALUES(" + ", ".join("?" * len(_ALL_COLUMNS)) + ") "
-    "ON CONFLICT(uid) DO UPDATE SET "
+    "INSERT INTO all_players(profile, " + ", ".join(_ALL_COLUMNS) + ") "
+    "VALUES(" + ", ".join("?" * (len(_ALL_COLUMNS) + 1)) + ") "
+    "ON CONFLICT(profile, uid) DO UPDATE SET "
     + ", ".join(f"{c} = excluded.{c}" for c in _ALL_COLUMNS if c != "uid")
 )
 

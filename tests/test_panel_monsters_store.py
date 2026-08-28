@@ -41,7 +41,7 @@ from panel.runtime.store import (MIGRATIONS, Store,                   # noqa: E4
 def _store() -> Store:
     """A real database on the real schema — the table is the thing under test."""
     tmp = tempfile.mkdtemp()
-    return Store(str(Path(tmp) / "panel.db"), migrations=MIGRATIONS)
+    return Store(str(Path(tmp) / "panel.db"), "Player1", migrations=MIGRATIONS)
 
 
 def _row(uuid: str, **over) -> dict:

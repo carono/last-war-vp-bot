@@ -1,4 +1,4 @@
-r"""THE ONE DOOR to this profile's database (#1398).
+r"""THE ONE DOOR to the panel's ONE database (#1398, #2025).
 
 ## Why there is one
 
@@ -10,12 +10,27 @@ lap of the map changes something on almost every tick — so the panel spent a s
 a half rewriting the same eleven megabytes every twenty seconds, and the «Игроки» page
 loaded all of it into memory to filter and sort it in Python.
 
-So the data goes into SQLite. **One database per PROFILE**, in that profile's own
-directory, because a profile is a whole panel of its own and its register, its ★ tiles
-and its counters are an ACCOUNT's — never the window's and never «the first profile that
-opened». There is no module-level connection here and no module-level store: a caller
-asks the runtime (`rt.store`), and the runtime hands it the one belonging to the profile
-it is running.
+So the data goes into SQLite. **ONE database for the whole panel** since #2025 —
+`profiles/panel.db`, one level above the profile directories — and every row in it says
+which profile it belongs to.
+
+It was one database per profile until then, in that profile's own directory, and the
+isolation was the FILE. That is the strongest isolation there is; it is also why a
+rename was a directory move, a delete was an `rmtree` that could half-happen, and one
+account's settings and one account's data could end up disagreeing about that account's
+own name. The person asked for the merge in those words: «меньше проблем с целостностью
+и консистентностью будет».
+
+What did NOT change is the rule the file was enforcing. A profile is still a whole panel
+of its own, its register, its ★ tiles and its counters are still an ACCOUNT's — never the
+window's and never «the first profile that opened» — and what enforces it now is
+:data:`PROFILE_COLUMN`: the tables are named `all_…`, a store carries the profile it was
+built for, and the old table names are per-connection VIEWS scoped to that profile. A
+query that forgets the profile is not a leak, it is either already filtered or an error.
+
+There is still no module-level connection here and no module-level store: a caller asks
+the runtime (`rt.store`), and the runtime hands it the one belonging to the profile it is
+running.
 
 ## Why it is not `sqlite3.connect` at each call site
 
@@ -55,6 +70,15 @@ What answers that:
 * **One connection per thread**, kept in thread-local storage. A `sqlite3.Connection`
   may not be shared between threads, and `check_same_thread=False` plus a lock is the
   same thing with the contention put back by hand.
+* **`BEGIN IMMEDIATE` before the schema version is even read** (:meth:`Store._migrate`).
+  Since #2025 the competing opener is not merely another process on one profile — it is
+  every open profile of every panel on this machine, all opening the same file, possibly
+  for the first time. Two of them reading «version 0» and both running migration 1 is
+  what the write lock makes impossible: the loser waits, re-reads, and finds the work
+  done.
+* **A newer database is refused, not migrated backwards** (:class:`StoreTooNew`) — and
+  that matters more with one file than it did with many, because now ONE panel started
+  from a newer checkout would otherwise take every account with it.
 
 ## Nothing here writes on the Tk thread
 
@@ -68,13 +92,17 @@ A caller on the Tk thread must not.
 
 ## What lives in the database, and what deliberately does not
 
-The inventory is in `docs/panel-storage.md`. In one line: the DATA does (the register,
-the ★ list, the counters, the tallies), and the SETTINGS do not (`config.json`, the
-timer and trigger catalogues, `rally_limits.json`, `timers_seen.json`) — a person edits
-those by hand and «copy the folder and your panel comes with you» has to keep meaning
-something. Nor do the logs, the locks, the heartbeat, or the checkpoints a capture CHILD
-writes for the panel to read: those are a channel between two processes, rewritten whole
-every fifteen seconds, and worth nothing after a restart.
+The inventory is in `docs/panel-storage.md`. In one line: the data does, and **so do the
+settings** — the person's decision, «Никаких json, все должно быть в базе» (#2017, and
+#2025 for the panel's own). An earlier version of this docstring said the opposite and
+named `config.json`, the catalogues and the caps as files a person edits by hand; that
+half is gone.
+
+What is still a file, and is not a settings store: the logs (appended to, never rewritten
+whole, so they never had the cost this layer removes), the locks and the heartbeat (the
+panel's note about itself), and the checkpoints a capture CHILD writes for the panel to
+read — a channel between two processes, rewritten whole every fifteen seconds, worth
+nothing after a restart, and the one thing that must NOT become durable.
 """
 from __future__ import annotations
 
@@ -86,8 +114,42 @@ import threading
 import time
 from contextlib import contextmanager
 
-#: The file inside the profile directory. One per profile, never one per window.
+#: The file name of the ONE database (#2025). It used to be one of these inside every
+#: profile directory; it is now a single file one level above them, `profiles/panel.db`
+#: — see :data:`PROFILE_COLUMN` for what keeps the accounts apart inside it.
 DB_FILE = "panel.db"
+
+#: The column every profile-owned table carries, and the whole of this file's isolation.
+#:
+#: THE POINT IS THAT FORGETTING IT IS IMPOSSIBLE, not that nobody has forgotten it yet
+#: (#1306 cost four accounts a day of decoding each other's traffic). So the real tables
+#: are named `all_<something>` and are never what a caller writes, and every connection
+#: this store opens carries TEMP VIEWS under the OLD names — `players`, `blobs`,
+#: `monsters`, `secret_days`, `meta` — each one `SELECT * FROM all_… WHERE profile =
+#: '<this store's profile>'`.
+#:
+#: A query that says `FROM players` is therefore scoped whether or not its author
+#: thought about it, and a WRITE that says `INTO players` fails loudly («cannot modify
+#: … which is a view») instead of silently landing in everybody's account. The writes
+#: this module makes name `all_players` and pass the profile themselves.
+PROFILE_COLUMN = "profile"
+
+#: The profile name the PANEL's own rows are filed under — the settings that belong to
+#: the window rather than to an account (`profiles/settings.json`, the shipped catalogue
+#: templates). A colon cannot survive `panel.profile.sanitize`, so no account can ever
+#: be called this and collide with it.
+PANEL_SCOPE = ":panel"
+
+#: The tables a profile owns, each mapped to the temp view a caller sees. `all_profiles`
+#: is deliberately absent: the list of accounts belongs to the panel, not to any one of
+#: them, and it is reached through :class:`PanelStore` instead.
+SCOPED_TABLES = {
+    "meta": "all_meta",
+    "players": "all_players",
+    "blobs": "all_blobs",
+    "secret_days": "all_secret_days",
+    "monsters": "all_monsters",
+}
 
 #: «Призрак: карта»'s own list, by name — the one blob TWO tabs meet over (#2010).
 #:
@@ -392,6 +454,150 @@ MIGRATIONS: tuple = (
                            TRIM(COALESCE(remark, ''))))""",
         "CREATE INDEX ix_players_mark ON players(mark_fold)",
     ),
+    # -- v8: ONE database for every profile, keyed by which one (#2025) ----------------
+    #
+    # THE PERSON'S DECISION, in their words: «Давай сделаем одну базу на всех и конфиги и
+    # профили, вынеси ее на уровень выше, из профилей, меньше проблем с целостностью и
+    # консистентностью будет». Until now every profile had a `panel.db` of its own in its
+    # own directory, and the isolation was the FILE — which is the strongest isolation
+    # there is and also the reason a rename, a delete and a settings write had to be
+    # right in three places at once.
+    #
+    # So the isolation becomes logical, and the whole of this migration is about making
+    # it as hard to get wrong as a separate file was:
+    #
+    # * every table is renamed to `all_<name>` and grows a `profile` column, FIRST in the
+    #   primary key — so a row cannot exist without saying whose it is;
+    # * every index is re-made with `profile` first, so the narrowing a page does still
+    #   uses one and never walks another account's rows to find its own;
+    # * and the old names come back as per-connection TEMP VIEWS scoped to one profile
+    #   (:data:`PROFILE_COLUMN`), which is what makes «forgot the filter» impossible
+    #   rather than merely absent.
+    #
+    # Rows already in the file being migrated are the PANEL's: this file is `profiles/
+    # panel.db`, which before this change held nothing but the panel-wide catalogue
+    # templates that #2017 moved into it. Each profile's OWN database is a separate file
+    # and is carried across by an import, never by this migration.
+    (
+        """CREATE TABLE all_meta (
+               profile TEXT NOT NULL,
+               key     TEXT NOT NULL,
+               value   TEXT NOT NULL,
+               PRIMARY KEY (profile, key)
+           )""",
+        "INSERT INTO all_meta(profile, key, value) "
+        "  SELECT ':panel', key, value FROM meta",
+        "DROP TABLE meta",
+        """CREATE TABLE all_players (
+               profile         TEXT NOT NULL,
+               uid             TEXT NOT NULL,
+               name            TEXT,
+               level           INTEGER,
+               server_id       INTEGER,
+               x               INTEGER,
+               y               INTEGER,
+               uuid,
+               country         TEXT,
+               alliance_id     TEXT,
+               alliance_abbr   TEXT,
+               alliance_name   TEXT,
+               power           INTEGER,
+               army_power      INTEGER,
+               army_kill       INTEGER,
+               svip_level      INTEGER,
+               head            TEXT,
+               march_power     INTEGER,
+               online          INTEGER,
+               remark          TEXT,
+               note            TEXT,
+               first_seen      INTEGER,
+               last_seen       INTEGER,
+               profile_seen_at INTEGER,
+               src             TEXT,
+               search_text     TEXT,
+               name_fold       TEXT,
+               alliance_fold   TEXT,
+               note_fold       TEXT,
+               mark_fold       TEXT,
+               PRIMARY KEY (profile, uid)
+           )""",
+        "INSERT INTO all_players SELECT ':panel', * FROM players",
+        "DROP TABLE players",
+        "CREATE INDEX ix_players_last_seen ON all_players(profile, last_seen)",
+        "CREATE INDEX ix_players_name      ON all_players(profile, name_fold)",
+        "CREATE INDEX ix_players_alliance  ON all_players(profile, alliance_fold)",
+        "CREATE INDEX ix_players_server    ON all_players(profile, server_id)",
+        "CREATE INDEX ix_players_level     ON all_players(profile, level)",
+        "CREATE INDEX ix_players_power     ON all_players(profile, power)",
+        "CREATE INDEX ix_players_mark      ON all_players(profile, mark_fold)",
+        """CREATE TABLE all_blobs (
+               profile    TEXT NOT NULL,
+               name       TEXT NOT NULL,
+               data       TEXT NOT NULL,
+               updated_at INTEGER NOT NULL,
+               PRIMARY KEY (profile, name)
+           )""",
+        "INSERT INTO all_blobs SELECT ':panel', * FROM blobs",
+        "DROP TABLE blobs",
+        """CREATE TABLE all_secret_days (
+               profile  TEXT NOT NULL,
+               server   INTEGER NOT NULL,
+               day      INTEGER NOT NULL,
+               state    TEXT NOT NULL,
+               source   TEXT NOT NULL,
+               stars    INTEGER,
+               tiles    INTEGER,
+               seen_at  INTEGER NOT NULL,
+               PRIMARY KEY (profile, server, day, source)
+           )""",
+        "INSERT INTO all_secret_days SELECT ':panel', * FROM secret_days",
+        "DROP TABLE secret_days",
+        "CREATE INDEX ix_secret_days_day ON all_secret_days(profile, day)",
+        """CREATE TABLE all_monsters (
+               profile      TEXT NOT NULL,
+               uuid         TEXT NOT NULL,
+               server       INTEGER,
+               x            INTEGER,
+               y            INTEGER,
+               level        INTEGER,
+               seen_at      INTEGER,
+               expires_at   INTEGER,
+               completed_at INTEGER,
+               until_key    TEXT,
+               monster_type INTEGER,
+               kind_name    TEXT,
+               cfg_id       INTEGER,
+               source       TEXT,
+               point_id     INTEGER,
+               game_uuid    TEXT,
+               PRIMARY KEY (profile, uuid)
+           )""",
+        "INSERT INTO all_monsters SELECT ':panel', * FROM monsters",
+        "DROP TABLE monsters",
+        "CREATE INDEX ix_monsters_seen_at ON all_monsters(profile, seen_at)",
+        "CREATE INDEX ix_monsters_server  ON all_monsters(profile, server)",
+        "CREATE INDEX ix_monsters_level   ON all_monsters(profile, level)",
+        # -- and the thing that makes a profile a profile (#2025) --------------------
+        #
+        # WHAT A PROFILE IS, now that `config.json` is not it. The panel used to answer
+        # «is this directory an account» by looking for that file (#1306); it asks this
+        # table instead. The directory is still there — logs, captures, locks, the
+        # things that are not game data — but it is no longer the RECORD of an account,
+        # so a rename is one `UPDATE` and a delete is one transaction instead of a file
+        # move that half-happened.
+        #
+        # No `profile` column here, and that is not an oversight: this table IS the list
+        # of profiles, and it belongs to the panel. It is reached through
+        # :class:`PanelStore` and never through a profile's own scope.
+        """CREATE TABLE profiles (
+               name       TEXT PRIMARY KEY,
+               -- This profile's own tab blocks, as JSON — what `config.json` held. The
+               -- default profile's is the base every other one is a diff against, which
+               -- is unchanged: only where it is written down has moved.
+               config     TEXT NOT NULL DEFAULT '{}',
+               created_at INTEGER NOT NULL
+           )""",
+    ),
 )
 
 #: What the code in this checkout expects. A database above it was written by a NEWER
@@ -428,8 +634,17 @@ class Store:
     is a list of.
     """
 
-    def __init__(self, path: str, *, migrations: tuple = MIGRATIONS) -> None:
+    def __init__(self, path: str, profile: str, *,
+                 migrations: tuple = MIGRATIONS) -> None:
+        # REQUIRED, and positional on purpose (#2025): there is one file now, so a store
+        # built without saying whose it is would be every account's at once. There is no
+        # default that could be right — «the active profile» is exactly the module-level
+        # answer `docs/research/profile-isolation.md` is a list of.
+        profile = str(profile or "")
+        if not profile:
+            raise ValueError("a store belongs to a profile; none was named")
         self.path = path
+        self.profile = profile
         self._migrations = tuple(migrations)
         #: One connection per thread. A `sqlite3.Connection` is not thread-safe, and
         #: sharing one behind a lock is the same object with the contention added back.
@@ -498,7 +713,27 @@ class Store:
         self._local.conn = conn
         if not self._migrated:
             self._migrate(conn)
+        self._scope(conn)
         return conn
+
+    def _scope(self, conn: sqlite3.Connection) -> None:
+        """Hang this profile's TEMP VIEWS on one connection (:data:`PROFILE_COLUMN`).
+
+        Per connection because a temp view is per connection, and that is the useful
+        half: two profiles sharing one file in one process each get their own `players`,
+        and neither of them can name the other's rows by accident.
+        """
+        literal = "'" + self.profile.replace("'", "''") + "'"
+        have = {row[0] for row in conn.execute(
+            "SELECT name FROM main.sqlite_master WHERE type = 'table'")}
+        for view, table in SCOPED_TABLES.items():
+            # Only over a table that is there. A store built on a test's own schema
+            # (`Store(path, profile, migrations=…)`) has none of these, and a view over
+            # a missing table would make opening it an error rather than a smaller
+            # database.
+            if table in have:
+                conn.execute(f"CREATE TEMP VIEW IF NOT EXISTS {view} AS "
+                             f"SELECT * FROM main.{table} WHERE profile = {literal}")
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
         """Bring the schema up to :data:`CODE_VERSION`, once, safely against a rival.
@@ -665,9 +900,7 @@ class Store:
 
     def meta_set(self, key: str, value: str) -> None:
         with self.write() as conn:
-            conn.execute("INSERT INTO meta(key, value) VALUES(?, ?) "
-                         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                         (str(key), str(value)))
+            conn.execute(META_UPSERT, (self.profile, str(key), str(value)))
 
     # -- a whole-list checkpoint, kept as one row --------------------------------------
     def blob_get(self, name: str):
@@ -698,11 +931,7 @@ class Store:
         payload = json.dumps(value, ensure_ascii=False)
         stamp = int(time.time())
         with self.write() as conn:
-            conn.execute(
-                "INSERT INTO blobs(name, data, updated_at) VALUES(?, ?, ?) "
-                "ON CONFLICT(name) DO UPDATE SET data = excluded.data, "
-                "updated_at = excluded.updated_at",
-                (str(name), payload, stamp))
+            conn.execute(BLOB_UPSERT, (self.profile, str(name), payload, stamp))
 
     # -- the monsters the client has drawn (#1963) -------------------------------------
     #
@@ -714,6 +943,15 @@ class Store:
                        "expires_at", "completed_at", "until_key", "monster_type",
                        "kind_name", "cfg_id", "source", "point_id", "game_uuid")
 
+    #: …and the two statements that write them, with `profile` in front of the lot. The
+    #: rows handed to either of these come from :meth:`_monster_values`, which puts this
+    #: store's profile at the head of every tuple — so there is no call site here that
+    #: could pass the columns without it.
+    MONSTER_INSERT = ("INSERT INTO all_monsters(profile, "
+                      + ", ".join(MONSTER_COLUMNS) + ") VALUES("
+                      + ", ".join("?" * (len(MONSTER_COLUMNS) + 1)) + ")")
+    MONSTER_REPLACE = "INSERT OR REPLACE " + MONSTER_INSERT[len("INSERT "):]
+
     def _monster_values(self, rows) -> list:
         """The rows as tuples in :data:`MONSTER_COLUMNS` order, skipping the keyless."""
         out = []
@@ -721,7 +959,7 @@ class Store:
             uuid = str(row.get("uuid") or "")
             if not uuid:
                 continue
-            values = [uuid]
+            values = [self.profile, uuid]
             for name in self.MONSTER_COLUMNS[1:]:
                 value = row.get(name)
                 out_value = value
@@ -747,24 +985,21 @@ class Store:
         values = self._monster_values(rows)
         if not values:
             return
-        columns = ", ".join(self.MONSTER_COLUMNS)
-        marks = ", ".join("?" * len(self.MONSTER_COLUMNS))
         sets = ", ".join(f"{c} = excluded.{c}" for c in self.MONSTER_COLUMNS[1:]
                          if c != "game_uuid")
-        sql = (f"INSERT INTO monsters({columns}) VALUES({marks}) "
-               f"ON CONFLICT(uuid) DO UPDATE SET {sets}, "
-               f"game_uuid = COALESCE(excluded.game_uuid, monsters.game_uuid)")
+        sql = (f"{self.MONSTER_INSERT} "
+               f"ON CONFLICT(profile, uuid) DO UPDATE SET {sets}, "
+               f"game_uuid = COALESCE(excluded.game_uuid, all_monsters.game_uuid)")
         self.submit(lambda conn: conn.executemany(sql, values))
 
     def monsters_replace(self, rows) -> None:
         """The whole list, replaced — what «Очистить список» needs and nothing else."""
         values = self._monster_values(rows)
-        columns = ", ".join(self.MONSTER_COLUMNS)
-        marks = ", ".join("?" * len(self.MONSTER_COLUMNS))
-        sql = f"INSERT OR REPLACE INTO monsters({columns}) VALUES({marks})"
+        sql = self.MONSTER_REPLACE
+        profile = self.profile
 
         def job(conn) -> None:
-            conn.execute("DELETE FROM monsters")
+            conn.execute("DELETE FROM all_monsters WHERE profile = ?", (profile,))
             if values:
                 conn.executemany(sql, values)
 
@@ -773,8 +1008,9 @@ class Store:
     def monsters_prune(self, cutoff: float) -> None:
         """Drop every sighting older than `cutoff` — the ageing, as one statement."""
         self.submit(lambda conn: conn.execute(
-            "DELETE FROM monsters WHERE seen_at IS NULL OR seen_at < ?",
-            (int(cutoff),)))
+            "DELETE FROM all_monsters WHERE profile = ?"
+            "   AND (seen_at IS NULL OR seen_at < ?)",
+            (self.profile, int(cutoff))))
 
     def monsters_all(self, *, cutoff: float | None = None) -> list:
         """Every sighting still worth drawing, freshest first, as plain dicts."""
@@ -811,8 +1047,104 @@ class Store:
         self._migrated = False
 
 
+class PanelStore(Store):
+    """The one database opened for the PANEL — the window's own state, and the LIST.
+
+    Two quite different things, and it holds both because both are answers to «what does
+    this machine have» rather than «what does this account have»:
+
+    * the panel-wide settings — which profile is showing, which are open, the language,
+      the web block, the update channel — kept as ordinary blobs under
+      :data:`PANEL_SCOPE`, so the same `blob_get`/`blob_set` that a profile uses works
+      here with no second mechanism to keep right;
+    * the `profiles` table, which since #2025 is WHAT MAKES A PROFILE A PROFILE. It has
+      no `profile` column and no temp view over it: the list of accounts is not any one
+      account's, and a profile's own store cannot reach it at all.
+    """
+
+    def __init__(self, path: str, *, migrations: tuple = MIGRATIONS) -> None:
+        super().__init__(path, PANEL_SCOPE, migrations=migrations)
+
+    # -- the list of accounts ----------------------------------------------------------
+    def profiles(self) -> list:
+        """Every profile this panel has, in the order the database keeps them."""
+        return [row["name"] for row in
+                self.read().execute("SELECT name FROM profiles ORDER BY name")]
+
+    def profile_exists(self, name: str) -> bool:
+        return self.read().execute("SELECT 1 FROM profiles WHERE name = ?",
+                                   (str(name),)).fetchone() is not None
+
+    def profile_add(self, name: str, config=None) -> bool:
+        """Register `name`, leaving an existing one alone. True when it was new."""
+        payload = json.dumps(config if isinstance(config, dict) else {},
+                             ensure_ascii=False)
+        with self.write() as conn:
+            cur = conn.execute(
+                "INSERT INTO profiles(name, config, created_at) VALUES(?, ?, ?) "
+                "ON CONFLICT(name) DO NOTHING",
+                (str(name), payload, int(time.time())))
+        return bool(cur.rowcount)
+
+    def profile_config(self, name: str) -> dict:
+        """This profile's own tab blocks — `{}` when it has none and when there is no
+        such profile, which are the same answer `config.json` gave by being absent."""
+        row = self.read().execute("SELECT config FROM profiles WHERE name = ?",
+                                  (str(name),)).fetchone()
+        if row is None:
+            return {}
+        try:
+            value = json.loads(row["config"])
+        except ValueError:
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def profile_set_config(self, name: str, config: dict) -> None:
+        """Write this profile's own blocks, registering it if it is new."""
+        payload = json.dumps(config if isinstance(config, dict) else {},
+                             ensure_ascii=False)
+        with self.write() as conn:
+            conn.execute(
+                "INSERT INTO profiles(name, config, created_at) VALUES(?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET config = excluded.config",
+                (str(name), payload, int(time.time())))
+
+    def profile_rename(self, old: str, new: str) -> None:
+        """Move an account — the row AND every row it owns — in ONE transaction.
+
+        This is the whole reason the person asked for one database (#2025): a rename
+        used to be a directory move, and a directory move that half-happens leaves an
+        account whose settings and whose data disagree about its own name.
+        """
+        old, new = str(old), str(new)
+        with self.write() as conn:
+            conn.execute("UPDATE profiles SET name = ? WHERE name = ?", (new, old))
+            for table in SCOPED_TABLES.values():
+                conn.execute(f"UPDATE {table} SET profile = ? WHERE profile = ?",
+                             (new, old))
+
+    def profile_drop(self, name: str) -> None:
+        """Forget an account and everything of its own, in one transaction."""
+        name = str(name)
+        with self.write() as conn:
+            conn.execute("DELETE FROM profiles WHERE name = ?", (name,))
+            for table in SCOPED_TABLES.values():
+                conn.execute(f"DELETE FROM {table} WHERE profile = ?", (name,))
+
+
 #: The sentinel that ends the writer thread. Not `None`, which a caller could submit.
 _STOP = object()
+
+
+#: The two upserts that reach a scoped table by its REAL name, with the profile as the
+#: first parameter. Written once here rather than at each call site, because «the same
+#: statement with the profile left off» is precisely the mistake `PROFILE_COLUMN` exists
+#: to make impossible — a caller cannot leave off a parameter the statement demands.
+META_UPSERT = ("INSERT INTO all_meta(profile, key, value) VALUES(?, ?, ?) "
+               "ON CONFLICT(profile, key) DO UPDATE SET value = excluded.value")
+BLOB_UPSERT = ("INSERT INTO all_blobs(profile, name, data, updated_at) "
+               "VALUES(?, ?, ?, ?) ON CONFLICT(profile, name) DO UPDATE SET "
+               "data = excluded.data, updated_at = excluded.updated_at")
 
 
 # ---------------------------------------------------------------------------
@@ -852,9 +1184,8 @@ def import_once(store: Store, mark: str, path: str, load, insert) -> int:
         return 0
     with store.write() as conn:
         count = insert(conn, rows)
-        conn.execute("INSERT INTO meta(key, value) VALUES(?, ?) "
-                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                     (f"import:{mark}", str(int(time.time()))))
+        conn.execute(META_UPSERT,
+                     (store.profile, f"import:{mark}", str(int(time.time()))))
     try:
         if os.path.exists(path):
             os.replace(path, path + IMPORTED_SUFFIX)
@@ -885,11 +1216,9 @@ def blob_import_once(store: Store, name: str, path: str) -> bool:
             return None
 
     def insert(conn, value) -> int:
-        conn.execute(
-            "INSERT INTO blobs(name, data, updated_at) VALUES(?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET data = excluded.data, "
-            "updated_at = excluded.updated_at",
-            (str(name), json.dumps(value, ensure_ascii=False), int(time.time())))
+        conn.execute(BLOB_UPSERT, (store.profile, str(name),
+                                   json.dumps(value, ensure_ascii=False),
+                                   int(time.time())))
         return 1
 
     return bool(import_once(store, f"blob:{name}", path, load, insert))
@@ -928,16 +1257,13 @@ def monsters_import_blob_once(store: Store, name: str = "world_state_monsters",
         # filled must still import if an old checkpoint turns up on the next start.
         return 0
     values = store._monster_values(r for r in rows if isinstance(r, dict))
-    columns = ", ".join(store.MONSTER_COLUMNS)
-    marks = ", ".join("?" * len(store.MONSTER_COLUMNS))
     with store.write() as conn:
         if values:
-            conn.executemany(
-                f"INSERT OR REPLACE INTO monsters({columns}) VALUES({marks})", values)
-        conn.execute("DELETE FROM blobs WHERE name = ?", (str(name),))
-        conn.execute("INSERT INTO meta(key, value) VALUES(?, ?) "
-                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                     ("import:monsters", str(int(time.time()))))
+            conn.executemany(store.MONSTER_REPLACE, values)
+        conn.execute("DELETE FROM all_blobs WHERE profile = ? AND name = ?",
+                     (store.profile, str(name)))
+        conn.execute(META_UPSERT,
+                     (store.profile, "import:monsters", str(int(time.time()))))
     if not from_blob and path:
         try:
             if os.path.exists(path):

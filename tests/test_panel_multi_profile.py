@@ -523,11 +523,9 @@ class _Profiles:
         return self
 
     def pointer(self) -> str:
-        try:
-            with open(profilemod.SETTINGS_FILE, encoding="utf-8") as fh:
-                return json.load(fh).get("active_profile", "")
-        except (OSError, ValueError):
-            return ""
+        # THE PANEL-WIDE BLOCK IS A ROW, NOT A FILE, SINCE #2025 — asked through the one
+        # door rather than opened, so this helper cannot drift from what the panel reads.
+        return profilemod.panel_settings().get("active_profile", "")
 
     def __exit__(self, *exc):
         profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE = self._saved

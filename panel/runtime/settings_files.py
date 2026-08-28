@@ -70,8 +70,47 @@ def blob_name(path: str) -> str:
     return "settings:" + base
 
 
+def _profiles_root() -> str:
+    """Where the profile directories sit — asked of :mod:`panel.profile`, never of
+    :mod:`panel.paths`, because that is the name a test rebinds to point the panel at a
+    scratch tree. Read at CALL time for the same reason.
+
+    Imported inside the function: `panel.profile` is imported by things that import this
+    one, and a top-level import here would be a cycle.
+    """
+    from .. import profile as profilemod
+    return os.path.abspath(profilemod.PROFILES_DIR)
+
+
+def _home(path: str):
+    """`(the database, whose rows these are)` for one settings file (#2025).
+
+    Three shapes, and the third is what keeps a test on its own tree:
+
+    * `<profiles>/<name>/x.json` — a profile's own: the ONE database, under `<name>`;
+    * `<profiles>/x.json` — the panel's own (`settings.json`, the shipped catalogue
+      templates): the ONE database, under :data:`~panel.runtime.store.PANEL_SCOPE`;
+    * anywhere else — a scratch tree a test built: a database BESIDE the file, under the
+      directory's own name. Never one level up, which would have a test writing outside
+      the directory it was given and, for a path that resolved into the real tree, into
+      the live panel's database.
+    """
+    folder = os.path.dirname(os.path.abspath(path))
+    root = _profiles_root()
+    if folder == root:
+        return os.path.join(root, storemod.DB_FILE), storemod.PANEL_SCOPE
+    if os.path.dirname(folder) == root:
+        return os.path.join(root, storemod.DB_FILE), os.path.basename(folder)
+    return os.path.join(folder, storemod.DB_FILE), os.path.basename(folder)
+
+
 def _database(path: str) -> str:
-    return os.path.join(os.path.dirname(os.path.abspath(path)), "panel.db")
+    return _home(path)[0]
+
+
+def scope(path: str) -> str:
+    """WHOSE settings these are — a profile's name, or :data:`PANEL_SCOPE`."""
+    return _home(path)[1]
 
 
 def owned(path: str) -> bool:
@@ -89,7 +128,8 @@ def owned(path: str) -> bool:
 @contextlib.contextmanager
 def opened(path: str):
     """The database beside `path`, open for one piece of work and closed after it."""
-    store = storemod.Store(_database(path))
+    database, whose = _home(path)
+    store = storemod.Store(database, whose)
     try:
         yield store
     finally:

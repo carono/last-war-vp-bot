@@ -173,11 +173,9 @@ class _Env:
         return wsmod.Workspace(root=None, defaults={}, profiles=self.profiles)
 
     def settings(self) -> dict:
-        try:
-            with open(profilemod.SETTINGS_FILE, encoding="utf-8") as fh:
-                return json.load(fh)
-        except (OSError, ValueError):
-            return {}
+        # A ROW, NOT A FILE, SINCE #2025 — through the panel's own door, so this cannot
+        # drift from what the panel itself reads back.
+        return profilemod.panel_settings()
 
     def __exit__(self, *exc):
         (profilemod.PROFILES_DIR, profilemod.SETTINGS_FILE,

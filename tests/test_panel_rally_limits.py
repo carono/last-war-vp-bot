@@ -180,7 +180,7 @@ class _Rt:
         self.game = _Game(types_out)
         self.said: list = []
         from panel.runtime.store import Store
-        self.store = Store(str(tmp / "panel.db"))
+        self.store = Store(str(tmp / "panel.db"), "Player1")
         if limits is not None:
             rl.save_limits(limits, self.profiles.rally_limits_json())
 

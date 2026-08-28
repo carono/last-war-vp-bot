@@ -51,7 +51,27 @@ PROFILES_DIR = os.path.join(PROJECT_DIR, "profiles")
 
 #: Panel-wide, not any one account's: which profile is showing, which are open, the
 #: update channel, the language. Beside the profile directories, inside the same tree.
+#:
+#: **A NAME, NOT A FILE, SINCE #2025.** What it holds is a row in :data:`SHARED_DB` now;
+#: the path is still spelled out because it is what the contents are carried across FROM,
+#: exactly once, and because everything that reads a settings store still names the file
+#: it used to be (`panel/runtime/settings_files.py`).
 SETTINGS_FILE = os.path.join(PROFILES_DIR, "settings.json")
+
+#: **THE ONE DATABASE** (#2025) — every profile's settings and every profile's data, in
+#: one file, one level above the profile directories.
+#:
+#: The person's decision, in their words: «Давай сделаем одну базу на всех и конфиги и
+#: профили, вынеси ее на уровень выше, из профилей, меньше проблем с целостностью и
+#: консистентностью будет».
+#:
+#: Here rather than beside `profiles/` in the project root, and the reason is the whole
+#: point of this module: everything local the panel has is under `profiles/`, so an
+#: empty `profiles/` is a clean panel and copying the folder brings the panel with it
+#: (#1276). A database in the root would have broken both of those on its first day.
+#: This is still «one level above the profiles» in the sense the decision asked for — it
+#: is out of every account's directory and shared by all of them.
+SHARED_DB = os.path.join(PROFILES_DIR, "panel.db")
 
 #: The timer and trigger TEMPLATES: what a profile with no catalogue of its own is
 #: seeded from (``panel/timers.py``, ``panel/triggers.py``). Panel-wide and editable,

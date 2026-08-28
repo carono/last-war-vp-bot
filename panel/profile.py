@@ -470,7 +470,7 @@ def _migrate_language() -> bool:
     if not isinstance(lang, str) or not lang.strip():
         return False
     data["language"] = lang.strip()
-    _write_json(SETTINGS_FILE, data)
+    set_panel_settings(data)
     return True
 
 
@@ -577,12 +577,7 @@ class ProfileManager:
     # writes neither — see the class docstring.
     @staticmethod
     def _read_settings() -> dict:
-        try:
-            with open(SETTINGS_FILE, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            return {}
-        return data if isinstance(data, dict) else {}
+        return panel_settings()
 
     def _write_setting(self, key: str, value) -> None:
         self._write_settings({key: value})
@@ -597,7 +592,7 @@ class ProfileManager:
         if all(data.get(k) == v for k, v in values.items()):
             return                      # nothing to say: do not touch the disk
         data.update(values)
-        _write_json(SETTINGS_FILE, data)
+        set_panel_settings(data)
 
     def _read_active(self) -> str:
         name = self._read_settings().get("active_profile", DEFAULT_PROFILE)
@@ -809,13 +804,15 @@ class ProfileManager:
         return os.path.join(self.dir(name), LEADERBOARD_DB)
 
     def store_db(self, name: str | None = None) -> str:
-        """THIS PROFILE'S DATABASE (#1398, panel/runtime/store.py).
+        """THE ONE DATABASE (#2025, panel/runtime/store.py) — the same file for every
+        profile, one level above their directories.
 
-        Reached through `rt.store`, never opened by a caller: a store belongs to a
-        profile, and one opened wherever it was needed belongs to whichever profile
-        happened to ask first.
+        It answered a per-profile path until #2025 and the signature is unchanged so
+        that every caller keeps working; what changed is that the path no longer says
+        WHOSE rows are wanted. That is the store's own `profile`, and it is required
+        (`Store.__init__`) — reached through `rt.store`, never opened by a caller.
         """
-        return os.path.join(self.dir(name), STORE_DB)
+        return paths.SHARED_DB
 
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)
@@ -973,6 +970,37 @@ class ProfileManager:
 
 #: The key in `panel/settings.json`. Absent means «releases», which is the default a
 #: panel that has never heard of the tick behaves by.
+# -- the panel-wide settings, in the ONE database (#2025) ---------------------------
+#
+# They were `profiles/settings.json` — which profile is showing, which are open, the
+# language, the web block, the update channel. The person's decision («Никаких json,
+# все должно быть в базе», #2017, extended to the panel's own settings in #2025) puts
+# them in the same database as everything else, under the PANEL's scope rather than any
+# account's (`panel/runtime/store.py`, :data:`~panel.runtime.store.PANEL_SCOPE`).
+#
+# The path is still :data:`SETTINGS_FILE` and every caller still names it, because that
+# is what the contents are carried across FROM — exactly once, leaving the old file
+# beside the database as `settings.json.imported` (`store.blob_import_once`).
+#
+# LAZILY IMPORTED, and that is not fussiness: `panel.runtime` imports this module on the
+# way up, so a top-level import here would be a cycle. By the time anybody ASKS for a
+# setting, both packages are built.
+
+
+def panel_settings() -> dict:
+    """Everything the panel keeps for itself — `{}` when nothing has ever been saved."""
+    from .runtime import settings_files
+    data = settings_files.read(SETTINGS_FILE)
+    return data if isinstance(data, dict) else {}
+
+
+def set_panel_settings(data: dict) -> None:
+    """Write the whole block back. Every caller here re-reads before it writes, so two
+    knobs moved in the same second do not lose each other."""
+    from .runtime import settings_files
+    settings_files.write(SETTINGS_FILE, data if isinstance(data, dict) else {})
+
+
 DEV_UPDATES_KEY = "dev_updates"
 
 
@@ -988,7 +1016,7 @@ def set_dev_updates(flag: bool) -> None:
     if bool(data.get(DEV_UPDATES_KEY, False)) == flag:
         return
     data[DEV_UPDATES_KEY] = flag
-    _write_json(SETTINGS_FILE, data)
+    set_panel_settings(data)
 
 
 # -- the remote control: panel-wide too, for the same reason (#1313) -------------
@@ -1030,7 +1058,7 @@ def set_web_settings(values: dict) -> None:
     if data.get(WEB_KEY) == block:
         return
     data[WEB_KEY] = block
-    _write_json(SETTINGS_FILE, data)
+    set_panel_settings(data)
 
 
 def migrate_web_settings() -> "str | None":
@@ -1148,7 +1176,7 @@ def migrate_profile_language() -> "str | None":
                 source = name
                 data = ProfileManager._read_settings()
                 data[LEGACY_PROFILE_LANGUAGE] = lang.strip()
-                _write_json(SETTINGS_FILE, data)
+                set_panel_settings(data)
                 break
     for name, own in owns.items():
         if LEGACY_PROFILE_LANGUAGE in own:

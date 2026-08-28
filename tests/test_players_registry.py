@@ -57,7 +57,7 @@ def _tmpdir():
 
 def _store(tmp, legacy: str = "") -> reg.PlayerBook:
     """A register on a database of its own — one per profile, as the panel builds it."""
-    store = Store(str(Path(tmp) / "panel.db"))
+    store = Store(str(Path(tmp) / "panel.db"), "Player1")
     _OPENED.append(store)
     return reg.PlayerBook(store, legacy)
 
@@ -95,7 +95,7 @@ def test_an_empty_read_takes_nothing_away():
 
 
 def _book(path: str) -> reg.PlayerBook:
-    store = Store(path)
+    store = Store(path, "Player1")
     _OPENED.append(store)
     return reg.PlayerBook(store)
 
@@ -130,7 +130,7 @@ def test_there_is_exactly_one_way_a_row_can_leave():
     deletes = [line.strip() for line in body.splitlines()
                if "DELETE FROM" in line.upper()]
     assert len(deletes) == 1, f"more than one way a row leaves: {deletes}"
-    assert "WHERE uid = ?" in deletes[0], \
+    assert "uid = ?" in deletes[0], \
         f"the one DELETE is not aimed at a single row a person named: {deletes[0]}"
     assert "forget" in body[:body.index(deletes[0].split('"')[0].strip() or "DELETE")] \
         or "def forget" in body, "the DELETE moved out of `forget`"

@@ -14,16 +14,59 @@ Russian copy of this page: [`panel-storage.ru.md`](panel-storage.ru.md).
 <project>/
   panel/                        the code — nothing local is written here
   profiles/                     ← EVERYTHING the panel keeps
-    settings.json               panel-wide: which profile shows, which are open, language, update channel
+    panel.db                    ← THE ONE DATABASE: every profile's settings and data
+    settings.json               panel-wide settings, until they are carried into panel.db (then .imported)
     timers.json                 template a new profile's timer catalogue is seeded from
     triggers.json               template a new profile's trigger catalogue is seeded from
     panel_debug.log             fallback debug log — only before a profile's own is open
     _bot/                       the DSL bot's own --profile files (NOT panel profiles)
       <id>.json
-    <profile name>/             one directory per account
-      config.json
+    <profile name>/             one directory per account — logs, locks, checkpoints
       …everything below
 ```
+
+## One database, one level above the profiles (#2025)
+
+**There is one `panel.db`, it is `profiles/panel.db`, and every row in it says which
+profile it belongs to.** The person asked for it in these words: «Давай сделаем одну базу
+на всех и конфиги и профили, вынеси ее на уровень выше, из профилей, меньше проблем с
+целостностью и консистентностью будет».
+
+It was one database per profile until #2025, inside that profile's own directory, and the
+isolation was the file itself. That is the strongest isolation there is — and it is also
+why a rename was a directory move, a delete was a tree removal that could half-happen,
+and an account's settings and an account's data could end up disagreeing about that
+account's own name. One file makes each of those one transaction.
+
+**Why here and not beside `profiles/`.** Everything local the panel has is under
+`profiles/`, so an empty `profiles/` is a clean panel and copying the project folder
+brings the panel with it (#1276). A database in the project root would have broken both
+on its first day. `profiles/panel.db` is still out of every account's directory and
+shared by all of them, which is what the decision asked for.
+
+**What keeps the accounts apart, now that the file does not.** Every table is named
+`all_…` and carries a `profile` column, first in its primary key. A store is built for
+one profile — `Store(path, profile)`, with no default, because «the active profile» as a
+module-level answer is the mechanics of #1306 — and every connection it opens carries
+TEMP VIEWS under the OLD table names, each one filtered to that profile. So:
+
+* a read that says `FROM players` is scoped whether or not its author thought about it;
+* a write that says `INTO players` fails loudly («cannot modify … which is a view»)
+  instead of landing in every account at once;
+* the writes this layer makes name `all_players` and pass the profile as a parameter, so
+  forgetting it is a parameter-count error rather than somebody else's row.
+
+Two tests pin it: `test_two_profiles_share_one_file_and_see_nothing_of_each_other` and
+`test_a_write_by_the_old_table_name_fails_instead_of_crossing_profiles`
+(`tests/test_panel_store.py`).
+
+**Several writers, which is now every open profile of every panel on the machine.** WAL,
+so readers never block the writer and the writer never blocks readers, across processes
+as well as threads; a 15-second busy timeout, so a second writer waits instead of raising
+«database is locked»; short transactions with nothing inside them that reads a widget or
+asks the game; `BEGIN IMMEDIATE` taken **before the schema version is read**, so two
+panels opening the file for the first time cannot both decide the tables are missing; and
+a database written by a newer panel is refused rather than migrated backwards.
 
 `panel/paths.py` is the only file where any of these paths is written down. Every module
 imports them from there — that is what stops the store from meaning two different places
@@ -103,7 +146,8 @@ exists to remove in the first place.
 
 | File | What it is |
 |---|---|
-| `settings.json` | facts about the PANEL rather than about an account: `active_profile`, `open_profiles`, `language`, `dev_updates` (release channel vs branch tip) |
+| `panel.db` | **THE ONE DATABASE** — see the section above. Every profile's settings and every profile's data, keyed by profile; the panel's own settings under a scope no account can be named (`:panel`) |
+| `settings.json` → **`panel.db`** | facts about the PANEL rather than about an account: `active_profile`, `open_profiles`, `language`, the web block, `dev_updates` (release channel vs branch tip). **A row since #2025**; an existing file is carried across once and kept beside the database as `settings.json.imported` |
 | `timers.json` | the template a profile with no catalogue of its own is seeded from |
 | `triggers.json` | the same for triggers |
 | `panel_debug.log` | fallback debug log, used only until the panel points logging at a profile's own file |

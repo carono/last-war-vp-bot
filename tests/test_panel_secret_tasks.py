@@ -783,7 +783,7 @@ def _fake_rt(path: str):
     # …and `say`, because a merge now accounts for every door it shut (#1476) and the
     # line goes through the runtime like every other word the panel speaks.
     return types.SimpleNamespace(profiles=_FakeProfiles(path), root=None,
-                                 store=Store(db_path),
+                                 store=Store(db_path, "Player1"),
                                  say=lambda tag, key, **fmt: None)
 
 

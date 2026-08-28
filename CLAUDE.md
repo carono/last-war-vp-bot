@@ -810,14 +810,14 @@ caps are rows of `blobs` under `settings:<name>` (`panel/runtime/settings_files.
 profile written before that has its file carried across ONCE and kept beside the
 database as `<name>.imported`.
 
-**Two settings stores have NOT moved, and each is a question for the person rather than
-a decision an agent may take:** `config.json` is a settings store AND the thing that says
-a directory IS a profile — the panel lists, repairs and refuses profiles by looking for
-it (#1306), so moving it means redefining what a profile is; `profiles/settings.json` is
-panel-wide and there is no machine-wide database, which needs either a new store or a
-written exception («Every store is per PROFILE» below). The two shipped TEMPLATES
-(`panel/timers.json`, `panel/triggers.json`) stay files for a different reason again:
-they are code, part of the repository rather than of an account.
+**`profiles/settings.json` has moved too, since #2025** — it was named here as a store
+that could not, «because there is no machine-wide database». There is one now: the person
+decided there would be ONE database for everything, so the panel's own settings are rows
+in it under a scope no account can be named (`:panel`), and the file is carried across
+once and kept beside as `settings.json.imported`. `config.json` is the one still being
+asked about, because moving it means redefining what a profile IS (#1306). The two
+shipped TEMPLATES (`panel/timers.json`, `panel/triggers.json`) stay files for a different
+reason again: they are code, part of the repository rather than of an account.
 
 **What counts as game data:** a tile, a task, a squad, a tally, a count, a history of
 findings — anything the SERVER said or the panel derived from what it said. **What does
@@ -837,14 +837,32 @@ and asked at most four times a day, kept only so a fresh panel does not have to 
 before it can decide anything — nothing accumulates in it and nothing is lost by asking
 again.
 
-**Every store is per PROFILE, never per machine — with one named exception.**
-`panel.db` lives in the profile's own directory, exactly like every other per-account
-file this document already governs (`profiles/<name>/…`, «A profile is a whole panel of
-its own» above). The one thing genuinely shared is `cache/servers.json` — the list of
-warzones the game itself has, identical for every profile on the computer
-(`tools/lib/server_list.py`) — and it stays what it always was: a file, not a table,
-because it is refreshed by a person's press rather than rewritten on a tick, so the cost
-`panel.db` exists to remove was never its either. A new machine-wide store is the same
+**THERE IS ONE DATABASE, AND IT IS `profiles/panel.db` (#2025)** — one level above the
+profile directories, holding every profile's settings and every profile's data. It was
+one file per profile until then, and the person ended that in these words: «Давай сделаем
+одну базу на всех и конфиги и профили, вынеси ее на уровень выше, из профилей, меньше
+проблем с целостностью и консистентностью будет». A rename and a delete are one
+transaction now instead of a directory move that can half-happen.
+
+**The isolation rule did not soften — only what enforces it changed, and the new
+enforcement is the point.** «A profile is a whole panel of its own» still holds word for
+word. What used to hold it was the FILE; what holds it now is that forgetting is
+impossible: every table is `all_…` with a `profile` column first in its primary key, a
+store is built for one profile (`Store(path, profile)` — no default, because «the active
+profile» as a module-level answer is the mechanics of #1306), and every connection
+carries TEMP VIEWS under the OLD table names scoped to that profile. A read that forgets
+the profile is already filtered; a WRITE that forgets it fails loudly instead of landing
+in every account at once. Two tests in `tests/test_panel_store.py` fail if either half
+comes undone. **Never reach a scoped table by its `all_…` name outside
+`panel/runtime/store.py` without passing the profile** — that is the one way back in.
+
+Not everything is in it, and the exceptions are the same as they always were, for the
+same reasons: `cache/servers.json` is the list of warzones the game itself has, identical
+for every profile on the computer (`tools/lib/server_list.py`), refreshed by a person's
+press rather than rewritten on a tick — a file, not a table, because the cost `panel.db`
+exists to remove was never its. `leaderboard_history.db` and `chat_history_<uid>.db` keep
+their own databases with the same discipline, because a standalone collector and a
+per-character store have no profile to ask. A new store outside this database is the same
 conversation as any other exception below — asked, agreed, written down here.
 
 **Nothing here is a licence to invent new tables for their own sake.** A store still
