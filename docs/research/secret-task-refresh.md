@@ -249,6 +249,32 @@ re-armed at every popup this ability opens, so an inherited untick is answered b
 code as a fresh one — and `__lw_ref_onlyur_fixed` now has a known-good meaning: on the
 first popup after somebody has turned the filter off by hand, it reports 1 once.
 
+### What the live probe can and cannot settle (measured 2026-08-28)
+
+`actions/dev/_t2022_only_ur_probe.md` opens the popup, unticks the toggle, closes and
+reopens it, and puts the toggle back — spending nothing. It was run twice on the live
+client and both times stopped at its own first gate:
+
+```
+post_send_rows rows=0 picked=0 only_ur=0 cheap=0 unread=0 read_ok=0
+probe: the popup could not be read at all — nothing below means anything, stopping
+```
+
+**«Мега развертывание» does not become readable on an empty command post.** The probe's
+own header used to claim it needed no idle tasks; it needs at least one. Check `idle` on
+`read_secret_post` before running it.
+
+That is also the freshness stamp earning its keep on a live client: `only_ur=0 cheap=0
+picked=0` beside `read_ok=0` is indistinguishable from a clean popup, and without the
+stamp the run would have gone on reasoning about numbers nobody had read.
+
+The account that day had no tasks at all to work with — `idle=0 nonur=0 ur=0 run=0
+finished=9 tickets=30`, with the claim press reporting `0 press(es)`, and a full
+`work_secret_tasks` run went end to end without refreshing or sending anything and without
+spending a ticket or a diamond. So the SEND gate's own live proof waits for a day with an
+idle task in the post: judge it by `post_send_rows` / `post_send_done` / `post_send_refused`
+in `panel.log` — every row that goes out must read `col5` or above.
+
 ### What the fix does, and why it does not rest on the answer
 
 1. `only_ur` is a knob of its own, on by default, and `dispatch` no longer unticks
