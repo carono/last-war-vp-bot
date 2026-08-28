@@ -495,6 +495,41 @@ showing them under the new name, and it hangs off the ROUTE rather than off the 
 the account can change without anything being tapped: a reload, a shared link, the back
 button.
 
+### 3.13 «Таймеры» is one kind of block, in one grid
+
+The person's words: «таймеры сделай так же небольшими карточками, как и триггеры». A
+timer, a listener and a standing order are the same thing to whoever is reading the page
+— something that runs by itself, with a switch, the game's own picture beside it (#2019),
+a line saying what it waits for and a reading of what it has brought in — and they were
+drawn by three near-identical functions laid out two different ways: the listeners as
+small cards in a grid, the errands as full-width rows one under another. Two shapes for
+one fact on one screen.
+
+They are one `ErrandBlock` now, in one grid — one column on a phone, two once there is
+room, decided by the stylesheet rather than by a breakpoint anybody keeps in step.
+
+**What makes a block shorter is the HEAD ROW, not a smaller font.** Every block used to
+end in a `foot` of its own holding one or two buttons. The buttons are on the head row
+now, beside the switch, so each block loses a whole row and the gap under it — and this
+screen carries thirty-odd blocks, which is why it was worth doing at all rather than
+tightening a margin.
+
+**The two buttons are signs, not words** — «⚙» and «▶», each carrying the panel's own
+sentence as `title` and as `aria-label`. The gear has been a sign since #2017 and nobody
+has had trouble with it; a spelled-out «Запустить» is half the width of a card on a
+phone, and this is the one screen where every card has one.
+
+Nothing is lost in the move: the icon and the live reading (#2019) are on the same block,
+the gear opens the same fields writing the same owner's variable (#2017), the timer keeps
+its schedule, its next firing, its last result and its retry on the fact line, and it
+keeps «▶». What does NOT come back is «Изменить / Дублировать / Удалить»: the person took
+those off this screen (bfb8418d), the editor is still what «+» opens, and the window
+still has all three.
+
+**Measured, not eyeballed** (the rule #1999 set for the ★ tiles): `~/playwright-tests/timers_measure.mjs`
+prints the document height, the grid heights and the tallest block on an emulated iPhone
+13 mini, so before and after are two numbers rather than two impressions.
+
 ## 4. What was left out, and why
 
 * **An Android application.** The original idea, dropped: `tkinter` does not exist on

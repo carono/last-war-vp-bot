@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { get, post } from '../api'
 import { span, t, when } from '../i18n'
 import { FieldRow } from '../ui/FieldRow'
@@ -25,36 +25,37 @@ import type {
  *
  * Closed until asked, because most rows have no knobs and a screen of open forms is a
  * screen nobody reads. */
-function Gear({
-  errand,
-  options,
-  refresh,
-}: {
-  errand: string
-  options?: Field[]
-  refresh: () => Promise<void>
-}) {
+/* THE GEAR IS TWO PIECES, because they sit in two places (#2050 follow-up): the button
+ * belongs on the head row beside the switch, and the fields it opens belong under the
+ * whole block. So the hook hands back both and the block puts each where it goes —
+ * rendering them together would mean a form unfolding inside a flex row. */
+function useGear(errand: string, options: Field[] | undefined, refresh: () => Promise<void>) {
   const [open, setOpen] = useState(false)
-  if (!options || !options.length) return null
-  return (
-    <>
-      <button className="go" title={t('timers.options')} onClick={() => setOpen((was) => !was)}>
+  if (!options || !options.length) return { button: null, panel: null }
+  return {
+    button: (
+      <button
+        className="go icon"
+        title={t('timers.options')}
+        aria-label={t('timers.options')}
+        onClick={() => setOpen((was) => !was)}
+      >
         {'\u2699'}
       </button>
-      {open ? (
-        <div className="editor">
-          {options.map((field) => (
-            <FieldRow
-              key={field.key}
-              field={field}
-              after={() => void refresh()}
-              send={(key, value) => post<PressAnswer>('/api/errand/option', { errand, key, value })}
-            />
-          ))}
-        </div>
-      ) : null}
-    </>
-  )
+    ),
+    panel: open ? (
+      <div className="editor">
+        {options.map((field) => (
+          <FieldRow
+            key={field.key}
+            field={field}
+            after={() => void refresh()}
+            send={(key, value) => post<PressAnswer>('/api/errand/option', { errand, key, value })}
+          />
+        ))}
+      </div>
+    ) : null,
+  }
 }
 
 /* THE GAME'S OWN PICTURE FOR AN ERRAND (#2019), beside its switch.
@@ -87,6 +88,76 @@ function Stat({ stat }: { stat?: ErrandStat | null }) {
       <b>{t(stat.key, stat.fmt)}</b>
       {old ? <span className="muted"> · {old}</span> : null}
     </p>
+  )
+}
+
+/* ONE BLOCK, THREE KINDS OF ERRAND — the person's words: «таймеры сделай так же
+ * небольшими карточками, как и триггеры».
+ *
+ * A timer, a listener and a standing order are the same thing to whoever is reading the
+ * page: something that runs by itself, with a switch, a picture, a line saying what it
+ * is waiting for and a reading of what it has brought in. They were drawn by three
+ * near-identical functions and laid out two different ways — the listeners as small
+ * cards in a grid, the errands as full-width rows one under another — so the same fact
+ * was told in two shapes on one screen. Now there is one block and one grid.
+ *
+ * WHAT MAKES IT SMALLER IS THE HEAD ROW, not a smaller font. Every block used to end in
+ * a `foot` of its own holding one or two buttons; the buttons are on the head row now,
+ * beside the switch, so each block loses a whole row and the gap under it — thirty-odd
+ * blocks on this screen, so it is the one change worth making.
+ *
+ * The two buttons are SIGNS rather than words, exactly as the gear already was: «⚙» and
+ * «▶», each with the panel's own sentence on it as a title and as an aria-label. A
+ * «Запустить» spelled out is half the width of a card on a phone, and this is the one
+ * screen where every card carries one.
+ *
+ * What a TIMER keeps that a listener has not: its schedule, its next firing and its last
+ * result on the fact line, and the «▶» that plays it now. What it does NOT get back is
+ * «Изменить / Дублировать / Удалить» — the person removed those from this screen
+ * (bfb8418d) and they stay removed; the editor is still what «+» opens, and the window
+ * still has all three.
+ */
+function ErrandBlock({
+  icon,
+  title,
+  on,
+  onToggle,
+  facts,
+  queued,
+  stat,
+  errand,
+  options,
+  refresh,
+  run,
+}: {
+  icon?: string
+  title: string
+  on: boolean
+  onToggle: (want: boolean) => Promise<void>
+  facts: string
+  queued?: boolean
+  stat?: ErrandStat | null
+  errand: string
+  options?: Field[]
+  refresh: () => Promise<void>
+  run?: ReactNode
+}) {
+  const gear = useGear(errand, options, refresh)
+  return (
+    <div className="item errand">
+      <div className="errand-head">
+        <ErrandIcon src={icon} />
+        <SwitchRow title={title} on={on} onChange={onToggle} />
+        {gear.button}
+        {run}
+      </div>
+      <p className="muted small facts">
+        {queued ? <span className="pill warn">{t('web.ui.queued')}</span> : null}
+        {facts}
+      </p>
+      <Stat stat={stat} />
+      {gear.panel}
+    </div>
   )
 }
 
@@ -260,39 +331,30 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
   if (row.last_state === 'failed' && row.retry_sec) {
     bits.push(t('web.ui.retry', { span: span(row.retry_sec) }))
   }
+  /* «СРАЗУ, БЕЗ ОЧЕРЕДИ» IS NOT DRAWN HERE — the person's decision, in their words:
+     «настройку сразу без очереди тоже скрывай». The setting is untouched: a row still
+     obeys whatever was last set and `/api/timers/now` still answers; only the phone
+     stops offering it. */
   return (
-    <div className="item">
-      <div className="errand-head">
-        <ErrandIcon src={row.icon} />
-        <SwitchRow
-          title={row.title}
-          on={row.enabled}
-          onChange={async (want) => {
-            await post('/api/timers/set', { name: row.name, enabled: want })
-            await refresh()
-          }}
-        />
-      </div>
-      {/* «СРАЗУ, БЕЗ ОЧЕРЕДИ» IS NOT DRAWN HERE ANY MORE — the person's decision, in
-          their words: «настройку сразу без очереди тоже скрывай». The setting itself is
-          untouched: what a row obeys is still whatever was last set, `/api/timers/now`
-          still answers, and the window's own box still moves it. Only the phone stops
-          offering it, because a screen full of knobs nobody moves is what this screen
-          was becoming. */}
-      <p className="muted small">{bits.join(' · ')}</p>
-      <Stat stat={row.stat} />
-      {/* ONE BUTTON PER ROW, AND IT IS «ЗАПУСТИТЬ» — the person's decision, in their
-          words: «в таймерах из кнопок оставляй только запустить». Изменить / Дублировать
-          / Удалить are gone from the phone; every one of them still exists — the routes
-          answer, the window's tab has all three, and the editor below is still what «+»
-          opens — so nothing has been taken away from the panel, only from this screen.
-          A row's own switch still turns it on and off, which is the one thing a person
-          away from the machine actually does to an errand. */}
-      <div className="foot">
-        {row.queued ? <span className="pill warn">{t('web.ui.queued')}</span> : <span />}
-        <Gear errand={row.name} options={row.options} refresh={refresh} />
+    <ErrandBlock
+      icon={row.icon}
+      title={row.title}
+      on={row.enabled}
+      onToggle={async (want) => {
+        await post('/api/timers/set', { name: row.name, enabled: want })
+        await refresh()
+      }}
+      facts={bits.join(' · ')}
+      queued={row.queued}
+      stat={row.stat}
+      errand={row.name}
+      options={row.options}
+      refresh={refresh}
+      run={
         <button
-          className="go"
+          className="go icon"
+          title={t('web.ui.run')}
+          aria-label={t('web.ui.run')}
           disabled={busy}
           onClick={async () => {
             setBusy(true)
@@ -305,10 +367,10 @@ function TimerItem({ row, now, refresh }: { row: TimerRow; now: number; refresh:
             }
           }}
         >
-          {t('web.ui.run')}
+          {'\u25B6'}
         </button>
-      </div>
-    </div>
+      }
+    />
   )
 }
 
@@ -322,32 +384,26 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
       : row.status === 'listening'
         ? t('triggers.listening')
         : t('triggers.off')
+  /* …and the standing orders' own «сразу, без очереди» is hidden with the errands' (see
+     `TimerItem`): one setting, one decision. */
   return (
-    <div className="item">
-      <div className="errand-head">
-        <ErrandIcon src={row.icon} />
-        <SwitchRow
-          title={row.title}
-          on={row.enabled}
-          onChange={async (want) => {
-            await post('/api/triggers/set', { name: row.name, enabled: want })
-            await refresh()
-          }}
-        />
-      </div>
-      {/* …and the standing orders' own «сразу, без очереди» is hidden with the
-          errands' (see `TimerItem`): one setting, one decision, and half a screen of it
-          left drawn would be the confusing half. */}
-      <p className="muted small">{signal + ' · ' + state}</p>
-      <Stat stat={row.stat} />
-      {/* WHAT THE ORDER SPENDS (#2017): the squads «rally_auto_join» may send, the
-          soldier floor, the day's ceiling. Nothing is drawn for a listener that has
-          declared no knobs, which is most of them. */}
-      <div className="foot">
-        <span />
-        <Gear errand={row.name} options={row.options} refresh={refresh} />
-      </div>
-    </div>
+    <ErrandBlock
+      icon={row.icon}
+      title={row.title}
+      on={row.enabled}
+      onToggle={async (want) => {
+        await post('/api/triggers/set', { name: row.name, enabled: want })
+        await refresh()
+      }}
+      facts={signal + ' · ' + state}
+      stat={row.stat}
+      errand={row.name}
+      /* WHAT THE ORDER SPENDS (#2017): the squads «rally_auto_join» may send, the
+         soldier floor, the day's ceiling. A listener that has declared no knobs — which
+         is most of them — draws no gear at all. */
+      options={row.options}
+      refresh={refresh}
+    />
   )
 }
 
@@ -358,25 +414,20 @@ function TriggerItem({ row, refresh }: { row: TriggerRow; refresh: () => Promise
  * to look identical. */
 function OrderItem({ row, refresh }: { row: OrderRow; refresh: () => Promise<void> }) {
   return (
-    <div className="item">
-      <div className="errand-head">
-        <ErrandIcon src={row.icon} />
-        <SwitchRow
-          title={row.title}
-          on={row.enabled}
-          onChange={async (want) => {
-            await post('/api/orders/set', { name: row.name, enabled: want })
-            await refresh()
-          }}
-        />
-      </div>
-      {row.state ? <p className="muted small">{row.state}</p> : null}
-      <Stat stat={row.stat} />
-      <div className="foot">
-        <span />
-        <Gear errand={row.name} options={row.options} refresh={refresh} />
-      </div>
-    </div>
+    <ErrandBlock
+      icon={row.icon}
+      title={row.title}
+      on={row.enabled}
+      onToggle={async (want) => {
+        await post('/api/orders/set', { name: row.name, enabled: want })
+        await refresh()
+      }}
+      facts={row.state || ''}
+      stat={row.stat}
+      errand={row.name}
+      options={row.options}
+      refresh={refresh}
+    />
   )
 }
 
@@ -414,7 +465,11 @@ export function TimersView({
           />
         </div>
       ) : null}
-      <div>
+      {/* THE SAME GRID THE LISTENERS ARE IN — one column on a phone, two once there is
+          room, decided by the stylesheet. The errands used to be full-width rows under
+          it, which is what made two lists of the same thing look like two kinds of
+          thing. */}
+      <div className="tiles">
         {timers.map((row) => (
           <TimerItem key={row.name} row={row} now={now} refresh={refresh} />
         ))}

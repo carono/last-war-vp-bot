@@ -386,6 +386,19 @@ button {
   font-weight: 600;
 }
 .go:disabled { opacity: 0.45; cursor: default; }
+
+/* A BUTTON THAT IS A SIGN rather than a word — «⚙» and «▶» on an errand's head row.
+   Square, so two of them cost the width of one «Запустить» and the head row can hold the
+   switch as well; still `--tap` tall, because a thumb does not care what is drawn on it.
+   The sentence is on the button as `title` and as `aria-label`, so nothing is lost to
+   somebody reading the page aloud. */
+.go.icon {
+  min-width: var(--tap);
+  padding: 0 10px;
+  font-size: 15px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
 .go.running { border-color: var(--accent); }
 
 .controls { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -777,6 +790,12 @@ nav .nav.on { color: var(--ink); background: var(--bg-soft); }
   min-width: 0;
 }
 .errand-head .switch-row { flex: 1 1 auto; min-width: 0; }
+/* EVERY BLOCK ON «Таймеры» IS THE SAME CARD, and its buttons live on this row rather
+   than in a `foot` of their own: a row per block over thirty-odd blocks is the height
+   this screen was spending to say nothing. */
+.item.errand { gap: 4px; }
+.item.errand .facts { margin: 0; }
+.item.errand .facts .pill { margin-right: 6px; }
 .errand-icon {
   width: 28px;
   height: 28px;
