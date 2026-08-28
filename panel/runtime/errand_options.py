@@ -99,7 +99,15 @@ class Option:
             if self.setting:
                 opt_value.set(rt, self.setting, value)
                 return True
-        except Exception:                    # noqa: BLE001 — one knob, never the panel
+        except Exception as exc:             # noqa: BLE001 — one knob, never the panel
+            # …but SAID, on the debug channel. A refused knob answers «unknown» to both
+            # front-ends, and until now that was the whole of the evidence: a knob whose
+            # owner raised looked exactly like a knob nobody had declared (#2017).
+            try:
+                rt.dbg("errand").warning("knob %s refused: %s: %s", self.key,
+                                         type(exc).__name__, exc, exc_info=True)
+            except Exception:                # noqa: BLE001 — a log, never the panel
+                pass
             return False
         return False
 
